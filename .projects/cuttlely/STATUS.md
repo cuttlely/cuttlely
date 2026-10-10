@@ -19,6 +19,7 @@ Cuttlely 1.0.0. The product version is the root `package.json` and `packages/ser
 -   **Install and deploy.** Docker Compose (SQLite, one container), from source, and a Render Blueprint (Docker web service, Postgres, disk). `docs/how-to/from-source.md` also covers the dev server, the tests and `pnpm verify`, checked end to end on a fresh clone.
 -   **Releases.** `pnpm release` cuts a release from a clean `main`, drafts by default, and pushes the image or publishes only on a flag. The full `pnpm verify` tests upgrades from a fixture of an older release.
 -   **Graceful shutdown.** On SIGTERM or SIGINT the server stops taking new requests (`503` with `Retry-After`) and lets running answers and streams finish for up to 25 seconds (`CUTTLELY_DRAIN_TIMEOUT_MS`). The Compose files give the container 35 seconds to stop.
+-   **Provider rate limits.** Chat models and LLMs make at most 3 tries and start no new try after 20 seconds. A provider that keeps answering 429 is reported as `429` with `Retry-After` (the provider's wait, else 30 seconds), and a stream ends with an `error` event carrying `status`, `code` `RATE_LIMITED` and `retryAfter`. An out-of-credit 429 still fails as `500`.
 -   **No call home.** A default install reaches only services an operator or a flow set up. `SECURITY.md` lists every outbound host and how to turn it off.
 
 ## How it is checked
@@ -32,6 +33,6 @@ Cuttlely 1.0.0. The product version is the root `package.json` and `packages/ser
 
 ## Not done
 
--   The open issues: [#2](https://github.com/cuttlely/cuttlely/issues/2), [#6](https://github.com/cuttlely/cuttlely/issues/6) and [#10](https://github.com/cuttlely/cuttlely/issues/10). Check each one's state on GitHub; some may be closed by the time you read this.
+-   The open issues: [#2](https://github.com/cuttlely/cuttlely/issues/2) and [#10](https://github.com/cuttlely/cuttlely/issues/10). Check each one's state on GitHub; some may be closed by the time you read this.
 -   No release is tagged yet, and no image is published. The first release is v1.0.0 (PLAN).
 -   The questions and known gaps in [OPEN.md](./OPEN.md).
