@@ -21,5 +21,8 @@ hermes/.venv
 .env.*
 !.env.example
 
+# Contributor project notes are not needed at run time.
+.projects
+
 # The cuttlely.com website is not part of the product image.
 website

@@ -5,11 +5,12 @@ alwaysApply: true
 
 # Cuttlely project notes
 
-Project notes live in `.projects/cuttlely/`.
+Project notes live in `.projects/cuttlely/` and ship with the repository. They are public.
 
 - Read `.projects/cuttlely/README.md` and `.projects/cuttlely/STATUS.md` before other work, and continue from that state. A new person runs the `take-over` skill.
 - `.projects/cuttlely/DECISIONS.md` is settled. Do not reinvent it; supersede a decision with a new entry and a reason.
-- Use `.projects/cuttlely/RUNBOOK.md` for commands and gotchas, `MEMORY.md` for conventions, `PLAN.md` for the next tasks, `OPEN.md` for blockers, and `ARTIFACTS.md` for what landed.
+- Use `.projects/cuttlely/RUNBOOK.md` for commands and gotchas, `MEMORY.md` for conventions, `PLAN.md` for the next tasks, `OPEN.md` for blockers, and `ARTIFACTS.md` for where docs, samples, and fixtures live.
 - When project state changes, update the affected files in `.projects/cuttlely/` in the same change. To refresh the notes and agent files against git, run the `refresh-project-handoff` skill.
-- If `.projects/cuttlely/` is absent, follow the root `AGENTS.md`, `README.md`, and `CONTRIBUTING.md`. Do not invent the notes.
+- Keep the notes public-safe: no secrets, personal names or accounts, private hosts, internal links, machine paths, customer data, or business notes. Link issues instead of restating their status.
+- If `.projects/cuttlely/` is missing from a checkout (a stripped export), follow the root `AGENTS.md`, `README.md`, and `CONTRIBUTING.md`. Do not invent the notes.
 - Never commit or print secrets (model keys, tokens, `.cuttlely/`, `.env`).
