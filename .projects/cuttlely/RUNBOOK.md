@@ -62,7 +62,7 @@ The pre-push hook runs the handoff check, then `pnpm verify --fast`, then `node 
 ## Build, test, lint
 
 ```bash
-pnpm build                    # Turbo 2 build of every package. turbo.json sets envMode loose so tasks still see the process environment. The build scripts set TURBO_TELEMETRY_DISABLED so the task runner does not report usage.
+pnpm build                    # Turbo 2 build of every package. turbo.json sets envMode loose so tasks still see the process environment, and agentGuidance off so Turbo does not edit AGENTS.md. The build scripts set TURBO_TELEMETRY_DISABLED so the task runner does not report usage.
 pnpm test                     # jest in server, components and ui
 pnpm lint                     # eslint (with prettier) over js, jsx, ts, tsx, json and md; hermes/ is ignored
 pnpm format                   # prettier write
