@@ -60,6 +60,7 @@ import { InternalFlowiseError } from '../errors/internalFlowiseError'
 import { StatusCodes } from 'http-status-codes'
 import { getFlowNodeLabels, replaceInputsWithConfig, warnUnmatchedAllowlistLabels } from './replaceInputsWithConfig'
 import { pinOwnedMemorySession } from './sessionOwnership'
+import { escapeForCodeInput, getCodeInputNames, varNameOfPath } from './codeInputLiteral'
 import type { SecretsManagerClient, SecretsManagerClientConfig } from '@aws-sdk/client-secrets-manager'
 
 // AWS Secrets Manager loads only when SECRETKEY_STORAGE_TYPE is aws.
@@ -860,7 +861,8 @@ export const getVariableValue = async (
     isAcceptVariable = false,
     flowConfig?: ICommonObject,
     uploadedFilesContent?: string,
-    availableVariables: IVariable[] = []
+    availableVariables: IVariable[] = [],
+    requestVarNames?: ReadonlySet<string>
 ) => {
     const isObject = typeof paramValue === 'object'
     const initialValue = (isObject ? JSON.stringify(paramValue) : paramValue) ?? ''
@@ -903,8 +905,10 @@ export const getVariableValue = async (
 
             if (variableFullPath.startsWith('$vars.')) {
                 const vars = await getGlobalVariable(availableVariables)
-                const variableValue = get(vars, variableFullPath.replace('$vars.', ''))
+                let variableValue = get(vars, variableFullPath.replace('$vars.', ''))
                 if (variableValue != null) {
+                    // A request value in a code input is written as escaped text, never as code (see codeInputLiteral.ts).
+                    if (requestVarNames?.has(varNameOfPath(variableFullPath))) variableValue = escapeForCodeInput(variableValue)
                     variableDict[`{{${variableFullPath}}}`] = variableValue
                     returnVal = returnVal.split(`{{${variableFullPath}}}`).join(variableValue)
                 }
@@ -1002,6 +1006,8 @@ export const getVariableValue = async (
  * @param {INodeData} reactFlowNodeData
  * @param {IReactFlowNode[]} reactFlowNodes
  * @param {string} question
+ * @param {ReadonlySet<string>} requestVarNames variables whose value came from the request (agent graphs only); in this
+ *   node's code inputs they are inserted as escaped text, never as code
  * @returns {INodeData}
  */
 export const resolveVariables = async (
@@ -1011,13 +1017,16 @@ export const resolveVariables = async (
     chatHistory: IMessage[],
     flowConfig?: ICommonObject,
     uploadedFilesContent?: string,
-    availableVariables: IVariable[] = []
+    availableVariables: IVariable[] = [],
+    requestVarNames?: ReadonlySet<string>
 ): Promise<INodeData> => {
     let flowNodeData = cloneDeep(reactFlowNodeData)
+    const codeInputs = requestVarNames?.size ? getCodeInputNames(reactFlowNodeData.inputParams) : new Set<string>()
 
     const getParamValues = async (paramsObj: ICommonObject) => {
         for (const key in paramsObj) {
             const paramValue: string = paramsObj[key]
+            const codeRequestVars = codeInputs.has(key) ? requestVarNames : undefined
             if (Array.isArray(paramValue)) {
                 const resolvedInstances = []
                 for (const param of paramValue) {
@@ -1029,7 +1038,8 @@ export const resolveVariables = async (
                         undefined,
                         flowConfig,
                         uploadedFilesContent,
-                        availableVariables
+                        availableVariables,
+                        codeRequestVars
                     )
                     resolvedInstances.push(resolvedInstance)
                 }
@@ -1044,7 +1054,8 @@ export const resolveVariables = async (
                     isAcceptVariable,
                     flowConfig,
                     uploadedFilesContent,
-                    availableVariables
+                    availableVariables,
+                    codeRequestVars
                 )
                 paramsObj[key] = resolvedInstance
             }

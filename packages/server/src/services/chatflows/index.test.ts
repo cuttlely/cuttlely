@@ -76,6 +76,7 @@ jest.mock('../../database/entities/ChatFlow', () => ({
 jest.mock('../../database/entities/ChatMessage', () => ({ ChatMessage: class ChatMessage {} }))
 jest.mock('../../database/entities/ChatMessageFeedback', () => ({ ChatMessageFeedback: class ChatMessageFeedback {} }))
 jest.mock('../../database/entities/UpsertHistory', () => ({ UpsertHistory: class UpsertHistory {} }))
+jest.mock('../../database/entities/Lead', () => ({ Lead: class Lead {} }))
 jest.mock('../../database/entities/ScheduleRecord', () => ({
     ScheduleRecord: class ScheduleRecord {},
     ScheduleTriggerType: { AGENTFLOW: 'AGENTFLOW' }
@@ -156,6 +157,7 @@ import flowVersionsService from '../flow-versions'
 import documentStoreService from '../../services/documentstore'
 
 const mockContainsBase64File = containsBase64File as jest.Mock
+const { removeFolderFromStorage } = jest.requireMock('flowise-components') as { removeFolderFromStorage: jest.Mock }
 const mockCreateOrUpdateSchedule = scheduleService.createOrUpdateSchedule as jest.Mock
 const mockDeleteScheduleForTarget = scheduleService.deleteScheduleForTarget as jest.Mock
 const mockResolveScheduleCron = scheduleService.resolveScheduleCron as jest.Mock
@@ -1116,5 +1118,89 @@ describe('getChatflowByApiKey', () => {
         await expect(chatflowsService.getChatflowByApiKey('', 'ws-1')).rejects.toMatchObject({ statusCode: 401 })
         await expect(chatflowsService.getChatflowByApiKey('key-1', '')).rejects.toMatchObject({ statusCode: 401 })
         expect(chain.getMany).not.toHaveBeenCalled()
+    })
+})
+
+// ─── deleteChatflow ───────────────────────────────────────────────────────────
+
+describe('deleteChatflow', () => {
+    type Call = { inTransaction: boolean; entity: string; where: unknown }
+
+    /** Records every repository delete with the entity name and whether it ran inside the transaction. */
+    const trackDeletes = (failOn?: string) => {
+        const calls: Call[] = []
+        const repoFor = (inTransaction: boolean) => (entity: { name: string }) => ({
+            ...mockRepo,
+            delete: jest.fn(async (where: unknown) => {
+                calls.push({ inTransaction, entity: entity.name, where })
+                if (inTransaction && entity.name === failOn) throw new Error(`${failOn} delete failed`)
+                return { affected: 1, raw: [] }
+            })
+        })
+        mockAppServer.AppDataSource.getRepository.mockImplementation(repoFor(false) as any)
+        mockAppServer.AppDataSource.transaction.mockImplementationOnce(async (fn: (manager: any) => Promise<unknown>) =>
+            fn({ getRepository: repoFor(true) })
+        )
+        return calls
+    }
+
+    beforeEach(() => {
+        mockRepo.findOne.mockResolvedValue(makeChatflow({ type: EnumChatflowType.CHATFLOW }))
+    })
+
+    afterEach(() => {
+        mockAppServer.AppDataSource.getRepository.mockReset()
+        mockAppServer.AppDataSource.getRepository.mockReturnValue(mockRepo)
+    })
+
+    it("deletes the flow's leads in the same transaction as the flow", async () => {
+        const calls = trackDeletes()
+
+        await chatflowsService.deleteChatflow('flow-1', 'org-1', 'ws-1', [EnumChatflowType.CHATFLOW])
+
+        const inTransaction = calls.filter((c) => c.inTransaction)
+        expect(inTransaction).toEqual(
+            expect.arrayContaining([
+                { inTransaction: true, entity: 'Lead', where: { chatflowid: 'flow-1' } },
+                { inTransaction: true, entity: 'ChatMessage', where: { chatflowid: 'flow-1' } },
+                { inTransaction: true, entity: 'ChatMessageFeedback', where: { chatflowid: 'flow-1' } },
+                { inTransaction: true, entity: 'UpsertHistory', where: { chatflowid: 'flow-1' } },
+                { inTransaction: true, entity: 'ChatFlow', where: { id: 'flow-1' } }
+            ])
+        )
+        // Nothing that holds a flow's rows is deleted outside the transaction.
+        expect(calls.filter((c) => !c.inTransaction && ['Lead', 'ChatMessage', 'ChatFlow'].includes(c.entity))).toEqual([])
+        expect(mockAppServer.AppDataSource.transaction).toHaveBeenCalledTimes(1)
+    })
+
+    it('rolls back the whole delete when the lead delete fails', async () => {
+        const calls = trackDeletes('Lead')
+
+        await expect(chatflowsService.deleteChatflow('flow-1', 'org-1', 'ws-1', [EnumChatflowType.CHATFLOW])).rejects.toThrow(
+            /Lead delete failed/
+        )
+
+        // The flow delete never ran, and nothing after the transaction (history, uploads) happened.
+        expect(calls.some((c) => c.entity === 'ChatFlow')).toBe(false)
+        expect(flowVersionsService.recordFlowDeletion).not.toHaveBeenCalled()
+        expect(removeFolderFromStorage).not.toHaveBeenCalled()
+        expect(documentStoreService.updateDocumentStoreUsage).not.toHaveBeenCalled()
+    })
+
+    it('rolls back when the flow delete itself fails, leaving the leads in place', async () => {
+        trackDeletes('ChatFlow')
+
+        await expect(chatflowsService.deleteChatflow('flow-1', 'org-1', 'ws-1', [EnumChatflowType.CHATFLOW])).rejects.toThrow(
+            /ChatFlow delete failed/
+        )
+        expect(flowVersionsService.recordFlowDeletion).not.toHaveBeenCalled()
+        expect(removeFolderFromStorage).not.toHaveBeenCalled()
+    })
+
+    it('does not start the transaction for a flow type the caller may not delete', async () => {
+        const calls = trackDeletes()
+
+        await expect(chatflowsService.deleteChatflow('flow-1', 'org-1', 'ws-1', [EnumChatflowType.AGENTFLOW])).rejects.toThrow()
+        expect(calls).toEqual([])
     })
 })

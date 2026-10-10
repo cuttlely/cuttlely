@@ -347,16 +347,19 @@ With two servers, a flow promoted from Dev to Prod is a separate flow on Prod wi
 
 Errors come back as JSON with a status code:
 
-| Status | When                                                                | Body (from real runs)                                                                                               |
-| ------ | ------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
-| 400    | A bad request, such as a file over 25 MB or a type the flow refuses | `message` says what to fix                                                                                          |
-| 401    | No key, or the wrong key                                            | `{"statusCode":401,"success":false,"message":"Unauthorized","stack":{}}`                                            |
-| 403    | The request's `Origin` is not on the flow's allowed list            | `{"statusCode":403,"success":false,"message":"This site is not allowed to use the bakery helper.","stack":{}}`      |
-| 404    | No flow with that id                                                | `{"statusCode":404,"success":false,"message":"Chatflow 00000000-0000-4000-8000-000000000000 not found","stack":{}}` |
-| 429    | The flow's rate limit was reached                                   | The flow's limit message, as plain text                                                                             |
-| 500    | The flow failed while it ran                                        | `message` describes the failure                                                                                     |
+| Status | When                                                                | Body (from real runs)                                                                                                |
+| ------ | ------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| 400    | A bad request, such as a file over 25 MB or a type the flow refuses | `message` says what to fix                                                                                           |
+| 401    | No key, or the wrong key                                            | `{"statusCode":401,"success":false,"message":"Unauthorized","stack":{}}`                                             |
+| 403    | The request's `Origin` is not on the flow's allowed list            | `{"statusCode":403,"success":false,"message":"This site is not allowed to use the bakery helper.","stack":{}}`       |
+| 404    | No flow with that id                                                | `{"statusCode":404,"success":false,"message":"Chatflow 00000000-0000-4000-8000-000000000000 not found","stack":{}}`  |
+| 429    | The flow's rate limit was reached                                   | The flow's limit message, as plain text                                                                              |
+| 500    | The flow failed while it ran                                        | `message` describes the failure                                                                                      |
+| 503    | The server is restarting or shutting down                           | `{"statusCode":503,"success":false,"message":"Cuttlely is restarting. Try again in a minute.","code":"UNAVAILABLE"}` |
 
 Show your visitors a short message of your own, not Cuttlely's: an error message can name your flow or settings.
+
+A 503 comes with `Retry-After`: send the request again after that many seconds. A streamed answer that was still running when the server had to stop ends with an `error` event carrying `"status":503` and `"code":"UNAVAILABLE"`.
 
 **Rate limits.** In the flow's **Configuration** (settings menu on the canvas), **Rate Limit** sets how many requests one client may send in a time window, and the message to send back. With 2 requests per 60 seconds, the third request got:
 

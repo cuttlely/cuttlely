@@ -46,6 +46,7 @@ import { identityStore } from './identity/production'
 import { announceFirstRunSetup } from './identity/setupCode'
 import { readyBanner, setBootStep, startStartingPage } from './startup/startingPage'
 import { DatabaseHealth, databaseWhere, setDatabaseHealth } from './startup/databaseHealth'
+import { drainTimeoutMs, refuseWhileShuttingDown, shutdownDrain } from './settings/runs'
 
 declare global {
     namespace Express {
@@ -208,6 +209,9 @@ export class App {
         // Allow access from specified domains
         validateCorsConfig()
         this.app.use(cors(getCorsOptions()))
+
+        // While shutting down, new requests get 503 with Retry-After (settings/runs.ts shutdownDrain).
+        this.app.use(refuseWhileShuttingDown)
 
         // Parse cookies
         this.app.use(cookieParser())
@@ -430,6 +434,7 @@ function flowNodeNames(flowData: string): string[] {
 }
 
 let serverApp: App | undefined
+let httpServer: http.Server | undefined
 let onInitFailed: (() => Promise<void> | void) | null = null
 
 /** Called when initDatabase fails, before the server listens. The start command uses it for safe boot. */
@@ -460,6 +465,7 @@ export async function start(): Promise<void> {
     const host = process.env.HOST
     const port = parseInt(process.env.PORT || '', 10) || 3000
     const server = http.createServer(serverApp.app)
+    httpServer = server
 
     // A browser opened during boot gets a "Cuttlely is starting" page instead of a refused connection.
     const startingPage = await startStartingPage(port, host)
@@ -494,6 +500,25 @@ export async function start(): Promise<void> {
         const keepWarmMinutes = Number(process.env.CUTTLELY_HERMES_KEEP_WARM_MINUTES)
         if (keepWarmMinutes > 0) setInterval(() => harnessesService.warmHarnesses(), keepWarmMinutes * 60000).unref()
     })
+}
+
+/**
+ * SIGTERM and SIGINT: stop taking new requests (503 with Retry-After, the health check too), let requests and streams
+ * already running finish for up to CUTTLELY_DRAIN_TIMEOUT_MS (25 seconds by default), end the rest with a 503 or an
+ * error event, then stop the app and close the database.
+ */
+export async function shutdown(limitMs: number = drainTimeoutMs()): Promise<void> {
+    const started = Date.now()
+    logger.info(`🛑 [server]: Shutting down: finishing open requests (up to ${Math.round(limitMs / 1000)}s), new requests get 503.`)
+    const { endedRuns, closedInTime } = await shutdownDrain(httpServer, limitMs)
+    if (closedInTime) logger.info(`🛑 [server]: Open requests finished in ${Math.round((Date.now() - started) / 100) / 10}s.`)
+    else logger.warn(`🛑 [server]: Drain time is up: ended ${endedRuns} run(s) still answering and closed the remaining connections.`)
+    if (serverApp) await serverApp.stopApp()
+    try {
+        if (serverApp?.AppDataSource.isInitialized) await serverApp.AppDataSource.destroy()
+    } catch (error) {
+        logger.error(`❌[server]: Closing the database failed: ${error}`)
+    }
 }
 
 export function getInstance(): App | undefined {
