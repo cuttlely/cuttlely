@@ -20,3 +20,6 @@ hermes/.venv
 .env
 .env.*
 !.env.example
+
+# The cuttlely.com website is not part of the product image.
+website
