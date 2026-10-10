@@ -347,15 +347,15 @@ With two servers, a flow promoted from Dev to Prod is a separate flow on Prod wi
 
 Errors come back as JSON with a status code:
 
-| Status | When                                                                | Body (from real runs)                                                                                                |
-| ------ | ------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
-| 400    | A bad request, such as a file over 25 MB or a type the flow refuses | `message` says what to fix                                                                                           |
-| 401    | No key, or the wrong key                                            | `{"statusCode":401,"success":false,"message":"Unauthorized","stack":{}}`                                             |
-| 403    | The request's `Origin` is not on the flow's allowed list            | `{"statusCode":403,"success":false,"message":"This site is not allowed to use the bakery helper.","stack":{}}`       |
-| 404    | No flow with that id                                                | `{"statusCode":404,"success":false,"message":"Chatflow 00000000-0000-4000-8000-000000000000 not found","stack":{}}`  |
-| 429    | The flow's rate limit was reached                                   | The flow's limit message, as plain text                                                                              |
-| 500    | The flow failed while it ran                                        | `message` describes the failure                                                                                      |
-| 503    | The server is restarting or shutting down                           | `{"statusCode":503,"success":false,"message":"Cuttlely is restarting. Try again in a minute.","code":"UNAVAILABLE"}` |
+| Status | When                                                                            | Body (from real runs)                                                                                                |
+| ------ | ------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| 400    | A bad request, such as a file over 25 MB or a type the flow refuses             | `message` says what to fix                                                                                           |
+| 401    | No key, or the wrong key                                                        | `{"statusCode":401,"success":false,"message":"Unauthorized","stack":{}}`                                             |
+| 403    | The request's `Origin` is not on the flow's allowed list                        | `{"statusCode":403,"success":false,"message":"This site is not allowed to use the bakery helper.","stack":{}}`       |
+| 404    | No flow with that id                                                            | `{"statusCode":404,"success":false,"message":"Chatflow 00000000-0000-4000-8000-000000000000 not found","stack":{}}`  |
+| 429    | The flow's rate limit was reached, or the model provider kept refusing with 429 | The flow's limit message, as plain text; for the provider, `message` says how long to wait                           |
+| 500    | The flow failed while it ran                                                    | `message` describes the failure                                                                                      |
+| 503    | The server is restarting or shutting down                                       | `{"statusCode":503,"success":false,"message":"Cuttlely is restarting. Try again in a minute.","code":"UNAVAILABLE"}` |
 
 Show your visitors a short message of your own, not Cuttlely's: an error message can name your flow or settings.
 
@@ -373,7 +373,9 @@ Content-Type: text/html; charset=utf-8
 Too many questions at once. Please wait a minute and try again.
 ```
 
-Wait for `Retry-After` seconds before trying again. The limit counts by client address, so all requests from your server share one limit: set it for your whole site's traffic, and rate-limit visitors on your own server.
+When the model provider (OpenAI, Anthropic and so on) keeps answering 429, Cuttlely tries the call up to 3 times within about 20 seconds, then answers `429` with `Retry-After`: the provider's own wait when it sent one, otherwise 30 seconds. A streamed answer ends with an `error` event carrying `"status":429`, `"code":"RATE_LIMITED"` and `"retryAfter"` in seconds. A provider account that is out of credit is not a rate limit and still fails with 500.
+
+Wait for `Retry-After` seconds before trying again. The flow's limit counts by client address, so all requests from your server share one limit: set it for your whole site's traffic, and rate-limit visitors on your own server.
 
 **Allowed origins (CORS).** A browser sends an `Origin` header; a server does not. **Allowed Domains**, next to **Rate Limit** in the flow's **Configuration**, lists the sites whose pages may call it. A request with another origin gets 403, and a listed origin gets the CORS header the browser needs:
 

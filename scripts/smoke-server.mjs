@@ -1,6 +1,6 @@
 // Boot the built server on a free port and a temp data dir.
-// Checks ping, the marketplace template list, one prediction, that deleting a flow removes its leads, and that
-// SIGTERM lets running predictions finish.
+// Checks ping, the marketplace template list, one prediction, a provider that keeps answering 429, that deleting a
+// flow removes its leads, and that SIGTERM lets running predictions finish.
 // The chat model is the preload in smoke-fake-model.cjs. No network and no real key.
 import { spawn } from 'node:child_process'
 import fs from 'node:fs'
@@ -80,7 +80,7 @@ async function request(url, { method = 'GET', cookie = '', body, timeoutMs = 300
         signal: AbortSignal.timeout(timeoutMs)
     })
     const text = await response.text()
-    return { status: response.status, text, cookie: cookieHeader(response) || cookie }
+    return { status: response.status, text, cookie: cookieHeader(response) || cookie, retryAfter: response.headers.get('retry-after') }
 }
 
 function smokeFlow(credentialId) {
@@ -98,7 +98,9 @@ function smokeFlow(credentialId) {
                     name: 'promptTemplate',
                     type: 'PromptTemplate',
                     category: 'Prompts',
-                    inputParams: [],
+                    // promptValues accepts variables, as in the real node, so {{question}} becomes the question the
+                    // model sees (the fake model acts on words in it: smoke-slow, smoke-429).
+                    inputParams: [{ label: 'Format Prompt Values', name: 'promptValues', type: 'json', acceptVariable: true }],
                     inputAnchors: [],
                     inputs: {
                         template: '{question}',
@@ -314,6 +316,22 @@ async function checkShutdownDrain(base, cookie, chatflowId, child) {
     console.log(`server drained and exited ${((Date.now() - signalled) / 1000).toFixed(1)}s after SIGTERM`)
 }
 
+// A model provider that keeps answering 429: a bounded number of tries, then 429 with the provider's Retry-After.
+async function checkProviderRateLimit(base, cookie, chatflowId) {
+    const started = Date.now()
+    const limited = await request(`${base}/api/v1/prediction/${chatflowId}`, {
+        method: 'POST',
+        cookie,
+        timeoutMs: PREDICT_MS,
+        body: { question: 'smoke-429', streaming: false }
+    })
+    const seconds = (Date.now() - started) / 1000
+    if (limited.status !== 429) throw new Error(`provider 429 came back as ${limited.status}: ${limited.text.slice(0, 300)}`)
+    if (limited.retryAfter !== '12') throw new Error(`provider 429 Retry-After was ${limited.retryAfter}, expected 12`)
+    if (seconds > 25) throw new Error(`provider 429 took ${seconds.toFixed(1)}s, expected the retry budget (about 20s at most)`)
+    console.log(`provider 429 ok: 429 with Retry-After 12 in ${seconds.toFixed(1)}s`)
+}
+
 async function main() {
     if (!fs.existsSync(path.join(SERVER, 'dist', 'commands'))) {
         throw new Error('packages/server/dist is missing. The verify build step has to run before the smoke test.')
@@ -398,6 +416,8 @@ async function main() {
             throw new Error(`prediction ${prediction.status}: ${prediction.text.slice(0, 500)}`)
         }
         console.log('prediction ok')
+
+        await checkProviderRateLimit(base, cookie, chatflowId)
 
         // Leads are checked on a flow of their own, since the check deletes it; the drain check needs the first flow.
         const leadsFlow = await request(`${base}/api/v1/chatflows`, {

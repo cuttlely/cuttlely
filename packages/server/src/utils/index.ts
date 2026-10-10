@@ -39,7 +39,8 @@ import {
     IMessage,
     FlowiseMemory,
     IFileUpload,
-    StorageProviderFactory
+    StorageProviderFactory,
+    applyModelRetryBudget
 } from 'flowise-components'
 import { randomBytes } from 'crypto'
 import { AES, enc } from 'crypto-js'
@@ -670,6 +671,10 @@ export const buildFlow = async ({
                     updateStorageUsage,
                     checkStorage
                 })
+
+                // Chat models and LLMs give up on a provider that keeps refusing within a bounded time (no 95-second waits).
+                if (reactFlowNode.data.category === 'Chat Models' || reactFlowNode.data.category === 'LLMs')
+                    applyModelRetryBudget(outputResult)
 
                 // Save dynamic variables
                 if (reactFlowNode.data.name === 'setVariable') {
