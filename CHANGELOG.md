@@ -104,6 +104,7 @@ Cuttlely is the open-source agent platform for applications: build an agent team
 -   Override configuration never switches the model, embeddings or vector store card a step uses (`agentModel`, `llmModel`, `conditionAgentModel`, `humanInputModel`, `embeddingModel`, `vectorStore`, and any picker that loads a card's settings). The saved credential belongs to the owner's card, and another provider could fall back to a key in the server's environment. Settings on the owner's card, such as `modelName` and `temperature` in `agentModelConfig`, still apply when allowlisted.
 -   File names stored with a flow can never read outside that flow's folder (covered by tests).
 -   Prediction uploads follow the flow's upload settings on the server, not only in the chat. An image, recording, document or chat file the flow does not accept is refused before anything is stored: 403 when that kind of upload is off, 400 for a file type the flow does not take. The chat, the shared chat and the embed upload as before when uploads are on.
+-   A file link in an Agent's answer is signed and opens for 15 minutes without the flow's API key, for that one file in that conversation of that flow. Before, a browser user of a key-protected flow got 401 from the link. A changed or expired link is refused, and the key and session checks are unchanged.
 
 ### Good to know
 

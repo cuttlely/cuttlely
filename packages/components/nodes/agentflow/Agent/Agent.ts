@@ -1381,7 +1381,13 @@ class Agent_Agentflow implements INode {
 
             // Replace sandbox links with proper download URLs. Example: [Download the script](sandbox:/mnt/data/dummy_bar_graph.py)
             if (finalResponse.includes('sandbox:/')) {
-                finalResponse = await this.processSandboxLinks(finalResponse, options.baseURL, options.chatflowid, chatId)
+                finalResponse = await this.processSandboxLinks(
+                    finalResponse,
+                    options.baseURL,
+                    options.chatflowid,
+                    chatId,
+                    options.fileDownloadUrl
+                )
             }
 
             // If is structured output, then invoke LLM again with structured output at the very end after all tool calls
@@ -2873,7 +2879,13 @@ class Agent_Agentflow implements INode {
     /**
      * Processes sandbox links in the response text and converts them to file annotations
      */
-    private async processSandboxLinks(text: string, baseURL: string, chatflowId: string, chatId: string): Promise<string> {
+    private async processSandboxLinks(
+        text: string,
+        baseURL: string,
+        chatflowId: string,
+        chatId: string,
+        signedUrl?: (baseURL: string, target: { chatflowId: string; chatId: string; fileName: string }) => string
+    ): Promise<string> {
         let processedResponse = text
 
         // Regex to match sandbox links: [text](sandbox:/path/to/file)
@@ -2889,8 +2901,11 @@ class Agent_Agentflow implements INode {
                 // Extract and sanitize filename from the file path (LLM-generated, untrusted)
                 const fileName = sanitizeFileName(filePath)
 
-                // Replace sandbox link with proper download URL
-                const downloadUrl = `${baseURL}/api/v1/get-upload-file?chatflowId=${chatflowId}&chatId=${chatId}&fileName=${fileName}&download=true`
+                // Replace sandbox link with proper download URL. The server signs it (expiry and signature), so it opens
+                // for 15 minutes without the flow's API key, for this one file only.
+                const downloadUrl = signedUrl
+                    ? signedUrl(baseURL, { chatflowId, chatId, fileName })
+                    : `${baseURL}/api/v1/get-upload-file?${new URLSearchParams({ chatflowId, chatId, fileName, download: 'true' })}`
                 const newLink = `[${linkText}](${downloadUrl})`
 
                 processedResponse = processedResponse.replace(fullMatch, newLink)

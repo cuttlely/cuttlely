@@ -70,6 +70,7 @@ import { generateTTSForResponseStream, shouldAutoPlayTTS } from './buildChatflow
 import { InternalFlowiseError } from '../errors/internalFlowiseError'
 import { StatusCodes } from 'http-status-codes'
 import { pinOwnedMemorySession } from './sessionOwnership'
+import { fileDownloadUrl } from './fileLinkSignature'
 
 interface IWaitingNode {
     nodeId: string
@@ -1252,6 +1253,8 @@ const executeNode = async ({
             analytic: chatflow.analytic,
             uploads: fileUploads,
             baseURL,
+            // Signed links for files an Agent writes into its answer, so they open without the flow's key.
+            fileDownloadUrl,
             isLastNode,
             sseStreamer,
             pastChatHistory,
