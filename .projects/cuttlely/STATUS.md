@@ -30,6 +30,6 @@ Cuttlely 1.0.0. The product version is the root `package.json` and `packages/ser
 
 ## Not done
 
--   The open issues: [#1](https://github.com/cuttlely/cuttlely/issues/1), [#2](https://github.com/cuttlely/cuttlely/issues/2), [#5](https://github.com/cuttlely/cuttlely/issues/5), [#6](https://github.com/cuttlely/cuttlely/issues/6) and [#10](https://github.com/cuttlely/cuttlely/issues/10). Check each one's state on GitHub; some may be closed by the time you read this.
+-   The open issues: [#2](https://github.com/cuttlely/cuttlely/issues/2), [#5](https://github.com/cuttlely/cuttlely/issues/5), [#6](https://github.com/cuttlely/cuttlely/issues/6) and [#10](https://github.com/cuttlely/cuttlely/issues/10). Check each one's state on GitHub; some may be closed by the time you read this.
 -   No release is tagged yet, and no image is published. The first release is v1.0.0 (PLAN).
 -   The questions and known gaps in [OPEN.md](./OPEN.md).

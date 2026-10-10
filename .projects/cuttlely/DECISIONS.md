@@ -4,7 +4,7 @@ Each entry is settled and states the current rule and why. To change one, add a 
 
 ## D1. Build on a proven canvas and workflow engine
 
-Cuttlely keeps an existing Apache-2.0 visual canvas, node catalog, workflow engine and prediction API instead of writing new ones, and puts agent teams, pipelines, versioning and the admin panel on top. Upstream projects are credited in `CREDITS.md`, `NOTICE` and `LICENSE.md`. Package, path and environment variable names from that engine (`flowise`, `flowise-components`, `FLOWISE_*`) stay as they are, because saved flows, imports, scripts and existing configurations depend on them.
+Cuttlely keeps an existing Apache-2.0 visual canvas, node catalog, workflow engine and prediction API instead of writing new ones, and puts agent teams, pipelines, versioning and the admin panel on top. Upstream projects are credited in `CREDITS.md`, `NOTICE` and `LICENSE.md`. Some package, path and environment variable names still carry the engine's name; treat them as literal names, and keep saved flows, imports and existing configurations working when one changes.
 
 ## D2. Vendor the agent runtime
 
@@ -112,7 +112,7 @@ A pull request merges only when `pnpm verify` is green on Node 24 on that pull r
 
 ## D28. Build and test settings for large trees
 
-The `flowise-components` coverage tests run Jest under a 4 GB heap because the default heap runs out on small machines. The unit verify step caps Jest workers at 50% (`CUTTLELY_VERIFY_JEST_WORKERS`) so timing-sensitive prediction tests are not starved. A root `pnpm.overrides` entry pins one `sqlite3` version for every package, and `scripts/check-sqlite-driver.mjs` checks the copy TypeORM loads.
+The components package coverage tests run Jest under a 4 GB heap because the default heap runs out on small machines. The unit verify step caps Jest workers at 50% (`CUTTLELY_VERIFY_JEST_WORKERS`) so timing-sensitive prediction tests are not starved. A root `pnpm.overrides` entry pins one `sqlite3` version for every package, and `scripts/check-sqlite-driver.mjs` checks the copy TypeORM loads.
 
 ## D29. The Render Blueprint is one container, one Postgres, one disk
 
@@ -148,7 +148,7 @@ Agentflows V2 and harnesses cover what V1 agentflows did, so the UI offers no wa
 
 ## D37. Bringing flows from other tools
 
-Import is a supported path, not a headline. Import Flowise JSON opens a wizard that scans one chatflow, strips credential ids and password, file and folder inputs, lists deprecated nodes, and opens a canvas or refuses with a reason; it never half-converts a graph. A Langflow export opens only when it is one chat model and at most one prompt; anything else is refused with a clear message. The user selects credentials saved in this app. Workspace bundle export and import are not offered. Details: `docs/bring-your-flows.md`, `docs/flowise-migration-wizard.md` and `docs/langflow-import.md`.
+Import is a supported path, not a headline. Import Flowise JSON opens a wizard that scans one chatflow, strips credential ids and password, file and folder inputs, lists deprecated nodes, and opens a canvas or refuses with a reason; it never half-converts a graph. A Langflow export opens only when it is one chat model and at most one prompt; anything else is refused with a clear message. The user selects credentials saved in this app. Workspace bundle export and import are not offered. Details: `docs/bring-your-flows.md` and the import guides it links.
 
 ## D38. Product copy and naming
 
@@ -156,4 +156,4 @@ Tagline: "The open-source agent platform for applications." Headline: "Your appl
 
 ## D39. The project notes are public
 
-`.projects/cuttlely/` ships in the repository so anyone can run the `take-over` skill and continue from the current state. The notes describe the code, decisions, open work and how to ship. They hold no secrets, personal names or accounts, private hosts, internal links, machine paths, customer data or business notes, and link issues instead of restating their status. A code change updates them in the same pull request (D27). `pnpm check:clean-export` allows `.projects/cuttlely/` in a source export and still refuses every other `.projects/` folder, `.projects/cuttlely/provenance/`, `PROVENANCE.md`, `docs/product-identity.md` and `scripts/identity-*-evidence.md`.
+`.projects/cuttlely/` ships in the repository so anyone can run the `take-over` skill and continue from the current state. The notes describe the code, decisions, open work and how to ship. They hold no secrets, personal names or accounts, private hosts, internal links, machine paths, customer data or business notes, and link issues instead of restating their status. A code change updates them in the same pull request (D27). `pnpm check:clean-export` allows the Markdown notes directly in `.projects/cuttlely/` in a source export and refuses every other path under `.projects/`, including subfolders of the notes.

@@ -1,9 +1,8 @@
 #!/usr/bin/env node
 /* eslint-disable no-console -- command-line tool; output is the interface */
-// Checks a source export before it leaves Cuttlely. The project notes in `.projects/cuttlely/` ship with the
-// repository and are allowed. The check fails on any other `.projects/` folder, on the private records folder
-// `.projects/cuttlely/provenance/`, and on the files that stay out of every export (EXCLUDED_FILES and
-// EXCLUDED_PATTERNS below).
+// Checks a source export before it leaves Cuttlely. The project notes ship with the repository: the Markdown files
+// directly inside `.projects/cuttlely/` are allowed. The check fails on any other path under a `.projects/` folder,
+// including a subfolder of `.projects/cuttlely/`, so working files never ride along with the notes.
 //
 // Usage:
 //   node scripts/check-clean-export.mjs <export-dir>
@@ -14,9 +13,6 @@ import fs from 'fs'
 import path from 'path'
 
 export const PUBLIC_NOTES = '.projects/cuttlely/'
-export const PRIVATE_NOTES = ['.projects/cuttlely/provenance/']
-export const EXCLUDED_FILES = ['PROVENANCE.md', 'docs/product-identity.md']
-export const EXCLUDED_PATTERNS = [/^scripts\/identity-[^/]+-evidence\.md$/]
 
 function normalize(relPath) {
     return String(relPath || '')
@@ -29,25 +25,20 @@ export function isProjectsPath(relPath) {
     return normalize(relPath).split('/').includes('.projects')
 }
 
-// A path inside the public notes, or one of the folders that lead to them (`.projects/`, `.projects/cuttlely/`).
+// A notes file (`.projects/cuttlely/<name>.md`), or one of the folders that lead to it (`.projects/`, `.projects/cuttlely/`).
 function isPublicNotesPath(rel) {
-    const dir = rel.endsWith('/') ? rel : `${rel}/`
-    if (PUBLIC_NOTES.startsWith(dir)) return rel.startsWith('.projects')
+    if (rel === '.projects' || rel === '.projects/' || rel === '.projects/cuttlely' || rel === PUBLIC_NOTES) return true
     if (!rel.startsWith(PUBLIC_NOTES)) return false
-    return !PRIVATE_NOTES.some((prefix) => rel === prefix.slice(0, -1) || rel.startsWith(prefix))
+    const rest = rel.slice(PUBLIC_NOTES.length)
+    return !rest.includes('/') && rest.toLowerCase().endsWith('.md')
 }
 
 export function violationFor(relPath) {
     const rel = normalize(relPath)
-    if (isProjectsPath(rel) && !isPublicNotesPath(rel)) {
-        return rel.startsWith(PUBLIC_NOTES)
-            ? 'private records under .projects/cuttlely/'
-            : 'path under .projects/ outside .projects/cuttlely/'
-    }
-    const file = rel.replace(/\/$/, '')
-    if (EXCLUDED_FILES.includes(file)) return 'file kept out of exports'
-    if (EXCLUDED_PATTERNS.some((re) => re.test(file))) return 'file kept out of exports'
-    return ''
+    if (!isProjectsPath(rel) || isPublicNotesPath(rel)) return ''
+    return rel.startsWith(PUBLIC_NOTES)
+        ? 'only the Markdown notes directly in .projects/cuttlely/ ship'
+        : 'path under .projects/ outside .projects/cuttlely/'
 }
 
 function walk(dir, base = dir, out = []) {
