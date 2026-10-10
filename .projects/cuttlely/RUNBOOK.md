@@ -131,6 +131,7 @@ Contributor-relevant variables. The admin panel registry (`packages/server/src/s
 | `TRUST_PROXY`                                               | unset (trust none)                          | Proxy hop count in front of the server (D20)                                                         |
 | `MODEL_LIST_CONFIG_JSON`                                    | unset                                       | `bundled` turns off the daily model list fetch (D32)                                                 |
 | `CUTTLELY_STARTING_PAGE`                                    | on                                          | `off` skips the boot progress page (D34)                                                             |
+| `CUTTLELY_DRAIN_TIMEOUT_MS`                                 | `25000`                                     | How long running answers and streams may finish after SIGTERM before they get a `503`                |
 | `CUTTLELY_IGNORE_ADMIN_SETTINGS`                            | unset                                       | `1` starts without the admin settings file (D35)                                                     |
 
 ## Gotchas
