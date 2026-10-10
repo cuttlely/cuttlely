@@ -27,6 +27,16 @@ function patchChat(exported) {
     ChatOpenAI.prototype._generate = async function fakeGenerate(messages) {
         // A question with "smoke-slow" in it answers after a few seconds, for the shutdown drain check.
         if (JSON.stringify(messages || []).includes('smoke-slow')) await new Promise((resolve) => setTimeout(resolve, SLOW_MS))
+        // A question with "smoke-429" in it gets a provider that always answers 429 with Retry-After: 12, through the
+        // model's own retry logic (this.caller), for the rate limit check.
+        if (JSON.stringify(messages || []).includes('smoke-429')) {
+            return this.caller.call(async () => {
+                throw Object.assign(new Error('429 Rate limit reached for smoke-model on requests per min.'), {
+                    status: 429,
+                    headers: new Headers({ 'retry-after': '12' })
+                })
+            })
+        }
         return fakeGeneration()
     }
     ChatOpenAI.prototype._streamResponseChunks = async function* fakeStream() {
