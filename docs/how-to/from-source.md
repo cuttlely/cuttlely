@@ -244,9 +244,9 @@ The first took about 5 seconds and the second about 15. Drop the file path to ru
 pnpm verify
 ```
 
-`pnpm verify` is the check every pull request passes. It lints, typechecks, builds, runs the unit tests, starts a real server for a smoke test, checks an upgrade from older data, and more. It ends with `pnpm verify passed (full)`, and `.verify/verify-summary.md` lists each step with its time. On an 8-core machine it took about VERIFYFULL.
+`pnpm verify` is the check every pull request passes. It lints, typechecks, builds, runs the unit tests, starts a real server for a smoke test, checks an upgrade from older data, and more. It ends with `pnpm verify passed (full)`, and `.verify/verify-summary.md` lists each step with its time. On an 8-core machine it takes about 5 minutes.
 
-A change that only touches docs or markdown can use the short run, which took about VERIFYFAST:
+A change that only touches docs or markdown can use the short run, which takes about 2 to 3 minutes:
 
 ```bash
 pnpm --filter flowise-components build
