@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 /* eslint-disable no-console -- command-line tool; output is the interface */
-// Checks a source export before it leaves Cuttlely. It fails when the export contains any path under a `.projects/`
-// directory: the maintainers' handoff notes stay in the private repository.
+// Checks a source export before it leaves Cuttlely. The project notes ship with the repository: the Markdown files
+// directly inside `.projects/cuttlely/` are allowed. The check fails on any other path under a `.projects/` folder,
+// including a subfolder of `.projects/cuttlely/`, so working files never ride along with the notes.
 //
 // Usage:
 //   node scripts/check-clean-export.mjs <export-dir>
@@ -11,8 +12,33 @@
 import fs from 'fs'
 import path from 'path'
 
+export const PUBLIC_NOTES = '.projects/cuttlely/'
+
+function normalize(relPath) {
+    return String(relPath || '')
+        .replace(/\\/g, '/')
+        .replace(/^\.\//, '')
+        .replace(/^\/+/, '')
+}
+
 export function isProjectsPath(relPath) {
-    return relPath.split(/[\\/]/).includes('.projects')
+    return normalize(relPath).split('/').includes('.projects')
+}
+
+// A notes file (`.projects/cuttlely/<name>.md`), or one of the folders that lead to it (`.projects/`, `.projects/cuttlely/`).
+function isPublicNotesPath(rel) {
+    if (rel === '.projects' || rel === '.projects/' || rel === '.projects/cuttlely' || rel === PUBLIC_NOTES) return true
+    if (!rel.startsWith(PUBLIC_NOTES)) return false
+    const rest = rel.slice(PUBLIC_NOTES.length)
+    return !rest.includes('/') && rest.toLowerCase().endsWith('.md')
+}
+
+export function violationFor(relPath) {
+    const rel = normalize(relPath)
+    if (!isProjectsPath(rel) || isPublicNotesPath(rel)) return ''
+    return rel.startsWith(PUBLIC_NOTES)
+        ? 'only the Markdown notes directly in .projects/cuttlely/ ship'
+        : 'path under .projects/ outside .projects/cuttlely/'
 }
 
 function walk(dir, base = dir, out = []) {
@@ -28,7 +54,8 @@ function walk(dir, base = dir, out = []) {
 export function checkExport(files) {
     const violations = []
     for (const rel of files) {
-        if (isProjectsPath(rel)) violations.push({ path: rel, reason: 'path under .projects/' })
+        const reason = violationFor(rel)
+        if (reason) violations.push({ path: normalize(rel), reason })
     }
     return violations
 }
