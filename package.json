@@ -13,10 +13,10 @@
         "api-documentation"
     ],
     "scripts": {
-        "build": "turbo run build",
-        "build:docker": "turbo run build --filter=!@flowiseai/agentflow --filter=!@flowiseai/observe",
-        "build-force": "pnpm clean && turbo run build --force",
-        "dev": "turbo run dev --parallel --no-cache",
+        "build": "TURBO_TELEMETRY_DISABLED=1 turbo run build",
+        "build:docker": "TURBO_TELEMETRY_DISABLED=1 turbo run build --filter=!@flowiseai/agentflow --filter=!@flowiseai/observe",
+        "build-force": "pnpm clean && TURBO_TELEMETRY_DISABLED=1 turbo run build --force",
+        "dev": "TURBO_TELEMETRY_DISABLED=1 turbo run dev --parallel --no-cache",
         "start": "run-script-os",
         "start:harness": "bash scripts/start-cuttlely.sh",
         "harness:check": "node harness/check.mjs",
@@ -39,8 +39,8 @@
         "settings": "run-script-os",
         "settings:windows": "cd packages/server/bin && run settings",
         "settings:default": "cd packages/server/bin && ./run settings",
-        "test": "turbo run test",
-        "test:coverage": "turbo run test:coverage",
+        "test": "TURBO_TELEMETRY_DISABLED=1 turbo run test",
+        "test:coverage": "TURBO_TELEMETRY_DISABLED=1 turbo run test:coverage",
         "test:queue-abort": "node scripts/queue-abort-e2e.mjs",
         "clean": "pnpm -r clean",
         "nuke": "pnpm -r nuke && rimraf node_modules .turbo",
@@ -81,7 +81,7 @@
         "prettier": "^2.7.1",
         "pretty-quick": "^3.1.3",
         "rimraf": "^3.0.2",
-        "turbo": "1.10.16",
+        "turbo": "2.11.7",
         "typescript": "^5.4.5"
     },
     "pnpm": {
@@ -166,7 +166,11 @@
             "serialize-javascript": "^7.0.3",
             "@opentelemetry/propagator-jaeger": "^2.9.0",
             "jsondiffpatch": "^0.7.6",
-            "@langchain/community>@browserbasehq/stagehand": "-"
+            "@langchain/community>@browserbasehq/stagehand": "-",
+            "mem0ai>@types/jest": "-",
+            "unctx>unplugin": "-",
+            "@babel/core": "7.29.7",
+            "@babel/helpers": "7.29.7"
         }
     },
     "packageManager": "pnpm@10.33.4",

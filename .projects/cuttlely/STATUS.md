@@ -29,7 +29,7 @@ Cuttlely 1.0.0. The product version is the root `package.json` and `packages/ser
 -   The `smoke` step boots the built server; the `upgrade` step starts it on data from an older release; the `safeboot` step checks the settings rollback.
 -   The daily scheduled CI run on `main` also runs `pnpm test:queue-abort`, an end-to-end queue-mode abort test against a Redis service.
 -   Workflows in `.github/workflows/` are the CI definition, but they are not the merge gate. See [OPEN.md](./OPEN.md). Their `pnpm/action-setup` steps take the pnpm version from `packageManager` in `package.json`; a separate `version` input stops the step when the two disagree.
--   `pnpm audit --prod` and `pnpm audit` report no critical advisory. Three high ones are left, none with a fixed release: `extract-zip` (two advisories) in Puppeteer's browser download, which Cuttlely skips (`PUPPETEER_SKIP_DOWNLOAD`), and `braces` in build and test tooling that the server never loads.
+-   `pnpm audit --prod` and `pnpm audit` report no critical advisory. Three high ones are left, and none has a fixed release. `extract-zip` (two advisories) is in Puppeteer's browser download, which Cuttlely skips (`PUPPETEER_SKIP_DOWNLOAD`), so that code does not run. `braces` 3.0.3 is the latest release and is still in the vulnerable range; it arrives through the command-line file matcher and through dev tooling, and request handling does not pass input to it. `expr-eval` is not installed: the older community package that depended on it is gone, and that package has no fixed release.
 -   A green `pnpm verify` is not a real-model run. Harness and analyst behaviour that depends on a model needs a live run with a real credential before it is called done (MEMORY).
 
 ## Not done

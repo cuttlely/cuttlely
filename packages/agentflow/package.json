@@ -142,6 +142,6 @@
         "ts-jest": "^29.3.2",
         "typescript": "^5.4.5",
         "vite": "^6.4.3",
-        "vite-plugin-dts": "^3.7.0"
+        "vite-plugin-dts": "5.1.2"
     }
 }
