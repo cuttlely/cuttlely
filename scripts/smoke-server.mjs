@@ -1,5 +1,5 @@
 // Boot the built server on a free port and a temp data dir.
-// Checks ping, the marketplace template list, and one prediction.
+// Checks ping, the marketplace template list, one prediction, and that deleting the flow removes its leads.
 // The chat model is the preload in smoke-fake-model.cjs. No network and no real key.
 import { spawn } from 'node:child_process'
 import fs from 'node:fs'
@@ -7,6 +7,7 @@ import net from 'node:net'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
+import { DatabaseSync } from 'node:sqlite'
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const SERVER = path.join(ROOT, 'packages', 'server')
@@ -264,6 +265,29 @@ async function bootClosedRegister() {
     }
 }
 
+function leadCount(dataDir, chatflowId) {
+    const db = new DatabaseSync(path.join(dataDir, 'database.sqlite'), { readOnly: true })
+    try {
+        return Number(db.prepare('SELECT COUNT(*) AS count FROM lead WHERE chatflowid = ?').get(chatflowId).count)
+    } finally {
+        db.close()
+    }
+}
+
+// A lead holds a visitor's name, email and phone. Deleting the flow through the API has to take its leads with it.
+async function checkLeadsGoWithFlow(base, cookie, chatflowId, dataDir) {
+    const lead = await request(`${base}/api/v1/leads`, {
+        method: 'POST',
+        body: { chatflowid: chatflowId, name: 'Rosa Crumb', email: 'rosa@crumb-and-co.example', phone: '555-0142' }
+    })
+    if (lead.status !== 200) throw new Error(`lead ${lead.status}: ${lead.text.slice(0, 300)}`)
+    if (leadCount(dataDir, chatflowId) !== 1) throw new Error('the saved lead is not in the database')
+    const deleted = await request(`${base}/api/v1/chatflows/${chatflowId}`, { method: 'DELETE', cookie })
+    if (deleted.status !== 200) throw new Error(`delete chatflow ${deleted.status}: ${deleted.text.slice(0, 300)}`)
+    const left = leadCount(dataDir, chatflowId)
+    if (left !== 0) throw new Error(`deleting the flow left ${left} lead row(s) behind`)
+}
+
 async function main() {
     if (!fs.existsSync(path.join(SERVER, 'dist', 'commands'))) {
         throw new Error('packages/server/dist is missing. The verify build step has to run before the smoke test.')
@@ -348,6 +372,9 @@ async function main() {
             throw new Error(`prediction ${prediction.status}: ${prediction.text.slice(0, 500)}`)
         }
         console.log('prediction ok')
+
+        await checkLeadsGoWithFlow(base, cookie, chatflowId, dataDir)
+        console.log('flow delete removed its leads')
     } finally {
         stop()
         fs.rmSync(dataDir, { recursive: true, force: true })
