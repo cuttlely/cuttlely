@@ -52,7 +52,7 @@ function safeDirName(value) {
 
 export const pipelineDirName = safeDirName
 
-// One workspace's upload folder (API-14). Uploads elsewhere under uploadsRoot() belong to another workspace or predate
+// One workspace's upload folder. Uploads elsewhere under uploadsRoot() belong to another workspace or predate
 // workspace scoping, and no pipeline can read them.
 export function workspaceUploadsRoot(workspaceId) {
     return path.join(uploadsRoot(), safeDirName(workspaceId))
@@ -67,8 +67,8 @@ export function checkUploadAccess(abs, workspaceId) {
     throw uploadRefusal(abs)
 }
 
-// The refusal for an upload this pipeline can't read: another workspace's, or a flat one from before API-14
-// (`uploads/<uuid>/…`). Issue #50 migrates the flat ones on single-workspace instances.
+// The refusal for an upload this pipeline can't read: another workspace's, or a flat one (`uploads/<uuid>/…`) from
+// before uploads were kept per workspace. Nothing migrates flat uploads; the message says to upload the file again.
 export function uploadRefusal(abs) {
     return new EtlError(
         'bad_source',

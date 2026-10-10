@@ -467,7 +467,7 @@ const tests = {
         }
         record('ratelimit', out)
     },
-    // API-5 retest after the deployment-only fix: nginx overwrites X-Forwarded-For with $remote_addr, TRUST_PROXY=1.
+    // Retest after the deployment-only fix: nginx overwrites X-Forwarded-For with $remote_addr, TRUST_PROXY=1.
     async ratelimitApi5() {
         const q = { question: 'rate' }
         const burst = async (base, n, extra) => {

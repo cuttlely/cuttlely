@@ -338,7 +338,7 @@ function flagMissing(pipelineId, store, missing) {
 
 // Compares the pipeline's records with the store's own count for the pipeline's namespace. Runs before the
 // sweep, so nothing is deleted until the store is verified. Polls while the counts differ, up to the settle
-// window. Stale ids parked by a failed delete may or may not still be there. Fail closed (decided on PR #10):
+// window. Stale ids parked by a failed delete may or may not still be there. Fail closed:
 // evidence of a shortfall that cannot be cleared fails the run.
 // - count matches: verified. Count above the records: store_count_excess, a warning (orphans are E9b).
 // - count short: fetch-by-id decides. 0 missing: store_count_lagging, a warning. Ids missing (or more than

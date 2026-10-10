@@ -235,7 +235,7 @@ const HANDLERS = {
             return typeof client.describeIndexStats === 'function' && typeof client.fetch === 'function'
         },
         // The preflight before a run reads anything: describe_index_stats on the target index. It sends no records, so
-        // the caller treats any error but a transient or rate-limit one as configuration (PR #41).
+        // the caller treats any error but a transient or rate-limit one as configuration.
         async preflight(client) {
             if (typeof client.describeIndexStats === 'function') await client.describeIndexStats()
         },

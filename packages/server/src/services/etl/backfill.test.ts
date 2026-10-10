@@ -1,4 +1,4 @@
-// API-14 (issue #42): the boot backfill gives every ETL pipeline without a workspace its chat flow's workspace, else the
+// Workspace scope: the boot backfill gives every ETL pipeline without a workspace its chat flow's workspace, else the
 // instance's default workspace, and logs the counts. The engine side (strict filters, 404s, triggers) is in etl:check.
 const mockLog = { info: [] as string[], warn: [] as string[] }
 jest.mock('../../utils/logger', () => ({
@@ -64,7 +64,7 @@ beforeEach(() => {
     delete process.env.CUTTLELY_ETL_DEFAULT_WORKSPACE_ID
 })
 
-describe('ETL workspace backfill (API-14)', () => {
+describe('ETL workspace backfill', () => {
     it('does nothing when every pipeline has a workspace', async () => {
         const api = fakeApi([])
         expect(await backfillPipelineWorkspaces(api)).toBeNull()

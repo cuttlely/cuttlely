@@ -1,5 +1,5 @@
 /**
- * API-16 (#16): a forged X-Forwarded-For must not open a new prediction rate-limit bucket.
+ * Rate limit: a forged X-Forwarded-For must not open a new prediction rate-limit bucket.
  * The key is Express's client address after TRUST_PROXY. A port or a non-IP is not a bucket.
  */
 import express, { Request } from 'express'
@@ -32,7 +32,7 @@ async function burst(trust: boolean | number | undefined, headers: Array<Record<
     return statuses
 }
 
-describe('API-16 prediction rate limit and X-Forwarded-For', () => {
+describe('Prediction rate limit and X-Forwarded-For', () => {
     it('ignores a rotated X-Forwarded-For when TRUST_PROXY is unset', async () => {
         const statuses = await burst(undefined, [
             { 'X-Forwarded-For': '203.0.113.10' },

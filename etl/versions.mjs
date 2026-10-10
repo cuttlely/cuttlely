@@ -56,7 +56,7 @@ export function getPipelineByName(name, workspaceId) {
     return pipelineRow(stmt('SELECT * FROM pipelines WHERE name_key = ?').get(nameKey(name)))
 }
 
-// API-14: a missing workspace id throws instead of listing every pipeline.
+// A missing workspace id throws instead of listing every pipeline.
 export function requireWorkspaceId(workspaceId) {
     const id = typeof workspaceId === 'string' ? workspaceId.trim() : ''
     if (!id) throw new EtlError('workspace_required', 'No active workspace. Sign in to a workspace and try again.', 400)
@@ -99,7 +99,7 @@ export function validatePipelineName(id, name, workspaceId) {
 // A save that only moves nodes keeps the current version; any input, credential or edge change makes a new one.
 export function recordVersion({ id, name, workspaceId, flowData }) {
     if (!id) throw new EtlError('bad_pipeline', 'An ETL pipeline needs an id.')
-    // The server sets the workspace from the chat flow; a pipeline is never saved without one (API-14).
+    // The server sets the workspace from the chat flow; a pipeline is never saved without one.
     const ws = requireWorkspaceId(workspaceId)
     const text = validatePipelineName(id, name, ws)
     const flow = typeof flowData === 'string' ? flowData : JSON.stringify(flowData || { nodes: [], edges: [] })

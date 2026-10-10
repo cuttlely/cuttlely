@@ -107,7 +107,7 @@ CREATE TABLE IF NOT EXISTS shadow_vectors (
 // second boot is a no-op. Version 1 is the base schema above (what every pre-E1 etl.sqlite already has).
 const WORKSPACE_TABLES = ['runs', 'run_events', 'records', 'sources', 'schedules', 'vector_ids', 'shadow_vectors']
 
-// API-14: refuse a pipeline row without a workspace (SQLite's stand-in for NOT NULL without a table rebuild).
+// Refuse a pipeline row without a workspace (SQLite's stand-in for NOT NULL without a table rebuild).
 export const WORKSPACE_TRIGGERS = `
     CREATE TRIGGER IF NOT EXISTS pipelines_workspace_insert BEFORE INSERT ON pipelines
         WHEN NEW.workspace_id IS NULL OR NEW.workspace_id = ''

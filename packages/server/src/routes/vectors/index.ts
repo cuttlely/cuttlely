@@ -6,7 +6,7 @@ import { authorizeVectorUpsert } from '../../utils/authorizeUpsert'
 const router = express.Router()
 
 // CREATE
-// API-4c: the flow key and workspace check run before multer, which writes each file as it streams in.
+// The flow key and workspace check run before multer, which writes each file as it streams in.
 router.post(
     ['/upsert/', '/upsert/:id'],
     vectorsController.getRateLimiterMiddleware,

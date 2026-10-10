@@ -6,7 +6,7 @@ import { requireAnyPermission } from '../../identity/rbac'
 
 const router = express.Router()
 
-// API-11: the flow's API key or a session in the flow's workspace
+// The flow's API key or a session in the flow's workspace
 router.post('/download/', authorizeAssistantFileDownload, openaiAssistantsController.getFileFromAssistant)
 
 // permission check must precede multer to reject unauthorized requests before file parsing

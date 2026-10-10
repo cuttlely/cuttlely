@@ -1,5 +1,5 @@
 // A FILE-STORAGE:: value names a file inside the current flow's storage folder. Whatever a request puts there, a
-// name that climbs out (../x), is absolute (/etc/passwd) or holds a separator never reaches a read (API-1 follow-up F6).
+// name that climbs out (../x), is absolute (/etc/passwd) or holds a separator never reaches a read.
 import fs from 'fs'
 import os from 'os'
 import path from 'path'

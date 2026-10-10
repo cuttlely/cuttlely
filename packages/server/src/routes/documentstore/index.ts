@@ -6,7 +6,7 @@ import { authorizeDocumentStoreUpsert } from '../../utils/authorizeUpsert'
 
 const router = express.Router()
 
-// API-4c: permission and workspace checks run before multer, which writes each file as it streams in.
+// Permission and workspace checks run before multer, which writes each file as it streams in.
 router.post(
     ['/upsert/', '/upsert/:id'],
     requirePermission('documentStores:upsert-config'),
