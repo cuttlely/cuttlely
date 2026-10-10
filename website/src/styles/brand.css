@@ -1,0 +1,117 @@
+/* Cuttlely brand tokens and the Starlight theme (Cuttle Violet). Urbanist: SIL Open Font License 1.1 (public/fonts/OFL.txt). */
+@font-face {
+    font-family: 'Urbanist';
+    src: url('/fonts/Urbanist-latin-VariableFont_wght.woff2') format('woff2');
+    font-weight: 100 900;
+    font-style: normal;
+    font-display: swap;
+}
+
+:root {
+    --cuttlely-violet: #6a3df2;
+    --cuttlely-violet-hover: #4c26ce;
+    --cuttlely-violet-light: #a78bfa;
+    --cuttlely-violet-fill: #8b5cf6;
+    --cuttlely-indigo: #5c60f9;
+    --cuttlely-blue: #5380fc;
+    --cuttlely-sky: #5fb3fd;
+    --cuttlely-royal: #4c26ce;
+    --cuttlely-ink: #0a0d1e;
+    --cuttlely-midnight: #0c0f26;
+    --cuttlely-mist: #f5f8fe;
+    --cuttlely-slate: #7d8aab;
+    --cuttlely-haze: #a5b7d4;
+    --cuttlely-gradient-mark: linear-gradient(110deg, #6534ee 0%, #5d47f4 35%, #5872fa 62%, #55a0fc 85%, #5ec2fd 100%);
+    --cuttlely-gradient-wordmark: linear-gradient(90deg, #7038ee, #4b4fea, #4f92fc);
+    --cuttlely-gradient-wordmark-dark: linear-gradient(90deg, #8b5cf6, #6670f8, #63acfb);
+    --cuttlely-font-display: 'Urbanist', ui-sans-serif, system-ui, sans-serif;
+
+    /* Dark (Starlight's default scheme) */
+    --sl-color-white: #ffffff;
+    --sl-color-gray-1: #e8edf7;
+    --sl-color-gray-2: #cbd4e6;
+    --sl-color-gray-3: #9aa7c4;
+    --sl-color-gray-4: #5a6488;
+    --sl-color-gray-5: #2b3260;
+    --sl-color-gray-6: #161b3d;
+    --sl-color-black: #0c0f26;
+    --sl-color-accent-low: #2a1f63;
+    --sl-color-accent: #8b5cf6;
+    --sl-color-accent-high: #a78bfa;
+    --sl-color-text-accent: #a78bfa;
+    --sl-color-bg-nav: #0c0f26;
+    --sl-color-bg-sidebar: #0c0f26;
+    --sl-color-hairline-light: #232a55;
+    --sl-color-hairline: #1b2148;
+    --cuttlely-fill: #a78bfa;
+    --cuttlely-fill-hover: #8b5cf6;
+    --cuttlely-fill-label: #0a0d1e;
+    --cuttlely-gradient-text: var(--cuttlely-gradient-wordmark-dark);
+    --cuttlely-surface: #121636;
+    --cuttlely-surface-2: #181d45;
+    --cuttlely-border: #262d5e;
+    --cuttlely-glow: rgba(139, 92, 246, 0.35);
+}
+
+:root[data-theme='light'] {
+    --sl-color-white: #0a0d1e;
+    --sl-color-gray-1: #171c38;
+    --sl-color-gray-2: #2c3354;
+    --sl-color-gray-3: #4a5373;
+    --sl-color-gray-4: #7d8aab;
+    --sl-color-gray-5: #cdd5e7;
+    --sl-color-gray-6: #edf1fa;
+    --sl-color-gray-7: #f5f8fe;
+    --sl-color-black: #ffffff;
+    --sl-color-accent-low: #ebe5fe;
+    --sl-color-accent: #6a3df2;
+    --sl-color-accent-high: #4c26ce;
+    --sl-color-text-accent: #6a3df2;
+    --sl-color-bg-nav: #ffffff;
+    --sl-color-bg-sidebar: #ffffff;
+    --sl-color-hairline-light: #e6ebf6;
+    --sl-color-hairline: #e6ebf6;
+    --cuttlely-fill: #6a3df2;
+    --cuttlely-fill-hover: #4c26ce;
+    --cuttlely-fill-label: #ffffff;
+    --cuttlely-gradient-text: var(--cuttlely-gradient-wordmark);
+    --cuttlely-surface: #ffffff;
+    --cuttlely-surface-2: #f5f8fe;
+    --cuttlely-border: #e3e8f4;
+    --cuttlely-glow: rgba(106, 61, 242, 0.18);
+}
+
+/* Headlines use Urbanist; body text stays on the system font. */
+.sl-markdown-content :is(h1, h2, h3),
+h1#_top,
+.cl-display {
+    font-family: var(--cuttlely-font-display);
+    letter-spacing: -0.015em;
+}
+h1#_top {
+    font-weight: 800;
+}
+
+/* Links and focus */
+.sl-markdown-content a:not(.sl-link-button):hover {
+    color: var(--cuttlely-fill-hover);
+}
+:root:not([data-theme='light']) .sl-markdown-content a:not(.sl-link-button):hover {
+    color: #c4b5fd;
+}
+:focus-visible {
+    outline: 2px solid var(--sl-color-text-accent);
+    outline-offset: 2px;
+}
+
+/* Filled buttons: violet fill, white label in light; light violet fill, ink label in dark. */
+.sl-link-button.primary {
+    background: var(--cuttlely-fill);
+    border-color: var(--cuttlely-fill);
+    color: var(--cuttlely-fill-label);
+}
+.sl-link-button.primary:hover {
+    background: var(--cuttlely-fill-hover);
+    border-color: var(--cuttlely-fill-hover);
+    color: var(--cuttlely-fill-label);
+}

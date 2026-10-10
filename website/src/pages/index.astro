@@ -1,0 +1,285 @@
+---
+// The cuttlely.com home page. Every claim here comes from the README, the docs or SECURITY.md.
+import StarlightPage from '@astrojs/starlight/components/StarlightPage.astro'
+import { Code, Icon } from '@astrojs/starlight/components'
+import { Image } from 'astro:assets'
+import goggles from '../assets/cuttlely-mascot-goggles-512.webp'
+import demoChart from '../content/docs/docs/images/try-the-demo/demo-chart.png'
+import analystChat from '../content/docs/docs/images/harnesses/canvas-chat-analyst.png'
+import etlRun from '../content/docs/docs/images/etl/etl-run-done.png'
+import chatflow from '../content/docs/docs/images/canvas/build-with-ai-chat.png'
+import workflow from '../content/docs/docs/images/canvas/canvas-workflow-panel.png'
+import analystSales from '../content/docs/docs/images/analyst/canvas-chat-sales.png'
+import buildWithAi from '../content/docs/docs/images/harnesses/build-with-ai-dialog.png'
+import embed from '../content/docs/docs/images/share-and-embed/embed-chart.png'
+import publishCheck from '../content/docs/docs/images/versioning/publish-check-results.png'
+import serverSettings from '../content/docs/docs/images/server-settings/server-settings-all.png'
+import Focus from '../components/Focus.astro'
+import { REPO_URL } from '../../scripts/site-config.mjs'
+
+const curl = `curl -s http://localhost:43117/api/v1/prediction/<chatflow-id> \\
+  -H "Authorization: Bearer $CUTTLELY_API_KEY" \\
+  -H "Content-Type: application/json" \\
+  -d '{"question": "How much are two croissants and a sourdough loaf, and can I pick them up on Monday?"}' \\
+  | jq '{text, agents: [.agents[] | {name, task}]}'`
+
+const answer = `{
+    "text": "Two croissants and a sourdough loaf cost $14.00. However, you cannot pick them up on Monday because the bakery is closed; pick up is possible Tuesday to Sunday from 7:00 to 15:00.",
+    "agents": [
+        { "name": "baker", "task": "How much are two croissants and a sourdough loaf?" },
+        { "name": "orders", "task": "Can I pick up two croissants and a sourdough loaf on Monday?" }
+    ]
+}`
+
+const tools = [
+    {
+        title: 'Knowledge pipelines',
+        text: 'Load files, a CSV or a code repository, clean and split them, embed them and store them for search. A run only embeds what changed.',
+        href: '/docs/how-to/etl/',
+        focus: { cx: 0.8, cy: 0.5, zoom: 2 },
+        image: etlRun,
+        alt: 'An ETL pipeline after a run. The run card says succeeded: 33 embedded, 0 errors.'
+    },
+    {
+        title: 'Chatflows',
+        text: 'A chat model, the agent or chain that answers, memory and tools, on one canvas. Each chatflow gets a prediction API, an embed and a shareable link.',
+        href: '/docs/how-to/canvas/',
+        focus: { cx: 0.78, cy: 0.3, zoom: 2.1 },
+        image: chatflow,
+        alt: 'A chatflow built with Build with AI. The test chat answers a tip question with a calculator step.'
+    },
+    {
+        title: 'Agentflows',
+        text: 'Workflows that run step by step and can start from a chat message, a form, a webhook or a schedule.',
+        href: '/docs/how-to/canvas/#workflows',
+        focus: { cx: 0.78, cy: 0.22, zoom: 2 },
+        image: workflow,
+        alt: "A workflow with Start and Reply cards. The Reply card's message is open in a side panel."
+    },
+    {
+        title: 'The Analyst',
+        text: 'A specialist with its own database. It creates tables, adds rows and answers questions about them with the real numbers.',
+        href: '/docs/how-to/analyst/',
+        focus: { cx: 0.8, cy: 0.42, zoom: 2.3 },
+        image: analystSales,
+        alt: 'A harness test chat. The run card says Harness Prime sent work to analyst, and the answer starts with the total by region.'
+    },
+    {
+        title: 'Build with AI',
+        text: 'Describe a team, an assistant, a pipeline or a workflow, and a first version lands on the canvas. Every part and connection is checked first.',
+        href: '/docs/how-to/harnesses/#build-a-team-with-ai',
+        focus: { cx: 0.5, cy: 0.42, zoom: 1.5 },
+        image: buildWithAi,
+        alt: 'The Build with AI dialog on a blank harness canvas, with example chips, a team description and the chat model that builds.'
+    },
+    {
+        title: 'Share and embed',
+        text: 'A public link for any chatflow, and a chat button or full-page chat on your website, served by your Cuttlely server.',
+        href: '/docs/how-to/share-and-embed/',
+        focus: { cx: 0.82, cy: 0.55, zoom: 2.4 },
+        image: embed,
+        alt: "A chat bubble on a made-up bakery website answers with a table and a bar chart of the week's croissant sales."
+    }
+]
+
+const installs = [
+    { title: 'Docker', text: 'The install most people want. SQLite, one container.', href: '/docs/how-to/docker/', icon: 'laptop' },
+    { title: 'Render', text: 'A hosted install with Postgres, from the Blueprint in the repository.', href: '/docs/how-to/render/', icon: 'rocket' },
+    { title: 'From source', text: 'For changing Cuttlely. Node 24 and pnpm.', href: '/docs/how-to/from-source/', icon: 'seti:git' }
+] as const
+---
+
+<StarlightPage
+    frontmatter={{
+        title: 'Your applications deserve agents.',
+        description:
+            'Cuttlely is the open-source agent platform for applications. Give your applications their own intelligent capabilities and coordinated agent teams, and run it on infrastructure you control.',
+        template: 'splash',
+        hero: { tagline: 'The open-source agent platform for applications.', actions: [] },
+        pagefind: false,
+        tableOfContents: false
+    }}
+    hasSidebar={false}
+>
+    <div class="cl-home not-content">
+        <ul class="cl-proof" aria-label="At a glance">
+            <li><Icon name="open-book" /> Open source under Apache 2.0</li>
+            <li><Icon name="laptop" /> Docker, Render or from source</li>
+            <li><Icon name="rocket" /> The demo shows a team at work in about a minute</li>
+        </ul>
+
+        <section id="chat-with-a-team-in-minutes" class="cl-showcase" aria-labelledby="cl-showcase-title">
+            <div class="cl-window">
+                <div class="cl-window-bar" aria-hidden="true"><span class="cl-lights"><i></i><i></i><i></i></span><span class="cl-window-url">localhost:43117</span></div>
+                <Focus
+                    src={demoChart}
+                    alt="The bakery team's test chat after the first starter question: the run card says Harness Prime sent work to analyst, then a bar chart of revenue by product and an answer with the top three products."
+                    cx={0.74}
+                    cy={0.5}
+                    zoom={1.65}
+                    ratio={4 / 3}
+                    widths={[1080, 1440]}
+                    sizes="(min-width: 68rem) 1100px, 180vw"
+                    loading="eager"
+                />
+            </div>
+            <div class="cl-showcase-copy">
+                <h2 id="cl-showcase-title" class="cl-display">Chat with a team in minutes</h2>
+                <p>
+                    New to agents? You do not need to write code. Add one model key and select <strong>Try the demo</strong>: a ready-made bakery team opens with its chat
+                    open. Ask the first starter question, and the run card shows Harness Prime sending the work to the analyst, then a bar chart with the numbers from a
+                    made-up sales database.
+                </p>
+                <a class="cl-link-arrow" href="/quickstart/">Your first 10 minutes <Icon name="right-arrow" /></a>
+            </div>
+        </section>
+
+        <section id="agent-teams-that-power-your-apps" class="cl-section cl-split" aria-labelledby="agent-teams-title">
+            <div>
+                <p class="cl-kicker">How a team works</p>
+                <h2 id="agent-teams-title" class="cl-display">Agent teams that power your apps</h2>
+                <p class="cl-lead">Give your app a team instead of a single prompt. In Cuttlely, an agent team is called a harness.</p>
+                <ol class="cl-steps">
+                    <li><strong>Harness Prime splits each question.</strong> The lead agent reads the question, sends each part to the right specialist, and writes one answer.</li>
+                    <li><strong>Specialists do the work.</strong> Each one can have its own model, tools, playbooks and data.</li>
+                    <li><strong>The analyst brings the numbers.</strong> It queries real tables and hands back the actual numbers.</li>
+                </ol>
+                <a class="cl-link-arrow" href="/docs/how-to/harnesses/">Harnesses guide <Icon name="right-arrow" /></a>
+            </div>
+            <figure class="cl-shot">
+                <Image
+                    src={analystChat}
+                    alt="A harness canvas with its test chat open. The run card says Harness Prime sent work to analyst, and the answer shows a table of open tasks."
+                    widths={[640, 960, 1440]}
+                    sizes="(min-width: 68rem) 560px, 100vw"
+                />
+            </figure>
+        </section>
+
+        <section id="use-a-team-from-your-app" class="cl-section" aria-labelledby="api-title">
+            <div class="cl-center">
+                <p class="cl-kicker">Call it from your app</p>
+                <h2 id="api-title" class="cl-display">Use a team from your app</h2>
+                <p class="cl-lead">
+                    Your app sends the team a question through the API and gets back one researched answer, a chart or an action. Here is a real call to a small bakery team
+                    with two specialists, <code>baker</code> and <code>orders</code>.
+                </p>
+            </div>
+            <div class="cl-code-pair">
+                <div>
+                    <p class="cl-code-label">Request</p>
+                    <Code code={curl} lang="bash" />
+                </div>
+                <div>
+                    <p class="cl-code-label">Response</p>
+                    <Code code={answer} lang="json" />
+                </div>
+            </div>
+            <p class="cl-center cl-note">
+                Harness Prime split the question: <code>baker</code> priced the order and <code>orders</code> checked the pickup day. The full response also has the tokens,
+                the timings, the sources and any images the team made.
+            </p>
+            <p class="cl-center"><a class="cl-link-arrow" href="/docs/api/">API guide <Icon name="right-arrow" /></a></p>
+        </section>
+
+        <section id="tools-your-teams-use" class="cl-section" aria-labelledby="tools-title">
+            <div class="cl-center">
+                <p class="cl-kicker">Built in</p>
+                <h2 id="tools-title" class="cl-display">Tools your teams use</h2>
+                <p class="cl-lead">Knowledge pipelines, visual workflows and Build with AI give your teams what they need.</p>
+            </div>
+            <ul class="cl-tiles">
+                {
+                    tools.map((tool) => (
+                        <li class="cl-tile">
+                            <a href={tool.href}>
+                                <Focus src={tool.image} alt={tool.alt} {...tool.focus} widths={[720, 1080, 1440]} sizes="(min-width: 68rem) 760px, 100vw" />
+                                <span class="cl-tile-body">
+                                    <span class="cl-tile-title cl-display">{tool.title}</span>
+                                    <span class="cl-tile-text">{tool.text}</span>
+                                </span>
+                            </a>
+                        </li>
+                    ))
+                }
+            </ul>
+        </section>
+
+        <section id="ship-changes-safely-draft-compare-publish-roll-back" class="cl-section cl-split cl-split-reverse" aria-labelledby="ship-title">
+            <div>
+                <p class="cl-kicker">Ship changes safely</p>
+                <h2 id="ship-title" class="cl-display">Draft, compare, publish, roll back</h2>
+                <p class="cl-lead">Changing an AI app that people already use should not mean testing on them. Cuttlely treats every change as a release.</p>
+                <ul class="cl-checks">
+                    <li><strong>Drafts never touch Live.</strong> The API, embeds and shared links keep serving Live until you publish.</li>
+                    <li><strong>Compare before you publish.</strong> Ask recent real questions again on Live and on your draft, and see both answers side by side.</li>
+                    <li><strong>Every version is kept.</strong> Open an old version as your draft, or roll Live back to it, in one step.</li>
+                    <li><strong>Promote from Dev to Prod.</strong> Prod shows what would change and goes Live only when its owner says so.</li>
+                </ul>
+                <a class="cl-link-arrow" href="/docs/how-to/versioning/">Version history guide <Icon name="right-arrow" /></a>
+            </div>
+            <figure class="cl-shot">
+                <Focus
+                    src={publishCheck}
+                    alt="The Publish dialog for a bakery chatflow after a check: each recent question shows the Live answer and the draft answer side by side with their tokens and time."
+                    cx={0.5}
+                    cy={0.42}
+                    zoom={1.45}
+                    ratio={4 / 3}
+                    widths={[960, 1440]}
+                    sizes="(min-width: 68rem) 820px, 145vw"
+                />
+            </figure>
+        </section>
+
+        <section id="run-it-your-way" class="cl-section" aria-labelledby="run-title">
+            <div class="cl-center">
+                <p class="cl-kicker">Run it your way</p>
+                <h2 id="run-title" class="cl-display">On your laptop, your server or Render</h2>
+                <p class="cl-lead">Change sign-in, the database, storage and more from <strong>Admin</strong>. People sign in with a password or WorkOS AuthKit.</p>
+            </div>
+            <ul class="cl-installs">
+                {
+                    installs.map((item) => (
+                        <li>
+                            <a href={item.href}>
+                                <Icon name={item.icon} size="1.5rem" />
+                                <span class="cl-display">{item.title}</span>
+                                <span>{item.text}</span>
+                            </a>
+                        </li>
+                    ))
+                }
+            </ul>
+            <figure class="cl-shot cl-shot-wide">
+                <Image
+                    src={serverSettings}
+                    alt="Admin, Server settings, All settings: every setting with its section, where its value comes from, and its value."
+                    widths={[720, 1080, 1440]}
+                    sizes="(min-width: 68rem) 1000px, 100vw"
+                />
+            </figure>
+            <p class="cl-center cl-note">
+                Cuttlely does not report usage, check for updates or load fonts, scripts or images from other sites. <a href="/security/#what-cuttlely-connects-to"
+                    >What Cuttlely connects to</a
+                >
+            </p>
+        </section>
+
+        <section id="bring-your-existing-flows" class="cl-section cl-band" aria-labelledby="bring-title">
+            <h2 id="bring-title" class="cl-display">Bring your existing flows</h2>
+            <p>Have flows from another tool? The <strong>Import</strong> menu checks an export and opens it on the right canvas.</p>
+            <a class="cl-link-arrow" href="/docs/bring-your-flows/">What carries over <Icon name="right-arrow" /></a>
+        </section>
+
+        <section class="cl-final" aria-labelledby="final-title">
+            <Image src={goggles} alt="" widths={[200, 400]} sizes="200px" class="cl-final-mascot" />
+            <h2 id="final-title" class="cl-display">See an agent team at work.</h2>
+            <p>Start Cuttlely, add one model key, and the bakery team answers with a chart.</p>
+            <div class="cl-actions cl-actions-center">
+                <a class="cl-button cl-button-primary" href="/quickstart/">Quickstart <Icon name="right-arrow" /></a>
+                <a class="cl-button cl-button-ghost" href={REPO_URL}><Icon name="github" /> GitHub</a>
+            </div>
+        </section>
+    </div>
+</StarlightPage>
