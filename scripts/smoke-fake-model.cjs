@@ -25,22 +25,30 @@ function patchChat(exported) {
     if (!ChatOpenAI || ChatOpenAI.prototype.__cuttlelySmoke) return
     ChatOpenAI.prototype.__cuttlelySmoke = true
     ChatOpenAI.prototype._generate = async function fakeGenerate(messages) {
-        // A question with "smoke-slow" in it answers after a few seconds, for the shutdown drain check.
-        if (JSON.stringify(messages || []).includes('smoke-slow')) await new Promise((resolve) => setTimeout(resolve, SLOW_MS))
-        // A question with "smoke-429" in it gets a provider that always answers 429 with Retry-After: 12, through the
-        // model's own retry logic (this.caller), for the rate limit check.
-        if (JSON.stringify(messages || []).includes('smoke-429')) {
-            return this.caller.call(async () => {
-                throw Object.assign(new Error('429 Rate limit reached for smoke-model on requests per min.'), {
-                    status: 429,
-                    headers: new Headers({ 'retry-after': '12' })
-                })
-            })
-        }
+        await fakeProvider(this, messages)
         return fakeGeneration()
     }
-    ChatOpenAI.prototype._streamResponseChunks = async function* fakeStream() {
+    // A run with a token callback streams even when the card has streaming off, so the stream acts the same way.
+    ChatOpenAI.prototype._streamResponseChunks = async function* fakeStream(messages) {
+        await fakeProvider(this, messages)
         yield { text: SMOKE_TEXT, message: aiMessage(SMOKE_TEXT) }
+    }
+}
+
+// What the fake provider does before it answers, by the words in the question.
+async function fakeProvider(model, messages) {
+    const asked = JSON.stringify(messages || [])
+    // "smoke-slow": answers after a few seconds, for the shutdown drain check.
+    if (asked.includes('smoke-slow')) await new Promise((resolve) => setTimeout(resolve, SLOW_MS))
+    // "smoke-429": a provider that always answers 429 with Retry-After: 12, through the model's own retry logic
+    // (model.caller), for the rate limit check.
+    if (asked.includes('smoke-429')) {
+        await model.caller.call(async () => {
+            throw Object.assign(new Error('429 Rate limit reached for smoke-model on requests per min.'), {
+                status: 429,
+                headers: new Headers({ 'retry-after': '12' })
+            })
+        })
     }
 }
 
