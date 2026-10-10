@@ -35,7 +35,13 @@ import {
 } from '../Interface'
 import { databaseEntities, clearSessionMemory, getAPIOverrideConfig } from '../utils'
 import { getFlowNodeLabels, replaceInputsWithConfig, resolveVariables } from '.'
-import { buildServerFlowConfig, FlowNodeLabels, getAllowedVariables, warnUnmatchedAllowlistLabels } from './replaceInputsWithConfig'
+import {
+    buildServerFlowConfig,
+    FlowNodeLabels,
+    getAllowedRequestVarNames,
+    getAllowedVariables,
+    warnUnmatchedAllowlistLabels
+} from './replaceInputsWithConfig'
 import { InternalFlowiseError } from '../errors/internalFlowiseError'
 import { getErrorMessage } from '../errors/utils'
 import logger from './logger'
@@ -438,6 +444,8 @@ interface AgentNodeContext {
     serverFlowConfig: ICommonObject
     /** `$vars`: workspace variables plus request vars only when overrides are on and the key is allowlisted (getAllowedVariables) */
     variables: IVariable[]
+    /** The `$vars` names whose value came from this request: in code inputs they are inserted as escaped text */
+    requestVarNames: Set<string>
 }
 
 const getAgentNodeContext = async ({
@@ -471,7 +479,8 @@ const getAgentNodeContext = async ({
         nodeOverrides,
         variableOverrides,
         serverFlowConfig: buildServerFlowConfig(flowConfig),
-        variables: getAllowedVariables(availableVariables, overrideConfig, apiOverrideStatus, variableOverrides)
+        variables: getAllowedVariables(availableVariables, overrideConfig, apiOverrideStatus, variableOverrides),
+        requestVarNames: getAllowedRequestVarNames(overrideConfig, apiOverrideStatus, variableOverrides)
     }
 }
 
@@ -491,7 +500,7 @@ const prepareAgentNodeData = async (nodeData: INodeData, question: string, conte
             context.variableOverrides,
             context.flowNodeLabels
         )
-    // variableOverrides is empty on purpose: allowed request vars are already in context.variables.
+    // Allowed request vars are already in context.variables; requestVarNames keeps them out of code inputs as code.
     return resolveVariables(
         flowNodeData,
         context.reactFlowNodes,
@@ -499,7 +508,8 @@ const prepareAgentNodeData = async (nodeData: INodeData, question: string, conte
         context.chatHistory,
         context.serverFlowConfig,
         context.uploadedFilesContent,
-        context.variables
+        context.variables,
+        context.requestVarNames
     )
 }
 

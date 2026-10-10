@@ -44,13 +44,16 @@ describe('getGlobalVariable and $vars resolution ignore request vars', () => {
     ])('a flow config carrying vars (%s) changes no variable and adds none', async (_label, enabled) => {
         const stored = dbVars()
         const flowConfig = { chatflowid: 'f1', vars: { region: 'EVIL', tier: 'EVIL', injected: 'EVIL' } }
-        const overrides = [
-            { name: 'region', enabled },
-            { name: 'injected', enabled }
-        ]
+        // The overrides list rides on the flow config too: nothing may read it.
+        const config = {
+            ...flowConfig,
+            variableOverrides: [
+                { name: 'region', enabled },
+                { name: 'injected', enabled }
+            ]
+        }
         const text = 'r={{$vars.region}} t={{$vars.tier}} i={{$vars.injected}}'
-        // A trailing overrides list (the old call shape) is passed too: nothing may read it.
-        const out = await getVariableValue(text, [], 'q', [], true, flowConfig, '', stored, overrides)
+        const out = await getVariableValue(text, [], 'q', [], true, config, '', stored)
         expect(out).toBe('r=us t=gold i={{$vars.injected}}')
         // The caller's (shared, per-workspace) list is not mutated.
         expect(stored).toEqual(dbVars())
