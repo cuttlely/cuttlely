@@ -91,3 +91,34 @@ test('a stop signal reaches the inner copy and is never taken as a restart', asy
     assert.equal(code, 75)
     assert.doesNotMatch(out, /Restarting/)
 })
+
+test('on stop, the inner copy waits for Cuttlely to finish open requests before it stops Hermes', () => {
+    const from = script.indexOf('\ncleanup() {')
+    const to = script.indexOf('\n}\n', from) + 3
+    const cleanup = script.slice(from, to)
+    assert.ok(from > 0 && cleanup.includes('wait "$CUTTLELY_PID"'))
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cuttlely-stop-'))
+    const log = path.join(dir, 'order.log')
+    const result = spawnSync(
+        'bash',
+        [
+            '-c',
+            `set -euo pipefail
+DATA=${JSON.stringify(dir)}
+HERMES_STOP="$DATA/hermes-supervisor.stop"
+WORKER_PIDS=()
+HERMES_PID=12345
+kill_hermes_pid() { [[ -f "$HERMES_STOP" ]] && echo hermes stopped >> ${JSON.stringify(log)}; }
+# A stand-in for the server: on SIGTERM it takes a moment to finish its open requests, then exits.
+bash -c 'trap "sleep 1; echo server drained >> ${log}; exit 0" TERM; while true; do sleep 0.1; done' &
+CUTTLELY_PID=$!
+sleep 0.3
+${cleanup}
+cleanup
+`
+        ],
+        { env: { PATH: process.env.PATH }, encoding: 'utf8', timeout: 20000 }
+    )
+    assert.equal(result.status, 0, result.stderr)
+    assert.deepEqual(fs.readFileSync(log, 'utf8').trim().split('\n'), ['server drained', 'hermes stopped'])
+})
