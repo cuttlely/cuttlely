@@ -64,8 +64,7 @@ export default class Start extends BaseCommand {
     async stopProcess() {
         try {
             logger.info(`Shutting down Cuttlely...`)
-            const serverApp = Server.getInstance()
-            if (serverApp) await serverApp.stopApp()
+            await Server.shutdown()
         } catch (error) {
             logger.error('There was an error shutting down Flowise...', error)
             await this.failExit()

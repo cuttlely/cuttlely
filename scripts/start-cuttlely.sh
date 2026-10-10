@@ -417,10 +417,13 @@ else
 fi
 
 cleanup() {
-    touch "$HERMES_STOP"
+    # Cuttlely first, and wait for it: on SIGTERM it lets running answers and streams finish (CUTTLELY_DRAIN_TIMEOUT_MS,
+    # 25 seconds by default, then it ends the rest and exits). Hermes stays up meanwhile so agent team runs can finish.
     if [[ -n "${CUTTLELY_PID:-}" ]] && kill -0 "$CUTTLELY_PID" 2>/dev/null; then
         kill "$CUTTLELY_PID" 2>/dev/null || true
+        wait "$CUTTLELY_PID" 2>/dev/null || true
     fi
+    touch "$HERMES_STOP"
     if [[ -n "${HERMES_SUPERVISOR_PID:-}" ]] && kill -0 "$HERMES_SUPERVISOR_PID" 2>/dev/null; then
         kill "$HERMES_SUPERVISOR_PID" 2>/dev/null || true
         wait "$HERMES_SUPERVISOR_PID" 2>/dev/null || true
