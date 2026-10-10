@@ -1,0 +1,398 @@
+import { useState } from 'react'
+import PropTypes from 'prop-types'
+import { useSelector } from 'react-redux'
+import { alpha, useTheme } from '@mui/material/styles'
+import { Box, Chip, Collapse, Stack, Tooltip, Typography } from '@mui/material'
+import { IconCheck, IconChevronDown, IconChevronRight, IconX } from '@tabler/icons-react'
+import { analystChipRows, formatDuration, formatTokens, routeSummary, toolChipLabel } from '../../../../../harness/trace.mjs'
+
+const FILL_NOTE = {
+    none: 'The tool took the question as its input.',
+    valid: 'The question already matched the tool input.',
+    model: 'A model call filled the tool input.',
+    'model-empty': 'The model did not return a tool input.'
+}
+
+function statusWord(status) {
+    if (status === 'running') return 'Running'
+    if (status === 'failed') return 'Stopped'
+    if (status === 'partial') return 'Finished with a failed specialist'
+    return 'Finished'
+}
+
+function specialistWord(status) {
+    if (status === 'running') return 'running'
+    if (status === 'failed') return 'failed'
+    return 'done'
+}
+
+function routeLine(trace) {
+    return routeSummary(trace)
+}
+
+function handoffLine(trace, specialist) {
+    if (trace.direct || trace.handoff?.status === 'skipped') return 'This result is the answer.'
+    if (specialist.status === 'failed') return 'Harness Prime was told this specialist failed.'
+    if (trace.handoff?.status === 'running') return 'Harness Prime is combining this result.'
+    if (trace.handoff?.status === 'done') return 'Harness Prime combined this result into the answer.'
+    return ''
+}
+
+function StatusMark({ status }) {
+    const theme = useTheme()
+    if (status === 'running') {
+        return (
+            <Box
+                component='span'
+                aria-label='running'
+                sx={{
+                    width: 8,
+                    height: 8,
+                    borderRadius: '50%',
+                    background: theme.palette.warning.main,
+                    display: 'inline-block'
+                }}
+            />
+        )
+    }
+    if (status === 'failed') {
+        return <IconX size={16} color={theme.palette.error.main} aria-label='failed' />
+    }
+    return <IconCheck size={16} color={theme.palette.success.main} aria-label='done' />
+}
+
+StatusMark.propTypes = {
+    status: PropTypes.string
+}
+
+function Meta({ children }) {
+    if (!children) return null
+    return (
+        <Typography variant='caption' color='text.secondary' sx={{ whiteSpace: 'nowrap' }}>
+            {children}
+        </Typography>
+    )
+}
+
+Meta.propTypes = {
+    children: PropTypes.node
+}
+
+// Every row an analyst query returned, as the run kept it. The answer can show fewer.
+function QueryRows({ view }) {
+    const count = view.rows.length
+    return (
+        <Box sx={{ pt: 0.5 }}>
+            <Typography variant='caption' color='text.secondary' component='p' sx={{ mb: 0.5 }}>
+                {`${count} row${count === 1 ? '' : 's'} this query returned. The answer can show fewer.`}
+            </Typography>
+            <Box sx={{ maxHeight: 320, overflow: 'auto', border: '1px solid', borderColor: 'divider', borderRadius: 1 }}>
+                <Box component='table' sx={{ borderCollapse: 'collapse', width: '100%', fontSize: 12 }}>
+                    <thead>
+                        <tr>
+                            {view.columns.map((column) => (
+                                <Box
+                                    component='th'
+                                    key={column}
+                                    sx={{
+                                        position: 'sticky',
+                                        top: 0,
+                                        bgcolor: 'background.paper',
+                                        textAlign: 'left',
+                                        fontWeight: 600,
+                                        px: 1,
+                                        py: 0.5,
+                                        borderBottom: '1px solid',
+                                        borderColor: 'divider',
+                                        whiteSpace: 'nowrap'
+                                    }}
+                                >
+                                    {column}
+                                </Box>
+                            ))}
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {view.rows.map((row, rowIndex) => (
+                            <tr key={rowIndex}>
+                                {row.map((cell, cellIndex) => (
+                                    <Box
+                                        component='td'
+                                        key={cellIndex}
+                                        sx={{
+                                            px: 1,
+                                            py: 0.25,
+                                            borderBottom: '1px solid',
+                                            borderColor: 'divider',
+                                            overflowWrap: 'anywhere'
+                                        }}
+                                    >
+                                        {cell}
+                                    </Box>
+                                ))}
+                            </tr>
+                        ))}
+                    </tbody>
+                </Box>
+            </Box>
+            {view.summary ? (
+                <Typography variant='caption' color='text.secondary' component='p' sx={{ mt: 0.5 }}>
+                    {view.summary}
+                </Typography>
+            ) : null}
+        </Box>
+    )
+}
+
+QueryRows.propTypes = {
+    view: PropTypes.object
+}
+
+const HarnessRunTrace = ({ trace }) => {
+    const theme = useTheme()
+    const customization = useSelector((state) => state.customization)
+    const [openName, setOpenName] = useState('')
+    const [cutsOpen, setCutsOpen] = useState(false)
+    const [rowsKey, setRowsKey] = useState('')
+    if (!trace) return null
+
+    const dark = Boolean(customization?.isDarkMode)
+    const wall = formatDuration(trace.wallMs)
+    const tokens = formatTokens(trace.tokens)
+    const phases = [
+        trace.timings?.routeMs ? `Route ${formatDuration(trace.timings.routeMs)}` : '',
+        trace.timings?.specialistsMs ? `Specialists ${formatDuration(trace.timings.specialistsMs)}` : '',
+        trace.handoff?.status === 'done' ? `Handoff ${formatDuration(trace.handoff.ms)}` : '',
+        trace.timings && trace.timings.profileSkipped === false && trace.timings.profileMs
+            ? `Profile ${formatDuration(trace.timings.profileMs)}`
+            : ''
+    ].filter(Boolean)
+
+    return (
+        <Box
+            sx={{
+                mt: 1,
+                mb: 1.5,
+                borderRadius: 2,
+                border: '1px solid',
+                borderColor: alpha(theme.palette.primary.main, dark ? 0.45 : 0.22),
+                background: dark ? alpha(theme.palette.primary.main, 0.08) : alpha(theme.palette.primary.main, 0.04),
+                overflow: 'hidden'
+            }}
+        >
+            <Stack spacing={0.5} sx={{ px: 1.5, py: 1.25 }}>
+                <Stack direction='row' spacing={1} useFlexGap flexWrap='wrap' sx={{ alignItems: 'center' }}>
+                    <Chip size='small' label='Run' color='primary' variant='outlined' sx={{ height: 22 }} />
+                    <Typography variant='subtitle2'>{trace.harness || 'Harness'}</Typography>
+                    <Typography variant='caption' color='text.secondary'>
+                        {statusWord(trace.status)}
+                    </Typography>
+                    {wall ? (
+                        <Typography variant='caption' color='text.secondary'>
+                            {wall}
+                        </Typography>
+                    ) : null}
+                    {tokens ? (
+                        <Typography variant='caption' color='text.secondary'>
+                            {tokens}
+                        </Typography>
+                    ) : (
+                        <Typography variant='caption' color='text.secondary'>
+                            Tokens not reported
+                        </Typography>
+                    )}
+                </Stack>
+                <Typography variant='body2'>{routeLine(trace)}</Typography>
+                {phases.length ? (
+                    <Typography variant='caption' color='text.secondary'>
+                        {phases.join(' · ')}
+                    </Typography>
+                ) : null}
+            </Stack>
+            <Stack sx={{ px: 1, pb: 1 }} spacing={0.5}>
+                {(trace.specialists || []).map((specialist) => {
+                    const open = openName === specialist.name
+                    const toolCount = specialist.tools?.length || 0
+                    const rowViews = (specialist.tools || []).map((tool) => analystChipRows(tool))
+                    const openRows = rowViews.findIndex((view, index) => view && rowsKey === `${specialist.name}:${index}`)
+                    return (
+                        <Box key={specialist.name}>
+                            <Box
+                                component='button'
+                                type='button'
+                                aria-expanded={open}
+                                onClick={() => setOpenName(open ? '' : specialist.name)}
+                                sx={{
+                                    width: '100%',
+                                    textAlign: 'left',
+                                    border: 0,
+                                    cursor: 'pointer',
+                                    borderRadius: 1.5,
+                                    px: 1,
+                                    py: 0.75,
+                                    color: 'inherit',
+                                    background: open ? alpha(theme.palette.primary.main, dark ? 0.18 : 0.08) : 'transparent',
+                                    '&:hover': { background: alpha(theme.palette.primary.main, dark ? 0.22 : 0.1) }
+                                }}
+                            >
+                                <Stack direction='row' spacing={1} useFlexGap flexWrap='wrap' sx={{ alignItems: 'center' }}>
+                                    {open ? <IconChevronDown size={16} /> : <IconChevronRight size={16} />}
+                                    <StatusMark status={specialist.status} />
+                                    <Typography variant='body2' sx={{ fontWeight: 600 }}>
+                                        {specialist.name}
+                                    </Typography>
+                                    <Typography variant='caption' color='text.secondary'>
+                                        {specialistWord(specialist.status)}
+                                    </Typography>
+                                    <Meta>{specialist.model}</Meta>
+                                    <Meta>{formatDuration(specialist.ms)}</Meta>
+                                    <Meta>{formatTokens(specialist.tokens)}</Meta>
+                                    {specialist.fallback ? <Meta>{`Fell back to ${specialist.fallback}`}</Meta> : null}
+                                    {toolCount ? <Meta>{`${toolCount} tool${toolCount === 1 ? '' : 's'}`}</Meta> : null}
+                                </Stack>
+                            </Box>
+                            <Collapse in={open}>
+                                <Stack spacing={0.75} sx={{ px: 1.5, pt: 0.5, pb: 1 }}>
+                                    {specialist.task ? (
+                                        <Typography variant='body2' sx={{ whiteSpace: 'pre-wrap' }}>
+                                            {specialist.task}
+                                        </Typography>
+                                    ) : null}
+                                    {specialist.fallback ? (
+                                        <Typography variant='caption' color='text.secondary'>
+                                            {`Answered by the fallback model ${specialist.fallback}.`}
+                                        </Typography>
+                                    ) : null}
+                                    {specialist.tools?.length ? (
+                                        <Stack direction='row' spacing={0.5} useFlexGap flexWrap='wrap'>
+                                            {specialist.tools.map((tool, index) => {
+                                                const view = rowViews[index]
+                                                const key = `${specialist.name}:${index}`
+                                                const chip = view ? (
+                                                    <Chip
+                                                        size='small'
+                                                        variant={openRows === index ? 'filled' : 'outlined'}
+                                                        color={tool.status === 'failed' ? 'error' : 'default'}
+                                                        label={`${toolChipLabel(tool)} · ${view.rows.length} row${
+                                                            view.rows.length === 1 ? '' : 's'
+                                                        }`}
+                                                        aria-expanded={openRows === index}
+                                                        onClick={() => setRowsKey(rowsKey === key ? '' : key)}
+                                                    />
+                                                ) : (
+                                                    <Chip
+                                                        size='small'
+                                                        variant='outlined'
+                                                        color={tool.status === 'failed' ? 'error' : 'default'}
+                                                        label={toolChipLabel(tool)}
+                                                    />
+                                                )
+                                                if (tool.status !== 'retried' || !tool.detail) {
+                                                    return <span key={`${tool.name}-${index}`}>{chip}</span>
+                                                }
+                                                return (
+                                                    <Tooltip key={`${tool.name}-${index}`} title={tool.detail} placement='top'>
+                                                        <span>{chip}</span>
+                                                    </Tooltip>
+                                                )
+                                            })}
+                                        </Stack>
+                                    ) : (
+                                        <Typography variant='caption' color='text.secondary'>
+                                            No tool calls recorded
+                                        </Typography>
+                                    )}
+                                    {openRows >= 0 ? <QueryRows view={rowViews[openRows]} /> : null}
+                                    {specialist.sources?.length ? (
+                                        <Typography variant='caption' color='text.secondary'>
+                                            {`Sources: ${specialist.sources.map((source) => source.name).join(', ')}`}
+                                        </Typography>
+                                    ) : null}
+                                    {specialist.error ? (
+                                        <Typography variant='caption' color='error'>
+                                            {specialist.error}
+                                        </Typography>
+                                    ) : null}
+                                    {trace.directDetail && trace.specialists?.length === 1 ? (
+                                        <Typography variant='caption' color='text.secondary'>
+                                            {[
+                                                FILL_NOTE[trace.directDetail.fill] || '',
+                                                formatDuration(trace.directDetail.fillMs)
+                                                    ? `Fill ${formatDuration(trace.directDetail.fillMs)}`
+                                                    : '',
+                                                formatDuration(trace.directDetail.toolMs)
+                                                    ? `Tool ${formatDuration(trace.directDetail.toolMs)}`
+                                                    : '',
+                                                trace.directDetail.input ? `Input ${trace.directDetail.input}` : ''
+                                            ]
+                                                .filter(Boolean)
+                                                .join(' · ')}
+                                        </Typography>
+                                    ) : null}
+                                    <Typography variant='caption' color='text.secondary'>
+                                        {handoffLine(trace, specialist)}
+                                    </Typography>
+                                </Stack>
+                            </Collapse>
+                        </Box>
+                    )
+                })}
+                {trace.handoff?.status === 'done' ? (
+                    <Typography variant='caption' color='text.secondary' sx={{ px: 1 }}>
+                        {[
+                            'Handoff',
+                            trace.handoff.model,
+                            formatDuration(trace.handoff.ms),
+                            formatTokens(trace.handoff.tokens),
+                            trace.handoff.fallback ? `Fell back to ${trace.handoff.fallback}` : ''
+                        ]
+                            .filter(Boolean)
+                            .join(' · ')}
+                    </Typography>
+                ) : null}
+                <Box sx={{ px: 1 }}>
+                    <Box
+                        component='button'
+                        type='button'
+                        aria-expanded={cutsOpen}
+                        onClick={() => setCutsOpen((value) => !value)}
+                        sx={{
+                            border: 0,
+                            background: 'transparent',
+                            color: 'inherit',
+                            cursor: 'pointer',
+                            p: 0,
+                            textAlign: 'left'
+                        }}
+                    >
+                        <Typography variant='caption' color='text.secondary'>
+                            {trace.truncated?.length
+                                ? `Context cut in ${trace.truncated.length} place${trace.truncated.length === 1 ? '' : 's'}`
+                                : 'Context kept'}
+                        </Typography>
+                    </Box>
+                    <Collapse in={cutsOpen && Boolean(trace.truncated?.length)}>
+                        <Stack spacing={0.25} sx={{ pt: 0.5 }}>
+                            {(trace.truncated || []).map((item) => (
+                                <Typography key={item.field} variant='caption' color='text.secondary'>
+                                    {item.reason || item.field}
+                                </Typography>
+                            ))}
+                        </Stack>
+                    </Collapse>
+                </Box>
+                {trace.error ? (
+                    <Typography variant='caption' color='error' sx={{ px: 1 }}>
+                        {trace.error}
+                    </Typography>
+                ) : null}
+            </Stack>
+        </Box>
+    )
+}
+
+HarnessRunTrace.propTypes = {
+    trace: PropTypes.object
+}
+
+export default HarnessRunTrace

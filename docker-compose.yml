@@ -1,0 +1,67 @@
+# Self-hosted Cuttlely. One container runs Cuttlely and Hermes (scripts/start-cuttlely.sh).
+# Hermes stays on 127.0.0.1. The data volume is /var/cuttlely, the same mount as the
+# Render disk in render.yaml. SQLite on the volume is the default (Admin, Server settings can switch it). It does not start Postgres or Redis.
+#
+#   docker compose up -d
+#
+# Compose pulls the published image, ghcr.io/cuttlely/cuttlely:latest. When the image cannot be
+# pulled, Compose builds the root Dockerfile from this checkout instead (several minutes the first time).
+#
+#   docker compose up -d --build                     build this checkout instead of pulling
+#   CUTTLELY_IMAGE=ghcr.io/cuttlely/cuttlely:1.0.0    in .env: pin a release (see .env.example)
+#   docker compose pull && docker compose up -d      upgrade to the newest published image
+
+name: cuttlely
+services:
+    cuttlely:
+        image: ${CUTTLELY_IMAGE:-ghcr.io/cuttlely/cuttlely:latest}
+        build:
+            context: .
+            dockerfile: Dockerfile
+        restart: unless-stopped
+        init: true
+        ports:
+            - '${PORT:-43117}:${PORT:-43117}'
+        environment:
+            HOST: 0.0.0.0
+            PORT: ${PORT:-43117}
+            NODE_OPTIONS: '--max-old-space-size=2048'
+            DATABASE_PATH: /var/cuttlely/data
+            SECRETKEY_PATH: /var/cuttlely/data
+            BLOB_STORAGE_PATH: /var/cuttlely/storage
+            LOG_PATH: /var/cuttlely/logs
+            CUTTLELY_DATA_DIR: /var/cuttlely
+            CUTTLELY_HERMES_HOME: /var/cuttlely/hermes
+            HERMES_HOME: /var/cuttlely/hermes
+            CUTTLELY_ETL_DIR: /var/cuttlely/etl
+            # Version history is on unless .env sets off (false, 0, and no also work). Blank leaves it on.
+            CUTTLELY_VERSIONS: ${CUTTLELY_VERSIONS:-}
+            # Drafts are on unless .env sets off (false, 0, and no also work). Blank leaves them on.
+            CUTTLELY_DRAFTS: ${CUTTLELY_DRAFTS:-}
+            # Tells the start script this is the Docker install, so the local account is on by default
+            # and a fresh install can create its first account from the setup link in the log.
+            CUTTLELY_INSTALL: docker
+            # Blank leaves the Docker default (on). Set false in .env, or turn it off in Admin, Server settings,
+            # when you use WorkOS or publish the port beyond your machine.
+            CUTTLELY_LOCAL_ADMIN: ${CUTTLELY_LOCAL_ADMIN:-}
+            # Blank is off. auto creates analyst.db beside the app database (docs/how-to/analyst.md).
+            CUTTLELY_ANALYST: ${CUTTLELY_ANALYST:-}
+            # Blank is unset. Put real values in .env, never in git.
+            FLOWISE_SECRETKEY_OVERWRITE: ${FLOWISE_SECRETKEY_OVERWRITE:-}
+            TRUST_PROXY: ${TRUST_PROXY:-}
+            WORKOS_API_KEY: ${WORKOS_API_KEY:-}
+            WORKOS_CLIENT_ID: ${WORKOS_CLIENT_ID:-}
+            WORKOS_REDIRECT_URI: ${WORKOS_REDIRECT_URI:-}
+            WORKOS_COOKIE_PASSWORD: ${WORKOS_COOKIE_PASSWORD:-}
+            CUTTLELY_BOOTSTRAP_EMAIL: ${CUTTLELY_BOOTSTRAP_EMAIL:-}
+        volumes:
+            - cuttlely-data:/var/cuttlely
+        healthcheck:
+            test: ['CMD-SHELL', 'curl -fsS "http://127.0.0.1:${PORT:-43117}/api/v1/ping"']
+            interval: 15s
+            timeout: 5s
+            retries: 20
+            start_period: 300s
+
+volumes:
+    cuttlely-data:

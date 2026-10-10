@@ -1,0 +1,49 @@
+/**
+ * Copyright 2026 The Cuttlely Authors
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *
+ * Session attach. Prediction is skipped so an API-key call does not contact WorkOS.
+ */
+
+import { Request, Response } from 'express'
+import { LOCAL_SESSION_COOKIE, WOS_SESSION_COOKIE } from './constants'
+import { establishSession } from './handlers'
+import { buildAuthContext } from './production'
+import { SessionUser } from './types'
+
+const HANDLED_BY_ROUTE = new Set([
+    '/api/v1/auth/login',
+    '/api/v1/auth/callback',
+    '/api/v1/auth/refreshToken',
+    '/api/v1/auth/resolve',
+    '/api/v1/account/logout',
+    '/api/v1/account/register'
+])
+
+export async function attachIdentitySession(req: Request, res: Response): Promise<SessionUser | null> {
+    if (HANDLED_BY_ROUTE.has(req.path) || req.path.startsWith('/api/v1/prediction')) return null
+    const cookies = (req.cookies || {}) as Record<string, string | undefined>
+    if (!cookies[WOS_SESSION_COOKIE] && !cookies[LOCAL_SESSION_COOKIE]) return null
+    try {
+        const established = await establishSession(buildAuthContext(req))
+        const secure = established.secure ?? established.cookies?.[0]?.options.secure ?? false
+        for (const name of established.clearCookies || []) {
+            res.clearCookie(name, { path: '/', httpOnly: true, sameSite: 'lax', secure })
+        }
+        for (const cookie of established.cookies || []) res.cookie(cookie.name, cookie.value, cookie.options)
+        return established.user
+    } catch {
+        return null
+    }
+}

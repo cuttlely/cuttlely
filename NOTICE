@@ -1,0 +1,33 @@
+Cuttlely
+Copyright 2026 The Cuttlely Authors
+
+This product includes software developed by Cuttlely contributors and software
+derived from other projects. The notices below are for attribution. They do
+not change the license terms in LICENSE.md.
+
+Cuttlely's own tree is licensed under the Apache License, Version 2.0.
+The Flowise commercial enterprise directory is not part of this tree.
+Third-party components stay under the license their owners gave them.
+
+Flowise
+Copyright (c) 2023-present FlowiseAI, Inc.
+
+Cuttlely is derived from FlowiseAI/Flowise (https://github.com/FlowiseAI/Flowise),
+licensed under the Apache License, Version 2.0. The chatflow canvas, the node
+catalog, and the prediction API in this tree come from that project. Flowise
+names and trademarks remain with their owners.
+
+Hermes
+Copyright (c) 2025 Nous Research
+
+The hermes/ directory is vendored Hermes and is licensed under the MIT License.
+The MIT text is in hermes/LICENSE. Other notices under hermes/ stay with those
+components.
+Cuttlely ships a patched subset of Hermes: hermes/CUTTLELY_EXCLUDE.txt lists the
+upstream folders left out, and hermes/patches holds Cuttlely's changes.
+
+React Flow
+The canvas UI is built on React Flow (the reactflow package), which is
+licensed under the MIT License.
+https://github.com/xyflow/xyflow
+https://reactflow.dev

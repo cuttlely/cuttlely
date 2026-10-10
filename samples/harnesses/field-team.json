@@ -1,0 +1,65 @@
+{
+    "name": "field-team",
+    "description": "Harness Prime splits work across browser, Python, files, and a public HTTP GET.",
+    "chief": {
+        "instructions": "Return one section for each specialist: browser, python, files, and api. If a specialist fails, keep the other sections and name the failure.",
+        "model": {
+            "provider": "xai",
+            "model": "grok-4.7"
+        }
+    },
+    "specialists": [
+        {
+            "name": "browser",
+            "instructions": "Open the page in the task with the browser and report the text on the page.",
+            "shell": false,
+            "browser": true,
+            "codeExecution": false,
+            "fileAccess": false,
+            "modules": [],
+            "mcpServers": []
+        },
+        {
+            "name": "python",
+            "instructions": "Write and run a short Python script for the task. Report the script and its exact output.",
+            "shell": false,
+            "browser": false,
+            "codeExecution": true,
+            "fileAccess": false,
+            "modules": [],
+            "mcpServers": []
+        },
+        {
+            "name": "files",
+            "instructions": "Write the files the task asks for in this specialist workspace and report each path.",
+            "shell": false,
+            "browser": false,
+            "codeExecution": false,
+            "fileAccess": true,
+            "modules": [],
+            "mcpServers": []
+        },
+        {
+            "name": "api",
+            "instructions": "GET the public httpbin URL and report the response body. Do not call a loopback or private address.",
+            "shell": false,
+            "browser": false,
+            "codeExecution": false,
+            "fileAccess": false,
+            "modules": [
+                {
+                    "nodeName": "requestsGet",
+                    "label": "Requests Get",
+                    "category": "Tools",
+                    "inputs": {
+                        "requestsGetUrl": "https://httpbin.org/json",
+                        "requestsGetName": "httpbin_json",
+                        "requestsGetDescription": "GET https://httpbin.org/json and return the response body."
+                    },
+                    "outputs": {}
+                }
+            ],
+            "mcpServers": []
+        }
+    ]
+}

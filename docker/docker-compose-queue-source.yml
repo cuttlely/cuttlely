@@ -1,0 +1,80 @@
+version: '3.1'
+
+# Not the Cuttlely install. Builds this repository (root Dockerfile and docker/worker/Dockerfile).
+# Does not pull an image. Cuttlely harness turns use the in-process SQLite queue, not BullMQ.
+# Install with the repo root docker-compose.yml (SQLite, port 43117).
+
+services:
+    redis:
+        image: redis:alpine
+        container_name: cuttlely-redis
+        ports:
+            - '6379:6379'
+        volumes:
+            - redis_data:/data
+        networks:
+            - cuttlely-net
+
+    cuttlely:
+        container_name: cuttlely
+        build:
+            context: ..
+            dockerfile: Dockerfile
+        image: cuttlely:local
+        ports:
+            - '${PORT:-3000}:${PORT:-3000}'
+        volumes:
+            # Mount local .cuttlely to container's default location.
+            # Container runs as the non-root `node` user, whose home is /home/node.
+            # Ensure the host directory is writable by that user (e.g. `chown -R 1000:1000 ../.cuttlely` on Linux hosts).
+            - ../.cuttlely:/home/node/.cuttlely
+        environment:
+            # --- Essential Cuttlely server vars ---
+            - PORT=${PORT:-3000}
+            - DATABASE_PATH=/home/node/.cuttlely
+            - SECRETKEY_PATH=/home/node/.cuttlely
+            - LOG_PATH=/home/node/.cuttlely/logs
+            - BLOB_STORAGE_PATH=/home/node/.cuttlely/storage
+            # --- Queue Vars (Main Instance) ---
+            - MODE=queue
+            - QUEUE_NAME=cuttlely-queue # Ensure this matches worker
+            - REDIS_URL=redis://redis:6379 # Use service name 'redis'
+        depends_on:
+            - redis
+        networks:
+            - cuttlely-net
+
+    cuttlely-worker:
+        container_name: cuttlely-worker
+        build:
+            context: ..
+            dockerfile: docker/worker/Dockerfile
+        image: cuttlely-worker:local
+        volumes:
+            # Mount same local .cuttlely to worker.
+            # Container runs as the non-root `node` user, whose home is /home/node.
+            - ../.cuttlely:/home/node/.cuttlely
+        environment:
+            # --- Essential Cuttlely server vars ---
+            - WORKER_PORT=${WORKER_PORT:-5566} # Port for worker healthcheck
+            - DATABASE_PATH=/home/node/.cuttlely
+            - SECRETKEY_PATH=/home/node/.cuttlely
+            - LOG_PATH=/home/node/.cuttlely/logs
+            - BLOB_STORAGE_PATH=/home/node/.cuttlely/storage
+            # --- Queue Vars (Main Instance) ---
+            - MODE=queue
+            - QUEUE_NAME=cuttlely-queue # Ensure this matches worker
+            - REDIS_URL=redis://redis:6379 # Use service name 'redis'
+        depends_on:
+            - redis
+            - cuttlely
+        networks:
+            - cuttlely-net
+
+volumes:
+    redis_data:
+        driver: local
+
+networks:
+    cuttlely-net:
+        driver: bridge

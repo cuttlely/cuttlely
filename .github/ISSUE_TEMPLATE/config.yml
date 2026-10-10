@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+    - name: Report a security vulnerability
+      url: https://github.com/cuttlely/cuttlely/security/advisories/new
+      about: Report vulnerabilities privately. Do not open a public issue.
+    - name: Getting help
+      url: https://github.com/cuttlely/cuttlely/blob/main/SUPPORT.md
+      about: Docs, what to include in a bug report, and what is supported.

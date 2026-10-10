@@ -1,0 +1,477 @@
+import path from 'path'
+import sanitize from 'sanitize-filename'
+import { getUserHome, isAllowedUploadMimeType, mapMimeTypeToExt } from './utils'
+
+/**
+ * Validates if a string is a valid UUID v4
+ * @param {string} uuid The string to validate
+ * @returns {boolean} True if valid UUID, false otherwise
+ */
+export const isValidUUID = (uuid: string): boolean => {
+    // UUID v4 regex pattern
+    const uuidV4Pattern = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+    return uuidV4Pattern.test(uuid)
+}
+
+/**
+ * Validates if a string is a valid URL safe for interpolation into JS code.
+ * Rejects hash fragments (the exploit entry point), non-http(s) protocols,
+ * and characters that can break out of JS string literals — double quotes,
+ * single quotes, backticks (template literals), backslashes, and newlines.
+ */
+export const isValidURL = (url: string): boolean => {
+    try {
+        const parsed = new URL(url)
+        if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return false
+        if (parsed.hash) return false
+        if (/["'`\\\n\r\t]/.test(url)) return false
+        return true
+    } catch {
+        return false
+    }
+}
+
+/**
+ * Validates if a string contains path traversal attempts
+ * @param {string} path The string to validate
+ * @returns {boolean} True if path traversal detected, false otherwise
+ */
+export const isPathTraversal = (path: string): boolean => {
+    // PATH_TRAVERSAL_SAFETY defaults to true; must be explicitly set to 'false' to disable
+    if (process.env.PATH_TRAVERSAL_SAFETY === 'false') {
+        return false
+    }
+
+    // Normalize %2e → . before checking for .. to catch mixed-encoding bypasses
+    // e.g. .%2e/, %2e./, %2e%2e all become ../
+    if (/\.\./.test(path.replace(/%2e/gi, '.'))) {
+        return true
+    }
+
+    const dangerousPatterns = [
+        /%2f/i, // URL encoded /
+        /%5c/i, // URL encoded \ (Windows path)
+        /\0/, // Null bytes
+        /%00/i, // URL encoded null byte
+        /^\s*[a-zA-Z]:[/\\]/, // Windows absolute paths (C:\, C:/) with optional leading whitespace
+        /^\\\\[^\\]/, // UNC paths (\\server\)
+        /^\// // Absolute Unix paths (/etc, /data, /root, etc.)
+    ]
+
+    return dangerousPatterns.some((pattern) => pattern.test(path))
+}
+
+/**
+ * Enhanced path validation for workspace-scoped file operations
+ * @param {string} filePath The file path to validate
+ * @returns {boolean} True if path traversal detected, false otherwise
+ */
+export const isUnsafeFilePath = (filePath: string): boolean => {
+    if (process.env.PATH_TRAVERSAL_SAFETY === 'false') {
+        return false
+    }
+
+    if (!filePath || typeof filePath !== 'string') {
+        return true
+    }
+
+    // Check for path traversal patterns
+    const dangerousPatterns = [
+        /\.\./, // Directory traversal (..)
+        /%2e%2e/i, // URL encoded ..
+        /%2f/i, // URL encoded /
+        /%5c/i, // URL encoded \
+        /\0/, // Null bytes
+        // eslint-disable-next-line no-control-regex
+        /[\x00-\x1f]/, // Control characters
+        /^\/[^/]/, // Absolute Unix paths (starting with /)
+        /^[a-zA-Z]:\\/, // Absolute Windows paths (C:\)
+        /^\\\\[^\\]/, // UNC paths (\\server\)
+        /^\\\\\?\\/ // Extended-length paths (\\?\)
+    ]
+
+    return dangerousPatterns.some((pattern) => pattern.test(filePath))
+}
+
+/**
+ * Validates filename format and security
+ * @param {string} filename The filename to validate
+ * @returns {void} Throws an error if validation fails
+ */
+const validateFilename = (filename: string): void => {
+    if (!filename || typeof filename !== 'string') {
+        throw new Error('Invalid filename: filename is required and must be a string')
+    }
+    if (isUnsafeFilePath(filename)) {
+        throw new Error(`Invalid filename: unsafe characters or path traversal attempt detected in filename "${filename}"`)
+    }
+}
+
+/**
+ * Extracts and normalizes file extension from filename
+ * @param {string} filename The filename
+ * @returns {string} The normalized extension (lowercase, without dot) or empty string
+ */
+const extractFileExtension = (filename: string): string => {
+    const filenameParts = filename.split('.')
+    if (filenameParts.length <= 1) {
+        return ''
+    }
+    let ext = filenameParts.pop()!.toLowerCase()
+    // Normalize common extension variations to match MIME type mappings
+    const extensionNormalizationMap: { [key: string]: string } = {
+        jpeg: 'jpg', // image/jpeg and image/jpg both map to 'jpg'
+        tif: 'tiff', // image/tiff and image/tif both map to 'tiff'
+        oga: 'ogg', // audio/ogg and audio/oga both map to 'ogg'
+        yml: 'yaml', // application/x-yaml maps to yaml
+        markdown: 'md', // text/markdown maps to md
+        htm: 'html', // text/html maps to html
+        tsv: 'txt' // a tab-separated file is read as text; do not treat .js as text
+    }
+    ext = extensionNormalizationMap[ext] ?? ext
+    return ext
+}
+
+/**
+ * Validates that file extension matches the declared MIME type
+ *
+ * This function addresses CVE-2025-61687 by preventing MIME type spoofing attacks.
+ * It ensures that the file extension matches the declared MIME type, preventing
+ * attackers from uploading malicious files (e.g., .js file with text/plain MIME type).
+ *
+ * @param {string} filename The original filename
+ * @param {string} mimetype The declared MIME type
+ * @returns {void} Throws an error if validation fails
+ */
+export const validateMimeTypeAndExtensionMatch = (filename: string, mimetype: string): void => {
+    validateFilename(filename)
+
+    if (!mimetype || typeof mimetype !== 'string') {
+        throw new Error('Invalid MIME type: MIME type is required and must be a string')
+    }
+
+    const normalizedExt = extractFileExtension(filename)
+
+    if (!normalizedExt) {
+        // Files without extensions are rejected for security
+        throw new Error('File type not allowed: files must have a valid file extension')
+    }
+
+    // Get the expected extension from mapMimeTypeToExt (returns extension without dot)
+    const expectedExt = mapMimeTypeToExt(mimetype)
+
+    if (!expectedExt) {
+        // If mapMimeTypeToExt doesn't recognize the MIME type, it's not supported
+        throw new Error(`MIME type "${mimetype}" is not supported or does not have a valid file extension mapping`)
+    }
+
+    // Ensure the file extension matches the expected extension for the MIME type
+    if (normalizedExt !== expectedExt) {
+        throw new Error(
+            `MIME type mismatch: file extension "${normalizedExt}" does not match declared MIME type "${mimetype}". Expected: ${expectedExt}`
+        )
+    }
+}
+
+/**
+ * Filters an array of MIME type strings to only those allowed for file upload config.
+ * Used when sanitizing chatbotConfig.allowedUploadFileTypes to prevent malicious values.
+ * @param {string[]} mimeTypes Raw MIME types (e.g. from splitting comma-separated config)
+ * @returns {string[]} Only MIME types that pass isAllowedUploadMimeType
+ */
+export const filterAllowedUploadMimeTypes = (mimeTypes: string[]): string[] => {
+    if (!Array.isArray(mimeTypes)) return []
+    return mimeTypes.map((m) => (typeof m === 'string' ? m.trim() : '')).filter((m) => m !== '' && isAllowedUploadMimeType(m))
+}
+
+/**
+ * Get allowed base directories for vector store operations
+ * @returns {string[]} Array of allowed base directory paths
+ */
+const getAllowedVectorStoreBaseDirs = (): string[] => {
+    const allowedDirs: string[] = []
+
+    // Allow user home .cuttlely directory
+    const userHome = getUserHome()
+    allowedDirs.push(path.join(userHome, '.cuttlely'))
+
+    // Allow configured blob storage path if set
+    if (process.env.BLOB_STORAGE_PATH) {
+        allowedDirs.push(path.resolve(process.env.BLOB_STORAGE_PATH))
+    }
+
+    return allowedDirs
+}
+
+/**
+ * Validates and sanitizes a vector store base path to prevent path traversal attacks
+ *
+ * This function addresses path traversal vulnerabilities in vector stores (Faiss, SimpleStore)
+ * by ensuring user-provided paths cannot escape allowed directories.
+ *
+ * @param {string | undefined} userProvidedPath The base path provided by user (can be empty/undefined)
+ * @returns {string} A validated, absolute path within allowed directories
+ * @throws {Error} If path validation fails or path is outside allowed directories
+ */
+export const validateVectorStorePath = (userProvidedPath: string | undefined): string => {
+    if (process.env.PATH_TRAVERSAL_SAFETY === 'false') {
+        if (!userProvidedPath || userProvidedPath.trim() === '') {
+            return path.join(getUserHome(), '.cuttlely', 'vectorstore')
+        }
+        const bypassPath = userProvidedPath.trim()
+        return path.isAbsolute(bypassPath) ? bypassPath : path.resolve(path.join(getUserHome(), '.cuttlely', bypassPath))
+    }
+
+    // If no path provided, use default secure location
+    if (!userProvidedPath || userProvidedPath.trim() === '') {
+        return path.join(getUserHome(), '.cuttlely', 'vectorstore')
+    }
+
+    const basePath = userProvidedPath.trim()
+
+    // Check for explicit path traversal patterns (..)
+    if (basePath.includes('..')) {
+        throw new Error('Invalid path: path traversal attempt detected')
+    }
+
+    // Check for URL-encoded path traversal
+    if (basePath.toLowerCase().includes('%2e') || basePath.toLowerCase().includes('%2f') || basePath.toLowerCase().includes('%5c')) {
+        throw new Error('Invalid path: encoded path traversal attempt detected')
+    }
+
+    // Check for null bytes and control characters
+    if (/\0/.test(basePath) || /[\x00-\x1f]/.test(basePath)) {
+        throw new Error('Invalid path: null bytes or control characters detected')
+    }
+
+    // Check for Windows-specific absolute paths and UNC paths (even on Unix systems)
+    // This prevents cross-platform attack vectors
+    if (/^[a-zA-Z]:\\/.test(basePath)) {
+        throw new Error('Invalid path: Windows absolute paths are not allowed')
+    }
+    if (/^\\\\[^\\]/.test(basePath)) {
+        throw new Error('Invalid path: UNC paths are not allowed')
+    }
+    if (/^\\\\\?\\/.test(basePath)) {
+        throw new Error('Invalid path: Extended-length paths are not allowed')
+    }
+
+    // Resolve to absolute path
+    // If path is relative, resolve it relative to the .cuttlely directory (safe default)
+    // If path is already absolute, keep it as-is
+    let resolvedPath: string
+    if (path.isAbsolute(basePath)) {
+        resolvedPath = path.resolve(basePath)
+    } else {
+        // Relative paths are resolved within the .cuttlely directory for safety
+        resolvedPath = path.resolve(path.join(getUserHome(), '.cuttlely', basePath))
+    }
+
+    // Verify the resolved path doesn't contain '..' after resolution
+    if (resolvedPath.includes('..')) {
+        throw new Error('Invalid path: path traversal detected in resolved path')
+    }
+
+    // Check if resolved path is within allowed directories
+    const allowedDirs = getAllowedVectorStoreBaseDirs()
+    const isWithinAllowedDir = allowedDirs.some((allowedDir) => {
+        const normalizedResolved = normalizePlatformPath(resolvedPath)
+        const normalizedAllowed = normalizePlatformPath(allowedDir)
+        return normalizedResolved === normalizedAllowed || normalizedResolved.startsWith(normalizedAllowed + path.sep)
+    })
+
+    if (!isWithinAllowedDir) {
+        throw new Error(
+            `Invalid path: path must be within allowed directories (${allowedDirs.join(', ')}). ` + `Attempted path: ${resolvedPath}`
+        )
+    }
+
+    return resolvedPath
+}
+
+const getAllowedSQLiteBaseDirs = (): string[] => {
+    const dirs = [path.join(getUserHome(), '.cuttlely')]
+    if (process.env.DATABASE_PATH) {
+        dirs.push(path.resolve(process.env.DATABASE_PATH))
+    }
+    return dirs
+}
+
+const normalizePlatformPath = (p: string): string => {
+    const n = path.normalize(p)
+    return process.platform === 'win32' ? n.toLowerCase() : n
+}
+
+const isPathWithinAllowedSQLiteDirs = (resolvedPath: string, allowedDirs: string[]): boolean => {
+    const normalizedResolved = normalizePlatformPath(resolvedPath)
+    return allowedDirs.some((allowedDir) => {
+        const normalizedAllowed = normalizePlatformPath(allowedDir)
+        return normalizedResolved === normalizedAllowed || normalizedResolved.startsWith(normalizedAllowed + path.sep)
+    })
+}
+
+/**
+ * Validates and sanitizes a SQLite database file path to prevent path traversal
+ * and arbitrary file write attacks.
+ *
+ * Relative paths are resolved within ~/.cuttlely/. Absolute paths must fall inside
+ * ~/.cuttlely/ or DATABASE_PATH when set. Set PATH_TRAVERSAL_SAFETY=false to bypass all checks (not recommended).
+ *
+ * @param {string | undefined} userProvidedPath - File path supplied by the user in the node config
+ * @returns {string} A validated, absolute path within an allowed base directory
+ * @throws {Error} If the path is missing, contains traversal patterns, or is outside allowed directories
+ */
+export const validateSQLitePath = (userProvidedPath: string | undefined): string => {
+    const allowedDirs = getAllowedSQLiteBaseDirs()
+    const defaultDir = allowedDirs[0]
+
+    if (process.env.PATH_TRAVERSAL_SAFETY === 'false') {
+        if (!userProvidedPath || userProvidedPath.trim() === '') {
+            return path.join(defaultDir, 'database.sqlite')
+        }
+        const bypassPath = userProvidedPath.trim()
+        return path.isAbsolute(bypassPath) ? bypassPath : path.resolve(path.join(defaultDir, bypassPath))
+    }
+
+    if (!userProvidedPath || userProvidedPath.trim() === '') {
+        throw new Error('Invalid SQLite path: database path is required')
+    }
+
+    const basePath = userProvidedPath.trim()
+
+    if (basePath.includes('..')) throw new Error('Invalid SQLite path: path traversal attempt detected')
+    if (basePath.toLowerCase().includes('%2e') || basePath.toLowerCase().includes('%2f') || basePath.toLowerCase().includes('%5c'))
+        throw new Error('Invalid SQLite path: encoded path traversal attempt detected')
+    // eslint-disable-next-line no-control-regex
+    if (/\0/.test(basePath) || /[\x00-\x1f]/.test(basePath))
+        throw new Error('Invalid SQLite path: null bytes or control characters detected')
+    if (/^[a-zA-Z]:\\/.test(basePath)) throw new Error('Invalid SQLite path: Windows absolute paths are not allowed')
+    if (/^\\\\[^\\]/.test(basePath)) throw new Error('Invalid SQLite path: UNC paths are not allowed')
+    if (/^\\\\\?\\/.test(basePath)) throw new Error('Invalid SQLite path: extended-length paths are not allowed')
+
+    const resolvedPath = path.isAbsolute(basePath) ? path.resolve(basePath) : path.resolve(path.join(defaultDir, basePath))
+
+    if (resolvedPath.includes('..')) throw new Error('Invalid SQLite path: path traversal detected in resolved path')
+
+    if (!isPathWithinAllowedSQLiteDirs(resolvedPath, allowedDirs)) {
+        throw new Error(
+            `Invalid SQLite path: path must be within allowed directories (${allowedDirs.join(', ')}). Attempted path: ${resolvedPath}`
+        )
+    }
+
+    return resolvedPath
+}
+
+/**
+ * Restricts SQL executed against a SQLite database opened via validateSQLitePath to a
+ * single read-only SELECT/WITH statement.
+ *
+ * The Sql Database Chain hands LLM-generated SQL directly to TypeORM's raw query
+ * executor with no statement-type filtering. Without this guard, a compromised or
+ * malicious LLM response can run `ATTACH DATABASE`/`VACUUM INTO`/bare `PRAGMA` to write
+ * arbitrary files anywhere the process can write, bypassing validateSQLitePath (which
+ * only constrains the initial connection path, not queries run afterward).
+ *
+ * All legitimate queries issued against sqlite by this chain (including langchain's own
+ * schema introspection, which uses `pragma_table_info()` as a table-valued function
+ * inside a SELECT) are single SELECT/WITH statements, so this restriction does not
+ * affect normal operation.
+ *
+ * @param {string} sql The SQL statement to validate
+ * @throws {Error} If the statement is not a single read-only SELECT/WITH statement
+ */
+export const assertReadOnlySqlStatement = (sql: string): void => {
+    if (!sql || typeof sql !== 'string') {
+        throw new Error('Invalid SQL statement: statement is required and must be a string')
+    }
+
+    let trimmed = sql.trim()
+    // Strip at most one trailing semicolon (+ trailing whitespace)
+    trimmed = trimmed.replace(/;\s*$/, '')
+
+    if (trimmed.includes(';')) {
+        throw new Error('Invalid SQL statement: multiple statements are not allowed')
+    }
+
+    if (!/^(SELECT|WITH)\b/i.test(trimmed)) {
+        throw new Error('Invalid SQL statement: only read-only SELECT/WITH statements are allowed')
+    }
+
+    if (/load_extension\s*\(/i.test(trimmed)) {
+        throw new Error('Invalid SQL statement: load_extension is not allowed')
+    }
+}
+
+/**
+ * Sanitize a file name to prevent path traversal attacks.
+ * Strips common storage prefixes, extracts the basename, runs it through
+ * the `sanitize-filename` package, and rejects anything that still looks unsafe.
+ *
+ * @param {string} name The file name to sanitize
+ */
+export const sanitizeFileName = (name: string): string => {
+    if (!name || typeof name !== 'string') {
+        throw new Error('Invalid file name: name is required')
+    }
+    // Strip the FILE-STORAGE:: prefix if present
+    let stripped = name.replace(/^FILE-STORAGE::/, '')
+    // Decode percent-encoded traversal sequences before basename extraction
+    try {
+        stripped = decodeURIComponent(stripped)
+    } catch (_) {
+        // If decoding fails the raw string is fine — basename will still strip dirs
+    }
+    // Normalize backslashes to forward slashes so path.basename works on all
+    // platforms (on Linux, path.basename does not treat \ as a separator)
+    stripped = stripped.replace(/\\/g, '/')
+    // Extract only the base filename — removes all directory components
+    let baseName = path.basename(stripped)
+    // Run through sanitize-filename to strip OS-reserved chars, control chars, etc.
+    baseName = sanitize(baseName)
+    // Remove leading dots to prevent hidden files or relative path references
+    baseName = baseName.replace(/^\.+/, '')
+    if (!baseName || isUnsafeFilePath(baseName)) {
+        throw new Error(`Invalid or unsafe file name: ${name}`)
+    }
+    return baseName
+}
+
+/**
+ * Safely resolve an untrusted relative key/filename to an absolute path inside a
+ * trusted base directory, guaranteeing the result cannot escape that directory.
+ *
+ * @param {string} baseDir The trusted base directory (e.g. a freshly created temp dir)
+ * @param {string} key The untrusted relative key or filename
+ * @returns {string} A validated absolute path guaranteed to be within baseDir
+ * @throws {Error} If key is missing/invalid or the resolved path escapes baseDir
+ */
+export const getSafeFilePath = (baseDir: string, key: string): string => {
+    if (!key || typeof key !== 'string') {
+        throw new Error('Invalid file path: key is required and must be a string')
+    }
+
+    let decodedKey = key
+    try {
+        decodedKey = decodeURIComponent(key)
+    } catch {
+        // malformed percent-encoding — keep the raw key; resolve/relative handle it safely
+    }
+
+    if (decodedKey.includes('\0')) {
+        throw new Error(`Invalid file path: null byte detected in "${key}"`)
+    }
+
+    const resolvedBase = path.resolve(baseDir)
+    const resolvedPath = path.resolve(resolvedBase, decodedKey)
+
+    if (process.env.PATH_TRAVERSAL_SAFETY === 'false') {
+        return resolvedPath
+    }
+
+    const relative = path.relative(resolvedBase, resolvedPath)
+    if (relative === '' || relative === '..' || relative.startsWith('..' + path.sep) || path.isAbsolute(relative)) {
+        throw new Error(`Invalid file path: path traversal attempt detected in "${key}"`)
+    }
+
+    return resolvedPath
+}

@@ -1,0 +1,138 @@
+import { INode, INodeData, INodeParams } from '../../../src/Interface'
+
+class HarnessSpecialist_Harness implements INode {
+    label: string
+    name: string
+    version: number
+    description: string
+    type: string
+    icon: string
+    category: string
+    baseClasses: string[]
+    inputs: INodeParams[]
+
+    constructor() {
+        this.label = 'Harness Specialist'
+        this.name = 'harnessSpecialist'
+        this.version = 2.1
+        this.type = 'HarnessSpecialist'
+        this.icon = 'harness.svg'
+        this.category = 'Harness'
+        this.description =
+            "Specialist on a harness roster. Uses Harness Prime's chat model unless you connect its own chat model. If that node needs a credential, select it there. Attach its tools."
+        this.baseClasses = [this.type]
+        this.inputs = [
+            {
+                label: 'Chat Model',
+                name: 'chatModel',
+                type: 'BaseChatModel',
+                optional: true,
+                description:
+                    "Optional. Leave empty to use Harness Prime's chat model. When connected, this specialist uses only that node. If that node needs a credential, select it there."
+            },
+            {
+                label: 'Fallback Chat Model',
+                name: 'fallbackModel',
+                type: 'BaseChatModel',
+                optional: true,
+                description:
+                    "Optional. Used when this specialist's chat model is slow or returns 503. With nothing connected here, Harness Prime's fallback model is used if it has one."
+            },
+            {
+                label: 'Attached',
+                name: 'attached',
+                type: 'BaseRetriever | Tool | VectorStore | Document | Embeddings | TextSplitter | BaseDocumentTransformer',
+                list: true,
+                optional: true,
+                description: 'Connect a retriever, tool, MCP server, vector store, or the loader and splitter that feed them.'
+            },
+            {
+                label: 'Name',
+                name: 'specialistName',
+                type: 'string',
+                placeholder: 'researcher'
+            },
+            {
+                label: 'Instructions',
+                name: 'instructions',
+                type: 'string',
+                rows: 4,
+                optional: true
+            },
+            {
+                label: 'Routing summary',
+                name: 'routingSummary',
+                type: 'string',
+                rows: 2,
+                optional: true,
+                description:
+                    'Optional. What this specialist does, in up to 300 characters. Harness Prime reads it to choose specialists. Leave empty to use the start of the instructions.'
+            },
+            {
+                label: 'Playbooks',
+                name: 'playbooks',
+                type: 'array',
+                optional: true,
+                additionalParams: true,
+                description:
+                    'Optional. Long rules this specialist loads only when a question needs them. It sees each name and "when to use" line, and reads the content on demand. The specialist runs in Hermes.',
+                array: [
+                    { label: 'Name', name: 'name', type: 'string', placeholder: 'refund-rules' },
+                    { label: 'When to use', name: 'description', type: 'string', placeholder: 'Questions about refunds and credits' },
+                    { label: 'Content', name: 'content', type: 'string', rows: 8 }
+                ]
+            },
+            {
+                label: 'Handoff limit',
+                name: 'handoffChars',
+                type: 'number',
+                optional: true,
+                additionalParams: true,
+                placeholder: '4000',
+                description:
+                    "Optional. How many characters of this specialist's answer Harness Prime reads before it writes the reply, from 160 to 20,000. Empty is 4,000. A long knowledge answer may need more."
+            },
+            {
+                label: 'Shell',
+                name: 'enableShell',
+                type: 'boolean',
+                default: false,
+                optional: true,
+                description: 'Off unless this specialist needs a shell.'
+            },
+            {
+                label: 'Browser',
+                name: 'enableBrowser',
+                type: 'boolean',
+                default: false,
+                optional: true
+            },
+            {
+                label: 'Code execution',
+                name: 'enableCodeExecution',
+                type: 'boolean',
+                default: false,
+                optional: true,
+                description: 'Runs Python scripts with execute_code.'
+            },
+            {
+                label: 'Files',
+                name: 'enableFileAccess',
+                type: 'boolean',
+                default: false,
+                optional: true,
+                description: 'Reads and writes files in this specialist workspace.'
+            }
+        ]
+    }
+
+    async run(_nodeData: INodeData): Promise<string> {
+        const error = new Error('A specialist is saved with the harness. A chat flow runs it by selecting the harness name.') as Error & {
+            harnessError?: boolean
+        }
+        error.harnessError = true
+        throw error
+    }
+}
+
+module.exports = { nodeClass: HarnessSpecialist_Harness }

@@ -1,0 +1,44 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: cuttlely vendor <vendor@cuttlely.invalid>
+Date: Sat, 1 Jan 2000 00:00:00 +0000
+Subject: [PATCH] cuttlely: models.dev offline by default
+
+What: agent/models_dev.py makes no models.dev request unless CUTTLELY_MODELS_DEV=1; memory and disk caches still serve, and lookups without data fall through to the other sources, as when models.dev is unreachable. Why: Cuttlely makes no network call its operator did not set up (SECURITY.md, What Cuttlely connects to); upstream fetches models.dev on image routing and model switching.
+---
+ agent/models_dev.py | 9 +++++++++
+ 1 file changed, 9 insertions(+)
+
+diff --git a/agent/models_dev.py b/agent/models_dev.py
+index 2ebd7236dd66e796a006ec486869582a1e344836..70b377032746c6393cef4e1b00119b3d9e4adae2 100644
+--- a/agent/models_dev.py
++++ b/agent/models_dev.py
+@@ -10,6 +10,7 @@ quarantined, never served as ``{}``. ``models_dev.url`` in config.yaml = mirror.
+ import contextlib
+ import json
+ import logging
++import os
+ import re
+ import threading
+ import time
+@@ -435,6 +436,12 @@ def _start_background_refresh_models_dev() -> None:
+         logger.debug("Failed to start models.dev refresh thread: %s", e)
+ 
+ 
++def _models_dev_network_allowed() -> bool:
++    """cuttlely: never request models.dev unless CUTTLELY_MODELS_DEV=1. Memory and disk caches still serve,
++    and lookups without data fall through to the other sources, as when models.dev is unreachable."""
++    return os.environ.get("CUTTLELY_MODELS_DEV", "").strip().lower() in ("1", "true", "yes", "on")
++
++
+ def fetch_models_dev(force_refresh: bool = False, *, allow_network: bool = True) -> Dict[str, Any]:
+     """Fetch the models.dev registry (dict keyed by provider ID; {} on failure). Cache hierarchy:
+     fresh in-memory → stale in-memory (served now, refreshed in one background daemon thread — stale
+@@ -443,6 +450,8 @@ def fetch_models_dev(force_refresh: bool = False, *, allow_network: bool = True)
+     ``force_refresh=True`` bypasses the cache fast paths and the backoff, falling back to cached data
+     only if the call fails. ``allow_network=False`` returns any memory/disk cache and never makes a request."""
+     global _models_dev_cache, _models_dev_cache_time, _models_dev_retry_after
++    if allow_network and not _models_dev_network_allowed():
++        allow_network = False
+     if not allow_network:
+         if not _models_dev_cache and (disk_data := _load_disk_cache()):
+             _models_dev_cache = disk_data

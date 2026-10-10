@@ -1,0 +1,592 @@
+{
+    "name": "Cuttlely Handbook",
+    "description": "Reads this checkout as a repository, splits Markdown, and stores local embeddings.",
+    "flowData": {
+        "nodes": [
+            {
+                "id": "markdownTextSplitter_0",
+                "position": {
+                    "x": 40,
+                    "y": 40
+                },
+                "type": "customNode",
+                "width": 300,
+                "data": {
+                    "id": "markdownTextSplitter_0",
+                    "label": "Markdown Text Splitter",
+                    "version": 1.1,
+                    "name": "markdownTextSplitter",
+                    "type": "MarkdownTextSplitter",
+                    "baseClasses": [
+                        "MarkdownTextSplitter",
+                        "RecursiveCharacterTextSplitter",
+                        "TextSplitter",
+                        "BaseDocumentTransformer",
+                        "Runnable"
+                    ],
+                    "category": "Text Splitters",
+                    "description": "Split your content into documents based on the Markdown headers",
+                    "inputParams": [
+                        {
+                            "label": "Chunk Size",
+                            "name": "chunkSize",
+                            "type": "number",
+                            "description": "Number of characters in each chunk. Default is 1000.",
+                            "default": 1000,
+                            "optional": true,
+                            "id": "markdownTextSplitter_0-input-chunkSize-number"
+                        },
+                        {
+                            "label": "Chunk Overlap",
+                            "name": "chunkOverlap",
+                            "type": "number",
+                            "description": "Number of characters to overlap between chunks. Default is 200.",
+                            "default": 200,
+                            "optional": true,
+                            "id": "markdownTextSplitter_0-input-chunkOverlap-number"
+                        },
+                        {
+                            "label": "Split by Headers",
+                            "name": "splitByHeaders",
+                            "type": "options",
+                            "description": "Split documents at specified header levels. Headers will be included with their content.",
+                            "default": "disabled",
+                            "options": [
+                                {
+                                    "label": "Disabled",
+                                    "name": "disabled"
+                                },
+                                {
+                                    "label": "# Headers (H1)",
+                                    "name": "h1"
+                                },
+                                {
+                                    "label": "## Headers (H2)",
+                                    "name": "h2"
+                                },
+                                {
+                                    "label": "### Headers (H3)",
+                                    "name": "h3"
+                                },
+                                {
+                                    "label": "#### Headers (H4)",
+                                    "name": "h4"
+                                },
+                                {
+                                    "label": "##### Headers (H5)",
+                                    "name": "h5"
+                                },
+                                {
+                                    "label": "###### Headers (H6)",
+                                    "name": "h6"
+                                }
+                            ],
+                            "optional": true,
+                            "id": "markdownTextSplitter_0-input-splitByHeaders-options"
+                        }
+                    ],
+                    "inputAnchors": [],
+                    "inputs": {
+                        "chunkSize": 1200,
+                        "chunkOverlap": 100,
+                        "splitByHeaders": "disabled"
+                    },
+                    "outputAnchors": [
+                        {
+                            "id": "markdownTextSplitter_0-output-markdownTextSplitter-MarkdownTextSplitter|RecursiveCharacterTextSplitter|TextSplitter|BaseDocumentTransformer|Runnable",
+                            "name": "markdownTextSplitter",
+                            "label": "MarkdownTextSplitter",
+                            "description": "Split your content into documents based on the Markdown headers",
+                            "type": "MarkdownTextSplitter | RecursiveCharacterTextSplitter | TextSplitter | BaseDocumentTransformer | Runnable"
+                        }
+                    ],
+                    "outputs": {},
+                    "selected": false
+                },
+                "positionAbsolute": {
+                    "x": 40,
+                    "y": 40
+                }
+            },
+            {
+                "id": "etlRepoSource_0",
+                "position": {
+                    "x": 490,
+                    "y": 40
+                },
+                "type": "customNode",
+                "width": 300,
+                "data": {
+                    "id": "etlRepoSource_0",
+                    "label": "Code Repository",
+                    "version": 1,
+                    "name": "etlRepoSource",
+                    "type": "Document",
+                    "baseClasses": ["Document"],
+                    "category": "ETL",
+                    "description": "Walks a repository file by file with .gitignore and default ignores. Unchanged files are skipped on the next run without being read.",
+                    "inputParams": [
+                        {
+                            "label": "Folder Path",
+                            "name": "repoPath",
+                            "type": "string",
+                            "placeholder": "/srv/repos/my-service",
+                            "optional": true,
+                            "description": "A checkout on the server. Leave empty to clone the Git URL instead.",
+                            "id": "etlRepoSource_0-input-repoPath-string"
+                        },
+                        {
+                            "label": "Git URL",
+                            "name": "gitUrl",
+                            "type": "string",
+                            "placeholder": "https://github.com/org/repo.git",
+                            "optional": true,
+                            "description": "Public https repository, shallow-cloned under .cuttlely/etl/repos and fetched again on each run.",
+                            "id": "etlRepoSource_0-input-gitUrl-string"
+                        },
+                        {
+                            "label": "Branch",
+                            "name": "branch",
+                            "type": "string",
+                            "optional": true,
+                            "additionalParams": true,
+                            "id": "etlRepoSource_0-input-branch-string"
+                        },
+                        {
+                            "label": "Include Globs",
+                            "name": "include",
+                            "type": "string",
+                            "placeholder": "**/*.ts, **/*.md",
+                            "optional": true,
+                            "additionalParams": true,
+                            "id": "etlRepoSource_0-input-include-string"
+                        },
+                        {
+                            "label": "Exclude Globs",
+                            "name": "exclude",
+                            "type": "string",
+                            "placeholder": "test/**, **/*.snap",
+                            "optional": true,
+                            "additionalParams": true,
+                            "id": "etlRepoSource_0-input-exclude-string"
+                        },
+                        {
+                            "label": "Respect .gitignore",
+                            "name": "respectGitignore",
+                            "type": "boolean",
+                            "default": true,
+                            "optional": true,
+                            "additionalParams": true,
+                            "id": "etlRepoSource_0-input-respectGitignore-boolean"
+                        },
+                        {
+                            "label": "Default Ignores",
+                            "name": "defaultIgnores",
+                            "type": "boolean",
+                            "default": true,
+                            "description": "Skip .git, node_modules, build output, lockfiles, and binary files.",
+                            "optional": true,
+                            "additionalParams": true,
+                            "id": "etlRepoSource_0-input-defaultIgnores-boolean"
+                        },
+                        {
+                            "label": "Max File Size (KB)",
+                            "name": "maxFileKb",
+                            "type": "number",
+                            "default": 1024,
+                            "optional": true,
+                            "additionalParams": true,
+                            "id": "etlRepoSource_0-input-maxFileKb-number"
+                        },
+                        {
+                            "label": "Repository Label",
+                            "name": "repoLabel",
+                            "type": "string",
+                            "placeholder": "my-service",
+                            "description": "Stored as metadata.repository on every chunk.",
+                            "optional": true,
+                            "additionalParams": true,
+                            "id": "etlRepoSource_0-input-repoLabel-string"
+                        }
+                    ],
+                    "inputAnchors": [
+                        {
+                            "label": "Text Splitter",
+                            "name": "textSplitter",
+                            "type": "TextSplitter",
+                            "optional": true,
+                            "description": "A Code Text Splitter keeps functions together.",
+                            "id": "etlRepoSource_0-input-textSplitter-TextSplitter"
+                        }
+                    ],
+                    "inputs": {
+                        "textSplitter": "{{markdownTextSplitter_0.data.instance}}",
+                        "repoPath": "{{repo}}",
+                        "gitUrl": "",
+                        "branch": "",
+                        "include": "README.md, AGENTS.md, docs/**/*.md, .projects/**/*.md, samples/**/*.md",
+                        "exclude": "",
+                        "respectGitignore": true,
+                        "defaultIgnores": true,
+                        "maxFileKb": 512,
+                        "repoLabel": "cuttlely"
+                    },
+                    "outputAnchors": [
+                        {
+                            "name": "output",
+                            "label": "Output",
+                            "type": "options",
+                            "description": "",
+                            "options": [
+                                {
+                                    "id": "etlRepoSource_0-output-document-Document",
+                                    "name": "document",
+                                    "label": "Document",
+                                    "description": "",
+                                    "type": "Document"
+                                }
+                            ],
+                            "default": "document"
+                        }
+                    ],
+                    "outputs": {
+                        "output": "document"
+                    },
+                    "selected": false
+                },
+                "positionAbsolute": {
+                    "x": 490,
+                    "y": 40
+                }
+            },
+            {
+                "id": "etlTransform_0",
+                "position": {
+                    "x": 940,
+                    "y": 40
+                },
+                "type": "customNode",
+                "width": 300,
+                "data": {
+                    "id": "etlTransform_0",
+                    "label": "Clean & Transform",
+                    "version": 1.1,
+                    "name": "etlTransform",
+                    "type": "Document",
+                    "baseClasses": ["Document"],
+                    "category": "ETL",
+                    "description": "Cleans documents before splitting: Unicode and whitespace, HTML, short documents, metadata, and a text prefix.",
+                    "inputParams": [
+                        {
+                            "label": "Normalize Whitespace",
+                            "name": "normalizeWhitespace",
+                            "type": "boolean",
+                            "default": true,
+                            "optional": true,
+                            "id": "etlTransform_0-input-normalizeWhitespace-boolean"
+                        },
+                        {
+                            "label": "Normalize Unicode (NFC)",
+                            "name": "normalizeUnicode",
+                            "type": "boolean",
+                            "default": true,
+                            "optional": true,
+                            "id": "etlTransform_0-input-normalizeUnicode-boolean"
+                        },
+                        {
+                            "label": "Strip HTML",
+                            "name": "stripHtml",
+                            "type": "boolean",
+                            "default": false,
+                            "optional": true,
+                            "id": "etlTransform_0-input-stripHtml-boolean"
+                        },
+                        {
+                            "label": "Minimum Characters",
+                            "name": "minChars",
+                            "type": "number",
+                            "default": 1,
+                            "description": "Drop documents shorter than this after cleaning.",
+                            "optional": true,
+                            "id": "etlTransform_0-input-minChars-number"
+                        },
+                        {
+                            "label": "Key Template",
+                            "name": "keyTemplate",
+                            "type": "string",
+                            "placeholder": "{{source}}#{{loc.pageNumber}}",
+                            "description": "Required after a document loader: builds each record key from its metadata, so an edited document replaces its old chunks. A document missing a referenced value is rejected as missing_key.",
+                            "optional": true,
+                            "id": "etlTransform_0-input-keyTemplate-string"
+                        },
+                        {
+                            "label": "Prefix Template",
+                            "name": "prefixTemplate",
+                            "type": "string",
+                            "placeholder": "File: {path}\\n",
+                            "description": "Prepended to the text. {key} is replaced by that metadata value.",
+                            "optional": true,
+                            "additionalParams": true,
+                            "id": "etlTransform_0-input-prefixTemplate-string"
+                        },
+                        {
+                            "label": "Add Metadata",
+                            "name": "metadata",
+                            "type": "json",
+                            "optional": true,
+                            "additionalParams": true,
+                            "id": "etlTransform_0-input-metadata-json"
+                        },
+                        {
+                            "label": "Keep Only Metadata Keys",
+                            "name": "keepMetadataKeys",
+                            "type": "string",
+                            "placeholder": "source, path, title",
+                            "optional": true,
+                            "additionalParams": true,
+                            "id": "etlTransform_0-input-keepMetadataKeys-string"
+                        },
+                        {
+                            "label": "Omit Metadata Keys",
+                            "name": "omitMetadataKeys",
+                            "type": "string",
+                            "placeholder": "loc, pdf",
+                            "optional": true,
+                            "additionalParams": true,
+                            "id": "etlTransform_0-input-omitMetadataKeys-string"
+                        }
+                    ],
+                    "inputAnchors": [
+                        {
+                            "label": "Document",
+                            "name": "document",
+                            "type": "Document",
+                            "list": true,
+                            "id": "etlTransform_0-input-document-Document"
+                        }
+                    ],
+                    "inputs": {
+                        "document": ["{{etlRepoSource_0.data.instance}}"],
+                        "normalizeWhitespace": true,
+                        "normalizeUnicode": true,
+                        "stripHtml": false,
+                        "minChars": 40,
+                        "keyTemplate": "",
+                        "prefixTemplate": "File: {path}\\n",
+                        "metadata": "",
+                        "keepMetadataKeys": "",
+                        "omitMetadataKeys": ""
+                    },
+                    "outputAnchors": [
+                        {
+                            "name": "output",
+                            "label": "Output",
+                            "type": "options",
+                            "description": "",
+                            "options": [
+                                {
+                                    "id": "etlTransform_0-output-document-Document",
+                                    "name": "document",
+                                    "label": "Document",
+                                    "description": "",
+                                    "type": "Document"
+                                }
+                            ],
+                            "default": "document"
+                        }
+                    ],
+                    "outputs": {
+                        "output": "document"
+                    },
+                    "selected": false
+                },
+                "positionAbsolute": {
+                    "x": 940,
+                    "y": 40
+                }
+            },
+            {
+                "id": "localHashEmbeddings_0",
+                "position": {
+                    "x": 940,
+                    "y": 1312
+                },
+                "type": "customNode",
+                "width": 300,
+                "data": {
+                    "id": "localHashEmbeddings_0",
+                    "label": "Local Hash Embeddings",
+                    "version": 1,
+                    "name": "localHashEmbeddings",
+                    "type": "LocalHashEmbeddings",
+                    "baseClasses": ["LocalHashEmbeddings"],
+                    "category": "Embeddings",
+                    "description": "Deterministic word-hashing embeddings computed in the server, with no key or network. Good for tests, demos and keyword-style retrieval; use a provider model for semantic search.",
+                    "inputParams": [
+                        {
+                            "label": "Dimensions",
+                            "name": "dimensions",
+                            "type": "number",
+                            "default": 384,
+                            "optional": true,
+                            "id": "localHashEmbeddings_0-input-dimensions-number"
+                        }
+                    ],
+                    "inputAnchors": [],
+                    "inputs": {
+                        "dimensions": 384
+                    },
+                    "outputAnchors": [
+                        {
+                            "id": "localHashEmbeddings_0-output-localHashEmbeddings-LocalHashEmbeddings",
+                            "name": "localHashEmbeddings",
+                            "label": "LocalHashEmbeddings",
+                            "description": "Deterministic word-hashing embeddings computed in the server, with no key or network. Good for tests, demos and keyword-style retrieval; use a provider model for semantic search.",
+                            "type": "LocalHashEmbeddings"
+                        }
+                    ],
+                    "outputs": {},
+                    "selected": false
+                },
+                "positionAbsolute": {
+                    "x": 940,
+                    "y": 1312
+                }
+            },
+            {
+                "id": "etlLocalVectorStore_0",
+                "position": {
+                    "x": 1390,
+                    "y": 40
+                },
+                "type": "customNode",
+                "width": 300,
+                "data": {
+                    "id": "etlLocalVectorStore_0",
+                    "label": "Local Vector Store",
+                    "version": 1,
+                    "name": "etlLocalVectorStore",
+                    "type": "CuttlelyLocal",
+                    "baseClasses": ["CuttlelyLocal", "VectorStoreRetriever", "BaseRetriever"],
+                    "category": "Vector Stores",
+                    "description": "Persistent vector collection in a SQLite file under .cuttlely/etl/vectors. Upserts and deletes by id, needs no external service, and is the default ETL target.",
+                    "inputParams": [
+                        {
+                            "label": "Collection",
+                            "name": "collection",
+                            "type": "string",
+                            "placeholder": "product-docs",
+                            "optional": true,
+                            "description": "Defaults to the ETL pipeline name. On a chat flow, name the collection a pipeline wrote.",
+                            "id": "etlLocalVectorStore_0-input-collection-string"
+                        },
+                        {
+                            "label": "Top K",
+                            "name": "topK",
+                            "type": "number",
+                            "placeholder": "4",
+                            "optional": true,
+                            "additionalParams": true,
+                            "id": "etlLocalVectorStore_0-input-topK-number"
+                        }
+                    ],
+                    "inputAnchors": [
+                        {
+                            "label": "Document",
+                            "name": "document",
+                            "type": "Document",
+                            "list": true,
+                            "optional": true,
+                            "id": "etlLocalVectorStore_0-input-document-Document"
+                        },
+                        {
+                            "label": "Embeddings",
+                            "name": "embeddings",
+                            "type": "Embeddings",
+                            "id": "etlLocalVectorStore_0-input-embeddings-Embeddings"
+                        }
+                    ],
+                    "inputs": {
+                        "document": ["{{etlTransform_0.data.instance}}"],
+                        "embeddings": "{{localHashEmbeddings_0.data.instance}}",
+                        "collection": "cuttlely-handbook",
+                        "topK": 4
+                    },
+                    "outputAnchors": [
+                        {
+                            "name": "output",
+                            "label": "Output",
+                            "type": "options",
+                            "description": "",
+                            "options": [
+                                {
+                                    "id": "etlLocalVectorStore_0-output-retriever-CuttlelyLocal|VectorStoreRetriever|BaseRetriever",
+                                    "name": "retriever",
+                                    "label": "Local Retriever",
+                                    "description": "",
+                                    "type": "CuttlelyLocal | VectorStoreRetriever | BaseRetriever"
+                                },
+                                {
+                                    "id": "etlLocalVectorStore_0-output-vectorStore-CuttlelyLocal",
+                                    "name": "vectorStore",
+                                    "label": "Local Vector Store",
+                                    "description": "",
+                                    "type": "CuttlelyLocal"
+                                }
+                            ],
+                            "default": "retriever"
+                        }
+                    ],
+                    "outputs": {
+                        "output": "retriever"
+                    },
+                    "selected": false
+                },
+                "positionAbsolute": {
+                    "x": 1390,
+                    "y": 40
+                }
+            }
+        ],
+        "edges": [
+            {
+                "source": "markdownTextSplitter_0",
+                "sourceHandle": "markdownTextSplitter_0-output-markdownTextSplitter-MarkdownTextSplitter|RecursiveCharacterTextSplitter|TextSplitter|BaseDocumentTransformer|Runnable",
+                "target": "etlRepoSource_0",
+                "targetHandle": "etlRepoSource_0-input-textSplitter-TextSplitter",
+                "type": "buttonedge",
+                "id": "markdownTextSplitter_0-markdownTextSplitter_0-output-markdownTextSplitter-MarkdownTextSplitter|RecursiveCharacterTextSplitter|TextSplitter|BaseDocumentTransformer|Runnable-etlRepoSource_0-etlRepoSource_0-input-textSplitter-TextSplitter"
+            },
+            {
+                "source": "etlRepoSource_0",
+                "sourceHandle": "etlRepoSource_0-output-document-Document",
+                "target": "etlTransform_0",
+                "targetHandle": "etlTransform_0-input-document-Document",
+                "type": "buttonedge",
+                "id": "etlRepoSource_0-etlRepoSource_0-output-document-Document-etlTransform_0-etlTransform_0-input-document-Document"
+            },
+            {
+                "source": "etlTransform_0",
+                "sourceHandle": "etlTransform_0-output-document-Document",
+                "target": "etlLocalVectorStore_0",
+                "targetHandle": "etlLocalVectorStore_0-input-document-Document",
+                "type": "buttonedge",
+                "id": "etlTransform_0-etlTransform_0-output-document-Document-etlLocalVectorStore_0-etlLocalVectorStore_0-input-document-Document"
+            },
+            {
+                "source": "localHashEmbeddings_0",
+                "sourceHandle": "localHashEmbeddings_0-output-localHashEmbeddings-LocalHashEmbeddings",
+                "target": "etlLocalVectorStore_0",
+                "targetHandle": "etlLocalVectorStore_0-input-embeddings-Embeddings",
+                "type": "buttonedge",
+                "id": "localHashEmbeddings_0-localHashEmbeddings_0-output-localHashEmbeddings-LocalHashEmbeddings-etlLocalVectorStore_0-etlLocalVectorStore_0-input-embeddings-Embeddings"
+            }
+        ],
+        "viewport": {
+            "x": 48,
+            "y": 48,
+            "zoom": 0.41
+        }
+    },
+    "usecases": ["Documents"]
+}

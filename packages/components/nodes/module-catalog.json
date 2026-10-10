@@ -1,0 +1,2685 @@
+{
+    "generatedFrom": "packages/components/nodes",
+    "registration": "NodesPool loads every nodeClass under packages/components/nodes. packages/components/nodes/index.ts re-exports this catalog.",
+    "langgraphUpgradeBlocked": false,
+    "counts": {
+        "native": 265,
+        "adapt": 17,
+        "replaced": 15
+    },
+    "nodes": [
+        {
+            "name": "agentAgentflow",
+            "label": "Agent",
+            "category": "Agent Flows",
+            "folder": "agentflow",
+            "file": "packages/components/nodes/agentflow/Agent/Agent.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "conditionAgentflow",
+            "label": "Condition",
+            "category": "Agent Flows",
+            "folder": "agentflow",
+            "file": "packages/components/nodes/agentflow/Condition/Condition.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "conditionAgentAgentflow",
+            "label": "Condition Agent",
+            "category": "Agent Flows",
+            "folder": "agentflow",
+            "file": "packages/components/nodes/agentflow/ConditionAgent/ConditionAgent.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "customFunctionAgentflow",
+            "label": "Custom Function",
+            "category": "Agent Flows",
+            "folder": "agentflow",
+            "file": "packages/components/nodes/agentflow/CustomFunction/CustomFunction.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "directReplyAgentflow",
+            "label": "Direct Reply",
+            "category": "Agent Flows",
+            "folder": "agentflow",
+            "file": "packages/components/nodes/agentflow/DirectReply/DirectReply.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "executeFlowAgentflow",
+            "label": "Execute Flow",
+            "category": "Agent Flows",
+            "folder": "agentflow",
+            "file": "packages/components/nodes/agentflow/ExecuteFlow/ExecuteFlow.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "httpAgentflow",
+            "label": "HTTP",
+            "category": "Agent Flows",
+            "folder": "agentflow",
+            "file": "packages/components/nodes/agentflow/HTTP/HTTP.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "humanInputAgentflow",
+            "label": "Human Input",
+            "category": "Agent Flows",
+            "folder": "agentflow",
+            "file": "packages/components/nodes/agentflow/HumanInput/HumanInput.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "iterationAgentflow",
+            "label": "Iteration",
+            "category": "Agent Flows",
+            "folder": "agentflow",
+            "file": "packages/components/nodes/agentflow/Iteration/Iteration.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "llmAgentflow",
+            "label": "LLM",
+            "category": "Agent Flows",
+            "folder": "agentflow",
+            "file": "packages/components/nodes/agentflow/LLM/LLM.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "loopAgentflow",
+            "label": "Loop",
+            "category": "Agent Flows",
+            "folder": "agentflow",
+            "file": "packages/components/nodes/agentflow/Loop/Loop.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "retrieverAgentflow",
+            "label": "Retriever",
+            "category": "Agent Flows",
+            "folder": "agentflow",
+            "file": "packages/components/nodes/agentflow/Retriever/Retriever.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "startAgentflow",
+            "label": "Start",
+            "category": "Agent Flows",
+            "folder": "agentflow",
+            "file": "packages/components/nodes/agentflow/Start/Start.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "stickyNoteAgentflow",
+            "label": "Sticky Note",
+            "category": "Agent Flows",
+            "folder": "agentflow",
+            "file": "packages/components/nodes/agentflow/StickyNote/StickyNote.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "toolAgentflow",
+            "label": "Tool",
+            "category": "Agent Flows",
+            "folder": "agentflow",
+            "file": "packages/components/nodes/agentflow/Tool/Tool.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "conversationalAgent",
+            "label": "Conversational Agent",
+            "category": "Agents",
+            "folder": "agents",
+            "file": "packages/components/nodes/agents/ConversationalAgent/ConversationalAgent.ts",
+            "disposition": "replaced",
+            "reason": "Marked deprecated in place. Not deleted. Conversational agent is deprecated and will be removed in a future release. Use Agent from AgentFlow instead."
+        },
+        {
+            "name": "conversationalRetrievalToolAgent",
+            "label": "Conversational Retrieval Tool Agent",
+            "category": "Agents",
+            "folder": "agents",
+            "file": "packages/components/nodes/agents/ConversationalRetrievalToolAgent/ConversationalRetrievalToolAgent.ts",
+            "disposition": "adapt",
+            "reason": "Older agent or LangGraph 0.0.22 runtime. Convert only when a harness binding cannot load it."
+        },
+        {
+            "name": "openAIAssistant",
+            "label": "OpenAI Assistant",
+            "category": "Agents",
+            "folder": "agents",
+            "file": "packages/components/nodes/agents/OpenAIAssistant/OpenAIAssistant.ts",
+            "disposition": "replaced",
+            "reason": "Marked deprecated in place. Not deleted. OpenAI Assistant is deprecated and will be removed in a future release. Use Custom Assistant instead."
+        },
+        {
+            "name": "reactAgentChat",
+            "label": "ReAct Agent for Chat Models",
+            "category": "Agents",
+            "folder": "agents",
+            "file": "packages/components/nodes/agents/ReActAgentChat/ReActAgentChat.ts",
+            "disposition": "replaced",
+            "reason": "Marked deprecated in place. Not deleted. ReAct Agent for Chat Models is deprecated and will be removed in a future release. Use Agent from AgentFlow instead."
+        },
+        {
+            "name": "reactAgentLLM",
+            "label": "ReAct Agent for LLMs",
+            "category": "Agents",
+            "folder": "agents",
+            "file": "packages/components/nodes/agents/ReActAgentLLM/ReActAgentLLM.ts",
+            "disposition": "replaced",
+            "reason": "Marked deprecated in place. Not deleted. ReAct Agent for LLMs is deprecated and will be removed in a future release. Use Agent from AgentFlow instead."
+        },
+        {
+            "name": "toolAgent",
+            "label": "Tool Agent",
+            "category": "Agents",
+            "folder": "agents",
+            "file": "packages/components/nodes/agents/ToolAgent/ToolAgent.ts",
+            "disposition": "adapt",
+            "reason": "Older agent or LangGraph 0.0.22 runtime. Convert only when a harness binding cannot load it."
+        },
+        {
+            "name": "xmlAgent",
+            "label": "XML Agent",
+            "category": "Agents",
+            "folder": "agents",
+            "file": "packages/components/nodes/agents/XMLAgent/XMLAgent.ts",
+            "disposition": "adapt",
+            "reason": "Older agent or LangGraph 0.0.22 runtime. Convert only when a harness binding cannot load it."
+        },
+        {
+            "name": "arize",
+            "label": "Arize",
+            "category": "Analytic",
+            "folder": "analytic",
+            "file": "packages/components/nodes/analytic/Arize/Arize.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "langFuse",
+            "label": "LangFuse",
+            "category": "Analytic",
+            "folder": "analytic",
+            "file": "packages/components/nodes/analytic/LangFuse/LangFuse.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "langSmith",
+            "label": "LangSmith",
+            "category": "Analytic",
+            "folder": "analytic",
+            "file": "packages/components/nodes/analytic/LangSmith/LangSmith.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "LangWatch",
+            "label": "LangWatch",
+            "category": "Analytic",
+            "folder": "analytic",
+            "file": "packages/components/nodes/analytic/LangWatch/LangWatch.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "lunary",
+            "label": "Lunary",
+            "category": "Analytic",
+            "folder": "analytic",
+            "file": "packages/components/nodes/analytic/Lunary/Lunary.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "opik",
+            "label": "Opik",
+            "category": "Analytic",
+            "folder": "analytic",
+            "file": "packages/components/nodes/analytic/Opik/Opik.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "phoenix",
+            "label": "Phoenix",
+            "category": "Analytic",
+            "folder": "analytic",
+            "file": "packages/components/nodes/analytic/Phoenix/Phoenix.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "inMemoryCache",
+            "label": "InMemory Cache",
+            "category": "Cache",
+            "folder": "cache",
+            "file": "packages/components/nodes/cache/InMemoryCache/InMemoryCache.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "inMemoryEmbeddingCache",
+            "label": "InMemory Embedding Cache",
+            "category": "Cache",
+            "folder": "cache",
+            "file": "packages/components/nodes/cache/InMemoryCache/InMemoryEmbeddingCache.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "momentoCache",
+            "label": "Momento Cache",
+            "category": "Cache",
+            "folder": "cache",
+            "file": "packages/components/nodes/cache/MomentoCache/MomentoCache.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "redisCache",
+            "label": "Redis Cache",
+            "category": "Cache",
+            "folder": "cache",
+            "file": "packages/components/nodes/cache/RedisCache/RedisCache.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "redisEmbeddingsCache",
+            "label": "Redis Embeddings Cache",
+            "category": "Cache",
+            "folder": "cache",
+            "file": "packages/components/nodes/cache/RedisCache/RedisEmbeddingsCache.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "upstashRedisCache",
+            "label": "Upstash Redis Cache",
+            "category": "Cache",
+            "folder": "cache",
+            "file": "packages/components/nodes/cache/UpstashRedisCache/UpstashRedisCache.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "getApiChain",
+            "label": "GET API Chain",
+            "category": "Chains",
+            "folder": "chains",
+            "file": "packages/components/nodes/chains/ApiChain/GETApiChain.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "openApiChain",
+            "label": "OpenAPI Chain",
+            "category": "Chains",
+            "folder": "chains",
+            "file": "packages/components/nodes/chains/ApiChain/OpenAPIChain.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "postApiChain",
+            "label": "POST API Chain",
+            "category": "Chains",
+            "folder": "chains",
+            "file": "packages/components/nodes/chains/ApiChain/POSTApiChain.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "conversationalRetrievalQAChain",
+            "label": "Conversational Retrieval QA Chain",
+            "category": "Chains",
+            "folder": "chains",
+            "file": "packages/components/nodes/chains/ConversationalRetrievalQAChain/ConversationalRetrievalQAChain.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "conversationChain",
+            "label": "Conversation Chain",
+            "category": "Chains",
+            "folder": "chains",
+            "file": "packages/components/nodes/chains/ConversationChain/ConversationChain.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "graphCypherQAChain",
+            "label": "Graph Cypher QA Chain",
+            "category": "Chains",
+            "folder": "chains",
+            "file": "packages/components/nodes/chains/GraphCypherQAChain/GraphCypherQAChain.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "llmChain",
+            "label": "LLM Chain",
+            "category": "Chains",
+            "folder": "chains",
+            "file": "packages/components/nodes/chains/LLMChain/LLMChain.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "multiPromptChain",
+            "label": "Multi Prompt Chain",
+            "category": "Chains",
+            "folder": "chains",
+            "file": "packages/components/nodes/chains/MultiPromptChain/MultiPromptChain.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "multiRetrievalQAChain",
+            "label": "Multi Retrieval QA Chain",
+            "category": "Chains",
+            "folder": "chains",
+            "file": "packages/components/nodes/chains/MultiRetrievalQAChain/MultiRetrievalQAChain.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "retrievalQAChain",
+            "label": "Retrieval QA Chain",
+            "category": "Chains",
+            "folder": "chains",
+            "file": "packages/components/nodes/chains/RetrievalQAChain/RetrievalQAChain.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "sqlDatabaseChain",
+            "label": "Sql Database Chain",
+            "category": "Chains",
+            "folder": "chains",
+            "file": "packages/components/nodes/chains/SqlDatabaseChain/SqlDatabaseChain.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "vectaraQAChain",
+            "label": "Vectara QA Chain",
+            "category": "Chains",
+            "folder": "chains",
+            "file": "packages/components/nodes/chains/VectaraChain/VectaraChain.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "vectorDBQAChain",
+            "label": "VectorDB QA Chain",
+            "category": "Chains",
+            "folder": "chains",
+            "file": "packages/components/nodes/chains/VectorDBQAChain/VectorDBQAChain.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "awsChatBedrock",
+            "label": "AWS Bedrock",
+            "category": "Chat Models",
+            "folder": "chatmodels",
+            "file": "packages/components/nodes/chatmodels/AWSBedrock/AWSChatBedrock.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "azureChatOpenAI",
+            "label": "Azure OpenAI",
+            "category": "Chat Models",
+            "folder": "chatmodels",
+            "file": "packages/components/nodes/chatmodels/AzureChatOpenAI/AzureChatOpenAI.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "chatAlibabaTongyi",
+            "label": "Alibaba Tongyi",
+            "category": "Chat Models",
+            "folder": "chatmodels",
+            "file": "packages/components/nodes/chatmodels/ChatAlibabaTongyi/ChatAlibabaTongyi.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "chatAnthropic",
+            "label": "Anthropic Claude",
+            "category": "Chat Models",
+            "folder": "chatmodels",
+            "file": "packages/components/nodes/chatmodels/ChatAnthropic/ChatAnthropic.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "chatBaiduWenxin",
+            "label": "Baidu Wenxin",
+            "category": "Chat Models",
+            "folder": "chatmodels",
+            "file": "packages/components/nodes/chatmodels/ChatBaiduWenxin/ChatBaiduWenxin.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "chatCerebras",
+            "label": "Cerebras",
+            "category": "Chat Models",
+            "folder": "chatmodels",
+            "file": "packages/components/nodes/chatmodels/ChatCerebras/ChatCerebras.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "chatCloudflareWorkersAI",
+            "label": "Cloudflare Workers AI",
+            "category": "Chat Models",
+            "folder": "chatmodels",
+            "file": "packages/components/nodes/chatmodels/ChatCloudflareWorkersAI/ChatCloudflareWorkersAI.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "chatCohere",
+            "label": "Cohere",
+            "category": "Chat Models",
+            "folder": "chatmodels",
+            "file": "packages/components/nodes/chatmodels/ChatCohere/ChatCohere.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "chatCometAPI",
+            "label": "Comet",
+            "category": "Chat Models",
+            "folder": "chatmodels",
+            "file": "packages/components/nodes/chatmodels/ChatCometAPI/ChatCometAPI.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "chatFireworks",
+            "label": "Fireworks AI",
+            "category": "Chat Models",
+            "folder": "chatmodels",
+            "file": "packages/components/nodes/chatmodels/ChatFireworks/ChatFireworks.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "chatGoogleGenerativeAI",
+            "label": "Google Gemini",
+            "category": "Chat Models",
+            "folder": "chatmodels",
+            "file": "packages/components/nodes/chatmodels/ChatGoogleGenerativeAI/ChatGoogleGenerativeAI.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "chatGoogleVertexAI",
+            "label": "Google VertexAI",
+            "category": "Chat Models",
+            "folder": "chatmodels",
+            "file": "packages/components/nodes/chatmodels/ChatGoogleVertexAI/ChatGoogleVertexAI.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "chatHuggingFace",
+            "label": "HuggingFace",
+            "category": "Chat Models",
+            "folder": "chatmodels",
+            "file": "packages/components/nodes/chatmodels/ChatHuggingFace/ChatHuggingFace.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "chatIBMWatsonx",
+            "label": "IBM Watsonx",
+            "category": "Chat Models",
+            "folder": "chatmodels",
+            "file": "packages/components/nodes/chatmodels/ChatIBMWatsonx/ChatIBMWatsonx.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "chatLitellm",
+            "label": "LiteLLM",
+            "category": "Chat Models",
+            "folder": "chatmodels",
+            "file": "packages/components/nodes/chatmodels/ChatLitellm/ChatLitellm.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "chatLocalAI",
+            "label": "LocalAI",
+            "category": "Chat Models",
+            "folder": "chatmodels",
+            "file": "packages/components/nodes/chatmodels/ChatLocalAI/ChatLocalAI.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "chatMistralAI",
+            "label": "MistralAI",
+            "category": "Chat Models",
+            "folder": "chatmodels",
+            "file": "packages/components/nodes/chatmodels/ChatMistral/ChatMistral.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "chatNemoGuardrails",
+            "label": "Nemo Guardrails",
+            "category": "Chat Models",
+            "folder": "chatmodels",
+            "file": "packages/components/nodes/chatmodels/ChatNemoGuardrails/ChatNemoGuardrails.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "chatNvidiaNIM",
+            "label": "Nvidia NIM",
+            "category": "Chat Models",
+            "folder": "chatmodels",
+            "file": "packages/components/nodes/chatmodels/ChatNvdiaNIM/ChatNvdiaNIM.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "chatOllama",
+            "label": "Ollama",
+            "category": "Chat Models",
+            "folder": "chatmodels",
+            "file": "packages/components/nodes/chatmodels/ChatOllama/ChatOllama.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "chatOpenAI",
+            "label": "OpenAI",
+            "category": "Chat Models",
+            "folder": "chatmodels",
+            "file": "packages/components/nodes/chatmodels/ChatOpenAI/ChatOpenAI.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "chatOpenAICustom",
+            "label": "OpenAI Custom Model",
+            "category": "Chat Models",
+            "folder": "chatmodels",
+            "file": "packages/components/nodes/chatmodels/ChatOpenAICustom/ChatOpenAICustom.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "chatOpenRouter",
+            "label": "OpenRouter",
+            "category": "Chat Models",
+            "folder": "chatmodels",
+            "file": "packages/components/nodes/chatmodels/ChatOpenRouter/ChatOpenRouter.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "chatPerplexity",
+            "label": "Perplexity",
+            "category": "Chat Models",
+            "folder": "chatmodels",
+            "file": "packages/components/nodes/chatmodels/ChatPerplexity/ChatPerplexity.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "chatSambanova",
+            "label": "SambaNova",
+            "category": "Chat Models",
+            "folder": "chatmodels",
+            "file": "packages/components/nodes/chatmodels/ChatSambanova/ChatSambanova.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "chatTogetherAI",
+            "label": "TogetherAI",
+            "category": "Chat Models",
+            "folder": "chatmodels",
+            "file": "packages/components/nodes/chatmodels/ChatTogetherAI/ChatTogetherAI.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "chatXAI",
+            "label": "xAI Grok",
+            "category": "Chat Models",
+            "folder": "chatmodels",
+            "file": "packages/components/nodes/chatmodels/ChatXAI/ChatXAI.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "chatDeepseek",
+            "label": "Deepseek",
+            "category": "Chat Models",
+            "folder": "chatmodels",
+            "file": "packages/components/nodes/chatmodels/Deepseek/Deepseek.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "groqChat",
+            "label": "Groq",
+            "category": "Chat Models",
+            "folder": "chatmodels",
+            "file": "packages/components/nodes/chatmodels/Groq/Groq.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "airtable",
+            "label": "Airtable",
+            "category": "Document Loaders",
+            "folder": "documentloaders",
+            "file": "packages/components/nodes/documentloaders/Airtable/Airtable.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "apiLoader",
+            "label": "API Loader",
+            "category": "Document Loaders",
+            "folder": "documentloaders",
+            "file": "packages/components/nodes/documentloaders/API/APILoader.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "apifyWebsiteContentCrawler",
+            "label": "Apify Website Content Crawler",
+            "category": "Document Loaders",
+            "folder": "documentloaders",
+            "file": "packages/components/nodes/documentloaders/ApifyWebsiteContentCrawler/ApifyWebsiteContentCrawler.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "braveSearchApiLoader",
+            "label": "BraveSearch API Document Loader",
+            "category": "Document Loaders",
+            "folder": "documentloaders",
+            "file": "packages/components/nodes/documentloaders/BraveSearchAPI/BraveSearchAPI.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "cheerioWebScraper",
+            "label": "Cheerio Web Scraper",
+            "category": "Document Loaders",
+            "folder": "documentloaders",
+            "file": "packages/components/nodes/documentloaders/Cheerio/Cheerio.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "confluence",
+            "label": "Confluence",
+            "category": "Document Loaders",
+            "folder": "documentloaders",
+            "file": "packages/components/nodes/documentloaders/Confluence/Confluence.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "csvFile",
+            "label": "Csv File",
+            "category": "Document Loaders",
+            "folder": "documentloaders",
+            "file": "packages/components/nodes/documentloaders/Csv/Csv.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "customDocumentLoader",
+            "label": "Custom Document Loader",
+            "category": "Document Loaders",
+            "folder": "documentloaders",
+            "file": "packages/components/nodes/documentloaders/CustomDocumentLoader/CustomDocumentLoader.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "documentStore",
+            "label": "Document Store",
+            "category": "Document Loaders",
+            "folder": "documentloaders",
+            "file": "packages/components/nodes/documentloaders/DocumentStore/DocStoreLoader.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "docxFile",
+            "label": "Docx File",
+            "category": "Document Loaders",
+            "folder": "documentloaders",
+            "file": "packages/components/nodes/documentloaders/Docx/Docx.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "epubFile",
+            "label": "Epub File",
+            "category": "Document Loaders",
+            "folder": "documentloaders",
+            "file": "packages/components/nodes/documentloaders/Epub/Epub.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "figma",
+            "label": "Figma",
+            "category": "Document Loaders",
+            "folder": "documentloaders",
+            "file": "packages/components/nodes/documentloaders/Figma/Figma.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "fileLoader",
+            "label": "File Loader",
+            "category": "Document Loaders",
+            "folder": "documentloaders",
+            "file": "packages/components/nodes/documentloaders/File/File.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "fireCrawl",
+            "label": "FireCrawl",
+            "category": "Document Loaders",
+            "folder": "documentloaders",
+            "file": "packages/components/nodes/documentloaders/FireCrawl/FireCrawl.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "folderFiles",
+            "label": "Folder with Files",
+            "category": "Document Loaders",
+            "folder": "documentloaders",
+            "file": "packages/components/nodes/documentloaders/Folder/Folder.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "gitbook",
+            "label": "GitBook",
+            "category": "Document Loaders",
+            "folder": "documentloaders",
+            "file": "packages/components/nodes/documentloaders/Gitbook/Gitbook.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "github",
+            "label": "Github",
+            "category": "Document Loaders",
+            "folder": "documentloaders",
+            "file": "packages/components/nodes/documentloaders/Github/Github.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "googleDrive",
+            "label": "Google Drive",
+            "category": "Document Loaders",
+            "folder": "documentloaders",
+            "file": "packages/components/nodes/documentloaders/GoogleDrive/GoogleDrive.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "googleSheets",
+            "label": "Google Sheets",
+            "category": "Document Loaders",
+            "folder": "documentloaders",
+            "file": "packages/components/nodes/documentloaders/GoogleSheets/GoogleSheets.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "jira",
+            "label": "Jira",
+            "category": "Document Loaders",
+            "folder": "documentloaders",
+            "file": "packages/components/nodes/documentloaders/Jira/Jira.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "jsonFile",
+            "label": "Json File",
+            "category": "Document Loaders",
+            "folder": "documentloaders",
+            "file": "packages/components/nodes/documentloaders/Json/Json.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "jsonlinesFile",
+            "label": "Json Lines File",
+            "category": "Document Loaders",
+            "folder": "documentloaders",
+            "file": "packages/components/nodes/documentloaders/Jsonlines/Jsonlines.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "microsoftExcel",
+            "label": "Microsoft Excel",
+            "category": "Document Loaders",
+            "folder": "documentloaders",
+            "file": "packages/components/nodes/documentloaders/MicrosoftExcel/MicrosoftExcel.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "microsoftPowerpoint",
+            "label": "Microsoft PowerPoint",
+            "category": "Document Loaders",
+            "folder": "documentloaders",
+            "file": "packages/components/nodes/documentloaders/MicrosoftPowerpoint/MicrosoftPowerpoint.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "microsoftWord",
+            "label": "Microsoft Word",
+            "category": "Document Loaders",
+            "folder": "documentloaders",
+            "file": "packages/components/nodes/documentloaders/MicrosoftWord/MicrosoftWord.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "notionDB",
+            "label": "Notion Database",
+            "category": "Document Loaders",
+            "folder": "documentloaders",
+            "file": "packages/components/nodes/documentloaders/Notion/NotionDB.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "notionFolder",
+            "label": "Notion Folder",
+            "category": "Document Loaders",
+            "folder": "documentloaders",
+            "file": "packages/components/nodes/documentloaders/Notion/NotionFolder.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "notionPage",
+            "label": "Notion Page",
+            "category": "Document Loaders",
+            "folder": "documentloaders",
+            "file": "packages/components/nodes/documentloaders/Notion/NotionPage.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "oxylabs",
+            "label": "Oxylabs",
+            "category": "Document Loaders",
+            "folder": "documentloaders",
+            "file": "packages/components/nodes/documentloaders/Oxylabs/Oxylabs.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "pdfFile",
+            "label": "Pdf File",
+            "category": "Document Loaders",
+            "folder": "documentloaders",
+            "file": "packages/components/nodes/documentloaders/Pdf/Pdf.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "plainText",
+            "label": "Plain Text",
+            "category": "Document Loaders",
+            "folder": "documentloaders",
+            "file": "packages/components/nodes/documentloaders/PlainText/PlainText.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "playwrightWebScraper",
+            "label": "Playwright Web Scraper",
+            "category": "Document Loaders",
+            "folder": "documentloaders",
+            "file": "packages/components/nodes/documentloaders/Playwright/Playwright.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "puppeteerWebScraper",
+            "label": "Puppeteer Web Scraper",
+            "category": "Document Loaders",
+            "folder": "documentloaders",
+            "file": "packages/components/nodes/documentloaders/Puppeteer/Puppeteer.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "s3Directory",
+            "label": "S3 Directory",
+            "category": "Document Loaders",
+            "folder": "documentloaders",
+            "file": "packages/components/nodes/documentloaders/S3Directory/S3Directory.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "S3",
+            "label": "S3",
+            "category": "Document Loaders",
+            "folder": "documentloaders",
+            "file": "packages/components/nodes/documentloaders/S3File/S3File.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "searchApi",
+            "label": "SearchApi For Web Search",
+            "category": "Document Loaders",
+            "folder": "documentloaders",
+            "file": "packages/components/nodes/documentloaders/SearchApi/SearchAPI.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "serpApi",
+            "label": "SerpApi For Web Search",
+            "category": "Document Loaders",
+            "folder": "documentloaders",
+            "file": "packages/components/nodes/documentloaders/SerpApi/SerpAPI.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "spiderDocumentLoaders",
+            "label": "Spider Document Loaders",
+            "category": "Document Loaders",
+            "folder": "documentloaders",
+            "file": "packages/components/nodes/documentloaders/Spider/Spider.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "textFile",
+            "label": "Text File",
+            "category": "Document Loaders",
+            "folder": "documentloaders",
+            "file": "packages/components/nodes/documentloaders/Text/Text.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "unstructuredFileLoader",
+            "label": "Unstructured File Loader",
+            "category": "Document Loaders",
+            "folder": "documentloaders",
+            "file": "packages/components/nodes/documentloaders/Unstructured/UnstructuredFile.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "vectorStoreToDocument",
+            "label": "VectorStore To Document",
+            "category": "Document Loaders",
+            "folder": "documentloaders",
+            "file": "packages/components/nodes/documentloaders/VectorStoreToDocument/VectorStoreToDocument.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "AWSBedrockEmbeddings",
+            "label": "AWS Bedrock Embedding",
+            "category": "Embeddings",
+            "folder": "embeddings",
+            "file": "packages/components/nodes/embeddings/AWSBedrockEmbedding/AWSBedrockEmbedding.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "azureOpenAIEmbeddings",
+            "label": "Azure OpenAI Embedding",
+            "category": "Embeddings",
+            "folder": "embeddings",
+            "file": "packages/components/nodes/embeddings/AzureOpenAIEmbedding/AzureOpenAIEmbedding.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "baiduQianfanEmbeddings",
+            "label": "Baidu Qianfan Embedding",
+            "category": "Embeddings",
+            "folder": "embeddings",
+            "file": "packages/components/nodes/embeddings/BaiduQianfanEmbedding/BaiduQianfanEmbedding.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "cohereEmbeddings",
+            "label": "Cohere Embedding",
+            "category": "Embeddings",
+            "folder": "embeddings",
+            "file": "packages/components/nodes/embeddings/CohereEmbedding/CohereEmbedding.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "googleGenerativeAiEmbeddings",
+            "label": "Google Gemini Embedding",
+            "category": "Embeddings",
+            "folder": "embeddings",
+            "file": "packages/components/nodes/embeddings/GoogleGenerativeAIEmbedding/GoogleGenerativeAIEmbedding.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "googlevertexaiEmbeddings",
+            "label": "Google VertexAI Embedding",
+            "category": "Embeddings",
+            "folder": "embeddings",
+            "file": "packages/components/nodes/embeddings/GoogleVertexAIEmbedding/GoogleVertexAIEmbedding.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "huggingFaceInferenceEmbeddings",
+            "label": "HuggingFace Inference Embedding",
+            "category": "Embeddings",
+            "folder": "embeddings",
+            "file": "packages/components/nodes/embeddings/HuggingFaceInferenceEmbedding/HuggingFaceInferenceEmbedding.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "ibmEmbedding",
+            "label": "IBM Watsonx Embedding",
+            "category": "Embeddings",
+            "folder": "embeddings",
+            "file": "packages/components/nodes/embeddings/IBMWatsonxEmbedding/IBMWatsonxEmbedding.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "jinaEmbeddings",
+            "label": "Jina Embedding",
+            "category": "Embeddings",
+            "folder": "embeddings",
+            "file": "packages/components/nodes/embeddings/JinaAIEmbedding/JinaAIEmbedding.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "localAIEmbeddings",
+            "label": "LocalAI Embedding",
+            "category": "Embeddings",
+            "folder": "embeddings",
+            "file": "packages/components/nodes/embeddings/LocalAIEmbedding/LocalAIEmbedding.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "localHashEmbeddings",
+            "label": "Local Hash Embeddings",
+            "category": "Embeddings",
+            "folder": "embeddings",
+            "file": "packages/components/nodes/embeddings/LocalHashEmbedding/LocalHashEmbedding.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "mistralAIEmbeddings",
+            "label": "MistralAI Embedding",
+            "category": "Embeddings",
+            "folder": "embeddings",
+            "file": "packages/components/nodes/embeddings/MistralEmbedding/MistralEmbedding.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "ollamaEmbedding",
+            "label": "Ollama Embedding",
+            "category": "Embeddings",
+            "folder": "embeddings",
+            "file": "packages/components/nodes/embeddings/OllamaEmbedding/OllamaEmbedding.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "openAIEmbeddings",
+            "label": "OpenAI Embedding",
+            "category": "Embeddings",
+            "folder": "embeddings",
+            "file": "packages/components/nodes/embeddings/OpenAIEmbedding/OpenAIEmbedding.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "openAIEmbeddingsCustom",
+            "label": "OpenAI Custom Embedding",
+            "category": "Embeddings",
+            "folder": "embeddings",
+            "file": "packages/components/nodes/embeddings/OpenAIEmbeddingCustom/OpenAIEmbeddingCustom.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "togetherAIEmbedding",
+            "label": "TogetherAI Embedding",
+            "category": "Embeddings",
+            "folder": "embeddings",
+            "file": "packages/components/nodes/embeddings/TogetherAIEmbedding/TogetherAIEmbedding.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "voyageAIEmbeddings",
+            "label": "VoyageAI Embedding",
+            "category": "Embeddings",
+            "folder": "embeddings",
+            "file": "packages/components/nodes/embeddings/VoyageAIEmbedding/VoyageAIEmbedding.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "etlFileSource",
+            "label": "Streaming Files",
+            "category": "ETL",
+            "folder": "etl",
+            "file": "packages/components/nodes/etl/EtlFileSource/EtlFileSource.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "etlRepoSource",
+            "label": "Code Repository",
+            "category": "ETL",
+            "folder": "etl",
+            "file": "packages/components/nodes/etl/EtlRepoSource/EtlRepoSource.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "etlTransform",
+            "label": "Clean & Transform",
+            "category": "ETL",
+            "folder": "etl",
+            "file": "packages/components/nodes/etl/EtlTransform/EtlTransform.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "Neo4j",
+            "label": "Neo4j",
+            "category": "Graph",
+            "folder": "graphs",
+            "file": "packages/components/nodes/graphs/Neo4j/Neo4j.ts",
+            "disposition": "adapt",
+            "reason": "Older agent or LangGraph 0.0.22 runtime. Convert only when a harness binding cannot load it."
+        },
+        {
+            "name": "harness",
+            "label": "Harness",
+            "category": "Harness",
+            "folder": "harness",
+            "file": "packages/components/nodes/harness/Harness/Harness.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "harnessChief",
+            "label": "Harness Prime",
+            "category": "Harness",
+            "folder": "harness",
+            "file": "packages/components/nodes/harness/HarnessChief/HarnessChief.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "harnessSpecialist",
+            "label": "Harness Specialist",
+            "category": "Harness",
+            "folder": "harness",
+            "file": "packages/components/nodes/harness/HarnessSpecialist/HarnessSpecialist.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "awsBedrock",
+            "label": "AWS Bedrock",
+            "category": "LLMs",
+            "folder": "llms",
+            "file": "packages/components/nodes/llms/AWSBedrock/AWSBedrock.ts",
+            "disposition": "replaced",
+            "reason": "Marked deprecated in place. Not deleted. Use AWS Bedrock Chat Models instead"
+        },
+        {
+            "name": "azureOpenAI",
+            "label": "Azure OpenAI",
+            "category": "LLMs",
+            "folder": "llms",
+            "file": "packages/components/nodes/llms/Azure OpenAI/AzureOpenAI.ts",
+            "disposition": "replaced",
+            "reason": "Marked deprecated in place. Not deleted. Use Azure OpenAI Chat Models instead"
+        },
+        {
+            "name": "cohere",
+            "label": "Cohere",
+            "category": "LLMs",
+            "folder": "llms",
+            "file": "packages/components/nodes/llms/Cohere/Cohere.ts",
+            "disposition": "replaced",
+            "reason": "Marked deprecated in place. Not deleted. Use Cohere Chat Models instead"
+        },
+        {
+            "name": "fireworks",
+            "label": "Fireworks",
+            "category": "LLMs",
+            "folder": "llms",
+            "file": "packages/components/nodes/llms/Fireworks/Fireworks.ts",
+            "disposition": "replaced",
+            "reason": "Marked deprecated in place. Not deleted. Use Fireworks Chat Models instead"
+        },
+        {
+            "name": "googlevertexai",
+            "label": "GoogleVertexAI",
+            "category": "LLMs",
+            "folder": "llms",
+            "file": "packages/components/nodes/llms/GoogleVertexAI/GoogleVertexAI.ts",
+            "disposition": "replaced",
+            "reason": "Marked deprecated in place. Not deleted. Use GoogleVertexAI Chat Models instead"
+        },
+        {
+            "name": "huggingFaceInference_LLMs",
+            "label": "HuggingFace Inference",
+            "category": "LLMs",
+            "folder": "llms",
+            "file": "packages/components/nodes/llms/HuggingFaceInference/HuggingFaceInference.ts",
+            "disposition": "replaced",
+            "reason": "Marked deprecated in place. Not deleted. Use HuggingFace Inference Chat Models instead"
+        },
+        {
+            "name": "ibmWatsonx",
+            "label": "IBMWatsonx",
+            "category": "LLMs",
+            "folder": "llms",
+            "file": "packages/components/nodes/llms/IBMWatsonx/IBMWatsonx.ts",
+            "disposition": "replaced",
+            "reason": "Marked deprecated in place. Not deleted. Use IBM Watsonx Chat Models instead"
+        },
+        {
+            "name": "ollama",
+            "label": "Ollama",
+            "category": "LLMs",
+            "folder": "llms",
+            "file": "packages/components/nodes/llms/Ollama/Ollama.ts",
+            "disposition": "replaced",
+            "reason": "Marked deprecated in place. Not deleted. Use Ollama Chat Models instead"
+        },
+        {
+            "name": "openAI",
+            "label": "OpenAI",
+            "category": "LLMs",
+            "folder": "llms",
+            "file": "packages/components/nodes/llms/OpenAI/OpenAI.ts",
+            "disposition": "replaced",
+            "reason": "Marked deprecated in place. Not deleted. Use OpenAI Chat Models instead"
+        },
+        {
+            "name": "replicate",
+            "label": "Replicate",
+            "category": "LLMs",
+            "folder": "llms",
+            "file": "packages/components/nodes/llms/Replicate/Replicate.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "sambanova",
+            "label": "Sambanova",
+            "category": "LLMs",
+            "folder": "llms",
+            "file": "packages/components/nodes/llms/SambaNova/Sambanova.ts",
+            "disposition": "replaced",
+            "reason": "Marked deprecated in place. Not deleted. Use Sambanova Chat Models instead"
+        },
+        {
+            "name": "togetherAI",
+            "label": "TogetherAI",
+            "category": "LLMs",
+            "folder": "llms",
+            "file": "packages/components/nodes/llms/TogetherAI/TogetherAI.ts",
+            "disposition": "replaced",
+            "reason": "Marked deprecated in place. Not deleted. Use TogetherAI Chat Models instead"
+        },
+        {
+            "name": "agentMemory",
+            "label": "Agent Memory",
+            "category": "Memory",
+            "folder": "memory",
+            "file": "packages/components/nodes/memory/AgentMemory/AgentMemory.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "mySQLAgentMemory",
+            "label": "MySQL Agent Memory",
+            "category": "Memory",
+            "folder": "memory",
+            "file": "packages/components/nodes/memory/AgentMemory/MySQLAgentMemory/MySQLAgentMemory.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "postgresAgentMemory",
+            "label": "Postgres Agent Memory",
+            "category": "Memory",
+            "folder": "memory",
+            "file": "packages/components/nodes/memory/AgentMemory/PostgresAgentMemory/PostgresAgentMemory.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "sqliteAgentMemory",
+            "label": "SQLite Agent Memory",
+            "category": "Memory",
+            "folder": "memory",
+            "file": "packages/components/nodes/memory/AgentMemory/SQLiteAgentMemory/SQLiteAgentMemory.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "bufferMemory",
+            "label": "Buffer Memory",
+            "category": "Memory",
+            "folder": "memory",
+            "file": "packages/components/nodes/memory/BufferMemory/BufferMemory.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "bufferWindowMemory",
+            "label": "Buffer Window Memory",
+            "category": "Memory",
+            "folder": "memory",
+            "file": "packages/components/nodes/memory/BufferWindowMemory/BufferWindowMemory.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "conversationSummaryBufferMemory",
+            "label": "Conversation Summary Buffer Memory",
+            "category": "Memory",
+            "folder": "memory",
+            "file": "packages/components/nodes/memory/ConversationSummaryBufferMemory/ConversationSummaryBufferMemory.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "conversationSummaryMemory",
+            "label": "Conversation Summary Memory",
+            "category": "Memory",
+            "folder": "memory",
+            "file": "packages/components/nodes/memory/ConversationSummaryMemory/ConversationSummaryMemory.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "DynamoDBChatMemory",
+            "label": "DynamoDB Chat Memory",
+            "category": "Memory",
+            "folder": "memory",
+            "file": "packages/components/nodes/memory/DynamoDb/DynamoDb.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "mem0",
+            "label": "Mem0",
+            "category": "Memory",
+            "folder": "memory",
+            "file": "packages/components/nodes/memory/Mem0/Mem0.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "MongoDBAtlasChatMemory",
+            "label": "MongoDB Atlas Chat Memory",
+            "category": "Memory",
+            "folder": "memory",
+            "file": "packages/components/nodes/memory/MongoDBMemory/MongoDBMemory.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "RedisBackedChatMemory",
+            "label": "Redis-Backed Chat Memory",
+            "category": "Memory",
+            "folder": "memory",
+            "file": "packages/components/nodes/memory/RedisBackedChatMemory/RedisBackedChatMemory.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "upstashRedisBackedChatMemory",
+            "label": "Upstash Redis-Backed Chat Memory",
+            "category": "Memory",
+            "folder": "memory",
+            "file": "packages/components/nodes/memory/UpstashRedisBackedChatMemory/UpstashRedisBackedChatMemory.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "ZepMemory",
+            "label": "Zep Memory - Open Source",
+            "category": "Memory",
+            "folder": "memory",
+            "file": "packages/components/nodes/memory/ZepMemory/ZepMemory.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "ZepMemoryCloud",
+            "label": "Zep Memory - Cloud",
+            "category": "Memory",
+            "folder": "memory",
+            "file": "packages/components/nodes/memory/ZepMemoryCloud/ZepMemoryCloud.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "inputModerationOpenAI",
+            "label": "OpenAI Moderation",
+            "category": "Moderation",
+            "folder": "moderation",
+            "file": "packages/components/nodes/moderation/OpenAIModeration/OpenAIModeration.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "inputModerationSimple",
+            "label": "Simple Prompt Moderation",
+            "category": "Moderation",
+            "folder": "moderation",
+            "file": "packages/components/nodes/moderation/SimplePromptModeration/SimplePromptModeration.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "supervisor",
+            "label": "Supervisor",
+            "category": "Multi Agents",
+            "folder": "multiagents",
+            "file": "packages/components/nodes/multiagents/Supervisor/Supervisor.ts",
+            "disposition": "adapt",
+            "reason": "Older agent or LangGraph 0.0.22 runtime. Convert only when a harness binding cannot load it."
+        },
+        {
+            "name": "worker",
+            "label": "Worker",
+            "category": "Multi Agents",
+            "folder": "multiagents",
+            "file": "packages/components/nodes/multiagents/Worker/Worker.ts",
+            "disposition": "adapt",
+            "reason": "Older agent or LangGraph 0.0.22 runtime. Convert only when a harness binding cannot load it."
+        },
+        {
+            "name": "csvOutputParser",
+            "label": "CSV Output Parser",
+            "category": "",
+            "folder": "outputparsers",
+            "file": "packages/components/nodes/outputparsers/CSVListOutputParser/CSVListOutputParser.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "customListOutputParser",
+            "label": "Custom List Output Parser",
+            "category": "",
+            "folder": "outputparsers",
+            "file": "packages/components/nodes/outputparsers/CustomListOutputParser/CustomListOutputParser.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "structuredOutputParser",
+            "label": "Structured Output Parser",
+            "category": "",
+            "folder": "outputparsers",
+            "file": "packages/components/nodes/outputparsers/StructuredOutputParser/StructuredOutputParser.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "advancedStructuredOutputParser",
+            "label": "Advanced Structured Output Parser",
+            "category": "",
+            "folder": "outputparsers",
+            "file": "packages/components/nodes/outputparsers/StructuredOutputParserAdvanced/StructuredOutputParserAdvanced.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "chatPromptTemplate",
+            "label": "Chat Prompt Template",
+            "category": "Prompts",
+            "folder": "prompts",
+            "file": "packages/components/nodes/prompts/ChatPromptTemplate/ChatPromptTemplate.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "fewShotPromptTemplate",
+            "label": "Few Shot Prompt Template",
+            "category": "Prompts",
+            "folder": "prompts",
+            "file": "packages/components/nodes/prompts/FewShotPromptTemplate/FewShotPromptTemplate.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "promptLangFuse",
+            "label": "LangFuse Prompt Template",
+            "category": "Prompts",
+            "folder": "prompts",
+            "file": "packages/components/nodes/prompts/PromptLangfuse/PromptLangfuse.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "promptTemplate",
+            "label": "Prompt Template",
+            "category": "Prompts",
+            "folder": "prompts",
+            "file": "packages/components/nodes/prompts/PromptTemplate/PromptTemplate.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "MySQLRecordManager",
+            "label": "MySQL Record Manager",
+            "category": "Record Manager",
+            "folder": "recordmanager",
+            "file": "packages/components/nodes/recordmanager/MySQLRecordManager/MySQLrecordManager.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "postgresRecordManager",
+            "label": "Postgres Record Manager",
+            "category": "Record Manager",
+            "folder": "recordmanager",
+            "file": "packages/components/nodes/recordmanager/PostgresRecordManager/PostgresRecordManager.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "SQLiteRecordManager",
+            "label": "SQLite Record Manager",
+            "category": "Record Manager",
+            "folder": "recordmanager",
+            "file": "packages/components/nodes/recordmanager/SQLiteRecordManager/SQLiteRecordManager.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "awsBedrockKBRetriever",
+            "label": "AWS Bedrock Knowledge Base Retriever",
+            "category": "Retrievers",
+            "folder": "retrievers",
+            "file": "packages/components/nodes/retrievers/AWSBedrockKBRetriever/AWSBedrockKBRetriever.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "AzureRerankRetriever",
+            "label": "Azure Rerank Retriever",
+            "category": "Retrievers",
+            "folder": "retrievers",
+            "file": "packages/components/nodes/retrievers/AzureRerankRetriever/AzureRerankRetriever.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "cohereRerankRetriever",
+            "label": "Cohere Rerank Retriever",
+            "category": "Retrievers",
+            "folder": "retrievers",
+            "file": "packages/components/nodes/retrievers/CohereRerankRetriever/CohereRerankRetriever.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "customRetriever",
+            "label": "Custom Retriever",
+            "category": "Retrievers",
+            "folder": "retrievers",
+            "file": "packages/components/nodes/retrievers/CustomRetriever/CustomRetriever.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "embeddingsFilterRetriever",
+            "label": "Embeddings Filter Retriever",
+            "category": "Retrievers",
+            "folder": "retrievers",
+            "file": "packages/components/nodes/retrievers/EmbeddingsFilterRetriever/EmbeddingsFilterRetriever.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "extractMetadataRetriever",
+            "label": "Extract Metadata Retriever",
+            "category": "Retrievers",
+            "folder": "retrievers",
+            "file": "packages/components/nodes/retrievers/ExtractMetadataRetriever/ExtractMetadataRetriever.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "HydeRetriever",
+            "label": "HyDE Retriever",
+            "category": "Retrievers",
+            "folder": "retrievers",
+            "file": "packages/components/nodes/retrievers/HydeRetriever/HydeRetriever.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "JinaRerankRetriever",
+            "label": "Jina AI Rerank Retriever",
+            "category": "Retrievers",
+            "folder": "retrievers",
+            "file": "packages/components/nodes/retrievers/JinaRerankRetriever/JinaRerankRetriever.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "llmFilterRetriever",
+            "label": "LLM Filter Retriever",
+            "category": "Retrievers",
+            "folder": "retrievers",
+            "file": "packages/components/nodes/retrievers/LLMFilterRetriever/LLMFilterCompressionRetriever.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "multiQueryRetriever",
+            "label": "Multi Query Retriever",
+            "category": "Retrievers",
+            "folder": "retrievers",
+            "file": "packages/components/nodes/retrievers/MultiQueryRetriever/MultiQueryRetriever.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "promptRetriever",
+            "label": "Prompt Retriever",
+            "category": "Retrievers",
+            "folder": "retrievers",
+            "file": "packages/components/nodes/retrievers/PromptRetriever/PromptRetriever.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "RRFRetriever",
+            "label": "Reciprocal Rank Fusion Retriever",
+            "category": "Retrievers",
+            "folder": "retrievers",
+            "file": "packages/components/nodes/retrievers/RRFRetriever/RRFRetriever.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "similarityThresholdRetriever",
+            "label": "Similarity Score Threshold Retriever",
+            "category": "Retrievers",
+            "folder": "retrievers",
+            "file": "packages/components/nodes/retrievers/SimilarityThresholdRetriever/SimilarityThresholdRetriever.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "vectorStoreRetriever",
+            "label": "Vector Store Retriever",
+            "category": "Retrievers",
+            "folder": "retrievers",
+            "file": "packages/components/nodes/retrievers/VectorStoreRetriever/VectorStoreRetriever.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "voyageAIRerankRetriever",
+            "label": "Voyage AI Rerank Retriever",
+            "category": "Retrievers",
+            "folder": "retrievers",
+            "file": "packages/components/nodes/retrievers/VoyageAIRetriever/VoyageAIRerankRetriever.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "seqAgent",
+            "label": "Agent",
+            "category": "Sequential Agents",
+            "folder": "sequentialagents",
+            "file": "packages/components/nodes/sequentialagents/Agent/Agent.ts",
+            "disposition": "adapt",
+            "reason": "Older agent or LangGraph 0.0.22 runtime. Convert only when a harness binding cannot load it."
+        },
+        {
+            "name": "seqCondition",
+            "label": "Condition",
+            "category": "Sequential Agents",
+            "folder": "sequentialagents",
+            "file": "packages/components/nodes/sequentialagents/Condition/Condition.ts",
+            "disposition": "adapt",
+            "reason": "Older agent or LangGraph 0.0.22 runtime. Convert only when a harness binding cannot load it."
+        },
+        {
+            "name": "seqConditionAgent",
+            "label": "Condition Agent",
+            "category": "Sequential Agents",
+            "folder": "sequentialagents",
+            "file": "packages/components/nodes/sequentialagents/ConditionAgent/ConditionAgent.ts",
+            "disposition": "adapt",
+            "reason": "Older agent or LangGraph 0.0.22 runtime. Convert only when a harness binding cannot load it."
+        },
+        {
+            "name": "seqCustomFunction",
+            "label": "Custom JS Function",
+            "category": "Sequential Agents",
+            "folder": "sequentialagents",
+            "file": "packages/components/nodes/sequentialagents/CustomFunction/CustomFunction.ts",
+            "disposition": "adapt",
+            "reason": "Older agent or LangGraph 0.0.22 runtime. Convert only when a harness binding cannot load it."
+        },
+        {
+            "name": "seqEnd",
+            "label": "End",
+            "category": "Sequential Agents",
+            "folder": "sequentialagents",
+            "file": "packages/components/nodes/sequentialagents/End/End.ts",
+            "disposition": "adapt",
+            "reason": "Older agent or LangGraph 0.0.22 runtime. Convert only when a harness binding cannot load it."
+        },
+        {
+            "name": "seqExecuteFlow",
+            "label": "Execute Flow",
+            "category": "Sequential Agents",
+            "folder": "sequentialagents",
+            "file": "packages/components/nodes/sequentialagents/ExecuteFlow/ExecuteFlow.ts",
+            "disposition": "adapt",
+            "reason": "Older agent or LangGraph 0.0.22 runtime. Convert only when a harness binding cannot load it."
+        },
+        {
+            "name": "seqLLMNode",
+            "label": "LLM Node",
+            "category": "Sequential Agents",
+            "folder": "sequentialagents",
+            "file": "packages/components/nodes/sequentialagents/LLMNode/LLMNode.ts",
+            "disposition": "adapt",
+            "reason": "Older agent or LangGraph 0.0.22 runtime. Convert only when a harness binding cannot load it."
+        },
+        {
+            "name": "seqLoop",
+            "label": "Loop",
+            "category": "Sequential Agents",
+            "folder": "sequentialagents",
+            "file": "packages/components/nodes/sequentialagents/Loop/Loop.ts",
+            "disposition": "adapt",
+            "reason": "Older agent or LangGraph 0.0.22 runtime. Convert only when a harness binding cannot load it."
+        },
+        {
+            "name": "seqStart",
+            "label": "Start",
+            "category": "Sequential Agents",
+            "folder": "sequentialagents",
+            "file": "packages/components/nodes/sequentialagents/Start/Start.ts",
+            "disposition": "adapt",
+            "reason": "Older agent or LangGraph 0.0.22 runtime. Convert only when a harness binding cannot load it."
+        },
+        {
+            "name": "seqState",
+            "label": "State",
+            "category": "Sequential Agents",
+            "folder": "sequentialagents",
+            "file": "packages/components/nodes/sequentialagents/State/State.ts",
+            "disposition": "adapt",
+            "reason": "Older agent or LangGraph 0.0.22 runtime. Convert only when a harness binding cannot load it."
+        },
+        {
+            "name": "seqToolNode",
+            "label": "Tool Node",
+            "category": "Sequential Agents",
+            "folder": "sequentialagents",
+            "file": "packages/components/nodes/sequentialagents/ToolNode/ToolNode.ts",
+            "disposition": "adapt",
+            "reason": "Older agent or LangGraph 0.0.22 runtime. Convert only when a harness binding cannot load it."
+        },
+        {
+            "name": "assemblyAI",
+            "label": "AssemblyAI",
+            "category": "SpeechToText",
+            "folder": "speechtotext",
+            "file": "packages/components/nodes/speechtotext/assemblyai/AssemblyAI.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "characterTextSplitter",
+            "label": "Character Text Splitter",
+            "category": "Text Splitters",
+            "folder": "textsplitters",
+            "file": "packages/components/nodes/textsplitters/CharacterTextSplitter/CharacterTextSplitter.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "codeTextSplitter",
+            "label": "Code Text Splitter",
+            "category": "Text Splitters",
+            "folder": "textsplitters",
+            "file": "packages/components/nodes/textsplitters/CodeTextSplitter/CodeTextSplitter.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "htmlToMarkdownTextSplitter",
+            "label": "HtmlToMarkdown Text Splitter",
+            "category": "Text Splitters",
+            "folder": "textsplitters",
+            "file": "packages/components/nodes/textsplitters/HtmlToMarkdownTextSplitter/HtmlToMarkdownTextSplitter.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "markdownTextSplitter",
+            "label": "Markdown Text Splitter",
+            "category": "Text Splitters",
+            "folder": "textsplitters",
+            "file": "packages/components/nodes/textsplitters/MarkdownTextSplitter/MarkdownTextSplitter.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "recursiveCharacterTextSplitter",
+            "label": "Recursive Character Text Splitter",
+            "category": "Text Splitters",
+            "folder": "textsplitters",
+            "file": "packages/components/nodes/textsplitters/RecursiveCharacterTextSplitter/RecursiveCharacterTextSplitter.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "tokenTextSplitter",
+            "label": "Token Text Splitter",
+            "category": "Text Splitters",
+            "folder": "textsplitters",
+            "file": "packages/components/nodes/textsplitters/TokenTextSplitter/TokenTextSplitter.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "agentAsTool",
+            "label": "Agent as Tool",
+            "category": "Tools",
+            "folder": "tools",
+            "file": "packages/components/nodes/tools/AgentAsTool/AgentAsTool.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "arxiv",
+            "label": "Arxiv",
+            "category": "Tools",
+            "folder": "tools",
+            "file": "packages/components/nodes/tools/Arxiv/Arxiv.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "awsDynamoDBKVStorage",
+            "label": "AWS DynamoDB KV Storage",
+            "category": "Tools",
+            "folder": "tools",
+            "file": "packages/components/nodes/tools/AWSDynamoDBKVStorage/AWSDynamoDBKVStorage.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "awsSNS",
+            "label": "AWS SNS",
+            "category": "Tools",
+            "folder": "tools",
+            "file": "packages/components/nodes/tools/AWSSNS/AWSSNS.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "braveSearchAPI",
+            "label": "BraveSearch API",
+            "category": "Tools",
+            "folder": "tools",
+            "file": "packages/components/nodes/tools/BraveSearchAPI/BraveSearchAPI.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "calculator",
+            "label": "Calculator",
+            "category": "Tools",
+            "folder": "tools",
+            "file": "packages/components/nodes/tools/Calculator/Calculator.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "chainTool",
+            "label": "Chain Tool",
+            "category": "Tools",
+            "folder": "tools",
+            "file": "packages/components/nodes/tools/ChainTool/ChainTool.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "ChatflowTool",
+            "label": "Chatflow Tool",
+            "category": "Tools",
+            "folder": "tools",
+            "file": "packages/components/nodes/tools/ChatflowTool/ChatflowTool.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "codeInterpreterE2B",
+            "label": "Code Interpreter by E2B",
+            "category": "Tools",
+            "folder": "tools",
+            "file": "packages/components/nodes/tools/CodeInterpreterE2B/CodeInterpreterE2B.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "composio",
+            "label": "Composio",
+            "category": "Tools",
+            "folder": "tools",
+            "file": "packages/components/nodes/tools/Composio/Composio.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "currentDateTime",
+            "label": "CurrentDateTime",
+            "category": "Tools",
+            "folder": "tools",
+            "file": "packages/components/nodes/tools/CurrentDateTime/CurrentDateTime.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "customTool",
+            "label": "Custom Tool",
+            "category": "Tools",
+            "folder": "tools",
+            "file": "packages/components/nodes/tools/CustomTool/CustomTool.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "etlRetriever",
+            "label": "ETL Retriever",
+            "category": "Tools",
+            "folder": "tools",
+            "file": "packages/components/nodes/tools/EtlRetriever/EtlRetriever.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "exaSearch",
+            "label": "Exa Search",
+            "category": "Tools",
+            "folder": "tools",
+            "file": "packages/components/nodes/tools/ExaSearch/ExaSearch.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "gmail",
+            "label": "Gmail",
+            "category": "Tools",
+            "folder": "tools",
+            "file": "packages/components/nodes/tools/Gmail/Gmail.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "googleCalendarTool",
+            "label": "Google Calendar",
+            "category": "Tools",
+            "folder": "tools",
+            "file": "packages/components/nodes/tools/GoogleCalendar/GoogleCalendar.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "googleDocsTool",
+            "label": "Google Docs",
+            "category": "Tools",
+            "folder": "tools",
+            "file": "packages/components/nodes/tools/GoogleDocs/GoogleDocs.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "googleDriveTool",
+            "label": "Google Drive",
+            "category": "Tools",
+            "folder": "tools",
+            "file": "packages/components/nodes/tools/GoogleDrive/GoogleDrive.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "googleCustomSearch",
+            "label": "Google Custom Search",
+            "category": "Tools",
+            "folder": "tools",
+            "file": "packages/components/nodes/tools/GoogleSearchAPI/GoogleSearchAPI.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "googleSheetsTool",
+            "label": "Google Sheets",
+            "category": "Tools",
+            "folder": "tools",
+            "file": "packages/components/nodes/tools/GoogleSheets/GoogleSheets.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "jiraTool",
+            "label": "Jira",
+            "category": "Tools",
+            "folder": "tools",
+            "file": "packages/components/nodes/tools/Jira/Jira.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "jsonPathExtractor",
+            "label": "JSON Path Extractor",
+            "category": "Tools",
+            "folder": "tools",
+            "file": "packages/components/nodes/tools/JSONPathExtractor/JSONPathExtractor.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "braveSearchMCP",
+            "label": "Brave Search MCP",
+            "category": "Tools (MCP)",
+            "folder": "tools",
+            "file": "packages/components/nodes/tools/MCP/BraveSearch/BraveSearchMCP.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "browserlessMCP",
+            "label": "Browserless MCP",
+            "category": "Tools (MCP)",
+            "folder": "tools",
+            "file": "packages/components/nodes/tools/MCP/Browserless/BrowserlessMCP.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "customMCP",
+            "label": "Custom MCP",
+            "category": "Tools (MCP)",
+            "folder": "tools",
+            "file": "packages/components/nodes/tools/MCP/CustomMCP/CustomMCP.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "customMcpServerTool",
+            "label": "Custom MCP Server",
+            "category": "Tools (MCP)",
+            "folder": "tools",
+            "file": "packages/components/nodes/tools/MCP/CustomMcpServerTool/CustomMcpServerTool.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "githubMCP",
+            "label": "Github MCP",
+            "category": "Tools (MCP)",
+            "folder": "tools",
+            "file": "packages/components/nodes/tools/MCP/Github/GithubMCP.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "pipedreamMCP",
+            "label": "Pipedream MCP",
+            "category": "Tools (MCP)",
+            "folder": "tools",
+            "file": "packages/components/nodes/tools/MCP/Pipedream/PipedreamMCP.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "postgreSQLMCP",
+            "label": "PostgreSQL MCP",
+            "category": "Tools (MCP)",
+            "folder": "tools",
+            "file": "packages/components/nodes/tools/MCP/PostgreSQL/PostgreSQLMCP.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "sequentialThinkingMCP",
+            "label": "Sequential Thinking MCP",
+            "category": "Tools (MCP)",
+            "folder": "tools",
+            "file": "packages/components/nodes/tools/MCP/SequentialThinking/SequentialThinkingMCP.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "slackMCP",
+            "label": "Slack MCP",
+            "category": "Tools (MCP)",
+            "folder": "tools",
+            "file": "packages/components/nodes/tools/MCP/Slack/SlackMCP.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "supergatewayMCP",
+            "label": "Supergateway MCP",
+            "category": "Tools (MCP)",
+            "folder": "tools",
+            "file": "packages/components/nodes/tools/MCP/Supergateway/SupergatewayMCP.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "teradataMCP",
+            "label": "Teradata MCP",
+            "category": "Tools (MCP)",
+            "folder": "tools",
+            "file": "packages/components/nodes/tools/MCP/Teradata/TeradataMCP.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "microsoftOutlook",
+            "label": "Microsoft Outlook",
+            "category": "Tools",
+            "folder": "tools",
+            "file": "packages/components/nodes/tools/MicrosoftOutlook/MicrosoftOutlook.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "microsoftTeams",
+            "label": "Microsoft Teams",
+            "category": "Tools",
+            "folder": "tools",
+            "file": "packages/components/nodes/tools/MicrosoftTeams/MicrosoftTeams.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "openAPIToolkit",
+            "label": "OpenAPI Toolkit",
+            "category": "Tools",
+            "folder": "tools",
+            "file": "packages/components/nodes/tools/OpenAPIToolkit/OpenAPIToolkit.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "requestsDelete",
+            "label": "Requests Delete",
+            "category": "Tools",
+            "folder": "tools",
+            "file": "packages/components/nodes/tools/RequestsDelete/RequestsDelete.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "requestsGet",
+            "label": "Requests Get",
+            "category": "Tools",
+            "folder": "tools",
+            "file": "packages/components/nodes/tools/RequestsGet/RequestsGet.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "requestsPost",
+            "label": "Requests Post",
+            "category": "Tools",
+            "folder": "tools",
+            "file": "packages/components/nodes/tools/RequestsPost/RequestsPost.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "requestsPut",
+            "label": "Requests Put",
+            "category": "Tools",
+            "folder": "tools",
+            "file": "packages/components/nodes/tools/RequestsPut/RequestsPut.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "retrieverTool",
+            "label": "Retriever Tool",
+            "category": "Tools",
+            "folder": "tools",
+            "file": "packages/components/nodes/tools/RetrieverTool/RetrieverTool.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "searchAPI",
+            "label": "SearchApi",
+            "category": "Tools",
+            "folder": "tools",
+            "file": "packages/components/nodes/tools/SearchApi/SearchAPI.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "searXNG",
+            "label": "SearXNG",
+            "category": "Tools",
+            "folder": "tools",
+            "file": "packages/components/nodes/tools/Searxng/Searxng.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "serpAPI",
+            "label": "Serp API",
+            "category": "Tools",
+            "folder": "tools",
+            "file": "packages/components/nodes/tools/SerpAPI/SerpAPI.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "serper",
+            "label": "Serper",
+            "category": "Tools",
+            "folder": "tools",
+            "file": "packages/components/nodes/tools/Serper/Serper.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "stripeAgentTool",
+            "label": "StripeAgentTool",
+            "category": "Tools",
+            "folder": "tools",
+            "file": "packages/components/nodes/tools/StripeTool/StripeTool.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "tavilyAPI",
+            "label": "Tavily API",
+            "category": "Tools",
+            "folder": "tools",
+            "file": "packages/components/nodes/tools/TavilyAPI/TavilyAPI.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "webBrowser",
+            "label": "Web Browser",
+            "category": "Tools",
+            "folder": "tools",
+            "file": "packages/components/nodes/tools/WebBrowser/WebBrowser.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "webScraperTool",
+            "label": "Web Scraper Tool",
+            "category": "Tools",
+            "folder": "tools",
+            "file": "packages/components/nodes/tools/WebScraperTool/WebScraperTool.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "wolframAlpha",
+            "label": "WolframAlpha",
+            "category": "Tools",
+            "folder": "tools",
+            "file": "packages/components/nodes/tools/WolframAlpha/WolframAlpha.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "customFunction",
+            "label": "Custom JS Function",
+            "category": "Utilities",
+            "folder": "utilities",
+            "file": "packages/components/nodes/utilities/CustomFunction/CustomFunction.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "getVariable",
+            "label": "Get Variable",
+            "category": "Utilities",
+            "folder": "utilities",
+            "file": "packages/components/nodes/utilities/GetVariable/GetVariable.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "ifElseFunction",
+            "label": "IfElse Function",
+            "category": "Utilities",
+            "folder": "utilities",
+            "file": "packages/components/nodes/utilities/IfElseFunction/IfElseFunction.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "setVariable",
+            "label": "Set Variable",
+            "category": "Utilities",
+            "folder": "utilities",
+            "file": "packages/components/nodes/utilities/SetVariable/SetVariable.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "stickyNote",
+            "label": "Sticky Note",
+            "category": "Utilities",
+            "folder": "utilities",
+            "file": "packages/components/nodes/utilities/StickyNote/StickyNote.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "Astra",
+            "label": "Astra",
+            "category": "Vector Stores",
+            "folder": "vectorstores",
+            "file": "packages/components/nodes/vectorstores/Astra/Astra.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "chroma",
+            "label": "Chroma",
+            "category": "Vector Stores",
+            "folder": "vectorstores",
+            "file": "packages/components/nodes/vectorstores/Chroma/Chroma.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "couchbase",
+            "label": "Couchbase",
+            "category": "Vector Stores",
+            "folder": "vectorstores",
+            "file": "packages/components/nodes/vectorstores/Couchbase/Couchbase.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "documentStoreVS",
+            "label": "Document Store (Vector)",
+            "category": "Vector Stores",
+            "folder": "vectorstores",
+            "file": "packages/components/nodes/vectorstores/DocumentStoreVS/DocStoreVector.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "elasticsearch",
+            "label": "Elasticsearch",
+            "category": "Vector Stores",
+            "folder": "vectorstores",
+            "file": "packages/components/nodes/vectorstores/Elasticsearch/Elasticsearch.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "etlLocalVectorStore",
+            "label": "Local Vector Store",
+            "category": "Vector Stores",
+            "folder": "vectorstores",
+            "file": "packages/components/nodes/vectorstores/EtlLocal/EtlLocalVectorStore.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "faiss",
+            "label": "Faiss",
+            "category": "Vector Stores",
+            "folder": "vectorstores",
+            "file": "packages/components/nodes/vectorstores/Faiss/Faiss.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "memoryVectorStore",
+            "label": "In-Memory Vector Store",
+            "category": "Vector Stores",
+            "folder": "vectorstores",
+            "file": "packages/components/nodes/vectorstores/InMemory/InMemoryVectorStore.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "kendra",
+            "label": "AWS Kendra",
+            "category": "Vector Stores",
+            "folder": "vectorstores",
+            "file": "packages/components/nodes/vectorstores/Kendra/Kendra.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "meilisearch",
+            "label": "Meilisearch",
+            "category": "Vector Stores",
+            "folder": "vectorstores",
+            "file": "packages/components/nodes/vectorstores/Meilisearch/Meilisearch.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "milvus",
+            "label": "Milvus",
+            "category": "Vector Stores",
+            "folder": "vectorstores",
+            "file": "packages/components/nodes/vectorstores/Milvus/Milvus.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "mongoDBAtlas",
+            "label": "MongoDB Atlas",
+            "category": "Vector Stores",
+            "folder": "vectorstores",
+            "file": "packages/components/nodes/vectorstores/MongoDBAtlas/MongoDBAtlas.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "openSearch",
+            "label": "OpenSearch",
+            "category": "Vector Stores",
+            "folder": "vectorstores",
+            "file": "packages/components/nodes/vectorstores/OpenSearch/OpenSearch.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "pinecone",
+            "label": "Pinecone",
+            "category": "Vector Stores",
+            "folder": "vectorstores",
+            "file": "packages/components/nodes/vectorstores/Pinecone/Pinecone.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "postgres",
+            "label": "Postgres",
+            "category": "Vector Stores",
+            "folder": "vectorstores",
+            "file": "packages/components/nodes/vectorstores/Postgres/Postgres.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "qdrant",
+            "label": "Qdrant",
+            "category": "Vector Stores",
+            "folder": "vectorstores",
+            "file": "packages/components/nodes/vectorstores/Qdrant/Qdrant.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "redis",
+            "label": "Redis",
+            "category": "Vector Stores",
+            "folder": "vectorstores",
+            "file": "packages/components/nodes/vectorstores/Redis/Redis.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "singlestore",
+            "label": "SingleStore",
+            "category": "Vector Stores",
+            "folder": "vectorstores",
+            "file": "packages/components/nodes/vectorstores/Singlestore/Singlestore.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "supabase",
+            "label": "Supabase",
+            "category": "Vector Stores",
+            "folder": "vectorstores",
+            "file": "packages/components/nodes/vectorstores/Supabase/Supabase.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "upstash",
+            "label": "Upstash Vector",
+            "category": "Vector Stores",
+            "folder": "vectorstores",
+            "file": "packages/components/nodes/vectorstores/Upstash/Upstash.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "vectaraUpload",
+            "label": "Vectara Upload File",
+            "category": "Vector Stores",
+            "folder": "vectorstores",
+            "file": "packages/components/nodes/vectorstores/Vectara/Vectara_Upload.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "vectara",
+            "label": "Vectara",
+            "category": "Vector Stores",
+            "folder": "vectorstores",
+            "file": "packages/components/nodes/vectorstores/Vectara/Vectara.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "weaviate",
+            "label": "Weaviate",
+            "category": "Vector Stores",
+            "folder": "vectorstores",
+            "file": "packages/components/nodes/vectorstores/Weaviate/Weaviate.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "zep",
+            "label": "Zep Collection - Open Source",
+            "category": "Vector Stores",
+            "folder": "vectorstores",
+            "file": "packages/components/nodes/vectorstores/Zep/Zep.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        },
+        {
+            "name": "zepCloud",
+            "label": "Zep Collection - Cloud",
+            "category": "Vector Stores",
+            "folder": "vectorstores",
+            "file": "packages/components/nodes/vectorstores/ZepCloud/ZepCloud.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run."
+        }
+    ]
+}

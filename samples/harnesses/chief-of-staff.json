@@ -1,0 +1,74 @@
+{
+    "name": "chief-of-staff",
+    "description": "Researcher searches an in-memory vector store with Local Hash Embeddings and a plain-text note. Analyst uses PostgreSQL MCP when CUTTLELY_ANALYST=auto, or when CUTTLELY_POSTGRES_URL names a separate database. No database URL is stored.",
+    "chief": {
+        "instructions": "Document questions go to the researcher. Database questions go to the analyst. Do not invent sources or query results.",
+        "model": {
+            "provider": "xai",
+            "model": "grok-4.7"
+        }
+    },
+    "specialists": [
+        {
+            "name": "researcher",
+            "instructions": "Retrieve passages from the in-memory vector store and return them with their sources.",
+            "shell": false,
+            "browser": false,
+            "codeExecution": false,
+            "fileAccess": false,
+            "modules": [
+                {
+                    "nodeName": "memoryVectorStore",
+                    "label": "In-Memory Vector Store",
+                    "category": "Vector Stores",
+                    "inputs": {
+                        "topK": "4"
+                    },
+                    "outputs": {
+                        "output": "retriever"
+                    },
+                    "upstream": {
+                        "embeddings": {
+                            "nodeName": "localHashEmbeddings",
+                            "label": "Local Hash Embeddings",
+                            "category": "Embeddings",
+                            "inputs": {
+                                "dimensions": "384"
+                            },
+                            "outputs": {}
+                        },
+                        "document": {
+                            "nodeName": "plainText",
+                            "label": "Plain Text",
+                            "category": "Document Loaders",
+                            "inputs": {
+                                "text": "Cuttlely chief-of-staff sample. The researcher reads this note from an in-memory store. Local Hash Embeddings built the vectors, with no provider key. The analyst stays off until CUTTLELY_ANALYST=auto, which creates isolated storage. CUTTLELY_POSTGRES_URL still names a separate database when you set it."
+                            },
+                            "outputs": {
+                                "output": "document"
+                            }
+                        }
+                    }
+                }
+            ],
+            "mcpServers": []
+        },
+        {
+            "name": "analyst",
+            "instructions": "Answer database questions with the PostgreSQL MCP tools. Return only what those tools return.",
+            "shell": false,
+            "browser": false,
+            "codeExecution": false,
+            "fileAccess": false,
+            "modules": [],
+            "mcpServers": [
+                {
+                    "nodeName": "postgreSQLMCP",
+                    "label": "PostgreSQL MCP",
+                    "category": "Tools (MCP)",
+                    "inputs": {}
+                }
+            ]
+        }
+    ]
+}

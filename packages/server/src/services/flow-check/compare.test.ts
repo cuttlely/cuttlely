@@ -1,0 +1,76 @@
+// Same or changed, totals, token counts and question picking for the publish check.
+import { median, normalizeAnswer, pickQuestions, sameAnswer, stepTokens, summarize, totalTokens } from './compare'
+
+const side = (text: string | null, extra: any = {}) => ({ text, error: null, tokens: 10, ms: 100, ...extra })
+
+test('answers match ignoring case and spacing', () => {
+    expect(normalizeAnswer('  Hello\n  World ')).toBe('hello world')
+    expect(sameAnswer(side('MANGO'), side('mango '))).toBe(true)
+    expect(sameAnswer(side('MANGO'), side('PAPAYA'))).toBe(false)
+    expect(sameAnswer(side(null, { error: 'boom' }), side('MANGO'))).toBe(false)
+})
+
+test('the summary counts same, changed and errors, sums tokens and takes the median time', () => {
+    const summary = summarize([
+        { question: 'a', live: side('x', { tokens: 10, ms: 100 }), draft: side('x', { tokens: 12, ms: 300 }), same: true },
+        { question: 'b', live: side('x', { tokens: 20, ms: 200 }), draft: side('y', { tokens: 8, ms: 100 }), same: false },
+        { question: 'c', live: side('x', { tokens: 5, ms: 50 }), draft: side(null, { error: 'boom', tokens: null, ms: 999 }), same: false },
+        { question: 'd', live: null, draft: null, same: null }
+    ])
+    expect(summary).toEqual({
+        ran: 3,
+        same: 1,
+        changed: 1,
+        errors: 1,
+        liveTokens: 35,
+        draftTokens: 20,
+        liveMedianMs: 100,
+        draftMedianMs: 200
+    })
+    expect(median([])).toBeNull()
+})
+
+test('token totals come from the tracer metrics, and nothing counted is null', () => {
+    expect(
+        totalTokens([
+            JSON.stringify({ provider: 'ChatOpenAI' }),
+            JSON.stringify({ totalTokens: 42 }),
+            JSON.stringify({ promptTokens: 3, completionTokens: 4 })
+        ])
+    ).toBe(49)
+    expect(totalTokens([JSON.stringify({ provider: 'ChatOpenAI' })])).toBeNull()
+    expect(totalTokens(undefined)).toBeNull()
+    expect(totalTokens(['not json', { totalTokens: 5 }])).toBe(5)
+})
+
+test('questions: newest first, one per wording, within the limits', () => {
+    expect(pickQuestions(['Hi', 'hi ', '', 'x'.repeat(30), 'Where is my order?', 'Third'], 2, 20)).toEqual(['Hi', 'Where is my order?'])
+})
+
+describe('stepTokens', () => {
+    test('adds up the usage each agentflow step reports', () => {
+        const steps = [
+            { data: { output: { question: 'hi' } } },
+            { data: { output: { usageMetadata: { total_tokens: 21 } } } },
+            { data: { output: { usageMetadata: { input_tokens: 5, output_tokens: 4 } } } },
+            { data: { output: { usageMetadata: { total_tokens: 0 } } } },
+            { data: { error: 'failed' } }
+        ]
+        expect(stepTokens(steps)).toEqual([{ totalTokens: 21 }, { totalTokens: 9 }])
+        expect(totalTokens(stepTokens(steps))).toBe(30)
+    })
+
+    test('an Agent step that called tools counts its final answer once', () => {
+        // A 10-token tool request, then a 20-token answer: the Agent reports total_tokens 50 and tool_call_tokens 30.
+        const steps = [{ data: { output: { usageMetadata: { total_tokens: 50, tool_call_tokens: 30 } } } }]
+        expect(stepTokens(steps)).toEqual([{ totalTokens: 30 }])
+        expect(stepTokens([{ data: { output: { usageMetadata: { total_tokens: 20, tool_call_tokens: 0 } } } }])).toEqual([
+            { totalTokens: 20 }
+        ])
+    })
+
+    test('nothing to count gives no tokens', () => {
+        expect(stepTokens(undefined)).toEqual([])
+        expect(totalTokens(stepTokens([{ data: {} }]))).toBeNull()
+    })
+})

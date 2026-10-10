@@ -1,0 +1,32 @@
+{
+    "name": "ops",
+    "description": "Harness Prime delegates to an allowlisted MCP specialist.",
+    "chief": {
+        "instructions": "Answer from the allowlisted ops MCP tool. Do not use shell, browser, or code execution.",
+        "model": {
+            "provider": "xai",
+            "model": "grok-4.7"
+        }
+    },
+    "specialists": [
+        {
+            "name": "operator",
+            "instructions": "Call the allowlisted ops MCP server and report what it returns.",
+            "shell": false,
+            "browser": false,
+            "codeExecution": false,
+            "modules": [],
+            "mcpServers": [
+                {
+                    "nodeName": "customMCP",
+                    "label": "Custom MCP",
+                    "serverName": "ops-tools",
+                    "inputs": {
+                        "mcpServerConfig": "{\"command\":\"node\",\"args\":[\"samples/ops-mcp-server.mjs\"]}",
+                        "mcpActions": ["ops_status"]
+                    }
+                }
+            ]
+        }
+    ]
+}

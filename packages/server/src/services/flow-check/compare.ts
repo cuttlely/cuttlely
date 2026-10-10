@@ -1,0 +1,134 @@
+// Same or changed, and the totals the Publish dialog shows. Pure functions, no I/O.
+
+export interface SideResult {
+    text: string | null
+    error: string | null
+    // Total tokens the model reported, or estimated by the token counter. Null when nothing was counted.
+    tokens: number | null
+    // Wall-clock time for this one run, in milliseconds.
+    ms: number
+}
+
+export interface CheckCase {
+    question: string
+    live: SideResult | null
+    draft: SideResult | null
+    // True when both answers match after ignoring case and spacing. Null until both sides ran.
+    same: boolean | null
+}
+
+export interface CheckSummary {
+    ran: number
+    same: number
+    changed: number
+    errors: number
+    liveTokens: number
+    draftTokens: number
+    liveMedianMs: number | null
+    draftMedianMs: number | null
+}
+
+export function normalizeAnswer(text: string | null | undefined): string {
+    return String(text ?? '')
+        .toLowerCase()
+        .replace(/\s+/g, ' ')
+        .trim()
+}
+
+export function sameAnswer(live: SideResult, draft: SideResult): boolean {
+    if (live.error || draft.error) return false
+    return normalizeAnswer(live.text) === normalizeAnswer(draft.text)
+}
+
+export function median(values: number[]): number | null {
+    if (!values.length) return null
+    const sorted = [...values].sort((a, b) => a - b)
+    const mid = Math.floor(sorted.length / 2)
+    return sorted.length % 2 ? sorted[mid] : Math.round((sorted[mid - 1] + sorted[mid]) / 2)
+}
+
+// With an empty Live (a flow never published) only the draft runs, so a question counts once its draft answered.
+export function summarize(cases: CheckCase[], liveEmpty = false): CheckSummary {
+    if (liveEmpty) {
+        const answered = cases.filter((c) => c.draft) as Array<CheckCase & { draft: SideResult }>
+        return {
+            ran: answered.length,
+            same: 0,
+            changed: 0,
+            errors: answered.filter((c) => c.draft.error).length,
+            liveTokens: 0,
+            draftTokens: answered.reduce((sum, c) => sum + (c.draft.tokens || 0), 0),
+            liveMedianMs: null,
+            draftMedianMs: median(answered.filter((c) => !c.draft.error).map((c) => c.draft.ms))
+        }
+    }
+    const done = cases.filter((c) => c.live && c.draft) as Array<CheckCase & { live: SideResult; draft: SideResult }>
+    return {
+        ran: done.length,
+        same: done.filter((c) => c.same === true).length,
+        changed: done.filter((c) => c.same === false && !c.live.error && !c.draft.error).length,
+        errors: done.filter((c) => c.live.error || c.draft.error).length,
+        liveTokens: done.reduce((sum, c) => sum + (c.live.tokens || 0), 0),
+        draftTokens: done.reduce((sum, c) => sum + (c.draft.tokens || 0), 0),
+        liveMedianMs: median(done.filter((c) => !c.live.error).map((c) => c.live.ms)),
+        draftMedianMs: median(done.filter((c) => !c.draft.error).map((c) => c.draft.ms))
+    }
+}
+
+// Token metrics the evaluation tracer recorded for one run: JSON strings, some with totalTokens.
+export function totalTokens(metrics: unknown[] | undefined): number | null {
+    if (!metrics?.length) return null
+    let total = 0
+    let counted = false
+    for (const entry of metrics) {
+        let metric: any = entry
+        if (typeof entry === 'string') {
+            try {
+                metric = JSON.parse(entry)
+            } catch {
+                continue
+            }
+        }
+        const value = Number(metric?.totalTokens ?? (Number(metric?.promptTokens || 0) + Number(metric?.completionTokens || 0) || NaN))
+        if (Number.isFinite(value) && value > 0) {
+            total += value
+            counted = true
+        }
+    }
+    return counted ? total : null
+}
+
+// Recent questions from chat history: newest first, one per wording, within the size limit.
+export function pickQuestions(texts: string[], max: number, maxChars: number): string[] {
+    const seen = new Set<string>()
+    const out: string[] = []
+    for (const raw of texts) {
+        const text = String(raw ?? '').trim()
+        if (!text || text.length > maxChars) continue
+        const key = normalizeAnswer(text)
+        if (seen.has(key)) continue
+        seen.add(key)
+        out.push(text)
+        if (out.length >= max) break
+    }
+    return out
+}
+
+// Token metrics for an agentflow run: each model step reports its own usage. Steps that report none add nothing.
+export function stepTokens(steps: unknown): Array<{ totalTokens: number }> {
+    if (!Array.isArray(steps)) return []
+    const metrics: Array<{ totalTokens: number }> = []
+    for (const step of steps) {
+        const usage = (step as any)?.data?.output?.usageMetadata
+        if (!usage || typeof usage !== 'object') continue
+        // An Agent step that called tools reports tool_call_tokens: every model call in the step, the final answer
+        // included. Its total_tokens adds the final answer again, so tool_call_tokens is the step's real total.
+        const toolCallTokens = Number(usage.tool_call_tokens || 0)
+        const value =
+            toolCallTokens > 0
+                ? toolCallTokens
+                : Number(usage.total_tokens ?? Number(usage.input_tokens || 0) + Number(usage.output_tokens || 0))
+        if (Number.isFinite(value) && value > 0) metrics.push({ totalTokens: value })
+    }
+    return metrics
+}

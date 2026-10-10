@@ -1,0 +1,26 @@
+{
+    "name": "@cuttlely/chat",
+    "version": "1.0.0",
+    "private": true,
+    "description": "Cuttlely chat widget for shared chat links and website embeds",
+    "license": "Apache-2.0",
+    "type": "module",
+    "main": "dist/index.mjs",
+    "module": "dist/index.mjs",
+    "exports": {
+        ".": "./dist/index.mjs",
+        "./chat.js": "./dist/chat.js",
+        "./package.json": "./package.json"
+    },
+    "files": [
+        "dist"
+    ],
+    "scripts": {
+        "build": "node scripts/build.mjs",
+        "test": "node --test test/*.test.js"
+    },
+    "devDependencies": {
+        "esbuild": "0.19.12",
+        "jsdom": "^22.1.0"
+    }
+}

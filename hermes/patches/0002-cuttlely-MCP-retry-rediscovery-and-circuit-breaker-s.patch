@@ -1,0 +1,486 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: cuttlely vendor <vendor@cuttlely.invalid>
+Date: Sat, 1 Jan 2000 00:00:00 +0000
+Subject: [PATCH] cuttlely: MCP retry, rediscovery and circuit breaker scope
+
+What: tools/mcp_tool_cuttlely.py holds the logic; tools/mcp_tool.py, mcp_tool_discovery.py and mcp_tool_handlers.py call it through short hooks. A startup tools/list that returns nothing or cannot connect is retried, a call that finds the server toolless rediscovers its tools, and an MCP result with cuttlelyOutcome "expected" stays off the circuit breaker. Real transport failures still open it, per chat when the call has a session id. The analyst tool call also receives that session id as _cuttlelyScope, so a page cursor cannot be reused from another chat; the Cuttlely bridge removes it before the tool schema. tests/tools/test_cuttlely_mcp_retry.py covers it.
+
+Why: Cuttlely's MCP bridge starts alongside Hermes, so the first tools/list can be empty, and an expected analyst refusal must not take the analyst tool away for every chat.
+---
+ tests/tools/test_cuttlely_mcp_retry.py | 94 ++++++++++++++++++++++++++
+ tools/mcp_tool.py                      | 38 +++++++++--
+ tools/mcp_tool_cuttlely.py             | 89 ++++++++++++++++++++++++
+ tools/mcp_tool_discovery.py            | 62 +++++++++++++++++
+ tools/mcp_tool_handlers.py             | 60 ++++++++++++++--
+ 5 files changed, 329 insertions(+), 14 deletions(-)
+ create mode 100644 tests/tools/test_cuttlely_mcp_retry.py
+ create mode 100644 tools/mcp_tool_cuttlely.py
+
+diff --git a/tests/tools/test_cuttlely_mcp_retry.py b/tests/tools/test_cuttlely_mcp_retry.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..53964975129f205fb154d358681340c7d7b7c5b1
+--- /dev/null
++++ b/tests/tools/test_cuttlely_mcp_retry.py
+@@ -0,0 +1,94 @@
++"""cuttlely: empty MCP tool lists are retried, and expected analyst results do not open the breaker."""
++
++import asyncio
++
++from tools.mcp_tool_cuttlely import (
++    CUTTLELY_TOOL_RETRY_DELAYS,
++    analyst_call_arguments,
++    breaker_scope_key,
++    counts_toward_breaker,
++    cuttlely_retry_tool_list,
++    leaves_breaker_unchanged,
++)
++
++
++def test_empty_tool_list_retries_then_returns_tools():
++    calls = {"n": 0}
++
++    async def list_tools():
++        calls["n"] += 1
++        if calls["n"] < 3:
++            return []
++        return ["query"]
++
++    slept = []
++
++    async def sleep(delay):
++        slept.append(delay)
++
++    tools = asyncio.run(cuttlely_retry_tool_list(list_tools, sleep=sleep))
++    assert tools == ["query"]
++    assert calls["n"] == 3
++    assert slept == list(CUTTLELY_TOOL_RETRY_DELAYS[:2])
++
++
++def test_empty_tool_list_stops_after_the_delays():
++    async def list_tools():
++        return []
++
++    async def sleep(_delay):
++        return None
++
++    tools = asyncio.run(cuttlely_retry_tool_list(list_tools, delays=(0.1, 0.2), sleep=sleep))
++    assert tools == []
++
++
++def test_five_expected_outcomes_do_not_pause_and_transport_failures_do():
++    """Mirrors the handler: expected skips the count; transport strikes are per session."""
++    counts = {}
++    opened = set()
++
++    def record(session, payload):
++        if leaves_breaker_unchanged('{"error":"x","cuttlelyOutcome":"expected"}') and payload.get("cuttlelyOutcome") == "expected":
++            assert counts_toward_breaker(payload) is False
++            return
++        assert counts_toward_breaker(payload) is True
++        key = breaker_scope_key("analyst", session)
++        counts[key] = counts.get(key, 0) + 1
++        if counts[key] >= 3:
++            opened.add(key)
++
++    expected = {"error": "Analyst mode refused ATTACH or VACUUM.", "cuttlelyOutcome": "expected"}
++    for _ in range(5):
++        record("chat-a", expected)
++    assert opened == set()
++
++    transport = {"error": "connection refused", "cuttlelyOutcome": "transport"}
++    record("chat-a", transport)
++    record("chat-a", transport)
++    assert opened == set()
++    record("chat-b", transport)
++    record("chat-b", transport)
++    record("chat-b", transport)
++    assert breaker_scope_key("analyst", "chat-a") not in opened
++    assert breaker_scope_key("analyst", "chat-b") in opened
++    record("chat-a", transport)
++    assert breaker_scope_key("analyst", "chat-a") in opened
++
++
++def test_analyst_page_scope_is_only_added_for_the_analyst_server():
++    args = {"sql": "select 1"}
++    scoped = analyst_call_arguments("analyst", args, "chief-of-staff--analyst:chat-9")
++    assert scoped["_cuttlelyScope"] == "chief-of-staff--analyst:chat-9"
++    assert scoped["sql"] == "select 1"
++    assert "_cuttlelyScope" not in args
++    assert analyst_call_arguments("other", args, "chat-9") is args
++    assert analyst_call_arguments("analyst", args, "") is args
++
++
++def test_expected_outcome_leaves_the_breaker_text_unchanged():
++    assert leaves_breaker_unchanged('{"error":"no such table: missing_table_xyz","cuttlelyOutcome":"expected"}')
++    assert counts_toward_breaker({"error": "no such table: missing_table_xyz", "cuttlelyOutcome": "expected"}) is False
++    assert counts_toward_breaker({"error": "MCP server is unreachable"}) is True
++    assert breaker_scope_key("analyst", "") == "analyst"
++    assert breaker_scope_key("analyst", "chat-1") == ("analyst", "chat-1")
+diff --git a/tools/mcp_tool.py b/tools/mcp_tool.py
+index 91d8aef01e49a722f8dea4e396143f655688194a..d1e9974e840090dc07c9a4fa16b69e95d978e021 100644
+--- a/tools/mcp_tool.py
++++ b/tools/mcp_tool.py
+@@ -470,6 +470,8 @@ _CONNECT_RETRY_BASE_BACKOFF_SEC, _CONNECT_RETRY_MAX_BACKOFF_SEC = 30.0, 600.0
+ # — they keep the count and timestamp in sync.
+ _server_error_counts: Dict[Any, int] = {}
+ _server_breaker_opened_at: Dict[Any, float] = {}
++# cuttlely: set by the tool handler for the duration of one call. Empty keeps the server-wide key.
++_breaker_session: contextvars.ContextVar = contextvars.ContextVar("cuttlely_mcp_breaker_session", default="")
+ # True while every strike in the current streak was the tool's own error payload (server reachable,
+ # call rejected); picks the open-breaker wording, since "unreachable" was false for that case (#11113).
+ _server_errors_all_application: Dict[Any, bool] = {}
+@@ -489,12 +491,19 @@ _tool_read_only_hints: Dict[Any, Dict[str, bool]] = {}
+ _TRUST_FULL, _TRUST_UNTRUSTED = "full", "untrusted"
+ 
+ 
++def _breaker_key(server_name: str):
++    """Connection key, plus the chat session when the handler set one (cuttlely)."""
++    from tools.mcp_tool_cuttlely import breaker_scope_key
++    from tools.mcp_tool_scope import _resolve_server_key
++    return breaker_scope_key(_resolve_server_key(server_name), _breaker_session.get())
++
++
+ def _bump_server_error(server_name: str, *, application: bool = False) -> None:
+     """Count a failure; at the threshold (re)stamp the breaker-open time. Keyed by the calling
+     scope's connection so one profile's failing server never opens another profile's breaker.
++    cuttlely: a session id on the call keeps that chat's streak off every other chat.
+     *application*: the call completed and the payload was an error (transport is fine)."""
+-    from tools.mcp_tool_scope import _resolve_server_key
+-    key = _resolve_server_key(server_name)
++    key = _breaker_key(server_name)
+     n = _server_error_counts.get(key, 0) + 1
+     _server_error_counts[key] = n
+     _server_errors_all_application[key] = application and (n == 1 or _server_errors_all_application.get(key, False))
+@@ -503,12 +512,27 @@ def _bump_server_error(server_name: str, *, application: bool = False) -> None:
+ 
+ 
+ def _reset_server_error(server_name: str) -> None:
+-    """Close the breaker on any unambiguous success signal."""
++    """Close the breaker on any unambiguous success signal.
++
++    cuttlely: a session-scoped call clears only that chat. A reset with no session (reconnect)
++    clears the server-wide key and every chat key for that server.
++    """
+     from tools.mcp_tool_scope import _resolve_server_key
+-    key = _resolve_server_key(server_name)
+-    _server_error_counts[key] = 0
+-    _server_breaker_opened_at.pop(key, None)
+-    _server_errors_all_application.pop(key, None)
++    base = _resolve_server_key(server_name)
++    session = str(_breaker_session.get() or "").strip()
++    if session:
++        keys = [_breaker_key(server_name)]
++    else:
++        keys = [
++            key for key in list(_server_error_counts)
++            if key == base or (isinstance(key, tuple) and key and key[0] == base)
++        ]
++        if base not in keys:
++            keys.append(base)
++    for key in keys:
++        _server_error_counts[key] = 0
++        _server_breaker_opened_at.pop(key, None)
++        _server_errors_all_application.pop(key, None)
+ 
+ 
+ # Servers opted into parallel tool calls, keyed by the consuming profile's own key (``foo-bar``/
+diff --git a/tools/mcp_tool_cuttlely.py b/tools/mcp_tool_cuttlely.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..c23f5e74aca73934c5b11ad34a6a710423dd665b
+--- /dev/null
++++ b/tools/mcp_tool_cuttlely.py
+@@ -0,0 +1,89 @@
++"""cuttlely patch: startup retries for an MCP server that lists no tools or cannot be reached,
++and the flag that keeps an expected analyst result off the circuit breaker.
++
++The harness gateway can be a couple of seconds behind Hermes. A tools/list in that window
++used to register zero tools for the life of the process. Expected analyst results (a refusal
++or an ordinary SQL error) carry ``cuttlelyOutcome: "expected"`` so they are not server failures.
++"""
++
++from __future__ import annotations
++
++import asyncio
++from typing import Any, Awaitable, Callable, Optional, Sequence
++
++# Five tries. The first list is immediate; these are the waits after an empty or failed list.
++CUTTLELY_TOOL_RETRY_DELAYS = (0.5, 1.0, 2.0, 4.0, 8.0)
++
++
++def breaker_scope_key(base: Any, session_id: Optional[str]) -> Any:
++    """Per chat when the call has a session id. Calls without one keep the server-wide key."""
++    session = str(session_id or "").strip()
++    if not session:
++        return base
++    return (base, session)
++
++
++def outcome_from_structured(structured: Any) -> str:
++    if not isinstance(structured, dict):
++        return ""
++    outcome = structured.get("cuttlelyOutcome")
++    if outcome in ("expected", "transport"):
++        return outcome
++    return ""
++
++
++def counts_toward_breaker(payload: Any) -> bool:
++    """True when a rendered tool payload is a transport or server failure.
++
++    An expected analyst outcome has an error text for the model and does not strike.
++    """
++    if not isinstance(payload, dict) or "error" not in payload:
++        return False
++    if payload.get("cuttlelyOutcome") == "expected":
++        return False
++    return True
++
++
++def analyst_call_arguments(server_name: str, args: dict, session_id: Optional[str]) -> dict:
++    """cuttlely: a page cursor is scoped to this chat.
++
++    The analyst bridge reads ``_cuttlelyScope`` and drops it before the tool schema.
++    Other MCP servers keep the model's arguments unchanged.
++    """
++    if server_name != "analyst":
++        return args
++    session = str(session_id or "").strip()
++    if not session:
++        return args
++    merged = dict(args or {})
++    merged["_cuttlelyScope"] = session
++    return merged
++
++
++def leaves_breaker_unchanged(result_text: str) -> bool:
++    """Expected outcomes neither open the breaker nor clear a real failure streak."""
++    import json
++
++    try:
++        payload = json.loads(result_text)
++    except (json.JSONDecodeError, TypeError):
++        return False
++    return isinstance(payload, dict) and payload.get("cuttlelyOutcome") == "expected"
++
++
++async def cuttlely_retry_tool_list(
++    list_tools: Callable[[], Awaitable[Sequence[Any]]],
++    *,
++    delays: Sequence[float] = CUTTLELY_TOOL_RETRY_DELAYS,
++    sleep: Callable[[float], Awaitable[Any]] = asyncio.sleep,
++) -> list:
++    """Call ``list_tools`` until it returns a non-empty list or ``delays`` run out."""
++    tools = list(await list_tools() or [])
++    if tools:
++        return tools
++    for delay in delays:
++        await sleep(delay)
++        tools = list(await list_tools() or [])
++        if tools:
++            return tools
++    return []
+diff --git a/tools/mcp_tool_discovery.py b/tools/mcp_tool_discovery.py
+index d113a8f6e622c25bda662ac19a19ec6026c2bd04..ae7702421ee3f0d0637cd02cc6aa4ec9a6505b14 100644
+--- a/tools/mcp_tool_discovery.py
++++ b/tools/mcp_tool_discovery.py
+@@ -308,6 +308,60 @@ def _get_connected_server_for_call(server_name: str) -> Optional[_core.MCPServer
+         return _core._servers.get(key)
+ 
+ 
++def _cuttlely_schedule(coro) -> None:
++    """Run a Cuttlely retry on the MCP loop. Discovery is already on that loop."""
++    try:
++        asyncio.get_running_loop().create_task(coro)
++    except RuntimeError:
++        coro.close()
++
++
++async def _cuttlely_retry_empty_tools(name: str, server) -> None:
++    """cuttlely: re-list tools until one appears or the short backoff runs out."""
++    from tools.mcp_tool_cuttlely import CUTTLELY_TOOL_RETRY_DELAYS, cuttlely_retry_tool_list
++
++    async def list_once():
++        if getattr(server, "_tools", None):
++            return list(server._tools)
++        try:
++            await server._discover_tools()
++        except Exception as exc:
++            logger.info("cuttlely: MCP '%s' tools/list retry failed: %s", name, exc)
++            return []
++        return list(getattr(server, "_tools", None) or [])
++
++    tools = await cuttlely_retry_tool_list(list_once, delays=CUTTLELY_TOOL_RETRY_DELAYS)
++    if tools:
++        logger.info("cuttlely: MCP server '%s' registered %d tool(s) after an empty tools/list", name, len(tools))
++    else:
++        logger.warning("cuttlely: MCP server '%s' still has no tools after startup retries", name)
++
++
++async def _cuttlely_retry_connect(name: str, config: dict) -> None:
++    """cuttlely: reconnect a server that failed at startup, a few times, then stop."""
++    from tools.mcp_tool_cuttlely import CUTTLELY_TOOL_RETRY_DELAYS
++
++    for delay in CUTTLELY_TOOL_RETRY_DELAYS:
++        await asyncio.sleep(delay)
++        with _core._lock:
++            key = _server_key(name)
++            live = _core._servers.get(key)
++            # A live session owns its own empty-list retry. Do not spawn a second process.
++            if live is not None and getattr(live, "session", None) is not None:
++                return
++            _core._server_connect_retry_after.pop(key, None)
++            _core._server_connecting.discard(key)
++        try:
++            names = await _discover_and_register_server(name, config)
++        except BaseException as exc:
++            logger.info("cuttlely: MCP '%s' connect retry failed: %s", name, exc)
++            continue
++        _note_connect_success(name)
++        logger.info("cuttlely: MCP server '%s' connected on retry with %d tool(s)", name, len(names or []))
++        return
++    logger.warning("cuttlely: MCP server '%s' was still unreachable after startup retries", name)
++
++
+ async def _discover_and_register_server(name: str, config: dict) -> List[str]:
+     """Connect one server, register its tools; return the registered names."""
+     # The claim fires inside _connect_server while this frame is suspended (list, not nonlocal).
+@@ -338,6 +392,9 @@ async def _discover_and_register_server(name: str, config: dict) -> List[str]:
+     server._registered_tool_names = list(registered_names)
+     logger.info("MCP server '%s' (%s): registered %d tool(s): %s", name,
+                 "HTTP" if "url" in config else "stdio", len(registered_names), ", ".join(registered_names))
++    # cuttlely: an empty tools/list at startup (gateway not listening yet) must not stick.
++    if not registered_names and getattr(server, "_advertises_tools", lambda: False)():
++        _cuttlely_schedule(_cuttlely_retry_empty_tools(name, server))
+     return registered_names
+ 
+ 
+@@ -440,6 +497,11 @@ async def _discover_all(new_servers: Dict[str, dict]) -> None:
+             message = _note_connect_failure(name, result)
+             logger.warning("Failed to connect to MCP server '%s'%s: %s",
+                            name, f" (command={command})" if command else "", message)
++            # cuttlely: a server that is unreachable at startup is retried on a short backoff.
++            # The long connect cooldown still applies after those tries.
++            cfg = new_servers.get(name)
++            if cfg:
++                _cuttlely_schedule(_cuttlely_retry_connect(name, cfg))
+         else:
+             _note_connect_success(name)
+ 
+diff --git a/tools/mcp_tool_handlers.py b/tools/mcp_tool_handlers.py
+index dd8b8e649191e3683aaef3bd9c2f1c6599d7e140..82be66da1325b9cc1d10d15a333cea7b1b0845d9 100644
+--- a/tools/mcp_tool_handlers.py
++++ b/tools/mcp_tool_handlers.py
+@@ -87,8 +87,7 @@ def _trust_gate_check(server_name: str, tool_name: str) -> Optional[str]:
+ def _check_circuit_breaker(server_name: str) -> Optional[str]:
+     """Open-breaker error, or None when calls may proceed. After the cooldown the breaker is
+     half-open: the next call probes; success resets, failure re-bumps and re-arms the cooldown."""
+-    from tools.mcp_tool_scope import _resolve_server_key
+-    key = _resolve_server_key(server_name)
++    key = _core._breaker_key(server_name)
+     failures = _core._server_error_counts.get(key, 0)
+     age = time.monotonic() - _core._server_breaker_opened_at.get(key, 0.0)
+     if failures < _core._CIRCUIT_BREAKER_THRESHOLD or age >= _core._CIRCUIT_BREAKER_COOLDOWN_SEC:
+@@ -139,16 +138,27 @@ def _acquire_call_server(server_name: str, tool_timeout: float):
+ 
+ 
+ def _result_is_error(result) -> bool:
+-    """True only for a JSON payload carrying an ``error`` key (non-JSON = success)."""
++    """True only for a JSON payload carrying an ``error`` key (non-JSON = success).
++
++    cuttlely: ``cuttlelyOutcome: "expected"`` is an analyst refusal or ordinary SQL error.
++    It is not a transport failure, so it does not strike.
++    """
++    from tools.mcp_tool_cuttlely import counts_toward_breaker
+     try:
+-        return "error" in json.loads(result)
++        return counts_toward_breaker(json.loads(result))
+     except (json.JSONDecodeError, TypeError):
+         return False
+ 
+ 
+ def _record_call_outcome(server_name: str, result) -> Any:
+     """Breaker bookkeeping: an error payload from the tool itself still counts as a strike (#10447),
+-    flagged as an application error so the open-breaker message stays truthful."""
++    flagged as an application error so the open-breaker message stays truthful.
++
++    cuttlely: an expected analyst outcome leaves the streak where it is.
++    """
++    from tools.mcp_tool_cuttlely import leaves_breaker_unchanged
++    if leaves_breaker_unchanged(result):
++        return result
+     if _result_is_error(result):
+         _core._bump_server_error(server_name, application=True)
+     else:
+@@ -526,7 +536,14 @@ def _render_call_tool_result(result, server_name: str) -> str:
+     used. ``structuredContent`` fills ``result`` when the blocks rendered effectively empty
+     (structuredContent-only servers); ``_meta`` minus reserved keys is always surfaced."""
+     if mcp_field(result, "is_error", "isError", False):
+-        return tool_error(_sanitize_error(_truncate_mcp_text_result(_error_result_text(result) or "MCP tool returned an error")))
++        # cuttlely: structuredContent.cuttlelyOutcome travels with the error text so the breaker
++        # can tell an expected analyst result from a dead server without reading the sentence.
++        from tools.mcp_tool_cuttlely import outcome_from_structured
++        outcome = outcome_from_structured(mcp_field(result, "structured_content", "structuredContent"))
++        extra = {"cuttlelyOutcome": outcome} if outcome else {}
++        return tool_error(
++            _sanitize_error(_truncate_mcp_text_result(_error_result_text(result) or "MCP tool returned an error")),
++            **extra)
+     text_result, usable_parts = _render_content_blocks(result, server_name)
+     structured = _capped_structured_content(result)
+     meta = _strip_reserved_meta_keys(mcp_field(result, "meta", "meta"))
+@@ -552,11 +569,36 @@ def _render_call_tool_result(result, server_name: str) -> str:
+         return json.dumps({"result": text_result}, ensure_ascii=False)
+ 
+ 
++def _cuttlely_refresh_toolless(server, server_name: str) -> None:
++    """cuttlely: a call that finds a connected server with no tools lists them again once.
++
++    Startup can register nothing when the harness gateway is not up yet. The retry loop covers
++    the gap before any call; this covers a call that arrives while the list is still empty.
++    """
++    if getattr(server, "_tools", None):
++        return
++    discover = getattr(server, "_discover_tools", None)
++    if not callable(discover):
++        return
++    try:
++        _loop._run_on_mcp_loop(discover, timeout=8)
++    except Exception as exc:
++        logger.info("cuttlely: MCP server '%s' had no tools; rediscovery failed: %s", server_name, exc)
++
++
+ def _make_tool_handler(server_name: str, tool_name: str, tool_timeout: float):
+     """Sync registry handler (``handler(args_dict, **kwargs) -> str``) calling an MCP tool via the background loop."""
+     op = f"tools/call {tool_name}"
+ 
+     def _handler(args: dict, **kwargs) -> str:
++        # cuttlely: scope this call's breaker strikes to the chat when Hermes passed a session id.
++        session_token = _core._breaker_session.set(str(kwargs.get("session_id") or ""))
++        try:
++            return _handle_with_session(args, **kwargs)
++        finally:
++            _core._breaker_session.reset(session_token)
++
++    def _handle_with_session(args: dict, **kwargs) -> str:
+         # Security boundary: untrusted-server write tools need approval before ANY transport work (incl. lazy spawn).
+         error = _trust_gate_check(server_name, tool_name) or _check_circuit_breaker(server_name)
+         if error is not None:
+@@ -564,6 +606,7 @@ def _make_tool_handler(server_name: str, tool_name: str, tool_timeout: float):
+         server, error = _acquire_call_server(server_name, tool_timeout)
+         if server is None:
+             return error
++        _cuttlely_refresh_toolless(server, server_name)
+         # Only a tool annotated readOnlyHint=True is replayed after session expiry; a 401 is always
+         # pre-dispatch so the auth recoverer keeps its retry for every tool.
+         read_only = _tool_is_read_only(server_name, tool_name)
+@@ -572,7 +615,10 @@ def _make_tool_handler(server_name: str, tool_name: str, tool_timeout: float):
+             async with server._rpc_lock, _track_inflight_rpc(server, server_name, op, retry_safe=read_only):
+                 server._pending_call_context = contextvars.copy_context()  # for the elicitation callback
+                 try:
+-                    result = await _call_tool_racing_stdio_death(server, server_name, tool_name, args)
++                    # cuttlely: page cursors are scoped to this chat. Only the analyst bridge reads it.
++                    from tools.mcp_tool_cuttlely import analyst_call_arguments
++                    call_args = analyst_call_arguments(server_name, args, kwargs.get("session_id"))
++                    result = await _call_tool_racing_stdio_death(server, server_name, tool_name, call_args)
+                 finally:
+                     server._pending_call_context = None
+             if getattr(server, "_mark_session_proven", None) is not None:  # round-trip done: transport healthy

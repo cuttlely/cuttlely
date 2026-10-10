@@ -1,0 +1,40 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: cuttlely vendor <vendor@cuttlely.invalid>
+Date: Sat, 1 Jan 2000 00:00:00 +0000
+Subject: [PATCH] cuttlely: API server waits for MCP discovery before building
+ the agent
+
+What: gateway/platforms/api_server.py calls ensure_mcp_discovery_before_agent_build before it builds the agent for a run. The run usage also reports cache_read_tokens, the prompt tokens the provider served from its cache.
+
+Why: one API run has no second turn. MCP tools register on a background thread, and building the agent first lets the model call a tool that is not registered yet. Cuttlely shows cached prompt tokens in the turn report, and the run usage is the only place a Hermes run reports tokens.
+---
+ gateway/platforms/api_server.py | 9 ++++++++-
+ 1 file changed, 8 insertions(+), 1 deletion(-)
+
+diff --git a/gateway/platforms/api_server.py b/gateway/platforms/api_server.py
+index 6195403c905d1321b981ce2c350852ab750fbcdb..891a025917e0069a35794f90fb7946d575bffc4e 100644
+--- a/gateway/platforms/api_server.py
++++ b/gateway/platforms/api_server.py
+@@ -2436,6 +2436,11 @@ class APIServerAdapter(OpenAICompatRoutesMixin, BasePlatformAdapter):
+             "memory_manager": self._memory_sessions.checkout(session_id)}
+         if request_service_tier is not _REQUEST_OPTION_MISSING:
+             agent_kwargs["service_tier"] = request_service_tier
++        # One API run has no second turn. MCP tools register on a background thread;
++        # building the agent first lets the model call a tool that is not registered yet.
++        from hermes_cli.mcp_startup import ensure_mcp_discovery_before_agent_build
++        ensure_mcp_discovery_before_agent_build(
++            logger=logger, single_query=True, thread_name="api-server-mcp-discovery")
+         agent = AIAgent(**agent_kwargs)
+         route_source = (
+             "session_model_lock" if confirmed_runtime_lock
+@@ -4173,7 +4178,9 @@ class APIServerAdapter(OpenAICompatRoutesMixin, BasePlatformAdapter):
+         """Attach usage, effective session id, ``_compressed`` and runtime metadata to a finished turn."""
+         usage = {"input_tokens": getattr(agent, "session_prompt_tokens", 0) or 0,
+                  "output_tokens": getattr(agent, "session_completion_tokens", 0) or 0,
+-                 "total_tokens": getattr(agent, "session_total_tokens", 0) or 0}
++                 "total_tokens": getattr(agent, "session_total_tokens", 0) or 0,
++                 # cuttlely: prompt tokens the provider served from its cache (part of input_tokens).
++                 "cache_read_tokens": getattr(agent, "session_cache_read_tokens", 0) or 0}
+         # Effective session id lets callers track compression-triggered rotations.
+         # (#16938)
+         _eff_sid = getattr(agent, "session_id", session_id)

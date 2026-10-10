@@ -1,0 +1,31 @@
+{
+    "name": "calculator",
+    "description": "Harness Prime answers arithmetic through one in-process Calculator specialist.",
+    "chief": {
+        "instructions": "Answer arithmetic with the math specialist. Return the number the Calculator produces.",
+        "model": {
+            "provider": "xai",
+            "model": "grok-4.7"
+        }
+    },
+    "specialists": [
+        {
+            "name": "math",
+            "instructions": "Fill the Calculator input in the tool plain form, such as 17 * 3 or 12^2 + 4, then return the tool number.",
+            "shell": false,
+            "browser": false,
+            "codeExecution": false,
+            "fileAccess": false,
+            "modules": [
+                {
+                    "nodeName": "calculator",
+                    "label": "Calculator",
+                    "category": "Tools",
+                    "inputs": {},
+                    "outputs": {}
+                }
+            ],
+            "mcpServers": []
+        }
+    ]
+}

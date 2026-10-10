@@ -1,0 +1,35 @@
+{
+    "name": "research",
+    "description": "Harness Prime delegates to a retriever specialist.",
+    "chief": {
+        "instructions": "Answer from the research notes the retriever returns. Do not invent sources.",
+        "model": {
+            "provider": "xai",
+            "model": "grok-4.7"
+        }
+    },
+    "specialists": [
+        {
+            "name": "researcher",
+            "instructions": "Retrieve passages from the bound Flowise retriever and return them with sources.",
+            "shell": false,
+            "browser": false,
+            "codeExecution": false,
+            "modules": [
+                {
+                    "nodeName": "customRetriever",
+                    "label": "Custom Retriever",
+                    "inputs": {
+                        "query": "",
+                        "resultFormat": "{{context}}\nSource: {{metadata.source}}",
+                        "topK": "2"
+                    },
+                    "outputs": {
+                        "output": "text"
+                    }
+                }
+            ],
+            "mcpServers": []
+        }
+    ]
+}

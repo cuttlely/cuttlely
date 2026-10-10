@@ -1,0 +1,20 @@
+# Upstream paths the vendored copy leaves out. pnpm hermes:vendor drops them, and pnpm verify fails if one comes back.
+# One pattern per line: "name/" is a folder of that name at any depth, "/name/" a folder at the hermes root,
+# "/file" one file at the root. A file a cuttlely patch adds is allowed under an excluded folder.
+# Upstream files that Cuttlely's .gitignore files match are also left out; the vendor run lists them.
+
+# Upstream tests, contributor records, the website, evals and CI.
+tests/
+/contributors/
+/website/
+/evals/
+/.github/
+
+# Never loaded by cuttlely: the desktop and mobile apps, skills only the hub installs, the terminal UI, the
+# dashboard source, upstream installers and release tools, and the ACP editor adapter.
+/apps/
+/optional-skills/
+/ui-tui/
+/web/
+/scripts/
+/acp_adapter/

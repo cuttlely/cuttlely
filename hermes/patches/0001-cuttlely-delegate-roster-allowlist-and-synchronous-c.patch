@@ -1,0 +1,174 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: cuttlely vendor <vendor@cuttlely.invalid>
+Date: Sat, 1 Jan 2000 00:00:00 +0000
+Subject: [PATCH] cuttlely: delegate roster allowlist and synchronous chief
+ delegation
+
+What: tools/delegate_tool_toolsets.py reads the profile's harness-roster.json and grants each specialist the toolset allowlist stored there. The chief profile only enables delegation, memory and session_search. tools/delegate_tool.py passes that allowlist to the child instead of inheriting the parent's toolsets, and run_agent.py keeps a Cuttlely harness chief's delegate_task synchronous.
+
+Why: Cuttlely decides which tools each specialist may use, and the chat waits on the chief's turn, so each specialist result has to come back as the tool output in that turn, not in the background.
+---
+ run_agent.py                    |  8 +++-
+ tools/delegate_tool.py          |  6 ++-
+ tools/delegate_tool_toolsets.py | 82 ++++++++++++++++++++++++++++++++-
+ 3 files changed, 92 insertions(+), 4 deletions(-)
+
+diff --git a/run_agent.py b/run_agent.py
+index b35284505313861e3578feec0fa12c84ecaa59db..af2c5973c5c2f13a8f4970053b036390819fe8d3 100644
+--- a/run_agent.py
++++ b/run_agent.py
+@@ -1362,14 +1362,18 @@ class AIAgent(
+     def _dispatch_delegate_task(self, function_args: dict) -> str:
+         """Single call site for delegate_task dispatch; new DELEGATE_TASK_SCHEMA fields are added only here."""
+         from tools.delegate_tool import _strip_model_hidden_task_fields, delegate_task as _delegate_task
++        from tools.delegate_tool_toolsets import _load_harness_roster
+         # Top-level MODEL delegations always run in the background (handle returned, results re-enter as
+         # messages). An ORCHESTRATOR SUBAGENT (depth > 0) stays synchronous — it needs results in-turn and
+-        # owns no gateway session. The schema-level `background` param is intentionally ignored.
++        # owns no gateway session. A Cuttlely harness chief is the same case: the chat is waiting on this
++        # turn, so the specialist result has to come back as the tool output. The schema-level `background`
++        # param is intentionally ignored.
++        synchronous = getattr(self, "_delegate_depth", 0) > 0 or _load_harness_roster() is not None
+         return _delegate_task(
+             goal=function_args.get("goal"), context=function_args.get("context"),
+             tasks=_strip_model_hidden_task_fields(function_args.get("tasks")),
+             max_iterations=function_args.get("max_iterations"), role=function_args.get("role"),
+-            background=not (getattr(self, "_delegate_depth", 0) > 0), images=function_args.get("images"),
++            background=not synchronous, images=function_args.get("images"),
+             action=function_args.get("action"),
+             subagent_id=function_args.get("subagent_id"), message=function_args.get("message"), parent_agent=self,
+         )
+diff --git a/tools/delegate_tool.py b/tools/delegate_tool.py
+index f091afdeb0a51213e973251f5c7704549b95a653..ed629075fe79e4e2c88a7bad3c3369ed0f523ed1 100644
+--- a/tools/delegate_tool.py
++++ b/tools/delegate_tool.py
+@@ -51,6 +51,7 @@ from tools.delegate_tool_tasks import (  # noqa: F401
+ )
+ from tools.delegate_tool_toolsets import (  # noqa: F401
+     DELEGATE_BLOCKED_TOOLS, _expand_parent_toolsets, _resolve_child_toolsets, _strip_blocked_tools,
++    cuttlely_toolsets_for_task,
+ )
+ from tools.delegate_tool_results import (  # noqa: F401
+     _apply_summary_budget, _build_child_preserving_parent_tools, _run_child_lifecycle, _summarize_tool_arguments,
+@@ -386,9 +387,12 @@ def _build_children(
+         if _task_schema is not None:
+             _child_context = append_output_contract(_child_context, _task_schema)
+         try:
++            cuttlely_toolsets = cuttlely_toolsets_for_task(t.get("goal") or "", _child_context)
+             child = _build_child_preserving_parent_tools(
+                 task_index=i, goal=t["goal"], context=_child_context,
+-                toolsets=None,  # always inherit the parent's toolsets
++                # Stock Hermes inherits the parent. A Cuttlely roster grants the named specialist's
++                # allowlist instead, which the chief itself does not hold.
++                toolsets=cuttlely_toolsets if cuttlely_toolsets is not None else None,
+                 model=creds["model"], max_iterations=max_iterations, task_count=len(task_list),
+                 parent_agent=parent_agent, role=_normalize_role(t.get("role") or top_role), **overrides,
+             )
+diff --git a/tools/delegate_tool_toolsets.py b/tools/delegate_tool_toolsets.py
+index ead1979a3909825e33f3e4080ed8b81bf3838d77..6e8f77a5bdd5506f6ed7693299184779e2b3831b 100644
+--- a/tools/delegate_tool_toolsets.py
++++ b/tools/delegate_tool_toolsets.py
+@@ -2,7 +2,10 @@
+ 
+ from __future__ import annotations
+ 
++import json
+ import logging
++import re
++from pathlib import Path
+ from typing import List, Optional
+ 
+ from toolsets import TOOLSETS, resolve_toolset
+@@ -74,6 +77,73 @@ def _blocked_toolsets_for_role(role: str) -> List[str]:
+         name for name, defn in TOOLSETS.items() if defn.get("tools") and set(defn.get("tools", ())).issubset(blocked_names)
+     )
+ 
++_SPECIALIST_MARKER = re.compile(r"\[specialist:([A-Za-z][A-Za-z0-9_-]{0,63})\]")
++
++
++def _load_harness_roster() -> Optional[dict]:
++    """Roster compiled into the active Hermes profile. Missing file means stock Hermes behavior."""
++    try:
++        from hermes_constants import get_hermes_home
++        roster_path = Path(get_hermes_home()) / "harness-roster.json"
++    except Exception:
++        return None
++    try:
++        if not roster_path.is_file():
++            return None
++        data = json.loads(roster_path.read_text(encoding="utf-8"))
++    except Exception:
++        logger.warning("Cuttlely roster at %s could not be read", roster_path, exc_info=True)
++        return None
++    return data if isinstance(data, dict) else None
++
++
++def _cuttlely_allowed_toolsets() -> set:
++    roster = _load_harness_roster()
++    if not roster:
++        return set()
++    allowed = set()
++    for spec in roster.get("specialists") or []:
++        if not isinstance(spec, dict):
++            continue
++        for name in spec.get("hermesToolsets") or []:
++            allowed.add(str(name))
++    return allowed
++
++
++def cuttlely_toolsets_for_task(goal: str, context: Optional[str]) -> Optional[List[str]]:
++    """Toolsets for one delegated specialist. The chief profile does not hold these tools.
++
++    The marker ``[specialist:name]`` selects a roster row. Only toolsets listed on that
++    row are returned, so a specialist cannot pick up another harness's allowlist or a
++    tool the roster left off (shell, browser, and code execution stay off unless enabled).
++    """
++    roster = _load_harness_roster()
++    if not roster:
++        return None
++    match = _SPECIALIST_MARKER.search(f"{goal or ''}\n{context or ''}")
++    if not match:
++        return None
++    wanted = match.group(1)
++    for spec in roster.get("specialists") or []:
++        if isinstance(spec, dict) and spec.get("name") == wanted:
++            toolsets = [str(name) for name in (spec.get("hermesToolsets") or [])]
++            return toolsets or []
++    return None
++
++
++def _cuttlely_filter_toolsets(toolsets: Optional[List[str]]) -> Optional[List[str]]:
++    """Accept an explicit child allowlist only when every name is on this profile's roster."""
++    if not toolsets:
++        return None
++    allowed = _cuttlely_allowed_toolsets()
++    if not allowed:
++        return None
++    names = [str(name) for name in toolsets]
++    if names and all(name in allowed for name in names):
++        return names
++    return None
++
++
+ def _resolve_child_toolsets(
+     parent_agent, toolsets: Optional[List[str]], effective_role: str
+ ) -> tuple[List[str], List[str]]:
+@@ -82,7 +152,17 @@ def _resolve_child_toolsets(
+     inherited. Blocked tools are stripped twice — whole blocked toolsets here, and exact one-tool deny toolsets via
+     ``disabled_toolsets`` so blocked names inside mixed bundles (hermes-cli) are subtracted AFTER composite
+     expansion and survive registry refreshes. Orchestrators get ``delegation`` re-added unconditionally
+-    (role-granted, not inherited)."""
++    (role-granted, not inherited).
++
++    Cuttlely harness profiles are the exception. The chief only enables delegate_task, memory, and
++    session_search. Specialist allowlists are stored on that profile's roster and granted to the
++    matching child even though the parent does not hold them.
++    """
++    cuttlely_child = _cuttlely_filter_toolsets(toolsets)
++    if cuttlely_child is not None:
++        disabled = list(dict.fromkeys(_blocked_toolsets_for_role(effective_role) + ["kanban"]))
++        return cuttlely_child, disabled
++
+     # enabled_toolsets=None means "all tools", so derive from loaded tool names.
+     parent_enabled = getattr(parent_agent, "enabled_toolsets", None)
+     if parent_enabled is not None:

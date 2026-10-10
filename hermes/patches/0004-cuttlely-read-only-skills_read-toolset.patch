@@ -1,0 +1,28 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: cuttlely vendor <vendor@cuttlely.invalid>
+Date: Sat, 1 Jan 2000 00:00:00 +0000
+Subject: [PATCH] cuttlely: read-only skills_read toolset
+
+What: toolsets.py adds the "skills_read" toolset with skills_list and skill_view, without skill_manage.
+
+Why: a harness specialist with playbooks gets this toolset. Its playbooks are written as skills under that profile's skills/harness-playbooks folder, and the specialist may read them but not change them.
+---
+ toolsets.py | 5 +++++
+ 1 file changed, 5 insertions(+)
+
+diff --git a/toolsets.py b/toolsets.py
+index 0918c4696b12dd8201adbc7830bad6ce8ae24431..1bc747f1b95f804c421e53a67fb89cc72a09453c 100644
+--- a/toolsets.py
++++ b/toolsets.py
+@@ -108,6 +108,11 @@ TOOLSETS = {
+         "instructions and knowledge",
+         ["skills_list", "skill_view", "skill_manage"],
+     ),
++    # cuttlely patch: read-only skills for harness specialists (playbooks); no skill_manage.
++    "skills_read": _ts(
++        "List skill documents and load one (read only)",
++        ["skills_list", "skill_view"],
++    ),
+     # web_search belongs to `web`/`search` only. Listing it here too let
+     # `disabled_toolsets: [browser]` (headless/Docker deployments) strip
+     # web_search from every session, because disabled toolsets are a strict

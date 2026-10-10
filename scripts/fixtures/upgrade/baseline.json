@@ -1,0 +1,53 @@
+{
+    "about": "Data written by an older Cuttlely, for scripts/upgrade-check.mjs. Demo data only; the credential value is a placeholder.",
+    "baseline": {
+        "commit": "79acfbb97d8ade01511f0c37b0f6740bd541be82",
+        "subject": "Versioning: pick one credential when several share a name on restore (#57)",
+        "date": "2026-10-08"
+    },
+    "layout": "Docker volume layout: data/ (database.sqlite, encryption.key), versions/, harnesses/",
+    "account": {
+        "email": "upgrade-fixture@example.com",
+        "password": "UpgradeFixture1!"
+    },
+    "expected": {
+        "flows": [
+            {
+                "id": "3677cb1b-c448-4359-80e6-ac69b6e4db9e",
+                "name": "Bakery helper",
+                "type": "CHATFLOW",
+                "nodes": 3,
+                "versions": ["6fb6460d91027006ae6d584c767c5ecfa25db335", "633b73af19f4a4bb27ef429f89280aad732eb126"],
+                "predict": true
+            },
+            {
+                "id": "cff07457-0af5-4b60-bf5f-7ffe4b38b8b7",
+                "name": "Bakery orders",
+                "type": "AGENTFLOW",
+                "nodes": 2,
+                "versions": ["a7b4a6f4627cc24c13bb13c735c406f26676af94"]
+            },
+            {
+                "id": "b349d18c-5676-4e17-bed5-c25a3225aac8",
+                "name": "bakery-team",
+                "type": "HARNESS",
+                "nodes": 4,
+                "versions": ["b33238bae9b5395dbfed8ff00e04715cb7ac30be"]
+            }
+        ],
+        "credentials": [
+            {
+                "id": "145ea974-7e49-48a4-96cd-476e02401d7c",
+                "name": "Bakery OpenAI",
+                "credentialName": "openAIApi"
+            }
+        ],
+        "harnesses": [
+            {
+                "name": "bakery-team",
+                "chatflowId": "b349d18c-5676-4e17-bed5-c25a3225aac8",
+                "specialists": ["baker", "orders"]
+            }
+        ]
+    }
+}

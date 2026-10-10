@@ -1,0 +1,602 @@
+{
+    "name": "Bakery Handbook",
+    "description": "Reads the made-up bakery handbook (Markdown), splits it, and stores local hash embeddings. Used by the Try the demo team.",
+    "flowData": {
+        "nodes": [
+            {
+                "id": "recursiveCharacterTextSplitter_0",
+                "position": {
+                    "x": 40,
+                    "y": 40
+                },
+                "type": "customNode",
+                "width": 300,
+                "data": {
+                    "id": "recursiveCharacterTextSplitter_0",
+                    "label": "Recursive Character Text Splitter",
+                    "version": 2,
+                    "name": "recursiveCharacterTextSplitter",
+                    "type": "RecursiveCharacterTextSplitter",
+                    "baseClasses": ["RecursiveCharacterTextSplitter", "TextSplitter", "BaseDocumentTransformer", "Runnable"],
+                    "category": "Text Splitters",
+                    "description": "Split documents recursively by different characters - starting with \"\\n\\n\", then \"\\n\", then \" \"",
+                    "inputParams": [
+                        {
+                            "label": "Chunk Size",
+                            "name": "chunkSize",
+                            "type": "number",
+                            "description": "Number of characters in each chunk. Default is 1000.",
+                            "default": 1000,
+                            "optional": true,
+                            "id": "recursiveCharacterTextSplitter_0-input-chunkSize-number"
+                        },
+                        {
+                            "label": "Chunk Overlap",
+                            "name": "chunkOverlap",
+                            "type": "number",
+                            "description": "Number of characters to overlap between chunks. Default is 200.",
+                            "default": 200,
+                            "optional": true,
+                            "id": "recursiveCharacterTextSplitter_0-input-chunkOverlap-number"
+                        },
+                        {
+                            "label": "Custom Separators",
+                            "name": "separators",
+                            "type": "string",
+                            "rows": 4,
+                            "description": "Array of custom separators to determine when to split the text, will override the default separators",
+                            "placeholder": "[\"|\", \"##\", \">\", \"-\"]",
+                            "additionalParams": true,
+                            "optional": true,
+                            "id": "recursiveCharacterTextSplitter_0-input-separators-string"
+                        }
+                    ],
+                    "inputAnchors": [],
+                    "inputs": {
+                        "chunkSize": 700,
+                        "chunkOverlap": 80,
+                        "separators": ""
+                    },
+                    "outputAnchors": [
+                        {
+                            "id": "recursiveCharacterTextSplitter_0-output-recursiveCharacterTextSplitter-RecursiveCharacterTextSplitter|TextSplitter|BaseDocumentTransformer|Runnable",
+                            "name": "recursiveCharacterTextSplitter",
+                            "label": "RecursiveCharacterTextSplitter",
+                            "description": "Split documents recursively by different characters - starting with \"\\n\\n\", then \"\\n\", then \" \"",
+                            "type": "RecursiveCharacterTextSplitter | TextSplitter | BaseDocumentTransformer | Runnable"
+                        }
+                    ],
+                    "outputs": {},
+                    "selected": false
+                },
+                "positionAbsolute": {
+                    "x": 40,
+                    "y": 40
+                }
+            },
+            {
+                "id": "etlFileSource_0",
+                "position": {
+                    "x": 490,
+                    "y": 40
+                },
+                "type": "customNode",
+                "width": 300,
+                "data": {
+                    "id": "etlFileSource_0",
+                    "label": "Streaming Files",
+                    "version": 1.1,
+                    "name": "etlFileSource",
+                    "type": "Document",
+                    "baseClasses": ["Document"],
+                    "category": "ETL",
+                    "description": "Streams files from the server: CSV and TSV row by row, JSONL line by line, other text in segments. Never holds a whole file in memory.",
+                    "inputParams": [
+                        {
+                            "label": "Paths",
+                            "name": "paths",
+                            "type": "string",
+                            "rows": 3,
+                            "placeholder": "/data/products.csv\n/data/manuals/",
+                            "description": "Files or folders on the server, one per line. Uploads from the ETL panel land under .cuttlely/etl/uploads.",
+                            "id": "etlFileSource_0-input-paths-string"
+                        },
+                        {
+                            "label": "Format",
+                            "name": "format",
+                            "type": "options",
+                            "default": "auto",
+                            "options": [
+                                {
+                                    "label": "From extension",
+                                    "name": "auto"
+                                },
+                                {
+                                    "label": "Text",
+                                    "name": "text"
+                                },
+                                {
+                                    "label": "CSV",
+                                    "name": "csv"
+                                },
+                                {
+                                    "label": "TSV",
+                                    "name": "tsv"
+                                },
+                                {
+                                    "label": "JSON Lines",
+                                    "name": "jsonl"
+                                }
+                            ],
+                            "optional": true,
+                            "id": "etlFileSource_0-input-format-options"
+                        },
+                        {
+                            "label": "CSV Text Columns",
+                            "name": "textColumns",
+                            "type": "string",
+                            "placeholder": "title, body",
+                            "description": "Columns that become the document text. Empty uses every column as \"name: value\" lines.",
+                            "optional": true,
+                            "additionalParams": true,
+                            "id": "etlFileSource_0-input-textColumns-string"
+                        },
+                        {
+                            "label": "Key Column or Field",
+                            "name": "idColumn",
+                            "type": "string",
+                            "placeholder": "id",
+                            "description": "Required for CSV, TSV and JSONL: the column (or JSONL field) that identifies a record, so an edited record replaces its old chunks. Text files are keyed by path.",
+                            "optional": true,
+                            "id": "etlFileSource_0-input-idColumn-string"
+                        },
+                        {
+                            "label": "CSV Metadata Columns",
+                            "name": "metadataColumns",
+                            "type": "string",
+                            "placeholder": "category, url",
+                            "optional": true,
+                            "additionalParams": true,
+                            "id": "etlFileSource_0-input-metadataColumns-string"
+                        },
+                        {
+                            "label": "Delimiter",
+                            "name": "delimiter",
+                            "type": "string",
+                            "placeholder": ",",
+                            "optional": true,
+                            "additionalParams": true,
+                            "id": "etlFileSource_0-input-delimiter-string"
+                        },
+                        {
+                            "label": "JSONL Text Field",
+                            "name": "textField",
+                            "type": "string",
+                            "placeholder": "text",
+                            "description": "Defaults to the first of text, content or body; otherwise the whole line.",
+                            "optional": true,
+                            "additionalParams": true,
+                            "id": "etlFileSource_0-input-textField-string"
+                        },
+                        {
+                            "label": "Schema",
+                            "name": "schema",
+                            "type": "json",
+                            "placeholder": "{ \"fields\": { \"price\": { \"type\": \"decimal\", \"scale\": 2 }, \"updated\": { \"type\": \"datetime\" } } }",
+                            "description": "Optional field types for CSV and JSONL (string, integer, bigint, number, decimal, boolean, date, datetime, json), null tokens and caps. A value that does not fit rejects its record with a reason; nothing is truncated.",
+                            "optional": true,
+                            "additionalParams": true,
+                            "id": "etlFileSource_0-input-schema-json"
+                        },
+                        {
+                            "label": "Allow Trailing Delimiter",
+                            "name": "allowTrailingDelimiter",
+                            "type": "boolean",
+                            "default": true,
+                            "description": "Accept CSV rows that end with one extra empty field after a trailing delimiter.",
+                            "optional": true,
+                            "additionalParams": true,
+                            "id": "etlFileSource_0-input-allowTrailingDelimiter-boolean"
+                        },
+                        {
+                            "label": "Folder Include Globs",
+                            "name": "include",
+                            "type": "string",
+                            "placeholder": "**/*.md, **/*.txt",
+                            "optional": true,
+                            "additionalParams": true,
+                            "id": "etlFileSource_0-input-include-string"
+                        },
+                        {
+                            "label": "Text Segment Size (KB)",
+                            "name": "segmentKb",
+                            "type": "number",
+                            "default": 256,
+                            "description": "Large text files are cut into segments of this size at a paragraph or line break before splitting.",
+                            "optional": true,
+                            "additionalParams": true,
+                            "id": "etlFileSource_0-input-segmentKb-number"
+                        }
+                    ],
+                    "inputAnchors": [
+                        {
+                            "label": "Text Splitter",
+                            "name": "textSplitter",
+                            "type": "TextSplitter",
+                            "optional": true,
+                            "id": "etlFileSource_0-input-textSplitter-TextSplitter"
+                        }
+                    ],
+                    "inputs": {
+                        "textSplitter": "{{recursiveCharacterTextSplitter_0.data.instance}}",
+                        "paths": "{{samples}}/data/bakery-handbook",
+                        "format": "auto",
+                        "textColumns": "",
+                        "idColumn": "",
+                        "metadataColumns": "",
+                        "delimiter": "",
+                        "textField": "",
+                        "schema": "",
+                        "allowTrailingDelimiter": true,
+                        "include": "**/*.md",
+                        "segmentKb": 256
+                    },
+                    "outputAnchors": [
+                        {
+                            "name": "output",
+                            "label": "Output",
+                            "type": "options",
+                            "description": "",
+                            "options": [
+                                {
+                                    "id": "etlFileSource_0-output-document-Document",
+                                    "name": "document",
+                                    "label": "Document",
+                                    "description": "",
+                                    "type": "Document"
+                                }
+                            ],
+                            "default": "document"
+                        }
+                    ],
+                    "outputs": {
+                        "output": "document"
+                    },
+                    "selected": false
+                },
+                "positionAbsolute": {
+                    "x": 490,
+                    "y": 40
+                }
+            },
+            {
+                "id": "etlTransform_0",
+                "position": {
+                    "x": 940,
+                    "y": 40
+                },
+                "type": "customNode",
+                "width": 300,
+                "data": {
+                    "id": "etlTransform_0",
+                    "label": "Clean & Transform",
+                    "version": 1.1,
+                    "name": "etlTransform",
+                    "type": "Document",
+                    "baseClasses": ["Document"],
+                    "category": "ETL",
+                    "description": "Cleans documents before splitting: Unicode and whitespace, HTML, short documents, metadata, and a text prefix.",
+                    "inputParams": [
+                        {
+                            "label": "Normalize Whitespace",
+                            "name": "normalizeWhitespace",
+                            "type": "boolean",
+                            "default": true,
+                            "optional": true,
+                            "id": "etlTransform_0-input-normalizeWhitespace-boolean"
+                        },
+                        {
+                            "label": "Normalize Unicode (NFC)",
+                            "name": "normalizeUnicode",
+                            "type": "boolean",
+                            "default": true,
+                            "optional": true,
+                            "id": "etlTransform_0-input-normalizeUnicode-boolean"
+                        },
+                        {
+                            "label": "Strip HTML",
+                            "name": "stripHtml",
+                            "type": "boolean",
+                            "default": false,
+                            "optional": true,
+                            "id": "etlTransform_0-input-stripHtml-boolean"
+                        },
+                        {
+                            "label": "Minimum Characters",
+                            "name": "minChars",
+                            "type": "number",
+                            "default": 1,
+                            "description": "Drop documents shorter than this after cleaning.",
+                            "optional": true,
+                            "id": "etlTransform_0-input-minChars-number"
+                        },
+                        {
+                            "label": "Key Template",
+                            "name": "keyTemplate",
+                            "type": "string",
+                            "placeholder": "{{source}}#{{loc.pageNumber}}",
+                            "description": "Required after a document loader: builds each record key from its metadata, so an edited document replaces its old chunks. A document missing a referenced value is rejected as missing_key.",
+                            "optional": true,
+                            "id": "etlTransform_0-input-keyTemplate-string"
+                        },
+                        {
+                            "label": "Prefix Template",
+                            "name": "prefixTemplate",
+                            "type": "string",
+                            "placeholder": "File: {path}\\n",
+                            "description": "Prepended to the text. {key} is replaced by that metadata value.",
+                            "optional": true,
+                            "additionalParams": true,
+                            "id": "etlTransform_0-input-prefixTemplate-string"
+                        },
+                        {
+                            "label": "Add Metadata",
+                            "name": "metadata",
+                            "type": "json",
+                            "optional": true,
+                            "additionalParams": true,
+                            "id": "etlTransform_0-input-metadata-json"
+                        },
+                        {
+                            "label": "Keep Only Metadata Keys",
+                            "name": "keepMetadataKeys",
+                            "type": "string",
+                            "placeholder": "source, path, title",
+                            "optional": true,
+                            "additionalParams": true,
+                            "id": "etlTransform_0-input-keepMetadataKeys-string"
+                        },
+                        {
+                            "label": "Omit Metadata Keys",
+                            "name": "omitMetadataKeys",
+                            "type": "string",
+                            "placeholder": "loc, pdf",
+                            "optional": true,
+                            "additionalParams": true,
+                            "id": "etlTransform_0-input-omitMetadataKeys-string"
+                        }
+                    ],
+                    "inputAnchors": [
+                        {
+                            "label": "Document",
+                            "name": "document",
+                            "type": "Document",
+                            "list": true,
+                            "id": "etlTransform_0-input-document-Document"
+                        }
+                    ],
+                    "inputs": {
+                        "document": ["{{etlFileSource_0.data.instance}}"],
+                        "normalizeWhitespace": true,
+                        "normalizeUnicode": true,
+                        "stripHtml": false,
+                        "minChars": 20,
+                        "keyTemplate": "",
+                        "prefixTemplate": "",
+                        "metadata": "",
+                        "keepMetadataKeys": "",
+                        "omitMetadataKeys": ""
+                    },
+                    "outputAnchors": [
+                        {
+                            "name": "output",
+                            "label": "Output",
+                            "type": "options",
+                            "description": "",
+                            "options": [
+                                {
+                                    "id": "etlTransform_0-output-document-Document",
+                                    "name": "document",
+                                    "label": "Document",
+                                    "description": "",
+                                    "type": "Document"
+                                }
+                            ],
+                            "default": "document"
+                        }
+                    ],
+                    "outputs": {
+                        "output": "document"
+                    },
+                    "selected": false
+                },
+                "positionAbsolute": {
+                    "x": 940,
+                    "y": 40
+                }
+            },
+            {
+                "id": "localHashEmbeddings_0",
+                "position": {
+                    "x": 940,
+                    "y": 1312
+                },
+                "type": "customNode",
+                "width": 300,
+                "data": {
+                    "id": "localHashEmbeddings_0",
+                    "label": "Local Hash Embeddings",
+                    "version": 1,
+                    "name": "localHashEmbeddings",
+                    "type": "LocalHashEmbeddings",
+                    "baseClasses": ["LocalHashEmbeddings"],
+                    "category": "Embeddings",
+                    "description": "Deterministic word-hashing embeddings computed in the server, with no key or network. Good for tests, demos and keyword-style retrieval; use a provider model for semantic search.",
+                    "inputParams": [
+                        {
+                            "label": "Dimensions",
+                            "name": "dimensions",
+                            "type": "number",
+                            "default": 384,
+                            "optional": true,
+                            "id": "localHashEmbeddings_0-input-dimensions-number"
+                        }
+                    ],
+                    "inputAnchors": [],
+                    "inputs": {
+                        "dimensions": 384
+                    },
+                    "outputAnchors": [
+                        {
+                            "id": "localHashEmbeddings_0-output-localHashEmbeddings-LocalHashEmbeddings",
+                            "name": "localHashEmbeddings",
+                            "label": "LocalHashEmbeddings",
+                            "description": "Deterministic word-hashing embeddings computed in the server, with no key or network. Good for tests, demos and keyword-style retrieval; use a provider model for semantic search.",
+                            "type": "LocalHashEmbeddings"
+                        }
+                    ],
+                    "outputs": {},
+                    "selected": false
+                },
+                "positionAbsolute": {
+                    "x": 940,
+                    "y": 1312
+                }
+            },
+            {
+                "id": "etlLocalVectorStore_0",
+                "position": {
+                    "x": 1390,
+                    "y": 40
+                },
+                "type": "customNode",
+                "width": 300,
+                "data": {
+                    "id": "etlLocalVectorStore_0",
+                    "label": "Local Vector Store",
+                    "version": 1,
+                    "name": "etlLocalVectorStore",
+                    "type": "CuttlelyLocal",
+                    "baseClasses": ["CuttlelyLocal", "VectorStoreRetriever", "BaseRetriever"],
+                    "category": "Vector Stores",
+                    "description": "Persistent vector collection in a SQLite file under .cuttlely/etl/vectors. Upserts and deletes by id, needs no external service, and is the default ETL target.",
+                    "inputParams": [
+                        {
+                            "label": "Collection",
+                            "name": "collection",
+                            "type": "string",
+                            "placeholder": "product-docs",
+                            "optional": true,
+                            "description": "Defaults to the ETL pipeline name. On a chat flow, name the collection a pipeline wrote.",
+                            "id": "etlLocalVectorStore_0-input-collection-string"
+                        },
+                        {
+                            "label": "Top K",
+                            "name": "topK",
+                            "type": "number",
+                            "placeholder": "4",
+                            "optional": true,
+                            "additionalParams": true,
+                            "id": "etlLocalVectorStore_0-input-topK-number"
+                        }
+                    ],
+                    "inputAnchors": [
+                        {
+                            "label": "Document",
+                            "name": "document",
+                            "type": "Document",
+                            "list": true,
+                            "optional": true,
+                            "id": "etlLocalVectorStore_0-input-document-Document"
+                        },
+                        {
+                            "label": "Embeddings",
+                            "name": "embeddings",
+                            "type": "Embeddings",
+                            "id": "etlLocalVectorStore_0-input-embeddings-Embeddings"
+                        }
+                    ],
+                    "inputs": {
+                        "document": ["{{etlTransform_0.data.instance}}"],
+                        "embeddings": "{{localHashEmbeddings_0.data.instance}}",
+                        "collection": "bakery-handbook",
+                        "topK": 4
+                    },
+                    "outputAnchors": [
+                        {
+                            "name": "output",
+                            "label": "Output",
+                            "type": "options",
+                            "description": "",
+                            "options": [
+                                {
+                                    "id": "etlLocalVectorStore_0-output-retriever-CuttlelyLocal|VectorStoreRetriever|BaseRetriever",
+                                    "name": "retriever",
+                                    "label": "Local Retriever",
+                                    "description": "",
+                                    "type": "CuttlelyLocal | VectorStoreRetriever | BaseRetriever"
+                                },
+                                {
+                                    "id": "etlLocalVectorStore_0-output-vectorStore-CuttlelyLocal",
+                                    "name": "vectorStore",
+                                    "label": "Local Vector Store",
+                                    "description": "",
+                                    "type": "CuttlelyLocal"
+                                }
+                            ],
+                            "default": "retriever"
+                        }
+                    ],
+                    "outputs": {
+                        "output": "retriever"
+                    },
+                    "selected": false
+                },
+                "positionAbsolute": {
+                    "x": 1390,
+                    "y": 40
+                }
+            }
+        ],
+        "edges": [
+            {
+                "source": "recursiveCharacterTextSplitter_0",
+                "sourceHandle": "recursiveCharacterTextSplitter_0-output-recursiveCharacterTextSplitter-RecursiveCharacterTextSplitter|TextSplitter|BaseDocumentTransformer|Runnable",
+                "target": "etlFileSource_0",
+                "targetHandle": "etlFileSource_0-input-textSplitter-TextSplitter",
+                "type": "buttonedge",
+                "id": "recursiveCharacterTextSplitter_0-recursiveCharacterTextSplitter_0-output-recursiveCharacterTextSplitter-RecursiveCharacterTextSplitter|TextSplitter|BaseDocumentTransformer|Runnable-etlFileSource_0-etlFileSource_0-input-textSplitter-TextSplitter"
+            },
+            {
+                "source": "etlFileSource_0",
+                "sourceHandle": "etlFileSource_0-output-document-Document",
+                "target": "etlTransform_0",
+                "targetHandle": "etlTransform_0-input-document-Document",
+                "type": "buttonedge",
+                "id": "etlFileSource_0-etlFileSource_0-output-document-Document-etlTransform_0-etlTransform_0-input-document-Document"
+            },
+            {
+                "source": "etlTransform_0",
+                "sourceHandle": "etlTransform_0-output-document-Document",
+                "target": "etlLocalVectorStore_0",
+                "targetHandle": "etlLocalVectorStore_0-input-document-Document",
+                "type": "buttonedge",
+                "id": "etlTransform_0-etlTransform_0-output-document-Document-etlLocalVectorStore_0-etlLocalVectorStore_0-input-document-Document"
+            },
+            {
+                "source": "localHashEmbeddings_0",
+                "sourceHandle": "localHashEmbeddings_0-output-localHashEmbeddings-LocalHashEmbeddings",
+                "target": "etlLocalVectorStore_0",
+                "targetHandle": "etlLocalVectorStore_0-input-embeddings-Embeddings",
+                "type": "buttonedge",
+                "id": "localHashEmbeddings_0-localHashEmbeddings_0-output-localHashEmbeddings-LocalHashEmbeddings-etlLocalVectorStore_0-etlLocalVectorStore_0-input-embeddings-Embeddings"
+            }
+        ],
+        "viewport": {
+            "x": 48,
+            "y": 48,
+            "zoom": 0.41
+        }
+    },
+    "usecases": ["Catalog"]
+}

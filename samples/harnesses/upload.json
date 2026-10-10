@@ -1,0 +1,33 @@
+{
+    "name": "upload",
+    "description": "Harness Prime sends file and spreadsheet questions to Python and Shell specialists that sample the file on disk.",
+    "chief": {
+        "instructions": "File and spreadsheet questions go to python and shell. They sample the file on disk and return a short summary. Answer from that sample. Do not ask for or paste the raw file. If a specialist fails, name it and keep the other result.",
+        "model": {
+            "provider": "xai",
+            "model": "grok-4.7"
+        }
+    },
+    "specialists": [
+        {
+            "name": "python",
+            "instructions": "Sample the uploaded file on disk. Do not print, cat, or return the whole file. For a CSV or TSV, run the staged sample_csv.py on the staged path. It prints the path, size, row count, headers, first and last five rows, and a short aggregate, and it refuses to dump the file. For a workbook, load it in Python and return the same kind of sample: sheet names, headers, first and last rows, and one aggregate. Keep the reply to a few dozen lines.",
+            "shell": false,
+            "browser": false,
+            "codeExecution": true,
+            "fileAccess": false,
+            "modules": [],
+            "mcpServers": []
+        },
+        {
+            "name": "shell",
+            "instructions": "Inspect the uploaded file in the shell. Use wc, head, and tail only. Do not cat, less, or print the entire file. Report the path, the size, and a short sample.",
+            "shell": true,
+            "browser": false,
+            "codeExecution": false,
+            "fileAccess": false,
+            "modules": [],
+            "mcpServers": []
+        }
+    ]
+}

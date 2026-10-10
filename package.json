@@ -1,0 +1,167 @@
+{
+    "name": "cuttlely",
+    "version": "1.0.0",
+    "private": true,
+    "license": "Apache-2.0",
+    "description": "The open-source agent platform for applications.",
+    "homepage": "https://github.com/cuttlely/cuttlely",
+    "workspaces": [
+        "packages/*",
+        "flowise",
+        "ui",
+        "components",
+        "api-documentation"
+    ],
+    "scripts": {
+        "build": "turbo run build",
+        "build:docker": "turbo run build --filter=!@flowiseai/agentflow --filter=!@flowiseai/observe",
+        "build-force": "pnpm clean && turbo run build --force",
+        "dev": "turbo run dev --parallel --no-cache",
+        "start": "run-script-os",
+        "start:harness": "bash scripts/start-cuttlely.sh",
+        "harness:check": "node harness/check.mjs",
+        "verify": "node scripts/verify.mjs",
+        "release": "node scripts/release.mjs",
+        "upgrade:check": "node scripts/upgrade-check.mjs",
+        "safeboot:check": "node scripts/safeboot-check.mjs",
+        "verify:comment": "node scripts/verify-comment.mjs",
+        "etl:check": "node etl/check.mjs",
+        "templates:gallery": "node scripts/live-e2e/template-gallery.mjs",
+        "check:clean-export": "node scripts/check-clean-export.mjs",
+        "start:windows": "cd packages/server/bin && run start",
+        "start:default": "cd packages/server/bin && ./run start",
+        "start-worker": "run-script-os",
+        "start-worker:windows": "cd packages/server/bin && run worker",
+        "start-worker:default": "cd packages/server/bin && ./run worker",
+        "user": "run-script-os",
+        "user:windows": "cd packages/server/bin && run user",
+        "user:default": "cd packages/server/bin && ./run user",
+        "settings": "run-script-os",
+        "settings:windows": "cd packages/server/bin && run settings",
+        "settings:default": "cd packages/server/bin && ./run settings",
+        "test": "turbo run test",
+        "test:coverage": "turbo run test:coverage",
+        "clean": "pnpm -r clean",
+        "nuke": "pnpm -r nuke && rimraf node_modules .turbo",
+        "format": "prettier --write \"**/*.{ts,tsx,md}\"",
+        "hermes:vendor": "node scripts/vendor-hermes.mjs",
+        "lint": "eslint \"**/*.{js,jsx,ts,tsx,json,md}\" --ignore-pattern \"hermes/**\"",
+        "lint-fix": "pnpm lint --fix",
+        "quick": "pretty-quick --staged",
+        "postinstall": "husky install",
+        "migration:create": "pnpm typeorm migration:create",
+        "changeset": "changeset",
+        "changeset:version": "changeset version"
+    },
+    "lint-staged": {
+        "*.{js,jsx,ts,tsx,json,md}": "eslint --fix"
+    },
+    "devDependencies": {
+        "@changesets/cli": "^2.27.0",
+        "@babel/preset-env": "^7.19.4",
+        "@babel/preset-typescript": "7.18.6",
+        "@types/express": "^4.17.13",
+        "@typescript-eslint/typescript-estree": "^7.13.1",
+        "eslint": "^8.24.0",
+        "eslint-config-prettier": "^8.3.0",
+        "eslint-config-react-app": "^7.0.1",
+        "eslint-plugin-jsx-a11y": "^6.10.2",
+        "eslint-plugin-markdown": "^3.0.0",
+        "eslint-plugin-prettier": "^3.4.0",
+        "eslint-plugin-react": "^7.26.1",
+        "eslint-plugin-react-hooks": "^4.6.0",
+        "eslint-plugin-unused-imports": "^2.0.0",
+        "husky": "^8.0.1",
+        "kill-port": "2.0.1",
+        "lint-staged": "^13.0.3",
+        "prettier": "^2.7.1",
+        "pretty-quick": "^3.1.3",
+        "rimraf": "^3.0.2",
+        "run-script-os": "^1.1.6",
+        "turbo": "1.10.16",
+        "typescript": "^5.4.5"
+    },
+    "pnpm": {
+        "onlyBuiltDependencies": [
+            "faiss-node",
+            "sqlite3"
+        ],
+        "overrides": {
+            "prebuild-install": "7.1.3",
+            "axios": "1.15.0",
+            "body-parser": "2.0.2",
+            "braces": "3.0.3",
+            "cross-spawn": "7.0.6",
+            "form-data": "4.0.4",
+            "glob-parent": "6.0.2",
+            "http-proxy-middleware": "3.0.3",
+            "json5": "2.2.3",
+            "nth-check": "2.1.1",
+            "path-to-regexp": "0.1.12",
+            "prismjs": "1.29.0",
+            "rollup": "4.45.0",
+            "semver": "7.7.1",
+            "set-value": "4.1.0",
+            "solid-js": "1.9.11",
+            "protobufjs": ">=7.5.5",
+            "tar-fs": "3.1.1",
+            "unset-value": "2.0.1",
+            "webpack-dev-middleware": "7.4.2",
+            "ws": "8.18.3",
+            "xlsx": "0.18.5",
+            "uuid": "^10.0.0",
+            "request>uuid": "^3.4.0",
+            "@tootallnate/once": ">=3.0.1",
+            "tmp": ">=0.2.4",
+            "@elastic/transport": ">=8.9.3",
+            "@modelcontextprotocol/sdk": ">=1.25.2",
+            "multer": "2.2.0",
+            "tar": "^7.5.22",
+            "sqlite3": "6.0.1"
+        }
+    },
+    "packageManager": "pnpm@10.33.4",
+    "engines": {
+        "node": "^24",
+        "pnpm": "^10.26.0"
+    },
+    "resolutions": {
+        "@anthropic-ai/sdk": "^0.73.0",
+        "@google/generative-ai": "^0.24.0",
+        "@grpc/grpc-js": "^1.10.10",
+        "@langchain/core": "1.1.20",
+        "@qdrant/openapi-typescript-fetch": "1.2.6",
+        "openai": "6.19.0",
+        "protobufjs": "7.5.5",
+        "uuid": "^10.0.0"
+    },
+    "eslintIgnore": [
+        "**/dist",
+        "**/node_modules",
+        "**/build",
+        "**/package-lock.json",
+        "hermes/**"
+    ],
+    "prettier": {
+        "printWidth": 140,
+        "singleQuote": true,
+        "jsxSingleQuote": true,
+        "trailingComma": "none",
+        "tabWidth": 4,
+        "semi": false,
+        "endOfLine": "auto"
+    },
+    "babel": {
+        "presets": [
+            "@babel/preset-typescript",
+            [
+                "@babel/preset-env",
+                {
+                    "targets": {
+                        "node": "current"
+                    }
+                }
+            ]
+        ]
+    }
+}

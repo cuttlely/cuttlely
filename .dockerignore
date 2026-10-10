@@ -1,0 +1,19 @@
+node_modules
+dist
+build
+
+**/node_modules
+**/build
+**/dist
+
+packages/server/.env
+packages/ui/.env
+
+.cuttlely
+hermes/.venv
+**/.venv
+
+# A local .env must not be copied into the image. .env.example has no secrets.
+.env
+.env.*
+!.env.example

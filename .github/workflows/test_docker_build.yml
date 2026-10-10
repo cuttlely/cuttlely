@@ -1,0 +1,67 @@
+name: Test Docker Build
+
+on:
+    pull_request:
+        branches:
+            - '*'
+        types: [opened, synchronize, reopened, ready_for_review]
+    schedule:
+        # Daily full run on main (UTC). There are no push-to-main runs.
+        - cron: '17 9 * * *'
+    workflow_dispatch:
+permissions:
+    contents: read
+concurrency:
+    group: ${{ github.workflow }}-${{ github.ref }}
+    # Superseded PR runs are cancelled; scheduled and manual runs on main never are.
+    cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+jobs:
+    # Same docs-only rule as Node CI's changes job.
+    changes:
+        if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+        runs-on: ubuntu-latest
+        outputs:
+            code: ${{ steps.diff.outputs.code }}
+        steps:
+            # The PR merge commit's first parent is the base, so HEAD^1..HEAD is exactly this PR's change set.
+            # Trees only (blob:none, sparse .github): a few seconds.
+            - uses: actions/checkout@v6
+              if: github.event_name == 'pull_request'
+              with:
+                  fetch-depth: 2
+                  filter: blob:none
+                  sparse-checkout: .github
+            - name: Detect code changes
+              id: diff
+              env:
+                  EVENT_NAME: ${{ github.event_name }}
+              run: |
+                  if [ "$EVENT_NAME" != "pull_request" ]; then
+                    echo "code=true" >> "$GITHUB_OUTPUT"
+                    exit 0
+                  fi
+                  if ! files=$(git diff --name-only HEAD^1 HEAD); then
+                    echo "Could not diff the merge commit; running everything."
+                    echo "code=true" >> "$GITHUB_OUTPUT"
+                    exit 0
+                  fi
+                  code=$(echo "$files" | grep -Ev '(\.md$|^\.projects/)' | grep -c . || true)
+                  if [ "$code" -gt 0 ] || [ -z "$files" ]; then
+                    echo "code=true" >> "$GITHUB_OUTPUT"
+                  else
+                    echo "Docs-only change; the Docker build is skipped."
+                    echo "code=false" >> "$GITHUB_OUTPUT"
+                  fi
+
+    # Ready (non-draft) PRs and the daily run only. Check name "docker-build" (required), whether it runs or is skipped;
+    # the name no longer collides with Node CI's build check.
+    docker-build:
+        name: docker-build
+        needs: changes
+        if: (github.event_name != 'pull_request' || github.event.pull_request.draft == false) && needs.changes.outputs.code == 'true'
+        runs-on: ubuntu-latest
+        env:
+            PUPPETEER_SKIP_DOWNLOAD: true
+        steps:
+            - uses: actions/checkout@v6
+            - run: docker build --no-cache -t cuttlely .

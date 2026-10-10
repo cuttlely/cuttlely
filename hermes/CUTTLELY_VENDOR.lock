@@ -1,0 +1,5 @@
+# Written by pnpm hermes:vendor. Do not edit by hand; pnpm verify checks it.
+upstream: https://github.com/NousResearch/hermes-agent.git
+ref: f42f579cf8bac4918ac9599bece71618afadd846
+commit: f42f579cf8bac4918ac9599bece71618afadd846
+fingerprint: 5f13a1dec833a4073142fc8af4ed91792d004fb90bb80b720123ef6c78ffa7c2

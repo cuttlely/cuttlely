@@ -1,0 +1,34 @@
+sku,name,category,price,description
+TNT-2P-ULT,Ridgeline 2P Ultralight Tent,Tents,389.00,"Two-person, three-season freestanding tent at 1.1 kg packed. Silnylon fly with 1500 mm hydrostatic head, two doors and two vestibules, DAC aluminium poles. Pitches fly-first in the rain."
+TNT-4P-BASE,Basecamp 4 Family Tent,Tents,549.00,"Four-person cabin tent with near-vertical walls, 2.0 m peak height, and a gear loft. Polyester fly rated 3000 mm. Best for car camping; 7.4 kg packed."
+TNT-1P-BIVY,Summit Bivy Shelter,Tents,229.00,Single-wall bivy with a waterproof-breathable eVent top and a bathtub floor. 620 g. Built for alpine starts and fast-and-light ridge traverses.
+SLP-15F-DWN,Aster 15°F Down Sleeping Bag,Sleeping,429.00,"800-fill hydrophobic goose down, EN comfort rating -4 °C, lower limit -9 °C. Draft collar, full-length two-way zip, 980 g. Includes a cotton storage sack."
+SLP-30F-SYN,Trailhead 30°F Synthetic Bag,Sleeping,149.00,Synthetic fill that keeps insulating when wet. Comfort rating 4 °C. Machine washable. Rectangular cut that unzips into a quilt for warm nights.
+SLP-PAD-R5,Loft R5 Insulated Sleeping Pad,Sleeping,199.00,"Air pad with an R-value of 5.4 for four-season use. 7.6 cm thick, 510 g, inflates in about 12 breaths with the included pump sack."
+SLP-PAD-FOAM,Cellular Foam Pad,Sleeping,49.00,"Closed-cell foam pad, R-value 2.0, that cannot puncture. Folds accordion-style and doubles as a sit pad at camp."
+PCK-55-TREK,Traverse 55L Trekking Pack,Packs,279.00,"55-litre pack with an adjustable torso length (40-52 cm), aluminium stay frame and a ventilated mesh back panel. Carries up to 18 kg comfortably. Rain cover included."
+PCK-30-DAY,Cirque 30L Daypack,Packs,149.00,"30-litre daypack with a hydration sleeve, ice-axe loop, and a removable hip belt. Weighs 820 g. Fits carry-on limits."
+PCK-70-EXP,Expedition 70L Pack,Packs,389.00,70-litre load hauler with a carbon frame sheet and a pivoting hip belt for loads over 25 kg. Top lid converts to a summit bag.
+JKT-HRD-3L,Storm Shell 3L Rain Jacket,Clothing,329.00,"Three-layer waterproof-breathable membrane rated 28,000 mm and 25,000 g/m²/24h. Helmet-compatible hood, pit zips, and fully taped seams."
+JKT-PUF-800,Featherline 800 Down Jacket,Clothing,259.00,Hooded puffy with 800-fill down and a ripstop nylon shell. Packs into its own chest pocket. Not waterproof: wear under a shell in rain.
+JKT-FLC-GRID,Grid Fleece Midlayer,Clothing,109.00,Grid fleece that breathes during climbs and dries fast. Thumb loops and a half zip. Pairs with the Storm Shell as a mid layer.
+BTM-SFT-PNT,Approach Softshell Pants,Clothing,139.00,"Stretch softshell pants with a DWR finish, articulated knees, and ankle zips for boots. Wind resistant but not waterproof."
+BAS-MRN-150,Merino 150 Base Layer Top,Clothing,89.00,150 g/m² merino wool base layer that resists odour on multi-day trips. Flatlock seams. Hand wash cold.
+FTW-HIK-MID,Talus Mid GTX Hiking Boot,Footwear,219.00,Mid-height boot with a waterproof membrane and a Vibram outsole. Medium-volume last; size half up for thick socks. Break-in about 20 km.
+FTW-TRL-RUN,Skyline Trail Runner,Footwear,159.00,"Trail running shoe with a 4 mm drop, 5 mm lugs, and a rock plate. Drains fast after stream crossings. Not waterproof."
+FTW-CMP-SND,Camp Sandal,Footwear,59.00,"Lightweight sandal for camp and river crossings, 190 g per pair."
+CKW-STV-CAN,Jetline Canister Stove,Cooking,89.00,"Canister stove that boils 1 litre in 3 minutes 10 seconds. Piezo igniter, pot supports for pans up to 20 cm. Uses isobutane-propane canisters."
+CKW-STV-LIQ,Polar Multi-Fuel Stove,Cooking,179.00,"Liquid fuel stove that burns white gas, kerosene or diesel. Works below -20 °C where canisters lose pressure. Field maintainable."
+CKW-POT-TI,Titanium 900 ml Pot,Cooking,69.00,900 ml titanium pot with a folding handle and a lid that doubles as a strainer. Fits a 230 g canister and a small stove inside.
+CKW-FLT-SQZ,Squeeze Water Filter,Water,39.00,Hollow-fibre filter that removes 99.99999% of bacteria and protozoa. Threads onto standard bottles. Backflush to restore flow. Does not remove viruses.
+CKW-PUR-UV,UV Water Purifier Pen,Water,99.00,"UV-C purifier that treats 1 litre in 90 seconds and kills viruses, bacteria and protozoa. USB-C rechargeable, about 50 litres per charge. Water must be clear."
+NAV-GPS-HND,Ranger Handheld GPS,Navigation,349.00,"GPS and GLONASS receiver with topo maps, a barometric altimeter, and 16 hours of battery on AA cells. Satellite messaging is not included."
+NAV-CMP-BSE,Baseplate Compass,Navigation,45.00,Liquid-filled baseplate compass with adjustable declination and a sighting mirror. Rulers in 1:25k and 1:50k scales.
+SAF-BCN-PLB,Personal Locator Beacon,Safety,299.00,406 MHz PLB that alerts search and rescue anywhere with sky view. No subscription. 24-hour transmit time; register it with your national authority.
+SAF-KIT-FA,Trail First Aid Kit,Safety,59.00,"First aid kit for 1-4 people on trips up to 4 days: blister care, wound closure strips, SAM splint, and a printed field guide."
+LGT-HDL-400,Beam 400 Headlamp,Lighting,59.00,400-lumen headlamp with red night mode and a lock-out switch. USB-C rechargeable; 40 hours on low. IPX7 waterproof.
+ACC-PLS-CRB,Carbon Trekking Poles,Accessories,159.00,"Three-section carbon poles with flick locks, 105-135 cm, 420 g per pair. Cork grips. Includes snow and mud baskets."
+ACC-BRR-CAN,Bear-Resistant Food Canister,Accessories,89.00,"Polycarbonate canister approved for use in parks that require bear-proof storage. 11.5 litres, about 5 days of food for one person."
+POL-RET-30,Returns and exchanges,Policy,0.00,Unused gear can be returned within 30 days for a full refund. Used gear can be exchanged within 1 year if it fails under normal use. Sleeping bags and pads must be clean and dry.
+POL-SHP-STD,Shipping,Policy,0.00,Orders over 75 ship free within 3-5 business days. Express shipping arrives in 1-2 business days. Fuel canisters ship ground only.
+POL-WAR-LIFE,Lifetime warranty,Policy,0.00,"Tents, packs and sleeping bags carry a lifetime warranty against defects in materials and workmanship. Damage from accidents, wear, or animals is repaired at cost."

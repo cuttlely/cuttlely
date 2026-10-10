@@ -1,0 +1,141 @@
+# Cuttlely on Render. This file describes a stack you can apply from the
+# Dashboard. Do not deploy it from CI. Review it before you apply it.
+#
+# One web service runs Cuttlely and Hermes in the same container
+# (scripts/start-cuttlely.sh). Hermes stays on 127.0.0.1. Render sets PORT.
+# The process binds HOST 0.0.0.0. Do not set PORT here.
+#
+# Cuttlely does not read DATABASE_URL. packages/server/src/DataSource.ts uses
+# DATABASE_TYPE plus DATABASE_HOST, DATABASE_PORT, DATABASE_NAME, DATABASE_USER,
+# and DATABASE_PASSWORD. fromDatabase property names are host, port, database,
+# user, and password. The internal host does not require TLS, so DATABASE_SSL
+# stays false. An external URL would need DATABASE_SSL=true.
+#
+# Analyst mode is off. In the Dashboard, set CUTTLELY_ANALYST to auto to
+# create an analyst schema in cuttlely-db and a login that cannot read
+# application tables. The database user must be allowed to create roles.
+# If it cannot, leave the switch off and set CUTTLELY_POSTGRES_URL to a
+# separate database. Do not point that URL at cuttlely-db. The node refuses
+# a URL or login that is this service's application database. A host that
+# requires TLS needs sslmode on that URL. Cuttlely does not append it.
+# Do not put CUTTLELY_ANALYST or CUTTLELY_POSTGRES_URL in this file. A later
+# Blueprint sync would overwrite the Dashboard value.
+#
+# The disk is one mount, /var/cuttlely. Uploads, harness session sqlite,
+# harness-queue.sqlite, ETL files, and the Hermes home all live under it.
+# A disk forces numInstances 1 and a deploy with downtime. Do not add scaling.
+
+previews:
+    generation: off
+
+databases:
+    # basic-1gb is the smallest current plan that can hold Cuttlely plus chat
+    # history. free expires. basic-256mb is tight once credential rows and
+    # chat messages accumulate. pro-4gb and above are the HA tier.
+    # After the first sync, name, databaseName, user, region, and
+    # postgresMajorVersion cannot change. plan can change, with downtime.
+    # region must match the web service so fromDatabase stays on the internal host.
+    - name: cuttlely-db
+      plan: basic-1gb
+      region: oregon
+      databaseName: cuttlely
+      user: cuttlely
+      postgresMajorVersion: '16'
+
+services:
+    - type: web
+      name: cuttlely
+      runtime: docker
+      region: oregon
+      # pro plus is 8 GB RAM and 4 CPU. Hermes, Chromium, and Node share the instance.
+      # pro (4 GB, 2 CPU) is the minimum; starter and standard are too small and
+      # run out of memory when a browser specialist starts Chromium. pro max is the
+      # next step up. Render spells this plan "pro plus" (4c-8g in its newer plan ids).
+      # Disks are not on the free plan.
+      plan: pro plus
+      branch: main
+      # commit deploys every push to main. autoDeploy: true is the old field name.
+      autoDeployTrigger: commit
+      healthCheckPath: /api/v1/ping
+      dockerfilePath: ./Dockerfile
+      dockerContext: .
+      numInstances: 1
+      disk:
+          name: cuttlely-data
+          mountPath: /var/cuttlely
+          # Size can increase later and cannot shrink.
+          sizeGB: 10
+      envVars:
+          - key: HOST
+            value: 0.0.0.0
+          # Runtime heap only. The image build uses a larger heap, then resets it.
+          - key: NODE_OPTIONS
+            value: --max-old-space-size=4096
+          - key: DATABASE_TYPE
+            value: postgres
+          - key: DATABASE_SSL
+            value: 'false'
+          - key: DATABASE_HOST
+            fromDatabase:
+                name: cuttlely-db
+                property: host
+          - key: DATABASE_PORT
+            fromDatabase:
+                name: cuttlely-db
+                property: port
+          - key: DATABASE_NAME
+            fromDatabase:
+                name: cuttlely-db
+                property: database
+          - key: DATABASE_USER
+            fromDatabase:
+                name: cuttlely-db
+                property: user
+          - key: DATABASE_PASSWORD
+            fromDatabase:
+                name: cuttlely-db
+                property: password
+          # DATABASE_PATH and SECRETKEY_PATH are directories, not the sqlite file.
+          # With DATABASE_TYPE=postgres the app data is in Postgres. The directory
+          # still holds encryption.key siblings (JWT and session files) if the
+          # overwrite below is ever cleared. Do not set CUTTLELY_FLOWISE_DB: that
+          # variable is a sqlite file path and would point credential reads at
+          # the wrong store.
+          - key: DATABASE_PATH
+            value: /var/cuttlely/data
+          - key: SECRETKEY_PATH
+            value: /var/cuttlely/data
+          - key: BLOB_STORAGE_PATH
+            value: /var/cuttlely/storage
+          - key: CUTTLELY_DATA_DIR
+            value: /var/cuttlely
+          - key: CUTTLELY_HERMES_HOME
+            value: /var/cuttlely/hermes
+          - key: HERMES_HOME
+            value: /var/cuttlely/hermes
+          - key: CUTTLELY_ETL_DIR
+            value: /var/cuttlely/etl
+          - key: LOG_PATH
+            value: /var/cuttlely/logs
+          - key: STORAGE_TYPE
+            value: local
+          # One proxy hop on Render. Unset ignores X-Forwarded-For.
+          - key: TRUST_PROXY
+            value: '1'
+          # AuthKit is optional. Enter these in the Dashboard. No values in git.
+          # WORKOS_COOKIE_PASSWORD seals the session cookie. It is not the credential key.
+          - key: WORKOS_API_KEY
+            sync: false
+          - key: WORKOS_CLIENT_ID
+            sync: false
+          - key: WORKOS_REDIRECT_URI
+            sync: false
+          - key: WORKOS_COOKIE_PASSWORD
+            sync: false
+          # Verified email allowed to become the first Super User on an empty database.
+          - key: CUTTLELY_BOOTSTRAP_EMAIL
+            sync: false
+          # Credential encryption key. Render generates it once and keeps it
+          # across deploys. Losing it makes stored credentials unreadable.
+          - key: FLOWISE_SECRETKEY_OVERWRITE
+            generateValue: true

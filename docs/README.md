@@ -1,0 +1,45 @@
+<p align="center">
+<picture>
+<source media="(prefers-color-scheme: dark)" srcset="../assets/brand/logo/cuttlely-logo-horizontal-dark.svg">
+<img src="../assets/brand/logo/cuttlely-logo-horizontal.svg" alt="Cuttlely" width="200">
+</picture>
+</p>
+
+# Cuttlely docs
+
+Cuttlely is the open-source agent platform for applications. It gives your applications their own intelligent capabilities and coordinated agent teams. A team is a lead agent, Harness Prime, that splits each question among specialists, and in Cuttlely it is called a harness. Your app calls a team through the API, and people can chat with it on a share link or a website embed. Knowledge pipelines (ETL), visual workflows (chatflows and agentflows) and Build with AI give the teams what they need, and every change is a draft until you publish it. It all runs on infrastructure you control.
+
+New here? Start with [Your first 10 minutes](../README.md#your-first-10-minutes), or open the bakery team in about a minute with [Try the demo](./how-to/try-the-demo.md). Building an app? Start with the [API guide](./api.md), then [Use a team from your app](../README.md#use-a-team-from-your-app). The harness [Prediction API](./how-to/harnesses.md#prediction-api) section is the reference for harness responses and stream events.
+
+## Build
+
+-   [Harnesses](./how-to/harnesses.md). A team of specialists that Harness Prime sends work to. Build one from a description, try it, and call it from a chatflow.
+-   [Analyst mode](./how-to/analyst.md). A specialist with its own database that creates tables and answers from them. Turn it on with `CUTTLELY_ANALYST=auto`; on Render, see [Analyst database](./how-to/render.md#analyst-database).
+-   [ETL](./how-to/etl.md). Pipelines that load, clean, split, embed and store your data for search, on a schedule if you like.
+-   [Canvas cards](./how-to/canvas.md). Chatflows and agentflows, compact or classic cards (`CANVAS_CARD_LOOK=classic` sets classic for everyone), Build with AI, and [older V1 agentflows](./how-to/canvas.md#older-v1-agentflows).
+-   [Version history](./how-to/versioning.md). Drafts and Publish, the [check before Publish](./how-to/versioning.md#check-recent-questions-before-you-publish), restore and roll back, a [copy in GitHub](./how-to/versioning.md#keep-a-copy-in-github), and [Dev to Prod](./how-to/versioning.md#move-a-flow-from-dev-to-prod).
+-   [Share and embed a chat](./how-to/share-and-embed.md). A public link for any chatflow, a chat button or full-page chat on your website, and how the share settings change the look.
+-   [Use the API in your own web app](./api.md). API keys, calling chatflows, agentflows and harnesses, streaming, conversation memory, uploads, errors and allowed origins, with a runnable [example app](../examples/web-app).
+
+## Install and sign in
+
+-   [Docker](./how-to/docker.md). The install most people want. SQLite, one container.
+-   [From source](./how-to/from-source.md). For changing Cuttlely.
+-   [Render](./how-to/render.md). A hosted install with Postgres.
+-   [Server settings](./how-to/server-settings.md). Change how the server runs from **Admin** > **Server settings**: sign-in and AuthKit, the database, storage, the analyst and more, with a review step, safe boot and History.
+-   [Sign in](./how-to/sign-in.md). Turn on the local account, create the first account in a terminal or the browser, and sign in. [Set up WorkOS AuthKit](./identity/workos-authkit-setup.md) when a team signs in.
+
+## Reference
+
+-   [History settings](./reference/versioning-settings.md), [History API](./reference/versioning-api.md), [Drafts API](./reference/drafts-api.md) and [Version files](./reference/version-files.md).
+-   [Override configuration](./reference/override-config.md). What a prediction request may change with `overrideConfig`, and what it never can.
+-   [Upgrading Cuttlely](./upgrading.md). Back up, upgrade, check and roll back, for Docker, Render and source installs.
+-   [Changelog](../CHANGELOG.md) and [Releases and support](./releases.md). What changed in each release, what counts as a breaking change, and which versions get fixes.
+-   [What Cuttlely connects to](../SECURITY.md#what-cuttlely-connects-to). Every outbound connection, when it happens, and how to turn it off.
+-   [Credits](../CREDITS.md). The open-source projects Cuttlely builds on, with their licenses and links.
+-   [Updating the model list](./reference/model-list.md). For maintainers: the model dropdowns and prices come from `packages/components/models.json`, kept by hand in this repository.
+-   [Agent runtime upgrades](./reference/hermes-upgrades.md). For maintainers: how the bundled agent runtime is vendored and upgraded.
+
+## Bring your existing flows
+
+-   [Bring your existing flows](./bring-your-flows.md). What opens from other tools today, and what is not supported yet. The rule-by-rule details are in [Flowise migration wizard](./flowise-migration-wizard.md) and [Langflow import](./langflow-import.md).

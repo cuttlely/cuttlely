@@ -1,0 +1,101 @@
+name: Bug Report
+description: File a bug report to help us improve
+labels: ['bug']
+assignees: []
+body:
+    - type: markdown
+      attributes:
+          value: |
+              Make sure to have a proper title and description.
+
+    - type: textarea
+      id: bug-description
+      attributes:
+          label: Describe the bug
+          description: A clear and concise description of what the bug is.
+          placeholder: Tell us what you see!
+      validations:
+          required: true
+
+    - type: textarea
+      id: reproduce
+      attributes:
+          label: To Reproduce
+          description: Steps to reproduce the behavior
+          placeholder: |
+              1. Go to '...'
+              2. Click on '....'
+              3. Scroll down to '....'
+              4. See error
+      validations:
+          required: true
+
+    - type: textarea
+      id: expected
+      attributes:
+          label: Expected behavior
+          description: A clear and concise description of what you expected to happen.
+      validations:
+          required: true
+
+    - type: textarea
+      id: screenshots
+      attributes:
+          label: Screenshots
+          description: If applicable, add screenshots to help explain your problem.
+          placeholder: Drag and drop or paste screenshots here
+
+    - type: textarea
+      id: flow
+      attributes:
+          label: Flow
+          description: If applicable, add exported flow in order to help replicating the problem.
+          placeholder: Paste your exported flow here
+
+    - type: dropdown
+      id: method
+      attributes:
+          label: How you run Cuttlely
+          description: How do you run Cuttlely?
+          options:
+              - Docker Compose
+              - Render
+              - From source (pnpm start)
+              - Other
+
+    - type: input
+      id: version
+      attributes:
+          label: Cuttlely version
+          description: Which Cuttlely version are you running? The About dialog and /api/v1/version show it.
+          placeholder: e.g., 1.0.0
+
+    - type: dropdown
+      id: os
+      attributes:
+          label: Operating System
+          description: What operating system are you using?
+          options:
+              - Windows
+              - macOS
+              - Linux
+              - Other
+
+    - type: dropdown
+      id: browser
+      attributes:
+          label: Browser
+          description: What browser are you using?
+          options:
+              - Chrome
+              - Firefox
+              - Safari
+              - Edge
+              - Other
+
+    - type: textarea
+      id: context
+      attributes:
+          label: Additional context
+          description: Add any other context about the problem here.
+          placeholder: Any additional information that might be helpful

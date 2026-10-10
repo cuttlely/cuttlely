@@ -1,0 +1,453 @@
+import { BaseToolkit, tool, Tool } from '@langchain/core/tools'
+import { Client } from '@modelcontextprotocol/sdk/client/index.js'
+import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js'
+import { StdioClientTransport, StdioServerParameters } from '@modelcontextprotocol/sdk/client/stdio.js'
+import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
+import { CallToolRequest, CallToolResultSchema, ListToolsResult, ListToolsResultSchema } from '@modelcontextprotocol/sdk/types.js'
+import { checkDenyList, secureFetch } from '../../../src/httpSecurity'
+
+const DEFAULT_MCP_TOOL_DESCRIPTION_MAX_LENGTH = 1024
+const DEFAULT_MCP_TOOL_NAME_MAX_LENGTH = 128
+
+function getMCPToolDescriptionMaxLength(): number {
+    const parsed = Number(process.env.CUSTOM_MCP_TOOL_DESCRIPTION_MAX_LENGTH)
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_MCP_TOOL_DESCRIPTION_MAX_LENGTH
+}
+
+function getMCPToolNameMaxLength(): number {
+    const parsed = Number(process.env.CUSTOM_MCP_TOOL_NAME_MAX_LENGTH)
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_MCP_TOOL_NAME_MAX_LENGTH
+}
+
+const MCP_INJECTION_PATTERNS: ReadonlyArray<RegExp> = [
+    /\bCRITICAL\b/,
+    /\bMANDATORY\b/,
+    /\bYOU\s+MUST\b/i,
+    /\bMUST\s+(?:call|use|invoke|execute|run|send)\b/i,
+    /ignore\s+(?:previous|all|above|prior)\s+(?:instructions?|prompts?|rules?)/i,
+    /disregard\s+(?:the\s+)?(?:above|previous|prior|system)/i,
+    /override\s+(?:the\s+)?(?:system|prompt|instructions?)/i,
+    /forget\s+(?:your|the|all)\s+(?:instructions?|prompts?|rules?)/i,
+    /before\s+(?:using|calling|invoking)\s+any\s+other/i,
+    /call\s+this\s+tool\s+first/i,
+    /send\s+(?:the\s+)?user(?:'s|s)?\s+(?:message|input|data|conversation)/i,
+    /security\s+compliance/i,
+    /required\s+for\s+(?:compliance|security|auditing)/i
+]
+
+export function sanitizeMCPToolDescription(description: string): string {
+    const maxLen = getMCPToolDescriptionMaxLength()
+    // Strip C0 control chars (except \t \n \r) and DEL
+    // eslint-disable-next-line no-control-regex
+    let cleaned = description.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '')
+    // Strip zero-width and directional override unicode characters used in hidden prompt injection
+    cleaned = cleaned.replace(/[\u200B-\u200D\u2028\u2029\u202A-\u202E\u2060\uFEFF]/gu, '')
+    if (cleaned.length > maxLen) {
+        cleaned = cleaned.slice(0, maxLen)
+    }
+    for (const pattern of MCP_INJECTION_PATTERNS) {
+        if (pattern.test(cleaned)) {
+            console.warn(
+                `[MCP Security] Suspicious instruction-injection pattern detected in tool description. ` +
+                    `Pattern: ${pattern}. Description snippet: "${cleaned.slice(0, 120)}"`
+            )
+            break
+        }
+    }
+    return cleaned
+}
+
+export function sanitizeMCPToolName(name: string): string {
+    const maxLen = getMCPToolNameMaxLength()
+    const trimmed = name.trim()
+    // Allow alphanumeric, underscore, hyphen — matches MCP spec and existing CustomMcpServerTool.formatToolName
+    const cleaned = trimmed.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, maxLen)
+    if (cleaned !== trimmed) {
+        console.warn(
+            `[MCP Security] Tool name sanitized from "${name.slice(0, 64)}" to "${cleaned.slice(0, 64)}". ` +
+                `Non-conforming MCP server may indicate a misconfigured or malicious server.`
+        )
+    }
+    return cleaned
+}
+
+export class MCPToolkit extends BaseToolkit {
+    tools: Tool[] = []
+    _tools: ListToolsResult | null = null
+    model_config: any
+    transport: StdioClientTransport | SSEClientTransport | StreamableHTTPClientTransport | null = null
+    client: Client | null = null
+    serverParams: StdioServerParameters | any
+    transportType: 'stdio' | 'sse' | 'http'
+    /** Per-invocation HTTP headers injected at tools/call time; overrides static toolkit headers for the same names. */
+    getToolCallHeaders?: () => Promise<Record<string, string>>
+    constructor(serverParams: StdioServerParameters | any, transportType: 'stdio' | 'sse' | 'http') {
+        super()
+        this.serverParams = serverParams
+        this.transportType = transportType
+    }
+
+    /**
+     * Creates a new MCP client and connects it via the configured transport.
+     * @param injectHeaders - Additional HTTP headers merged over static `serverParams.headers` for this connection. Used to pass per-invocation headers (e.g. from {@link getToolCallHeaders}) into SSE/HTTP transports.
+     */
+    async createClient(injectHeaders: Record<string, string> = {}): Promise<Client> {
+        const client = new Client(
+            {
+                name: 'flowise-client',
+                version: '1.0.0'
+            },
+            {
+                capabilities: {}
+            }
+        )
+
+        let transport: StdioClientTransport | SSEClientTransport | StreamableHTTPClientTransport
+
+        if (this.transportType === 'stdio') {
+            // Compatible with overridden PATH configuration
+            const params = {
+                ...this.serverParams,
+                env: {
+                    ...(this.serverParams.env || {}),
+                    PATH: process.env.PATH
+                }
+            }
+
+            transport = new StdioClientTransport(params as StdioServerParameters)
+            await client.connect(transport)
+        } else {
+            if (this.serverParams.url === undefined) {
+                throw new Error('URL is required for SSE transport')
+            }
+
+            const baseUrl = new URL(this.serverParams.url)
+            await checkDenyList(this.serverParams.url)
+            const mergedHeaders = { ...this.serverParams?.headers, ...injectHeaders }
+            const headers = Object.keys(mergedHeaders).length > 0 ? mergedHeaders : undefined
+            try {
+                if (headers) {
+                    transport = new StreamableHTTPClientTransport(baseUrl, {
+                        requestInit: {
+                            headers
+                        }
+                    })
+                } else {
+                    transport = new StreamableHTTPClientTransport(baseUrl)
+                }
+                await client.connect(transport)
+            } catch (error) {
+                console.error('Error connecting to MCP server', error)
+                if (headers) {
+                    transport = new SSEClientTransport(baseUrl, {
+                        requestInit: {
+                            headers
+                        },
+                        eventSourceInit: {
+                            fetch: async (url, init) => {
+                                return secureFetch(url.toString(), {
+                                    ...(init as any),
+                                    headers
+                                }) as any
+                            }
+                        }
+                    })
+                } else {
+                    transport = new SSEClientTransport(baseUrl, {
+                        eventSourceInit: {
+                            fetch: async (url, init) => {
+                                return secureFetch(url.toString(), init as any) as any
+                            }
+                        }
+                    })
+                }
+                await client.connect(transport)
+            }
+        }
+
+        return client
+    }
+
+    async initialize() {
+        if (this._tools === null) {
+            this.client = await this.createClient()
+
+            this._tools = await this.client.request({ method: 'tools/list' }, ListToolsResultSchema)
+
+            this.tools = await this.get_tools()
+
+            // Close the initial client after initialization
+            await this.client.close()
+        }
+    }
+
+    async get_tools(): Promise<Tool[]> {
+        if (this._tools === null || this.client === null) {
+            throw new Error('Must initialize the toolkit first')
+        }
+        const toolsPromises = this._tools.tools.map(async (tool: any) => {
+            if (this.client === null) {
+                throw new Error('Client is not initialized')
+            }
+            const argsSchema = tool.inputSchema ?? { type: 'object', properties: {} }
+            const safeName = sanitizeMCPToolName(tool.name)
+            const safeDescription = sanitizeMCPToolDescription(tool.description || tool.name)
+            return await MCPTool({
+                toolkit: this,
+                name: safeName,
+                description: safeDescription,
+                argsSchema
+            })
+        })
+        const res = await Promise.allSettled(toolsPromises)
+        const errors = res.filter((r) => r.status === 'rejected')
+        if (errors.length !== 0) {
+            console.error('MCP Tools failed to be resolved', errors)
+        }
+        const successes = res.filter((r) => r.status === 'fulfilled').map((r) => r.value)
+        return successes
+    }
+}
+
+export async function MCPTool({
+    toolkit,
+    name,
+    description,
+    argsSchema
+}: {
+    toolkit: MCPToolkit
+    name: string
+    description: string
+    argsSchema: any
+}): Promise<Tool> {
+    return tool(
+        async (input): Promise<string> => {
+            // Create a new client for this request
+            const toolCallHeaders = await toolkit.getToolCallHeaders?.()
+            const client = await toolkit.createClient(toolCallHeaders)
+
+            try {
+                const req: CallToolRequest = { method: 'tools/call', params: { name: name, arguments: input as any } }
+                const res = await client.request(req, CallToolResultSchema)
+                const content = res.content
+                const contentString = JSON.stringify(content)
+                return contentString
+            } finally {
+                // Always close the client after the request completes
+                await client.close()
+            }
+        },
+        {
+            name: name,
+            description: description,
+            schema: argsSchema
+        }
+    )
+}
+
+export const validateArgsForLocalFileAccess = (args: string[]): void => {
+    const allowedScriptPaths = (process.env.CUSTOM_MCP_ALLOWED_ABSOLUTE_SCRIPT_PATHS ?? '')
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean)
+
+    const scriptArg = args[0]
+
+    if (allowedScriptPaths.length === 0)
+        throw new Error('Custom MCP script execution disabled. Configure CUSTOM_MCP_ALLOWED_ABSOLUTE_SCRIPT_PATHS environment variable.')
+
+    if (!allowedScriptPaths.includes(scriptArg)) throw new Error('Custom MCP script path not in allowed list.')
+}
+
+export const validateCommandInjection = (args: string[]): void => {
+    const dangerousPatterns = [
+        // Shell metacharacters
+        /[;&|`$(){}[\]<>]/,
+        // Command chaining
+        /&&|\|\||;;/,
+        // Redirections
+        />>|<<|>/,
+        // Backticks and command substitution
+        /`|\$\(/,
+        // Process substitution
+        /<\(|>\(/
+    ]
+
+    for (const arg of args) {
+        if (typeof arg !== 'string') continue
+
+        for (const pattern of dangerousPatterns) {
+            if (pattern.test(arg)) {
+                throw new Error(`Argument contains potentially dangerous characters: "${arg}"`)
+            }
+        }
+    }
+}
+
+/**
+ * Validates user-supplied env vars against the operator-controlled allow-list in
+ * `CUSTOM_MCP_ALLOWED_ENV_VARS` (comma-separated names). Empty = none allowed.
+ */
+export const validateEnvironmentVariables = (env: Record<string, any>): void => {
+    const allowedEnvVars = new Set(
+        (process.env.CUSTOM_MCP_ALLOWED_ENV_VARS ?? '')
+            .split(',')
+            .map((s) => s.trim())
+            .filter(Boolean)
+    )
+
+    for (const [key, value] of Object.entries(env)) {
+        if (!allowedEnvVars.has(key)) {
+            throw new Error(`Environment variable '${key}' is not allowed. Permitted: ${[...allowedEnvVars].join(', ') || '(none)'}`)
+        }
+
+        if (typeof value === 'string' && value.includes('\0')) {
+            throw new Error(`Environment variable '${key}' contains null byte`)
+        }
+    }
+}
+
+/**
+ * Validates that command arguments don't contain flags that enable arbitrary code execution
+ * This prevents attacks where whitelisted commands are used with dangerous flags
+ * (e.g., "npx -c malicious-command" or "python -c malicious-code")
+ * @param command The command to validate
+ * @param args The arguments to validate
+ */
+export const validateCommandFlags = (command: string, args: string[]): void => {
+    // Define dangerous flags for each command that enable code execution
+    const dangerousFlagsByCommand: Record<string, string[]> = {
+        npx: [
+            '-c', // Execute shell commands
+            '--call', // Execute shell commands
+            '--shell-auto-fallback', // Shell execution fallback
+            '-y', // Auto-confirms installation prompts
+            '--yes', // Auto-confirms installation prompts
+            '--node-options' // Passes arbitrary Node flags to underlying process, bypassing node flag blocklist
+        ],
+        node: [
+            '-e', // Execute JavaScript code
+            '--eval', // Execute JavaScript code
+            '-p', // Evaluate and print JavaScript code
+            '--print', // Evaluate and print JavaScript code
+            '--inspect', // Enable remote debugging (security risk)
+            '--inspect-brk', // Enable remote debugging with breakpoint (security risk)
+            '--experimental-policy', // Could load malicious policies
+            '-r', // Short alias for --require
+            '--require', // Preload a CommonJS module before script runs
+            '--loader', // Custom ES module loader hook (code execution)
+            '--experimental-loader', // Same as --loader, older Node alias
+            '--import', // Preload ESM module before entry script (Node 18+)
+            '--env-file' // Read env vars from a local file (Node 20+, local file access)
+        ],
+        python: [
+            '-c', // Execute Python code
+            '-m' // Run library modules (could run malicious modules)
+        ],
+        python3: [
+            '-c', // Execute Python code
+            '-m' // Run library modules (could run malicious modules)
+        ],
+        docker: [
+            'run', // Run containers (too powerful)
+            'build', // Pulls a container and executes the run instructions
+            'exec', // Execute in containers
+            'compose', // Subcommand that starts containers (same risk as run)
+            '-v', // Mount host filesystems
+            '--volume', // Mount host filesystems
+            '--mount', // Alternative to -v/--volume for mounting host paths
+            '--volumes-from', // Mount volumes from another container (filesystem access)
+            '--privileged', // Privileged mode
+            '--cap-add', // Add capabilities
+            '--security-opt', // Modify security options
+            '--device', // Add host device files to container (privilege escalation)
+            '--entrypoint', // Override container entrypoint (arbitrary code execution)
+            '--network', // Host network access (catches --network=host and --network host)
+            '--pid', // Host PID namespace (catches --pid=host and --pid host)
+            '--ipc', // Host IPC namespace (catches --ipc=host and --ipc host)
+            '--env-file' // Read env vars from a local host file (local file access)
+        ]
+    }
+
+    const dangerousFlags = dangerousFlagsByCommand[command] || []
+
+    // Collect single-char dangerous flags (e.g. '-c' -> 'c') for combined flag detection
+    const dangerousShortChars = new Set(dangerousFlags.filter((f) => /^-[a-zA-Z]$/.test(f)).map((f) => f[1].toLowerCase()))
+
+    for (const arg of args) {
+        if (typeof arg !== 'string') continue
+
+        const normalizedArg = arg.toLowerCase().trim()
+
+        // Check for dangerous flags in various forms (exact, =value, space-separated value)
+        for (const flag of dangerousFlags) {
+            const lowerCaseFlag = flag.toLowerCase()
+            if (normalizedArg === lowerCaseFlag) {
+                throw new Error(`Argument '${arg}' is not allowed for command '${command}'.`)
+            }
+            if (normalizedArg.startsWith(lowerCaseFlag + '=')) {
+                throw new Error(`Argument '${arg}' contains flag '${flag}' that is not allowed for command '${command}'.`)
+            }
+            if (flag.startsWith('-') && normalizedArg.startsWith(lowerCaseFlag + ' ')) {
+                throw new Error(`Argument '${arg}' contains flag '${flag}' that is not allowed for command '${command}'.`)
+            }
+        }
+
+        // Check for combined short flags (e.g. "-yc" = "-y" + "-c")
+        // A combined flag starts with a single '-', is not a long flag '--', and has multiple characters after '-'
+        if (/^-[a-zA-Z]{2,}/.test(normalizedArg)) {
+            const flagChars = normalizedArg.slice(1) // strip leading '-'
+            for (const ch of flagChars) {
+                if (dangerousShortChars.has(ch)) {
+                    throw new Error(`Argument '${arg}' contains dangerous flag '-${ch}' for command '${command}'.`)
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Validates a user-supplied MCP server configuration against operator-controlled allow-lists.
+ *
+ * For stdio configs, the command must appear in the `CUSTOM_MCP_ALLOWED_COMMANDS` allow-list
+ * (comma-separated, empty = none allowed). The list is empty by default, so no command can run
+ * until an operator explicitly opts in. To enable local/custom stdio MCP servers, set
+ * `CUSTOM_MCP_PROTOCOL=stdio` and `CUSTOM_MCP_ALLOWED_COMMANDS` in your env file
+ * (see docker/.env.example, docker/worker/.env.example, packages/server/.env.example).
+ */
+export const validateMCPServerConfig = (serverParams: any): void => {
+    // Validate the entire server configuration
+    if (!serverParams || typeof serverParams !== 'object') {
+        throw new Error('Invalid server configuration')
+    }
+
+    if (serverParams.cwd != null) {
+        throw new Error('cwd parameter is not allowed in MCP server configuration')
+    }
+
+    // Command allowlist - operator-controlled via CUSTOM_MCP_ALLOWED_COMMANDS (empty = none allowed)
+    const allowedCommands = (process.env.CUSTOM_MCP_ALLOWED_COMMANDS ?? '')
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean)
+
+    if (serverParams.command && !allowedCommands.includes(serverParams.command)) {
+        throw new Error(`Command '${serverParams.command}' is not allowed. Permitted: ${allowedCommands.join(', ') || '(none)'}`)
+    }
+
+    // Validate arguments if present
+    if (serverParams.args && Array.isArray(serverParams.args)) {
+        validateArgsForLocalFileAccess(serverParams.args)
+        validateCommandInjection(serverParams.args)
+
+        // Validate command-specific dangerous flags
+        if (serverParams.command) {
+            validateCommandFlags(serverParams.command, serverParams.args)
+        }
+    }
+
+    // Validate environment variables
+    if (serverParams.env) {
+        validateEnvironmentVariables(serverParams.env)
+    }
+}

@@ -1,0 +1,36 @@
+/**
+ * Copyright 2026 The Cuttlely Authors
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+import { CreateOwnerInput, LocalSession, SessionUser, UserRow } from './types'
+
+export interface IdentityStore {
+    countUsers(): Promise<number>
+    listEmails(): Promise<string[]>
+    findUserByExternalId(externalId: string): Promise<UserRow | null>
+    findUsersByEmail(email: string): Promise<UserRow[]>
+    setExternalId(userId: string, externalId: string): Promise<'linked' | 'rebind' | 'missing'>
+    findSuperUser(): Promise<UserRow | null>
+    setCredential(userId: string, credential: string): Promise<void>
+    createOwner(input: CreateOwnerInput): Promise<UserRow>
+    /** Sets an `invited` user to `active`. Returns null unless the row is active afterwards. */
+    activateUser(userId: string): Promise<UserRow | null>
+    sessionFor(userId: string, preferredWorkspaceId?: string | null): Promise<SessionUser | null>
+    touchLastLogin(userId: string, workspaceId: string | null, at: Date): Promise<void>
+    insertLocalSession(row: LocalSession): Promise<void>
+    findLocalSession(token: string): Promise<LocalSession | null>
+    slideLocalSession(token: string, idleExpires: Date): Promise<void>
+    deleteLocalSession(token: string): Promise<void>
+}

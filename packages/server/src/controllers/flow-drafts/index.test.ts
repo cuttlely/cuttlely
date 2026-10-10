@@ -1,0 +1,333 @@
+const getChatflowByIdForWorkspace = jest.fn()
+const updateChatflow = jest.fn()
+jest.mock('../../services/chatflows', () => ({
+    __esModule: true,
+    default: {
+        getChatflowByIdForWorkspace: (...args: any[]) => getChatflowByIdForWorkspace(...args),
+        updateChatflow: (...args: any[]) => updateChatflow(...args)
+    }
+}))
+const drafts = {
+    isDraftsEnabled: jest.fn(() => true),
+    getDraftStatus: jest.fn(async () => ({ mode: 'draft' })),
+    saveDraft: jest.fn(async () => ({ mode: 'draft' })),
+    discardDraft: jest.fn(async () => ({ mode: 'draft', draft: null })),
+    setPublishInstantly: jest.fn(async () => ({ mode: 'live' })),
+    draftToPublish: jest.fn(async (): Promise<string> => '{"nodes":[{"id":"draft"}],"edges":[]}'),
+    sameCanvas: jest.fn((a: string, b: string) => a === b),
+    afterLiveSet: jest.fn(async () => ({ mode: 'draft', draft: null, lastPublished: { sha: 'x', date: 'd' } })),
+    clearDraftIfStill: jest.fn(async () => ({ mode: 'draft', draft: null }))
+}
+const versions = {
+    listVersions: jest.fn(async (): Promise<any> => ({ versions: [] })),
+    lastErrorFor: jest.fn((): string | null => null)
+}
+jest.mock('../../services/flow-versions', () => ({ __esModule: true, default: versions }))
+jest.mock('../../database/entities/ChatFlow', () => ({ ChatFlow: class ChatFlow {} }))
+const putVersionLive = jest.fn()
+jest.mock('../flow-versions', () => ({ putVersionLive: (...args: any[]) => putVersionLive(...args) }))
+jest.mock('../../services/flow-drafts', () => ({ __esModule: true, default: drafts }))
+const checkService = {
+    getCheckSetup: jest.fn(async () => ({ unavailable: null, questions: [] })),
+    startCheck: jest.fn(async () => ({ id: 'c1', status: 'running' })),
+    getCheck: jest.fn(async () => ({ id: 'c1', status: 'done' })),
+    stopCheck: jest.fn(async () => ({ id: 'c1', status: 'stopped' }))
+}
+jest.mock('../../services/flow-check', () => ({ __esModule: true, default: checkService }))
+const granted = new Set<string>()
+jest.mock('../../identity/rbac', () => ({
+    hasAnyPermission: jest.fn(async (_req: any, ...permissions: string[]) => permissions.some((item) => granted.has(item)))
+}))
+
+import controller from './index'
+
+const FLOW = { id: '0b5c3a1e-1111-2222-3333-444455556666', type: 'CHATFLOW', flowData: '{"nodes":[],"edges":[]}', workspaceId: 'team-a' }
+
+function request(body: any = {}) {
+    return {
+        params: { chatflowId: FLOW.id },
+        body,
+        user: { id: 'user-1', activeWorkspaceId: 'team-a', activeOrganizationId: 'org-1', activeOrganizationSubscriptionId: 'sub-1' }
+    } as any
+}
+function response() {
+    const res: any = {}
+    res.json = jest.fn(() => res)
+    return res
+}
+
+beforeEach(() => {
+    jest.clearAllMocks()
+    granted.clear()
+    getChatflowByIdForWorkspace.mockResolvedValue({ ...FLOW })
+    drafts.isDraftsEnabled.mockReturnValue(true)
+})
+
+test('reads the draft of a flow in the caller workspace', async () => {
+    granted.add('chatflows:view')
+    const res = response()
+    await controller.getDraft(request(), res, jest.fn())
+    expect(getChatflowByIdForWorkspace).toHaveBeenCalledWith(FLOW.id, 'team-a')
+    expect(res.json).toHaveBeenCalledWith({ mode: 'draft' })
+})
+
+test('saves the canvas as a draft with the user, org and subscription', async () => {
+    granted.add('chatflows:update')
+    await controller.saveDraft(request({ flowData: '{"nodes":[],"edges":[]}', name: 'ignored' }), response(), jest.fn())
+    expect(drafts.saveDraft).toHaveBeenCalledWith(expect.objectContaining({ id: FLOW.id }), '{"nodes":[],"edges":[]}', {
+        userId: 'user-1',
+        orgId: 'org-1',
+        subscriptionId: 'sub-1'
+    })
+})
+
+test('discards and changes Publish instantly', async () => {
+    granted.add('chatflows:update')
+    await controller.discardDraft(request(), response(), jest.fn())
+    expect(drafts.discardDraft).toHaveBeenCalled()
+    await controller.updateSettings(request({ publishInstantly: true }), response(), jest.fn())
+    expect(drafts.setPublishInstantly).toHaveBeenCalledWith(expect.objectContaining({ id: FLOW.id }), true)
+})
+
+test("checks the flow's own type: an agentflow needs the agentflow permission", async () => {
+    getChatflowByIdForWorkspace.mockResolvedValue({ ...FLOW, type: 'AGENTFLOW' })
+    granted.add('chatflows:update')
+    granted.add('chatflows:view')
+    for (const handler of [
+        controller.getDraft,
+        controller.saveDraft,
+        controller.discardDraft,
+        controller.updateSettings,
+        controller.publishDraft,
+        controller.rollbackLive
+    ]) {
+        const next = jest.fn()
+        await handler(request({ flowData: '{}' }), response(), next)
+        expect(next.mock.calls[0][0].statusCode).toBe(403)
+    }
+    expect(drafts.saveDraft).not.toHaveBeenCalled()
+    granted.add('agentflows:view')
+    const res = response()
+    await controller.getDraft(request(), res, jest.fn())
+    expect(res.json).toHaveBeenCalled()
+})
+
+test('viewing is not enough to save', async () => {
+    granted.add('chatflows:view')
+    const next = jest.fn()
+    await controller.saveDraft(request({ flowData: '{}' }), response(), next)
+    expect(next.mock.calls[0][0].statusCode).toBe(403)
+})
+
+test('a flow outside the workspace is passed on as its 404', async () => {
+    granted.add('chatflows:view')
+    const missing = Object.assign(new Error('not found'), { statusCode: 404 })
+    getChatflowByIdForWorkspace.mockRejectedValue(missing)
+    const next = jest.fn()
+    await controller.getDraft(request(), response(), next)
+    expect(next).toHaveBeenCalledWith(missing)
+})
+
+test('no workspace is a 404', async () => {
+    const next = jest.fn()
+    await controller.getDraft({ params: { chatflowId: FLOW.id }, user: {} } as any, response(), next)
+    expect(next.mock.calls[0][0].statusCode).toBe(404)
+})
+
+describe('Publish', () => {
+    const SHA = 'a'.repeat(40)
+    beforeEach(() => {
+        granted.add('chatflows:update')
+        updateChatflow.mockImplementation(async (flow: any, update: any, _o: any, _w: any, _s: any, options: any) => {
+            options?.onVersionQueued?.(Promise.resolve(SHA))
+            return { ...flow, ...update, name: 'Sales Desk', updatedDate: '2026-10-08T17:00:00.000Z' }
+        })
+        versions.listVersions.mockResolvedValue({ versions: [{ sha: SHA, kind: 'publish', published: true }] })
+    })
+
+    it('saves the draft to Live through the normal update path and records a Published version', async () => {
+        const res = response()
+        const next = jest.fn()
+        await controller.publishDraft(request({ overwriteLiveChanges: true }), res, next)
+        expect(next).not.toHaveBeenCalled()
+        expect(drafts.draftToPublish).toHaveBeenCalledWith(expect.objectContaining({ id: FLOW.id }), true)
+        const [current, update, orgId, workspaceId, subscriptionId, options] = updateChatflow.mock.calls[0]
+        expect(current.id).toBe(FLOW.id)
+        // Only the canvas: the draft holds no name or settings.
+        expect(update).toEqual({ id: FLOW.id, flowData: '{"nodes":[{"id":"draft"}],"edges":[]}' })
+        expect([orgId, workspaceId, subscriptionId]).toEqual(['org-1', 'team-a', 'sub-1'])
+        expect(options.versionRecord).toEqual({ kind: 'publish', titlePrefix: 'Published: ' })
+        // Saved only while Live is still the canvas the stale check was made against.
+        expect(options.expectedFlowData).toBe(FLOW.flowData)
+        expect(options.actor).toMatchObject({ id: 'user-1' })
+        expect(drafts.afterLiveSet).toHaveBeenCalledWith(
+            expect.objectContaining({ flowData: '{"nodes":[{"id":"draft"}],"edges":[]}' }),
+            SHA,
+            '{"nodes":[{"id":"draft"}],"edges":[]}'
+        )
+        const body = res.json.mock.calls[0][0]
+        expect(body).toMatchObject({ unchanged: false, recorded: true, historyError: null, version: { sha: SHA, published: true } })
+        expect(Object.keys(body.chatflow).sort()).toEqual(['id', 'name', 'type', 'updatedDate'])
+    })
+
+    it('reports why history could not record the publish', async () => {
+        updateChatflow.mockImplementation(async (flow: any, update: any, _o: any, _w: any, _s: any, options: any) => {
+            options?.onVersionQueued?.(Promise.resolve(null))
+            return { ...flow, ...update }
+        })
+        versions.lastErrorFor.mockReturnValueOnce('Not saved to history: secret-shaped text')
+        const res = response()
+        await controller.publishDraft(request(), res, jest.fn())
+        expect(drafts.afterLiveSet).toHaveBeenCalledWith(expect.anything(), null, expect.any(String))
+        expect(res.json.mock.calls[0][0]).toMatchObject({
+            recorded: false,
+            version: null,
+            historyError: 'Not saved to history: secret-shaped text'
+        })
+    })
+
+    it('a draft that already matches Live is cleared once the conditional save confirms Live still matches', async () => {
+        drafts.draftToPublish.mockResolvedValueOnce(FLOW.flowData)
+        versions.listVersions.mockClear()
+        const res = response()
+        await controller.publishDraft(request(), res, jest.fn())
+        // The same compare-and-swap as a real publish, so a Live change landing meanwhile is caught (409).
+        expect(updateChatflow.mock.calls[0][5].expectedFlowData).toBe(FLOW.flowData)
+        expect(drafts.afterLiveSet).not.toHaveBeenCalled()
+        // Only the draft that was checked: a newer one saved meanwhile is kept.
+        expect(drafts.clearDraftIfStill).toHaveBeenCalledWith(expect.objectContaining({ id: FLOW.id }), FLOW.flowData)
+        expect(drafts.discardDraft).not.toHaveBeenCalled()
+        expect(res.json.mock.calls[0][0]).toMatchObject({ unchanged: true, recorded: false })
+    })
+
+    it('a draft that matches Live is kept when Live moved during the publish', async () => {
+        drafts.draftToPublish.mockResolvedValueOnce(FLOW.flowData)
+        const moved = Object.assign(new Error('Live changed while publishing, so nothing was published. Try again.'), { statusCode: 409 })
+        updateChatflow.mockRejectedValueOnce(moved)
+        const next = jest.fn()
+        await controller.publishDraft(request(), response(), next)
+        expect(next).toHaveBeenCalledWith(moved)
+        expect(drafts.clearDraftIfStill).not.toHaveBeenCalled()
+    })
+
+    it('passes on a refusal, such as nothing to publish or a stale draft, and saves nothing', async () => {
+        const refused = Object.assign(new Error('There are no unpublished changes to publish.'), { statusCode: 409 })
+        drafts.draftToPublish.mockRejectedValueOnce(refused)
+        const next = jest.fn()
+        await controller.publishDraft(request(), response(), next)
+        expect(next).toHaveBeenCalledWith(refused)
+        expect(updateChatflow).not.toHaveBeenCalled()
+    })
+
+    it('viewing is not enough to publish', async () => {
+        granted.clear()
+        granted.add('chatflows:view')
+        const next = jest.fn()
+        await controller.publishDraft(request(), response(), next)
+        expect(next.mock.calls[0][0].statusCode).toBe(403)
+        expect(drafts.draftToPublish).not.toHaveBeenCalled()
+    })
+})
+
+describe('Roll back Live', () => {
+    const SHA = 'b'.repeat(40)
+    beforeEach(() => {
+        granted.add('chatflows:update')
+    })
+
+    it('puts the version Live as a rollback and keeps the draft', async () => {
+        const saved = { ...FLOW, flowData: '{"nodes":[{"id":"old"}],"edges":[]}' }
+        putVersionLive.mockResolvedValue({
+            chatflow: saved,
+            sha: SHA,
+            body: { restoredFrom: 'abcdef1', restoredTo: 'live', unchanged: false }
+        })
+        const res = response()
+        const next = jest.fn()
+        await controller.rollbackLive(request({ sha: 'abcdef1' }), res, next)
+        expect(next).not.toHaveBeenCalled()
+        expect(putVersionLive).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ id: FLOW.id }), 'abcdef1', {
+            kind: 'rollback',
+            verb: 'Rolled back Live to'
+        })
+        expect(drafts.afterLiveSet).toHaveBeenCalledWith(saved, SHA)
+        expect(res.json.mock.calls[0][0]).toMatchObject({ restoredFrom: 'abcdef1', restoredTo: 'live', status: { draft: null } })
+    })
+
+    it('a version that already matches Live saves nothing and records nothing', async () => {
+        putVersionLive.mockResolvedValue({ chatflow: null, sha: null, body: { unchanged: true } })
+        const res = response()
+        await controller.rollbackLive(request({ sha: 'abcdef1' }), res, jest.fn())
+        expect(drafts.afterLiveSet).not.toHaveBeenCalled()
+        expect(drafts.getDraftStatus).toHaveBeenCalled()
+        expect(res.json.mock.calls[0][0]).toMatchObject({ unchanged: true })
+    })
+
+    it('needs a version id, and drafts on', async () => {
+        for (const body of [{}, { sha: 'XYZ' }, { sha: 12345678 }]) {
+            const next = jest.fn()
+            await controller.rollbackLive(request(body), response(), next)
+            expect(next.mock.calls[0][0].statusCode).toBe(400)
+        }
+        drafts.isDraftsEnabled.mockReturnValue(false)
+        const next = jest.fn()
+        await controller.rollbackLive(request({ sha: 'abcdef1' }), response(), next)
+        expect(next.mock.calls[0][0]).toMatchObject({ statusCode: 409, message: expect.stringContaining('Restore') })
+        expect(putVersionLive).not.toHaveBeenCalled()
+    })
+})
+
+describe('the publish check', () => {
+    function checkRequest(body: any = {}, params: any = {}) {
+        const req = request(body)
+        req.params = { chatflowId: FLOW.id, ...params }
+        req.protocol = 'http'
+        req.get = (name: string) => (name === 'host' ? 'cuttlely.test:3000' : undefined)
+        return req
+    }
+    function accepted() {
+        const res = response()
+        res.status = jest.fn(() => res)
+        return res
+    }
+
+    it('reads the setup with view permission', async () => {
+        granted.add('chatflows:view')
+        const res = response()
+        await controller.getCheckSetup(checkRequest(), res, jest.fn())
+        expect(checkService.getCheckSetup).toHaveBeenCalledWith(expect.objectContaining({ id: FLOW.id }))
+        expect(res.json).toHaveBeenCalledWith({ unavailable: null, questions: [] })
+    })
+
+    it('starts a check with update permission, answers 202, and passes the server address', async () => {
+        granted.add('chatflows:update')
+        const res = accepted()
+        await controller.startCheck(checkRequest({ questions: ['Hi'] }), res, jest.fn())
+        expect(checkService.startCheck).toHaveBeenCalledWith(
+            expect.objectContaining({ id: FLOW.id }),
+            { questions: ['Hi'] },
+            'http://cuttlely.test:3000'
+        )
+        expect(res.status).toHaveBeenCalledWith(202)
+    })
+
+    it('reads and stops a check by id', async () => {
+        granted.add('chatflows:view')
+        granted.add('chatflows:update')
+        await controller.getCheck(checkRequest({}, { checkId: 'c1' }), response(), jest.fn())
+        expect(checkService.getCheck).toHaveBeenCalledWith(expect.objectContaining({ id: FLOW.id }), 'c1')
+        await controller.stopCheck(checkRequest({}, { checkId: 'c1' }), response(), jest.fn())
+        expect(checkService.stopCheck).toHaveBeenCalledWith(expect.objectContaining({ id: FLOW.id }), 'c1')
+    })
+
+    it('a viewer cannot start or stop a check', async () => {
+        granted.add('chatflows:view')
+        for (const handler of [controller.startCheck, controller.stopCheck]) {
+            const next = jest.fn()
+            await handler(checkRequest({ questions: ['Hi'] }, { checkId: 'c1' }), accepted(), next)
+            expect(next.mock.calls[0][0].statusCode).toBe(403)
+        }
+        expect(checkService.startCheck).not.toHaveBeenCalled()
+        expect(checkService.stopCheck).not.toHaveBeenCalled()
+    })
+})

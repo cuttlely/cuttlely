@@ -1,0 +1,147 @@
+name: Node CI
+on:
+    pull_request:
+        branches:
+            - '*'
+        types: [opened, synchronize, reopened, ready_for_review]
+    schedule:
+        # Daily full run on main (UTC). There are no push-to-main runs.
+        - cron: '17 9 * * *'
+    workflow_dispatch:
+permissions:
+    contents: read
+concurrency:
+    group: ${{ github.workflow }}-${{ github.ref }}
+    # Superseded PR runs are cancelled; scheduled and manual runs on main never are.
+    cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+jobs:
+    # Cheap and required: runs on every PR push, drafts included, and on the daily run.
+    lint:
+        runs-on: ubuntu-latest
+        env:
+            PUPPETEER_SKIP_DOWNLOAD: true
+        steps:
+            - uses: actions/checkout@v6
+            - uses: pnpm/action-setup@v4
+              with:
+                  version: 10.26.0
+            - name: Use Node.js 24.15.0
+              uses: actions/setup-node@v6
+              with:
+                  node-version: 24.15.0
+                  cache: 'pnpm'
+                  cache-dependency-path: 'pnpm-lock.yaml'
+            - run: pnpm install
+            - run: pnpm lint
+
+    # Decides whether build, cypress (and docker-build in its workflow) are needed: false only for a ready PR whose
+    # changes are all docs (*.md, .projects/**); a mixed diff runs everything. Job-level `if:` only, never workflow-level
+    # `paths` filters, so required checks always report. lint (and the path guard workflow) never depend on it.
+    # Nothing in build, unit tests or Cypress reads .projects/** or *.md (checked with rg); root lint does lint *.md.
+    changes:
+        if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+        runs-on: ubuntu-latest
+        outputs:
+            code: ${{ steps.diff.outputs.code }}
+        steps:
+            # The PR merge commit's first parent is the base, so HEAD^1..HEAD is exactly this PR's change set.
+            # Trees only (blob:none, sparse .github): a few seconds.
+            - uses: actions/checkout@v6
+              if: github.event_name == 'pull_request'
+              with:
+                  fetch-depth: 2
+                  filter: blob:none
+                  sparse-checkout: .github
+            - name: Detect code changes
+              id: diff
+              env:
+                  EVENT_NAME: ${{ github.event_name }}
+              run: |
+                  if [ "$EVENT_NAME" != "pull_request" ]; then
+                    echo "code=true" >> "$GITHUB_OUTPUT"
+                    exit 0
+                  fi
+                  if ! files=$(git diff --name-only HEAD^1 HEAD); then
+                    echo "Could not diff the merge commit; running everything."
+                    echo "code=true" >> "$GITHUB_OUTPUT"
+                    exit 0
+                  fi
+                  echo "Changed files:"
+                  echo "$files" | head -100 | sed 's/^/  /'
+                  code=$(echo "$files" | grep -Ev '(\.md$|^\.projects/)' | grep -c . || true)
+                  if [ "$code" -gt 0 ] || [ -z "$files" ]; then
+                    echo "code=true" >> "$GITHUB_OUTPUT"
+                  else
+                    echo "Docs-only change; build and test are skipped."
+                    echo "code=false" >> "$GITHUB_OUTPUT"
+                  fi
+
+    # Build and unit tests (required): ready (non-draft) PRs and the daily run only.
+    # The fixed name keeps the check name "build (ubuntu-latest, 24.15.0)" whether the job runs or is skipped
+    # (a skipped matrix job would report as plain "build").
+    build:
+        name: build (ubuntu-latest, 24.15.0)
+        needs: changes
+        if: (github.event_name != 'pull_request' || github.event.pull_request.draft == false) && needs.changes.outputs.code == 'true'
+        runs-on: ubuntu-latest
+        env:
+            PUPPETEER_SKIP_DOWNLOAD: true
+        steps:
+            - uses: actions/checkout@v6
+            - uses: pnpm/action-setup@v4
+              with:
+                  version: 10.26.0
+            - name: Use Node.js 24.15.0
+              uses: actions/setup-node@v6
+              with:
+                  node-version: 24.15.0
+                  cache: 'pnpm'
+                  cache-dependency-path: 'pnpm-lock.yaml'
+            - run: pnpm install
+            - run: pnpm build
+              env:
+                  NODE_OPTIONS: '--max_old_space_size=4096'
+            - run: pnpm harness:check
+            - run: pnpm etl:check
+            - run: pnpm test:coverage
+
+    # Cypress end-to-end (advisory, not in the required set): same gating as build. Its own job so a Cypress failure
+    # shows as a red "cypress" check without blocking the merge.
+    cypress:
+        name: cypress
+        needs: changes
+        if: (github.event_name != 'pull_request' || github.event.pull_request.draft == false) && needs.changes.outputs.code == 'true'
+        runs-on: ubuntu-latest
+        env:
+            PUPPETEER_SKIP_DOWNLOAD: true
+        steps:
+            - uses: actions/checkout@v6
+            - uses: pnpm/action-setup@v4
+              with:
+                  version: 10.26.0
+            - name: Use Node.js 24.15.0
+              uses: actions/setup-node@v6
+              with:
+                  node-version: 24.15.0
+                  cache: 'pnpm'
+                  cache-dependency-path: 'pnpm-lock.yaml'
+            - run: pnpm install
+            - run: pnpm build
+              env:
+                  NODE_OPTIONS: '--max_old_space_size=4096'
+            - name: Cypress install
+              run: pnpm cypress install
+            - name: Install dependencies (Cypress Action)
+              uses: cypress-io/github-action@v7.1.5
+              with:
+                  working-directory: ./
+                  runTests: false
+            - name: Cypress test
+              uses: cypress-io/github-action@v7.1.5
+              with:
+                  install: false
+                  working-directory: packages/server
+                  start: pnpm start
+                  wait-on: 'http://localhost:3000'
+                  wait-on-timeout: 120
+                  browser: chrome
