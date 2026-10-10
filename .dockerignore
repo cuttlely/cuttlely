@@ -1,3 +1,6 @@
+# History is not needed in the image.
+.git
+
 node_modules
 dist
 build

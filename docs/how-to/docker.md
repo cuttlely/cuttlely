@@ -22,7 +22,7 @@ Compose pulls `ghcr.io/cuttlely/cuttlely:latest`. If it cannot pull it, Compose 
 
 Pulling, building and the first start can take minutes. They never sit silent:
 
--   **Build.** When Compose builds instead of pulling, each long build step names itself: `Cuttlely image, step 1 of 4: system packages` up to `step 4 of 4: setting up the agent runtime`.
+-   **Build.** When Compose builds instead of pulling, each long build step names itself: `Cuttlely image, step 1 of 5: build tools` up to `step 5 of 5: keeping production packages only`.
 -   **Status.** `docker compose ps` shows `(health: starting)` in the STATUS column while Cuttlely boots, and `(healthy)` once it is ready.
 -   **Logs.** `docker compose logs -f cuttlely` shows the boot steps (`Cuttlely boot, step 1 of 2: starting the server`, then `Loading nodes`), then a ready line with the address, `✅ Cuttlely is ready. Open http://localhost:43117`, and on a new install the one-time setup link.
 -   **Browser.** Opening [http://localhost:43117](http://localhost:43117) before it is ready shows a **Cuttlely is starting** page with the current step. It opens Cuttlely by itself when it is ready.
