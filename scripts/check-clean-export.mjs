@@ -1,7 +1,9 @@
 #!/usr/bin/env node
 /* eslint-disable no-console -- command-line tool; output is the interface */
-// Checks a source export before it leaves Cuttlely. It fails when the export contains any path under a `.projects/`
-// directory: the maintainers' handoff notes stay in the private repository.
+// Checks a source export before it leaves Cuttlely. The project notes in `.projects/cuttlely/` ship with the
+// repository and are allowed. The check fails on any other `.projects/` folder, on the private records folder
+// `.projects/cuttlely/provenance/`, and on the files that stay out of every export (EXCLUDED_FILES and
+// EXCLUDED_PATTERNS below).
 //
 // Usage:
 //   node scripts/check-clean-export.mjs <export-dir>
@@ -11,8 +13,41 @@
 import fs from 'fs'
 import path from 'path'
 
+export const PUBLIC_NOTES = '.projects/cuttlely/'
+export const PRIVATE_NOTES = ['.projects/cuttlely/provenance/']
+export const EXCLUDED_FILES = ['PROVENANCE.md', 'docs/product-identity.md']
+export const EXCLUDED_PATTERNS = [/^scripts\/identity-[^/]+-evidence\.md$/]
+
+function normalize(relPath) {
+    return String(relPath || '')
+        .replace(/\\/g, '/')
+        .replace(/^\.\//, '')
+        .replace(/^\/+/, '')
+}
+
 export function isProjectsPath(relPath) {
-    return relPath.split(/[\\/]/).includes('.projects')
+    return normalize(relPath).split('/').includes('.projects')
+}
+
+// A path inside the public notes, or one of the folders that lead to them (`.projects/`, `.projects/cuttlely/`).
+function isPublicNotesPath(rel) {
+    const dir = rel.endsWith('/') ? rel : `${rel}/`
+    if (PUBLIC_NOTES.startsWith(dir)) return rel.startsWith('.projects')
+    if (!rel.startsWith(PUBLIC_NOTES)) return false
+    return !PRIVATE_NOTES.some((prefix) => rel === prefix.slice(0, -1) || rel.startsWith(prefix))
+}
+
+export function violationFor(relPath) {
+    const rel = normalize(relPath)
+    if (isProjectsPath(rel) && !isPublicNotesPath(rel)) {
+        return rel.startsWith(PUBLIC_NOTES)
+            ? 'private records under .projects/cuttlely/'
+            : 'path under .projects/ outside .projects/cuttlely/'
+    }
+    const file = rel.replace(/\/$/, '')
+    if (EXCLUDED_FILES.includes(file)) return 'file kept out of exports'
+    if (EXCLUDED_PATTERNS.some((re) => re.test(file))) return 'file kept out of exports'
+    return ''
 }
 
 function walk(dir, base = dir, out = []) {
@@ -28,7 +63,8 @@ function walk(dir, base = dir, out = []) {
 export function checkExport(files) {
     const violations = []
     for (const rel of files) {
-        if (isProjectsPath(rel)) violations.push({ path: rel, reason: 'path under .projects/' })
+        const reason = violationFor(rel)
+        if (reason) violations.push({ path: normalize(rel), reason })
     }
     return violations
 }

@@ -1,6 +1,7 @@
-// Classify a push against origin/main. When .projects/cuttlely/ exists, a code
-// change must also touch it. Docs-only and tests-only diffs do not.
-// When that directory is absent, the check skips. The notes are local.
+// Classify a push against origin/main. A code change must also touch the project
+// notes in .projects/cuttlely/, which ship with the repository. Docs-only and
+// tests-only diffs do not. A checkout without that directory (a stripped export)
+// skips the check.
 import { spawnSync } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -18,8 +19,8 @@ export function handoffDirectoryExists(root = process.cwd()) {
 
 export function handoffSkipMessage() {
     return [
-        'Handoff check skipped: .projects/cuttlely/ is not in this checkout.',
-        'Those notes are optional and are not part of the public tree.',
+        'Handoff check skipped: .projects/cuttlely/ is missing from this checkout.',
+        'The repository ships those notes. Restore them with: git checkout origin/main -- .projects/cuttlely',
         'When the directory is present, a code change must update it.'
     ].join('\n')
 }

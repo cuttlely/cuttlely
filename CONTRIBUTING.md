@@ -263,6 +263,8 @@ pnpm verify
 
 `node harness/check.mjs` is the offline harness check (no model key). `node etl/check.mjs` is the offline ETL check.
 
+The project notes in [`.projects/cuttlely/`](./.projects/cuttlely/README.md) say where the work stands, what is planned and open, the settled design decisions, and the commands to check and ship a change. Read them before a larger change. A code change updates them in the same pull request; the pre-push hook checks this. If you work with an AI agent, the `take-over` skill reads the notes and resumes from them.
+
 Branch names in this repository are short and descriptive (`feature/…`, `bugfix/…`, or a maintainer prefix such as `flowbit/…`). Open the pull request against `main`.
 
 ## How releases work

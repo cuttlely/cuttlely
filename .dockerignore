@@ -17,3 +17,6 @@ hermes/.venv
 .env
 .env.*
 !.env.example
+
+# Contributor project notes are not needed at run time.
+.projects
