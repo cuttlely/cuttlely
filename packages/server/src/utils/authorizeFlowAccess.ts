@@ -2,6 +2,7 @@ import { NextFunction, Request, RequestHandler, Response } from 'express'
 import { StatusCodes } from 'http-status-codes'
 import { isPathTraversal, isValidUUID } from 'flowise-components'
 import { ChatFlow } from '../database/entities/ChatFlow'
+import { Workspace } from '../database/entities/identity'
 import { InternalFlowiseError } from '../errors/internalFlowiseError'
 import { validateFeedbackExists, validateMessageExists } from '../services/feedback/validation'
 import { checkChatflowOrigin } from './domainValidation'
@@ -33,7 +34,7 @@ export interface FlowAccessOptions {
      * A request that proves access by itself, such as a signed file link (it names one file and expires). When it
      * returns true the key and session are not needed; when false the usual key or session check applies.
      */
-    signedAccess?: (req: Request, chatflow: ChatFlow) => boolean
+    signedAccess?: (req: Request, chatflow: ChatFlow) => boolean | Promise<boolean>
 }
 
 export interface FlowAccessCheck {
@@ -86,7 +87,7 @@ export const authorizeFlowAccess =
                 throw new InternalFlowiseError(StatusCodes.NOT_FOUND, `Chatflow ${chatflowId} not found`)
             }
 
-            const signed = options.signedAccess?.(req, chatflow) === true
+            const signed = options.signedAccess ? (await options.signedAccess(req, chatflow)) === true : false
             res.locals.signedAccess = signed
             if (!signed && !(await hasFlowAccess(req, chatflow, { keyOnly: options.keyOnly }))) {
                 throw new InternalFlowiseError(StatusCodes.UNAUTHORIZED, 'Unauthorized')
@@ -219,12 +220,20 @@ export const authorizeFeedbackUpdate: RequestHandler = authorizeFlowAccess({
 export const authorizeUploadFileRead: RequestHandler = authorizeFlowAccess({
     getChatflowId: (req) => singleString(req.query.chatflowId),
     getPathValues: (req) => [singleString(req.query.chatId)],
-    signedAccess: (req, chatflow) =>
-        verifyFileLink(
-            { chatflowId: chatflow.id, chatId: singleString(req.query.chatId), fileName: singleString(req.query.fileName) },
-            req.query.expires,
-            req.query.signature
-        ) === 'valid'
+    signedAccess: async (req, chatflow) => {
+        // No signature: the usual key or session check, without a workspace lookup.
+        if (!req.query.signature || !req.query.expires) return false
+        // The link was signed with the organization of the flow's workspace; check against the same.
+        const workspace = await getRunningExpressApp().AppDataSource.getRepository(Workspace).findOneBy({ id: chatflow.workspaceId })
+        const orgId = typeof workspace?.organizationId === 'string' ? workspace.organizationId : undefined
+        return (
+            verifyFileLink(
+                { orgId, chatflowId: chatflow.id, chatId: singleString(req.query.chatId), fileName: singleString(req.query.fileName) },
+                req.query.expires,
+                req.query.signature
+            ) === 'valid'
+        )
+    }
 })
 
 /** `POST /api/v1/openai-assistants-file/download` with `{ chatflowId, chatId, fileName }`: same check as get-upload-file. */
