@@ -13,6 +13,9 @@ services:
             dockerfile: Dockerfile
         restart: unless-stopped
         init: true
+        # On stop, Cuttlely lets running answers finish for up to 25 seconds (CUTTLELY_DRAIN_TIMEOUT_MS). Docker's
+        # default of 10 seconds would cut them off.
+        stop_grace_period: 35s
         ports:
             - '${PORT:-43117}:${PORT:-43117}'
         environment:

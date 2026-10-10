@@ -4,6 +4,7 @@ import { Command, Flags } from '@oclif/core'
 import dotenv from 'dotenv'
 import path from 'path'
 import logger from '../utils/logger'
+import { drainTimeoutMs } from '../settings/runs'
 
 export { startState }
 
@@ -179,14 +180,24 @@ export abstract class BaseCommand extends Command {
         // Overridden method by child class
     }
 
+    private terminating = false
+
     protected onTerminate() {
         return async () => {
+            // A second SIGTERM or SIGINT (Ctrl+C twice) stops at once, without waiting for open requests.
+            if (this.terminating) {
+                logger.info('Second stop signal: shutting down now.')
+                await this.failExit()
+                return
+            }
+            this.terminating = true
             try {
-                // Shut down the app after timeout if it ever stuck removing pools
+                // Open requests get up to the drain time (settings/runs.ts); 5 more seconds to stop the app, then forced.
+                const forceAfterMs = drainTimeoutMs() + 5000
                 setTimeout(async () => {
-                    logger.info('Flowise was forced to shut down after 30 secs')
+                    logger.info(`Cuttlely was forced to shut down after ${Math.round(forceAfterMs / 1000)} secs`)
                     await this.failExit()
-                }, 30000)
+                }, forceAfterMs).unref()
 
                 await this.stopProcess()
             } catch (error) {

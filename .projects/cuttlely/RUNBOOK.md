@@ -69,6 +69,8 @@ pnpm format                   # prettier write
 pnpm --filter <pkg> test:coverage   # one package at a time on a small machine; parallel jest packages can get workers killed
 ```
 
+`pnpm test:queue-abort` checks queue mode end to end against a Redis (`REDIS_URL`) and a built server, with a placeholder model and no key. `pnpm verify` does not run it; the daily scheduled CI run on `main` does. CONTRIBUTING has the full command.
+
 `pnpm install` sets up husky; commits run `lint-staged` (eslint --fix on staged files). Formatting: 4 spaces, single quotes, no semicolons, print width 140.
 
 ## Run the one server
