@@ -1023,6 +1023,19 @@ export const getAllowedVariables = (
     return variables
 }
 
+/**
+ * The names of the request vars that getAllowedVariables takes from this request (overrides on, var allowlisted). Agent
+ * graphs use them to keep those values out of code inputs as code (codeInputLiteral.ts).
+ */
+export const getAllowedRequestVarNames = (
+    overrideConfig: ICommonObject | undefined,
+    apiOverrideStatus: boolean | undefined,
+    variableOverrides: IVariableOverride[] | undefined
+): Set<string> => {
+    if (apiOverrideStatus !== true || !overrideConfig) return new Set()
+    return new Set(Object.keys(pickAllowedVars(overrideConfig.vars, variableOverrides)))
+}
+
 // Flows already warned about in this process. Allowlist labels are the owner's config, never request values.
 const unmatchedLabelWarned = new Set<string>()
 
