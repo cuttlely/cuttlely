@@ -1,4 +1,4 @@
-// etl:check, PR #41 review on 77546291: `partial` and the reject-ratio gate (O9, spec 5.3.3), legacy records
+// etl:check, pipeline review findings: `partial` and the reject-ratio gate (O9, spec 5.3.3), legacy records
 // under a partial run (O6), store error classes with the status-code fallback (5.4), O3 read roots with
 // CUTTLELY_ETL_ROOTS unset (case 43), duplicate keys across a resume boundary, the runaway-quote cut (v1.3.4), and a
 // record-class embedding error failing the run.
@@ -669,7 +669,7 @@ const firstN = (n) => new Set(Array.from({ length: n }, (_, i) => i))
             inside.free.includes('.data/etl/uploads/notes.md'),
         json(inside)
     )
-    // An old flat upload (uploads/<uuid>/…, from before API-14) is refused with the same message whether or not
+    // An old flat upload (uploads/<uuid>/…, from before uploads were kept per workspace) is refused with the same message whether or not
     // CUTTLELY_ETL_ROOTS is set (even to a folder that holds the uploads): re-upload it, or copy it to a listed folder.
     const flat = path.join(path.dirname(own), 'rv-flat-0000', 'old.csv')
     fs.mkdirSync(path.dirname(flat), { recursive: true })

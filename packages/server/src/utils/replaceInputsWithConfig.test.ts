@@ -1,5 +1,5 @@
 /**
- * API-1: overrideConfig allowlist is deny-by-default.
+ * The `overrideConfig` allowlist is deny-by-default.
  * Case numbers in the test names match the spec. Every case compares the full inputs of every node, not just the field
  * under test.
  */
@@ -125,7 +125,7 @@ const FIFTEEN: [string, Record<string, any>][] = [
 
 beforeEach(() => mockLogger.warn.mockClear())
 
-describe('API-1 replaceInputsWithConfig: deny by default', () => {
+describe('Request overrides replaceInputsWithConfig: deny by default', () => {
     it('case 1: object blocked with an empty allowlist (BLOCKER 2 reproduction)', () => {
         expect(run({ pineconeMetadataFilter: { source: '/data/okaro-tea.md' } }, EMPTY)).toEqual(baseline())
         expect(run({ pineconeMetadataFilter: { source: 'nothing-matches' } }, EMPTY)).toEqual(baseline())
@@ -237,7 +237,7 @@ describe('API-1 replaceInputsWithConfig: deny by default', () => {
     })
 
     it('case 12: a FILE-STORAGE upload value applies only when the file param is allowlisted (#5667/#6102 behavior)', () => {
-        // API-15: only the server's own record of this request's multipart upload counts; a client-sent value never applies.
+        // Only the server's own record of this request's multipart upload counts; a client-sent value never applies.
         const value = 'FILE-STORAGE::["report.pdf"]'
         const uploaded = () => {
             const overrideConfig: Record<string, any> = {}
@@ -498,7 +498,7 @@ describe('API-1 replaceInputsWithConfig: deny by default', () => {
     })
 })
 
-describe('API-1 hard deny: credential, tracer and URL keys never apply, even when allowlisted', () => {
+describe('Request overrides hard deny: credential, tracer and URL keys never apply, even when allowlisted', () => {
     // Input names from packages/components/nodes that carry credentials or decide where requests (and stored credentials) go.
     const DENIED = [
         'agentModel',
@@ -626,7 +626,7 @@ describe('API-1 hard deny: credential, tracer and URL keys never apply, even whe
         'memoryKey',
         'urlPrompt',
         'stopSequence',
-        // pdfFile moved to hard-denied in API-15: only a same-request server upload applies (see the API-15 block).
+        // pdfFile is hard-denied: only a same-request server upload applies (see the block on inputs the server fetches or opens).
         'region',
         'agentModelConfig',
         'llmModelConfig',
@@ -671,7 +671,7 @@ describe('API-1 hard deny: credential, tracer and URL keys never apply, even whe
     })
 })
 
-describe('API-1 hard deny, round 2: code, paths, headers, ports, credential inputs, resource selectors, nested values', () => {
+describe('Request overrides hard deny, round 2: code, paths, headers, ports, credential inputs, resource selectors, nested values', () => {
     const unchanged = (nodes: Node[]) => Object.fromEntries(nodes.map((n) => [n.id, n.data.inputs]))
     const warnLines = () => mockLogger.warn.mock.calls.map((c: any[]) => c[0] as string)
 
@@ -1012,7 +1012,7 @@ describe('API-1 hard deny, round 2: code, paths, headers, ports, credential inpu
     })
 })
 
-describe('API-1 F5 (#32): token-suffix names and credential names at every depth', () => {
+describe('Request overrides: token-suffix names and credential names at every depth', () => {
     const warnLines = () => mockLogger.warn.mock.calls.map((c: any[]) => c[0] as string)
     const NESTED_DENIED = '[server]: overrideConfig: 1 ignored (hard-denied key inside the value): pineconeMetadataFilter'
     const filterAllowed = allow({ Pinecone: ['pineconeMetadataFilter'] })
@@ -1189,7 +1189,7 @@ describe('API-1 F5 (#32): token-suffix names and credential names at every depth
     })
 })
 
-describe('API-1 F1: the overrides switch is on only for the boolean true', () => {
+describe('Request overrides: the overrides switch is on only for the boolean true', () => {
     it('status "false", "true", 1 and missing leave overrides off; true turns them on', async () => {
         const { getAPIOverrideConfig } = await import('./index')
         const statusOf = (status: unknown) =>
@@ -1203,7 +1203,7 @@ describe('API-1 F1: the overrides switch is on only for the boolean true', () =>
     })
 })
 
-describe('API-1 ignored-key logging: count plus sanitized names, never raw client strings', () => {
+describe('Request overrides ignored-key logging: count plus sanitized names, never raw client strings', () => {
     it('sanitizes each key to [A-Za-z0-9._-] and at most 64 characters', () => {
         expect(sanitizeLogKey('ok.key-1_2')).toBe('ok.key-1_2')
         expect(sanitizeLogKey('a b\n[server]: forged "x"')).toBe('a_b__server___forged__x_')
@@ -1251,7 +1251,7 @@ describe('API-1 ignored-key logging: count plus sanitized names, never raw clien
     })
 })
 
-describe('API-1 B1 helpers: server-built $flow and allowlisted $vars for agent graphs', () => {
+describe('Request overrides helpers: server-built $flow and allowlisted $vars for agent graphs', () => {
     const dbVars = () => [
         { id: '1', name: 'region', type: 'static', value: 'us', workspaceId: 'w', createdDate: new Date(0), updatedDate: new Date(0) },
         { id: '2', name: 'tier', type: 'static', value: 'gold', workspaceId: 'w', createdDate: new Date(0), updatedDate: new Date(0) }
@@ -1308,7 +1308,7 @@ describe('API-1 B1 helpers: server-built $flow and allowlisted $vars for agent g
     })
 })
 
-describe('API-1 caller level: buildFlow applies overrideConfig only when status is true', () => {
+describe('Request overrides caller level: buildFlow applies overrideConfig only when status is true', () => {
     let fixturePath = ''
     let buildFlow: any
 
@@ -1411,7 +1411,7 @@ describe('API-1 caller level: buildFlow applies overrideConfig only when status 
     })
 })
 
-describe('API-15: inputs the server fetches or opens are hard-denied, even when allowlisted', () => {
+describe('Request overrides: inputs the server fetches or opens are hard-denied, even when allowlisted', () => {
     const fetchFlow = (): Node[] => {
         const withParams = (node: Node, params: { name: string; type: string }[]) => {
             node.data.inputParams = params

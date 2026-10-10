@@ -1,5 +1,5 @@
 /**
- * API-2 (#11): refusals and errors on /api/v1/prediction never leave a request without an answer, whatever `streaming` says.
+ * Streaming errors: refusals and errors on /api/v1/prediction never leave a request without an answer, whatever `streaming` says.
  *
  * Before this change the error handler wrote nothing when `req.body.streaming` was truthy and not 'false', while the
  * controller and authorizeFlowAccess only stream for `true` / 'true'. A JSON body with `streaming: 1`, '1', 'TRUE' or {}
@@ -156,7 +156,7 @@ beforeEach(() => {
     mockState.streamErrors = []
 })
 
-describe('API-2: one streaming rule', () => {
+describe('Streaming errors: one streaming rule', () => {
     it('1: isStreamingValue accepts only true and "true"', () => {
         for (const value of STREAMING_VALUES) expect(isStreamingValue(value)).toBe(true)
         for (const value of [...NON_STREAMING_VALUES, undefined, 'streaming', ' true']) expect(isStreamingValue(value)).toBe(false)
@@ -166,7 +166,7 @@ describe('API-2: one streaming rule', () => {
     })
 })
 
-describe('API-2: refusals are answered before any stream, for every streaming value', () => {
+describe('Streaming errors: refusals are answered before any stream, for every streaming value', () => {
     it.each(NON_STREAMING_VALUES.map((value) => [label(value), value]))(
         '2: streaming %s, no key -> 401 JSON, no SSE client',
         async (_name, streaming) => {
@@ -217,7 +217,7 @@ describe('API-2: refusals are answered before any stream, for every streaming va
     )
 })
 
-describe('API-2: errors after access is granted', () => {
+describe('Streaming errors: errors after access is granted', () => {
     it.each(NON_STREAMING_VALUES.map((value) => [label(value), value]))(
         '8: streaming %s, valid key, the flow run fails -> JSON error with its status, no SSE client',
         async (_name, streaming) => {
@@ -279,7 +279,7 @@ describe('API-2: errors after access is granted', () => {
     })
 })
 
-describe('API-2: error handler', () => {
+describe('Streaming errors: error handler', () => {
     const run = (headersSent: boolean, body: unknown) => {
         const res: any = { headersSent, setHeader: jest.fn(), status: jest.fn(() => res), json: jest.fn() }
         errorHandlerMiddleware(
@@ -309,7 +309,7 @@ describe('API-2: error handler', () => {
     })
 })
 
-describe('API-2: the prediction controller refuses a bad flow key before it opens a stream', () => {
+describe('Streaming errors: the prediction controller refuses a bad flow key before it opens a stream', () => {
     // The route middleware also checks the key. This app is the controller alone, so a regression that
     // flushes SSE headers and only then checks the key shows up as HTTP 200.
     const bare = express()

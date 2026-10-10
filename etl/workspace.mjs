@@ -1,4 +1,4 @@
-// Workspace scope for ETL pipelines (API-14, issue #42). A pipeline belongs to exactly one workspace, set by the server.
+// Workspace scope for ETL pipelines. A pipeline belongs to exactly one workspace, set by the server.
 // Every read goes through a pipeline that passed the workspace check: a NULL workspace never matches, a missing
 // workspace id throws instead of listing everything, and a pipeline in another workspace looks the same as a missing one.
 import { EtlError } from './errors.mjs'
@@ -53,7 +53,7 @@ export function workspaceDirName(workspaceId) {
 
 const CHILD_TABLES = ['runs', 'records', 'sources', 'schedules', 'vector_ids', 'shadow_vectors']
 
-// One-time backfill of pipelines saved before every pipeline had a workspace (API-14). Each NULL pipeline takes the
+// One-time backfill of pipelines saved before every pipeline had a workspace. Each NULL pipeline takes the
 // workspace of its own chat flow when the server knows it, else the instance's default workspace; with neither it stays
 // NULL and so is visible to no workspace. Child rows follow their pipeline. Idempotent; returns the counts to log.
 export function backfillWorkspaces({ flowWorkspaces = {}, defaultWorkspaceId = null } = {}) {

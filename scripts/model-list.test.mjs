@@ -155,7 +155,7 @@ describe('loading the model list', () => {
 })
 
 // Every node whose model dropdown reads this file must have a non-empty list in the bundled copy, because a
-// private repository or an offline server only ever sees that copy (issue #171: the xAI node had no list).
+// private repository or an offline server only ever sees that copy (the xAI node once had no list).
 // Text completion nodes whose provider no longer serves any completion model. Their list is empty on purpose;
 // the field still takes a typed model name.
 const NO_CURRENT_MODELS = {

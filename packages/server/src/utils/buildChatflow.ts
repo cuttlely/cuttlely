@@ -459,7 +459,7 @@ export const executeFlow = async ({
     // Process form data body with files. Text is read from the buffer before the bytes are stored, so the
     // question still has every document even when two files share a name. The stored name is scoped to this
     // chat so another chat's upload of the same filename does not replace it. A document loader on the canvas
-    // still receives the file (API-15); the same text is also prepended to the question.
+    // still receives the file; the same text is also prepended to the question.
     if (files?.length) {
         const usedMultipartNames = new Set<string>()
         overrideConfig = { ...incomingInput }
@@ -487,7 +487,7 @@ export const executeFlow = async ({
                 )
                 await updateStorageUsage(orgId, workspaceId, totalSize, usageCacheManager)
 
-                // API-15: recorded as server-made, so the hard deny lets it through (allowlist still applies); a client value in this
+                // Recorded as server-made, so the hard deny lets it through (allowlist still applies); a client value in this
                 // field is replaced, not merged. One file per call, so a second file on the same input is appended once.
                 setServerUploadOverride(overrideConfig, prepared.field, storagePath)
 

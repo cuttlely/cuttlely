@@ -78,7 +78,7 @@ check(
         refused = String(error.message)
     }
     check(
-        'API-14: the upgrade indexes pipelines.workspace_id and adds the NULL-refusing triggers; a legacy NULL row waits for the boot backfill',
+        'Workspace scope: the upgrade indexes pipelines.workspace_id and adds the NULL-refusing triggers; a legacy NULL row waits for the boot backfill',
         objects.join() === 'pipelines_workspace,pipelines_workspace_insert,pipelines_workspace_update' &&
             /workspace_required/.test(refused || '') &&
             handle.prepare("SELECT workspace_id FROM pipelines WHERE id = 'p-two'").get().workspace_id === null,

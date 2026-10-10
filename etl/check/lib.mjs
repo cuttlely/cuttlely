@@ -17,7 +17,7 @@ export const embed = await import('../embed.mjs')
 export const { chunkId } = await import('../execute.mjs')
 export const { LocalVectorStore } = await import('../stores.mjs')
 
-// Every pipeline in etl:check belongs to this workspace unless a case says otherwise (API-14).
+// Every pipeline in etl:check belongs to this workspace unless a case says otherwise.
 export const WS = 'ws-check'
 
 export const tally = { passed: 0, pending: [] }

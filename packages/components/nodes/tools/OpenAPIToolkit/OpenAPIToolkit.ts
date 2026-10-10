@@ -247,7 +247,7 @@ class OpenAPIToolkit_Tools implements INode {
     }
 
     /**
-     * API-15: loads the spec (uploaded file or link) and dereferences it. Every document is capped at 1 MB; the link and
+     * Loads the spec (uploaded file or link) and dereferences it. Every document is capped at 1 MB; the link and
      * every external `$ref` are fetched through secureFetch; `$ref`s to local paths are refused (openApiSpec.ts).
      * Returns null when the spec cannot be loaded.
      */

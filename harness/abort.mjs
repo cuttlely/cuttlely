@@ -8,7 +8,7 @@ export function asAbortSignal(value) {
     return undefined
 }
 
-// Explicit signal wins. Otherwise use the prediction run's LangChain abort (API-3).
+// Explicit signal wins. Otherwise use the prediction run's LangChain abort (the client abort path).
 export function readClientSignal(explicit) {
     const direct = asAbortSignal(explicit)
     if (direct) return direct

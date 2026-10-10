@@ -1,5 +1,5 @@
 /**
- * API-11 (#25): the feedback routes (GET/POST/PUT), get-upload-file and the assistants file download accept the flow's
+ * Flow access: the feedback routes (GET/POST/PUT), get-upload-file and the assistants file download accept the flow's
  * API key or a session in the flow's workspace, checked on the flow that owns the feedback, message or file.
  *
  * The real routers, controllers, services, validation and feedback utils run behind supertest. The data source is an
@@ -122,7 +122,7 @@ const bearer = (key: string) => ({ Authorization: `Bearer ${key}` })
 const session = (workspaceId: string) => ({ 'x-test-session-workspace': workspaceId })
 const UNAUTHORIZED = { statusCode: 401, success: false, message: 'Unauthorized', stack: {} }
 
-// Stands in for the session-cookie middleware, as in the API-4 test (A0 confirmed the logged-in UI's cookie fills
+// Stands in for the session-cookie middleware, as in the attachments access test (A0 confirmed the logged-in UI's cookie fills
 // req.user on whitelisted routes). The JSON parser is app-level in the server too.
 const app = express()
 app.use(express.json())
@@ -180,7 +180,7 @@ afterAll(() => {
     resetSessionOwnershipForTests()
 })
 
-describe('API-11: GET /api/v1/feedback/:chatflowId', () => {
+describe('Flow access: GET /api/v1/feedback/:chatflowId', () => {
     it('1: key-protected flow, no key / wrong key (another flow of the same workspace) / non-Bearer value -> 401, no rows returned', async () => {
         for (const headers of [{}, bearer(KEY_K2), { Authorization: KEY_K.slice(0, 10) }]) {
             const res = await getFeedback(K, headers)
@@ -227,7 +227,7 @@ describe('API-11: GET /api/v1/feedback/:chatflowId', () => {
     })
 })
 
-describe('API-11: POST /api/v1/feedback(/:id)', () => {
+describe('Flow access: POST /api/v1/feedback(/:id)', () => {
     const body = { chatflowid: K, chatId: CHAT_K, messageId: MSG_K2, rating: 'THUMBS_DOWN', content: 'new' }
 
     it('7: key-protected flow, no key / wrong key -> 401, no row written', async () => {
@@ -292,7 +292,7 @@ describe('API-11: POST /api/v1/feedback(/:id)', () => {
     })
 })
 
-describe('API-11: PUT /api/v1/feedback/:feedbackId', () => {
+describe('Flow access: PUT /api/v1/feedback/:feedbackId', () => {
     it('12: key-protected flow, no key / wrong key / session in another workspace -> 401, row unchanged', async () => {
         const before = feedbackRows()
         for (const headers of [{}, bearer(KEY_K2), session(OTHER_WS)]) {
@@ -385,7 +385,7 @@ describe('API-11: PUT /api/v1/feedback/:feedbackId', () => {
     })
 })
 
-describe("API-11: get-upload-file and the assistants file download check access on the file's flow", () => {
+describe("Flow access: get-upload-file and the assistants file download check access on the file's flow", () => {
     const fileQuery = (chatflowId: string, chatId: string) => ({ chatflowId, chatId, fileName: 'canary.txt' })
 
     it('16: get-upload-file - no key / wrong key / other-workspace session -> 401, storage never read', async () => {

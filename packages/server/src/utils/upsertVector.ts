@@ -93,7 +93,7 @@ export const executeUpsert = async ({
 
             const fileInputField = resolveFileInputField(file.originalname, file.mimetype)
 
-            // API-15: recorded as server-made, so the hard deny lets it through (allowlist still applies); a client value in this
+            // Recorded as server-made, so the hard deny lets it through (allowlist still applies); a client value in this
             // field is replaced, not merged.
             setServerUploadOverride(overrideConfig, fileInputField, storagePath)
 

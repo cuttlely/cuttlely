@@ -1,5 +1,4 @@
--- Source commit: 2f31beb81dbf7c02c249bb70f475cd6fd53807ed (main before PR #41: "Merge PR #30: API-4b prediction upload
--- auth before multer"). This is the SCHEMA constant of etl/db.mjs at that commit, verbatim below these comments.
+-- This is the SCHEMA constant of etl/db.mjs as it was before migration E1, verbatim below these comments.
 -- etl:check builds a pre-E1 database from it at test time; no SQLite file is checked in. Do not edit: it stands for
 -- databases already in use.
 CREATE TABLE IF NOT EXISTS pipelines (

@@ -3,7 +3,7 @@ import { JSON_SCHEMA, load } from 'js-yaml'
 import { secureFetch } from './httpSecurity'
 
 /**
- * API-15: OpenAPI spec loading for the OpenAPI Toolkit and the OpenAPI Chain.
+ * OpenAPI spec loading for the OpenAPI Toolkit and the OpenAPI Chain.
  *
  * - Every spec document (the uploaded file, the linked spec and each external `$ref` target) is capped at
  *   OPENAPI_SPEC_MAX_BYTES before it is parsed, which also bounds the YAML parse cost.

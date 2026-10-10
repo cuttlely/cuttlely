@@ -91,7 +91,7 @@ async function call<T>(fn: (api: any) => T | Promise<T>): Promise<T> {
     }
 }
 
-// API-14: every pipeline, run, schedule and upload is reached through a pipeline in the caller's workspace. A missing
+// Every pipeline, run, schedule and upload is reached through a pipeline in the caller's workspace. A missing
 // workspace id is a 400, and a pipeline in another workspace (or with none) is a 404, the same as a missing one.
 async function requirePipeline(api: any, id: string, workspaceId?: string) {
     return api.pipelineInWorkspace(id, workspaceId)
@@ -236,7 +236,7 @@ async function defaultWorkspaceId(): Promise<string | null> {
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
-// One-time backfill (API-14): each pipeline with no workspace takes its chat flow's workspace, else the default one.
+// One-time backfill: each pipeline with no workspace takes its chat flow's workspace, else the default one.
 export async function backfillPipelineWorkspaces(api: any) {
     if (!api.unassignedPipelineCount()) return null
     const appServer = getRunningExpressApp()
