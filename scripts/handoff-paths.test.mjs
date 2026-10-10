@@ -3,6 +3,7 @@ import { describe, it } from 'node:test'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { classifyFiles, handoffDirectoryExists, handoffSkipMessage, isDocPath, isHandoffPath, isTestPath } from './handoff-paths.mjs'
 
 describe('handoff path classification', () => {
@@ -45,7 +46,15 @@ describe('handoff path classification', () => {
         assert.deepEqual(allowed.code, ['scripts/verify.mjs'])
     })
 
-    it('skips when .projects/cuttlely is absent and still sees it when present', () => {
+    it('finds the project notes in this repository', () => {
+        const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
+        assert.equal(handoffDirectoryExists(repoRoot), true)
+        for (const name of ['README.md', 'STATUS.md', 'PLAN.md', 'OPEN.md', 'DECISIONS.md', 'RUNBOOK.md', 'MEMORY.md', 'ARTIFACTS.md']) {
+            assert.equal(fs.existsSync(path.join(repoRoot, '.projects', 'cuttlely', name)), true, `.projects/cuttlely/${name}`)
+        }
+    })
+
+    it('skips when .projects/cuttlely is missing and still sees it when present', () => {
         const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cuttlely-handoff-'))
         assert.equal(handoffDirectoryExists(root), false)
         const message = handoffSkipMessage()

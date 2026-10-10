@@ -25,11 +25,24 @@ fi
 echo "dirty"
 git status --porcelain
 
-echo "cuttlely-branches"
+echo "open-issues"
+if issues="$(gh issue list --state open --limit 50 --json number,title --jq '.[] | "#\(.number) \(.title)"')"; then
+    if [[ -n "$issues" ]]; then
+        printf '%s\n' "$issues"
+    else
+        echo "(none)"
+    fi
+else
+    echo "(gh issue list failed)"
+fi
+
+echo "remote-branches-ahead-of-main"
 git for-each-ref --format='%(refname:short)' refs/remotes/origin \
-    | { grep -E '^origin/(cursor/|cuttlely-|chore/project-handoff|fix/readme-node)' || true; } \
+    | { grep -Ev '^origin(/HEAD|/main)?$' || true; } \
     | while read -r ref; do
-        echo "$ref ahead=$(git rev-list --count origin/main.."$ref") $(git log -1 --format='%cs %s' "$ref")"
+        ahead="$(git rev-list --count origin/main.."$ref")"
+        [[ "$ahead" == "0" ]] && continue
+        echo "$ref ahead=$ahead $(git log -1 --format='%cs %s' "$ref")"
     done
 
 echo "recent-ci"

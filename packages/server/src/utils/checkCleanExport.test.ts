@@ -3,8 +3,8 @@ import fs from 'fs'
 import os from 'os'
 import path from 'path'
 
-// A source export must not carry `.projects/` paths. Fixtures are built in a temp directory so the repository itself
-// never holds a `.projects/` tree that a real export would pick up.
+// A source export may carry the project notes (the Markdown files directly in `.projects/cuttlely/`) and nothing else
+// under `.projects/`. Fixtures are built in a temp directory so the repository's own tree does not decide the result.
 const repoRoot = path.resolve(__dirname, '..', '..', '..', '..')
 const script = path.join(repoRoot, 'scripts', 'check-clean-export.mjs')
 
@@ -20,6 +20,8 @@ const writeTree = (root: string, files: Record<string, string>) => {
     }
 }
 
+const violationPaths = (result: { violations: { path: string }[] }) => result.violations.map((v) => v.path)
+
 describe('check-clean-export.mjs', () => {
     let tmp: string
 
@@ -31,10 +33,12 @@ describe('check-clean-export.mjs', () => {
         fs.rmSync(tmp, { recursive: true, force: true })
     })
 
-    it('passes a clean export (negative fixture)', () => {
+    it('passes a clean export that carries the public project notes', () => {
         writeTree(tmp, {
             'packages/server/src/identity/index.ts': 'export {}\n',
-            'docs/identity/phase0-spec.md': '# Spec\n'
+            'docs/identity/phase0-spec.md': '# Spec\n',
+            '.projects/cuttlely/README.md': '# notes\n',
+            '.projects/cuttlely/STATUS.md': '# status\n'
         })
         const { status, result } = run([tmp])
         expect(status).toBe(0)
@@ -42,21 +46,38 @@ describe('check-clean-export.mjs', () => {
         expect(result.violations).toEqual([])
     })
 
-    it('fails an export that contains a .projects/ path (positive fixture)', () => {
+    it('fails an export with another .projects/ folder or a subfolder of the notes', () => {
         writeTree(tmp, {
             'README.md': '# cuttlely\n',
-            '.projects/cuttlely/STATUS.md': '# status\n'
+            '.projects/cuttlely/STATUS.md': '# status\n',
+            '.projects/cuttlely/scratch/NOTES.md': '# scratch\n',
+            '.projects/cuttlely/export.json': '{}\n',
+            '.projects/other/NOTES.md': '# other\n'
         })
         const { status, result } = run([tmp])
         expect(status).toBe(1)
-        expect(result.violations.map((v: { path: string }) => v.path)).toContain('.projects/')
+        const paths = violationPaths(result)
+        expect(paths).toContain('.projects/other/')
+        expect(paths).toContain('.projects/cuttlely/scratch/')
+        expect(paths).toContain('.projects/cuttlely/scratch/NOTES.md')
+        expect(paths).toContain('.projects/cuttlely/export.json')
+        expect(paths).not.toContain('.projects/cuttlely/STATUS.md')
+        expect(paths).not.toContain('.projects/cuttlely/')
+        expect(paths).not.toContain('.projects/')
+    })
+
+    it('fails a .projects/ folder nested below the root', () => {
+        writeTree(tmp, { 'packages/a/.projects/cuttlely/README.md': '# notes\n' })
+        const { status, result } = run([tmp])
+        expect(status).toBe(1)
+        expect(violationPaths(result)).toContain('packages/a/.projects/cuttlely/README.md')
     })
 
     it('checks a file list with --files and --root', () => {
         writeTree(tmp, { 'README.md': '# cuttlely\n' })
-        expect(run(['--files', '-', '--root', tmp], 'README.md\npackages/a.ts\n').status).toBe(0)
-        const bad = run(['--files', '-', '--root', tmp], 'README.md\n.projects/cuttlely/STATUS.md\n')
+        expect(run(['--files', '-', '--root', tmp], 'README.md\npackages/a.ts\n.projects/cuttlely/STATUS.md\n').status).toBe(0)
+        const bad = run(['--files', '-', '--root', tmp], 'README.md\n.projects/other/STATUS.md\n')
         expect(bad.status).toBe(1)
-        expect(bad.result.violations[0].reason).toBe('path under .projects/')
+        expect(bad.result.violations[0].reason).toBe('path under .projects/ outside .projects/cuttlely/')
     })
 })
