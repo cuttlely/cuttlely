@@ -7,7 +7,8 @@ import { stableStringify } from './flow-graph.mjs'
 import { repoRoot } from './paths.mjs'
 import { fallbackToolChoice, rejectsToolCalls } from './tool-fallback.mjs'
 
-const BLOCKED_MESSAGE = 'points at a private or loopback address, which Cuttlely blocks (D14). Use a public endpoint. See OPEN #6.'
+const BLOCKED_MESSAGE =
+    'points at a private or loopback address. Cuttlely blocks those by default so a flow cannot reach your internal network. Use a public endpoint.'
 const JSON_NOTE = 'Reply with JSON only. Do not add prose or code fences.'
 const secretCache = new WeakMap()
 
