@@ -63,13 +63,18 @@ In chatflows and agentflows, a request variable reaches only the cards that read
 
 For example, an agentflow has a variable `region` saved as `us`, switched on under **Variables**, and an LLM card whose prompt says `Answer for {{$vars.region}}`. A request with `"vars": { "region": "eu" }` still sends the model `Answer for us`. The same request to a Sequential Agent flow sends `Answer for eu`.
 
-## Never reference an allowlisted variable or state key inside a code input
+## Request values in code inputs
 
-> **Warning.** Allowlisted variables and start-state values are inserted as text wherever they are referenced, including code inputs. Never reference an allowlisted variable or state key inside a code input.
+> **Note.** Request values never run as code. In a code input, read a variable as $vars.name, not {{$vars.name}}: in Multi-Agent and Sequential Agent flows a request value written as {{$vars.name}} in code is inserted as escaped text.
 
-A request cannot change a code input itself. But `{{$vars.name}}` and `{{$flow.state.key}}` are replaced with their text before the card runs, and that includes code. If a variable is switched on under **Variables**, or a start-state key is declared on the Start card and allowed, and that value appears inside a Custom Function, an If/Else function or state update code, whoever sends the request can put their own code there.
+A request cannot change a code input itself, and a value it sends never becomes code:
 
-Keep request values in text inputs such as prompts. In code, read a value the flow owner controls, or check and clean the value before code uses it. Escaping request values in code inputs is planned.
+-   **Chatflows and agentflows** never put a request value into a code input as text: `{{$vars.name}}` there always uses the saved value (see the table above). Code reads request values as data: `$vars.name`, and in agentflows `$flow.state.key` for start-state values.
+-   **Multi-Agent and Sequential Agent flows** replace `{{$vars.name}}` with text in every input before the card runs. When the value came from the request (overrides on and that variable switched on under **Variables**), a code input gets it as escaped text. Inside quotes it reads exactly as the request sent it, so `const region = "{{$vars.region}}"` works as before. Outside quotes, a value made only of digits still reads as a number; any other value stops that card's code with a syntax error instead of running. Values saved under **Variables** are inserted as before.
+
+### Update a flow that used a request value outside quotes
+
+If a Sequential Agent or Multi-Agent code input used an allowlisted variable outside quotes, for example `if ({{$vars.vip}}) { ... }`, it now fails with a syntax error when the request sends that variable. Read the value as data instead: `if ($vars.vip === 'true') { ... }`. Request values arrive as text, so check them before your code relies on them.
 
 ## Related
 
