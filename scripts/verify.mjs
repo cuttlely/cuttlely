@@ -70,8 +70,18 @@ const STEPS = [
             path.join(ROOT, 'scripts', 'outbound-guard.test.mjs'),
             path.join(ROOT, 'scripts', 'model-list.test.mjs'),
             path.join(ROOT, 'scripts', 'brand-names.test.mjs'),
-            path.join(ROOT, 'examples', 'web-app', 'server.test.mjs')
+            path.join(ROOT, 'examples', 'web-app', 'server.test.mjs'),
+            path.join(ROOT, 'website', 'scripts', 'sync-docs.test.mjs'),
+            path.join(ROOT, 'website', 'scripts', 'check-site.test.mjs')
         ]
+    },
+    {
+        // Every link in docs/, the README quickstart, CHANGELOG, SECURITY and CREDITS resolves for the website.
+        // Network-free and writes nothing; the full site build is `npm run build` in website/.
+        name: 'website-docs',
+        fast: true,
+        command: process.execPath,
+        args: [path.join(ROOT, 'website', 'scripts', 'sync-docs.mjs'), '--check-only']
     },
     {
         // The chat widget's own tests (markdown safety, stream parsing, share-setting mapping, DOM, contrast).
@@ -222,7 +232,7 @@ function parseArgs(argv) {
             console.log('pnpm verify [--fast] [--skip <step>]')
             console.log(`steps: ${STEPS.map((step) => step.name).join(', ')}`)
             console.log(
-                '--fast runs lint, typecheck, verify-test, chat-widget, unit, server-settings-ui, handoff-test, render-blueprint, and identity-migration'
+                '--fast runs lint, typecheck, verify-test, website-docs, chat-widget, unit, server-settings-ui, handoff-test, render-blueprint, and identity-migration'
             )
             console.log('unit Jest workers default to 50%. Set CUTTLELY_VERIFY_JEST_WORKERS to a positive integer or a percentage.')
             process.exit(0)

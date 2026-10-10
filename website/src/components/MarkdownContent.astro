@@ -1,0 +1,10 @@
+---
+// Adds the page id to the Markdown wrapper so page-specific styles (the quickstart steps) have a hook.
+import Default from '@astrojs/starlight/components/MarkdownContent.astro'
+
+const id = Astro.locals.starlightRoute?.id ?? ''
+---
+
+<div class="cl-page" data-page={id}>
+    <Default><slot /></Default>
+</div>
