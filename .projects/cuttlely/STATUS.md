@@ -27,7 +27,7 @@ Cuttlely 1.0.0. The product version is the root `package.json` and `packages/ser
 -   `node harness/check.mjs` and `node etl/check.mjs` are offline checks with no model key and no network.
 -   The `smoke` step boots the built server; the `upgrade` step starts it on data from an older release; the `safeboot` step checks the settings rollback.
 -   The daily scheduled CI run on `main` also runs `pnpm test:queue-abort`, an end-to-end queue-mode abort test against a Redis service.
--   Workflows in `.github/workflows/` are the CI definition, but they are not the merge gate. See [OPEN.md](./OPEN.md).
+-   Workflows in `.github/workflows/` are the CI definition, but they are not the merge gate. See [OPEN.md](./OPEN.md). Their `pnpm/action-setup` steps take the pnpm version from `packageManager` in `package.json`; a separate `version` input stops the step when the two disagree.
 -   A green `pnpm verify` is not a real-model run. Harness and analyst behaviour that depends on a model needs a live run with a real credential before it is called done (MEMORY).
 
 ## Not done
