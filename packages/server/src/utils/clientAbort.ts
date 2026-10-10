@@ -7,6 +7,8 @@ import { AsyncLocalStorageProviderSingleton } from '@langchain/core/singletons'
 AsyncLocalStorageProviderSingleton.initializeGlobalInstance(new AsyncLocalStorage())
 
 const CLIENT_ABORT_KEY = 'clientAbortSignal'
+// Requests whose work is still running, so a shutdown can abort their model calls (abortClientRequests).
+const openControllers = new Set<AbortController>()
 
 /**
  * Returns a signal that aborts when the client disconnects before the response is complete (the response's
@@ -17,11 +19,21 @@ export const watchClientDisconnect = (res: Response): AbortSignal => {
     const existing = res.locals?.[CLIENT_ABORT_KEY] as AbortSignal | undefined
     if (existing) return existing
     const controller = new AbortController()
+    openControllers.add(controller)
     res.once('close', () => {
+        openControllers.delete(controller)
         if (!res.writableFinished) controller.abort(new Error('Client disconnected'))
     })
     res.locals[CLIENT_ABORT_KEY] = controller.signal
     return controller.signal
+}
+
+/** Aborts the work of every request still being answered, as if each client had disconnected. Used at shutdown. */
+export const abortClientRequests = (reason: Error): number => {
+    const open = Array.from(openControllers)
+    openControllers.clear()
+    for (const controller of open) controller.abort(reason)
+    return open.length
 }
 
 /** The signal set by `watchClientDisconnect` for this request, if any. */

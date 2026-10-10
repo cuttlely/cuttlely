@@ -1,5 +1,6 @@
 // Boot the built server on a free port and a temp data dir.
-// Checks ping, the marketplace template list, one prediction, and that deleting the flow removes its leads.
+// Checks ping, the marketplace template list, one prediction, that deleting a flow removes its leads, and that
+// SIGTERM lets running predictions finish.
 // The chat model is the preload in smoke-fake-model.cjs. No network and no real key.
 import { spawn } from 'node:child_process'
 import fs from 'node:fs'
@@ -288,6 +289,31 @@ async function checkLeadsGoWithFlow(base, cookie, chatflowId, dataDir) {
     if (left !== 0) throw new Error(`deleting the flow left ${left} lead row(s) behind`)
 }
 
+// SIGTERM (what hosts send on every deploy) lets predictions that are running finish instead of cutting them off.
+async function checkShutdownDrain(base, cookie, chatflowId, child) {
+    const exited = new Promise((resolve) => child.once('exit', (code, signal) => resolve({ code, signal })))
+    const running = Array.from({ length: 5 }, (_, index) =>
+        request(`${base}/api/v1/prediction/${chatflowId}`, {
+            method: 'POST',
+            cookie,
+            timeoutMs: PREDICT_MS,
+            body: { question: `smoke-slow ${index}`, streaming: false }
+        })
+    )
+    await new Promise((resolve) => setTimeout(resolve, 1500))
+    const signalled = Date.now()
+    child.kill('SIGTERM')
+    const answers = await Promise.all(running)
+    const bad = answers.filter((answer) => answer.status !== 200 || !answer.text.includes('smoke-ok'))
+    if (bad.length) throw new Error(`${bad.length} of 5 predictions failed during shutdown: ${bad[0].status} ${bad[0].text.slice(0, 200)}`)
+    const { code, signal } = await Promise.race([
+        exited,
+        new Promise((resolve) => setTimeout(() => resolve({ code: 'timeout', signal: null }), 40000))
+    ])
+    if (code !== 0) throw new Error(`server exit after SIGTERM: code ${code} signal ${signal}`)
+    console.log(`server drained and exited ${((Date.now() - signalled) / 1000).toFixed(1)}s after SIGTERM`)
+}
+
 async function main() {
     if (!fs.existsSync(path.join(SERVER, 'dist', 'commands'))) {
         throw new Error('packages/server/dist is missing. The verify build step has to run before the smoke test.')
@@ -373,8 +399,26 @@ async function main() {
         }
         console.log('prediction ok')
 
-        await checkLeadsGoWithFlow(base, cookie, chatflowId, dataDir)
+        // Leads are checked on a flow of their own, since the check deletes it; the drain check needs the first flow.
+        const leadsFlow = await request(`${base}/api/v1/chatflows`, {
+            method: 'POST',
+            cookie,
+            body: {
+                name: 'smoke-leads',
+                type: 'CHATFLOW',
+                deployed: false,
+                isPublic: false,
+                flowData: JSON.stringify(smokeFlow(credentialId))
+            }
+        })
+        if (leadsFlow.status !== 200 && leadsFlow.status !== 201)
+            throw new Error(`chatflow ${leadsFlow.status}: ${leadsFlow.text.slice(0, 300)}`)
+        await checkLeadsGoWithFlow(base, cookie, JSON.parse(leadsFlow.text).id, dataDir)
         console.log('flow delete removed its leads')
+
+        // Last: it stops the server.
+        await checkShutdownDrain(base, cookie, chatflowId, child)
+        console.log('shutdown drain ok: running predictions finished, then exit 0')
     } finally {
         stop()
         fs.rmSync(dataDir, { recursive: true, force: true })
