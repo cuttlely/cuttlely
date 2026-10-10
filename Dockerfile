@@ -75,7 +75,7 @@ RUN mkdir -p /opt/uv-python \
     && echo "Cuttlely image, step 5 of 5: keeping production packages only" \
     && rm -rf node_modules packages/*/node_modules \
     && CI=true pnpm install --frozen-lockfile --prod --offline --ignore-scripts \
-    && pnpm rebuild sqlite3 faiss-node \
+    && pnpm -r rebuild sqlite3 faiss-node \
     && node scripts/check-sqlite-driver.mjs
 
 FROM node:24-trixie-slim

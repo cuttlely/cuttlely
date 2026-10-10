@@ -190,7 +190,7 @@ bash scripts/docker-smoke.sh                                        # build, sta
 
 Compose mounts a volume at `/var/cuttlely` (the same layout as the Render disk) and uses SQLite. `CUTTLELY_IMAGE` pins a release or names a local build. Copy `.env.example` to `.env` only to override a default; never commit `.env`. `docker/Dockerfile` refuses to build; use the root `Dockerfile`.
 
-The root `Dockerfile` has two stages. The build stage has the compilers, installs every package, builds, sets up Hermes, then installs `node_modules` again with production packages only. The runtime stage copies that tree, Hermes and its Python, and installs only the system packages Cuttlely runs with (git, Chromium, python3, curl, util-linux). A system library a new runtime feature needs goes in the runtime stage's `apt-get` list. A package that has to compile at install time goes in `onlyBuiltDependencies` in the root `package.json` and in the `pnpm rebuild` line. After an image change, build it, start it and check ping (`bash scripts/docker-smoke.sh`).
+The root `Dockerfile` has two stages. The build stage has the compilers, installs every package, builds, sets up Hermes, then installs `node_modules` again with production packages only. The runtime stage copies that tree, Hermes and its Python, and installs only the system packages Cuttlely runs with (git, Chromium, python3, curl, util-linux). A system library a new runtime feature needs goes in the runtime stage's `apt-get` list. A package that has to compile at install time goes in `onlyBuiltDependencies` in the root `package.json` and in the `pnpm -r rebuild` line. After an image change, build it, start it and check ping (`bash scripts/docker-smoke.sh`).
 
 ## Website
 
