@@ -1,0 +1,67 @@
+# cuttlely.com, a free Render static site. Applied once as its own Blueprint (Blueprint Path: website/render.yaml).
+# The repository root render.yaml is the Cuttlely product Blueprint that users apply; the site is never added there.
+# Build: website/scripts/sync-docs.mjs copies ../docs into the site, so there is no root directory (Render would hide
+# files outside it) and SKIP_INSTALL_DEPS stops Render from installing the whole repository.
+services:
+    - type: web
+      runtime: static
+      name: cuttlely-site
+      branch: main
+      autoDeployTrigger: commit
+      buildCommand: cd website && npm ci && npm run build
+      staticPublishPath: website/dist
+      envVars:
+          - key: SKIP_INSTALL_DEPS
+            value: 'true'
+          - key: NODE_VERSION
+            value: '24.15.0'
+      buildFilter:
+          paths:
+              - website/**
+              - docs/**
+              - README.md
+              - CHANGELOG.md
+              - SECURITY.md
+              - CREDITS.md
+              - NOTICE
+      previews:
+          generation: manual
+      domains:
+          - cuttlely.com
+      headers:
+          - path: /*
+            name: Strict-Transport-Security
+            value: max-age=63072000; includeSubDomains
+          - path: /*
+            name: X-Content-Type-Options
+            value: nosniff
+          - path: /*
+            name: Referrer-Policy
+            value: strict-origin-when-cross-origin
+          - path: /*
+            name: X-Frame-Options
+            value: DENY
+          - path: /*
+            name: Permissions-Policy
+            value: camera=(), microphone=(), geolocation=(), browsing-topics=()
+          # script-src lists the hash of every inline script the build emits; website/scripts/check-site.mjs fails the
+          # build when a new one appears, so update this list when it says so. wasm-unsafe-eval is for the search index.
+          - path: /*
+            name: Content-Security-Policy
+            value: "default-src 'self'; img-src 'self' data:; font-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'wasm-unsafe-eval' 'sha256-7eCV4jtsr4t4knb3c4FCRPeu7GGZeOUGE3XvWix0XOQ=' 'sha256-GkZBRnvSuhtx/cvzvukVkX2JJZW+DdPlVr7BX8Tefqo=' 'sha256-VWo5Wp4aqSj6nSgMpeAp9cKieaoIfwFUAunAVugI5gA=' 'sha256-VgrgcKBvIM3XpiLJ6fEv1Vy6YHBwlKLkYtFdfBMouTo=' 'sha256-f/zAUE74ucc3JYp4r4QQvkJofoQdkOIhHYK+jeZ6eko=' 'sha256-hP48sUywTAXyg22qvpdOC/cYIA8MfPdKEbPC/mvGk4M=' 'sha256-nVO98WGdJA5yup1/MAdukGqUlS6Psuf7JJFF5ikWqbQ=' 'sha256-pRO6zjajZ6I/tIYsYeT1PSAjiFqKhJttrcR3DsegAog=' 'sha256-ucPfdYc9FPIvbmnn9ECv3eLKYLt8/heMPFQ+hNTn6jY=' 'sha256-wX2yOADeV+NMngflD5uYi3vl50SHC4sfM1EmylVjlX4='; connect-src 'self'; object-src 'none'; frame-ancestors 'none'; base-uri 'self'; form-action 'none'"
+          - path: /_astro/*
+            name: Cache-Control
+            value: public, max-age=31536000, immutable
+          - path: /fonts/*
+            name: Cache-Control
+            value: public, max-age=31536000, immutable
+      routes:
+          - type: redirect
+            source: /github
+            destination: https://github.com/cuttlely/cuttlely
+          - type: redirect
+            source: /report
+            destination: https://github.com/cuttlely/cuttlely/security/advisories/new
+          - type: redirect
+            source: /start
+            destination: /quickstart/

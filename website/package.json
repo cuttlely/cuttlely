@@ -1,0 +1,24 @@
+{
+    "name": "cuttlely-website",
+    "version": "1.0.0",
+    "private": true,
+    "description": "The cuttlely.com website: home page plus the repository docs, built with Astro and Starlight.",
+    "license": "Apache-2.0",
+    "type": "module",
+    "engines": {
+        "node": ">=22.12"
+    },
+    "scripts": {
+        "sync": "node scripts/sync-docs.mjs",
+        "dev": "node scripts/sync-docs.mjs && astro dev",
+        "build": "node scripts/sync-docs.mjs && astro build && node scripts/check-site.mjs",
+        "preview": "astro preview",
+        "check": "node scripts/check-site.mjs",
+        "test": "node --test scripts/*.test.mjs"
+    },
+    "dependencies": {
+        "@astrojs/starlight": "0.42.6",
+        "astro": "7.3.8",
+        "sharp": "0.35.5"
+    }
+}

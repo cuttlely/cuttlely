@@ -1,0 +1,31 @@
+---
+// Shows one part of a screenshot, zoomed, in a box of a fixed shape. cx and cy are the point to centre (0 to 1),
+// zoom is how many times wider than the box the image is drawn, ratio is the box's width / height.
+import { Image } from 'astro:assets'
+import type { ImageMetadata } from 'astro'
+
+interface Props {
+    src: ImageMetadata
+    alt: string
+    cx?: number
+    cy?: number
+    zoom?: number
+    ratio?: number
+    widths?: number[]
+    sizes?: string
+    loading?: 'lazy' | 'eager'
+    class?: string
+}
+const { src, alt, cx = 0.5, cy = 0.5, zoom = 1, ratio = 16 / 10, widths = [480, 720, 1080], sizes = '100vw', loading = 'lazy', class: className } = Astro.props
+const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v))
+// Image height measured in box heights.
+const imageHeight = zoom * (src.height / src.width) * ratio
+const left = clamp(-(cx * zoom - 0.5), -(zoom - 1), 0) * 100
+const top = clamp(-(cy * imageHeight - 0.5), -(imageHeight - 1), 0) * 100
+const style = `aspect-ratio:${ratio};`
+const imgStyle = `width:${(zoom * 100).toFixed(2)}%;left:${left.toFixed(2)}%;top:${top.toFixed(2)}%;`
+---
+
+<span class:list={['cl-focus', className]} style={style}>
+    <Image src={src} alt={alt} widths={widths} sizes={sizes} loading={loading} style={imgStyle} />
+</span>

@@ -1,0 +1,33 @@
+---
+// A copy button for the text of the element with the given id. The script is bundled by Astro (no inline script).
+interface Props {
+    target: string
+    label?: string
+}
+const { target, label = 'Copy commands' } = Astro.props
+---
+
+<button type="button" class="cl-copy" data-copy-target={target} aria-label={label}>
+    <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+    <span class="cl-copy-text">Copy</span>
+</button>
+
+<script>
+    for (const button of document.querySelectorAll<HTMLButtonElement>('.cl-copy')) {
+        button.addEventListener('click', async () => {
+            const el = document.getElementById(button.dataset.copyTarget || '')
+            if (!el) return
+            const text = (el.innerText || '').replace(/^\$ /gm, '').trim()
+            const label = button.querySelector('.cl-copy-text')
+            try {
+                await navigator.clipboard.writeText(text)
+                if (label) label.textContent = 'Copied'
+            } catch {
+                if (label) label.textContent = 'Select and copy'
+            }
+            setTimeout(() => {
+                if (label) label.textContent = 'Copy'
+            }, 2000)
+        })
+    }
+</script>
