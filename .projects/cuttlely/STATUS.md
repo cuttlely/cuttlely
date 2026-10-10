@@ -16,7 +16,7 @@ Cuttlely 1.0.0. The product version is the root `package.json` and `packages/ser
 -   **Sign-in and teams.** WorkOS AuthKit sign-in or one local account, teams, users and roles in the app database, and workspace scoping on every route.
 -   **Admin panel.** Admin > Server settings holds every server setting with help text, a review step, restart to apply, safe boot back to the last good settings, History, and a guided sign-in setup.
 -   **First ten minutes.** Install, first account, and Try the demo, which opens a made-up bakery team on the person's own model key with its chat open. The README section "Your first 10 minutes" walks through it.
--   **Install and deploy.** Docker Compose (SQLite, one container), from source, and a Render Blueprint (Docker web service, Postgres, disk).
+-   **Install and deploy.** Docker Compose (SQLite, one container), from source, and a Render Blueprint (Docker web service, Postgres, disk). `docs/how-to/from-source.md` also covers the dev server, the tests and `pnpm verify`, checked end to end on a fresh clone.
 -   **Releases.** `pnpm release` cuts a release from a clean `main`, drafts by default, and pushes the image or publishes only on a flag. The full `pnpm verify` tests upgrades from a fixture of an older release.
 -   **Graceful shutdown.** On SIGTERM or SIGINT the server stops taking new requests (`503` with `Retry-After`) and lets running answers and streams finish for up to 25 seconds (`CUTTLELY_DRAIN_TIMEOUT_MS`). The Compose files give the container 35 seconds to stop.
 -   **No call home.** A default install reaches only services an operator or a flow set up. `SECURITY.md` lists every outbound host and how to turn it off.
