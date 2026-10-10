@@ -1,3 +1,3 @@
-// Request values are pasted into code inputs as text, so owners are warned not to reference them there. Same words as docs/reference/override-config.md.
+// Shown when overrides are on. Same words as docs/reference/override-config.md: request values never run as code.
 export const CODE_INPUT_WARNING =
-    'Allowlisted variables and start-state values are inserted as text wherever they are referenced, including code inputs. Never reference an allowlisted variable or state key inside a code input.'
+    'Request values never run as code. In a code input, read a variable as $vars.name, not {{$vars.name}}: in Multi-Agent and Sequential Agent flows a request value written as {{$vars.name}} in code is inserted as escaped text.'
