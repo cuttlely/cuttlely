@@ -277,13 +277,14 @@ export class SSEStreamer implements IServerSideEventStreamer {
     }
 
     // `details` carries the status and code the request would have had without streaming (the HTTP status is already 200).
-    streamErrorEvent(chatId: string, msg: string, details?: { status: number; code: string }) {
+    streamErrorEvent(chatId: string, msg: string, details?: { status: number; code: string; retryAfter?: number }) {
         if (msg.includes('401 Incorrect API key provided'))
             msg = '401 Unauthorized – check your API key and ensure it has access to the requested model.'
         const clientResponse = {
             event: 'error',
             data: msg,
-            ...(details ? { status: details.status, code: details.code } : {})
+            ...(details ? { status: details.status, code: details.code } : {}),
+            ...(details?.retryAfter ? { retryAfter: details.retryAfter } : {})
         }
         this.safeWrite(chatId, 'message:\ndata:' + JSON.stringify(clientResponse) + '\n\n')
     }
