@@ -309,6 +309,10 @@ Images and audio go to cards that accept them, such as a chat model with image u
 
 The server takes only the uploads the flow accepts, the same ones its chat shows upload buttons for: images when a card has image uploads on, audio when Speech to Text is on, documents when file uploads are on, and chat files of the types a vector store with file upload takes. Anything else is refused before it is stored. An upload kind that is off gets 403 (`Image uploads are not turned on for this flow`), and a file type the flow does not take gets 400 (`File type 'image/svg+xml' is not allowed for this flow`). A file for a document loader input you allowed in Override Config is still taken.
 
+### Files in an Agent's answer
+
+When an Agent card makes a file (a chart, a spreadsheet, a report), its answer links to it at `/api/v1/get-upload-file`. The link is signed: it carries `expires` and `signature`, so it opens without the API key, for that one file in that conversation of that flow, for 15 minutes. Pass it on to your user as it is. Changing any part of it, or opening it after 15 minutes, gives 401. To fetch the file later, call the same address without `expires` and `signature` from your server, with the API key and the conversation's session token. The signature uses a secret the server makes on first start, so there is nothing to set up.
+
 ## Change settings for one request
 
 `overrideConfig` changes a flow's settings for one request, but only the settings the flow's owner allowed. Turn it on in the canvas under **Configuration**, **Advanced**, **Override Config**, and pick each setting a request may change. Credentials, URLs, code and file inputs can never be changed this way. The full rules are in [Override configuration](./reference/override-config.md).
