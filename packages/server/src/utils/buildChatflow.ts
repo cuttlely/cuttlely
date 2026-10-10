@@ -211,8 +211,7 @@ const initEndingNode = async ({
         chatHistory,
         flowConfig,
         uploadedFilesContent,
-        availableVariables,
-        variableOverrides
+        availableVariables
     )
 
     logger.debug(`[server]: Running ${reactFlowNodeData.label} (${reactFlowNodeData.id})`)

@@ -613,8 +613,7 @@ export const buildFlow = async ({
                 chatHistory,
                 flowData,
                 uploadedFilesContent,
-                availableVariables,
-                variableOverrides
+                availableVariables
             )
 
             if (isUpsert && stopNodeId && nodeId === stopNodeId) {
@@ -818,41 +817,12 @@ export const clearSessionMemory = async (
     }
 }
 
-export const getGlobalVariable = async (
-    overrideConfig?: ICommonObject,
-    availableVariables: IVariable[] = [],
-    variableOverrides: ICommonObject[] = []
-) => {
-    // override variables defined in overrideConfig
-    // nodeData.inputs.vars is an Object, check each property and override the variable
-    if (overrideConfig?.vars && variableOverrides) {
-        for (const propertyName of Object.getOwnPropertyNames(overrideConfig.vars)) {
-            // Check if this variable is enabled for override
-            const override = variableOverrides.find((v) => v.name === propertyName)
-            if (!override?.enabled) {
-                continue // Skip this variable if it's not enabled for override
-            }
-
-            const foundVar = availableVariables.find((v) => v.name === propertyName)
-            if (foundVar) {
-                // even if the variable was defined as runtime, we override it with static value
-                foundVar.type = 'static'
-                foundVar.value = overrideConfig.vars[propertyName]
-            } else {
-                // add it the variables, if not found locally in the db
-                availableVariables.push({
-                    name: propertyName,
-                    type: 'static',
-                    value: overrideConfig.vars[propertyName],
-                    id: '',
-                    updatedDate: new Date(),
-                    createdDate: new Date(),
-                    workspaceId: ''
-                })
-            }
-        }
-    }
-
+/**
+ * Build the {{$vars}} object from the variables the caller resolved.
+ * Request-supplied values are not read here: callers that honour them (agent graphs) merge the
+ * allowlisted ones into availableVariables first, so this function never trusts a request config.
+ */
+export const getGlobalVariable = async (availableVariables: IVariable[] = []) => {
     let vars = {}
     if (availableVariables.length) {
         for (const item of availableVariables) {
@@ -890,8 +860,7 @@ export const getVariableValue = async (
     isAcceptVariable = false,
     flowConfig?: ICommonObject,
     uploadedFilesContent?: string,
-    availableVariables: IVariable[] = [],
-    variableOverrides: ICommonObject[] = []
+    availableVariables: IVariable[] = []
 ) => {
     const isObject = typeof paramValue === 'object'
     const initialValue = (isObject ? JSON.stringify(paramValue) : paramValue) ?? ''
@@ -933,7 +902,7 @@ export const getVariableValue = async (
             }
 
             if (variableFullPath.startsWith('$vars.')) {
-                const vars = await getGlobalVariable(flowConfig, availableVariables, variableOverrides)
+                const vars = await getGlobalVariable(availableVariables)
                 const variableValue = get(vars, variableFullPath.replace('$vars.', ''))
                 if (variableValue != null) {
                     variableDict[`{{${variableFullPath}}}`] = variableValue
@@ -1042,8 +1011,7 @@ export const resolveVariables = async (
     chatHistory: IMessage[],
     flowConfig?: ICommonObject,
     uploadedFilesContent?: string,
-    availableVariables: IVariable[] = [],
-    variableOverrides: ICommonObject[] = []
+    availableVariables: IVariable[] = []
 ): Promise<INodeData> => {
     let flowNodeData = cloneDeep(reactFlowNodeData)
 
@@ -1061,8 +1029,7 @@ export const resolveVariables = async (
                         undefined,
                         flowConfig,
                         uploadedFilesContent,
-                        availableVariables,
-                        variableOverrides
+                        availableVariables
                     )
                     resolvedInstances.push(resolvedInstance)
                 }
@@ -1077,8 +1044,7 @@ export const resolveVariables = async (
                     isAcceptVariable,
                     flowConfig,
                     uploadedFilesContent,
-                    availableVariables,
-                    variableOverrides
+                    availableVariables
                 )
                 paramsObj[key] = resolvedInstance
             }

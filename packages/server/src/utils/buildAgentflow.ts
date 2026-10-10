@@ -255,7 +255,6 @@ export const resolveVariables = async (
     form: Record<string, any>,
     flowConfig: IFlowConfig | undefined,
     availableVariables: Variable[],
-    variableOverrides: IVariableOverride[],
     uploadedFilesContent: string,
     chatHistory: IMessage[],
     componentNodes: IComponentNodes,
@@ -386,7 +385,7 @@ export const resolveVariables = async (
             }
 
             if (variableFullPath.startsWith('$vars.')) {
-                const vars = await getGlobalVariable(flowConfig, availableVariables, variableOverrides)
+                const vars = await getGlobalVariable(availableVariables)
                 const variableValue = get(vars, variableFullPath.replace('$vars.', ''))
                 if (variableValue != null) {
                     // For arrays and objects, stringify them to prevent toString() conversion issues
@@ -1184,7 +1183,6 @@ const executeNode = async ({
             formValue,
             flowConfig,
             availableVariables,
-            variableOverrides,
             uploadedFilesContent,
             chatHistory,
             componentNodes,
