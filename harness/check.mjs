@@ -5498,7 +5498,7 @@ await expectCase('model errors are masked', async () => {
     )
 })
 
-await expectCase('a blocked local endpoint names D14', async () => {
+await expectCase('a blocked local endpoint explains the block', async () => {
     const http = cannedFetch()
     const ctx = flowContext({
         componentNodes: { denyChat: { credential: { optional: true } } },
@@ -5514,7 +5514,7 @@ await expectCase('a blocked local endpoint names D14', async () => {
         })
     )
     if (saved.error) {
-        check('a blocked local endpoint names D14', false, saved.error.message)
+        check('a blocked local endpoint explains the block', false, saved.error.message)
         return
     }
     const run = await capture(() =>
@@ -5565,9 +5565,9 @@ await expectCase('a blocked local endpoint names D14', async () => {
                   flowOptions: invokeCtx.flowOptions
               })
           )
-    const blocked = (result) => result?.error?.code === 'model_blocked' && /OPEN #6/.test(result.error.message || '')
+    const blocked = (result) => result?.error?.code === 'model_blocked' && /blocks those by default/.test(result.error.message || '')
     check(
-        'a blocked local endpoint names D14',
+        'a blocked local endpoint explains the block',
         blocked(run) && blocked(invokeRun),
         invokeRun.error?.message || run.error?.message || run.value?.text || 'init or invoke error was not model_blocked'
     )
