@@ -129,8 +129,7 @@ const buildAndInitTool = async (chatflowid: string, reqWorkspaceId?: string, _ch
         [],
         flowDataObj,
         '',
-        availableVariables,
-        variableOverrides
+        availableVariables
     )
     let nodeToExecuteData = reactFlowNodeData
 

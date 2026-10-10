@@ -499,8 +499,7 @@ const prepareAgentNodeData = async (nodeData: INodeData, question: string, conte
         context.chatHistory,
         context.serverFlowConfig,
         context.uploadedFilesContent,
-        context.variables,
-        []
+        context.variables
     )
 }
 
