@@ -15,7 +15,7 @@ The issue tracker is the source of truth for bugs and planned fixes: `gh issue l
 | [#5](https://github.com/cuttlely/cuttlely/issues/5)   | Drain in-flight requests and streams on SIGTERM                         | done (PR #17) |
 | [#6](https://github.com/cuttlely/cuttlely/issues/6)   | A persistent upstream 429 should not end as HTTP 500                    | anyone        |
 | [#7](https://github.com/cuttlely/cuttlely/issues/7)   | Deleting a flow should delete its lead rows                             | done (PR #14) |
-| [#10](https://github.com/cuttlely/cuttlely/issues/10) | Remaining dependency advisories                                         | anyone        |
+| [#10](https://github.com/cuttlely/cuttlely/issues/10) | Remaining dependency advisories                                         | done          |
 
 ## Questions and known gaps
 

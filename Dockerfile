@@ -60,8 +60,9 @@ WORKDIR /usr/src/cuttlely
 
 COPY . .
 
-# After the build, the second install keeps production packages only. It skips install scripts (the root one sets
-# up git hooks), so the native drivers are built again and the sqlite3 check confirms the server can open a database.
+# After the build, node_modules is installed again from the store with production packages only. That install
+# skips install scripts (the root one sets up git hooks), so the native drivers are built again and the sqlite3
+# check confirms the server can open a database.
 RUN mkdir -p /opt/uv-python \
     && chmod 755 scripts/render-entrypoint.sh scripts/start-cuttlely.sh scripts/setup-hermes.sh \
     && echo "Cuttlely image, step 2 of 5: installing packages (several minutes on the first build)" \
@@ -72,6 +73,7 @@ RUN mkdir -p /opt/uv-python \
     && bash scripts/setup-hermes.sh \
     && chmod -R a+rX /opt/uv-python \
     && echo "Cuttlely image, step 5 of 5: keeping production packages only" \
+    && rm -rf node_modules packages/*/node_modules \
     && CI=true pnpm install --frozen-lockfile --prod --offline --ignore-scripts \
     && pnpm rebuild sqlite3 faiss-node \
     && node scripts/check-sqlite-driver.mjs

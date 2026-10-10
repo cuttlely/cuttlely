@@ -28,10 +28,11 @@ Cuttlely 1.0.0. The product version is the root `package.json` and `packages/ser
 -   The `smoke` step boots the built server; the `upgrade` step starts it on data from an older release; the `safeboot` step checks the settings rollback.
 -   The daily scheduled CI run on `main` also runs `pnpm test:queue-abort`, an end-to-end queue-mode abort test against a Redis service.
 -   Workflows in `.github/workflows/` are the CI definition, but they are not the merge gate. See [OPEN.md](./OPEN.md).
+-   `pnpm audit --prod` and `pnpm audit` report no critical advisory. Three high ones are left, none with a fixed release: `extract-zip` (two advisories) in Puppeteer's browser download, which Cuttlely skips (`PUPPETEER_SKIP_DOWNLOAD`), and `braces` in build and test tooling that the server never loads.
 -   A green `pnpm verify` is not a real-model run. Harness and analyst behaviour that depends on a model needs a live run with a real credential before it is called done (MEMORY).
 
 ## Not done
 
--   The open issues: [#2](https://github.com/cuttlely/cuttlely/issues/2), [#6](https://github.com/cuttlely/cuttlely/issues/6) and [#10](https://github.com/cuttlely/cuttlely/issues/10). Check each one's state on GitHub; some may be closed by the time you read this.
+-   The open issues: [#2](https://github.com/cuttlely/cuttlely/issues/2) and [#6](https://github.com/cuttlely/cuttlely/issues/6). Check each one's state on GitHub; some may be closed by the time you read this.
 -   No release is tagged yet, and no image is published. The first release is v1.0.0 (PLAN).
 -   The questions and known gaps in [OPEN.md](./OPEN.md).
