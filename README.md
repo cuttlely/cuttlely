@@ -19,6 +19,7 @@ English | [繁體中文](./i18n/README-TW.md) | [简体中文](./i18n/README-ZH.
 
 -   [What you can build](#what-you-can-build)
     -   [Agent teams that power your apps](#agent-teams-that-power-your-apps)
+    -   [Small context, big answers](#small-context-big-answers)
     -   [Use a team from your app](#use-a-team-from-your-app)
     -   [Chat with a team in minutes](#chat-with-a-team-in-minutes)
     -   [Tools your teams use](#tools-your-teams-use)
@@ -38,6 +39,18 @@ Give your app a team instead of a single prompt. Harness Prime reads the questio
 -   **The Analyst** is a specialist with its own database. It creates tables, adds rows and answers questions about them with the real numbers, and it never reads Cuttlely's own tables. Long results come back in pages. Turn it on with `CUTTLELY_ANALYST=auto`. [Analyst guide](./docs/how-to/analyst.md)
 
 ![A harness canvas with its test chat open. The run card says Harness Prime sent work to analyst, and the answer shows a table of open tasks.](./docs/images/harnesses/canvas-chat-analyst.png)
+
+### Small context, big answers
+
+Long chats, big tables and long rule books don't have to mean long prompts. Each agent sees only what its job needs, and every run shows the tokens it used.
+
+-   **Each specialist gets its own job.** A common pattern hands every agent the whole chat. Harness Prime writes each specialist a task that stands on its own, with a short recap of the recent turns.
+-   **Data stays in the database.** A common pattern pastes query results into the prompt. The analyst hands back one page of rows. Say "show more" for the next page. Earlier pages stay out of the next prompt.
+-   **Rules load when they're needed.** A common pattern puts every instruction in one giant system prompt. Long rules go in playbooks. A specialist opens one only when a question needs it.
+-   **Short handoffs.** A common pattern pastes whole documents into the prompt that writes the final answer. Harness Prime reads a capped part of each specialist's answer, with the source names and a short snippet. The documents go back to your app in the response.
+-   **See every token.** The run card shows input and output tokens, cached tokens when the model reports them, and the time each step took. The API response carries the same numbers. The Publish check shows Live and the draft side by side with the tokens and time each one used.
+
+[How Cuttlely keeps context small](./docs/how-to/context-and-tokens.md)
 
 ### Use a team from your app
 
@@ -148,6 +161,7 @@ Next: [put a pipeline behind your team](./docs/how-to/etl.md), [give a specialis
 -   [Docker](./docs/how-to/docker.md). Install and run Cuttlely in one container on SQLite.
 -   [Sign in](./docs/how-to/sign-in.md). Create the first account, and add WorkOS when a team signs in.
 -   [Harnesses](./docs/how-to/harnesses.md). Build an agent team, try it, and call it from a chatflow.
+-   [Context and tokens](./docs/how-to/context-and-tokens.md). How a team keeps each prompt to the job in front of it, and where a run shows the tokens it used.
 -   [Analyst mode](./docs/how-to/analyst.md). Give a specialist its own database.
 -   [ETL](./docs/how-to/etl.md). Load, embed and search your own data.
 -   [Canvas cards](./docs/how-to/canvas.md). Chatflows, agentflows and Build with AI.

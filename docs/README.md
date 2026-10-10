@@ -14,6 +14,7 @@ New here? Start with [Your first 10 minutes](../README.md#your-first-10-minutes)
 ## Build
 
 -   [Harnesses](./how-to/harnesses.md). A team of specialists that Harness Prime sends work to. Build one from a description, try it, and call it from a chatflow.
+-   [Context and tokens](./how-to/context-and-tokens.md). How a team keeps each prompt to the job in front of it, and where a run shows the tokens it used.
 -   [Analyst mode](./how-to/analyst.md). A specialist with its own database that creates tables and answers from them. Turn it on with `CUTTLELY_ANALYST=auto`; on Render, see [Analyst database](./how-to/render.md#analyst-database).
 -   [ETL](./how-to/etl.md). Pipelines that load, clean, split, embed and store your data for search, on a schedule if you like.
 -   [Canvas cards](./how-to/canvas.md). Chatflows and agentflows, compact or classic cards (`CANVAS_CARD_LOOK=classic` sets classic for everyone), Build with AI, and [older V1 agentflows](./how-to/canvas.md#older-v1-agentflows).

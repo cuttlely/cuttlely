@@ -218,7 +218,26 @@
     line-height: 1.6;
     color: var(--sl-color-gray-2);
     max-width: 38rem;
+    margin: 0 0 1rem;
+}
+.cl-hero-proof {
+    max-width: 38rem;
     margin: 0 0 2rem;
+    font-size: var(--sl-text-base);
+    line-height: 1.6;
+    color: var(--sl-color-white);
+    font-weight: 600;
+}
+.cl-hero-proof a {
+    display: inline-block;
+    margin-left: 0.35rem;
+    font-weight: 700;
+    color: var(--sl-color-text-accent);
+    text-decoration: none;
+}
+.cl-hero-proof a:hover {
+    text-decoration: underline;
+    text-underline-offset: 0.2em;
 }
 .cl-actions {
     display: flex;
@@ -515,6 +534,59 @@
 }
 .cl-code-pair .expressive-code pre > code {
     white-space: pre-wrap;
+}
+
+/* ---------- home: context contrasts ---------- */
+.cl-contrasts {
+    list-style: none;
+    padding: 0;
+    margin: 2rem 0 1.5rem;
+    display: grid;
+    gap: 1rem;
+    grid-template-columns: minmax(0, 1fr);
+}
+@media (min-width: 48rem) {
+    .cl-contrasts {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+    .cl-contrasts li:last-child:nth-child(odd) {
+        grid-column: 1 / -1;
+    }
+}
+.cl-contrasts li {
+    margin: 0;
+    padding: 1.25rem 1.35rem 1.35rem;
+    border-radius: 1rem;
+    border: 1px solid var(--cuttlely-border);
+    background: var(--cuttlely-surface);
+}
+.cl-contrasts h3 {
+    margin: 0 0 0.9rem;
+    font-size: var(--sl-text-xl);
+    font-weight: 800;
+    line-height: 1.25;
+    color: var(--sl-color-white);
+}
+.cl-pair {
+    margin: 0 0 0.75rem;
+    font-size: var(--sl-text-sm);
+    line-height: 1.6;
+    color: var(--sl-color-gray-2);
+}
+.cl-pair:last-child {
+    margin-bottom: 0;
+}
+.cl-pair-label {
+    display: block;
+    margin-bottom: 0.2rem;
+    font-size: var(--sl-text-xs);
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--sl-color-gray-3);
+}
+.cl-pair-cuttlely .cl-pair-label {
+    color: var(--sl-color-text-accent);
 }
 
 /* ---------- home: tiles ---------- */
