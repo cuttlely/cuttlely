@@ -13,6 +13,7 @@ import {
 import { AIMessageChunk, BaseMessageLike } from '@langchain/core/messages'
 import { DEFAULT_HUMAN_INPUT_DESCRIPTION, DEFAULT_HUMAN_INPUT_DESCRIPTION_HTML } from '../prompt'
 import { extractResponseContent } from '../../../src/utils'
+import { applyModelRetryBudget } from '../../../src/modelRetryBudget'
 
 class HumanInput_Agentflow implements INode {
     label: string
@@ -228,7 +229,7 @@ class HumanInput_Agentflow implements INode {
                             ...modelConfig
                         }
                     }
-                    const llmNodeInstance = (await newNodeInstance.init(newNodeData, '', options)) as BaseChatModel
+                    const llmNodeInstance = applyModelRetryBudget((await newNodeInstance.init(newNodeData, '', options)) as BaseChatModel)
                     const messages = [
                         ...pastChatHistory,
                         ...runtimeChatHistory,

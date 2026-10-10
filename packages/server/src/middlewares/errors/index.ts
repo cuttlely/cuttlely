@@ -34,6 +34,8 @@ async function errorHandlerMiddleware(err: InternalFlowiseError, req: Request, r
     // Once headers are sent a stream has started, and the streaming controller reports the error as an event on it.
     // Before that every request gets the JSON error, whatever `streaming` says (an odd value used to get no answer at all).
     if (!res.headersSent) {
+        // A provider's 429 passes on how long to wait.
+        if (error.retryAfterSeconds && error.retryAfterSeconds > 0) res.setHeader('Retry-After', String(error.retryAfterSeconds))
         res.setHeader('Content-Type', 'application/json')
         res.status(displayedError.statusCode).json(displayedError)
     }

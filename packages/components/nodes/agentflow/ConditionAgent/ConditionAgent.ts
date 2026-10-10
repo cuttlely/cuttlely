@@ -8,6 +8,7 @@ import { findBestScenarioIndex } from './matchScenario'
 import { extractResponseContent } from '../../../src/utils'
 import { getModelConfigByModelName, MODEL_TYPE } from '../../../src/modelLoader'
 import { NodeHtmlMarkdown } from 'node-html-markdown'
+import { applyModelRetryBudget } from '../../../src/modelRetryBudget'
 
 class ConditionAgent_Agentflow implements INode {
     label: string
@@ -294,7 +295,7 @@ class ConditionAgent_Agentflow implements INode {
                     ...modelConfig
                 }
             }
-            let llmNodeInstance = (await newLLMNodeInstance.init(newNodeData, '', options)) as BaseChatModel
+            let llmNodeInstance = applyModelRetryBudget((await newLLMNodeInstance.init(newNodeData, '', options)) as BaseChatModel)
 
             const isStructuredOutput =
                 _conditionAgentScenarios && Array.isArray(_conditionAgentScenarios) && _conditionAgentScenarios.length > 0

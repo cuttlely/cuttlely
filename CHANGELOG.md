@@ -95,6 +95,7 @@ Cuttlely is the open-source agent platform for applications: build an agent team
 -   Refreshing an OAuth credential needs a session or an API key with credential permissions.
 -   Server settings (`/api/v1/server-settings`) are for the owner's signed-in session only. API keys are refused, secret values are accepted but never returned or logged (request bodies stay out of debug logs), and every save, discard and restart goes into the settings history.
 -   Prediction errors keep their real status. A streamed `error` event carries `status` and `code`.
+-   A model provider that keeps answering 429 is reported as `429` with `Retry-After` (the provider's wait when it sends one, otherwise 30 seconds), not as `500`, and within about 20 seconds instead of about 95: chat models and LLMs make at most 3 tries and start no new try after 20 seconds. A one-off 429 still recovers on the next try. A streamed `error` event also carries `retryAfter`.
 -   A prediction with `Origin: null`, or an Origin that is not a URL, is refused.
 -   Override configuration never takes a port from a request.
 -   A request value never runs as code. In Multi-Agent and Sequential Agent flows, an allowlisted variable referenced in a code input is inserted as escaped text, so it reads as the same text inside quotes and cannot become code anywhere else (covered by tests, including an injection attempt).

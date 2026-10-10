@@ -42,6 +42,7 @@ import {
 } from '../../../src/utils'
 import { sanitizeFileName } from '../../../src/validator'
 import { getModelConfigByModelName, MODEL_TYPE } from '../../../src/modelLoader'
+import { applyModelRetryBudget } from '../../../src/modelRetryBudget'
 
 interface ITool {
     agentSelectedTool: string
@@ -913,7 +914,7 @@ class Agent_Agentflow implements INode {
                 }
             }
 
-            const llmWithoutToolsBind = (await newLLMNodeInstance.init(newNodeData, '', options)) as BaseChatModel
+            const llmWithoutToolsBind = applyModelRetryBudget((await newLLMNodeInstance.init(newNodeData, '', options)) as BaseChatModel)
             let llmNodeInstance = llmWithoutToolsBind // save the original LLM instance for later use in withStructuredOutput, getNumTokens
 
             const isStructuredOutput = _agentStructuredOutput && Array.isArray(_agentStructuredOutput) && _agentStructuredOutput.length > 0

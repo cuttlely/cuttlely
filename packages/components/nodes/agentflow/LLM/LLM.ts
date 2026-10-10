@@ -18,6 +18,7 @@ import {
 import { processTemplateVariables, configureStructuredOutput, extractResponseContent } from '../../../src/utils'
 import { getModelConfigByModelName, MODEL_TYPE } from '../../../src/modelLoader'
 import { flatten } from 'lodash'
+import { applyModelRetryBudget } from '../../../src/modelRetryBudget'
 
 class LLM_Agentflow implements INode {
     label: string
@@ -379,7 +380,7 @@ class LLM_Agentflow implements INode {
                     ...modelConfig
                 }
             }
-            let llmNodeInstance = (await newLLMNodeInstance.init(newNodeData, '', options)) as BaseChatModel
+            let llmNodeInstance = applyModelRetryBudget((await newLLMNodeInstance.init(newNodeData, '', options)) as BaseChatModel)
 
             // Prepare messages array
             const messages: BaseMessageLike[] = []
