@@ -2,7 +2,7 @@
 
 Use this guide to build Cuttlely from its source code, run it, and change it with a dev server that reloads as you edit. It's the way to work on Cuttlely itself, or to run it on a machine without Docker. For a ready-made install, use [Docker](./docker.md). For a hosted install, use [Render](./render.md).
 
-When you finish, Cuttlely runs at [http://localhost:43117](http://localhost:43117), with the agent runtime beside it for harness specialists. The app database is SQLite, and you have one local account to sign in with. A database you already run can replace SQLite. See [Use Postgres](#use-postgres).
+When you finish the install, Cuttlely runs at [http://localhost:43117](http://localhost:43117), with the agent runtime beside it for harness specialists. While you change the code, the dev server runs the same app at [http://localhost:8080](http://localhost:8080). The app database is SQLite, and you have one local account to sign in with. A database you already run can replace SQLite. See [Use Postgres](#use-postgres).
 
 The steps, in order:
 
@@ -12,7 +12,7 @@ The steps, in order:
 4. [Run the dev server](#run-the-dev-server) while you change code.
 5. [Run the tests](#run-the-tests) and [check your change](#check-your-change-before-a-pull-request) before a pull request.
 
-On an 8-core machine, the clone, install, build and runtime setup took about a minute with the packages already downloaded, and the server was answering 7 seconds after the start command. A first install takes longer, while pnpm downloads the packages.
+On an 8-core machine, install, the build and the runtime setup took about a minute, and the server was listening a few seconds after the start command. A slow network makes the install longer, while pnpm downloads the packages.
 
 ## Before you start
 
@@ -65,7 +65,7 @@ If that fails with `EACCES`, Node was installed for every user on the machine. R
     pnpm build
     ```
 
-    It ends with `Tasks: 7 successful, 7 total`. On an 8-core machine a first build took about 42 seconds.
+    It ends with `Tasks: 7 successful, 7 total`. On an 8-core machine a first build took about 40 seconds.
 
 5. Set up the agent runtime, the Python process that runs harness specialists:
 
@@ -86,21 +86,23 @@ On a source install without WorkOS, the script turns on the local account and it
 The script starts the server, waits for the harness gateway, and then starts the agent runtime. A good start looks like this:
 
 ```text
-Cuttlely node: .../node-versions/v24.15.0/installation/bin/node (v24.15.0)
-Hermes Python: .../cuttlely/hermes/.venv/bin/python
+Cuttlely node: .../bin/node (v24.15.0)
+Hermes Python: .../hermes/.venv/bin/python
+Cuttlely boot, step 1 of 2: starting the server on port 43117. A browser opened now shows a 'Cuttlely is starting' page.
 Waiting for the harness gateway on 127.0.0.1:43118.
 [INFO]: Starting Cuttlely...
-Harness gateway is answering on 127.0.0.1:43118.
-Harness queue: inline
 [INFO]: 📦 [server]: Data Source initialized successfully
 [INFO]: 🔄 [server]: Database migrations completed successfully
 ...
 [INFO]: 🎉 [server]: All initialization steps completed successfully!
 [INFO]: ⚡️ [server]: Cuttlely Server is listening at :43117
 [INFO]: ✅ Cuttlely is ready. Open http://localhost:43117
+Harness gateway is answering on 127.0.0.1:43118.
+Cuttlely boot, step 2 of 2: starting the agent runtime (Hermes) in the background.
+Harness queue: inline
 ```
 
-The server answered 7 seconds after the start command on an 8-core machine, and the agent runtime was up half a second later. To check it from another terminal:
+Server lines start with the time, then `[INFO]:`. The gateway line follows the ready line. On an 8-core machine the server was listening a few seconds after the start command, and the agent runtime was up a few seconds after that. To check it from another terminal:
 
 ```bash
 curl -fsS http://127.0.0.1:43117/api/v1/ping
@@ -146,7 +148,7 @@ Type the password at the `Password:` prompt. It isn't shown. The command ends wi
 [INFO]: Super User created for you@example.com.
 ```
 
-Several `npm warn` lines come first. They are harmless.
+Several `npm warn` lines come first, including `Unknown cli config "--email"`. They are harmless. The account exists when you see `Super User created`.
 
 Then open [http://localhost:43117](http://localhost:43117). The app opens **Sign In**. Type the email and password and select **Sign in**.
 
@@ -178,15 +180,23 @@ Then open [http://localhost:8080](http://localhost:8080). Use `localhost`, not `
 
 ### What starts
 
-| Address                 | What it is                                                         | Package folder       |
-| ----------------------- | ------------------------------------------------------------------ | -------------------- |
-| `http://localhost:8080` | The app in your browser. Open this one                             | `packages/ui`        |
-| `http://localhost:3000` | The server and its API. Restarts when you save a server file       | `packages/server`    |
-| `127.0.0.1:43118`       | The harness gateway, started by the server                         | `packages/server`    |
-| `http://localhost:5173` | Preview server for the agentflow canvas package. You can ignore it | `packages/agentflow` |
-| `http://localhost:5174` | Preview server for the observe package. You can ignore it          | `packages/observe`   |
+| Address                                        | What it is                                                                                                                         | Package folder                           |
+| ---------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------- |
+| `http://localhost:8080`                        | The app in your browser. Open this one                                                                                             | `packages/ui`                            |
+| `http://localhost:3000`                        | The server and its API. Restarts when you save a server file                                                                       | `packages/server`                        |
+| `127.0.0.1:43118`                              | The harness gateway, started by the server                                                                                         | `packages/server`                        |
+| `http://localhost:5173` and the next free port | Preview servers for the agentflow canvas package and the observe package. Ignore both. One of them moves off `5173` if it is taken | `packages/agentflow`, `packages/observe` |
 
-The two connect like this: the page at `8080` sends every `/api` request on to the server at `3000`. The server was answering 4 seconds after `pnpm dev` started, and the page right after that. The terminal shows `Local: http://localhost:8080/` for the UI and `Cuttlely Server is listening at :3000` for the server. Every package prints its lines with its package name in front, for example `flowise-ui:dev:` for the UI and `flowise:dev:` for the server.
+The page at `8080` sends every `/api` request on to the server at `3000`. Both were up within a few seconds. `pnpm dev` does not start the agent runtime, so `X-Cuttlely-Hermes` on that ping is `unknown` until you [run the runtime beside the UI](#harness-specialists-while-you-work-on-the-ui).
+
+Each package prints its name in front of its lines. The two you care about look like this:
+
+```text
+flowise-ui:dev:   Local:   http://localhost:8080/
+flowise:dev: Cuttlely Server is listening at :3000
+```
+
+The server's lines also include `npm warn Unknown env config`. Those warnings are harmless. The server is up when you see `Cuttlely Server is listening at :3000`.
 
 ### Sign in
 
@@ -194,11 +204,11 @@ The dev server uses the same database as `scripts/start-cuttlely.sh` (`~/.cuttle
 
 ### What updates when you save
 
-| You change                                   | What happens                                                                   | What you do                                                                                                                                                                  |
-| -------------------------------------------- | ------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| The UI, `packages/ui/src`                    | The page updates in place within a second. No reload, and you stay signed in   | Nothing                                                                                                                                                                      |
-| The server, `packages/server/src`            | The server restarts, but it runs the last build, so your change isn't live yet | Run `pnpm --filter flowise build` in a second terminal (about 15 seconds), then save your server file once more. The server restarts on the new build within about 3 seconds |
-| Nodes and credentials, `packages/components` | Nothing                                                                        | Run `pnpm --filter flowise-components build` (about 20 seconds), then stop `pnpm dev` with Ctrl+C and start it again                                                         |
+| You change                                   | What happens                                                                   | What you do                                                                                                                                                                |
+| -------------------------------------------- | ------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| The UI, `packages/ui/src`                    | The page updates in place within a second. No reload, and you stay signed in   | Nothing                                                                                                                                                                    |
+| The server, `packages/server/src`            | The server restarts, but it runs the last build, so your change isn't live yet | Run `pnpm --filter flowise build` in a second terminal (about 10 seconds), then save your server file once more. The server restarts on the new build within a few seconds |
+| Nodes and credentials, `packages/components` | Nothing                                                                        | Run `pnpm --filter flowise-components build`, then stop `pnpm dev` with Ctrl+C and start it again                                                                          |
 
 The package names in those commands are the names in each folder's `package.json`: `flowise` is the server and `flowise-components` is the nodes package.
 
@@ -236,7 +246,7 @@ pnpm --filter flowise test -- src/controllers/ping
 pnpm --filter flowise-components test -- src/headerValidation.test.ts
 ```
 
-The first took about 5 seconds and the second about 15. Drop the file path to run a whole package, and `pnpm test` runs every package. On a small machine, run one package at a time. [CONTRIBUTING.md](../../CONTRIBUTING.md#testing) has more.
+The first took about 5 seconds and the second about 10. Drop the file path to run a whole package, and `pnpm test` runs every package. On a small machine, run one package at a time. [CONTRIBUTING.md](../../CONTRIBUTING.md#testing) has more.
 
 ## Check your change before a pull request
 
@@ -325,6 +335,8 @@ Run `bash scripts/setup-hermes.sh` again when `hermes/` changed. Database migrat
 | `EACCES` or `EROFS` under a `corepack` folder when `pnpm` runs                             | Corepack can't write its download folder. Set `COREPACK_HOME` to a folder you own, for example `$HOME/.cache/node/corepack`.       |
 | `Unsupported engine` or `node:sqlite` errors                                               | Use Node 24. `node -v` should print `v24.`.                                                                                        |
 | [http://127.0.0.1:8080](http://127.0.0.1:8080) doesn't load while `pnpm dev` runs          | Open [http://localhost:8080](http://localhost:8080). To use another address, set `VITE_HOST` in `packages/ui/.env`.                |
+| `Port 5173 is in use, trying another one...` while `pnpm dev` starts                       | Expected. The two preview servers both want `5173`, and one takes the next free port. Ignore both.                                 |
+| Many `npm warn Unknown env config` or `Unknown cli config "--email"` lines                 | Harmless. Wait for `Cuttlely Server is listening` or `Super User created`.                                                         |
 | A server change doesn't show up under `pnpm dev`                                           | Run `pnpm --filter flowise build`, then save the server file again. See [What updates when you save](#what-updates-when-you-save). |
 | `listen EADDRINUSE` on `3000` or `8080` when `pnpm dev` starts                             | Another server holds the port. Stop it, or change the ports. See [Change the dev server ports](#change-the-dev-server-ports).      |
 | `pnpm verify --fast` fails on a fresh checkout with missing `dist` files                   | Run `pnpm --filter flowise-components build` (or `pnpm build`) first.                                                              |
