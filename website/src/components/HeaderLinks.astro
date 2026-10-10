@@ -1,0 +1,41 @@
+---
+// Replaces Starlight's social icons slot in the header: text links to the main pages, then the GitHub icon.
+import Default from '@astrojs/starlight/components/SocialIcons.astro'
+
+const path = Astro.url.pathname
+const links = [
+    { label: 'Docs', href: '/docs/', active: path.startsWith('/docs/') },
+    { label: 'Quickstart', href: '/quickstart/', active: path.startsWith('/quickstart/') },
+    { label: 'Changelog', href: '/changelog/', active: path.startsWith('/changelog/') }
+]
+---
+
+<nav class="cl-header-links" aria-label="Main">
+    {
+        links.map((link) => (
+            <a href={link.href} aria-current={link.active ? 'page' : undefined}>
+                {link.label}
+            </a>
+        ))
+    }
+</nav>
+<Default />
+
+<style>
+    .cl-header-links {
+        display: flex;
+        gap: 1.25rem;
+        align-items: center;
+        margin-inline-end: 0.25rem;
+    }
+    .cl-header-links a {
+        color: var(--sl-color-gray-2);
+        text-decoration: none;
+        font-size: var(--sl-text-sm);
+        font-weight: 600;
+    }
+    .cl-header-links a:hover,
+    .cl-header-links a[aria-current='page'] {
+        color: var(--sl-color-text-accent);
+    }
+</style>

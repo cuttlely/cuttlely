@@ -1,0 +1,19 @@
+---
+// Served for unknown paths (Render rewrites them to /404.html).
+import StarlightPage from '@astrojs/starlight/components/StarlightPage.astro'
+import { Icon } from '@astrojs/starlight/components'
+import { Image } from 'astro:assets'
+import mascot from '../assets/cuttlely-mascot-neutral-512.webp'
+---
+
+<StarlightPage frontmatter={{ title: 'Page not found', template: 'splash', pagefind: false, tableOfContents: false, description: 'This page does not exist.' }} hasSidebar={false}>
+    <div class="cl-final not-content">
+        <Image src={mascot} alt="" widths={[200, 400]} sizes="200px" class="cl-final-mascot" />
+        <p>This page does not exist, or it moved. Try the search at the top, or start from one of these.</p>
+        <div class="cl-actions cl-actions-center">
+            <a class="cl-button cl-button-primary" href="/quickstart/">Quickstart <Icon name="right-arrow" /></a>
+            <a class="cl-button cl-button-ghost" href="/docs/">Docs</a>
+            <a class="cl-button cl-button-ghost" href="/">Home</a>
+        </div>
+    </div>
+</StarlightPage>

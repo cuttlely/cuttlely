@@ -1,0 +1,47 @@
+---
+// The home page hero: headline, tagline, the two main actions, the three install commands and the mascot.
+// Starlight renders this component only for pages with `hero` in their frontmatter (the home page).
+import { Image } from 'astro:assets'
+import mascot from '../assets/cuttlely-mascot-primary-1024.webp'
+import { Icon } from '@astrojs/starlight/components'
+import CopyButton from './CopyButton.astro'
+import { REPO_URL } from '../../scripts/site-config.mjs'
+
+const hero = Astro.locals.starlightRoute.entry.data.hero ?? {}
+const tagline = hero.tagline ?? ''
+---
+
+<section class="cl-hero not-content" aria-labelledby="_top">
+    <div class="cl-hero-copy">
+        <p class="cl-eyebrow"><span class="cl-dot" aria-hidden="true"></span>{tagline}</p>
+        <h1 id="_top" class="cl-display cl-hero-title">Your applications <span class="cl-gradient-text">deserve agents.</span></h1>
+        <p class="cl-hero-lead">
+            Cuttlely gives your applications their own intelligent capabilities and coordinated agent teams. Start chatting with a team in minutes, then call it
+            from your app through the API. It runs on infrastructure you control.
+        </p>
+        <div class="cl-actions">
+            <a class="cl-button cl-button-primary" href="/quickstart/">
+                Get started in 10 minutes
+                <Icon name="right-arrow" size="1.1em" />
+            </a>
+            <a class="cl-button cl-button-ghost" href={REPO_URL}>
+                <Icon name="github" size="1.1em" />
+                View on GitHub
+            </a>
+        </div>
+        <div class="cl-terminal" role="group" aria-label="Install Cuttlely with Docker">
+            <div class="cl-terminal-bar">
+                <span class="cl-lights" aria-hidden="true"><i></i><i></i><i></i></span>
+                <span class="cl-terminal-title">Three commands. Docker and one model key.</span>
+                <CopyButton target="cl-install" />
+            </div>
+            <pre id="cl-install"><code><span class="cl-prompt" aria-hidden="true">$ </span>git clone https://github.com/cuttlely/cuttlely.git
+<span class="cl-prompt" aria-hidden="true">$ </span>cd cuttlely
+<span class="cl-prompt" aria-hidden="true">$ </span>docker compose up -d</code></pre>
+        </div>
+    </div>
+    <div class="cl-hero-art" aria-hidden="true">
+        <div class="cl-orb"></div>
+        <Image src={mascot} alt="" widths={[320, 480, 640]} sizes="(min-width: 64rem) 320px, 240px" loading="eager" fetchpriority="high" class="cl-mascot" />
+    </div>
+</section>

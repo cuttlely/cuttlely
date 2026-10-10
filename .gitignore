@@ -6,6 +6,7 @@
 **/node_modules
 **/package-lock.json
 !**/examples/package-lock.json
+!website/package-lock.json
 **/yarn.lock
 
 ## logs
@@ -127,3 +128,8 @@ apps/*/
 .claude/settings.local.json
 .claude/agent-memory/*
 
+
+## website (cuttlely.com): files written by website/scripts/sync-docs.mjs and Astro
+website/src/content/docs/
+website/src/generated/
+website/.astro/
