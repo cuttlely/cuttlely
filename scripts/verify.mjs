@@ -72,7 +72,8 @@ const STEPS = [
             path.join(ROOT, 'scripts', 'brand-names.test.mjs'),
             path.join(ROOT, 'examples', 'web-app', 'server.test.mjs'),
             path.join(ROOT, 'website', 'scripts', 'sync-docs.test.mjs'),
-            path.join(ROOT, 'website', 'scripts', 'check-site.test.mjs')
+            path.join(ROOT, 'website', 'scripts', 'check-site.test.mjs'),
+            path.join(ROOT, 'website', 'scripts', 'screenshot-zoom.test.mjs')
         ]
     },
     {
