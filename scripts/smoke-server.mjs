@@ -98,7 +98,9 @@ function smokeFlow(credentialId) {
                     name: 'promptTemplate',
                     type: 'PromptTemplate',
                     category: 'Prompts',
-                    inputParams: [],
+                    // promptValues accepts variables, as in the real node, so {{question}} becomes the question the
+                    // model sees (the fake model acts on words in it: smoke-slow, smoke-429).
+                    inputParams: [{ label: 'Format Prompt Values', name: 'promptValues', type: 'json', acceptVariable: true }],
                     inputAnchors: [],
                     inputs: {
                         template: '{question}',

@@ -35,9 +35,26 @@ function patchChat(exported) {
     }
 }
 
+// The text of the messages a model call got: message contents (strings or content parts), whatever the message class.
+function askedText(messages) {
+    const parts = []
+    const walk = (value, depth) => {
+        if (value == null || depth > 5) return
+        if (typeof value === 'string') return void parts.push(value)
+        if (Array.isArray(value)) return void value.forEach((item) => walk(item, depth + 1))
+        if (typeof value === 'object') {
+            if ('content' in value) walk(value.content, depth + 1)
+            if (typeof value.text === 'string') parts.push(value.text)
+            if (value.kwargs) walk(value.kwargs.content, depth + 1)
+        }
+    }
+    walk(messages, 0)
+    return parts.join('\n')
+}
+
 // What the fake provider does before it answers, by the words in the question.
 async function fakeProvider(model, messages) {
-    const asked = JSON.stringify(messages || [])
+    const asked = askedText(messages)
     // "smoke-slow": answers after a few seconds, for the shutdown drain check.
     if (asked.includes('smoke-slow')) await new Promise((resolve) => setTimeout(resolve, SLOW_MS))
     // "smoke-429": a provider that always answers 429 with Retry-After: 12, through the model's own retry logic
