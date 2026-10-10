@@ -6,16 +6,16 @@ Owner is who must act: **maintainer** (a decision, a credential or repository se
 
 The issue tracker is the source of truth for bugs and planned fixes: `gh issue list -R cuttlely/cuttlely`. Do not copy an issue's status here.
 
-| Issue                                                 | Topic                                                                   | Owner                                 |
-| ----------------------------------------------------- | ----------------------------------------------------------------------- | ------------------------------------- |
-| [#1](https://github.com/cuttlely/cuttlely/issues/1)   | Daily CI: a Redis service and an end-to-end queue-mode abort test       | anyone                                |
-| [#2](https://github.com/cuttlely/cuttlely/issues/2)   | Signed download links for files in Agent answers on key-protected flows | anyone                                |
-| [#3](https://github.com/cuttlely/cuttlely/issues/3)   | Request variables in code inputs of legacy agent flows                  | maintainer (design call), then anyone |
-| [#4](https://github.com/cuttlely/cuttlely/issues/4)   | Strict request-variable branch in the global-variable lookup            | done (PR #12)                         |
-| [#5](https://github.com/cuttlely/cuttlely/issues/5)   | Drain in-flight requests and streams on SIGTERM                         | anyone                                |
-| [#6](https://github.com/cuttlely/cuttlely/issues/6)   | A persistent upstream 429 should not end as HTTP 500                    | anyone                                |
-| [#7](https://github.com/cuttlely/cuttlely/issues/7)   | Deleting a flow should delete its lead rows                             | anyone                                |
-| [#10](https://github.com/cuttlely/cuttlely/issues/10) | Remaining dependency advisories                                         | anyone                                |
+| Issue                                                 | Topic                                                                   | Owner         |
+| ----------------------------------------------------- | ----------------------------------------------------------------------- | ------------- |
+| [#1](https://github.com/cuttlely/cuttlely/issues/1)   | Daily CI: a Redis service and an end-to-end queue-mode abort test       | anyone        |
+| [#2](https://github.com/cuttlely/cuttlely/issues/2)   | Signed download links for files in Agent answers on key-protected flows | anyone        |
+| [#3](https://github.com/cuttlely/cuttlely/issues/3)   | Request variables in code inputs of legacy agent flows                  | done (PR #13) |
+| [#4](https://github.com/cuttlely/cuttlely/issues/4)   | Strict request-variable branch in the global-variable lookup            | done (PR #12) |
+| [#5](https://github.com/cuttlely/cuttlely/issues/5)   | Drain in-flight requests and streams on SIGTERM                         | anyone        |
+| [#6](https://github.com/cuttlely/cuttlely/issues/6)   | A persistent upstream 429 should not end as HTTP 500                    | anyone        |
+| [#7](https://github.com/cuttlely/cuttlely/issues/7)   | Deleting a flow should delete its lead rows                             | done (PR #14) |
+| [#10](https://github.com/cuttlely/cuttlely/issues/10) | Remaining dependency advisories                                         | anyone        |
 
 ## Questions and known gaps
 
