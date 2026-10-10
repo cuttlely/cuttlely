@@ -5,12 +5,12 @@ alwaysApply: true
 
 # Refresh the notes before a push or PR
 
-If `.projects/cuttlely/` is present, run `refresh-project-handoff` once before `git push` or a pull request, and commit the refreshed notes in that same change.
+Run `refresh-project-handoff` once before `git push` or a pull request, and commit the refreshed notes in that same change.
 
 Do this once before the push or the PR. Not on every commit.
 
-The pre-push hook rejects a code change that does not touch `.projects/cuttlely/` while that directory exists. A docs-only or tests-only push is allowed. `CUTTLELY_SKIP_HANDOFF_CHECK=1` bypasses that hook check. It is not a reason to skip the refresh when the change is code.
+The pre-push hook rejects a code change that does not touch `.projects/cuttlely/`. A docs-only or tests-only push is allowed. `CUTTLELY_SKIP_HANDOFF_CHECK=1` bypasses that hook check. It is not a reason to skip the refresh when the change is code.
 
-If `.projects/cuttlely/` is absent, skip the refresh. `pnpm verify` skips the handoff step and says so. Do not invent the directory.
+If `.projects/cuttlely/` is missing from a checkout (a stripped export), skip the refresh. `pnpm verify` skips the handoff step and says so. Do not invent the directory.
 
 Run `pnpm verify` on Node 24 before a pull request. A docs-only change can use `pnpm verify --fast`. `CUTTLELY_SKIP_VERIFY=1` bypasses the hook's fast verify and secret scan. It does not make a failing verify acceptable.

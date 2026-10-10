@@ -1,19 +1,19 @@
 ---
 name: refresh-project-handoff
 description: >-
-    Refresh local Cuttlely handoff notes so they match git. Use when asked to
-    update project files, agent files, handoff files, STATUS, PLAN, OPEN, or
-    to run the handoff refresh. Does nothing when .projects/cuttlely is absent.
+    Refresh the Cuttlely project notes in .projects/cuttlely so they match git.
+    Use when asked to update project files, agent files, handoff files, STATUS,
+    PLAN, OPEN, or to run the handoff refresh, and once before a push or a PR.
 disable-model-invocation: true
 ---
 
 # Refresh the Cuttlely handoff
 
-If `.projects/cuttlely/` does not exist, stop. Say that the handoff notes are not in this checkout and that there is nothing to refresh. Do not create the directory. Do not commit a placeholder.
+The project notes in `.projects/cuttlely/` ship with the repository. Bring them and the agent files in line with the repository. Change only claims that are now wrong. Leave settled decisions and open questions alone.
 
-If the directory exists, bring the handoff and agent files in line with the repository. Change only claims that are now wrong. Leave settled decisions and open questions alone.
+If `.projects/cuttlely/` is missing from this checkout (for example a stripped source export), stop and say so. Do not recreate the notes from memory.
 
-Work from the Cuttlely repo root. Do not edit `hermes/AGENTS.md`. That file belongs to vendored Hermes. A new person resumes with `/take-over`, not this skill.
+Work from the Cuttlely repo root. Do not edit `hermes/AGENTS.md`. That file belongs to the vendored agent runtime. A new person resumes with `/take-over`, not this skill.
 
 ## Files
 
@@ -21,12 +21,12 @@ Work from the Cuttlely repo root. Do not edit `hermes/AGENTS.md`. That file belo
 | ----------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
 | `.projects/cuttlely/STATUS.md`      | Where `main` is, what works, live results, what is not done                                                          |
 | `.projects/cuttlely/PLAN.md`        | Milestone states and the next tasks. Mark a task done when its remaining work is gone                                |
-| `.projects/cuttlely/OPEN.md`        | Only real blockers. Mark a row done when the work landed; do not delete the history                                  |
+| `.projects/cuttlely/OPEN.md`        | Real blockers and the open issues they map to. Link issues; mark a row done when the work landed                     |
 | `.projects/cuttlely/DECISIONS.md`   | Settled. Fix a stale status word when a pull request merged. Add an entry only for a decision that was actually made |
-| `.projects/cuttlely/ARTIFACTS.md`   | Pull requests, merge commits, branches, and where plans and reports live                                             |
+| `.projects/cuttlely/ARTIFACTS.md`   | Where docs, samples, fixtures, generated reports, and release notes live                                             |
 | `.projects/cuttlely/RUNBOOK.md`     | Commands, defaults, and gotchas that match the scripts on `main`                                                     |
 | `.projects/cuttlely/MEMORY.md`      | A lesson only when one was learned since the last refresh                                                            |
-| `.projects/cuttlely/README.md`      | The resume steps and the code map, when a path was added or renamed                                                  |
+| `.projects/cuttlely/README.md`      | The resume steps and the code map, when a path was added or moved                                                    |
 | `AGENTS.md`                         | The same resume rules as the public README and CONTRIBUTING                                                          |
 | `.cursor/rules/project-handoff.mdc` | The same pointers, in short                                                                                          |
 
@@ -44,14 +44,14 @@ Read the script output, including `dirty` and `recent-ci`. Then read every file 
 
 For each file, fix statements the facts contradict:
 
--   A pull request recorded as open, in review, or draft when it is merged: name the merge commit and date.
--   `main` described at an older commit than `origin/main`.
+-   A feature, path, command, or default described differently from `main`.
+-   An issue row whose issue is closed: mark it done and link the issue. Do not restate an issue's status in prose.
 -   A check count, port, start command, or "fails on main" line that the code no longer supports. Read the script or the log before changing a pass/fail claim.
 -   A task whose remaining work is done.
 
 Do not invent live timings, credentials, or customer data. If a fact is not in git, CI, or a file you read, leave the old sentence or write that it was not re-checked.
 
-Do not put personal names, private service URLs, or machine paths into `AGENTS.md` or `.cursor/rules/`. Those files are in the public tree. The notes under `.projects/cuttlely/` stay local.
+Everything you edit is public: `.projects/cuttlely/`, `AGENTS.md`, and `.cursor/rules/`. Do not write secrets or `.env` values, personal names or accounts, private service URLs or internal links, machine-specific paths, customer data, or business notes. Write paths relative to the repository root. Describe the code as it is now; do not narrate how it got there.
 
 If nothing is stale, stop and say so. Do not commit an empty refresh. Before you commit, list the claims you changed.
 

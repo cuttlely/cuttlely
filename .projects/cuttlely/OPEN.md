@@ -1,0 +1,37 @@
+# Open questions and blockers
+
+Owner is who must act: **maintainer** (a decision, a credential or repository settings) or **anyone** (work that can proceed without a decision). Mark a row done when it lands; do not delete it.
+
+## Open issues
+
+The issue tracker is the source of truth for bugs and planned fixes: `gh issue list -R cuttlely/cuttlely`. Do not copy an issue's status here.
+
+| Issue                                                 | Topic                                                                   | Owner         |
+| ----------------------------------------------------- | ----------------------------------------------------------------------- | ------------- |
+| [#1](https://github.com/cuttlely/cuttlely/issues/1)   | Daily CI: a Redis service and an end-to-end queue-mode abort test       | done (PR #16) |
+| [#2](https://github.com/cuttlely/cuttlely/issues/2)   | Signed download links for files in Agent answers on key-protected flows | anyone        |
+| [#3](https://github.com/cuttlely/cuttlely/issues/3)   | Request variables in code inputs of legacy agent flows                  | done (PR #13) |
+| [#4](https://github.com/cuttlely/cuttlely/issues/4)   | Strict request-variable branch in the global-variable lookup            | done (PR #12) |
+| [#5](https://github.com/cuttlely/cuttlely/issues/5)   | Drain in-flight requests and streams on SIGTERM                         | done (PR #17) |
+| [#6](https://github.com/cuttlely/cuttlely/issues/6)   | A persistent upstream 429 should not end as HTTP 500                    | anyone        |
+| [#7](https://github.com/cuttlely/cuttlely/issues/7)   | Deleting a flow should delete its lead rows                             | done (PR #14) |
+| [#10](https://github.com/cuttlely/cuttlely/issues/10) | Remaining dependency advisories                                         | anyone        |
+
+## Questions and known gaps
+
+| #   | Question or gap                                                                                                                                                                                                                                                                                                       | Owner                        |
+| --- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------- |
+| 1   | GitHub Actions is not the merge gate. Workflows are defined in `.github/workflows/`, but `pnpm verify` on the exact head is what gates a merge (D27). Decide whether Actions joins the gate once it runs reliably on pull requests.                                                                                   | maintainer                   |
+| 2   | Latency targets for a multi-specialist turn are provisional: p50 at most 15 s and p95 at most 30 s on fast models, with the 45 s turn budget (D13). Slow providers can exceed them; the budget still applies. Confirm or replace the targets.                                                                         | maintainer                   |
+| 3   | `CUTTLELY_HARNESS_QUEUE=external` has not had a live credentialed provider run. The default stays `inline` until one passes (D15).                                                                                                                                                                                    | anyone with a test key       |
+| 4   | Live ETL runs against hosted embeddings and vector stores need real credentials. Offline checks cover every splitter, embeddings node and adaptable store with fakes. Kendra and Meilisearch `init` return a retriever, not a writable client, so a live run of those two fails until that changes.                   | anyone with test credentials |
+| 5   | ETL sources not built yet: converting a Document Store to a pipeline, private git, S3 and GCS sources, watch-triggered runs, an SSE progress stream, and an ANN index for Local Vector Store.                                                                                                                         | anyone                       |
+| 6   | A Local Vector Store with a blank Collection field writes to a collection named after the pipeline. Changing the pipeline's name and running again writes a new collection, and a later delete cannot find the old vectors. Fix: record the effective collection per run and purge every collection a pipeline wrote. | anyone                       |
+| 7   | Raw `mcpServers` entries on a specialist record are not validated the way Custom MCP nodes are. Route them through the same validation, or stop accepting them.                                                                                                                                                       | anyone                       |
+| 8   | A harness called from outside a chatflow has no API key and no schedule: `POST /api/v1/harnesses/:name/runs` needs a signed-in session, and an API key still goes through a chatflow's prediction URL. Adding either needs an allowlist of which harnesses a key may start.                                           | maintainer                   |
+| 9   | Chat-model nodes with an optional credential can still read their provider SDK's environment defaults when no credential is selected. Required credentials are checked before `init` (D9).                                                                                                                            | anyone                       |
+| 10  | A live large-file upload-harness turn against a real provider has not been run. The sampler itself is tested offline (D18).                                                                                                                                                                                           | anyone with a test key       |
+| 11  | Versioning: restoring a version into a draft does not bring the version's category, because a draft holds the canvas only. A single-file export bundle and a version id on each run are not built (D25).                                                                                                              | anyone                       |
+| 12  | A dedicated analyst node (table and column comments as the semantic layer, a rules box) is designed but not built.                                                                                                                                                                                                    | maintainer (go), then anyone |
+| 13  | Code execution is not a filesystem jail. A specialist that ignores its instructions can open paths the harness did not stage (D18). A real sandbox for Code execution and Shell specialists is future work.                                                                                                           | anyone                       |
+| 14  | Repository settings at the first release: branch protection with a release bypass, secret scanning with push protection, private vulnerability reporting (PLAN).                                                                                                                                                      | maintainer                   |
