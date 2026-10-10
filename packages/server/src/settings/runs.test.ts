@@ -1,6 +1,20 @@
+import http from 'http'
+import type { AddressInfo } from 'net'
 import express from 'express'
 import request from 'supertest'
-import { drainRuns, isRunRequest, resetRuns, runsInProgress, trackRuns, waitLimitMs } from './runs'
+import { watchClientDisconnect } from '../utils/clientAbort'
+import {
+    drainRuns,
+    drainTimeoutMs,
+    isRunRequest,
+    isShuttingDown,
+    refuseWhileShuttingDown,
+    resetRuns,
+    runsInProgress,
+    shutdownDrain,
+    trackRuns,
+    waitLimitMs
+} from './runs'
 
 afterEach(() => resetRuns())
 
@@ -58,5 +72,139 @@ describe('runs in progress', () => {
         expect(waitLimitMs({})).toBe(45000)
         expect(waitLimitMs({ CUTTLELY_HARNESS_TURN_BUDGET_MS: '240000' })).toBe(240000)
         expect(waitLimitMs({ CUTTLELY_HARNESS_TURN_BUDGET_MS: 'nope' })).toBe(45000)
+    })
+})
+
+// ─── Shutdown (SIGTERM / SIGINT) ─────────────────────────────────────────────
+
+type Held = { release: () => void; signal: AbortSignal }
+
+/** A real HTTP server like the app: the shutdown guard first, then run tracking, then routes that wait to answer. */
+function liveApp() {
+    const held: Held[] = []
+    const app = express()
+    app.use(refuseWhileShuttingDown)
+    app.use('/api/v1', trackRuns)
+    app.get('/api/v1/ping', (_req, res) => res.send('pong'))
+    app.post('/api/v1/prediction/:id', (req, res) => {
+        const signal = watchClientDisconnect(res)
+        if (req.query.stream === '1') {
+            res.setHeader('Content-Type', 'text/event-stream')
+            res.flushHeaders()
+            res.write(`message:\ndata:${JSON.stringify({ event: 'token', data: 'Fresh ' })}\n\n`)
+            held.push({ release: () => res.end(), signal })
+            return
+        }
+        held.push({ release: () => res.json({ text: `${req.params.id}: two dozen croissants` }), signal })
+    })
+    const server = http.createServer(app)
+    return new Promise<{ server: http.Server; base: string; held: Held[] }>((resolve) =>
+        server.listen(0, '127.0.0.1', () => resolve({ server, base: `http://127.0.0.1:${(server.address() as AddressInfo).port}`, held }))
+    )
+}
+
+async function waitFor(check: () => boolean, ms = 3000) {
+    const until = Date.now() + ms
+    while (!check() && Date.now() < until) await new Promise((r) => setTimeout(r, 10))
+    if (!check()) throw new Error('timed out waiting')
+}
+
+async function readAll(response: Response): Promise<string> {
+    try {
+        return await response.text()
+    } catch (error) {
+        return `READ FAILED ${(error as Error).name}`
+    }
+}
+
+describe('shutdown drain', () => {
+    afterEach(() => resetRuns())
+
+    it('lets five requests in flight during SIGTERM finish with 200, then closes', async () => {
+        const { server, base, held } = await liveApp()
+        const answers = Array.from({ length: 5 }, (_, i) =>
+            fetch(`${base}/api/v1/prediction/flow-${i}`, { method: 'POST' }).then(async (r) => ({ status: r.status, text: await r.text() }))
+        )
+        await waitFor(() => held.length === 5)
+        const drained = shutdownDrain(server, 5000, 10)
+        expect(isShuttingDown()).toBe(true)
+        await new Promise((r) => setTimeout(r, 50))
+        for (const h of held) h.release()
+        const results = await Promise.all(answers)
+        expect(results.map((r) => r.status)).toEqual([200, 200, 200, 200, 200])
+        expect(results[3].text).toContain('flow-3: two dozen croissants')
+        expect(await drained).toEqual({ endedRuns: 0, closedInTime: true })
+        expect(server.listening).toBe(false)
+        expect(held.some((h) => h.signal.aborted)).toBe(false)
+    })
+
+    it('turns new requests away with 503 and Retry-After while draining, the health check too', async () => {
+        await shutdownDrain(undefined, 0)
+        const app = express()
+        app.use(refuseWhileShuttingDown)
+        app.use('/api/v1', trackRuns)
+        app.get('/api/v1/ping', (_req, res) => res.send('pong'))
+        app.post('/api/v1/prediction/:id', (_req, res) => res.json({ text: 'should not run' }))
+
+        const ping = await request(app).get('/api/v1/ping')
+        expect(ping.status).toBe(503)
+        expect(ping.headers['retry-after']).toBe('30')
+        const run = await request(app).post('/api/v1/prediction/flow-1').send({ question: 'Rye today?' })
+        expect(run.status).toBe(503)
+        expect(run.headers['retry-after']).toBe('30')
+        expect(run.body).toMatchObject({ statusCode: 503, code: 'UNAVAILABLE' })
+        expect(runsInProgress()).toBe(0)
+    })
+
+    it('ends a stream that runs past the drain time with an error event, and aborts its work', async () => {
+        const { server, base, held } = await liveApp()
+        const response = await fetch(`${base}/api/v1/prediction/flow-1?stream=1`, { method: 'POST' })
+        expect(response.status).toBe(200)
+        await waitFor(() => held.length === 1)
+        const body = readAll(response)
+
+        const result = await shutdownDrain(server, 100, 10)
+
+        expect(result).toEqual({ endedRuns: 1, closedInTime: false })
+        const text = await body
+        expect(text).toContain('"event":"token"')
+        const events = text
+            .split('\n\n')
+            .filter((chunk) => chunk.includes('data:'))
+            .map((chunk) => JSON.parse(chunk.slice(chunk.indexOf('data:') + 5)))
+        expect(events).toContainEqual(expect.objectContaining({ event: 'error', status: 503, code: 'UNAVAILABLE' }))
+        expect(events[events.length - 1]).toEqual({ event: 'end', data: '[DONE]' })
+        expect(held[0].signal.aborted).toBe(true)
+        expect(server.listening).toBe(false)
+    })
+
+    it('answers a run that has not answered by the drain time with 503 and Retry-After', async () => {
+        const { server, base, held } = await liveApp()
+        const answer = fetch(`${base}/api/v1/prediction/flow-1`, { method: 'POST' })
+        await waitFor(() => held.length === 1)
+
+        const result = await shutdownDrain(server, 100, 10)
+        const response = await answer
+
+        expect(result.endedRuns).toBe(1)
+        expect(response.status).toBe(503)
+        expect(response.headers.get('retry-after')).toBe('30')
+        expect(held[0].signal.aborted).toBe(true)
+    })
+
+    it('closes at once when nothing is running', async () => {
+        const { server } = await liveApp()
+        const started = Date.now()
+        expect(await shutdownDrain(server, 5000, 10)).toEqual({ endedRuns: 0, closedInTime: true })
+        expect(Date.now() - started).toBeLessThan(1000)
+    })
+
+    it('reads the drain time from CUTTLELY_DRAIN_TIMEOUT_MS', () => {
+        expect(drainTimeoutMs({})).toBe(25000)
+        expect(drainTimeoutMs({ CUTTLELY_DRAIN_TIMEOUT_MS: '60000' })).toBe(60000)
+        expect(drainTimeoutMs({ CUTTLELY_DRAIN_TIMEOUT_MS: '0' })).toBe(0)
+        expect(drainTimeoutMs({ CUTTLELY_DRAIN_TIMEOUT_MS: '' })).toBe(25000)
+        expect(drainTimeoutMs({ CUTTLELY_DRAIN_TIMEOUT_MS: 'soon' })).toBe(25000)
+        expect(drainTimeoutMs({ CUTTLELY_DRAIN_TIMEOUT_MS: '99999999' })).toBe(600000)
     })
 })

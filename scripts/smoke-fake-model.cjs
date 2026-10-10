@@ -4,6 +4,7 @@
 // Anything else that tries to leave the machine throws. No provider key is read.
 
 const SMOKE_TEXT = 'smoke-ok'
+const SLOW_MS = 4000
 
 function aiMessage(content) {
     const { AIMessage } = require('@langchain/core/messages')
@@ -23,7 +24,9 @@ function patchChat(exported) {
     const ChatOpenAI = exported.ChatOpenAI || (exported.default && exported.default.ChatOpenAI)
     if (!ChatOpenAI || ChatOpenAI.prototype.__cuttlelySmoke) return
     ChatOpenAI.prototype.__cuttlelySmoke = true
-    ChatOpenAI.prototype._generate = async function fakeGenerate() {
+    ChatOpenAI.prototype._generate = async function fakeGenerate(messages) {
+        // A question with "smoke-slow" in it answers after a few seconds, for the shutdown drain check.
+        if (JSON.stringify(messages || []).includes('smoke-slow')) await new Promise((resolve) => setTimeout(resolve, SLOW_MS))
         return fakeGeneration()
     }
     ChatOpenAI.prototype._streamResponseChunks = async function* fakeStream() {

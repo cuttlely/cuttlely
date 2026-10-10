@@ -145,3 +145,42 @@ jobs:
                   wait-on: 'http://localhost:3000'
                   wait-on-timeout: 120
                   browser: chrome
+
+    # Queue mode end to end (advisory): the daily run and manual runs on main only, never on pull requests. Starts a
+    # server and a worker against the Redis service, stops a streaming prediction partway and checks the worker stops
+    # the run and saves no messages (scripts/queue-abort-e2e.mjs). Placeholder model, no secrets.
+    queue-abort:
+        name: queue-abort
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        runs-on: ubuntu-latest
+        timeout-minutes: 30
+        env:
+            PUPPETEER_SKIP_DOWNLOAD: true
+        services:
+            redis:
+                image: redis:7-alpine
+                ports:
+                    - 6379:6379
+                options: >-
+                    --health-cmd "redis-cli ping"
+                    --health-interval 5s
+                    --health-timeout 3s
+                    --health-retries 10
+        steps:
+            - uses: actions/checkout@v6
+            - uses: pnpm/action-setup@v4
+              with:
+                  version: 10.26.0
+            - name: Use Node.js 24.15.0
+              uses: actions/setup-node@v6
+              with:
+                  node-version: 24.15.0
+                  cache: 'pnpm'
+                  cache-dependency-path: 'pnpm-lock.yaml'
+            - run: pnpm install
+            - run: pnpm build
+              env:
+                  NODE_OPTIONS: '--max_old_space_size=4096'
+            - run: pnpm test:queue-abort
+              env:
+                  REDIS_URL: redis://localhost:6379

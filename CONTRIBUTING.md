@@ -263,6 +263,8 @@ pnpm verify
 
 `node harness/check.mjs` is the offline harness check (no model key). `node etl/check.mjs` is the offline ETL check.
 
+`pnpm test:queue-abort` checks queue mode end to end: it starts a server and a worker on a throwaway queue, stops a streaming prediction partway, and checks that the worker stops the run and saves no messages. It needs a built server (`pnpm build`) and a Redis it can use, for example `docker run -d --rm --name cuttlely-test-redis -p 127.0.0.1:6390:6379 redis:7-alpine`, then `REDIS_URL=redis://127.0.0.1:6390 pnpm test:queue-abort`. It uses a placeholder model, so it needs no model key. `QUEUE_ABORT_KEEP=1` keeps its temporary data folder for a look after a failure. `pnpm verify` does not run it; the daily scheduled CI run on `main` does.
+
 Branch names in this repository are short and descriptive (`feature/…`, `bugfix/…`, or a maintainer prefix such as `flowbit/…`). Open the pull request against `main`.
 
 ## How releases work
