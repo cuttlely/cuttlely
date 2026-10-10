@@ -1091,7 +1091,7 @@ export const resolveVariables = async (
     return flowNodeData
 }
 
-// API-1: overrideConfig is applied deny-by-default; see ./replaceInputsWithConfig.ts
+// `overrideConfig` is applied deny-by-default; see ./replaceInputsWithConfig.ts
 export { getFlowNodeLabels, replaceInputsWithConfig }
 
 /**
@@ -1854,7 +1854,7 @@ export const getAPIOverrideConfig = (chatflow: IChatFlow) => {
             apiConfig.overrideConfig && apiConfig.overrideConfig.nodes ? apiConfig.overrideConfig.nodes : {}
         const variableOverrides: IVariableOverride[] =
             apiConfig.overrideConfig && apiConfig.overrideConfig.variables ? apiConfig.overrideConfig.variables : []
-        // API-1 (F1): only the boolean true turns overrides on; a hand-written "false" or "true" string leaves them off.
+        // Only the boolean true turns overrides on; a hand-written "false" or "true" string leaves them off.
         const apiOverrideStatus: boolean = apiConfig.overrideConfig?.status === true
 
         return { nodeOverrides, variableOverrides, apiOverrideStatus }

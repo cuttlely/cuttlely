@@ -37,7 +37,7 @@ function normalizeClientIp(value: string | undefined): string | undefined {
 }
 
 /**
- * API-16. Bucket for express-rate-limit.
+ * Prediction rate-limit bucket for express-rate-limit.
  * `req.ip` already applied TRUST_PROXY (D51). This does not read X-Forwarded-For,
  * X-Real-IP, or Forwarded. A port or a non-IP is not its own bucket: those requests
  * count against the socket peer, so rotating a forged token cannot skip the limit.

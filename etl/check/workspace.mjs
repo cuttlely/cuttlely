@@ -1,4 +1,4 @@
-// etl:check, API-14 (issue #42): every ETL pipeline belongs to one workspace. A pipeline in workspace A is invisible
+// etl:check, Workspace scope: every ETL pipeline belongs to one workspace. A pipeline in workspace A is invisible
 // to workspace B and is a 404 there, for list and get-by-id, backfilled rows included. A NULL workspace never matches,
 // and a missing workspace id throws instead of listing everything.
 import fs from 'node:fs'
@@ -38,7 +38,7 @@ const schedule = api.createSchedule('api14-a', { kind: 'interval', every: 1, uni
     const noWs = outcome(() => api.listPipelineSummaries({}))
     const blank = outcome(() => api.listPipelineSummaries({ workspaceId: '  ' }))
     check(
-        'API-14 list: workspace B does not list A’s pipeline (and A does not list B’s); no workspace id throws workspace_required',
+        'Workspace scope list: workspace B does not list A’s pipeline (and A does not list B’s); no workspace id throws workspace_required',
         fromA.includes('api14-a') &&
             !fromA.includes('api14-b') &&
             fromB.includes('api14-b') &&
@@ -51,7 +51,7 @@ const schedule = api.createSchedule('api14-a', { kind: 'interval', every: 1, uni
     const options = outcome(() => api.pipelineOptions())
     const optionsB = api.pipelineOptions(B).map((o) => o.name)
     check(
-        'API-14 list: the ETL Retriever dropdown lists only the caller’s workspace and throws without one',
+        'Workspace scope list: the ETL Retriever dropdown lists only the caller’s workspace and throws without one',
         options.code === 'workspace_required' && optionsB.includes('API14 B') && !optionsB.includes('API14 A'),
         JSON.stringify({ options, optionsB })
     )
@@ -64,7 +64,7 @@ const schedule = api.createSchedule('api14-a', { kind: 'interval', every: 1, uni
     const own = api.pipelineInWorkspace('api14-a', A)
     const noWs = outcome(() => api.pipelineInWorkspace('api14-a', undefined))
     check(
-        'API-14 get-by-id: A’s pipeline is a 404 from workspace B, with the same message as a missing id; no workspace id throws',
+        'Workspace scope get-by-id: A’s pipeline is a 404 from workspace B, with the same message as a missing id; no workspace id throws',
         other.status === 404 &&
             other.code === 'not_found' &&
             other.message === missing.message &&
@@ -78,7 +78,7 @@ const schedule = api.createSchedule('api14-a', { kind: 'interval', every: 1, uni
     const schedA = api.scheduleInWorkspace(schedule.id, A)
     const hijack = outcome(() => api.recordVersion({ workspaceId: B, id: 'api14-a', name: 'API14 A', flowData: flowFor(csv, 'x') }))
     check(
-        'API-14 child rows: A’s run and schedule are 404 from B; B cannot save over A’s pipeline id',
+        'Workspace scope child rows: A’s run and schedule are 404 from B; B cannot save over A’s pipeline id',
         runB.status === 404 &&
             runA.id === run.id &&
             schedB.status === 404 &&
@@ -106,7 +106,7 @@ const schedule = api.createSchedule('api14-a', { kind: 'interval', every: 1, uni
         .all()
         .map((row) => row.name)
     check(
-        'API-14 NOT NULL: saving without a workspace throws, and the SQLite triggers refuse a NULL insert or update; workspace_id is indexed',
+        'Workspace scope NOT NULL: saving without a workspace throws, and the SQLite triggers refuse a NULL insert or update; workspace_id is indexed',
         app.code === 'workspace_required' &&
             /workspace_required/.test(rawInsert.message || '') &&
             /workspace_required/.test(rawUpdate.message || '') &&
@@ -144,7 +144,7 @@ const schedule = api.createSchedule('api14-a', { kind: 'interval', every: 1, uni
     const beforeB = listed(B)
     const nullGet = outcome(() => api.pipelineInWorkspace('api14-old-default', A))
     check(
-        'API-14 strict filter: pipelines with a NULL workspace are listed to no workspace and are a 404 everywhere',
+        'Workspace scope strict filter: pipelines with a NULL workspace are listed to no workspace and are a 404 everywhere',
         api.unassignedPipelineCount() === 4 &&
             !beforeA.some((id) => id.startsWith('api14-old')) &&
             !beforeB.some((id) => id.startsWith('api14-old')) &&
@@ -164,7 +164,7 @@ const schedule = api.createSchedule('api14-a', { kind: 'interval', every: 1, uni
     const runB = outcome(() => api.runInWorkspace('api14-old-run', B))
     const schedB = outcome(() => api.scheduleInWorkspace('api14-old-sched', B))
     check(
-        'API-14 backfill: a NULL pipeline takes its chat flow’s workspace, else the default; without either it stays unassigned; counts are returned for the log; a rerun is a no-op',
+        'Workspace scope backfill: a NULL pipeline takes its chat flow’s workspace, else the default; without either it stays unassigned; counts are returned for the log; a rerun is a no-op',
         first.pipelines === 4 &&
             first.fromFlow === 1 &&
             first.fromDefault === 0 &&
@@ -184,7 +184,7 @@ const schedule = api.createSchedule('api14-a', { kind: 'interval', every: 1, uni
         JSON.stringify({ first, second, third })
     )
     check(
-        'API-14 backfilled rows: visible to their workspace, invisible and 404 (pipeline, run, schedule) from workspace B',
+        'Workspace scope backfilled rows: visible to their workspace, invisible and 404 (pipeline, run, schedule) from workspace B',
         ['api14-old-flow', 'api14-old-default', 'api14-old-orphan'].every((id) => afterA.includes(id) && !afterB.includes(id)) &&
             afterB.includes('api14-old-both') &&
             !afterA.includes('api14-old-both') &&
@@ -219,7 +219,7 @@ const schedule = api.createSchedule('api14-a', { kind: 'interval', every: 1, uni
     const walkB = await walk(B)
     const rel = path.relative(uploadsRoot(), saved.path).split(path.sep)
     check(
-        'API-14 uploads: stored under uploads/<workspace>/<pipeline>/, refused for another workspace’s pipeline, readable only from that workspace (a folder walk skips other workspaces and legacy uploads)',
+        'Workspace scope uploads: stored under uploads/<workspace>/<pipeline>/, refused for another workspace’s pipeline, readable only from that workspace (a folder walk skips other workspaces and legacy uploads)',
         rel[0] === A &&
             rel[1] === 'api14-a' &&
             wrong?.status === 404 &&

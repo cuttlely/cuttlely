@@ -1,9 +1,9 @@
 /**
- * API-4b: POST /api/v1/prediction/:id checks the flow's API key before multer runs (key only, no session).
+ * POST /api/v1/prediction/:id checks the flow's API key before multer runs (key only, no session).
  * Test numbers follow cuttlely-api4b-prediction-upload-auth-spec.md v1.0 section 3.
  *
  * The real predictions route, controller, rate limiter, authorizeFlowAccess and error handler run behind supertest.
- * Storage spy (as in API-4's authorizeFlowAccess.test.ts): getMulterStorage() returns real multer over a counting
+ * Storage spy (as in authorizeFlowAccess.test.ts): getMulterStorage() returns real multer over a counting
  * StorageEngine that writes into a temp dir; `multerRuns` counts each time multer's middleware is entered.
  * The predictions and chatflows services are stand-ins: buildChatflow repeats utilBuildChatflow's external key check
  * (`if (!isInternal) validateFlowAPIKey(req, chatflow)`, buildChatflow.ts:1048-1052) so the old route order
@@ -176,7 +176,7 @@ const makeApp = (router: express.Router) => {
 
 const app = makeApp(predictionsRouter)
 
-// The route as it was on main before API-4b: multer, then the rate limiter, then the controller.
+// The route as it was before the key check moved ahead of multer: multer, then the rate limiter, then the controller.
 const oldRouter = express.Router()
 oldRouter.post(
     ['/', '/:id'],
@@ -239,7 +239,7 @@ afterAll(() => {
 
 beforeEach(resetCounters)
 
-describe('API-4b: /prediction checks the flow key before multer', () => {
+describe('Prediction access: /prediction checks the flow key before multer', () => {
     it('1: key-protected flow, no key, multipart with 2 files -> 401, 0 writes, multer not invoked', async () => {
         const res = await multipart(K)
         expect(res.status).toBe(401)
@@ -414,7 +414,7 @@ describe('API-4b: /prediction checks the flow key before multer', () => {
         expect(keyless.body.message).toBe(ORIGIN_ERROR)
         expectNoWritesAndNoMulter()
 
-        // JSON body: same status and body as the route before API-4b, where the controller refused it.
+        // JSON body: same status and body as the older route, where the controller refused it.
         const jsonNew = await request(app)
             .post(`/api/v1/prediction/${O}`)
             .set('Authorization', `Bearer ${KEY_O}`)
@@ -456,7 +456,7 @@ describe('API-4b: /prediction checks the flow key before multer', () => {
         expectNoWritesAndNoMulter()
         expect(mockState.controllerCalls).toBe(0)
 
-        // Before API-4b the controller checked the origin first, so the same keyless request got 403.
+        // In the older route the controller checked the origin first, so the same keyless request got 403.
         const old = await request(oldApp).post(`/api/v1/prediction/${O}`).set('Origin', DISALLOWED_ORIGIN).send({ question: 'hi' })
         expect(old.status).toBe(403)
     })
@@ -474,7 +474,7 @@ describe('API-4b: /prediction checks the flow key before multer', () => {
         expect(mockState.multerWrites).toEqual(['one.txt', 'two.txt'])
     })
 
-    it('18 (F-2, #30 review): multipart streaming: true, valid key, disallowed Origin -> JSON 403 before any SSE header, 0 writes', async () => {
+    it('18: multipart streaming: true, valid key, disallowed Origin -> JSON 403 before any SSE header, 0 writes', async () => {
         const res = await multipart(
             O,
             { Authorization: `Bearer ${KEY_O}`, Origin: DISALLOWED_ORIGIN },

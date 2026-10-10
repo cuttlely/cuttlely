@@ -1,5 +1,5 @@
 /**
- * API-1 spec v1.2 case 13a, agentflow v2 (review M2): drives the real executeAgentFlow call path and spies on
+ * Agentflow v2: drives the real executeAgentFlow call path and spies on
  * AnalyticHandler.getInstance, so a revert of the buildAgentflow.ts analytics call site (the credential leak on main)
  * fails here. A client tracer baseUrl must never reach the handler config. `analytics` is hard-denied, so no allowlist entry,
  * not even one on the Start node, lets it through.
@@ -100,7 +100,7 @@ const analyticsSeenByHandler = async (overrideConfig: Record<string, unknown> | 
     return { analytics: nodeData.inputs.analytics, options }
 }
 
-describe('API-1 case 13a (agentflow v2, executeAgentFlow): a client tracer baseUrl never reaches AnalyticHandler', () => {
+describe('Request overrides (agentflow v2, executeAgentFlow): a client tracer baseUrl never reaches AnalyticHandler', () => {
     it('(i) overrides OFF (the case main leaked): the handler gets no override, only the stored analytic config', async () => {
         for (const config of [undefined, { status: false, nodes: allow('Start', 'analytics'), variables: [] }]) {
             const { analytics, options } = await analyticsSeenByHandler(config)

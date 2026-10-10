@@ -37,7 +37,7 @@ const isPlainObject = (value: unknown): value is ICommonObject =>
     value !== null && typeof value === 'object' && !Array.isArray(value) && Object.getPrototypeOf(value) === Object.prototype
 
 /**
- * API-1: keys never applied from a request, whatever the allowlist says, because they carry credentials, decide where the
+ * Keys never applied from a request, whatever the allowlist says, because they carry credentials, decide where the
  * server sends traffic (and with it the operator's stored credentials), run as code, name a server path, or pick another
  * server resource by id. Taken from the input names of every node in packages/components/nodes and every credential in
  * packages/components/credentials; the patterns also cover nodes added later.
@@ -67,15 +67,15 @@ const TOKEN_SUFFIX_KEY = /[a-z0-9_]token$/i
 
 const lowerSet = (names: readonly string[]): ReadonlySet<string> => new Set(names.map((name) => name.toLowerCase()))
 
-// API-15: inputs the server fetches or opens, by suffix: openApiLink, yamlLink, repoLink (Link/Links) and webPath, caPemPath,
+// Inputs the server fetches or opens, by suffix: openApiLink, yamlLink, repoLink (Link/Links) and webPath, caPemPath,
 // clientPemPath, excludePaths, includePaths, ignorePath (Path/Paths). URL_KEY above already covers Url/URL/Uri, Endpoint,
 // Host, BaseUrl and basePath.
 const LINK_KEY = /links?$/i
 const PATH_SUFFIX_KEY = /paths?$/i
-// API-15: inputs the server fetches or runs whose names carry no suffix: the GitHub loader's API host (githubInstanceApi) and
+// Inputs the server fetches or runs whose names carry no suffix: the GitHub loader's API host (githubInstanceApi) and
 // the Supergateway MCP node's command line (`arguments`, which takes `--sse <url>` or `--stdio <command>`).
 const FETCH_INPUT_NAMES = lowerSet(['githubInstanceApi', 'arguments'])
-// API-15: file inputs. Every `file` input in packages/components/nodes, and the names mapExtToInputField and
+// File inputs. Every `file` input in packages/components/nodes, and the names mapExtToInputField and
 // mapMimeTypeToInputField give uploaded files (the File Loader reads those without declaring them). A value from the request
 // is never applied; only a file the server stored from this request's own multipart upload is (setServerUploadOverride).
 const FILE_INPUT_NAMES = lowerSet([
@@ -482,16 +482,16 @@ const isHardDeniedName = (key: string, credentialNames: CredentialNameRule, file
 export const isHardDeniedOverrideKey = (key: string, inputParams?: readonly OverrideInputParam[]): boolean =>
     isHardDeniedName(key, 'all') || isDeniedInputParam(findInputParam(inputParams, key))
 
-/** API-15: true when `key` is a file input (by name, or by the node's declared `file` type). */
+/** True when `key` is a file input (by name, or by the node's declared `file` type). */
 export const isFileInputKey = (key: string, inputParams?: readonly OverrideInputParam[]): boolean =>
     FILE_INPUT_NAMES.has(key.toLowerCase()) || findInputParam(inputParams, key)?.type === 'file'
 
-// API-15: file values the server itself stored from the request's multipart upload, per overrideConfig object and key. A value
+// File values the server itself stored from the request's multipart upload, per overrideConfig object and key. A value
 // the client sent under the same key is never in here, so it stays hard-denied.
 const serverUploads = new WeakMap<object, Map<string, string>>()
 
 /**
- * API-15: puts a file the server stored from this request's multipart upload (`FILE-STORAGE::[...]`) on `overrideConfig[field]`
+ * Puts a file the server stored from this request's multipart upload (`FILE-STORAGE::[...]`) on `overrideConfig[field]`
  * and records it as server-made. A later upload to the same field in the same request is appended; a value the client sent in
  * that field is replaced, never merged.
  */
@@ -508,14 +508,14 @@ export const setServerUploadOverride = (overrideConfig: ICommonObject, field: st
     serverUploads.set(overrideConfig, marks)
 }
 
-/** API-15: true when `overrideConfig[key]` is still exactly the value setServerUploadOverride put there. */
+/** True when `overrideConfig[key]` is still exactly the value setServerUploadOverride put there. */
 export const isServerUploadOverride = (overrideConfig: ICommonObject, key: string): boolean => {
     const value = serverUploads.get(overrideConfig)?.get(key)
     return value !== undefined && overrideConfig[key] === value
 }
 
 /**
- * API-15: a server-stored upload on a file input that no other rule denies. It still has to be allowlisted for the node.
+ * A server-stored upload on a file input that no other rule denies. It still has to be allowlisted for the node.
  */
 const isAllowedServerUpload = (overrideConfig: ICommonObject, key: string, inputParams?: readonly OverrideInputParam[]): boolean =>
     isServerUploadOverride(overrideConfig, key) &&
@@ -782,7 +782,7 @@ const getDeclaredStateKeys = (startState: unknown): Set<string> => {
 }
 
 /**
- * API-1: the per-key check for a `startState` override. Hard-denied key names (the override-key name rules, for example
+ * The per-key check for a `startState` override. Hard-denied key names (the override-key name rules, for example
  * `apiUrl`) and values holding a hard-denied key or nested past MAX_OVERRIDE_DEPTH are dropped. Then only keys the flow owner
  * declared on the Start node (`inputs.startState`) are kept; any other key, and any value that is not an array of `{ key, value }` or a plain object, is dropped.
  */
@@ -853,7 +853,7 @@ const nestedValueAllowed = (ignored: IgnoredKeys, config: string, value: unknown
 }
 
 /**
- * API-1: apply a prediction request's overrideConfig to one node's inputs, deny by default.
+ * Apply a prediction request's overrideConfig to one node's inputs, deny by default.
  *
  * 0. Hard-denied keys (isHardDeniedOverrideKey: `analytics`, credentials and credential-declared inputs, base URLs, hosts,
  *    endpoints, links, paths, ports, headers, code, server paths, fetched hosts and command lines, file inputs, resource
@@ -898,7 +898,7 @@ export const replaceInputsWithConfig = (
         }
 
         // Never from a request, whatever the allowlist says. A file the server stored from this request's own upload is the
-        // one exception for file inputs (API-15), and it still needs the allowlist below.
+        // one exception for file inputs, and it still needs the allowlist below.
         const inputParams = flowNodeData.inputParams as OverrideInputParam[] | undefined
         if (isHardDeniedOverrideKey(config, inputParams) && !isAllowedServerUpload(overrideConfig, config, inputParams)) {
             noteIgnored(ignored, HARD_DENIED_REASON, config)
@@ -942,7 +942,7 @@ export const replaceInputsWithConfig = (
 }
 
 /**
- * API-1 Q1: the request's `analytics` override for the agentflow tracer. `analytics` is hard-denied (it carries tracer
+ * The request's `analytics` override for the agentflow tracer. `analytics` is hard-denied (it carries tracer
  * credentials and base URLs), so this is always an empty object, even when overrides are on and `analytics` is allowlisted
  * on the Start node. A client-sent tracer field (for example `langFuse.baseUrl`) never reaches the tracer.
  */
@@ -953,7 +953,7 @@ export const getAllowedAnalyticsOverride = (overrideConfig: ICommonObject | unde
 }
 
 /**
- * API-1: the request's `startState` override for an agentflow's runtime state. Both checks must pass: API overrides are on
+ * The request's `startState` override for an agentflow's runtime state. Both checks must pass: API overrides are on
  * (the overrides switch) and `startState` is allowlisted on the Start node; then each key is checked on its own against the
  * keys declared on the Start node (filterStartStateOverride). Otherwise it is an empty object.
  */
@@ -983,7 +983,7 @@ export interface ServerFlowFields {
 }
 
 /**
- * API-1 (B1): the `$flow` object used to resolve `{{$flow.*}}` in Multi-Agent and Sequential Agent nodes. It is built from
+ * The `$flow` object used to resolve `{{$flow.*}}` in Multi-Agent and Sequential Agent nodes. It is built from
  * server-side fields only, the same fields buildFlow uses for chatflows; nothing from the request's overrideConfig is in it.
  */
 export const buildServerFlowConfig = (fields: ServerFlowFields): ICommonObject => ({
@@ -996,7 +996,7 @@ export const buildServerFlowConfig = (fields: ServerFlowFields): ICommonObject =
 })
 
 /**
- * API-1 (B1): the variables used to resolve `{{$vars.*}}` in Multi-Agent and Sequential Agent nodes. The workspace variables
+ * The variables used to resolve `{{$vars.*}}` in Multi-Agent and Sequential Agent nodes. The workspace variables
  * are copied (the shared list is never changed). A request var is added, as a static value, only when API overrides are on and
  * that var's own `variableOverrides` entry has `enabled === true`: the same per-key rule as `inputs.vars`. Prototype keys are
  * never copied.
@@ -1027,7 +1027,7 @@ export const getAllowedVariables = (
 const unmatchedLabelWarned = new Set<string>()
 
 /**
- * API-1: warn, once per flow per process, about allowlist entries whose node label matches no node in the flow, for example
+ * Warn, once per flow per process, about allowlist entries whose node label matches no node in the flow, for example
  * an allowlist saved as "ChatOpenAI" before upstream #5893 renamed that node's label to "OpenAI". Such entries silently
  * allow nothing. Only entries with at least one enabled parameter are reported. Values are never logged.
  * Returns the unmatched labels (empty when nothing was logged).

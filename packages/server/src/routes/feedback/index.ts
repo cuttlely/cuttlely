@@ -3,7 +3,7 @@ import feedbackController from '../../controllers/feedback'
 import { authorizeFeedbackCreate, authorizeFeedbackRead, authorizeFeedbackUpdate } from '../../utils/authorizeFlowAccess'
 const router = express.Router()
 
-// API-11: the flow's API key or a session in the flow's workspace, checked on the flow that owns the feedback or message.
+// The flow's API key or a session in the flow's workspace, checked on the flow that owns the feedback or message.
 
 // CREATE
 router.post(['/', '/:id'], authorizeFeedbackCreate, feedbackController.createChatMessageFeedbackForChatflow)

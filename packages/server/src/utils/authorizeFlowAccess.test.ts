@@ -1,5 +1,5 @@
 /**
- * API-4: POST /api/v1/attachments/:chatflowId/:chatId checks the flow's API key (or a session in the
+ * POST /api/v1/attachments/:chatflowId/:chatId checks the flow's API key (or a session in the
  * flow's workspace) before multer runs. Test numbers follow cuttlely-api4-attachments-auth-spec.md v1.0 section 4.
  *
  * The real attachments route, controller, service and createFileAttachment run behind supertest.
@@ -165,7 +165,7 @@ beforeEach(() => {
     for (const entry of uploadDirEntries()) fs.rmSync(path.join(mockState.uploadDir, entry), { force: true })
 })
 
-describe('API-4: attachments route checks the flow key before multer', () => {
+describe('Attachment access: attachments route checks the flow key before multer', () => {
     it('1: no key on key-protected flow K -> 401, zero storage writes, zero parser calls', async () => {
         const res = await upload(K)
         expect(res.status).toBe(401)
@@ -277,7 +277,7 @@ describe('API-4: attachments route checks the flow key before multer', () => {
     })
 })
 
-describe('API-4: defensive check in createFileAttachment and the reusable helper', () => {
+describe('Attachment access: defensive check in createFileAttachment and the reusable helper', () => {
     const directReq = (headers: Record<string, string> = {}, user?: object) =>
         ({ params: { chatflowId: K, chatId: CHAT }, headers, user, body: {}, files: [] } as unknown as Request)
 

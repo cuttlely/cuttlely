@@ -85,7 +85,7 @@ export async function searchPipeline(nameOrId, query, { k = 4, namespace, ctx = 
     return { pipeline: pipeline.name, version: parts.version, namespace: parts.namespace, store: parts.storeLabel, results: hits }
 }
 
-// The ETL Retriever's pipeline dropdown: this workspace's pipelines only; no workspace id throws (API-14).
+// The ETL Retriever's pipeline dropdown: this workspace's pipelines only; no workspace id throws.
 export function pipelineOptions(workspaceId) {
     return listPipelines({ workspaceId }).map((pipeline) => ({
         label: pipeline.name,
@@ -95,7 +95,7 @@ export function pipelineOptions(workspaceId) {
 }
 
 // The ETL Retriever's namespace dropdown, after a pipeline is selected. Empty when that pipeline has written no named
-// namespace (a local collection, or Pinecone's default). No workspace id throws, the same as pipelineOptions (API-14).
+// namespace (a local collection, or Pinecone's default). No workspace id throws, the same as pipelineOptions.
 export function namespaceOptions(pipelineName, workspaceId) {
     const name = String(pipelineName || '').trim()
     if (!name) return []

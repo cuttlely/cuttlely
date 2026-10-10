@@ -105,7 +105,7 @@ const UPLOAD_NAME = /[^A-Za-z0-9._-]+/g
 
 // Streams the request body to disk so a multi-GB upload never sits in memory; the returned path goes into Streaming Files.
 // Uploads are stored under the pipeline's workspace (uploads/<workspace>/<pipeline>/<uuid>/), and only a pipeline in
-// that workspace can read them (API-14). The caller has already checked the pipeline against the workspace.
+// that workspace can read them. The caller has already checked the pipeline against the workspace.
 export async function saveUpload(readable, fileName, { workspaceId, pipelineId } = {}) {
     const pipeline = getPipeline(pipelineId)
     if (!pipeline || !pipeline.workspaceId || pipeline.workspaceId !== requireWorkspaceId(workspaceId)) {

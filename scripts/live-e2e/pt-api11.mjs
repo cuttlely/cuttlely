@@ -1,4 +1,4 @@
-// API-11 live check: feedback endpoints and chat-id chained endpoints, called without a key on a key-protected flow.
+// Live check: feedback endpoints and chat-id chained endpoints, called without a key on a key-protected flow.
 // Usage: node scripts/live-e2e/pt-api11.mjs   (direct to 3100; writes pt-data/logs/api11-evidence.json under CUTTLELY_E2E_ROOT)
 // Never prints a key. The test canary is redacted in the evidence.
 import fs from 'node:fs'

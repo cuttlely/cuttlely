@@ -6,7 +6,7 @@ import { AddressInfo } from 'net'
 import { OPENAPI_SPEC_MAX_BYTES, assertSpecSize, dereferenceOpenApiSpec, fetchSpecDocument, parseSpecDocument } from './openApiSpec'
 
 /**
- * API-15. The "public" spec host is a local server on 127.0.0.2. These tests swap the default deny list for one that keeps
+ * OpenAPI spec loading. The "public" spec host is a local server on 127.0.0.2. These tests swap the default deny list for one that keeps
  * every private and metadata range but leaves 127.0.0.2 out, so the guard allows that host only. 127.0.0.1 stays denied: a
  * second server there counts any request that gets through.
  */
@@ -43,7 +43,7 @@ const yaml =
     (_req, res) =>
         res.writeHead(200, { 'content-type': 'application/yaml' }).end(body)
 
-describe('API-15 OpenAPI spec loading', () => {
+describe('OpenAPI spec loading', () => {
     const savedEnv = { check: process.env.HTTP_SECURITY_CHECK, deny: process.env.HTTP_DENY_LIST }
     let pub: Awaited<ReturnType<typeof listen>>
     let internal: Awaited<ReturnType<typeof listen>>

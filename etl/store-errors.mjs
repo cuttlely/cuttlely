@@ -9,7 +9,7 @@
 export const STORE_ERROR_CLASSES = ['record', 'config', 'transient', 'rate_limit', 'fatal']
 
 // Pinecone 4.0.0 maps 400 and 403 to PineconeBadRequestError, so a 403 is classed `record` and bisected; every record
-// of the batch is then rejected and the reject-ratio gate fails the run (PR #41 notes this).
+// of the batch is then rejected and the reject-ratio gate fails the run.
 export const PINECONE_ERROR_CLASSES = {
     PineconeBadRequestError: 'record',
     PineconeArgumentError: 'record',

@@ -1,5 +1,5 @@
 /**
- * API-1 B1: Multi-Agent and Sequential Agent nodes resolved `{{$flow.*}}` and `{{$vars.*}}` from the raw request
+ * Multi-Agent and Sequential Agent nodes resolved `{{$flow.*}}` and `{{$vars.*}}` from the raw request
  * overrideConfig (buildAgentGraph.ts worker, supervisor and sequential call sites), even with API overrides off. These tests
  * drive the real buildAgentGraph at all three call sites with stand-in node classes that record the inputs they are given.
  * `$flow` must come from server-side fields only; a request var may set `$vars` only when overrides are on and that var is
@@ -140,7 +140,7 @@ const SITES: [string, 'multi' | 'seq', string][] = [
 
 beforeEach(() => (logger.warn as jest.Mock).mockClear())
 
-describe.each(SITES)('API-1 B1 at the %s call site', (_site, shape, nodeName) => {
+describe.each(SITES)('Request overrides at the %s call site', (_site, shape, nodeName) => {
     it('overrides OFF: $flow.persona and $vars.region from the request are not used; $flow is server-built', async () => {
         for (const apiConfig of [undefined, { status: false, nodes: {}, variables: varsOn(['region', 'tier']) }]) {
             const inputs = (await initsFor(shape, apiConfig))[nodeName]

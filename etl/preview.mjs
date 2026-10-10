@@ -28,7 +28,7 @@ function existingIds(pipelineId, ids) {
 
 // Runs the first few documents of each source through every step without writing anything.
 export async function previewPipeline({ pipelineId = 'preview', flowData, limit = 5, chunkLimit = 30, embed = false, ctx = {} }) {
-    // Uploads resolve only inside the workspace the caller passed the check for (API-14).
+    // Uploads resolve only inside the workspace the caller passed the check for.
     const workspaceId = ctx.flowOptions?.workspaceId || ctx.workspaceId || null
     const { spec, problems, warnings } = compilePipeline(flowData)
     const result = {

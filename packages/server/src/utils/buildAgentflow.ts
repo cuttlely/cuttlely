@@ -1721,7 +1721,7 @@ export const executeAgentFlow = async ({
             }
         }
 
-        // startState override (API-1): the overrides switch, startState allowlisted on the Start node, and each key declared there
+        // startState override: the overrides switch, startState allowlisted on the Start node, and each key declared there
         const startStateOverride = getAllowedStartStateOverride(
             overrideConfig,
             apiOverrideStatus,
@@ -2014,7 +2014,7 @@ export const executeAgentFlow = async ({
     try {
         // A replay is not sent to tracing providers; its tokens come from each step's usage.
         if (!replay && (chatflow.analytic || tracingEnvEnabled())) {
-            // API-1: a request never sets the tracer config; analytics is hard-denied even when allowlisted
+            // A request never sets the tracer config; analytics is hard-denied even when allowlisted
             const analyticInputs: ICommonObject = getAllowedAnalyticsOverride(overrideConfig)
             analyticHandlers = AnalyticHandler.getInstance({ inputs: { analytics: analyticInputs } } as any, {
                 orgId,

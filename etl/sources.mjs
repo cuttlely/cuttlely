@@ -119,7 +119,7 @@ export function configHash(source) {
         .slice(0, 12)
 }
 
-// `workspaceId` is the pipeline's workspace: an upload path must be in that workspace's upload folder (API-14), and a
+// `workspaceId` is the pipeline's workspace: an upload path must be in that workspace's upload folder, and a
 // folder walk skips uploads that belong to other workspaces.
 function fileList(inputs, { workspaceId } = {}) {
     const entries = splitList(inputs.paths)

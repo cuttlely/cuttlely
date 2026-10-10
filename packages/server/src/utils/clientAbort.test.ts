@@ -1,6 +1,6 @@
 /**
- * API-3 (#12) and in-app internal predictions (#53): a client that disconnects from a streaming
- * prediction stops upstream generation.
+ * Client abort: a client that disconnects from a streaming prediction, through the API or an in-app internal
+ * prediction, stops upstream generation.
  *
  * The counting fake chat model below behaves like a provider SDK: it produces up to 650 tokens, one every 2 ms, and
  * stops only when the `signal` in its call options aborts (as the OpenAI SDK cancels its HTTP request). It counts
@@ -79,7 +79,7 @@ const runLikeAFlowiseNode = (model: CountingFakeChatModel, onToken: (token: stri
 /** 2 s on an idle loop, plus the slowest 2 ms timer this model already waited. A missed abort still fails the token cap. */
 const stopLimit = (model: CountingFakeChatModel) => MAX_STOP_MS + model.maxTimerOverrunMs
 
-describe('API-3: runWithAbortSignal reaches the chat model inside a node', () => {
+describe('Client abort: runWithAbortSignal reaches the chat model inside a node', () => {
     it('1: control (main) - a node chain run without the implicit signal ignores the abort and produces all 650 tokens', async () => {
         const model = new CountingFakeChatModel({})
         const controller = new AbortController()
@@ -141,7 +141,7 @@ describe('API-3: runWithAbortSignal reaches the chat model inside a node', () =>
     })
 })
 
-describe('API-3: client disconnect signal', () => {
+describe('Client abort: client disconnect signal', () => {
     it('6: onAbort fires once (right away for an already-aborted signal); its cleanup stops a later abort', () => {
         const calls: string[] = []
         const a = new AbortController()
@@ -164,7 +164,7 @@ describe('API-3: client disconnect signal', () => {
  * The real predictions controller streaming branch with a stand-in buildChatflow that does what utilBuildChatflow
  * does with the signal: link it to the run's own AbortController and run the node chain under runWithAbortSignal.
  */
-describe('API-3: streaming prediction, client disconnects after 3 tokens', () => {
+describe('Client abort: streaming prediction, client disconnects after 3 tokens', () => {
     const state = {
         model: undefined as CountingFakeChatModel | undefined,
         runError: undefined as unknown,
@@ -329,7 +329,7 @@ describe('API-3: streaming prediction, client disconnects after 3 tokens', () =>
  * In-app chat posts to /internal-prediction. That controller did not watch the response, so a disconnect
  * left the run's AbortController alone and the model ran to 650 tokens. Same bar as the public API.
  */
-describe('API-3: internal streaming prediction, client disconnects after 3 tokens', () => {
+describe('Client abort: internal streaming prediction, client disconnects after 3 tokens', () => {
     const state = {
         model: undefined as CountingFakeChatModel | undefined,
         runError: undefined as unknown,

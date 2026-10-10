@@ -1,4 +1,4 @@
-// Refusals are client errors: uploads turned off is 403, a file type the flow does not allow is 400 (API-9).
+// Refusals are client errors: uploads turned off is 403, a file type the flow does not allow is 400.
 jest.mock('./getRunningExpressApp', () => ({
     getRunningExpressApp: () => ({
         nodesPool: { componentNodes: { fileLoader: { filePath: 'cuttlely-test-file-loader' } } }

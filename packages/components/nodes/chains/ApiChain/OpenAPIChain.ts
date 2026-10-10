@@ -110,7 +110,7 @@ const initChain = async (nodeData: INodeData, options: ICommonObject) => {
     const yamlLink = nodeData.inputs?.yamlLink as string
     const yamlFileBase64 = nodeData.inputs?.yamlFile as string
 
-    // API-15: the spec is fetched (through secureFetch, with a timeout) and parsed here, capped at 1 MB, and the parsed
+    // The spec is fetched (through secureFetch, with a timeout) and parsed here, capped at 1 MB, and the parsed
     // object is handed to createOpenAPIChain. Given a string, langchain would fetch it with its own unguarded fetch when it
     // looks like a URL, and parse it with its own js-yaml copy.
     let spec: any

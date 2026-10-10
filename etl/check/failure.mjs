@@ -424,7 +424,7 @@ import { api, check, root, WS } from './lib.mjs'
         )
     }
 
-    // 79-81: decided on PR #10 (spec 7.11 v1.3.1; numbered 79-81 because 67-78 are E16/E17).
+    // 79-81: the fail-closed count check (spec 7.11 v1.3.1; numbered 79-81 because 67-78 are E16/E17).
     // 79: store_count_lagging. The count lags past the settle window while fetch-by-id confirms 0 missing.
     {
         const { t, id, ctx } = await setup('lagging')
@@ -463,7 +463,7 @@ import { api, check, root, WS } from './lib.mjs'
             }),
         '5xx': faults['5xx']
     }
-    // `describeIndexStats` passes its first call through: that is the run's store preflight (PR #41), and these cases
+    // `describeIndexStats` passes its first call through: that is the run's store preflight, and these cases
     // are about the count check that follows.
     const failing = (fake, method, kind, times) => {
         const real = fake[method]

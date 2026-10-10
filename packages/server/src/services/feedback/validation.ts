@@ -66,7 +66,7 @@ export const validateContent = (content: unknown): string => {
  * @param {Partial<IChatMessageFeedback>} feedback
  */
 export const validateFeedbackForCreation = async (feedback: Partial<IChatMessageFeedback>): Promise<Partial<IChatMessageFeedback>> => {
-    // API-11: a client id would make save() update that row, whatever flow it belongs to; the server assigns the id.
+    // A client id would make save() update that row, whatever flow it belongs to; the server assigns the id.
     delete feedback.id
     if (feedback.rating !== undefined) validateRating(feedback.rating)
     if (feedback.content !== undefined && feedback.content !== null) validateContent(feedback.content)
@@ -110,7 +110,7 @@ export const validateFeedbackForCreation = async (feedback: Partial<IChatMessage
 
 /**
  * Validates a feedback update and returns the only fields an update may change: `rating` and `content`.
- * API-11: every other field in the body (id, chatflowid, chatId, messageId, createdDate, ...) is ignored, so an update
+ * Every other field in the body (id, chatflowid, chatId, messageId, createdDate, ...) is ignored, so an update
  * can never move a row to another message, chat or flow.
  * @param {string} feedbackId
  * @param {Partial<IChatMessageFeedback>} feedback

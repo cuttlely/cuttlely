@@ -424,7 +424,7 @@ export const buildAgentGraph = async ({
     }
 }
 
-/** API-1 (B1): everything a Multi-Agent or Sequential Agent node needs for overrides and variables, built once per graph. */
+/** Everything a Multi-Agent or Sequential Agent node needs for overrides and variables, built once per graph. */
 interface AgentNodeContext {
     reactFlowNodes: IReactFlowNode[]
     flowNodeLabels: FlowNodeLabels
@@ -476,7 +476,7 @@ const getAgentNodeContext = async ({
 }
 
 /**
- * API-1 (B1): the one path by which worker, supervisor and sequential agent nodes get overrides and resolve variables.
+ * The one path by which worker, supervisor and sequential agent nodes get overrides and resolve variables.
  * Allowlisted overrides apply only when overrides are on (replaceInputsWithConfig). `{{$flow.*}}` resolves from the
  * server-built flow config and `{{$vars.*}}` from the allowed variables; the request's overrideConfig is never passed to
  * resolveVariables, so a client cannot set `$flow` values, or `$vars` values that are not allowlisted.

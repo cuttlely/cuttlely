@@ -1,5 +1,5 @@
 /**
- * API-4c: vector upsert and document-store upsert check the flow or the permission before multer.
+ * Vector upsert and document-store upsert check the flow or the permission before multer.
  * A 401 or 403 writes nothing.
  */
 import express, { NextFunction, Request, Response } from 'express'
@@ -169,7 +169,7 @@ afterEach(() => {
     fs.rmSync(mockState.uploadDir, { recursive: true, force: true })
 })
 
-describe('API-4c vector upsert', () => {
+describe('Vector upsert access', () => {
     const url = `/api/v1/vector/upsert/${FLOW}`
 
     it('no key or a wrong key is 401 and writes nothing', async () => {
@@ -214,7 +214,7 @@ describe('API-4c vector upsert', () => {
     })
 })
 
-describe('API-4c document-store upsert', () => {
+describe('Document-store upsert access', () => {
     const url = `/api/v1/document-store/upsert/${STORE}`
 
     it('no user is 401 and writes nothing', async () => {
