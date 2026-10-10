@@ -41,6 +41,7 @@
         "settings:default": "cd packages/server/bin && ./run settings",
         "test": "turbo run test",
         "test:coverage": "turbo run test:coverage",
+        "test:queue-abort": "node scripts/queue-abort-e2e.mjs",
         "clean": "pnpm -r clean",
         "nuke": "pnpm -r nuke && rimraf node_modules .turbo",
         "format": "prettier --write \"**/*.{ts,tsx,md}\"",

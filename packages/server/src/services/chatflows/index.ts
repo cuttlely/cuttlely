@@ -11,6 +11,7 @@ import { FLOWISE_COUNTER_STATUS, FLOWISE_METRIC_COUNTERS } from '../../Interface
 import { UsageCacheManager } from '../../UsageCacheManager'
 import { ChatFlow, EnumChatflowType } from '../../database/entities/ChatFlow'
 import { FlowVersionState } from '../../database/entities/FlowVersionState'
+import { Lead } from '../../database/entities/Lead'
 import { ChatMessage } from '../../database/entities/ChatMessage'
 import { ChatMessageFeedback } from '../../database/entities/ChatMessageFeedback'
 import { ScheduleTriggerType } from '../../database/entities/ScheduleRecord'
@@ -144,7 +145,15 @@ const deleteChatflow = async (
         if (!userPermittedTypes.includes(chatflow.type as EnumChatflowType))
             throw new InternalFlowiseError(StatusCodes.FORBIDDEN, `You do not have permission to delete this chatflow type`)
 
-        const dbResponse = await appServer.AppDataSource.getRepository(ChatFlow).delete({ id: chatflowId })
+        // The flow row and the rows that hold what people typed into it (leads with name, email and phone, messages,
+        // feedback, upsert history) go in one transaction: if any of them fails, the flow stays and nothing is half gone.
+        const dbResponse = await appServer.AppDataSource.transaction(async (manager) => {
+            await manager.getRepository(Lead).delete({ chatflowid: chatflowId })
+            await manager.getRepository(ChatMessageFeedback).delete({ chatflowid: chatflowId })
+            await manager.getRepository(ChatMessage).delete({ chatflowid: chatflowId })
+            await manager.getRepository(UpsertHistory).delete({ chatflowid: chatflowId })
+            return manager.getRepository(ChatFlow).delete({ id: chatflowId })
+        })
         void flowVersionsService.recordFlowDeletion(chatflow, actor)
         // The flow's draft and Publish instantly setting go with it. A leftover row is harmless, so a failure here
         // does not stop the delete.
@@ -156,15 +165,6 @@ const deleteChatflow = async (
         await documentStoreService.updateDocumentStoreUsage(chatflowId, undefined, workspaceId)
 
         if (chatflow.type === EnumChatflowType.ETL) await etlService.deletePipeline(chatflowId)
-
-        // Delete all chat messages
-        await appServer.AppDataSource.getRepository(ChatMessage).delete({ chatflowid: chatflowId })
-
-        // Delete all chat feedback
-        await appServer.AppDataSource.getRepository(ChatMessageFeedback).delete({ chatflowid: chatflowId })
-
-        // Delete all upsert history
-        await appServer.AppDataSource.getRepository(UpsertHistory).delete({ chatflowid: chatflowId })
 
         // delete schedules related to the chatflow if it's an agentflow
         if (chatflow.type === EnumChatflowType.AGENTFLOW) {
