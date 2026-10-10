@@ -15,6 +15,7 @@ concurrency:
     # Superseded PR runs are cancelled; scheduled and manual runs on main never are.
     cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
+    # Every pnpm/action-setup step takes the pnpm version from packageManager in package.json.
     # Cheap and required: runs on every PR push, drafts included, and on the daily run.
     lint:
         runs-on: ubuntu-latest
@@ -23,8 +24,6 @@ jobs:
         steps:
             - uses: actions/checkout@v6
             - uses: pnpm/action-setup@v4
-              with:
-                  version: 10.26.0
             - name: Use Node.js 24.15.0
               uses: actions/setup-node@v6
               with:
@@ -89,8 +88,6 @@ jobs:
         steps:
             - uses: actions/checkout@v6
             - uses: pnpm/action-setup@v4
-              with:
-                  version: 10.26.0
             - name: Use Node.js 24.15.0
               uses: actions/setup-node@v6
               with:
@@ -117,8 +114,6 @@ jobs:
         steps:
             - uses: actions/checkout@v6
             - uses: pnpm/action-setup@v4
-              with:
-                  version: 10.26.0
             - name: Use Node.js 24.15.0
               uses: actions/setup-node@v6
               with:
@@ -169,8 +164,6 @@ jobs:
         steps:
             - uses: actions/checkout@v6
             - uses: pnpm/action-setup@v4
-              with:
-                  version: 10.26.0
             - name: Use Node.js 24.15.0
               uses: actions/setup-node@v6
               with:
