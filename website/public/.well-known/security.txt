@@ -1,0 +1,5 @@
+Contact: https://github.com/cuttlely/cuttlely/security/advisories/new
+Policy: https://cuttlely.com/security/
+Preferred-Languages: en
+Canonical: https://cuttlely.com/.well-known/security.txt
+Expires: 2027-10-10T00:00:00.000Z

@@ -46,8 +46,8 @@ node etl/check.mjs --stress   # adds a generated 1,000,000-row CSV and a 401-fil
 ## Local verify
 
 ```bash
-pnpm verify                   # the full gate; `pnpm verify --help` lists the 21 steps
-pnpm verify --fast            # lint, typecheck, verify-test, chat-widget, unit, server-settings-ui, handoff-test, render-blueprint, identity-migration
+pnpm verify                   # the full gate; `pnpm verify --help` lists the 22 steps
+pnpm verify --fast            # lint, typecheck, verify-test, website-docs, chat-widget, unit, server-settings-ui, handoff-test, render-blueprint, identity-migration
 pnpm verify --skip smoke      # skip one step locally; repeat --skip for more. Not for the merge gate
 pnpm verify:comment           # prints the summary for a pull request comment
 CUTTLELY_VERIFY_JEST_WORKERS=4 pnpm verify   # unit Jest workers; default 50%
@@ -189,6 +189,10 @@ bash scripts/docker-smoke.sh                                        # build, sta
 ```
 
 Compose mounts a volume at `/var/cuttlely` (the same layout as the Render disk) and uses SQLite. `CUTTLELY_IMAGE` pins a release or names a local build. Copy `.env.example` to `.env` only to override a default; never commit `.env`. `docker/Dockerfile` refuses to build; use the root `Dockerfile`.
+
+## Website
+
+The website source is `website/` (Astro and Starlight, static, with its own npm lockfile outside the pnpm workspace). The docs are written only in `docs/`; `website/scripts/sync-docs.mjs` copies them in before each build. `website/README.md` has the commands (`npm ci`, `npm run dev`, `npm run build`, `npm test`). `pnpm verify` runs the website unit tests and the `website-docs` link check without installing the website, so a broken link in `docs/` fails the gate.
 
 ## Release
 

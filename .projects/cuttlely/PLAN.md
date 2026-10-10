@@ -24,7 +24,7 @@
 | 18  | First public release, v1.0.0                                                                     | Next                                                                                     |
 | 19  | Builder UI for harness credentials and MCP servers                                               | Later                                                                                    |
 | 20  | Convert remaining `adapt` catalog rows when a harness needs them (D5)                            | Later, never blocking                                                                    |
-| 21  | Project documentation website                                                                    | Planned after the first release                                                          |
+| 21  | Project website with the docs (`website/`)                                                       | Built. Publishing it is a maintainer step                                                |
 
 ## Next concrete tasks
 

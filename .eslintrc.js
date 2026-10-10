@@ -21,7 +21,11 @@ module.exports = {
         '**/coverage',
         '**/package-lock.json',
         // Vendored NousResearch Hermes. It has its own Prettier config and is not Cuttlely application code.
-        'hermes/**'
+        'hermes/**',
+        // Written by website/scripts/sync-docs.mjs and Astro at build time (copies of docs/).
+        'website/src/content/**',
+        'website/src/generated/**',
+        'website/.astro/**'
     ],
     plugins: ['unused-imports'],
     rules: {

@@ -23,7 +23,7 @@ Cuttlely 1.0.0. The product version is the root `package.json` and `packages/ser
 
 ## How it is checked
 
--   `pnpm verify` on Node 24 is the merge gate (DECISIONS D27). The full run has 21 steps; `pnpm verify --help` lists them. `--fast` is the docs-only subset.
+-   `pnpm verify` on Node 24 is the merge gate (DECISIONS D27). The full run has 22 steps; `pnpm verify --help` lists them. `--fast` is the docs-only subset.
 -   `node harness/check.mjs` and `node etl/check.mjs` are offline checks with no model key and no network.
 -   The `smoke` step boots the built server; the `upgrade` step starts it on data from an older release; the `safeboot` step checks the settings rollback.
 -   The daily scheduled CI run on `main` also runs `pnpm test:queue-abort`, an end-to-end queue-mode abort test against a Redis service.
