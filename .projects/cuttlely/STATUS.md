@@ -36,4 +36,4 @@ Cuttlely 1.0.0. The product version is the root `package.json`, `packages/server
 
 ## Not done
 
--   The questions and known gaps in [OPEN.md](./OPEN.md). Repository settings for the release are one of those rows. The next cut is 1.0.1 ([PLAN.md](./PLAN.md)).
+-   The questions and known gaps in [OPEN.md](./OPEN.md). Repository settings for the release are one of those rows. The next cut is 1.0.1, and the upgrade fixture is still the 2026-10-08 baseline ([PLAN.md](./PLAN.md)).

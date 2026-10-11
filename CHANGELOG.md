@@ -19,6 +19,10 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 -   `cuttlely@1.0.0` and `@cuttlely/chat@1.0.0` on npm. They were built from a commit after the v1.0.0 tag, so they do not match it. Use 1.0.1 or later. They stay installable and are marked deprecated on npm.
 
+### Security
+
+-   Dependencies on patched releases: DOMPurify 3.4.16, sanitize-html 2.17.7, moment 2.31.0, `@langchain/mongodb` 1.3.1 and `@langchain/redis` 1.1.1.
+
 ## [1.0.0] - 2026-10-10
 
 The first Cuttlely release. It covers everything on `main` up to the release tag.
