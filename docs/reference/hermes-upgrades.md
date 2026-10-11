@@ -40,6 +40,7 @@ The pin today is v0.21.4+canary, commit `f42f579`.
 | 0003 API server MCP wait | `gateway/platforms/api_server.py`                                                                              | An API run waits for MCP tools before it builds the agent. Its usage also reports the cached prompt tokens.                                         |
 | 0004 skills_read toolset | `toolsets.py`                                                                                                  | A read-only skills toolset (`skills_list`, `skill_view`) for specialists with playbooks.                                                            |
 | 0005 models.dev offline  | `agent/models_dev.py`                                                                                          | No models.dev request unless `CUTTLELY_MODELS_DEV=1`. Cached data still serves; lookups without data fall through to the other sources.             |
+| 0006 security pins       | `pyproject.toml`, `uv.lock`, `package.json`, `tests-js/package.json`                                           | Raises dependencies that have published security advisories to fixed versions. Drop it once upstream ships them.                                    |
 
 ## Upgrade Hermes
 
