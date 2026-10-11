@@ -1,0 +1,25 @@
+---
+// A content screenshot. The link is the full image when JavaScript is off.
+// The footer script opens the viewer instead and treats the link as a button.
+import { Image, getImage } from 'astro:assets'
+import type { ImageMetadata } from 'astro'
+import { enlargeLabel } from '../scripts/screenshot-zoom.mjs'
+
+interface Props {
+    src: ImageMetadata
+    alt: string
+    widths?: number[]
+    sizes?: string
+    loading?: 'lazy' | 'eager'
+    style?: string
+    class?: string
+}
+const { src, alt, ...imageProps } = Astro.props
+const full = await getImage({ src, width: src.width, height: src.height })
+// Root-relative, including a dev-server query if there is one. An absolute site URL would miss 'self' on a preview.
+const href = full.src.startsWith('http') ? `${new URL(full.src).pathname}${new URL(full.src).search}` : full.src
+---
+
+<a class="cl-zoom" href={href} role="button" draggable="false" aria-label={enlargeLabel(alt)}>
+    <Image src={src} alt={alt} {...imageProps} />
+</a>

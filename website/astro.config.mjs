@@ -2,8 +2,10 @@
 // scripts/sync-docs.mjs copies ../docs (and the README quickstart, CHANGELOG, SECURITY, CREDITS) into
 // src/content/docs before every build, so the repository stays the single source of truth.
 import fs from 'node:fs'
+import { fileURLToPath } from 'node:url'
 import { defineConfig } from 'astro/config'
 import starlight from '@astrojs/starlight'
+import { applyScreenshotZoom } from './scripts/apply-screenshot-zoom.mjs'
 import { REPO_URL, SITE_URL } from './scripts/site-config.mjs'
 
 const sidebarFile = new URL('./src/generated/sidebar.json', import.meta.url)
@@ -15,6 +17,14 @@ export default defineConfig({
     // No telemetry, analytics or outside requests from the build or the pages.
     devToolbar: { enabled: false },
     integrations: [
+        {
+            name: 'screenshot-zoom',
+            hooks: {
+                'astro:build:done': async ({ dir }) => {
+                    applyScreenshotZoom(fileURLToPath(dir))
+                }
+            }
+        },
         starlight({
             title: 'Cuttlely',
             description: 'The open-source agent platform for applications.',

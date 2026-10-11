@@ -3,6 +3,7 @@
 import StarlightPage from '@astrojs/starlight/components/StarlightPage.astro'
 import { Code, Icon } from '@astrojs/starlight/components'
 import { Image } from 'astro:assets'
+import ZoomableImage from '../components/ZoomableImage.astro'
 import laptop from '../assets/cuttlely-mascot-laptop-512.webp'
 import demoChart from '../content/docs/docs/images/try-the-demo/demo-chart.png'
 import analystChat from '../content/docs/docs/images/harnesses/canvas-chat-analyst.png'
@@ -147,7 +148,7 @@ const installs = [
                 <a class="cl-link-arrow" href="/docs/how-to/harnesses/">Harnesses guide <Icon name="right-arrow" /></a>
             </div>
             <figure class="cl-shot">
-                <Image
+                <ZoomableImage
                     src={analystChat}
                     alt="A harness canvas with its test chat open. The run card says Harness Prime sent work to analyst, and the answer shows a table of open tasks."
                     widths={[640, 960, 1440]}
@@ -192,8 +193,8 @@ const installs = [
                 {
                     tools.map((tool) => (
                         <li class="cl-tile">
-                            <a href={tool.href}>
-                                <Focus src={tool.image} alt={tool.alt} {...tool.focus} widths={[720, 1080, 1440]} sizes="(min-width: 68rem) 760px, 100vw" />
+                            <Focus src={tool.image} alt={tool.alt} {...tool.focus} widths={[720, 1080, 1440]} sizes="(min-width: 68rem) 760px, 100vw" />
+                            <a class="cl-tile-link" href={tool.href}>
                                 <span class="cl-tile-body">
                                     <span class="cl-tile-title cl-display">{tool.title}</span>
                                     <span class="cl-tile-text">{tool.text}</span>
@@ -252,7 +253,7 @@ const installs = [
                 }
             </ul>
             <figure class="cl-shot cl-shot-wide">
-                <Image
+                <ZoomableImage
                     src={serverSettings}
                     alt="Admin, Server settings, All settings: every setting with its section, where its value comes from, and its value."
                     widths={[720, 1080, 1440]}
