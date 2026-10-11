@@ -511,6 +511,123 @@
     border: 1px solid var(--cuttlely-border);
     overflow: hidden;
 }
+/* The specialists and the decision fold under a native disclosure, so the section stays short. */
+.cl-case-fold {
+    display: grid;
+    justify-items: center;
+    gap: 0.75rem 1.25rem;
+    margin-top: 1.75rem;
+}
+.cl-case-more {
+    width: 100%;
+}
+.cl-case-toggle {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.6rem;
+    width: fit-content;
+    max-width: 100%;
+    min-height: 2.75rem;
+    margin-inline: auto;
+    padding: 0.65rem 1.25rem;
+    border: 1px solid var(--cuttlely-border);
+    border-radius: 999px;
+    background: var(--cuttlely-surface);
+    color: var(--sl-color-white);
+    font-weight: 700;
+    text-align: center;
+    cursor: pointer;
+    list-style: none;
+    box-shadow: 0 16px 36px -28px var(--cuttlely-glow);
+    transition: border-color 0.2s ease, background-color 0.2s ease, box-shadow 0.2s ease;
+}
+.cl-case-toggle::-webkit-details-marker,
+.cl-case-toggle::marker {
+    display: none;
+    content: '';
+}
+.cl-case-toggle:hover {
+    border-color: var(--sl-color-text-accent);
+    background: var(--cuttlely-surface-2);
+    box-shadow: 0 18px 40px -24px var(--cuttlely-glow);
+}
+.cl-case-toggle:focus-visible {
+    outline: 3px solid var(--sl-color-text-accent);
+    outline-offset: 3px;
+}
+.cl-case-chevron {
+    flex: none;
+    width: 0.55rem;
+    height: 0.55rem;
+    margin-top: -0.25rem;
+    border-right: 2px solid currentColor;
+    border-bottom: 2px solid currentColor;
+    transform: rotate(45deg);
+    transition: transform 0.25s ease;
+}
+.cl-case-more[open] .cl-case-chevron {
+    margin-top: 0.25rem;
+    transform: rotate(-135deg);
+}
+.cl-case-toggle-open,
+.cl-case-more[open] .cl-case-toggle-closed {
+    display: none;
+}
+.cl-case-more[open] .cl-case-toggle-open {
+    display: inline;
+}
+.cl-case-more-body .cl-case-steps {
+    margin-top: 1.5rem;
+}
+.cl-case-more[open] .cl-case-more-body {
+    animation: cl-case-reveal 0.35s ease-out;
+}
+@keyframes cl-case-reveal {
+    from {
+        opacity: 0;
+        transform: translateY(-0.5rem);
+    }
+    to {
+        opacity: 1;
+        transform: none;
+    }
+}
+/* Closed on a wide screen: the toggle in the middle and the guide link beside it. Open: the link goes under the details. */
+@media (min-width: 48rem) {
+    .cl-case-fold {
+        grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+        align-items: center;
+    }
+    .cl-case-more {
+        grid-column: 2;
+        grid-row: 1;
+        width: auto;
+    }
+    .cl-case-guide {
+        grid-column: 3;
+        grid-row: 1;
+        justify-self: start;
+    }
+    .cl-case-more[open] {
+        grid-column: 1 / -1;
+        width: 100%;
+    }
+    .cl-case-more[open] + .cl-case-guide {
+        grid-column: 1 / -1;
+        grid-row: 2;
+        justify-self: center;
+    }
+}
+@media (prefers-reduced-motion: reduce) {
+    .cl-case-toggle,
+    .cl-case-chevron {
+        transition: none;
+    }
+    .cl-case-more[open] .cl-case-more-body {
+        animation: none;
+    }
+}
 
 /* ---------- home: split sections ---------- */
 .cl-split {
