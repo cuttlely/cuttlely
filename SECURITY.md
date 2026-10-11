@@ -17,6 +17,8 @@ Do not put exploit steps, payloads or proof-of-concept code in a public issue, a
 
 If the report form is not available to you, open a public issue that says only that you have a security report. Wait for a maintainer to reply before you send any details.
 
+Do not email vulnerability details. The general address, [info@cuttlely.com](mailto:info@cuttlely.com), is for questions that are not security reports.
+
 ## Supported versions
 
 Security fixes ship as a patch release of the latest minor version. [Releases and support](./docs/releases.md) has the full policy.

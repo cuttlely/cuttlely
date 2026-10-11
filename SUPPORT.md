@@ -24,6 +24,10 @@ Remove API keys, passwords, tokens and personal data from anything you paste. Cu
 
 Feature ideas are welcome as issues too.
 
+## Contact the team
+
+For partnerships, press, or a question that doesn't belong in a public issue, email [info@cuttlely.com](mailto:info@cuttlely.com). Bugs and feature ideas still go to issues, so everyone can find the answer.
+
 ## Security problems
 
 Do not open a public issue for a vulnerability. Follow [SECURITY.md](./SECURITY.md).
