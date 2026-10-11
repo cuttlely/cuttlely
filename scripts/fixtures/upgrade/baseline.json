@@ -1,8 +1,8 @@
 {
     "about": "Data written by an older Cuttlely, for scripts/upgrade-check.mjs. Demo data only; the credential value is a placeholder.",
     "baseline": {
-        "commit": "1603589e07c3cdcdc0431f79150f7a9e6e28463e",
-        "subject": "Release v1.0.1",
+        "commit": "42e4fdbe9bd3c60da1461435589b7006f299e7f4",
+        "subject": "Release v1.0.2",
         "date": "2026-10-11"
     },
     "layout": "Docker volume layout: data/ (database.sqlite, encryption.key), versions/, harnesses/",
@@ -13,31 +13,31 @@
     "expected": {
         "flows": [
             {
-                "id": "21a06f0f-6b0a-45ad-b134-dc206c4f5740",
+                "id": "a54d1eec-f0d7-4deb-a56f-a67c5ecd9c69",
                 "name": "Bakery helper",
                 "type": "CHATFLOW",
                 "nodes": 3,
-                "versions": ["0c0790b184dbb8399d339d8c7b97cb1bf8879b28", "8fed7389760d5f97d9d554ba084854c6c51c9495"],
+                "versions": ["3b86fd0200a0ab48c6b67ef6e74337b61e42d5a0", "db8110dd08a0a316f8a38427bcde3a3961df3737"],
                 "predict": true
             },
             {
-                "id": "e34d71a8-5586-4aa9-aeed-5280879114f8",
+                "id": "77ee1d9e-7bb6-4443-9187-251aad1190f1",
                 "name": "Bakery orders",
                 "type": "AGENTFLOW",
                 "nodes": 2,
-                "versions": ["47ca6bba1f446e210a7f97a271724185bd42ebc7"]
+                "versions": ["b6516a93532f4f3f63b2703cf136ce686cbd7bce"]
             },
             {
-                "id": "0744b58b-fd69-46c3-b436-a0a419d9f624",
+                "id": "221d5bc2-459c-4196-b69f-d81af7f297df",
                 "name": "bakery-team",
                 "type": "HARNESS",
                 "nodes": 4,
-                "versions": ["b47ffadeed15f818c2ec35aada350455c84756ab"]
+                "versions": ["3973d3913ec88133cd769a7a049ef2715690655b"]
             }
         ],
         "credentials": [
             {
-                "id": "a4f56216-b74d-4d46-94a4-c5de351cfa7e",
+                "id": "2dde615c-03d9-4033-9574-7c79d3fd745b",
                 "name": "Bakery OpenAI",
                 "credentialName": "openAIApi"
             }
@@ -45,7 +45,7 @@
         "harnesses": [
             {
                 "name": "bakery-team",
-                "chatflowId": "0744b58b-fd69-46c3-b436-a0a419d9f624",
+                "chatflowId": "221d5bc2-459c-4196-b69f-d81af7f297df",
                 "specialists": ["baker", "orders"]
             }
         ]
