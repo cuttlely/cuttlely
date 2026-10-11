@@ -4,7 +4,7 @@
     "description": "Start Cuttlely in Docker. The open-source agent platform for applications.",
     "type": "module",
     "bin": {
-        "cuttlely": "./bin/cuttlely.js"
+        "cuttlely": "bin/cuttlely.js"
     },
     "files": [
         "bin",
