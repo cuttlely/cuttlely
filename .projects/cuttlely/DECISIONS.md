@@ -161,3 +161,7 @@ Tagline: "The open-source agent platform for applications." Headline: "Your appl
 ## D40. npm publishes the launcher and the chat widget
 
 The server is not an npm package: a full install needs the Python agent runtime, which the Docker image carries. The published `cuttlely` package is `packages/cli`. `npx cuttlely` and a global install pull `ghcr.io/cuttlely/cuttlely`, tagged with that package's version unless `--tag` is set, and run it. `@cuttlely/chat` (`packages/chat-widget`) is the embeddable chat widget. The server still serves that build at `/embed/chat.js` (D33). The root package is named `cuttlely-workspace` and stays private, because pnpm allows one workspace project per package name and the published name is `cuttlely`. A maintainer runs `npm publish` for both packages after the image is pushed. `NPM_TOKEN` is an environment variable on that machine and is never stored in the repository. This supersedes the last sentence of D33.
+
+## D41. LICENSE.md is the unmodified Apache 2.0 text
+
+`LICENSE.md` holds the Apache License 2.0 text exactly as published at https://www.apache.org/licenses/LICENSE-2.0.txt, appendix included, with nothing added above or below it. Copyright lines and upstream attribution live in `NOTICE` and `CREDITS.md`, not in `LICENSE.md`. `.prettierignore` lists `LICENSE.md` so the formatter cannot reflow it. Why: GitHub and other license detectors recognize only the unmodified text, and an edited file shows as an unidentified license. This supersedes the mention of `LICENSE.md` as a place for credits in D1.
