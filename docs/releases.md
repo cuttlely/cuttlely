@@ -10,7 +10,7 @@ Cuttlely uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html): `MAJOR
 -   **Minor** (`1.1.0`): new features and settings that existing installs can ignore. A new setting ships with a default that keeps today's behavior, unless the change fixes a security problem.
 -   **Patch** (`1.0.1`): fixes only, with no new settings.
 
-The product version is the `version` in the root `package.json` and in `packages/server/package.json`. The About dialog and `GET /api/v1/version` report the server package's version. The other workspace packages keep their own internal version numbers, which are not the product version.
+The product version is the `version` in the root `package.json`, `packages/server/package.json`, `packages/cli/package.json` and `packages/chat-widget/package.json`. The About dialog and `GET /api/v1/version` report the server package's version. The `cuttlely` launcher and `@cuttlely/chat` use that same version, because the launcher's default image tag is its own version. The other workspace packages keep their own internal version numbers, which are not the product version.
 
 Each release is an annotated Git tag `vX.Y.Z`, a GitHub release whose notes come from the changelog, and a Docker image tagged `X.Y.Z`. [Cutting a release](#cutting-a-release) covers how a maintainer makes one.
 
@@ -79,7 +79,7 @@ You need Node 24, pnpm, Docker and the GitHub CLI signed in (`gh auth status`). 
 It then runs these steps, in order:
 
 1. Run the full `pnpm verify`.
-2. Set the version in `package.json` and `packages/server/package.json`.
+2. Set the version in `package.json`, `packages/server/package.json`, `packages/cli/package.json` and `packages/chat-widget/package.json`.
 3. Date the changelog section, open a fresh `## [Unreleased]`, and update the compare links.
 4. Commit `Release vX.Y.Z` and create the annotated tag `vX.Y.Z`.
 5. Build the image as `ghcr.io/cuttlely/cuttlely:X.Y.Z` and `:latest` for `linux/amd64`. Labels record the version and the commit.
@@ -96,3 +96,21 @@ Two flags go further, and neither is ever the default:
 A run that stopped part way can be started again with the same version. When the release commit is already tagged on this machine, `pnpm release X.Y.Z` reuses it and skips the steps that are done, for example `pnpm release 1.0.0 --push --publish` after a draft run.
 
 The release commit is pushed straight to `main`. When `main` requires pull requests, the maintainer who cuts releases needs to be allowed to bypass that rule.
+
+## Publish the npm packages
+
+GitHub Actions does not publish to npm. After the image is in the registry (`pnpm release --push`, or `--push --publish`), a maintainer publishes two packages from that same checkout:
+
+-   `cuttlely` (`packages/cli`) is the Docker launcher. `npx cuttlely` pulls `ghcr.io/cuttlely/cuttlely` at the package's version tag.
+-   `@cuttlely/chat` (`packages/chat-widget`) is the embeddable chat widget.
+
+The server itself is not an npm package. The image carries the Python agent runtime.
+
+`NPM_TOKEN` is an npm access token for the cuttlely org, provided as an environment variable. It is not stored in this repository. `pnpm release` already builds the widget. If `packages/chat-widget/dist` is missing, run `pnpm --dir packages/chat-widget build` first.
+
+```bash
+npm publish packages/cli --userconfig <(printf '//registry.npmjs.org/:_authToken=%s\n' "$NPM_TOKEN")
+npm publish packages/chat-widget --userconfig <(printf '//registry.npmjs.org/:_authToken=%s\n' "$NPM_TOKEN")
+```
+
+Both packages set `publishConfig.access` to `public`. There is no publish workflow.

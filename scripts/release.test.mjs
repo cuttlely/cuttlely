@@ -18,6 +18,7 @@ import {
     preflightProblems,
     releaseNotes,
     releaseSection,
+    VERSION_FILES,
     setPackageVersion,
     slugFromRemote,
     updateChangelog
@@ -226,8 +227,18 @@ function fixture() {
         sh(repo, 'git', ['config', k, v])
     }
     fs.mkdirSync(path.join(repo, 'packages', 'server'), { recursive: true })
-    fs.writeFileSync(path.join(repo, 'package.json'), '{\n    "name": "cuttlely",\n    "version": "1.0.0",\n    "private": true\n}\n')
+    fs.mkdirSync(path.join(repo, 'packages', 'cli'), { recursive: true })
+    fs.mkdirSync(path.join(repo, 'packages', 'chat-widget'), { recursive: true })
+    fs.writeFileSync(
+        path.join(repo, 'package.json'),
+        '{\n    "name": "cuttlely-workspace",\n    "version": "1.0.0",\n    "private": true\n}\n'
+    )
     fs.writeFileSync(path.join(repo, 'packages', 'server', 'package.json'), '{\n    "name": "flowise",\n    "version": "1.0.0"\n}\n')
+    fs.writeFileSync(path.join(repo, 'packages', 'cli', 'package.json'), '{\n    "name": "cuttlely",\n    "version": "1.0.0"\n}\n')
+    fs.writeFileSync(
+        path.join(repo, 'packages', 'chat-widget', 'package.json'),
+        '{\n    "name": "@cuttlely/chat",\n    "version": "1.0.0"\n}\n'
+    )
     fs.writeFileSync(path.join(repo, 'CHANGELOG.md'), CHANGELOG)
     sh(repo, 'git', ['add', '.'])
     sh(repo, 'git', ['commit', '-q', '-m', 'init'])
@@ -353,7 +364,7 @@ test('a minor release bumps both package files; then a resumed run drafts, and -
     fs.rmSync(`${f.dir}/released`)
     let res = f.runRelease(['minor', '--local', '--skip-image-check'])
     assert.equal(res.code, 0, res.out)
-    for (const file of ['package.json', 'packages/server/package.json']) {
+    for (const file of VERSION_FILES) {
         assert.equal(JSON.parse(fs.readFileSync(path.join(f.repo, file), 'utf8')).version, '1.1.0', file)
     }
     res = f.runRelease(['1.1.0', '--push', '--publish', '--skip-image-check'])

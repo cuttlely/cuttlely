@@ -28,7 +28,7 @@
 
 ## Next concrete tasks
 
-1. **Release v1.0.0.** No tag exists and no image is published. `CHANGELOG.md` is still `## [1.0.0] - Unreleased`. A maintainer runs `pnpm release --dry-run`, then `pnpm release`, then `--push --publish` (RUNBOOK, Release). That run dates the heading and opens a fresh `## [Unreleased]`. Then make the image public and check that the README Docker install pulls it. Repository settings for the release are still to turn on (OPEN).
+1. **Release v1.0.0.** No tag exists and no image is published. `CHANGELOG.md` is still `## [1.0.0] - Unreleased`. A maintainer runs `pnpm release --dry-run`, then `pnpm release`, then `--push --publish` (RUNBOOK, Release). That run dates the heading and opens a fresh `## [Unreleased]`. Then make the image public and check that the README Docker install pulls it. After the image is pushed, publish `cuttlely` and `@cuttlely/chat` with `npm publish` and `NPM_TOKEN` set in the environment (RUNBOOK, Release). Repository settings for the release are still to turn on (OPEN).
 2. **After v1.0.0.** Refresh the upgrade fixture from the v1.0.0 tag (D31). Check whether GitHub Actions runs on pull requests, and if it does, decide whether it joins the merge gate (OPEN).
 3. **Live checks that need real credentials.** A live credentialed run on `CUTTLELY_HARNESS_QUEUE=external` before switching its default; a live ETL run against a hosted vector store; a live upload-harness turn on a large file. Never invent keys; use a maintainer's test credentials.
 4. **Later.** The canvas card look: both compact and classic cards are offered (`CANVAS_CARD_LOOK`); decide after the first release whether classic stays. The dedicated analyst node. A builder UI for harness credentials and MCP servers.

@@ -18,6 +18,7 @@ Conventions, do and don't, and lessons a newcomer would otherwise relearn. Add a
 -   Guides use real screenshots taken from a running server, with made-up data.
 -   Formatting follows the root Prettier config (4 spaces, single quotes, no semicolons, print width 140). Do not reformat `hermes/`.
 -   The website home closing section uses the laptop mascot (`website/src/assets/cuttlely-mascot-laptop-512.webp`). The 404 page keeps the neutral pose.
+-   The published npm package named `cuttlely` is `packages/cli`. The root `package.json` name is `cuttlely-workspace` and stays private. pnpm rejects two workspace projects with the same name.
 
 ## Do
 

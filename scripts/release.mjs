@@ -23,7 +23,18 @@ import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 
-export const VERSION_FILES = ['package.json', 'packages/server/package.json']
+export const VERSION_FILES = [
+    'package.json',
+    'packages/server/package.json',
+    'packages/cli/package.json',
+    'packages/chat-widget/package.json'
+]
+
+export function formatList(items) {
+    if (items.length <= 1) return items.join('')
+    if (items.length === 2) return `${items[0]} and ${items[1]}`
+    return `${items.slice(0, -1).join(', ')}, and ${items[items.length - 1]}`
+}
 export const CHANGELOG = 'CHANGELOG.md'
 const SEMVER = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?$/
 const HEADING = /^## \[([^\]]+)\](?: - (.+))?\s*$/
@@ -593,7 +604,7 @@ export async function main(argv = process.argv.slice(2), root = gitRoot()) {
         const lines = []
         if (!state.resume) {
             lines.push('pnpm verify')
-            lines.push(`set "version" to ${state.version} in ${VERSION_FILES.join(' and ')}`)
+            lines.push(`set "version" to ${state.version} in ${formatList(VERSION_FILES)}`)
             lines.push(`CHANGELOG.md: "## [${state.version}] - ${date}", a fresh "## [Unreleased]", compare links`)
             lines.push(formatCommand('git', ['commit', '-m', `Release v${state.version}`]))
             lines.push(formatCommand('git', ['tag', '-a', `v${state.version}`, '-m', `Cuttlely ${state.version}`]))

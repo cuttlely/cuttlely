@@ -350,6 +350,8 @@ importers:
         specifier: ^22.1.0
         version: 22.1.0(bufferutil@4.0.8)(canvas@2.11.2(encoding@0.1.13))(utf-8-validate@6.0.4)
 
+  packages/cli: {}
+
   packages/components:
     dependencies:
       '@anthropic-ai/sdk':

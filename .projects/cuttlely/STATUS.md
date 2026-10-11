@@ -4,7 +4,7 @@ Last refreshed 2026-10-11. Check `git log origin/main` for anything newer.
 
 ## What works on `main`
 
-Cuttlely 1.0.0. The product version is the root `package.json` and `packages/server/package.json`; the About dialog reads the server one.
+Cuttlely 1.0.0. The product version is the root `package.json`, `packages/server/package.json`, `packages/cli/package.json` and `packages/chat-widget/package.json`. The About dialog reads the server one. The root package name is `cuttlely-workspace` so the published launcher can be named `cuttlely`.
 
 -   **Agent teams (harnesses).** A harness is a named team: Harness Prime routes each question, specialists do the work in parallel, and Prime writes one answer. Specialists use canvas tools, retrievers, vector stores and MCP servers in process, and the agent runtime for Shell, Browser, Code execution, Files and MCP work. Any chat-model node can drive Prime or a specialist, with an optional fallback model. Turns stream over the prediction API, have a wall-clock budget, cap their context tokens, and report tokens and timings. Each harness has a run history page with a playground.
 -   **Analyst.** A specialist with its own isolated database (`CUTTLELY_ANALYST=auto`, or a separate Postgres URL) that creates tables, answers from real rows and pages long results.
@@ -16,7 +16,7 @@ Cuttlely 1.0.0. The product version is the root `package.json` and `packages/ser
 -   **Sign-in and teams.** WorkOS AuthKit sign-in or one local account, teams, users and roles in the app database, and workspace scoping on every route.
 -   **Admin panel.** Admin > Server settings holds every server setting with help text, a review step, restart to apply, safe boot back to the last good settings, History, and a guided sign-in setup.
 -   **First ten minutes.** Install, first account, and Try the demo, which opens a made-up bakery team on the person's own model key with its chat open. The README section "Your first 10 minutes" walks through it.
--   **Install and deploy.** Docker Compose (SQLite, one container), from source, and a Render Blueprint (Docker web service, Postgres, disk). `docs/how-to/from-source.md` covers the dev server, the tests and `pnpm verify`.
+-   **Install and deploy.** Docker Compose (SQLite, one container), `npx cuttlely` (the same image, through the `cuttlely` launcher), from source, and a Render Blueprint (Docker web service, Postgres, disk). `docs/how-to/from-source.md` covers the dev server, the tests and `pnpm verify`. `@cuttlely/chat` is the embeddable chat widget, also served by the server at `/embed/chat.js`.
 -   **Releases.** `pnpm release` cuts a release from a clean `main`, drafts by default, and pushes the image or publishes only on a flag. The full `pnpm verify` tests upgrades from a fixture of an older release.
 -   **Graceful shutdown.** On SIGTERM or SIGINT the server stops taking new requests (`503` with `Retry-After`) and lets running answers and streams finish for up to 25 seconds (`CUTTLELY_DRAIN_TIMEOUT_MS`). The Compose files give the container 35 seconds to stop.
 -   **File links in Agent answers.** A file an Agent card links in its answer opens for 15 minutes without the flow's API key: the link carries an expiry and an HMAC over the organization, flow, chat and file name, keyed from the server's own secret. A changed or expired link falls back to the key or session checks.
@@ -36,5 +36,5 @@ Cuttlely 1.0.0. The product version is the root `package.json` and `packages/ser
 
 ## Not done
 
--   The first release, v1.0.0, is not cut. No tag exists, no image is published, and `CHANGELOG.md` is still `## [1.0.0] - Unreleased`. The release steps, including dating that heading, are in [PLAN.md](./PLAN.md).
+-   The first release, v1.0.0, is not cut. No tag exists, no image is published, the npm packages are not published, and `CHANGELOG.md` is still `## [1.0.0] - Unreleased`. The release steps, including dating that heading and `npm publish` after the image is pushed, are in [PLAN.md](./PLAN.md).
 -   The questions and known gaps in [OPEN.md](./OPEN.md). Repository settings for the release are one of those rows.

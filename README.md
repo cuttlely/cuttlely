@@ -7,6 +7,12 @@
 
 # Cuttlely
 
+[![Release](https://img.shields.io/github/v/release/cuttlely/cuttlely)](https://github.com/cuttlely/cuttlely/releases/latest)
+[![License](https://img.shields.io/github/license/cuttlely/cuttlely)](https://github.com/cuttlely/cuttlely/blob/main/LICENSE.md)
+[![Docker image](https://img.shields.io/badge/ghcr.io-cuttlely%2Fcuttlely-2496ED?logo=docker&logoColor=white)](https://github.com/cuttlely/cuttlely/pkgs/container/cuttlely)
+[![npm](https://img.shields.io/npm/v/cuttlely)](https://www.npmjs.com/package/cuttlely)
+[![CI](https://github.com/cuttlely/cuttlely/actions/workflows/main.yml/badge.svg?branch=main)](https://github.com/cuttlely/cuttlely/actions/workflows/main.yml)
+
 **Your applications deserve agents.**
 
 The open-source agent platform for applications. Cuttlely gives your applications their own intelligent capabilities and coordinated agent teams. Start chatting with a team in minutes, then call it from your app through the API. It runs on infrastructure you control.
@@ -138,6 +144,14 @@ You need Docker and one model key. The steps use OpenAI. Any chat model provider
 
     Compose pulls the published Cuttlely image. If it cannot pull it, Compose builds the image from your checkout instead, which takes several minutes the first time, and each long build step says which of four it is. `docker compose ps` shows `(health: starting)` until Cuttlely is ready, then `(healthy)`. Opening [http://localhost:43117](http://localhost:43117) early shows a **Cuttlely is starting** page that opens Cuttlely by itself.
 
+    With Node.js 20 or newer, and Docker running, you can skip the clone:
+
+    ```bash
+    npx cuttlely start
+    ```
+
+    That pulls `ghcr.io/cuttlely/cuttlely` and opens [http://localhost:43117](http://localhost:43117) when it is ready. [Install with npm](./docs/how-to/docker.md#install-with-npm) has `stop`, `status`, `logs` and `upgrade`.
+
 2. When it is up, the server prints a one-time setup link. Show it with:
 
     ```bash
@@ -158,7 +172,7 @@ Next: [put a pipeline behind your team](./docs/how-to/etl.md), [give a specialis
 
 ## Guides
 
--   [Docker](./docs/how-to/docker.md). Install and run Cuttlely in one container on SQLite.
+-   [Docker](./docs/how-to/docker.md). Install and run Cuttlely in one container on SQLite. `npx cuttlely` starts the same image.
 -   [Build from source and run the dev server](./docs/how-to/from-source.md). Build Cuttlely yourself, run it, and change the code with live reload.
 -   [Sign in](./docs/how-to/sign-in.md). Create the first account, and add WorkOS when a team signs in.
 -   [Harnesses](./docs/how-to/harnesses.md). Build an agent team, try it, and call it from a chatflow.

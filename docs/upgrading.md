@@ -8,11 +8,12 @@ Read the release's entry in the [changelog](../CHANGELOG.md) first. Anything you
 
 Everything Cuttlely keeps is in one folder:
 
-| Install     | Folder                                                                                         |
-| ----------- | ---------------------------------------------------------------------------------------------- |
-| Docker      | The `cuttlely-data` volume, mounted at `/var/cuttlely`                                         |
-| Render      | The disk mounted at `/var/cuttlely`, plus the Postgres database                                |
-| From source | `~/.cuttlely` (database and key) and `<checkout>/.cuttlely` (history, harnesses, ETL, uploads) |
+| Install        | Folder                                                                                         |
+| -------------- | ---------------------------------------------------------------------------------------------- |
+| Docker Compose | The volume `cuttlely_cuttlely-data`, mounted at `/var/cuttlely`                                |
+| `npx cuttlely` | The Docker volume `cuttlely-data`, mounted at `/var/cuttlely`                                  |
+| Render         | The disk mounted at `/var/cuttlely`, plus the Postgres database                                |
+| From source    | `~/.cuttlely` (database and key) and `<checkout>/.cuttlely` (history, harnesses, ETL, uploads) |
 
 Inside it, `data/database.sqlite` is the database and `data/encryption.key` is the key that decrypts your credentials. A database backup without its key leaves every stored credential unreadable. `versions/` holds every saved version of your flows. `harnesses/`, `etl/` and `storage/` hold harness records, pipelines and uploads.
 
@@ -33,6 +34,8 @@ docker run --rm -v cuttlely_cuttlely-data:/var/cuttlely -v "$PWD":/backup busybo
 ```
 
 Keep `cuttlely-backup.tgz` somewhere safe. It holds your encryption key.
+
+**npm launcher.** Run `cuttlely stop`, then use the same `docker run` with the volume name `cuttlely-data`.
 
 **From source.** Stop the server (Ctrl+C in its terminal), then:
 
