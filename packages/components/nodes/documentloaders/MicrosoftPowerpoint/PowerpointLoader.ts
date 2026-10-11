@@ -1,6 +1,6 @@
 import { Document } from '@langchain/core/documents'
 import { BufferLoader } from '@langchain/classic/document_loaders/fs/buffer'
-import { parseOfficeAsync } from 'officeparser'
+import { parseOfficeDocument } from '../../../src/officeDocument'
 
 /**
  * Document loader that uses officeparser to load PowerPoint documents.
@@ -33,7 +33,7 @@ export class PowerpointLoader extends BufferLoader {
 
         try {
             // Use officeparser to extract text from PowerPoint
-            const data = await parseOfficeAsync(raw)
+            const data = await parseOfficeDocument(raw, 'PowerPoint')
 
             if (typeof data === 'string' && data.trim()) {
                 // Split content by common slide separators or use the entire content as one document
