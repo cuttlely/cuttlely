@@ -110,8 +110,7 @@
             "unset-value": "2.0.1",
             "ws": "8.22.0",
             "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz",
-            "uuid": "^10.0.0",
-            "request>uuid": "^3.4.0",
+            "uuid": "^11.1.1",
             "@tootallnate/once": ">=3.0.1",
             "tmp": ">=0.2.4",
             "@elastic/transport": ">=8.9.3",
@@ -204,7 +203,7 @@
         "@qdrant/openapi-typescript-fetch": "1.2.6",
         "openai": "6.19.0",
         "protobufjs": "^8.6.6",
-        "uuid": "^10.0.0"
+        "uuid": "^11.1.1"
     },
     "eslintIgnore": [
         "**/dist",
