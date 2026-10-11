@@ -1,21 +1,37 @@
-# From source
+# Build from source and run the dev server
 
-Use this guide to run Cuttlely from a Git checkout. You build it yourself and start it with one script. It's the way to work on Cuttlely itself, or to run it on a machine without Docker. For a ready-made install, use [Docker](./docker.md). For a hosted install, use [Render](./render.md).
+Use this guide to build Cuttlely from its source code, run it, and change it with a dev server that reloads as you edit. It's the way to work on Cuttlely itself, or to run it on a machine without Docker. For a ready-made install, use [Docker](./docker.md). For a hosted install, use [Render](./render.md).
 
-When you finish, Cuttlely runs at [http://localhost:43117](http://localhost:43117), with the agent runtime beside it for harness specialists. The app database is SQLite, and you have one local account to sign in with. A database you already run can replace SQLite. See [Use Postgres](#use-postgres).
+When you finish the install, Cuttlely runs at [http://localhost:43117](http://localhost:43117), with the agent runtime beside it for harness specialists. While you change the code, the dev server runs the same app at [http://localhost:8080](http://localhost:8080). The app database is SQLite, and you have one local account to sign in with. A database you already run can replace SQLite. See [Use Postgres](#use-postgres).
+
+The steps, in order:
+
+1. [Before you start](#before-you-start): Node 24, pnpm through Corepack, uv and Git.
+2. [Get the code and build it](#get-the-code-and-build-it): clone, install, build, and set up the agent runtime.
+3. [Start Cuttlely](#start-cuttlely) and [create your account](#create-your-account).
+4. [Run the dev server](#run-the-dev-server) while you change code.
+5. [Run the tests](#run-the-tests) and [check your change](#check-your-change-before-a-pull-request) before a pull request.
+
+On an 8-core machine, install, the build and the runtime setup took about a minute, and the server was listening a few seconds after the start command. A slow network makes the install longer, while pnpm downloads the packages.
 
 ## Before you start
 
-| Tool    | Version                                                                  | Check           |
-| ------- | ------------------------------------------------------------------------ | --------------- |
-| Node.js | 24 (`.nvmrc` is `v24.15.0`)                                              | `node -v`       |
-| pnpm    | 10.33.4, pinned by `packageManager` in `package.json`                    | `pnpm -v`       |
-| uv      | any recent version, from [docs.astral.sh/uv](https://docs.astral.sh/uv/) | `uv --version`  |
-| Git     | any. The server also needs `git` for [Version history](./versioning.md)  | `git --version` |
+| Tool    | Version                                                                         | Check           |
+| ------- | ------------------------------------------------------------------------------- | --------------- |
+| Node.js | 24 (`engines.node` is `^24`, and `.nvmrc` is `v24.15.0`)                        | `node -v`       |
+| pnpm    | 10.33.4, pinned by `packageManager` in `package.json`. Corepack runs it for you | `pnpm -v`       |
+| uv      | any recent version, from [docs.astral.sh/uv](https://docs.astral.sh/uv/)        | `uv --version`  |
+| Git     | any. The server also needs `git` for [Version history](./versioning.md)         | `git --version` |
 
-With Corepack on (`corepack enable`), `pnpm` runs the pinned version for you. uv downloads the Python that the agent runtime needs, so you don't install Python yourself.
+Turn on Corepack once. It comes with Node and runs the pnpm version that Cuttlely pins, so you don't install pnpm yourself:
 
-## Install and build
+```bash
+corepack enable
+```
+
+If that fails with `EACCES`, Node was installed for every user on the machine. Run `sudo corepack enable`, or install Node with a version manager such as [nvm](https://github.com/nvm-sh/nvm) or [fnm](https://github.com/Schniz/fnm). uv downloads the Python that the agent runtime needs, so you don't install Python yourself.
+
+## Get the code and build it
 
 1. Get the code:
 
@@ -24,55 +40,69 @@ With Corepack on (`corepack enable`), `pnpm` runs the pinned version for you. uv
     cd cuttlely
     ```
 
-2. Install the dependencies:
+2. Check pnpm from inside the `cuttlely` folder:
+
+    ```bash
+    pnpm -v
+    ```
+
+    The first time, Corepack prints `! Corepack is about to download https://registry.npmjs.org/pnpm/-/pnpm-10.33.4.tgz` and asks `Do you want to continue? [Y/n]`. Press Enter. It prints `10.33.4`.
+
+3. Install the dependencies:
 
     ```bash
     pnpm install
     ```
 
-    It ends with `Done in ... using pnpm v10.33.4`. A box that says `Ignored build scripts: ...` is expected. The build and the server don't need those scripts.
+    It ends with `Done in ... using pnpm v10.33.4`. Two notices along the way are expected:
 
-3. Build every package:
+    - `Update available! 10.33.4 → ...` with a `corepack use` command. Don't run it. It changes the pinned version in `package.json`.
+    - `Ignored build scripts: ...` with a `pnpm approve-builds` hint. Don't run it either. The build and the server don't need those scripts.
+
+4. Build every package:
 
     ```bash
     pnpm build
     ```
 
-    It ends with `Tasks: 6 successful, 6 total`. On an 8-core machine a first build took about 75 seconds.
+    It ends with `Tasks: 7 successful, 7 total`. On an 8-core machine a first build took about 40 seconds.
 
-4. Set up the agent runtime, the Python process that runs harness specialists:
+5. Set up the agent runtime, the Python process that runs harness specialists:
 
     ```bash
     bash scripts/setup-hermes.sh
     ```
 
-    It creates `hermes/.venv` with Python 3.14, downloaded by uv if it's missing, and ends with `Hermes Python ready: .../hermes/.venv/bin/python (Python 3.14, mcp extra)`. To use Python 3.11 to 3.13 instead, pass the version: `bash scripts/setup-hermes.sh 3.12`.
+    It creates `hermes/.venv` with Python 3.14, downloaded by uv if it's missing, and ends with `Hermes Python ready: .../hermes/.venv/bin/python (Python 3.14, mcp extra)`. It took about 6 seconds with Python already downloaded. To use Python 3.11 to 3.13 instead, pass the version: `bash scripts/setup-hermes.sh 3.12`.
 
 ## Start Cuttlely
 
 ```bash
-CUTTLELY_LOCAL_ADMIN=true bash scripts/start-cuttlely.sh
+bash scripts/start-cuttlely.sh
 ```
 
-`CUTTLELY_LOCAL_ADMIN=true` turns on the local account and its password form. Leave the terminal open. The server runs in the foreground, and Ctrl+C stops the server and the agent runtime together.
+On a source install without WorkOS, the script turns on the local account and its password form for you (`CUTTLELY_LOCAL_ADMIN=true`). Leave the terminal open. The server runs in the foreground, and Ctrl+C stops the server and the agent runtime together.
 
 The script starts the server, waits for the harness gateway, and then starts the agent runtime. A good start looks like this:
 
 ```text
-Cuttlely node: .../node-versions/v24.15.0/installation/bin/node (v24.15.0)
-Hermes Python: .../cuttlely/hermes/.venv/bin/python
+Cuttlely node: .../bin/node (v24.15.0)
+Hermes Python: .../hermes/.venv/bin/python
+Cuttlely boot, step 1 of 2: starting the server on port 43117. A browser opened now shows a 'Cuttlely is starting' page.
 Waiting for the harness gateway on 127.0.0.1:43118.
 [INFO]: Starting Cuttlely...
-Harness gateway is answering on 127.0.0.1:43118.
-Harness queue: inline
 [INFO]: 📦 [server]: Data Source initialized successfully
 [INFO]: 🔄 [server]: Database migrations completed successfully
 ...
 [INFO]: 🎉 [server]: All initialization steps completed successfully!
 [INFO]: ⚡️ [server]: Cuttlely Server is listening at :43117
+[INFO]: ✅ Cuttlely is ready. Open http://localhost:43117
+Harness gateway is answering on 127.0.0.1:43118.
+Cuttlely boot, step 2 of 2: starting the agent runtime (Hermes) in the background.
+Harness queue: inline
 ```
 
-The first start takes about 20 seconds. To check it from another terminal:
+Server lines start with the time, then `[INFO]:`. The gateway line follows the ready line. On an 8-core machine the server was listening a few seconds after the start command, and the agent runtime was up a few seconds after that. To check it from another terminal:
 
 ```bash
 curl -fsS http://127.0.0.1:43117/api/v1/ping
@@ -118,7 +148,7 @@ Type the password at the `Password:` prompt. It isn't shown. The command ends wi
 [INFO]: Super User created for you@example.com.
 ```
 
-While the server is running, the command also prints `[harness] gateway on 127.0.0.1:43118 failed: listen EADDRINUSE`. The server already holds that port, and the account is still created.
+Several `npm warn` lines come first, including `Unknown cli config "--email"`. They are harmless. The account exists when you see `Super User created`.
 
 Then open [http://localhost:43117](http://localhost:43117). The app opens **Sign In**. Type the email and password and select **Sign in**.
 
@@ -133,6 +163,107 @@ After sign-in the app opens **Chatflows**. The sidebar lists everything else, fr
 ![Chatflows on a new install. The sidebar lists Harness · Agent Team, Chatflows, ETL, Agentflows, Executions, Assistants, Templates, Tools, Credentials, Variables, API Keys, and Document Stores. The page has Import, Start from a template, and Add New at the top, a Try the demo card, the Your applications deserve agents. headline with the mascot in a What are you building? card with a small Bring flows from another tool link, and below it the lightbulb mascot with the No chatflows yet note.](../images/from-source/first-signed-in.png)
 
 Next steps: save a model key under **Credentials**, then build an [agent team](./harnesses.md) or an [ETL pipeline](./etl.md).
+
+## Run the dev server
+
+The dev server is for changing Cuttlely's code. It runs the app from the source folders, and the page in your browser updates as you save. Stop `scripts/start-cuttlely.sh` first (Ctrl+C) if it's running.
+
+From the repository root:
+
+```bash
+CUTTLELY_LOCAL_ADMIN=true pnpm dev
+```
+
+Then open [http://localhost:8080](http://localhost:8080). Use `localhost`, not `127.0.0.1`: the UI dev server listens on `localhost` only, which on some machines doesn't answer on `127.0.0.1`.
+
+`pnpm dev` doesn't go through the start script, so it doesn't turn on the local account by itself. That's why the command sets `CUTTLELY_LOCAL_ADMIN=true`. Without it, **Sign In** says `Sign-in is not configured.`
+
+### What starts
+
+| Address                                        | What it is                                                                                                                         | Package folder                           |
+| ---------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------- |
+| `http://localhost:8080`                        | The app in your browser. Open this one                                                                                             | `packages/ui`                            |
+| `http://localhost:3000`                        | The server and its API. Restarts when you save a server file                                                                       | `packages/server`                        |
+| `127.0.0.1:43118`                              | The harness gateway, started by the server                                                                                         | `packages/server`                        |
+| `http://localhost:5173` and the next free port | Preview servers for the agentflow canvas package and the observe package. Ignore both. One of them moves off `5173` if it is taken | `packages/agentflow`, `packages/observe` |
+
+The page at `8080` sends every `/api` request on to the server at `3000`. Both were up within a few seconds. `pnpm dev` does not start the agent runtime, so `X-Cuttlely-Hermes` on that ping is `unknown` until you [run the runtime beside the UI](#harness-specialists-while-you-work-on-the-ui).
+
+Each package prints its name in front of its lines. The two you care about look like this:
+
+```text
+flowise-ui:dev:   Local:   http://localhost:8080/
+flowise:dev: Cuttlely Server is listening at :3000
+```
+
+The server's lines also include `npm warn Unknown env config`. Those warnings are harmless. The server is up when you see `Cuttlely Server is listening at :3000`.
+
+### Sign in
+
+The dev server uses the same database as `scripts/start-cuttlely.sh` (`~/.cuttlely`), so the account you created earlier works on `8080` too. On a new install with no account yet, `8080` opens **Setup Account**, the same as in [Create your account](#create-your-account).
+
+### What updates when you save
+
+| You change                                   | What happens                                                                   | What you do                                                                                                                                                                |
+| -------------------------------------------- | ------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| The UI, `packages/ui/src`                    | The page updates in place within a second. No reload, and you stay signed in   | Nothing                                                                                                                                                                    |
+| The server, `packages/server/src`            | The server restarts, but it runs the last build, so your change isn't live yet | Run `pnpm --filter flowise build` in a second terminal (about 10 seconds), then save your server file once more. The server restarts on the new build within a few seconds |
+| Nodes and credentials, `packages/components` | Nothing                                                                        | Run `pnpm --filter flowise-components build`, then stop `pnpm dev` with Ctrl+C and start it again                                                                          |
+
+The package names in those commands are the names in each folder's `package.json`: `flowise` is the server and `flowise-components` is the nodes package.
+
+### Harness specialists while you work on the UI
+
+`pnpm dev` doesn't start the agent runtime, so harness specialists don't answer there. To work on the UI with the whole product behind it, run the built server with the start script on port `3000`, and only the UI dev server beside it:
+
+```bash
+PORT=3000 bash scripts/start-cuttlely.sh
+```
+
+and in a second terminal:
+
+```bash
+pnpm --filter flowise-ui dev
+```
+
+Open [http://localhost:8080](http://localhost:8080). UI changes update in place, and `curl -sI http://localhost:8080/api/v1/ping` shows `X-Cuttlely-Hermes: up` once the runtime is running. Server changes need `pnpm build` and a restart of the start script.
+
+### Change the dev server ports
+
+-   The server reads `PORT` from `packages/server/.env`. The UI dev server reads the same file to find the server, so it follows when you change `PORT` there. Without the file, both use `3000`.
+-   The UI port is `VITE_PORT` in `packages/ui/.env` (copy `packages/ui/.env.example`). It defaults to `8080`.
+
+### Stop it
+
+Press Ctrl+C in the `pnpm dev` terminal. Everything it started stops within a second.
+
+## Run the tests
+
+Tests sit next to the code they test: a test for `Foo.ts` is `Foo.test.ts` in the same folder. Run one file while you work:
+
+```bash
+pnpm --filter flowise test -- src/controllers/ping
+pnpm --filter flowise-components test -- src/headerValidation.test.ts
+```
+
+The first took about 5 seconds and the second about 10. Drop the file path to run a whole package, and `pnpm test` runs every package. On a small machine, run one package at a time. [CONTRIBUTING.md](../../CONTRIBUTING.md#testing) has more.
+
+## Check your change before a pull request
+
+```bash
+pnpm verify
+```
+
+`pnpm verify` is the check every pull request passes. It lints, typechecks, builds, runs the unit tests, starts a real server for a smoke test, checks an upgrade from older data, and more. It ends with `pnpm verify passed (full)`, and `.verify/verify-summary.md` lists each step with its time. On an 8-core machine it takes about 5 minutes.
+
+A change that only touches docs or markdown can use the short run, which takes about 2 to 3 minutes:
+
+```bash
+pnpm --filter flowise-components build
+pnpm verify --fast
+```
+
+The short run doesn't build, so a fresh checkout needs that components build (or a `pnpm build`) first. [Verify before a pull request](../../CONTRIBUTING.md#verify-before-a-pull-request) has the rule for which run a change needs.
 
 ## Where your data lives
 
@@ -155,7 +286,7 @@ Keep `encryption.key` with the database. Stored credentials can't be read withou
 
 Copy `packages/server/.env.example` to `packages/server/.env` and set values there. The server and `pnpm user` both read that file, and a value in it wins over the same variable in your shell. `.env` is gitignored.
 
-The example file starts with an active `PORT=3000`. Delete that line, or the app listens on `3000` instead of `43117` and the script still waits for `43117`. `scripts/start-cuttlely.sh` reads `PORT`, `CUTTLELY_DATA_DIR`, `CUTTLELY_HARNESS_GATEWAY_PORT`, and `HERMES_API_PORT` from the shell before the server reads the file. Keep those four out of the file and set them in the shell, so the script and the server agree.
+The example file starts with an active `PORT=3000`. Delete that line, or the app listens on `3000` instead of `43117` and the script still waits for `43117`. `scripts/start-cuttlely.sh` reads `PORT`, `CUTTLELY_DATA_DIR`, `CUTTLELY_HARNESS_GATEWAY_PORT`, and `HERMES_API_PORT` from the shell before the server reads the file. Keep those four out of the file and set them in the shell, so the script and the server agree. For the [dev server](#run-the-dev-server), `PORT=3000` in the file is what you want: the server and the UI dev server both read it.
 
 ## Use Postgres
 
@@ -182,34 +313,40 @@ DATABASE_PASSWORD=your-password
 
 `CUTTLELY_POSTGRES_URL` is a different setting, only for the PostgreSQL MCP tool. Leave it unset unless that tool should query a database other than the one in `DATABASE_*`. The tool refuses a URL that points at the app database. A Postgres URL credential selected on the node wins over both the variable and `CUTTLELY_ANALYST`. The canvas steps and the errors are in [Analyst mode](./analyst.md).
 
-## Other ways to start
-
--   `pnpm start` starts the server alone, without the agent runtime, so harness specialists don't run. It uses port `3000` when `PORT` is unset. Use `scripts/start-cuttlely.sh` for the full product.
--   `pnpm dev` runs the packages in watch mode while you change code. See [CONTRIBUTING.md](../../CONTRIBUTING.md).
-
 ## Update to a newer version
 
-Stop the server with Ctrl+C, then:
+Stop the server with Ctrl+C, then get the newest code, install, build and start again:
 
 ```bash
 git pull
 pnpm install
 pnpm build
-CUTTLELY_LOCAL_ADMIN=true bash scripts/start-cuttlely.sh
+bash scripts/start-cuttlely.sh
 ```
 
 Run `bash scripts/setup-hermes.sh` again when `hermes/` changed. Database migrations run on start, and your data stays where it was.
 
 ## Troubleshooting
 
-| You see                                                                                    | What to do                                                                                                                   |
-| ------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------- |
-| `Cuttlely is not ready to start. Missing:` and a list                                      | Run `pnpm install && pnpm build` from the repository root, then start again.                                                 |
-| `Hermes Python not found` or `Hermes Python ... cannot import the vendored Hermes runtime` | Run `bash scripts/setup-hermes.sh`, or set `HERMES_PYTHON` to a Python that can import Hermes.                               |
-| `Hermes needs Python 3.11 to 3.14`                                                         | Pass a supported version: `bash scripts/setup-hermes.sh 3.12`.                                                               |
-| `uv is required.`                                                                          | Install uv, then run `setup-hermes.sh` again.                                                                                |
-| `listen EADDRINUSE` on `43117` when the server starts                                      | Another server holds the port. Stop it, or set `PORT`, `CUTTLELY_HARNESS_GATEWAY_PORT`, and `HERMES_API_PORT` to free ports. |
-| `Harness gateway on 127.0.0.1:43118 did not answer within 180s. Hermes will not start.`    | The app is up without the agent runtime. Check the log above it for the server error, fix it, and start again.               |
-| **Sign In** says `Sign-in is not configured.`                                              | `CUTTLELY_LOCAL_ADMIN` isn't `true`. Stop the server and start it with `CUTTLELY_LOCAL_ADMIN=true`.                          |
-| `Refusing to create a user while the local admin flag is off.`                             | Run `pnpm user` with `CUTTLELY_LOCAL_ADMIN=true`.                                                                            |
-| Stored credentials stop working                                                            | The server is using a different `encryption.key`. Point `SECRETKEY_PATH` at the folder that holds the original key.          |
+| You see                                                                                    | What to do                                                                                                                         |
+| ------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------- |
+| `pnpm -v` prints a version other than `10.33.4`, or `pnpm: command not found`              | Run `corepack enable`, then `pnpm -v` again from inside the `cuttlely` folder.                                                     |
+| `EACCES` from `corepack enable`                                                            | Run `sudo corepack enable`, or install Node with a version manager such as nvm or fnm.                                             |
+| `EACCES` or `EROFS` under a `corepack` folder when `pnpm` runs                             | Corepack can't write its download folder. Set `COREPACK_HOME` to a folder you own, for example `$HOME/.cache/node/corepack`.       |
+| `Unsupported engine` or `node:sqlite` errors                                               | Use Node 24. `node -v` should print `v24.`.                                                                                        |
+| [http://127.0.0.1:8080](http://127.0.0.1:8080) doesn't load while `pnpm dev` runs          | Open [http://localhost:8080](http://localhost:8080). To use another address, set `VITE_HOST` in `packages/ui/.env`.                |
+| `Port 5173 is in use, trying another one...` while `pnpm dev` starts                       | Expected. The two preview servers both want `5173`, and one takes the next free port. Ignore both.                                 |
+| Many `npm warn Unknown env config` or `Unknown cli config "--email"` lines                 | Harmless. Wait for `Cuttlely Server is listening` or `Super User created`.                                                         |
+| A server change doesn't show up under `pnpm dev`                                           | Run `pnpm --filter flowise build`, then save the server file again. See [What updates when you save](#what-updates-when-you-save). |
+| `listen EADDRINUSE` on `3000` or `8080` when `pnpm dev` starts                             | Another server holds the port. Stop it, or change the ports. See [Change the dev server ports](#change-the-dev-server-ports).      |
+| `pnpm verify --fast` fails on a fresh checkout with missing `dist` files                   | Run `pnpm --filter flowise-components build` (or `pnpm build`) first.                                                              |
+| `pnpm verify` fails only with Jest timeouts or killed workers                              | The machine was busy. Close other heavy jobs and run it again before you debug.                                                    |
+| `Cuttlely is not ready to start. Missing:` and a list                                      | Run `pnpm install && pnpm build` from the repository root, then start again.                                                       |
+| `Hermes Python not found` or `Hermes Python ... cannot import the vendored Hermes runtime` | Run `bash scripts/setup-hermes.sh`, or set `HERMES_PYTHON` to a Python that can import Hermes.                                     |
+| `Hermes needs Python 3.11 to 3.14`                                                         | Pass a supported version: `bash scripts/setup-hermes.sh 3.12`.                                                                     |
+| `uv is required.`                                                                          | Install uv, then run `setup-hermes.sh` again.                                                                                      |
+| `listen EADDRINUSE` on `43117` when the server starts                                      | Another server holds the port. Stop it, or set `PORT`, `CUTTLELY_HARNESS_GATEWAY_PORT`, and `HERMES_API_PORT` to free ports.       |
+| `Harness gateway on 127.0.0.1:43118 did not answer within 180s. Hermes will not start.`    | The app is up without the agent runtime. Check the log above it for the server error, fix it, and start again.                     |
+| **Sign In** says `Sign-in is not configured.`                                              | `CUTTLELY_LOCAL_ADMIN` isn't `true`. Stop the server and start it with `CUTTLELY_LOCAL_ADMIN=true`.                                |
+| `Refusing to create a user while the local admin flag is off.`                             | Run `pnpm user` with `CUTTLELY_LOCAL_ADMIN=true`.                                                                                  |
+| Stored credentials stop working                                                            | The server is using a different `encryption.key`. Point `SECRETKEY_PATH` at the folder that holds the original key.                |
