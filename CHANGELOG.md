@@ -4,6 +4,8 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ## [Unreleased]
 
+## [1.0.1] - 2026-10-11
+
 ### Added
 
 -   The npm packages ship properly for the first time in 1.0.1, built and published from the v1.0.1 tag after the image and this release are public. `cuttlely` is the launcher: `npx cuttlely start` needs Docker, and it pulls and starts `ghcr.io/cuttlely/cuttlely` at the same version as the package. `@cuttlely/chat` is the embeddable chat widget.
@@ -160,5 +162,6 @@ Back up your data directory, including its encryption key, before any upgrade. [
 -   **Node 24.** Running from source needs Node 24 (`.nvmrc`).
 -   **Data directory.** Data lives in `~/.cuttlely`, or `/var/cuttlely/data` in Docker and on Render. Keep the encryption key with the database.
 
-[Unreleased]: https://github.com/cuttlely/cuttlely/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/cuttlely/cuttlely/compare/v1.0.1...HEAD
+[1.0.1]: https://github.com/cuttlely/cuttlely/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/cuttlely/cuttlely/releases/tag/v1.0.0
