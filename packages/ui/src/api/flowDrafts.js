@@ -16,8 +16,13 @@ const rollback = (chatflowId, sha) => client.post(`${path(chatflowId)}/rollback`
 
 const getCheckSetup = (chatflowId) => client.get(`${path(chatflowId)}/check`)
 
-const startCheck = (chatflowId, questions, includeRiskySteps = false) =>
-    client.post(`${path(chatflowId)}/check`, { questions, includeRiskySteps })
+const startCheck = (chatflowId, questionsOrBody, includeRiskySteps = false) => {
+    const body =
+        questionsOrBody && typeof questionsOrBody === 'object' && !Array.isArray(questionsOrBody)
+            ? questionsOrBody
+            : { questions: questionsOrBody, includeRiskySteps }
+    return client.post(`${path(chatflowId)}/check`, body)
+}
 
 const getCheck = (chatflowId, checkId) => client.get(`${path(chatflowId)}/check/${encodeURIComponent(checkId)}`)
 

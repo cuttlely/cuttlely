@@ -1,5 +1,6 @@
-// The publish check: before Publish, replay a few recent real questions from this flow's chat history against
+// The publish check: before Publish, replay recent real questions from this flow's chat history against
 // Live and the draft, and show the answers, tokens and time side by side.
+// `count` (1 to 100, 4 in the dialog) selects the newest distinct questions. A few run at a time.
 //
 // A replay runs the canvas in memory through executeFlow with replay on: a new chat id, so memory starts
 // empty; no chat messages, follow-ups, telemetry, usage counts or tracing are written; Live is never saved.
@@ -18,16 +19,37 @@ import { OSS_PRODUCT_ID } from '../../identity/ossPlatform'
 import { getRunningExpressApp } from '../../utils/getRunningExpressApp'
 import logger from '../../utils/logger'
 import flowDraftsService, { canvasHash, DraftFlow } from '../flow-drafts'
-import { CheckCase, CheckSummary, SideResult, pickQuestions, sameAnswer, stepTokens, summarize, totalTokens } from './compare'
+import {
+    COMPARE_COUNT_DEFAULT,
+    COMPARE_COUNT_MAX,
+    CheckCase,
+    CheckSummary,
+    SideResult,
+    parseCompareCount,
+    pickQuestions,
+    sameAnswer,
+    stepTokens,
+    summarize,
+    totalTokens
+} from './compare'
 import { RiskyStep, riskySteps } from './risk'
 import { Unavailable, startUnavailable, typeUnavailable } from './kinds'
 
+// A question list sent without `count` stays capped at 10, which is what this route accepted before.
 export const MAX_QUESTIONS = 10
 export const MAX_QUESTION_CHARS = 2000
 const MAX_ANSWER_CHARS = 4000
 const MAX_RUNNING = 3
 const KEEP_MS = 30 * 60 * 1000
 const RUN_TIMEOUT_MS = 60 * 1000
+// Two questions at a time is four model calls (Live and the draft). Enough to finish a long compare
+// without opening a hundred calls at once. Raised only through the same env pattern as the other caps.
+export const DEFAULT_CHECK_CONCURRENCY = 2
+const MAX_CHECK_CONCURRENCY = 8
+// Newest messages, read in pages, until 100 different questions or the history ends.
+// The cap stops a huge chat history from being loaded to answer "how many".
+const SCAN_PAGE = 200
+const SCAN_CAP = 2000
 
 function envNumber(name: string, fallback: number, min: number, max: number): number {
     const value = Number(process.env[name])
@@ -37,10 +59,12 @@ function envNumber(name: string, fallback: number, min: number, max: number): nu
 
 export function checkLimits() {
     return {
-        maxQuestions: MAX_QUESTIONS,
+        maxQuestions: COMPARE_COUNT_MAX,
+        defaultQuestions: COMPARE_COUNT_DEFAULT,
         maxQuestionChars: MAX_QUESTION_CHARS,
         maxTokens: envNumber('CUTTLELY_CHECK_MAX_TOKENS', 100000, 1000, 2000000),
-        maxSeconds: envNumber('CUTTLELY_CHECK_MAX_SECONDS', 180, 10, 1800)
+        maxSeconds: envNumber('CUTTLELY_CHECK_MAX_SECONDS', 180, 10, 1800),
+        concurrency: envNumber('CUTTLELY_CHECK_CONCURRENCY', DEFAULT_CHECK_CONCURRENCY, 1, MAX_CHECK_CONCURRENCY)
     }
 }
 
@@ -57,10 +81,22 @@ export interface Candidate {
     unavailable?: Unavailable | null
 }
 
+// What a `count` request resolved to. Null when the caller sent a question list and no count.
+export interface CheckSelection {
+    requested: number
+    available: number
+    used: number
+    // True when the history scan stopped early and may have missed older questions.
+    truncated: boolean
+}
+
 export interface CheckSetup {
     unavailable: Unavailable | null
     // Recent real questions, newest first, then the starter questions nobody asked yet (marked starter).
     questions: Array<{ text: string; date: string; starter?: boolean }>
+    // Distinct past questions found, not counting starter questions. At most 100.
+    pastCount: number
+    pastTruncated: boolean
     riskySteps: RiskyStep[]
     limits: CheckLimits
     // Live has no cards yet (the flow was never published), so the check asks only the draft.
@@ -84,6 +120,7 @@ export interface CheckView {
     liveEmpty: boolean
     cases: CheckCase[]
     summary: CheckSummary
+    selection: CheckSelection | null
 }
 
 interface CheckRecord {
@@ -100,7 +137,8 @@ interface CheckRecord {
     limits: CheckLimits
     liveEmpty: boolean
     cases: CheckCase[]
-    controller: AbortController | null
+    selection: CheckSelection | null
+    inflight: Set<AbortController>
     stopRequested: boolean
 }
 
@@ -182,42 +220,72 @@ function view(record: CheckRecord, currentDraftHash: string | null): CheckView {
             draft: c.draft && { ...c.draft, text: clip(c.draft.text) },
             same: c.same
         })),
-        summary: summarize(record.cases, record.liveEmpty)
+        summary: summarize(record.cases, record.liveEmpty),
+        selection: record.selection
     }
 }
 
-// What the check offers to ask: recent real questions, then the flow's starter questions not asked yet. A new flow
-// has few or no recent questions, so its starter questions fill the list.
+// What the check offers to ask: recent real questions (up to 100), then the flow's starter questions nobody
+// asked yet. A new flow has few or no recent questions, so its starter questions fill the list.
 async function questionsFor(flow: DraftFlow & { chatbotConfig?: string | null }) {
-    const recent = await recentQuestions(flow.id)
+    const loaded = await loadRecent(flow.id)
+    const recent = questionsFromRows(loaded.rows, COMPARE_COUNT_MAX)
     const asked = new Set(recent.map((q) => q.text.toLowerCase()))
     const starters = starterQuestions(flow.chatbotConfig)
         .filter((text) => !asked.has(text.toLowerCase()))
-        .map((text) => ({ text, date: '', starter: true }))
-    return [...recent, ...starters].slice(0, MAX_QUESTIONS)
+        .map((text) => ({ text, date: '', starter: true as const }))
+    return {
+        questions: [...recent, ...starters],
+        pastCount: recent.length,
+        pastTruncated: loaded.truncated && recent.length < COMPARE_COUNT_MAX
+    }
 }
 
-// Recent real questions for this flow: what people and the canvas test chat asked, newest first.
-// Questions sent with files are left out, because the files are not replayed.
-async function recentQuestions(flowId: string): Promise<Array<{ text: string; date: string }>> {
-    const rows = await getRunningExpressApp()
-        .AppDataSource.getRepository(ChatMessage)
-        .createQueryBuilder('m')
-        .select(['m.content', 'm.createdDate', 'm.fileUploads'])
-        .where('m.chatflowid = :flowId', { flowId })
-        .andWhere('m.role = :role', { role: 'userMessage' })
-        .andWhere('m.chatType IN (:...types)', { types: [ChatType.EXTERNAL, ChatType.INTERNAL] })
-        .orderBy('m.createdDate', 'DESC')
-        .take(200)
-        .getMany()
+interface RecentRow {
+    id?: string
+    content: string
+    createdDate?: Date | string
+    fileUploads?: string | null
+}
+
+// Newest user messages for this flow, paged, until 100 different questions or the history ends.
+// Questions sent with files are left out later, because the files are not replayed.
+async function loadRecent(flowId: string): Promise<{ rows: RecentRow[]; truncated: boolean }> {
+    const repo = getRunningExpressApp().AppDataSource.getRepository(ChatMessage)
+    const rows: RecentRow[] = []
+    let truncated = false
+    for (let skip = 0; skip < SCAN_CAP; skip += SCAN_PAGE) {
+        const page = await repo
+            .createQueryBuilder('m')
+            .select(['m.id', 'm.content', 'm.createdDate', 'm.fileUploads'])
+            .where('m.chatflowid = :flowId', { flowId })
+            .andWhere('m.role = :role', { role: 'userMessage' })
+            .andWhere('m.chatType IN (:...types)', { types: [ChatType.EXTERNAL, ChatType.INTERNAL] })
+            .orderBy('m.createdDate', 'DESC')
+            .addOrderBy('m.id', 'DESC')
+            .skip(skip)
+            .take(SCAN_PAGE)
+            .getMany()
+        rows.push(...page)
+        const distinct = pickQuestions(usableTexts(rows), COMPARE_COUNT_MAX, MAX_QUESTION_CHARS)
+        if (distinct.length >= COMPARE_COUNT_MAX || page.length < SCAN_PAGE) break
+        if (skip + SCAN_PAGE >= SCAN_CAP) {
+            truncated = true
+            break
+        }
+    }
+    return { rows, truncated }
+}
+
+function usableTexts(rows: RecentRow[]): string[] {
+    return rows.filter((row) => !row.fileUploads || row.fileUploads === '[]').map((row) => row.content)
+}
+
+function questionsFromRows(rows: RecentRow[], max: number): Array<{ text: string; date: string }> {
     const usable = rows.filter((row) => !row.fileUploads || row.fileUploads === '[]')
-    const picked = pickQuestions(
-        usable.map((row) => row.content),
-        MAX_QUESTIONS,
-        MAX_QUESTION_CHARS
-    )
+    const picked = pickQuestions(usableTexts(rows), max, MAX_QUESTION_CHARS)
     return picked.map((text) => {
-        const row = usable.find((r) => String(r.content).trim() === text)
+        const row = usable.find((item) => String(item.content).trim() === text)
         return { text, date: row?.createdDate ? new Date(row.createdDate).toISOString() : '' }
     })
 }
@@ -239,9 +307,15 @@ export async function getCheckSetup(flow: DraftFlow & { chatbotConfig?: string |
     const draft = candidate.canvas
     const unavailable = unavailableFor(flow, candidate, Boolean(given))
     const record = checks.get(candidate.key)
+    const offered =
+        unavailable?.code === 'off' || unavailable?.code === 'type'
+            ? { questions: [], pastCount: 0, pastTruncated: false }
+            : await questionsFor(flow)
     return {
         unavailable,
-        questions: unavailable?.code === 'off' || unavailable?.code === 'type' ? [] : await questionsFor(flow),
+        questions: offered.questions,
+        pastCount: offered.pastCount,
+        pastTruncated: offered.pastTruncated,
         riskySteps: riskySteps(draft ? [flow.flowData, draft] : [flow.flowData], flow.chatbotConfig),
         limits: checkLimits(),
         liveEmpty: liveIsEmpty(flow.flowData),
@@ -263,28 +337,59 @@ export async function stopCheck(flow: DraftFlow, checkId: string, given?: Candid
     if (!record || record.id !== checkId) throw new InternalFlowiseError(StatusCodes.NOT_FOUND, 'That check was not found. Run it again.')
     if (record.status === 'running') {
         record.stopRequested = true
-        record.controller?.abort()
+        for (const controller of record.inflight) controller.abort()
     }
     const draft = candidate.canvas
     return view(record, draft ? canvasHash(draft) : null)
 }
 
-function cleanQuestions(input: unknown): string[] {
+function cleanQuestions(input: unknown, max = MAX_QUESTIONS, allowEmpty = false): string[] {
+    if (input === undefined && allowEmpty) return []
     if (!Array.isArray(input)) throw new InternalFlowiseError(StatusCodes.BAD_REQUEST, 'Send the questions to check as a list.')
     const texts = input.map((q) => (typeof q === 'string' ? q.trim() : ''))
     if (texts.some((t) => !t)) throw new InternalFlowiseError(StatusCodes.BAD_REQUEST, 'Each question must be text.')
     if (texts.some((t) => t.length > MAX_QUESTION_CHARS))
         throw new InternalFlowiseError(StatusCodes.BAD_REQUEST, `Each question can be at most ${MAX_QUESTION_CHARS} characters.`)
     const unique = pickQuestions(texts, Number.MAX_SAFE_INTEGER, MAX_QUESTION_CHARS)
-    if (!unique.length) throw new InternalFlowiseError(StatusCodes.BAD_REQUEST, 'Pick at least one question to check.')
-    if (unique.length > MAX_QUESTIONS)
-        throw new InternalFlowiseError(StatusCodes.BAD_REQUEST, `The check runs at most ${MAX_QUESTIONS} questions.`)
+    if (!unique.length) {
+        if (allowEmpty) return []
+        throw new InternalFlowiseError(StatusCodes.BAD_REQUEST, 'Pick at least one question to check.')
+    }
+    if (unique.length > max) throw new InternalFlowiseError(StatusCodes.BAD_REQUEST, `The check runs at most ${max} questions.`)
     return unique
+}
+
+// `count` selects the newest distinct past questions. Extra `questions` are added after those, still within 100.
+async function questionsToRun(
+    flowId: string,
+    body: { questions?: unknown; count?: unknown }
+): Promise<{ questions: string[]; selection: CheckSelection | null }> {
+    const parsed = parseCompareCount(body?.count)
+    if (!parsed.ok) throw new InternalFlowiseError(StatusCodes.BAD_REQUEST, parsed.message)
+    if (parsed.count === null) return { questions: cleanQuestions(body?.questions), selection: null }
+    const loaded = await loadRecent(flowId)
+    const texts = usableTexts(loaded.rows)
+    const available = pickQuestions(texts, COMPARE_COUNT_MAX, MAX_QUESTION_CHARS)
+    const past = pickQuestions(texts, parsed.count, MAX_QUESTION_CHARS)
+    const extras = cleanQuestions(body?.questions, COMPARE_COUNT_MAX, true)
+    const questions = pickQuestions([...past, ...extras], COMPARE_COUNT_MAX, MAX_QUESTION_CHARS)
+    if (!questions.length) {
+        throw new InternalFlowiseError(StatusCodes.BAD_REQUEST, 'No past questions to compare. Add a question to check.')
+    }
+    return {
+        questions,
+        selection: {
+            requested: parsed.count,
+            available: available.length,
+            used: past.length,
+            truncated: loaded.truncated && available.length < COMPARE_COUNT_MAX
+        }
+    }
 }
 
 export async function startCheck(
     flow: IChatFlow,
-    body: { questions?: unknown; includeRiskySteps?: unknown },
+    body: { questions?: unknown; includeRiskySteps?: unknown; count?: unknown },
     baseURL: string,
     given?: Candidate
 ): Promise<CheckView> {
@@ -293,7 +398,7 @@ export async function startCheck(
     const draft = candidate.canvas
     const unavailable = unavailableFor(flow as DraftFlow, candidate, Boolean(given))
     if (unavailable) throw new InternalFlowiseError(StatusCodes.CONFLICT, unavailable.message)
-    const questions = cleanQuestions(body?.questions)
+    const { questions, selection } = await questionsToRun(flow.id, body || {})
     if (body?.includeRiskySteps !== undefined && typeof body.includeRiskySteps !== 'boolean')
         throw new InternalFlowiseError(StatusCodes.BAD_REQUEST, 'includeRiskySteps must be true or false.')
     const includeRiskySteps = body?.includeRiskySteps === true
@@ -326,7 +431,8 @@ export async function startCheck(
         limits: checkLimits(),
         liveEmpty: liveIsEmpty(flow.flowData),
         cases: questions.map((question) => ({ question, live: null, draft: null, same: null })),
-        controller: null,
+        selection,
+        inflight: new Set<AbortController>(),
         stopRequested: false
     }
     checks.set(candidate.key, record)
@@ -338,7 +444,7 @@ export async function startCheck(
 async function runOne(record: CheckRecord, flow: IChatFlow, flowData: string, question: string, baseURL: string): Promise<SideResult> {
     const deadline = record.startedAt + record.limits.maxSeconds * 1000
     const controller = new AbortController()
-    record.controller = controller
+    record.inflight.add(controller)
     const timer = setTimeout(() => controller.abort(), Math.max(1, Math.min(RUN_TIMEOUT_MS, deadline - Date.now())))
     timer.unref?.()
     const started = Date.now()
@@ -356,7 +462,7 @@ async function runOne(record: CheckRecord, flow: IChatFlow, flowData: string, qu
         return { text: null, error: message.slice(0, 500), tokens: null, ms: Date.now() - started }
     } finally {
         clearTimeout(timer)
-        record.controller = null
+        record.inflight.delete(controller)
     }
 }
 
@@ -369,32 +475,72 @@ function budgetLeft(record: CheckRecord): CheckView['stopReason'] {
     return null
 }
 
+// One question: Live, then the draft, so the two sides see the data as close together as they can.
+// A failure is stored on that question. It does not stop the others.
+async function runCase(record: CheckRecord, c: CheckCase, flow: IChatFlow, draft: string, baseURL: string) {
+    if (!record.liveEmpty) c.live = await runOne(record, flow, flow.flowData, c.question, baseURL)
+    if (record.stopRequested) {
+        c.live = null
+        c.draft = null
+        record.stopReason = 'stopped'
+        return
+    }
+    const stop = budgetLeft(record)
+    if (stop) {
+        c.live = null
+        record.stopReason = record.stopReason || stop
+        return
+    }
+    c.draft = await runOne(record, flow, draft, c.question, baseURL)
+    if (record.stopRequested) {
+        c.live = null
+        c.draft = null
+        record.stopReason = 'stopped'
+        return
+    }
+    c.same = record.liveEmpty || !c.live ? null : sameAnswer(c.live, c.draft)
+}
+
+function claimCase(record: CheckRecord, cursor: { next: number }): CheckCase | null {
+    if (cursor.next >= record.cases.length) return null
+    if (record.stopRequested) {
+        record.stopReason = 'stopped'
+        return null
+    }
+    const stop = budgetLeft(record)
+    if (stop) {
+        record.stopReason = record.stopReason || stop
+        return null
+    }
+    return record.cases[cursor.next++]
+}
+
 async function runCheck(record: CheckRecord, flow: IChatFlow, draft: string, baseURL: string) {
-    try {
-        for (const c of record.cases) {
-            let stop = budgetLeft(record)
-            if (stop) {
-                record.stopReason = stop
-                break
+    const cursor = { next: 0 }
+    const workers = Math.min(record.limits.concurrency, record.cases.length)
+    const worker = async () => {
+        for (;;) {
+            const mine = claimCase(record, cursor)
+            if (!mine) return
+            try {
+                await runCase(record, mine, flow, draft, baseURL)
+            } catch (error) {
+                // One question must not fail the compare. The row keeps the error; the other workers continue.
+                if (!mine.draft) {
+                    mine.draft = {
+                        text: null,
+                        error: ((error as Error)?.message || 'This run failed.').slice(0, 500),
+                        tokens: null,
+                        ms: 0
+                    }
+                }
+                if (!record.liveEmpty && mine.live && mine.draft) mine.same = false
+                logger.error(`[server]: publish check question failed for flow ${flow.id}: ${(error as Error)?.message || 'unknown error'}`)
             }
-            // Live and the draft run back to back on the same question, so they see the same data. An empty Live has
-            // nothing to answer with, so only the draft runs.
-            if (!record.liveEmpty) c.live = await runOne(record, flow, flow.flowData, c.question, baseURL)
-            stop = budgetLeft(record)
-            if (stop) {
-                c.live = null
-                record.stopReason = stop
-                break
-            }
-            c.draft = await runOne(record, flow, draft, c.question, baseURL)
-            if (record.stopRequested) {
-                c.live = null
-                c.draft = null
-                record.stopReason = 'stopped'
-                break
-            }
-            c.same = record.liveEmpty || !c.live ? null : sameAnswer(c.live, c.draft)
         }
+    }
+    try {
+        await Promise.all(Array.from({ length: workers }, () => worker()))
         record.status = record.stopReason ? 'stopped' : 'done'
     } catch (error) {
         record.status = 'failed'
@@ -402,7 +548,7 @@ async function runCheck(record: CheckRecord, flow: IChatFlow, draft: string, bas
         logger.error(`[server]: publish check failed for flow ${flow.id}: ${(error as Error)?.message || 'unknown error'}`)
     } finally {
         record.finishedAt = Date.now()
-        record.controller = null
+        record.inflight.clear()
     }
 }
 

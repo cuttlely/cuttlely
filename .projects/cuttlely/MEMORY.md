@@ -14,6 +14,7 @@ Conventions, do and don't, and lessons a newcomer would otherwise relearn. Add a
 -   A shipped migration is never edited. New tables go in a later migration whose down drops them. MySQL and MariaDB need unique foreign-key names (`fk_<table>_<column>`) and matching column types and collations.
 -   Code comments explain the reason in words. They do not cite issue or pull request numbers.
 -   User-facing text has no git words (Draft, Publish, Roll back, Keep a copy in GitHub). The promote and GitHub card messages are tested for this.
+-   The publish check's `count` selects the newest distinct past questions (case and spacing ignored, newest copy kept). It is not a random sample. Omitting `count` still runs the caller's question list, capped at 10.
 -   User guides say "the agent runtime". Upstream names appear only in credits, license files, the import guides and literal names (D38).
 -   Guides use real screenshots taken from a running server, with made-up data.
 -   Formatting follows the root Prettier config (4 spaces, single quotes, no semicolons, print width 140). Do not reformat `hermes/`.

@@ -6,6 +6,7 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ### Added
 
+-   The Publish check can replay 4, 10, 25, 50, or 100 past questions. 4 is the default. The server takes the most recent distinct questions, runs a few at a time, and the dialog shows progress, Stop, and the totals above the rows.
 -   The npm packages ship properly for the first time in 1.0.1, built and published from the v1.0.1 tag after the image and this release are public. `cuttlely` is the launcher: `npx cuttlely start` needs Docker, and it pulls and starts `ghcr.io/cuttlely/cuttlely` at the same version as the package. `@cuttlely/chat` is the embeddable chat widget.
 -   `pnpm release X.Y.Z --npm` is how maintainers publish those packages. It runs only from the annotated tag, once the image and the GitHub release for that version are public, and `--dry-run` shows the checks without publishing. [Releases and support](./docs/releases.md#publish-the-npm-packages) lists every check.
 

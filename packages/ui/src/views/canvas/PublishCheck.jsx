@@ -22,10 +22,14 @@ import {
     CHECK_TITLE,
     CHECK_VARY_NOTE,
     CHECK_WORDS,
+    COMPARE_COUNTS,
+    DEFAULT_COMPARE_COUNT,
     POLL_MS,
+    RESULT_PAGE_SIZE,
     RUN_ANYWAY_LABEL,
     addQuestion,
     canRunCheck,
+    capMessage,
     caseBadge,
     costNote,
     initialPicks,
@@ -70,9 +74,14 @@ Side.propTypes = { title: PropTypes.string, side: PropTypes.object, running: Pro
 
 export const CheckResults = ({ check, words = CHECK_WORDS.publish }) => {
     const theme = useTheme()
+    const [shown, setShown] = useState(RESULT_PAGE_SIZE)
+    useEffect(() => {
+        setShown(RESULT_PAGE_SIZE)
+    }, [check?.id])
     if (!check) return null
     const running = check.status === 'running'
-    const cases = visibleCases(check)
+    const allCases = visibleCases(check)
+    const cases = allCases.slice(0, shown)
     return (
         <Stack spacing={1.25} data-testid='check-results' sx={{ mt: 1.5 }}>
             {running && (
@@ -129,7 +138,17 @@ export const CheckResults = ({ check, words = CHECK_WORDS.publish }) => {
                     </Box>
                 )
             })}
-            {!running && cases.length > 0 && (
+            {allCases.length > shown && (
+                <Button
+                    variant='text'
+                    color='primary'
+                    onClick={() => setShown((current) => current + RESULT_PAGE_SIZE)}
+                    data-testid='check-results-more'
+                >
+                    Show more
+                </Button>
+            )}
+            {!running && allCases.length > 0 && (
                 <Typography variant='caption' color='text.secondary'>
                     {CHECK_VARY_NOTE}
                 </Typography>
@@ -158,17 +177,30 @@ export const PublishCheckView = ({
     onRunAnyway,
     onRun,
     onStop,
+    count = DEFAULT_COMPARE_COUNT,
+    onCount = () => {},
     words = CHECK_WORDS.publish
 }) => {
     const theme = useTheme()
+    const [previewShown, setPreviewShown] = useState(RESULT_PAGE_SIZE)
+    useEffect(() => {
+        setPreviewShown(RESULT_PAGE_SIZE)
+    }, [count])
     const limits = setup?.limits || {}
-    const maxQuestions = limits.maxQuestions || 10
+    const maxQuestions = limits.maxQuestions || 100
     const picked = pickedQuestions(list).length
     const running = check?.status === 'running'
     const risky = setup?.riskySteps || []
     const unavailable = setup?.unavailable || null
+    const past = (setup?.questions || []).filter((q) => !q.starter)
+    const pastCount = Number.isFinite(Number(setup?.pastCount)) ? Number(setup.pastCount) : past.length
+    const used = pastCount > 0 ? Math.min(count, pastCount) : 0
+    const addedPicked = pastCount > 0 ? list.filter((q) => q.added && q.picked).length : 0
+    const questionCount = pastCount > 0 ? used + addedPicked : picked
+    const checklist = pastCount > 0 ? list.filter((q) => q.added) : list
+    const cap = capMessage(count, pastCount, Boolean(setup?.pastTruncated))
     if (unavailable?.code === 'off') return null
-    const runnable = canRunCheck({ picked, riskySteps: risky, runAnyway, running: running || starting, unavailable })
+    const runnable = canRunCheck({ picked: questionCount, riskySteps: risky, runAnyway, running: running || starting, unavailable })
 
     return (
         <Box data-testid='publish-check' sx={{ mt: 2, p: 1.5, border: '1px solid', borderColor: theme.palette.divider, borderRadius: 1 }}>
@@ -198,40 +230,75 @@ export const PublishCheckView = ({
                     <Typography variant='body2' color='text.secondary' sx={{ mt: 0.5 }}>
                         {setup.liveEmpty ? words.introNew : words.intro}
                     </Typography>
-                    {list.length === 0 ? (
+                    {cap && (
+                        <Typography variant='body2' sx={{ mt: 1 }} data-testid='compare-cap'>
+                            {cap}
+                        </Typography>
+                    )}
+                    {pastCount > 0 && (
+                        <Stack sx={{ mt: 1 }} aria-label='Questions to compare'>
+                            {past
+                                .slice(0, used)
+                                .slice(0, previewShown)
+                                .map((q, index) => (
+                                    <Typography
+                                        key={`${index}-${q.text}`}
+                                        variant='body2'
+                                        data-testid='compare-question'
+                                        sx={{ wordBreak: 'break-word' }}
+                                    >
+                                        {q.text}
+                                    </Typography>
+                                ))}
+                            {used > previewShown && (
+                                <Button
+                                    variant='text'
+                                    color='primary'
+                                    onClick={() => setPreviewShown((current) => current + RESULT_PAGE_SIZE)}
+                                    data-testid='compare-questions-more'
+                                >
+                                    Show more
+                                </Button>
+                            )}
+                        </Stack>
+                    )}
+                    {pastCount === 0 && checklist.length === 0 ? (
                         <Typography variant='body2' color='text.secondary' sx={{ mt: 1 }}>
                             No one has asked this flow anything yet. Add a question to check.
                         </Typography>
-                    ) : (
+                    ) : checklist.length > 0 ? (
                         <Stack sx={{ mt: 1 }} aria-label='Questions to check'>
-                            {list.map((q, index) => (
-                                <FormControlLabel
-                                    key={`${index}-${q.text}`}
-                                    data-testid='check-question'
-                                    sx={{ alignItems: 'flex-start', mr: 0 }}
-                                    control={
-                                        <Checkbox
-                                            size='small'
-                                            checked={q.picked}
-                                            disabled={running || starting || (!q.picked && picked >= maxQuestions)}
-                                            onChange={() => onToggle(index)}
-                                        />
-                                    }
-                                    label={
-                                        <Typography variant='body2' sx={{ pt: '9px', wordBreak: 'break-word' }}>
-                                            {q.text}
-                                            {(q.added || q.starter) && (
-                                                <Typography component='span' variant='caption' color='text.secondary'>
-                                                    {' '}
-                                                    {q.added ? '(added)' : '(starter question)'}
-                                                </Typography>
-                                            )}
-                                        </Typography>
-                                    }
-                                />
-                            ))}
+                            {checklist.map((q) => {
+                                const index = list.indexOf(q)
+                                return (
+                                    <FormControlLabel
+                                        key={`${index}-${q.text}`}
+                                        data-testid='check-question'
+                                        sx={{ alignItems: 'flex-start', mr: 0 }}
+                                        control={
+                                            <Checkbox
+                                                size='small'
+                                                checked={q.picked}
+                                                disabled={running || starting || (!q.picked && picked >= maxQuestions)}
+                                                onChange={() => onToggle(index)}
+                                            />
+                                        }
+                                        label={
+                                            <Typography variant='body2' sx={{ pt: '9px', wordBreak: 'break-word' }}>
+                                                {q.text}
+                                                {(q.added || q.starter) && (
+                                                    <Typography component='span' variant='caption' color='text.secondary'>
+                                                        {' '}
+                                                        {q.added ? '(added)' : '(starter question)'}
+                                                    </Typography>
+                                                )}
+                                            </Typography>
+                                        }
+                                    />
+                                )
+                            })}
                         </Stack>
-                    )}
+                    ) : null}
                     <Stack direction='row' spacing={1} sx={{ mt: 1 }} alignItems='flex-start'>
                         <TextField
                             size='small'
@@ -272,9 +339,26 @@ export const PublishCheckView = ({
                         </Alert>
                     )}
                     <Typography variant='body2' color='text.secondary' sx={{ mt: 1 }} data-testid='check-cost'>
-                        {costNote(limits, picked, words, Boolean(setup.liveEmpty))}
+                        {costNote(limits, questionCount, words, Boolean(setup.liveEmpty))}
                     </Typography>
-                    <Stack direction='row' spacing={1} sx={{ mt: 1 }} alignItems='center'>
+                    <Stack direction='row' spacing={1} sx={{ mt: 1 }} alignItems='center' flexWrap='wrap' useFlexGap>
+                        <TextField
+                            select
+                            size='small'
+                            label='Past questions'
+                            value={String(COMPARE_COUNTS.includes(count) ? count : DEFAULT_COMPARE_COUNT)}
+                            disabled={running || starting || pastCount === 0}
+                            onChange={(event) => onCount(Number(event.target.value))}
+                            SelectProps={{ native: true }}
+                            inputProps={{ 'aria-label': 'Past questions', 'data-testid': 'compare-count' }}
+                            sx={{ width: 148 }}
+                        >
+                            {COMPARE_COUNTS.map((n) => (
+                                <option key={n} value={n}>
+                                    {n}
+                                </option>
+                            ))}
+                        </TextField>
                         {running ? (
                             <Button variant='outlined' color='inherit' onClick={onStop} data-testid='check-stop'>
                                 Stop
@@ -317,6 +401,8 @@ PublishCheckView.propTypes = {
     onRunAnyway: PropTypes.func,
     onRun: PropTypes.func,
     onStop: PropTypes.func,
+    count: PropTypes.number,
+    onCount: PropTypes.func,
     words: PropTypes.object
 }
 
@@ -332,6 +418,7 @@ const PublishCheck = ({ chatflowId, variant = 'publish', api = flowDraftsApi }) 
     const [addError, setAddError] = useState('')
     const [runAnyway, setRunAnyway] = useState(false)
     const [check, setCheck] = useState(null)
+    const [count, setCount] = useState(DEFAULT_COMPARE_COUNT)
     const [starting, setStarting] = useState(false)
     const [error, setError] = useState('')
     const timer = useRef(null)
@@ -368,7 +455,12 @@ const PublishCheck = ({ chatflowId, variant = 'publish', api = flowDraftsApi }) 
                 if (cancelled) return
                 const data = res.data
                 setSetup(data)
-                setList(initialPicks(data?.questions || [], data?.limits?.maxQuestions || 10))
+                const questions = data?.questions || []
+                const past = questions.filter((q) => !q.starter)
+                const reported = Number(data?.pastCount)
+                const hasPast = (Number.isFinite(reported) && reported > 0) || past.length > 0
+                // Past questions are chosen by the count. The tick list is only for a flow with none yet.
+                setList(hasPast ? [] : initialPicks(questions, data?.limits?.defaultQuestions || DEFAULT_COMPARE_COUNT))
                 const previous = data?.check
                 if (previous && !(previous.draftChanged && previous.status !== 'running')) {
                     setCheck(previous)
@@ -388,8 +480,17 @@ const PublishCheck = ({ chatflowId, variant = 'publish', api = flowDraftsApi }) 
         }
     }, [chatflowId, poll, api])
 
+    const pastCount = () => {
+        const reported = Number(setup?.pastCount)
+        if (Number.isFinite(reported)) return reported
+        return (setup?.questions || []).filter((q) => !q.starter).length
+    }
+
     const onAdd = () => {
-        const result = addQuestion(list, newQuestion, setup?.limits)
+        const have = pastCount()
+        const used = have > 0 ? Math.min(count, have) : 0
+        const cap = setup?.limits?.maxQuestions || 100
+        const result = addQuestion(list, newQuestion, { ...setup?.limits, maxQuestions: Math.max(0, cap - used) })
         setList(result.list)
         setAddError(result.error)
         if (result.list !== list) setNewQuestion('')
@@ -399,7 +500,13 @@ const PublishCheck = ({ chatflowId, variant = 'publish', api = flowDraftsApi }) 
         setStarting(true)
         setError('')
         try {
-            const res = await api.startCheck(chatflowId, pickedQuestions(list), runAnyway)
+            const have = pastCount()
+            const added = list.filter((q) => q.added && q.picked).map((q) => q.text)
+            const body =
+                have > 0
+                    ? { count, ...(added.length ? { questions: added } : {}), includeRiskySteps: runAnyway }
+                    : { questions: pickedQuestions(list), includeRiskySteps: runAnyway }
+            const res = await api.startCheck(chatflowId, body)
             if (!live.current.mounted) return
             setCheck(res.data)
             live.current.checkId = res.data?.id
@@ -443,6 +550,8 @@ const PublishCheck = ({ chatflowId, variant = 'publish', api = flowDraftsApi }) 
             onRunAnyway={setRunAnyway}
             onRun={onRun}
             onStop={onStop}
+            count={count}
+            onCount={setCount}
             words={words}
         />
     )
