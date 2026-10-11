@@ -1,6 +1,7 @@
 {
     "name": "flowise-api",
     "version": "1.0.3",
+    "private": true,
     "description": "Cuttlely API documentation server",
     "scripts": {
         "build": "tsc",
