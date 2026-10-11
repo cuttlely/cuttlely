@@ -50,7 +50,7 @@ Fixes, including security fixes, ship as a patch release of the latest minor. An
 
 Each pull request that changes what users see adds a line under `## [Unreleased]` in `CHANGELOG.md`. Use the [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) groups: **Added**, **Changed**, **Deprecated**, **Removed**, **Fixed** and **Security**. Anything that needs action from people upgrading also goes under **Upgrade notes / breaking changes**, with the exact thing to change.
 
-When a release is cut, `## [Unreleased]` becomes `## [X.Y.Z] - YYYY-MM-DD`. A planned version can be written as `## [X.Y.Z] - Unreleased` ahead of time, as 1.0.0 is.
+When a release is cut, `## [Unreleased]` becomes `## [X.Y.Z] - YYYY-MM-DD`. A planned version can be written as `## [X.Y.Z] - Unreleased` ahead of time.
 
 ## Cutting a release
 
@@ -109,8 +109,8 @@ The server itself is not an npm package. The image carries the Python agent runt
 `NPM_TOKEN` is an npm access token for the cuttlely org, provided as an environment variable. It is not stored in this repository. `pnpm release` already builds the widget. If `packages/chat-widget/dist` is missing, run `pnpm --dir packages/chat-widget build` first.
 
 ```bash
-npm publish packages/cli --userconfig <(printf '//registry.npmjs.org/:_authToken=%s\n' "$NPM_TOKEN")
-npm publish packages/chat-widget --userconfig <(printf '//registry.npmjs.org/:_authToken=%s\n' "$NPM_TOKEN")
+npm publish ./packages/cli --userconfig <(printf '//registry.npmjs.org/:_authToken=%s\n' "$NPM_TOKEN")
+npm publish ./packages/chat-widget --userconfig <(printf '//registry.npmjs.org/:_authToken=%s\n' "$NPM_TOKEN")
 ```
 
-Both packages set `publishConfig.access` to `public`. There is no publish workflow.
+A path without `./` is GitHub shorthand (`owner/repo`), so npm tries `git ls-remote` instead of publishing the directory. Both packages set `publishConfig.access` to `public`. A brand-new scoped package can take a few minutes to show on the registry after publish. There is no publish workflow.
