@@ -87,7 +87,7 @@ export function withDeduplication(
             .finally(() => inFlight.delete(key))
 
         inFlight.set(key, promise as Promise<AxiosResponse>)
-        return promise
+        return promise as Promise<R>
     }
 
     function deduplicatedPost<T = unknown, R = AxiosResponse<T>, D = unknown>(
@@ -96,7 +96,7 @@ export function withDeduplication(
         config?: AxiosRequestConfig<D>
     ): Promise<R> {
         if (!isCacheable('post', url)) {
-            return client.post<T, R, D>(url, data, config)
+            return client.post<T, R, D>(url, data, config) as Promise<R>
         }
 
         const key = buildCacheKey('post', url, data)
@@ -116,7 +116,7 @@ export function withDeduplication(
             .finally(() => inFlight.delete(key))
 
         inFlight.set(key, promise as Promise<AxiosResponse>)
-        return promise
+        return promise as Promise<R>
     }
 
     // Use Object.create so put, delete, interceptors, defaults, etc.

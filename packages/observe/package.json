@@ -116,7 +116,7 @@
         "@types/react-syntax-highlighter": "15.5.13",
         "@typescript-eslint/eslint-plugin": "^8.18.2",
         "@typescript-eslint/parser": "^8.18.2",
-        "@vitejs/plugin-react": "^4.2.0",
+        "@vitejs/plugin-react": "^4.7.0",
         "eslint-import-resolver-typescript": "4.4.4",
         "eslint-plugin-import": "^2.29.0",
         "eslint-plugin-markdown": "^3.0.1",
@@ -126,7 +126,7 @@
         "rimraf": "^5.0.5",
         "ts-jest": "^29.3.2",
         "typescript": "^5.4.5",
-        "vite": "^5.0.2",
-        "vite-plugin-dts": "^3.7.0"
+        "vite": "^6.4.3",
+        "vite-plugin-dts": "5.1.2"
     }
 }
