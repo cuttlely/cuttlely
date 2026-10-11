@@ -49,13 +49,13 @@ node etl/check.mjs --stress   # adds a generated 1,000,000-row CSV and a 401-fil
 
 ```bash
 pnpm verify                   # the full gate; `pnpm verify --help` lists the 22 steps
-pnpm verify --fast            # lint, typecheck, verify-test, website-docs, chat-widget, unit, server-settings-ui, handoff-test, render-blueprint, identity-migration
+pnpm verify --fast            # lint, typecheck, verify-test, website-docs, chat-widget, hermes-vendor, unit, server-settings-ui, handoff-test, render-blueprint, identity-migration
 pnpm verify --skip smoke      # skip one step locally; repeat --skip for more. Not for the merge gate
 pnpm verify:comment           # prints the summary for a pull request comment
 CUTTLELY_VERIFY_JEST_WORKERS=4 pnpm verify   # unit Jest workers; default 50%
 ```
 
-The report is `.verify/verify-report.json` and `.verify/verify-summary.md` (gitignored). `--fast` does not build, so the server unit tests need a `packages/` build on disk from an earlier full verify or `pnpm build`.
+The report is `.verify/verify-report.json` and `.verify/verify-summary.md` (gitignored). `--fast` does not build, so the server unit tests need a `packages/` build on disk from an earlier full verify or `pnpm build`. The typecheck step runs in both modes. It typechecks components and the server, and runs `tsc --noEmit` for `packages/agentflow`, `packages/observe`, and `packages/api-documentation`.
 
 The identity schema compare runs on every full verify. SQLite always runs. Postgres runs when `PGPASSWORD` is set; MariaDB when `MYSQL_PWD` or `CUTTLELY_TEST_MYSQL_PASSWORD` is set (`CUTTLELY_TEST_MARIADB_PORT`, default 3306); MySQL 8 when `CUTTLELY_TEST_MYSQL8_PORT` (default 3307) accepts that password or `CUTTLELY_TEST_MYSQL8_PASSWORD`. A missing server is a skip, not a pass.
 
@@ -64,7 +64,7 @@ The pre-push hook runs the handoff check, then `pnpm verify --fast`, then `node 
 ## Build, test, lint
 
 ```bash
-pnpm build                    # Turbo 2 build of every package (7 tasks, including agentflow and observe). turbo.json sets envMode loose so tasks still see the process environment, and agentGuidance off so Turbo does not edit AGENTS.md. The build scripts set TURBO_TELEMETRY_DISABLED so the task runner does not report usage.
+pnpm build                    # Turbo 2 build of every package (7 tasks: chat widget, components, server, UI, agentflow, observe, and the API docs package). turbo.json sets envMode loose so tasks still see the process environment, and agentGuidance off so Turbo does not edit AGENTS.md. The build scripts set TURBO_TELEMETRY_DISABLED so the task runner does not report usage.
 CUTTLELY_LOCAL_ADMIN=true pnpm dev   # UI on localhost:8080 with live reload, server on 3000; see docs/how-to/from-source.md
 pnpm test                     # jest in server, components and ui
 pnpm lint                     # eslint (with prettier) over js, jsx, ts, tsx, json and md; hermes/ is ignored
@@ -143,7 +143,7 @@ Contributor-relevant variables. The admin panel registry (`packages/server/src/s
 -   **Postgres is not `DATABASE_URL`.** The app reads `DATABASE_TYPE=postgres` plus `DATABASE_HOST`, `DATABASE_PORT`, `DATABASE_NAME`, `DATABASE_USER` and `DATABASE_PASSWORD` (`packages/server/src/DataSource.ts`).
 -   **Restart after runtime code changes.** The server loads `harness/*.mjs` and `etl/*.mjs` once. Rebuild `packages/server` or `packages/components` after TypeScript changes.
 -   **`pnpm dev` runs the last server build.** nodemon restarts the server when a file under `packages/server/src` changes, but it starts the compiled `dist`, so a server change needs `pnpm --filter flowise build` and then one more save (OPEN 15). The UI dev server listens on `localhost` only, so use `http://localhost:8080`, not `127.0.0.1`.
--   **`pnpm verify` does not build `packages/agentflow` or `packages/observe`.** Its build step covers the chat widget, components, server and UI. A type error in those two shows up only in `pnpm build` (OPEN 16).
+-   **The verify build step compiles the chat widget, components, the server, and the UI.** `packages/agentflow`, `packages/observe`, and `packages/api-documentation` are covered by `tsc --noEmit` in the typecheck step, which `pnpm verify` and `pnpm verify --fast` both run (OPEN 16). The UI has no TypeScript project.
 -   **Stale node definitions.** A node file whose mtime or size changed is reloaded at boot. If the canvas still shows an old definition, delete `packages/components/dist/nodes-manifest.json` and restart.
 -   **A harness needs a model on Harness Prime.** Saving without one fails with a clear message; a required credential that is missing or deleted fails with `missing_credential`; a model on a loopback or private address fails with `model_blocked` (D11).
 -   **Gateway or runtime port in use.** Set `CUTTLELY_HARNESS_GATEWAY_PORT` or `HERMES_API_PORT` and restart. `$CUTTLELY_HERMES_HOME/.env` records the runtime port from the first start.

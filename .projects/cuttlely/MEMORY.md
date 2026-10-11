@@ -61,4 +61,5 @@ Conventions, do and don't, and lessons a newcomer would otherwise relearn. Add a
 -   **A workflow run with no steps** is a runner or account problem, not a lint or build result. A draft pull request's green check may be lint only; read the job list.
 -   **When `main` and a branch both add to `DECISIONS.md`,** an automatic merge can keep both copies. After resolving a notes conflict, check for a repeated heading or number.
 -   **Merge `main` into your branch right before the gate,** not earlier. On a busy day a gate that passed on a stale base cannot ship.
+-   **`pnpm verify`'s build step is not `pnpm build`.** CI builds every workspace package. The verify build step compiles the chat widget, components, the server, and the UI. A package outside that filter needs `tsc --noEmit` in `scripts/typecheck.mjs`, or a type error passes `pnpm verify --fast` and the pre-push hook.
 -   **Background test servers can outlive their job** and hold ports or locks. Start them so they die with the job, and kill by port when done.

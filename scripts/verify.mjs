@@ -27,6 +27,8 @@ const STEPS = [
     {
         name: 'build',
         fast: false,
+        // Chat widget, components, server, and UI. agentflow, observe, and the API docs
+        // package are typechecked in scripts/typecheck.mjs, which --fast also runs.
         command: 'pnpm',
         args: [
             'exec',
@@ -233,7 +235,7 @@ function parseArgs(argv) {
             console.log('pnpm verify [--fast] [--skip <step>]')
             console.log(`steps: ${STEPS.map((step) => step.name).join(', ')}`)
             console.log(
-                '--fast runs lint, typecheck, verify-test, website-docs, chat-widget, unit, server-settings-ui, handoff-test, render-blueprint, and identity-migration'
+                '--fast runs lint, typecheck, verify-test, website-docs, chat-widget, hermes-vendor, unit, server-settings-ui, handoff-test, render-blueprint, and identity-migration'
             )
             console.log('unit Jest workers default to 50%. Set CUTTLELY_VERIFY_JEST_WORKERS to a positive integer or a percentage.')
             process.exit(0)
