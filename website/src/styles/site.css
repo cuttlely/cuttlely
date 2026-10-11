@@ -431,7 +431,7 @@
     display: block;
     width: 100%;
     height: auto;
-    aspect-ratio: 1280 / 854;
+    aspect-ratio: 1280 / 720;
     background: var(--cuttlely-surface-2);
 }
 .cl-demo-caption {
