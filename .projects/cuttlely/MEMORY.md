@@ -66,3 +66,4 @@ Conventions, do and don't, and lessons a newcomer would otherwise relearn. Add a
 -   **`pnpm verify`'s build step is not `pnpm build`.** CI builds every workspace package. The verify build step compiles the chat widget, components, the server, and the UI. A package outside that filter needs `tsc --noEmit` in `scripts/typecheck.mjs`, or a type error passes `pnpm verify --fast` and the pre-push hook.
 -   **Background test servers can outlive their job** and hold ports or locks. Start them so they die with the job, and kill by port when done.
 -   **Keep `.turbo` out of the image context.** A cache hit restores only the outputs in `turbo.json`, and the UI writes `build/`, so a copied cache ships an image with no UI.
+-   **`npm publish` treats a bare path as GitHub shorthand.** `packages/cli` is read as owner/repo, and npm runs `git ls-remote` for it. Publish with `./packages/cli` and `./packages/chat-widget`.

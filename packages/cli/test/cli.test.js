@@ -73,7 +73,7 @@ test('package metadata is publishable and has no runtime dependencies', () => {
     assert.equal(pkg.private, undefined)
     assert.equal(pkg.publishConfig.access, 'public')
     assert.equal(pkg.engines.node, '>=20')
-    assert.equal(pkg.bin.cuttlely, './bin/cuttlely.js')
+    assert.equal(pkg.bin.cuttlely, 'bin/cuttlely.js')
     assert.equal(pkg.repository.directory, 'packages/cli')
     assert.deepEqual(pkg.files, ['bin', 'lib', 'README.md', 'LICENSE'])
     assert.equal(pkg.dependencies, undefined)

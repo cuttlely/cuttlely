@@ -50,7 +50,7 @@ Fixes, including security fixes, ship as a patch release of the latest minor. An
 
 Each pull request that changes what users see adds a line under `## [Unreleased]` in `CHANGELOG.md`. Use the [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) groups: **Added**, **Changed**, **Deprecated**, **Removed**, **Fixed** and **Security**. Anything that needs action from people upgrading also goes under **Upgrade notes / breaking changes**, with the exact thing to change.
 
-When a release is cut, `## [Unreleased]` becomes `## [X.Y.Z] - YYYY-MM-DD`. A planned version can be written as `## [X.Y.Z] - Unreleased` ahead of time, as 1.0.0 is.
+When a release is cut, `## [Unreleased]` becomes `## [X.Y.Z] - YYYY-MM-DD`. A planned version can be written as `## [X.Y.Z] - Unreleased` ahead of time.
 
 ## Cutting a release
 
@@ -122,7 +122,7 @@ pnpm release X.Y.Z --npm              # publish cuttlely and @cuttlely/chat
 -   The GitHub release `vX.Y.Z` is published, not a draft.
 -   `NPM_TOKEN` is set in the environment.
 
-It then builds the widget, runs `npm pack --dry-run` for both packages, and publishes them with `npm publish ./packages/cli` and `npm publish ./packages/chat-widget`. Auth is a temporary npm userconfig built from `NPM_TOKEN`. The command does not print the token, and it deletes the file when it finishes.
+It then builds the widget, runs `npm pack --dry-run` for both packages, and publishes them with `npm publish ./packages/cli` and `npm publish ./packages/chat-widget`. The `./` is required: a path without it is GitHub shorthand (`owner/repo`), so npm tries `git ls-remote` instead of publishing the directory. Auth is a temporary npm userconfig built from `NPM_TOKEN`. The command does not print the token, and it deletes the file when it finishes.
 
 -   `cuttlely` (`packages/cli`) is the Docker launcher. `npx cuttlely` at version `X.Y.Z` pulls `ghcr.io/cuttlely/cuttlely:X.Y.Z`, because the default image tag is that package's own version.
 -   `@cuttlely/chat` (`packages/chat-widget`) is the embeddable chat widget.
