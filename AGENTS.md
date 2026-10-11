@@ -1,6 +1,6 @@
 # Agent instructions for Cuttlely
 
-Cuttlely 1.0.0 gives applications agent teams (harnesses) that apps call through the API and people chat with, plus the ETL pipelines, chatflows, and agentflows those teams use. Public docs lead with agent teams and Cuttlely's own features and call the bundled runtime "the agent runtime". The visual canvas editor and workflow engine come from Flowise (Apache-2.0), and the agent runtime is Hermes, vendored under `hermes/` (MIT). Code, package, path, and environment variable names that say `flowise` or `hermes` stay as they are. Credits are in [CREDITS.md](./CREDITS.md) and attribution is in [NOTICE](./NOTICE). The license text is in [LICENSE.md](./LICENSE.md).
+Cuttlely 1.0.1 gives applications agent teams (harnesses) that apps call through the API and people chat with, plus the ETL pipelines, chatflows, and agentflows those teams use. Public docs lead with agent teams and Cuttlely's own features and call the bundled runtime "the agent runtime". The visual canvas editor and workflow engine come from Flowise (Apache-2.0), and the agent runtime is Hermes, vendored under `hermes/` (MIT). Code, package, path, and environment variable names that say `flowise` or `hermes` stay as they are. Credits are in [CREDITS.md](./CREDITS.md) and attribution is in [NOTICE](./NOTICE). The license text is in [LICENSE.md](./LICENSE.md).
 
 ## Before any work
 
