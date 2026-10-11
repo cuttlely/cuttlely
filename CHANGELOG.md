@@ -2,7 +2,9 @@
 
 This file records every notable change to Cuttlely. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and Cuttlely uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html). [Releases and support](./docs/releases.md) explains what counts as a breaking change and which versions get fixes.
 
-## [1.0.0] - Unreleased
+## [Unreleased]
+
+## [1.0.0] - 2026-10-10
 
 The first Cuttlely release. It covers everything on `main` up to the release tag.
 
@@ -137,4 +139,5 @@ Back up your data directory, including its encryption key, before any upgrade. [
 -   **Node 24.** Running from source needs Node 24 (`.nvmrc`).
 -   **Data directory.** Data lives in `~/.cuttlely`, or `/var/cuttlely/data` in Docker and on Render. Keep the encryption key with the database.
 
-[1.0.0]: https://github.com/cuttlely/cuttlely/commits/main
+[Unreleased]: https://github.com/cuttlely/cuttlely/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/cuttlely/cuttlely/releases/tag/v1.0.0
