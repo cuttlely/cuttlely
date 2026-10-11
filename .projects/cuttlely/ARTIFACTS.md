@@ -15,6 +15,7 @@ Where things live. Merged work is in `git log` and the closed pull requests (`gh
 | Import from other tools              | `docs/bring-your-flows.md` and the import guides it links                                                                                                              |
 | Releases and upgrades                | `docs/releases.md`, `docs/upgrading.md`, `CHANGELOG.md`                                                                                                                |
 | Security and outbound connections    | `SECURITY.md` (including "What Cuttlely connects to")                                                                                                                  |
+| Help and contact                     | `SUPPORT.md`, `CODE_OF_CONDUCT.md`; the general contact, info@cuttlely.com, is also in the README and the site footer                                                  |
 | Credits and licenses                 | `CREDITS.md`, `NOTICE`, `LICENSE.md`                                                                                                                                   |
 | Contributor guide and agent rules    | `CONTRIBUTING.md`, `AGENTS.md`, `.cursor/rules/`, `.cursor/skills/`                                                                                                    |
 | Screenshots                          | `docs/images/` (taken from a running server with made-up data)                                                                                                         |

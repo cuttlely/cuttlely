@@ -35,6 +35,7 @@ English | [繁體中文](./i18n/README-TW.md) | [简体中文](./i18n/README-ZH.
 -   [Bring your existing flows](#bring-your-existing-flows)
 -   [Contributing](#contributing)
 -   [About and credits](#about-and-credits)
+-   [Contact](#contact)
 
 ## What you can build
 
@@ -144,7 +145,7 @@ You need Docker and one model key. The steps use OpenAI. Any chat model provider
 
     Compose pulls the published Cuttlely image. If it cannot pull it, Compose builds the image from your checkout instead, which takes several minutes the first time, and each long build step says which of four it is. `docker compose ps` shows `(health: starting)` until Cuttlely is ready, then `(healthy)`. Opening [http://localhost:43117](http://localhost:43117) early shows a **Cuttlely is starting** page that opens Cuttlely by itself.
 
-    With Node.js 20 or newer, and Docker running, you can skip the clone:
+    With Node.js 20 or newer you can skip the clone. This needs Docker, because `npx cuttlely start` pulls the image and runs it:
 
     ```bash
     npx cuttlely start
@@ -201,3 +202,7 @@ Have flows from another tool? On **Chatflows**, the **Import** menu has **Import
 Cuttlely is open source under Apache 2.0. What changed in each release is in the [changelog](./CHANGELOG.md), and which versions get fixes is in [Releases and support](./docs/releases.md). The license text is in [LICENSE.md](./LICENSE.md), and attribution is in [NOTICE](./NOTICE).
 
 Cuttlely builds on open-source work, including Flowise, Hermes from Nous Research and React Flow. [CREDITS.md](./CREDITS.md) lists each project with its license and link.
+
+## Contact
+
+Questions, partnerships or press: [info@cuttlely.com](mailto:info@cuttlely.com). Bugs and feature ideas go to [issues](https://github.com/cuttlely/cuttlely/issues), and vulnerabilities go through [SECURITY.md](./SECURITY.md).
