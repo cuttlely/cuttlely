@@ -7,7 +7,7 @@ import { IconSparkles } from '@tabler/icons-react'
 
 import credentialsApi from '@/api/credentials'
 import demoApi from '@/api/demo'
-import { StyledPermissionButton } from '@/ui-component/button/RBACButtons'
+import { PermissionButton, StyledPermissionButton } from '@/ui-component/button/RBACButtons'
 import { t } from '@/i18n'
 import CredentialListDialog from '@/views/credentials/CredentialListDialog'
 import AddEditCredentialDialog from '@/views/credentials/AddEditCredentialDialog'
@@ -15,6 +15,9 @@ import { useError } from '@/store/context/ErrorContext'
 import { defaultKey, keyTypesForDemo, usableKeys } from '@/utils/tryTheDemo'
 
 export const TRY_DEMO_KEY = 'cuttlely.dismissed.tryDemo'
+// The customer care team is the main demo; the bakery is the gentle quickstart.
+const MAIN = 'customer-care'
+const QUICKSTART = 'bakery'
 
 const errorText = (error) => error?.response?.data?.message || error?.message || 'Something went wrong.'
 
@@ -66,15 +69,18 @@ const TryTheDemo = ({ show }) => {
         setDismissed(true)
     }
 
-    const needsKey = !busy && !status.demo && !picked
+    const demos = status.demos || {}
+    const made = demos[MAIN] || null
+    const quickstart = demos[QUICKSTART] || null
+    const needsKey = (id) => !busy && !demos[id] && !picked
 
-    const start = async () => {
-        if (status.demo) return openDemo(navigate, status.demo.id)
-        setBusy(true)
+    const start = async (id) => {
+        if (demos[id]) return openDemo(navigate, demos[id].id)
+        setBusy(id)
         setProblem('')
         try {
-            const made = await demoApi.createDemo(picked)
-            openDemo(navigate, made.data.id)
+            const result = await demoApi.createDemo(picked, id)
+            openDemo(navigate, result.data.id)
         } catch (error) {
             setProblem(errorText(error))
             setBusy(false)
@@ -98,12 +104,12 @@ const TryTheDemo = ({ show }) => {
                 </Button>
             </Stack>
             <Typography variant='body2' sx={{ mt: 0.5, mb: 1.5, maxWidth: 760 }}>
-                {status.demo
-                    ? 'Your bakery demo team is ready. Open it and pick a starter question.'
-                    : 'See an agent team at work on a made-up bakery: a sales analyst that queries a small database and draws charts, and a librarian that searches the shop handbook. Bring one model key. Everything else is included.'}
+                {made
+                    ? 'Your customer care team is ready. Open it and pick a starter question.'
+                    : 'Watch an agent team resolve a late-order complaint. A customer specialist reads the account, an operations specialist traces the parcel, a policy specialist checks the written policy, and Harness Prime writes the reply and the actions, with the evidence. Bring one model key. Everything else is included, and all the data is made up.'}
             </Typography>
             <Stack direction={{ xs: 'column', sm: 'row' }} alignItems={{ xs: 'stretch', sm: 'center' }} sx={{ gap: 1, flexWrap: 'wrap' }}>
-                {!status.demo && keys.length > 0 && (
+                {(!made || !quickstart) && keys.length > 0 && (
                     <TextField
                         select
                         size='small'
@@ -120,7 +126,7 @@ const TryTheDemo = ({ show }) => {
                         ))}
                     </TextField>
                 )}
-                {!status.demo && (
+                {(!made || !quickstart) && (
                     <Button
                         variant={keys.length ? 'text' : 'outlined'}
                         onClick={() => setListOpen(true)}
@@ -130,18 +136,36 @@ const TryTheDemo = ({ show }) => {
                         {keys.length ? 'Add another key' : 'Add a model key'}
                     </Button>
                 )}
-                <Tooltip title={needsKey ? t('demo.needsKey') : ''} placement='top'>
-                    <Box component='span' tabIndex={needsKey ? 0 : undefined} sx={{ display: 'inline-flex', borderRadius: 1 }}>
+                <Tooltip title={needsKey(MAIN) ? t('demo.needsKey') : ''} placement='top'>
+                    <Box component='span' tabIndex={needsKey(MAIN) ? 0 : undefined} sx={{ display: 'inline-flex', borderRadius: 1 }}>
                         <StyledPermissionButton
                             permissionId={'chatflows:create'}
                             variant='contained'
-                            onClick={start}
-                            disabled={busy || needsKey}
-                            startIcon={busy ? <CircularProgress size={16} color='inherit' /> : null}
+                            onClick={() => start(MAIN)}
+                            disabled={Boolean(busy) || needsKey(MAIN)}
+                            startIcon={busy === MAIN ? <CircularProgress size={16} color='inherit' /> : null}
                             sx={{ textTransform: 'none', fontWeight: 600, boxShadow: 'none' }}
                         >
-                            {status.demo ? 'Open the demo' : busy ? 'Setting up the bakery team' : 'Try the demo'}
+                            {made ? 'Open the demo' : busy === MAIN ? 'Setting up the customer care team' : 'Try the demo'}
                         </StyledPermissionButton>
+                    </Box>
+                </Tooltip>
+                <Tooltip title={needsKey(QUICKSTART) ? t('demo.needsKey') : ''} placement='top'>
+                    <Box component='span' tabIndex={needsKey(QUICKSTART) ? 0 : undefined} sx={{ display: 'inline-flex', borderRadius: 1 }}>
+                        <PermissionButton
+                            permissionId={'chatflows:create'}
+                            variant='text'
+                            onClick={() => start(QUICKSTART)}
+                            disabled={Boolean(busy) || needsKey(QUICKSTART)}
+                            startIcon={busy === QUICKSTART ? <CircularProgress size={16} color='inherit' /> : null}
+                            sx={{ textTransform: 'none' }}
+                        >
+                            {quickstart
+                                ? 'Open the bakery quickstart'
+                                : busy === QUICKSTART
+                                ? 'Setting up the bakery team'
+                                : 'Or start with the bakery quickstart'}
+                        </PermissionButton>
                     </Box>
                 </Tooltip>
             </Stack>

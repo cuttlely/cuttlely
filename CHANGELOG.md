@@ -12,6 +12,7 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 ### Changed
 
 -   `LICENSE.md` is the standard Apache License 2.0 text, so GitHub and other license tools identify it. Copyright and attribution are in `NOTICE`.
+-   **Try the demo** now opens a customer care team first. A late-order complaint comes in: a customer specialist reads the account from a support desk database, an operations specialist traces the parcel through warehouse and carrier scans, and a policy specialist decides whose fault the delay is from a written service policy once operations has found the cause, with the remedy for every tier. Harness Prime picks the remedy for the customer's tier and history and writes the decision, the reply to the customer, the actions and the evidence. Each specialist has its own made-up data and Python tools in its own folder. The bakery team stays as the quickstart, one click away on the same card.
 
 ### Deprecated
 
