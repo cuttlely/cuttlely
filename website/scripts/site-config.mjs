@@ -14,6 +14,7 @@ export const ROOT_PAGES = {
 // README sections that the home page shows with the same heading id, so links into the README land there.
 export const HOME_ANCHORS = [
     'agent-teams-that-power-your-apps',
+    'small-context-big-answers',
     'use-a-team-from-your-app',
     'chat-with-a-team-in-minutes',
     'tools-your-teams-use',

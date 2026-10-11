@@ -4,22 +4,22 @@ Where things live. Merged work is in `git log` and the closed pull requests (`gh
 
 ## Docs
 
-| What                                 | Where                                                                                                                                              |
-| ------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Product README and first ten minutes | `README.md`; translated READMEs in `i18n/`                                                                                                         |
-| Docs index                           | `docs/README.md`                                                                                                                                   |
-| User guides                          | `docs/how-to/` (harnesses, analyst, ETL, canvas, versioning, share and embed, try the demo, server settings, sign-in, Docker, from source, Render) |
-| API guide and example app            | `docs/api.md`, `examples/web-app/`                                                                                                                 |
-| Reference                            | `docs/reference/` (override config, versioning settings and APIs, version files, model list, agent runtime upgrades)                               |
-| Identity                             | `docs/identity/` (AuthKit setup and identity behaviour)                                                                                            |
-| Import from other tools              | `docs/bring-your-flows.md` and the import guides it links                                                                                          |
-| Releases and upgrades                | `docs/releases.md`, `docs/upgrading.md`, `CHANGELOG.md`                                                                                            |
-| Security and outbound connections    | `SECURITY.md` (including "What Cuttlely connects to")                                                                                              |
-| Credits and licenses                 | `CREDITS.md`, `NOTICE`, `LICENSE.md`                                                                                                               |
-| Contributor guide and agent rules    | `CONTRIBUTING.md`, `AGENTS.md`, `.cursor/rules/`, `.cursor/skills/`                                                                                |
-| Screenshots                          | `docs/images/` (taken from a running server with made-up data)                                                                                     |
-| Website                              | `website/` (source); the pages come from `docs/` at build time                                                                                     |
-| Brand assets                         | `assets/brand/`                                                                                                                                    |
+| What                                 | Where                                                                                                                                                                  |
+| ------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Product README and first ten minutes | `README.md`; translated READMEs in `i18n/`                                                                                                                             |
+| Docs index                           | `docs/README.md`                                                                                                                                                       |
+| User guides                          | `docs/how-to/` (harnesses, context and tokens, analyst, ETL, canvas, versioning, share and embed, try the demo, server settings, sign-in, Docker, from source, Render) |
+| API guide and example app            | `docs/api.md`, `examples/web-app/`                                                                                                                                     |
+| Reference                            | `docs/reference/` (override config, versioning settings and APIs, version files, model list, agent runtime upgrades)                                                   |
+| Identity                             | `docs/identity/` (AuthKit setup and identity behaviour)                                                                                                                |
+| Import from other tools              | `docs/bring-your-flows.md` and the import guides it links                                                                                                              |
+| Releases and upgrades                | `docs/releases.md`, `docs/upgrading.md`, `CHANGELOG.md`                                                                                                                |
+| Security and outbound connections    | `SECURITY.md` (including "What Cuttlely connects to")                                                                                                                  |
+| Credits and licenses                 | `CREDITS.md`, `NOTICE`, `LICENSE.md`                                                                                                                                   |
+| Contributor guide and agent rules    | `CONTRIBUTING.md`, `AGENTS.md`, `.cursor/rules/`, `.cursor/skills/`                                                                                                    |
+| Screenshots                          | `docs/images/` (taken from a running server with made-up data)                                                                                                         |
+| Website                              | `website/` (source); the pages come from `docs/` at build time                                                                                                         |
+| Brand assets                         | `assets/brand/`                                                                                                                                                        |
 
 ## Code artifacts
 
