@@ -83,6 +83,26 @@ A color you leave at the dialog's default keeps Cuttlely's theme. Colors are use
 
 The React tabs give a component that loads the same script. **Show Embed Chat Config** shows every option: `theme` (`auto`, `light` or `dark`), `open`, and `config` overrides for the title, welcome message, placeholder, starter prompts and colors.
 
+### Embed with @cuttlely/chat
+
+`@cuttlely/chat` is the same widget. The script above is still served by your Cuttlely server at `/embed/chat.js`, so it matches that server. An application can also install the package and mount the chat. Set `apiHost` to your Cuttlely server.
+
+```bash
+npm install @cuttlely/chat
+```
+
+```js
+import { mount } from '@cuttlely/chat'
+
+mount(document.querySelector('#chat'), {
+    flowId: 'YOUR_CHATFLOW_ID',
+    apiHost: 'https://your-cuttlely.example.com',
+    mode: 'page'
+})
+```
+
+`flowId` is the chatflow or agentflow id. `mode` is `bubble` (the default) or `page`. `theme` is `auto`, `light` or `dark`. `mount` returns a controller with `open()`, `close()`, `reset()` and `destroy()`. The script tag's `window.cuttlelyChat.mount` takes the same options. The package file for a script tag is `@cuttlely/chat/chat.js`; set `data-api-host` when that file is not loaded from your Cuttlely server.
+
 ![A plain bakery web page, Crumb & Co. Bakery, with the chat open in the bottom right corner. The question Do you have anything gluten-free? is answered: Yes, we have a gluten-free buckwheat loaf available on Fridays only for $8.90. The round button under the panel closes it.](../images/share-and-embed/embed-bubble.png)
 
 ### Allowed domains

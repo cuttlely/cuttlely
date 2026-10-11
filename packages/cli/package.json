@@ -1,0 +1,37 @@
+{
+    "name": "cuttlely",
+    "version": "1.0.0",
+    "description": "Start Cuttlely in Docker. The open-source agent platform for applications.",
+    "type": "module",
+    "bin": {
+        "cuttlely": "./bin/cuttlely.js"
+    },
+    "files": [
+        "bin",
+        "lib",
+        "README.md",
+        "LICENSE"
+    ],
+    "license": "Apache-2.0",
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/cuttlely/cuttlely.git",
+        "directory": "packages/cli"
+    },
+    "homepage": "https://cuttlely.com",
+    "keywords": [
+        "cuttlely",
+        "agents",
+        "cli",
+        "docker"
+    ],
+    "engines": {
+        "node": ">=20"
+    },
+    "publishConfig": {
+        "access": "public"
+    },
+    "scripts": {
+        "test": "node --test test/cli.test.js"
+    }
+}

@@ -132,7 +132,7 @@ A default install makes no outbound request that nobody configured: no tracker, 
 
 ## D33. Our own chat widget for share links and embeds
 
-`packages/chat-widget` (`@cuttlely/chat`) is a framework-free, shadow-DOM widget written for this server's own protocol. The server serves the build at `/embed/chat.js`, pinned to the server version, so nothing loads from a CDN. Model output is always escaped, URLs go through an allowlist, and rendered markdown is scrubbed in the DOM. A cross-site embed can read chart files when the chatflow lists that site in its allowed domains; the session-ownership check still decides which chat's files a caller gets. The widget is not published to npm.
+`packages/chat-widget` (`@cuttlely/chat`) is a framework-free, shadow-DOM widget written for this server's own protocol. The server serves the build at `/embed/chat.js`, pinned to the server version, so nothing loads from a CDN. Model output is always escaped, URLs go through an allowlist, and rendered markdown is scrubbed in the DOM. A cross-site embed can read chart files when the chatflow lists that site in its allowed domains; the session-ownership check still decides which chat's files a caller gets. Publishing the widget is D40.
 
 ## D34. The first ten minutes
 
@@ -157,3 +157,7 @@ Tagline: "The open-source agent platform for applications." Headline: "Your appl
 ## D39. The project notes are public
 
 `.projects/cuttlely/` ships in the repository so anyone can run the `take-over` skill and continue from the current state. The notes describe the code, decisions, open work and how to ship. They hold no secrets, personal names or accounts, private hosts, internal links, machine paths, customer data or business notes, and link issues instead of restating their status. A code change updates them in the same pull request (D27). `pnpm check:clean-export` allows the Markdown notes directly in `.projects/cuttlely/` in a source export and refuses every other path under `.projects/`, including subfolders of the notes.
+
+## D40. npm publishes the launcher and the chat widget
+
+The server is not an npm package: a full install needs the Python agent runtime, which the Docker image carries. The published `cuttlely` package is `packages/cli`. `npx cuttlely` and a global install pull `ghcr.io/cuttlely/cuttlely`, tagged with that package's version unless `--tag` is set, and run it. `@cuttlely/chat` (`packages/chat-widget`) is the embeddable chat widget. The server still serves that build at `/embed/chat.js` (D33). The root package is named `cuttlely-workspace` and stays private, because pnpm allows one workspace project per package name and the published name is `cuttlely`. A maintainer runs `npm publish` for both packages after the image is pushed. `NPM_TOKEN` is an environment variable on that machine and is never stored in the repository. This supersedes the last sentence of D33.

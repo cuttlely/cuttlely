@@ -18,6 +18,28 @@ docker compose up -d
 
 Compose pulls `ghcr.io/cuttlely/cuttlely:latest`. If it cannot pull it, Compose prints a warning and builds the image from your checkout, which takes several minutes the first time.
 
+## Install with npm
+
+With Node.js 20 or newer and Docker running:
+
+```bash
+npx cuttlely start
+```
+
+`npx cuttlely` pulls `ghcr.io/cuttlely/cuttlely`, tagged with the same version as the `cuttlely` package (`1.0.0` unless you pass `--tag`). It stores data in the Docker volume `cuttlely-data`, publishes port 43117, and opens [http://localhost:43117](http://localhost:43117) when `/api/v1/ping` answers `pong`. This is the same image Compose pulls. Compose keeps its data in the volume `cuttlely_cuttlely-data`. `cuttlely start` keeps its data in the volume `cuttlely-data`.
+
+```bash
+npx cuttlely stop
+npx cuttlely status
+npx cuttlely logs
+npx cuttlely upgrade
+npx cuttlely start --port 8080 --tag 1.0.0 --env-file .env --no-open
+```
+
+`--port` is the host and container port (default `43117`). `--tag` selects the image tag (default is the package version). `--env-file` is passed to Docker for extra settings such as `CUTTLELY_ANALYST`. `--no-open` prints the URL and skips the browser. A global install is `npm install -g cuttlely`, then `cuttlely start`.
+
+If Docker is missing or not running, the command says so and links to this page. The first account is the same as Compose: the one-time setup link is in `npx cuttlely logs`.
+
 ### Watch it start
 
 Pulling, building and the first start can take minutes. They never sit silent:

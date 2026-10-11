@@ -211,7 +211,14 @@ pnpm release                          # verify, bump, CHANGELOG, commit, tag, bu
 pnpm release X.Y.Z --push --publish   # on the tagged commit: push the image, publish the release
 ```
 
--   Product version files: root `package.json` and `packages/server/package.json`. Other workspace packages keep their own numbers.
+-   Product version files: root `package.json`, `packages/server/package.json`, `packages/cli/package.json` and `packages/chat-widget/package.json`. Other workspace packages keep their own numbers.
+-   After the image is in the registry, publish the npm packages. `NPM_TOKEN` is an npm access token for the cuttlely org, set in the environment for these commands. It is not stored in the repository. Build the widget first when `packages/chat-widget/dist` is missing (`pnpm --dir packages/chat-widget build`). The release verify already builds it. There is no publish workflow.
+
+    ```bash
+    npm publish packages/cli --userconfig <(printf '//registry.npmjs.org/:_authToken=%s\n' "$NPM_TOKEN")
+    npm publish packages/chat-widget --userconfig <(printf '//registry.npmjs.org/:_authToken=%s\n' "$NPM_TOKEN")
+    ```
+
 -   Until the v1.0.0 release (PLAN), the changelog heading is `## [1.0.0] - Unreleased`. A user-visible line goes in that section. `pnpm release` dates the heading and opens a fresh `## [Unreleased]` (`docs/releases.md`).
 -   The image is `linux/amd64` unless the buildx builder is `docker-container` with `linux/arm64`.
 -   The release commit goes straight to `main` with the hook skips, because the full verify already ran on that tree. Branch protection must allow the releasing maintainer to bypass.

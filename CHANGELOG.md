@@ -67,6 +67,7 @@ Cuttlely is the open-source agent platform for applications: build an agent team
 ### Install and operations
 
 -   A published Docker image, `ghcr.io/cuttlely/cuttlely:X.Y.Z` and `:latest`. Compose pulls it by default and builds your checkout when it cannot pull. The image reports its health from `/api/v1/ping`.
+-   `npx cuttlely` starts that image. The `cuttlely` package is a Docker launcher, and `@cuttlely/chat` is the embeddable chat widget. The server stays in the image.
 -   The Docker image runs on Debian trixie with Node 24. It runs as the `node` user and keeps its data in `/var/cuttlely`. Compose passes `CUTTLELY_VERSIONS`, `CUTTLELY_DRAFTS` and `CUTTLELY_ANALYST` from `.env`.
 -   A Render Blueprint runs one container with Postgres.
 -   From source on Node 24 with pnpm.

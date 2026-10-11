@@ -19,12 +19,12 @@ New here? Start with [Your first 10 minutes](../README.md#your-first-10-minutes)
 -   [ETL](./how-to/etl.md). Pipelines that load, clean, split, embed and store your data for search, on a schedule if you like.
 -   [Canvas cards](./how-to/canvas.md). Chatflows and agentflows, compact or classic cards (`CANVAS_CARD_LOOK=classic` sets classic for everyone), Build with AI, and [older V1 agentflows](./how-to/canvas.md#older-v1-agentflows).
 -   [Version history](./how-to/versioning.md). Drafts and Publish, the [check before Publish](./how-to/versioning.md#check-recent-questions-before-you-publish), restore and roll back, a [copy in GitHub](./how-to/versioning.md#keep-a-copy-in-github), and [Dev to Prod](./how-to/versioning.md#move-a-flow-from-dev-to-prod).
--   [Share and embed a chat](./how-to/share-and-embed.md). A public link for any chatflow, a chat button or full-page chat on your website, and how the share settings change the look.
+-   [Share and embed a chat](./how-to/share-and-embed.md). A public link for any chatflow, a chat button or full-page chat on your website, how the share settings change the look, and the [`@cuttlely/chat`](./how-to/share-and-embed.md#embed-with-cuttlelychat) package.
 -   [Use the API in your own web app](./api.md). API keys, calling chatflows, agentflows and harnesses, streaming, conversation memory, uploads, errors and allowed origins, with a runnable [example app](../examples/web-app).
 
 ## Install and sign in
 
--   [Docker](./how-to/docker.md). The install most people want. SQLite, one container.
+-   [Docker](./how-to/docker.md). The install most people want. SQLite, one container. [npm](./how-to/docker.md#install-with-npm) starts that image with `npx cuttlely`.
 -   [Build from source and run the dev server](./how-to/from-source.md). Build Cuttlely yourself, run it, change the code with live reload, and run the tests and `pnpm verify`.
 -   [Render](./how-to/render.md). A hosted install with Postgres.
 -   [Server settings](./how-to/server-settings.md). Change how the server runs from **Admin** > **Server settings**: sign-in and AuthKit, the database, storage, the analyst and more, with a review step, safe boot and History.
