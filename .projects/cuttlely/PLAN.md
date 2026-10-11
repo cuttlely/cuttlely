@@ -21,14 +21,13 @@
 | 15  | Release tooling, changelog, upgrade tests and Compose image fallback (D30, D31)                  | Done                                                                                     |
 | 16  | Brand, theme and screenshots (D38)                                                               | Done                                                                                     |
 | 17  | Fix the open issues                                                                              | Done. Closed issues stay in the tracker                                                  |
-| 18  | First public release, v1.0.0                                                                     | Done. npm 1.0.0 was not published from the tag; 1.0.1 is next                            |
+| 18  | First public release, v1.0.0                                                                     | Done. 1.0.1 followed: image, GitHub release and npm all from tag `v1.0.1`                |
 | 19  | Builder UI for harness credentials and MCP servers                                               | Later                                                                                    |
 | 20  | Convert remaining `adapt` catalog rows when a harness needs them (D5)                            | Later, never blocking                                                                    |
 | 21  | Project website with the docs (`website/`)                                                       | Built. Publishing it is a maintainer step                                                |
 
 ## Next concrete tasks
 
-1. **Release 1.0.1.** v1.0.0 is tagged, the GitHub release is published, and `ghcr.io/cuttlely/cuttlely:1.0.0` is in the registry. The `cuttlely` and `@cuttlely/chat` packages at 1.0.0 were published from a commit that is not that tag. `CHANGELOG.md` holds the 1.0.1 notes under `## [Unreleased]`. A maintainer runs `pnpm release --dry-run`, then `pnpm release`, then `pnpm release 1.0.1 --push --publish`, then from the tag `pnpm release 1.0.1 --npm` (RUNBOOK, Release).
-2. **After v1.0.0.** Refresh the upgrade fixture from the v1.0.0 tag (D31). `scripts/fixtures/upgrade/baseline.json` is still commit `79acfbb` from 2026-10-08. Check whether GitHub Actions runs on pull requests, and if it does, decide whether it joins the merge gate (OPEN). Repository settings for the release are still to turn on (OPEN).
-3. **Live checks that need real credentials.** A live credentialed run on `CUTTLELY_HARNESS_QUEUE=external` before switching its default; a live ETL run against a hosted vector store; a live upload-harness turn on a large file. Never invent keys; use a maintainer's test credentials.
-4. **Later.** The canvas card look: both compact and classic cards are offered (`CANVAS_CARD_LOOK`); decide after the first release whether classic stays. The dedicated analyst node. A builder UI for harness credentials and MCP servers.
+1. **After v1.0.1.** Check whether GitHub Actions runs on pull requests, and if it does, decide whether it joins the merge gate (OPEN). Repository settings for the release are still to turn on (OPEN).
+2. **Live checks that need real credentials.** A live credentialed run on `CUTTLELY_HARNESS_QUEUE=external` before switching its default; a live ETL run against a hosted vector store; a live upload-harness turn on a large file. Never invent keys; use a maintainer's test credentials.
+3. **Later.** The canvas card look: both compact and classic cards are offered (`CANVAS_CARD_LOOK`); decide after the first release whether classic stays. The dedicated analyst node. A builder UI for harness credentials and MCP servers.
