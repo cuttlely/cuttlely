@@ -940,6 +940,12 @@ function readPackageVersions(root, files) {
     })
 }
 
+function readPackageName(root, file) {
+    const name = JSON.parse(fs.readFileSync(path.join(root, file), 'utf8')).name
+    if (typeof name !== 'string' || !name) throw new ReleaseError(`${file} has no package name.`)
+    return name
+}
+
 function commandFailed(res, cmd, args, token) {
     if (res && res.error) return `${cmd} could not start.`
     const detail = redactSecret(`${res?.stderr || ''}\n${res?.stdout || ''}`, token).trim()
@@ -1005,8 +1011,8 @@ async function publishNpmPackages(opts, root, deps) {
         'pnpm --dir packages/chat-widget build',
         'npm pack --dry-run (packages/cli)',
         'npm pack --dry-run (packages/chat-widget)',
-        'npm publish ./packages/cli',
-        'npm publish ./packages/chat-widget'
+        'npm publish ./packages/cli (skipped when that version is already on npm)',
+        'npm publish ./packages/chat-widget (skipped when that version is already on npm)'
     ]
     if (opts.dryRun) {
         stepTitle('Plan (nothing below runs in a dry run)')
@@ -1042,6 +1048,13 @@ async function publishNpmPackages(opts, root, deps) {
     try {
         for (const file of NPM_PACKAGE_FILES) {
             const dir = `./${path.dirname(file)}`
+            // A run that stopped after the first package starts again from the same tag: skip what npm already has.
+            const spec = `${readPackageName(root, file)}@${version}`
+            const seen = exec('npm', ['view', spec, 'version', '--userconfig', userconfig], { cwd: root, allowFail: true })
+            if (seen.status === 0 && (seen.stdout || '').trim() === version) {
+                log(`  ${spec} is already on npm, skipped`)
+                continue
+            }
             const args = ['publish', dir, '--userconfig', userconfig]
             const published = exec('npm', args, { cwd: root, allowFail: true })
             if (published.status !== 0) throw new ReleaseError(commandFailed(published, 'npm', args, token))

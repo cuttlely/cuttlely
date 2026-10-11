@@ -122,7 +122,7 @@ pnpm release X.Y.Z --npm              # publish cuttlely and @cuttlely/chat
 -   The GitHub release `vX.Y.Z` is published, not a draft.
 -   `NPM_TOKEN` is set in the environment.
 
-It then builds the widget, runs `npm pack --dry-run` for both packages, and publishes them with `npm publish ./packages/cli` and `npm publish ./packages/chat-widget`. The `./` is required: a path without it is GitHub shorthand (`owner/repo`), so npm tries `git ls-remote` instead of publishing the directory. Auth is a temporary npm userconfig built from `NPM_TOKEN`. The command does not print the token, and it deletes the file when it finishes.
+It then builds the widget, runs `npm pack --dry-run` for both packages, and publishes them with `npm publish ./packages/cli` and `npm publish ./packages/chat-widget`. The `./` is required: a path without it is GitHub shorthand (`owner/repo`), so npm tries `git ls-remote` instead of publishing the directory. Auth is a temporary npm userconfig built from `NPM_TOKEN`. The command does not print the token, and it deletes the file when it finishes. If a run stops after the first package, run the same command again from the same tag: a package version that is already on npm is skipped, because npm never accepts the same version twice.
 
 -   `cuttlely` (`packages/cli`) is the Docker launcher. `npx cuttlely` at version `X.Y.Z` pulls `ghcr.io/cuttlely/cuttlely:X.Y.Z`, because the default image tag is that package's own version.
 -   `@cuttlely/chat` (`packages/chat-widget`) is the embeddable chat widget.

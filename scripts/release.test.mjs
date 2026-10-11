@@ -600,7 +600,7 @@ function fakeManifest(status) {
 async function runNpm(
     repo,
     args,
-    { manifestStatus = 200, github = 'false', token = NPM_TOKEN, npmStatus = 0, packStatus = 0, buildStatus = 0 } = {}
+    { manifestStatus = 200, github = 'false', token = NPM_TOKEN, npmStatus = 0, packStatus = 0, buildStatus = 0, onNpm = [] } = {}
 ) {
     const lines = []
     const calls = []
@@ -620,6 +620,11 @@ async function runNpm(
                     return { status: 0, stdout: github, stderr: '' }
                 }
                 if (cmd === 'pnpm') return { status: buildStatus, stdout: '', stderr: buildStatus === 0 ? '' : 'build failed' }
+                if (cmd === 'npm' && cmdArgs[0] === 'view') {
+                    const spec = cmdArgs[1]
+                    if (onNpm.includes(spec)) return { status: 0, stdout: spec.slice(spec.lastIndexOf('@') + 1), stderr: '' }
+                    return { status: 1, stdout: '', stderr: 'npm error code E404' }
+                }
                 if (cmd === 'npm' && cmdArgs[0] === 'pack')
                     return { status: packStatus, stdout: '', stderr: packStatus === 0 ? '' : 'pack failed' }
                 if (cmd === 'npm' && cmdArgs[0] === 'publish') {
@@ -788,12 +793,14 @@ test('npm publish builds, pack-checks and publishes both packages without printi
     const npmCalls = res.calls.filter((call) => call.cmd === 'npm')
     assert.deepEqual(
         npmCalls.map((call) => call.args[0]),
-        ['pack', 'pack', 'publish', 'publish']
+        ['pack', 'pack', 'view', 'publish', 'view', 'publish']
     )
     assert.equal(npmCalls[0].cwd.endsWith(`${path.sep}packages${path.sep}cli`), true)
     assert.equal(npmCalls[1].cwd.endsWith(`${path.sep}packages${path.sep}chat-widget`), true)
-    assert.deepEqual(npmCalls[2].args.slice(0, 2), ['publish', './packages/cli'])
-    assert.deepEqual(npmCalls[3].args.slice(0, 2), ['publish', './packages/chat-widget'])
+    assert.deepEqual(npmCalls[2].args.slice(0, 2), ['view', 'cuttlely@1.0.0'])
+    assert.deepEqual(npmCalls[3].args.slice(0, 2), ['publish', './packages/cli'])
+    assert.deepEqual(npmCalls[4].args.slice(0, 2), ['view', '@cuttlely/chat@1.0.0'])
+    assert.deepEqual(npmCalls[5].args.slice(0, 2), ['publish', './packages/chat-widget'])
     assert.ok(res.calls.some((call) => call.cmd === 'pnpm' && call.args.includes('build')))
 })
 
@@ -824,4 +831,19 @@ test('a failed widget build or pack does not publish, and a failed publish redac
         assert.equal(error.calls.filter((call) => call.cmd === 'npm' && call.args[0] === 'publish').length, 1)
         return true
     })
+})
+
+test('a resumed npm publish skips a package version npm already has', async (t) => {
+    const repo = npmCheckout()
+    t.after(() => repo.cleanup())
+    const res = await runNpm(repo.repo, ['1.0.0', '--npm'], { onNpm: ['cuttlely@1.0.0'] })
+    assert.equal(res.code, 0, res.out)
+    assert.match(res.out, /cuttlely@1\.0\.0 is already on npm, skipped/)
+    assert.equal(res.out.includes(NPM_TOKEN), false)
+    const publishes = res.calls.filter((call) => call.cmd === 'npm' && call.args[0] === 'publish')
+    assert.deepEqual(
+        publishes.map((call) => call.args[1]),
+        ['./packages/chat-widget']
+    )
+    assert.equal(fs.existsSync(res.userconfig), false)
 })

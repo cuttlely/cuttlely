@@ -6,15 +6,16 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ### Added
 
--   `npx cuttlely start` and the `@cuttlely/chat` npm package ship from this tagged release. `npx cuttlely start` needs Docker: it pulls the Cuttlely image and starts it. The 1.0.0 npm versions of `cuttlely` and `@cuttlely/chat` were published from source that was not the v1.0.0 tag.
+-   The npm packages ship properly for the first time in 1.0.1, built and published from the v1.0.1 tag after the image and this release are public. `cuttlely` is the launcher: `npx cuttlely start` needs Docker, and it pulls and starts `ghcr.io/cuttlely/cuttlely` at the same version as the package. `@cuttlely/chat` is the embeddable chat widget.
+-   `pnpm release X.Y.Z --npm` is how maintainers publish those packages. It runs only from the annotated tag, once the image and the GitHub release for that version are public, and `--dry-run` shows the checks without publishing. [Releases and support](./docs/releases.md#publish-the-npm-packages) lists every check.
+
+### Changed
+
+-   `LICENSE.md` is the standard Apache License 2.0 text, so GitHub and other license tools identify it. Copyright and attribution are in `NOTICE`.
 
 ### Deprecated
 
--   The 1.0.0 npm packages `cuttlely` and `@cuttlely/chat`. Use 1.0.1.
-
-### Fixed
-
--   The release image keeps the app UI. A build after a local verify no longer ships a container that is missing the pages you open in the browser.
+-   `cuttlely@1.0.0` and `@cuttlely/chat@1.0.0` on npm. They were built from a commit after the v1.0.0 tag, so they do not match it. Use 1.0.1 or later. They stay installable and are marked deprecated on npm.
 
 ## [1.0.0] - 2026-10-10
 
