@@ -1,6 +1,7 @@
 {
     "name": "flowise-ui",
     "version": "3.1.4",
+    "private": true,
     "description": "Cuttlely interface",
     "license": "SEE LICENSE IN LICENSE.md",
     "homepage": "https://github.com/cuttlely/cuttlely",

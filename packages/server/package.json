@@ -1,6 +1,7 @@
 {
     "name": "flowise",
     "version": "1.0.2",
+    "private": true,
     "description": "Cuttlely server",
     "main": "dist/index",
     "types": "dist/index.d.ts",

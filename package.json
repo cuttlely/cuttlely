@@ -6,11 +6,7 @@
     "description": "The open-source agent platform for applications.",
     "homepage": "https://github.com/cuttlely/cuttlely",
     "workspaces": [
-        "packages/*",
-        "flowise",
-        "ui",
-        "components",
-        "api-documentation"
+        "packages/*"
     ],
     "scripts": {
         "build": "TURBO_TELEMETRY_DISABLED=1 turbo run build",
