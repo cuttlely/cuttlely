@@ -4,6 +4,10 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ## [Unreleased]
 
+### Security
+
+-   DOMPurify, sanitize-html, moment, `@langchain/mongodb`, and `@langchain/redis` are on patched releases.
+
 ## [1.0.0] - 2026-10-10
 
 The first Cuttlely release. It covers everything on `main` up to the release tag.
