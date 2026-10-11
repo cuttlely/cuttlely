@@ -416,6 +416,25 @@ test('the launcher and the widget are version files, and the registry image tag 
     assert.equal(redactSecret('token secret-value in the log', 'secret-value'), 'token NPM_TOKEN in the log')
 })
 
+test('unpublished workspace packages are private, and the root workspace list matches pnpm-workspace.yaml', () => {
+    const rootDir = path.resolve(path.dirname(SCRIPT), '..')
+    const rootPkg = JSON.parse(fs.readFileSync(path.join(rootDir, 'package.json'), 'utf8'))
+    assert.deepEqual(rootPkg.workspaces, ['packages/*'])
+    const workspaceYaml = fs.readFileSync(path.join(rootDir, 'pnpm-workspace.yaml'), 'utf8')
+    assert.match(workspaceYaml, /^packages:\n\s+- ['"]packages\/\*['"]/m)
+    const published = new Set(NPM_PACKAGE_FILES.map((file) => JSON.parse(fs.readFileSync(path.join(rootDir, file), 'utf8')).name))
+    assert.deepEqual([...published].sort(), ['@cuttlely/chat', 'cuttlely'])
+    const packageDirs = fs.readdirSync(path.join(rootDir, 'packages'), { withFileTypes: true }).filter((entry) => entry.isDirectory())
+    assert.ok(packageDirs.length > published.size)
+    for (const entry of packageDirs) {
+        const manifestPath = path.join(rootDir, 'packages', entry.name, 'package.json')
+        if (!fs.existsSync(manifestPath)) continue
+        const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'))
+        if (published.has(manifest.name)) assert.notEqual(manifest.private, true)
+        else assert.equal(manifest.private, true)
+    }
+})
+
 function manifestResponse(status, { wwwAuthenticate, body, ok } = {}) {
     return {
         status,

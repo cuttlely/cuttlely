@@ -1,6 +1,7 @@
 {
     "name": "flowise-components",
     "version": "3.1.4",
+    "private": true,
     "description": "Cuttlely components",
     "main": "dist/src/index",
     "types": "dist/src/index.d.ts",
