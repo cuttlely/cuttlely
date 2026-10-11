@@ -1,7 +1,7 @@
-// Headless browser check of page routing: the sign-in redirect and where sign-in lands, every main page
-// by direct load and by sidebar click, back and forward, a reload on a deep link, the unknown-page route, and the
-// unsaved-changes prompt on the chat flow canvas (cancel stays, OK leaves, a saved canvas leaves without asking, and
-// saving a new canvas moves it to its own address without asking). Fails on a page error or an error screen.
+// Headless browser check of page routing: the sign-in redirect and where sign-in lands, every main page by direct
+// load and by sidebar click, back and forward, a reload on a deep link, the unknown-page route, and the unsaved-changes
+// prompt on the chat flow canvas: cancel stays, OK leaves, a reload asks, a saved canvas leaves and reloads without
+// asking, and saving a new canvas moves it to its own address without asking. Fails on a page error or an error screen.
 // Run it against two builds to compare them. Demo data only; prints short pass/fail lines, never the login.
 //
 // Needs a running Cuttlely (E2E_BASE_URL), a local admin login file (E2E_ADMIN_FILE) and a Playwright with a browser.
@@ -76,6 +76,24 @@ async function withConfirm(page, accept, action) {
         page.off('dialog', onDialog)
     }
     return message
+}
+
+// Reloads the page and reports the type of any dialog it raised ('beforeunload' when the page asks), answering it.
+async function reloadDialog(page, accept) {
+    let type = ''
+    const onDialog = async (dialog) => {
+        type = dialog.type()
+        if (accept) await dialog.accept()
+        else await dialog.dismiss()
+    }
+    page.on('dialog', onDialog)
+    try {
+        await page.reload({ timeout: 5000 }).catch(() => undefined)
+        await page.waitForTimeout(800)
+    } finally {
+        page.off('dialog', onDialog)
+    }
+    return type
 }
 
 async function dragFirstCard(page) {
@@ -179,6 +197,8 @@ try {
     await settle(page)
     check('dirty canvas Back asks', PROMPT.test(asked), asked || 'no prompt')
     check('cancel stays on the canvas', path(page) === `/canvas/${saved.id}`, path(page))
+    let reloaded = await reloadDialog(page, false)
+    check('reload on a dirty canvas asks', reloaded === 'beforeunload' && path(page) === `/canvas/${saved.id}`, reloaded || 'no prompt')
     asked = await withConfirm(page, false, () => page.goBack({ timeout: 3000 }).catch(() => undefined))
     await settle(page)
     check('browser back on a dirty canvas asks', PROMPT.test(asked) && path(page) === `/canvas/${saved.id}`, asked || path(page))
@@ -194,6 +214,9 @@ try {
     asked = await withConfirm(page, true, () => page.locator('[title="Back"]').first().click())
     await settle(page)
     check('saved canvas leaves without a prompt', !asked && path(page) === '/chatflows', asked || path(page))
+    await openSavedFromList(page)
+    reloaded = await reloadDialog(page, true)
+    check('reload on a clean canvas does not ask', !reloaded && path(page) === `/canvas/${saved.id}`, reloaded || path(page))
 
     // A new canvas with content (Add New from the list) asks before leaving; saving it moves it to /canvas/:id without
     // asking, and opens again at that address.
