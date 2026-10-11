@@ -25,8 +25,13 @@ const promote = (chatflowId, sha) => client.post(`${incomingPath(chatflowId)}/pr
 // The behavior check, in the shape the publish check panel uses.
 const promoteCheckApi = {
     getCheckSetup: (chatflowId) => client.get(`${incomingPath(chatflowId)}/check`),
-    startCheck: (chatflowId, questions, includeRiskySteps = false) =>
-        client.post(`${incomingPath(chatflowId)}/check`, { questions, includeRiskySteps }),
+    startCheck: (chatflowId, questionsOrBody, includeRiskySteps = false) => {
+        const body =
+            questionsOrBody && typeof questionsOrBody === 'object' && !Array.isArray(questionsOrBody)
+                ? questionsOrBody
+                : { questions: questionsOrBody, includeRiskySteps }
+        return client.post(`${incomingPath(chatflowId)}/check`, body)
+    },
     getCheck: (chatflowId, checkId) => client.get(`${incomingPath(chatflowId)}/check/${encodeURIComponent(checkId)}`),
     stopCheck: (chatflowId, checkId) => client.delete(`${incomingPath(chatflowId)}/check/${encodeURIComponent(checkId)}`)
 }

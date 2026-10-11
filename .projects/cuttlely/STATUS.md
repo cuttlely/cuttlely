@@ -10,7 +10,7 @@ Cuttlely 1.0.0. The product version is the root `package.json`, `packages/server
 -   **Analyst.** A specialist with its own isolated database (`CUTTLELY_ANALYST=auto`, or a separate Postgres URL) that creates tables, answers from real rows and pages long results.
 -   **Knowledge pipelines (ETL).** A pipeline canvas with streaming sources, incremental upsert into any vector store, every text splitter and embeddings node, schedules, run history, and the ETL Retriever for chatflows and harnesses.
 -   **Chatflows and agentflows.** The visual canvas and node catalog, with Build with AI on every canvas. Older V1 agentflows still run but are not offered for new work.
--   **Drafts and version history.** Every canvas autosaves to a draft; Publish, Roll back, restore, a check that replays recent real questions before Publish, an optional copy in GitHub, and Dev to Prod promotion.
+-   **Drafts and version history.** Every canvas autosaves to a draft; Publish, Roll back, restore, a check that replays a chosen number of recent real questions before Publish (4, 10, 25, 50, or 100; 4 by default), an optional copy in GitHub, and Dev to Prod promotion.
 -   **Share and embed.** The `@cuttlely/chat` widget, served by the server at `/embed/chat.js`, for share links and website embeds, including charts on cross-site embeds that the chatflow allows.
 -   **API.** Chatflows, agentflows and harnesses through `POST /api/v1/prediction/:id`, with document uploads, streaming, caller-owned sessions and hashed API keys. `docs/api.md` and `examples/web-app/` show a real app.
 -   **Sign-in and teams.** WorkOS AuthKit sign-in or one local account, teams, users and roles in the app database, and workspace scoping on every route.

@@ -4,6 +4,10 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ## [Unreleased]
 
+### Added
+
+-   The Publish check can replay 4, 10, 25, 50, or 100 past questions. 4 is the default. The server takes the most recent distinct questions, runs a few at a time, and the dialog shows progress, Stop, and the totals above the rows.
+
 ## [1.0.0] - 2026-10-10
 
 The first Cuttlely release. It covers everything on `main` up to the release tag.

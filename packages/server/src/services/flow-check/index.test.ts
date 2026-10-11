@@ -10,13 +10,26 @@ jest.mock('../flow-drafts', () => ({
     canvasHash: (flowData: string) => `hash:${flowData}`
 }))
 const messages: any[] = []
+const queryState = { take: undefined as number | undefined, skip: 0 }
 const queryBuilder: any = {
     select: () => queryBuilder,
     where: () => queryBuilder,
     andWhere: () => queryBuilder,
     orderBy: () => queryBuilder,
-    take: () => queryBuilder,
-    getMany: async () => messages
+    addOrderBy: () => queryBuilder,
+    take: (n: number) => {
+        queryState.take = n
+        return queryBuilder
+    },
+    skip: (n: number) => {
+        queryState.skip = n
+        return queryBuilder
+    },
+    getMany: async () => {
+        const start = queryState.skip || 0
+        const end = queryState.take == null ? undefined : start + queryState.take
+        return messages.slice(start, end)
+    }
 }
 const writes = { save: jest.fn(), insert: jest.fn(), update: jest.fn() }
 jest.mock('../../utils/getRunningExpressApp', () => ({
@@ -62,9 +75,12 @@ beforeEach(() => {
     checks.clear()
     states.clear()
     messages.length = 0
+    queryState.take = undefined
+    queryState.skip = 0
     draftsOn = true
     delete process.env.CUTTLELY_CHECK_MAX_TOKENS
     delete process.env.CUTTLELY_CHECK_MAX_SECONDS
+    delete process.env.CUTTLELY_CHECK_CONCURRENCY
     states.set('flow-1', { chatflowId: 'flow-1', draftFlowData: DRAFT, publishInstantly: false })
     replayHooks.run = async ({ flowData }) => ({ text: wordOf(flowData), metrics: [JSON.stringify({ totalTokens: 50 })] })
     jest.clearAllMocks()
@@ -81,7 +97,16 @@ describe('setup', () => {
         expect(setup.unavailable).toBeNull()
         expect(setup.questions).toEqual([{ text: 'What is the code word?', date: '2026-10-08T10:00:00.000Z' }])
         expect(setup.riskySteps).toEqual([])
-        expect(setup.limits).toEqual({ maxQuestions: 10, maxQuestionChars: 2000, maxTokens: 100000, maxSeconds: 180 })
+        expect(setup.pastCount).toBe(1)
+        expect(setup.pastTruncated).toBe(false)
+        expect(setup.limits).toEqual({
+            maxQuestions: 100,
+            defaultQuestions: 4,
+            maxQuestionChars: 2000,
+            maxTokens: 100000,
+            maxSeconds: 180,
+            concurrency: 2
+        })
         expect(setup.check).toBeNull()
     })
 
@@ -143,7 +168,10 @@ describe('setup', () => {
     test('the limits can be changed in the environment, within bounds', async () => {
         process.env.CUTTLELY_CHECK_MAX_TOKENS = '5000'
         process.env.CUTTLELY_CHECK_MAX_SECONDS = '5'
-        expect((await getCheckSetup(flow())).limits).toMatchObject({ maxTokens: 5000, maxSeconds: 10 })
+        process.env.CUTTLELY_CHECK_CONCURRENCY = '99'
+        expect((await getCheckSetup(flow())).limits).toMatchObject({ maxTokens: 5000, maxSeconds: 10, concurrency: 8 })
+        process.env.CUTTLELY_CHECK_CONCURRENCY = '0'
+        expect((await getCheckSetup(flow())).limits.concurrency).toBe(2)
     })
 })
 
@@ -173,6 +201,7 @@ describe('running', () => {
     })
 
     test('stops at the token limit and says so', async () => {
+        process.env.CUTTLELY_CHECK_CONCURRENCY = '1'
         process.env.CUTTLELY_CHECK_MAX_TOKENS = '1000'
         replayHooks.run = async ({ flowData }) => ({ text: wordOf(flowData), metrics: [JSON.stringify({ totalTokens: 400 })] })
         const started = await startCheck(flow() as any, { questions: ['a', 'b', 'c', 'd'] }, 'http://x')
@@ -346,5 +375,120 @@ describe('a version from Dev as the candidate (Promote)', () => {
         expect((await getCheckSetup(flow(), missing)).unavailable?.code).toBe('credentials')
         await expect(startCheck(flow(), { questions: ['q'] }, 'http://x', missing)).rejects.toMatchObject({ statusCode: 409 })
         expect((await getCheckSetup(flow({ type: 'MULTIAGENT' }), candidate())).unavailable?.code).toBe('type')
+    })
+})
+
+const asked = (text: string, iso: string, id: string, fileUploads: string | null = null) =>
+    messages.push({ content: text, createdDate: new Date(iso), fileUploads, id })
+
+describe('count', () => {
+    test('picks the newest distinct questions, drops repeats, and clamps the count', async () => {
+        asked('  Newest ', '2026-10-08T12:00:00Z', '4')
+        asked('newest', '2026-10-08T11:00:00Z', '3')
+        asked('Middle', '2026-10-08T10:00:00Z', '2')
+        asked('Oldest', '2026-10-08T09:00:00Z', '1')
+        asked('With a file', '2026-10-08T13:00:00Z', '5', '[{"name":"a.pdf"}]')
+        const started = await startCheck(flow() as any, { count: 2 }, 'http://x')
+        expect(started.selection).toEqual({ requested: 2, available: 3, used: 2, truncated: false })
+        expect(started.cases.map((c) => c.question)).toEqual(['Newest', 'Middle'])
+        await settle()
+        checks.clear()
+        const again = await startCheck(flow() as any, { count: 2 }, 'http://x')
+        expect(again.cases.map((c) => c.question)).toEqual(['Newest', 'Middle'])
+        await settle()
+        checks.clear()
+        const wide = await startCheck(flow() as any, { count: 250 }, 'http://x')
+        expect(wide.selection).toMatchObject({ requested: 100, available: 3, used: 3 })
+        expect(wide.cases.map((c) => c.question)).toEqual(['Newest', 'Middle', 'Oldest'])
+        await settle()
+        checks.clear()
+        const narrow = await startCheck(flow() as any, { count: 0 }, 'http://x')
+        expect(narrow.selection).toMatchObject({ requested: 1, used: 1 })
+        expect(narrow.cases.map((c) => c.question)).toEqual(['Newest'])
+    })
+
+    test('a missing count still uses the question list, capped at 10', async () => {
+        await expect(startCheck(flow() as any, { count: 4.5 }, 'http://x')).rejects.toMatchObject({ statusCode: 400 })
+        await expect(startCheck(flow() as any, { count: '4' }, 'http://x')).rejects.toMatchObject({ statusCode: 400 })
+        await expect(startCheck(flow() as any, { count: 4 }, 'http://x')).rejects.toMatchObject({
+            statusCode: 400,
+            message: 'No past questions to compare. Add a question to check.'
+        })
+        await expect(
+            startCheck(flow() as any, { questions: Array.from({ length: 11 }, (_, i) => `q${i}`) }, 'http://x')
+        ).rejects.toMatchObject({ statusCode: 400 })
+    })
+
+    test('extra questions are added after the past ones, and one failure does not stop the rest', async () => {
+        asked('From history', '2026-10-08T10:00:00Z', '1')
+        replayHooks.run = async ({ question }) => {
+            if (question === 'Added') throw new Error('Model said no')
+            return { text: 'ok', metrics: [JSON.stringify({ totalTokens: 4 })] }
+        }
+        const started = await startCheck(flow() as any, { count: 4, questions: ['Added', 'added'] }, 'http://x')
+        expect(started.cases.map((c) => c.question)).toEqual(['From history', 'Added'])
+        await settle()
+        const done = await getCheck(flow(), started.id)
+        expect(done.status).toBe('done')
+        expect(done.cases[1].draft).toMatchObject({ error: 'Model said no' })
+        expect(done.cases[0].same).toBe(true)
+        expect(done.summary.ran).toBe(2)
+    })
+
+    test('pages the history until it has enough different questions', async () => {
+        for (let i = 0; i < 200; i++) asked('same question', new Date(Date.UTC(2026, 0, 1, 0, 0, i)).toISOString(), `s${i}`)
+        asked('the other one', '2026-10-09T00:00:00Z', 'other')
+        const setup = await getCheckSetup(flow())
+        expect(setup.pastCount).toBe(2)
+        expect(setup.pastTruncated).toBe(false)
+        expect(setup.questions.map((q) => q.text)).toEqual(['same question', 'the other one'])
+    })
+
+    test('says when the scan stopped before the history ended', async () => {
+        for (let i = 0; i < 2000; i++) asked('same question', new Date(Date.UTC(2026, 0, 1) + i).toISOString(), `s${i}`)
+        const setup = await getCheckSetup(flow())
+        expect(setup.pastCount).toBe(1)
+        expect(setup.pastTruncated).toBe(true)
+    })
+
+    test('runs a few questions at a time, and Stop keeps the ones that finished', async () => {
+        process.env.CUTTLELY_CHECK_CONCURRENCY = '2'
+        let active = 0
+        let maxActive = 0
+        const gate: { release: () => void } = { release: () => {} }
+        asked('q1', '2026-10-08T12:00:00Z', '4')
+        asked('q2', '2026-10-08T11:00:00Z', '3')
+        asked('q3', '2026-10-08T10:00:00Z', '2')
+        asked('q4', '2026-10-08T09:00:00Z', '1')
+        replayHooks.run = ({ question, signal }) => {
+            active += 1
+            maxActive = Math.max(maxActive, active)
+            if (question === 'q1') {
+                active -= 1
+                return Promise.resolve({ text: 'done', metrics: [JSON.stringify({ totalTokens: 3 })] })
+            }
+            return new Promise((resolve, reject) => {
+                const finish = () => {
+                    active -= 1
+                    resolve({ text: 'later' })
+                }
+                gate.release = finish
+                signal.signal.addEventListener('abort', () => {
+                    active -= 1
+                    reject(new Error('aborted'))
+                })
+            })
+        }
+        const started = await startCheck(flow() as any, { count: 4 }, 'http://x')
+        await new Promise((r) => setTimeout(r, 30))
+        expect(maxActive).toBeLessThanOrEqual(2)
+        await stopCheck(flow(), started.id)
+        await settle()
+        gate.release()
+        const done = await getCheck(flow(), started.id)
+        expect(done.status).toBe('stopped')
+        expect(done.cases[0]).toMatchObject({ question: 'q1', live: { text: 'done' }, draft: { text: 'done' } })
+        expect(done.completed).toBe(1)
+        expect(done.cases.filter((c) => c.question !== 'q1').every((c) => c.live === null && c.draft === null)).toBe(true)
     })
 })
