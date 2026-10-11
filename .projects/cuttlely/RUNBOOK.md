@@ -208,17 +208,13 @@ The website source is `website/` (Astro and Starlight, static, with its own npm 
 ```bash
 pnpm release --dry-run                # changes nothing: checks, plan, release notes
 pnpm release                          # verify, bump, CHANGELOG, commit, tag, build and ping the image, push commit and tag, draft release
-pnpm release X.Y.Z --push --publish   # on the tagged commit: push the image, publish the release
+pnpm release X.Y.Z --push --publish   # on the tagged commit: push the image, publish the GitHub release
+pnpm release X.Y.Z --npm              # from the annotated tag: publish the npm packages
+pnpm release X.Y.Z --npm --dry-run    # the same npm checks and plan, no publish
 ```
 
--   Product version files: root `package.json`, `packages/server/package.json`, `packages/cli/package.json` and `packages/chat-widget/package.json`. Other workspace packages keep their own numbers.
--   After the image is in the registry, publish the npm packages. `NPM_TOKEN` is an npm access token for the cuttlely org, set in the environment for these commands. It is not stored in the repository. Build the widget first when `packages/chat-widget/dist` is missing (`pnpm --dir packages/chat-widget build`). The release verify already builds it. There is no publish workflow.
-
-    ```bash
-    npm publish ./packages/cli --userconfig <(printf '//registry.npmjs.org/:_authToken=%s\n' "$NPM_TOKEN")
-    npm publish ./packages/chat-widget --userconfig <(printf '//registry.npmjs.org/:_authToken=%s\n' "$NPM_TOKEN")
-    ```
-
+-   Product version files: root `package.json`, `packages/server/package.json`, `packages/cli/package.json` and `packages/chat-widget/package.json`. Other workspace packages keep their own numbers. `pnpm release` bumps them together. The launcher's default image tag is its own version, so `npx cuttlely` at `X.Y.Z` pulls `ghcr.io/cuttlely/cuttlely:X.Y.Z`.
+-   npm publish is the last step, from the annotated tag, after the image is in the registry and the GitHub release is published. `pnpm release X.Y.Z --npm` refuses otherwise. `NPM_TOKEN` is an npm access token for the cuttlely org, set in the environment. It is not stored in the repository and the command does not print it. There is no publish workflow. Details are in `docs/releases.md`.
 -   A user-visible line goes under `## [Unreleased]` in `CHANGELOG.md`. `pnpm release` dates that section and opens a fresh `## [Unreleased]` (`docs/releases.md`). v1.0.0 is dated 2026-10-10.
 -   The image is `linux/amd64` unless the buildx builder is `docker-container` with `linux/arm64`.
 -   The release commit goes straight to `main` with the hook skips, because the full verify already ran on that tree. Branch protection must allow the releasing maintainer to bypass.
