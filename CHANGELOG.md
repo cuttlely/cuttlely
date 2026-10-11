@@ -4,6 +4,22 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ## [Unreleased]
 
+### Changed
+
+-   The web app runs on React Router 7. Pages, links, sign-in and the unsaved-changes prompt on the canvas work as before.
+-   The Word and PowerPoint loaders say so plainly when a file is not a .docx or .pptx. Older .doc and .ppt files were never supported.
+
+### Security
+
+-   Every open dependency security alert is fixed or reviewed. 1.0.1 had 120 open: 1 critical, 28 high, 76 medium and 15 low.
+-   The agent runtime moves to PyJWT 2.15.1, which fixes the critical one. It also takes urllib3 2.8, httpx2 and httpcore2 2.13.1, tornado 6.5.9, oauthlib 4 and multidict 6.9.1.
+-   The server and web app move to patched releases, among them express 4.22 (with body-parser, cookie, send and serve-static), qs, protobufjs, fast-xml-parser, prismjs, KaTeX, yaml, the MCP SDK 1.32, Google Cloud Storage 7.22, mammoth 1.11 and uuid 11.
+-   Azure Blob uploads use the Azure Storage SDK directly. The upload package they used before is unmaintained, and it brought in the retired azure-storage SDK and the `request` library.
+-   The canvas renders Markdown with marked, still sanitized, instead of showdown.
+-   The Word and PowerPoint loaders refuse anything that is not a ZIP-based Office file before parsing it, so a crafted file can no longer hang the parser.
+-   The example apps and the website use patched build tools.
+-   The few alerts still open have no fix yet, or are in code Cuttlely never runs. Each one is dismissed on GitHub with the reason.
+
 ## [1.0.1] - 2026-10-11
 
 ### Added
