@@ -1,10 +1,8 @@
 import { useSelector } from 'react-redux'
+import { Outlet } from 'react-router-dom'
 
 import { ThemeProvider } from '@mui/material/styles'
 import { CssBaseline, StyledEngineProvider } from '@mui/material'
-
-// routing
-import Routes from '@/routes'
 
 // defaultTheme
 import themes from '@/themes'
@@ -22,7 +20,7 @@ const App = () => {
             <ThemeProvider theme={themes(customization)}>
                 <CssBaseline />
                 <NavigationScroll>
-                    <Routes />
+                    <Outlet />
                 </NavigationScroll>
             </ThemeProvider>
         </StyledEngineProvider>
