@@ -154,11 +154,12 @@ You need Docker and one model key. The steps use OpenAI. Any chat model provider
 5. Build your own team: open **Harness · Agent Team**, select **New agent team**, then **Build with AI** (the sparkle button). Your model and key are already picked under **Chat model that builds**. Pick one of the examples and select **Build**, then open the chat and select a starter question.
 6. Next time, sign in at [http://localhost:43117/signin](http://localhost:43117/signin) with **Sign in**.
 
-Next: [put a pipeline behind your team](./docs/how-to/etl.md), [give a specialist its own tables](./docs/how-to/analyst.md), or [publish a chatflow](./docs/how-to/canvas.md#build-a-chatflow-with-ai). Docker settings, volumes and upgrades are in [Docker](./docs/how-to/docker.md). To change the code, use [From source](./docs/how-to/from-source.md).
+Next: [put a pipeline behind your team](./docs/how-to/etl.md), [give a specialist its own tables](./docs/how-to/analyst.md), or [publish a chatflow](./docs/how-to/canvas.md#build-a-chatflow-with-ai). Docker settings, volumes and upgrades are in [Docker](./docs/how-to/docker.md). To change the code, use [Build from source and run the dev server](./docs/how-to/from-source.md).
 
 ## Guides
 
 -   [Docker](./docs/how-to/docker.md). Install and run Cuttlely in one container on SQLite.
+-   [Build from source and run the dev server](./docs/how-to/from-source.md). Build Cuttlely yourself, run it, and change the code with live reload.
 -   [Sign in](./docs/how-to/sign-in.md). Create the first account, and add WorkOS when a team signs in.
 -   [Harnesses](./docs/how-to/harnesses.md). Build an agent team, try it, and call it from a chatflow.
 -   [Context and tokens](./docs/how-to/context-and-tokens.md). How a team keeps each prompt to the job in front of it, and where a run shows the tokens it used.
@@ -179,7 +180,7 @@ Have flows from another tool? On **Chatflows**, the **Import** menu has **Import
 
 ## Contributing
 
-[CONTRIBUTING.md](./CONTRIBUTING.md). On Node 24, `pnpm verify` before a pull request. Security reports go to [SECURITY.md](./SECURITY.md).
+[CONTRIBUTING.md](./CONTRIBUTING.md) and [Build from source and run the dev server](./docs/how-to/from-source.md). On Node 24, `pnpm verify` before a pull request. Security reports go to [SECURITY.md](./SECURITY.md).
 
 ## About and credits
 

@@ -16,7 +16,7 @@ Cuttlely 1.0.0. The product version is the root `package.json` and `packages/ser
 -   **Sign-in and teams.** WorkOS AuthKit sign-in or one local account, teams, users and roles in the app database, and workspace scoping on every route.
 -   **Admin panel.** Admin > Server settings holds every server setting with help text, a review step, restart to apply, safe boot back to the last good settings, History, and a guided sign-in setup.
 -   **First ten minutes.** Install, first account, and Try the demo, which opens a made-up bakery team on the person's own model key with its chat open. The README section "Your first 10 minutes" walks through it.
--   **Install and deploy.** Docker Compose (SQLite, one container), from source, and a Render Blueprint (Docker web service, Postgres, disk).
+-   **Install and deploy.** Docker Compose (SQLite, one container), from source, and a Render Blueprint (Docker web service, Postgres, disk). `docs/how-to/from-source.md` also covers the dev server, the tests and `pnpm verify`, checked end to end on a fresh clone.
 -   **Releases.** `pnpm release` cuts a release from a clean `main`, drafts by default, and pushes the image or publishes only on a flag. The full `pnpm verify` tests upgrades from a fixture of an older release.
 -   **Graceful shutdown.** On SIGTERM or SIGINT the server stops taking new requests (`503` with `Retry-After`) and lets running answers and streams finish for up to 25 seconds (`CUTTLELY_DRAIN_TIMEOUT_MS`). The Compose files give the container 35 seconds to stop.
 -   **File links in Agent answers.** A file an Agent card links in its answer opens for 15 minutes without the flow's API key: the link carries an expiry and an HMAC over the organization, flow, chat and file name, keyed from the server's own secret. A changed or expired link falls back to the key or session checks.
@@ -30,10 +30,10 @@ Cuttlely 1.0.0. The product version is the root `package.json` and `packages/ser
 -   The `smoke` step boots the built server; the `upgrade` step starts it on data from an older release; the `safeboot` step checks the settings rollback.
 -   The daily scheduled CI run on `main` also runs `pnpm test:queue-abort`, an end-to-end queue-mode abort test against a Redis service.
 -   Workflows in `.github/workflows/` are the CI definition, but they are not the merge gate. See [OPEN.md](./OPEN.md). Their `pnpm/action-setup` steps take the pnpm version from `packageManager` in `package.json`; a separate `version` input stops the step when the two disagree.
+-   `pnpm audit --prod` and `pnpm audit` report no critical advisory. Three high ones are left, and none has a fixed release. `extract-zip` (two advisories) is in Puppeteer's browser download, which Cuttlely skips (`PUPPETEER_SKIP_DOWNLOAD`), so that code does not run. `braces` 3.0.3 is the latest release and is still in the vulnerable range; it arrives through the command-line file matcher and through dev tooling, and request handling does not pass input to it. `expr-eval` is not installed: the older community package that depended on it is gone, and that package has no fixed release.
 -   A green `pnpm verify` is not a real-model run. Harness and analyst behaviour that depends on a model needs a live run with a real credential before it is called done (MEMORY).
 
 ## Not done
 
--   The open issue: [#10](https://github.com/cuttlely/cuttlely/issues/10). Check its state on GitHub; it may be closed by the time you read this.
--   No release is tagged yet, and no image is published. The first release is v1.0.0 (PLAN).
+-   No release is tagged yet, and no image is published. The first release is v1.0.0 (PLAN). The issues listed in [OPEN.md](./OPEN.md) are done; the tracker is the source of truth for anything newer.
 -   The questions and known gaps in [OPEN.md](./OPEN.md).

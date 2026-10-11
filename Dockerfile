@@ -9,15 +9,18 @@
 # Render sets PORT. The server listens on HOST:PORT. The start script defaults
 # PORT to 43117 only when the platform did not set it.
 # scripts/start-cuttlely.sh starts Hermes on 127.0.0.1 and then Cuttlely.
+#
+# Two stages. The build stage has the compilers and every package the build needs. The runtime stage gets the
+# built tree with production packages only, Hermes and its Python, and the system packages Cuttlely runs with.
 
-FROM node:24-trixie-slim
+FROM node:24-trixie-slim AS build
 
 # uv is pinned to the release hermes/pm/lock.json pins and checked against the same sha256. To update it, change
 # UV_VERSION and both checksums (linux-x64 and linux-arm64 in hermes/pm/lock.json).
 ARG TARGETARCH
 ARG UV_VERSION=0.12.3
 
-RUN echo "Cuttlely image, step 1 of 4: system packages (a few minutes on the first build)" \
+RUN echo "Cuttlely image, step 1 of 5: build tools (a few minutes on the first build)" \
     && apt-get update && apt-get install -y --no-install-recommends \
         bash \
         ca-certificates \
@@ -33,8 +36,6 @@ RUN echo "Cuttlely image, step 1 of 4: system packages (a few minutes on the fir
         libjpeg62-turbo-dev \
         libgif-dev \
         librsvg2-dev \
-        chromium \
-        util-linux \
     && rm -rf /var/lib/apt/lists/* \
     && npm install -g pnpm@10.33.4 \
     && case "${TARGETARCH:-amd64}" in \
@@ -46,32 +47,67 @@ RUN echo "Cuttlely image, step 1 of 4: system packages (a few minutes on the fir
     && echo "${UV_SHA256}  /tmp/uv.tar.gz" | sha256sum -c - \
     && tar -xzf /tmp/uv.tar.gz -C /usr/local/bin --strip-components=1 \
     && rm /tmp/uv.tar.gz \
-    && uv --version \
-    && CHROME="$(command -v chromium || command -v chromium-browser)" \
-    && test -n "$CHROME" \
-    && ln -sfn "$CHROME" /usr/local/bin/cuttlely-chromium
+    && uv --version
 
 ENV PUPPETEER_SKIP_DOWNLOAD=true
-ENV PUPPETEER_EXECUTABLE_PATH=/usr/local/bin/cuttlely-chromium
-# The image build needs a large heap. The runtime value is set again after the build.
+ENV CYPRESS_INSTALL_BINARY=0
+# The image build needs a large heap. The runtime stage sets its own value.
 ENV NODE_OPTIONS=--max-old-space-size=8192
-# uv's CPython lives outside the venv. The node user has to be able to execute it.
+# uv's CPython lives outside the venv. The runtime stage copies it to the same path.
 ENV UV_PYTHON_INSTALL_DIR=/opt/uv-python
 
 WORKDIR /usr/src/cuttlely
 
 COPY . .
 
+# After the build, node_modules is installed again from the store with production packages only. That install
+# skips install scripts (the root one sets up git hooks), so the native drivers are built again and the sqlite3
+# check confirms the server can open a database.
 RUN mkdir -p /opt/uv-python \
     && chmod 755 scripts/render-entrypoint.sh scripts/start-cuttlely.sh scripts/setup-hermes.sh \
-    && echo "Cuttlely image, step 2 of 4: installing packages (several minutes on the first build)" \
-    && pnpm install \
-    && echo "Cuttlely image, step 3 of 4: building Cuttlely (several minutes)" \
+    && echo "Cuttlely image, step 2 of 5: installing packages (several minutes on the first build)" \
+    && pnpm install --frozen-lockfile \
+    && echo "Cuttlely image, step 3 of 5: building Cuttlely (several minutes)" \
     && pnpm build:docker \
-    && echo "Cuttlely image, step 4 of 4: setting up the agent runtime" \
+    && echo "Cuttlely image, step 4 of 5: setting up the agent runtime" \
     && bash scripts/setup-hermes.sh \
     && chmod -R a+rX /opt/uv-python \
-    && chown -R node:node /usr/src/cuttlely
+    && echo "Cuttlely image, step 5 of 5: keeping production packages only" \
+    && rm -rf node_modules packages/*/node_modules \
+    && CI=true pnpm install --frozen-lockfile --prod --offline --ignore-scripts \
+    && pnpm -r rebuild sqlite3 faiss-node \
+    && node scripts/check-sqlite-driver.mjs
+
+FROM node:24-trixie-slim
+
+ARG TARGETARCH
+
+# Runtime system packages: git for version history and ETL sources, Chromium for browser tools, python3 as the
+# fallback Python, curl for the health check, util-linux for setpriv in the entrypoint.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        bash \
+        ca-certificates \
+        curl \
+        git \
+        python3 \
+        chromium \
+        util-linux \
+    && rm -rf /var/lib/apt/lists/* \
+    && npm install -g pnpm@10.33.4 \
+    && npm cache clean --force \
+    && CHROME="$(command -v chromium || command -v chromium-browser)" \
+    && test -n "$CHROME" \
+    && ln -sfn "$CHROME" /usr/local/bin/cuttlely-chromium
+
+COPY --from=build /usr/local/bin/uv /usr/local/bin/uvx /usr/local/bin/
+COPY --from=build /opt/uv-python /opt/uv-python
+COPY --from=build --chown=node:node /usr/src/cuttlely /usr/src/cuttlely
+
+ENV PUPPETEER_SKIP_DOWNLOAD=true
+ENV PUPPETEER_EXECUTABLE_PATH=/usr/local/bin/cuttlely-chromium
+ENV UV_PYTHON_INSTALL_DIR=/opt/uv-python
+
+WORKDIR /usr/src/cuttlely
 
 LABEL org.opencontainers.image.title="cuttlely" \
       org.opencontainers.image.description="Build, run and improve AI applications on infrastructure you control." \

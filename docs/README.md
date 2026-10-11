@@ -25,7 +25,7 @@ New here? Start with [Your first 10 minutes](../README.md#your-first-10-minutes)
 ## Install and sign in
 
 -   [Docker](./how-to/docker.md). The install most people want. SQLite, one container.
--   [From source](./how-to/from-source.md). For changing Cuttlely.
+-   [Build from source and run the dev server](./how-to/from-source.md). Build Cuttlely yourself, run it, change the code with live reload, and run the tests and `pnpm verify`.
 -   [Render](./how-to/render.md). A hosted install with Postgres.
 -   [Server settings](./how-to/server-settings.md). Change how the server runs from **Admin** > **Server settings**: sign-in and AuthKit, the database, storage, the analyst and more, with a review step, safe boot and History.
 -   [Sign in](./how-to/sign-in.md). Turn on the local account, create the first account in a terminal or the browser, and sign in. [Set up WorkOS AuthKit](./identity/workos-authkit-setup.md) when a team signs in.

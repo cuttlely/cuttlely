@@ -25,7 +25,8 @@ export default defineConfig(({ mode }) => {
                 entry: resolve(__dirname, 'src/index.ts'),
                 name: 'FlowiseAgentflow',
                 formats: ['es', 'umd'],
-                fileName: (format) => `index.${format === 'es' ? 'js' : 'umd.js'}`
+                fileName: (format) => `index.${format === 'es' ? 'js' : 'umd.js'}`,
+                cssFileName: 'flowise'
             },
             rollupOptions: {
                 external: [

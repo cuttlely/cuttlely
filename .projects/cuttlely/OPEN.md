@@ -15,7 +15,7 @@ The issue tracker is the source of truth for bugs and planned fixes: `gh issue l
 | [#5](https://github.com/cuttlely/cuttlely/issues/5)   | Drain in-flight requests and streams on SIGTERM                         | done (PR #17) |
 | [#6](https://github.com/cuttlely/cuttlely/issues/6)   | A persistent upstream 429 should not end as HTTP 500                    | done (PR #21) |
 | [#7](https://github.com/cuttlely/cuttlely/issues/7)   | Deleting a flow should delete its lead rows                             | done (PR #14) |
-| [#10](https://github.com/cuttlely/cuttlely/issues/10) | Remaining dependency advisories                                         | anyone        |
+| [#10](https://github.com/cuttlely/cuttlely/issues/10) | Remaining dependency advisories                                         | done          |
 
 ## Questions and known gaps
 
@@ -35,3 +35,5 @@ The issue tracker is the source of truth for bugs and planned fixes: `gh issue l
 | 12  | A dedicated analyst node (table and column comments as the semantic layer, a rules box) is designed but not built.                                                                                                                                                                                                    | maintainer (go), then anyone |
 | 13  | Code execution is not a filesystem jail. A specialist that ignores its instructions can open paths the harness did not stage (D18). A real sandbox for Code execution and Shell specialists is future work.                                                                                                           | anyone                       |
 | 14  | Repository settings at the first release: branch protection with a release bypass, secret scanning with push protection, private vulnerability reporting (PLAN).                                                                                                                                                      | maintainer                   |
+| 15  | `pnpm dev` does not compile the server. nodemon restarts on a change under `packages/server/src` but runs the last `dist` build, so a change needs `pnpm --filter flowise build` and another save. A watch build that restarts after it compiles would remove that step.                                              | anyone                       |
+| 16  | The `build` step of `pnpm verify` skips `packages/agentflow` and `packages/observe`, so a type error there passes the gate and fails `pnpm build` on a fresh clone (it happened once after a dependency update). Add both packages to the step, or a typecheck for them.                                              | anyone                       |
