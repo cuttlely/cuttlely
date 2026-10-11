@@ -9,6 +9,25 @@ build
 **/build
 **/dist
 
+# Local task and tool caches. They are not source.
+# .turbo has to stay out of the context: the image build runs turbo, a cache hit
+# restores only the outputs listed in turbo.json, and the UI writes build/.
+.turbo
+**/.turbo
+.cache
+**/.cache
+.eslintcache
+**/.eslintcache
+**/*.tsbuildinfo
+.pnpm-store
+.verify
+**/coverage
+**/__pycache__
+**/*.pyc
+**/.pytest_cache
+**/.mypy_cache
+**/.ruff_cache
+
 packages/server/.env
 packages/ui/.env
 
