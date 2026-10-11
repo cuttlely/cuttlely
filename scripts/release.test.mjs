@@ -7,18 +7,27 @@ import test from 'node:test'
 import { fileURLToPath } from 'node:url'
 import { assertIsolated, isolateProcessEnv, testGit, withoutGitEnv } from './test-git.mjs'
 import {
+    HELP,
+    NPM_IMAGE,
+    NPM_PACKAGE_FILES,
     ReleaseError,
+    VERSION_FILES,
+    anonymousBearerChallenge,
+    anonymousManifestExists,
     buildxInfo,
     bumpVersion,
     canBuildMultiArch,
     compareSemver,
     dockerPlan,
+    main,
+    npmImageRef,
+    npmPublishProblems,
     parseArgs,
     plannedVersion,
     preflightProblems,
+    redactSecret,
     releaseNotes,
     releaseSection,
-    VERSION_FILES,
     setPackageVersion,
     slugFromRemote,
     updateChangelog
@@ -48,6 +57,7 @@ test('parseArgs reads the version and flags, and keeps --local apart from --push
         local: false,
         push: false,
         publish: false,
+        npm: false,
         image: null,
         skipImageCheck: false,
         help: false
@@ -55,7 +65,13 @@ test('parseArgs reads the version and flags, and keeps --local apart from --push
     const o = parseArgs(['--push', '--publish', '--image', 'ghcr.io/a/b'])
     assert.equal(o.push && o.publish, true)
     assert.equal(o.image, 'ghcr.io/a/b')
+    assert.equal(parseArgs(['1.0.1', '--npm']).npm, true)
     assert.throws(() => parseArgs(['--local', '--push']), ReleaseError)
+    assert.throws(() => parseArgs(['--npm', '--push']), /on its own/)
+    assert.throws(() => parseArgs(['--npm', '--publish']), /on its own/)
+    assert.throws(() => parseArgs(['--npm', '--local']), /on its own/)
+    assert.throws(() => parseArgs(['--npm']), /needs a version/)
+    assert.throws(() => parseArgs(['patch', '--npm']), /exact version/)
     assert.throws(() => parseArgs(['--nope']), /Unknown option/)
     assert.throws(() => parseArgs(['1.0.0', '1.0.1']), /one version/)
 })
@@ -374,4 +390,460 @@ test('a minor release bumps both package files; then a resumed run drafts, and -
     assert.match(f.calls(), /gh release create v1\.1\.0 .*--latest/)
     assert.equal(fs.readFileSync(`${f.dir}/released`, 'utf8').trim(), 'false')
     assert.match(sh(f.repo, 'git', ['ls-remote', '--tags', f.origin]), /refs\/tags\/v1\.1\.0/)
+})
+
+test('dry run of 1.0.1 plans one version for the product, the launcher and the widget', (t) => {
+    const f = fixture()
+    t.after(f.cleanup)
+    fs.writeFileSync(path.join(f.repo, 'CHANGELOG.md'), '# Changelog\n\n## [Unreleased]\n\n### Fixed\n\n-   A fix.\n')
+    sh(f.repo, 'git', ['commit', '-q', '-am', 'notes'])
+    sh(f.repo, 'git', ['push', '-q', 'origin', 'main'])
+    const res = f.runRelease(['1.0.1', '--dry-run'])
+    assert.equal(res.code, 0, res.out)
+    assert.match(
+        res.out,
+        /set "version" to 1\.0\.1 in package\.json, packages\/server\/package\.json, packages\/cli\/package\.json, and packages\/chat-widget\/package\.json/
+    )
+    for (const file of [...VERSION_FILES, ...NPM_PACKAGE_FILES]) assert.match(res.out, new RegExp(file.replaceAll('.', '\\.')))
+})
+
+test('the launcher and the widget are version files, and the registry image tag is the release version', () => {
+    assert.ok(VERSION_FILES.includes('packages/cli/package.json'))
+    assert.ok(VERSION_FILES.includes('packages/chat-widget/package.json'))
+    assert.deepEqual(NPM_PACKAGE_FILES, ['packages/cli/package.json', 'packages/chat-widget/package.json'])
+    assert.equal(npmImageRef('1.0.1'), `${NPM_IMAGE}:1.0.1`)
+    assert.match(HELP, /--npm/)
+    assert.equal(redactSecret('token secret-value in the log', 'secret-value'), 'token NPM_TOKEN in the log')
+})
+
+function manifestResponse(status, { wwwAuthenticate, body, ok } = {}) {
+    return {
+        status,
+        ok: ok ?? (status >= 200 && status < 300),
+        headers: {
+            get(name) {
+                if (name.toLowerCase() === 'www-authenticate') return wwwAuthenticate || null
+                return null
+            }
+        },
+        json: async () => body || {}
+    }
+}
+
+test('the manifest check is anonymous and stays on ghcr.io', async () => {
+    assert.equal(
+        anonymousBearerChallenge('Bearer realm="https://ghcr.io/token",service="ghcr.io",scope="repository:cuttlely/cuttlely:pull"'),
+        'https://ghcr.io/token?service=ghcr.io&scope=repository%3Acuttlely%2Fcuttlely%3Apull'
+    )
+    assert.equal(anonymousBearerChallenge('Bearer realm="http://ghcr.io/token"'), null)
+    assert.equal(anonymousBearerChallenge('Bearer realm="https://evil.example/token"'), null)
+    assert.equal(anonymousBearerChallenge(''), null)
+
+    const urls = []
+    const present = await anonymousManifestExists('1.0.1', async (url) => {
+        urls.push(String(url))
+        return manifestResponse(200)
+    })
+    assert.deepEqual(present, { ok: true, error: false })
+    assert.equal(urls[0], 'https://ghcr.io/v2/cuttlely/cuttlely/manifests/1.0.1')
+
+    const missing = await anonymousManifestExists('9.9.9', async () => manifestResponse(404))
+    assert.deepEqual(missing, { ok: false, error: false })
+
+    const challenged = []
+    const authed = await anonymousManifestExists('1.0.1', async (url, init) => {
+        challenged.push({ url: String(url), auth: init?.headers?.Authorization || '' })
+        if (String(url).includes('/manifests/') && !init?.headers?.Authorization) {
+            return manifestResponse(401, {
+                wwwAuthenticate: 'Bearer realm="https://ghcr.io/token",service="ghcr.io",scope="repository:cuttlely/cuttlely:pull"'
+            })
+        }
+        if (String(url).startsWith('https://ghcr.io/token')) return manifestResponse(200, { body: { token: 'anon-registry-token' } })
+        return manifestResponse(200)
+    })
+    assert.deepEqual(authed, { ok: true, error: false })
+    assert.equal(challenged[1].url, 'https://ghcr.io/token?service=ghcr.io&scope=repository%3Acuttlely%2Fcuttlely%3Apull')
+    assert.equal(challenged[2].auth, 'Bearer anon-registry-token')
+    assert.ok(challenged.every((call) => call.url.startsWith('https://ghcr.io/')))
+
+    const evil = await anonymousManifestExists('1.0.1', async (url) => {
+        if (String(url).includes('/manifests/'))
+            return manifestResponse(401, { wwwAuthenticate: 'Bearer realm="https://evil.example/token"' })
+        throw new Error(`must not fetch ${url}`)
+    })
+    assert.deepEqual(evil, { ok: false, error: true })
+
+    const down = await anonymousManifestExists('1.0.1', async () => {
+        throw new Error('offline')
+    })
+    assert.deepEqual(down, { ok: false, error: true })
+})
+
+test('npm publish problems name every refusal and never the token', () => {
+    const ready = {
+        version: '1.0.1',
+        dirty: [],
+        tagExists: true,
+        tagAnnotated: true,
+        head: 'abc1234',
+        tagCommit: 'abc1234',
+        versions: VERSION_FILES.map((file) => ({ file, version: '1.0.1' })),
+        imageExists: true,
+        imageError: false,
+        githubRelease: 'published',
+        npmToken: true
+    }
+    assert.deepEqual(npmPublishProblems(ready), [])
+    const cases = [
+        [{ ...ready, dirty: ['?? stray.txt'] }, 'not clean'],
+        [{ ...ready, tagExists: false, tagAnnotated: false }, 'does not exist'],
+        [{ ...ready, tagAnnotated: false }, 'not an annotated tag'],
+        [{ ...ready, head: 'fff0000' }, 'not the annotated tag'],
+        [
+            {
+                ...ready,
+                versions: ready.versions.map((item) => (item.file === 'packages/cli/package.json' ? { ...item, version: '1.0.0' } : item))
+            },
+            'packages/cli/package.json is 1.0.0'
+        ],
+        [
+            {
+                ...ready,
+                versions: ready.versions.map((item) =>
+                    item.file === 'packages/chat-widget/package.json' ? { ...item, version: '9.9.9' } : item
+                )
+            },
+            'packages/chat-widget/package.json is 9.9.9'
+        ],
+        [{ ...ready, imageExists: false }, 'not in the registry'],
+        [{ ...ready, imageExists: false, imageError: true }, 'Could not check the image'],
+        [{ ...ready, githubRelease: 'draft' }, 'still a draft'],
+        [{ ...ready, githubRelease: 'missing' }, 'is not published'],
+        [{ ...ready, npmToken: false }, 'NPM_TOKEN is not set']
+    ]
+    for (const [state, needle] of cases) {
+        const problems = npmPublishProblems(state)
+        assert.ok(
+            problems.some((problem) => problem.includes(needle)),
+            needle
+        )
+        assert.equal(problems.join('\n').includes('secret-token'), false)
+    }
+    const combined = npmPublishProblems({
+        ...ready,
+        dirty: ['?? stray.txt'],
+        imageExists: false,
+        githubRelease: 'draft',
+        npmToken: false,
+        versions: ready.versions.map((item) => (item.file === 'package.json' ? { ...item, version: '0.0.0' } : item))
+    })
+    for (const needle of ['not clean', 'package.json is 0.0.0', 'not in the registry', 'still a draft', 'NPM_TOKEN is not set']) {
+        assert.ok(
+            combined.some((problem) => problem.includes(needle)),
+            needle
+        )
+    }
+})
+
+const NPM_TOKEN = 'npm-test-token-do-not-print'
+
+function gitResult(cwd, args) {
+    const res = testGit(cwd, args, { tmpRoot: path.dirname(cwd) })
+    return { status: res.status ?? 1, stdout: (res.stdout || '').trim(), stderr: (res.stderr || '').trim() }
+}
+
+function npmCheckout({ version = '1.0.0', annotate = true, lightweight = false, ahead = false, dirty = false, versions = {} } = {}) {
+    const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'cuttlely-npm-release-')))
+    const repo = path.join(dir, 'repo')
+    fs.mkdirSync(repo, { recursive: true })
+    const runGit = (args) => {
+        const res = testGit(repo, args, { tmpRoot: dir })
+        if (res.status !== 0) throw new Error(`git ${args.join(' ')}: ${res.stderr}`)
+        return (res.stdout || '').trim()
+    }
+    runGit(['init', '-q', '-b', 'main'])
+    for (const [key, value] of [
+        ['user.name', 'Release Test'],
+        ['user.email', 'release-test@example.invalid'],
+        ['commit.gpgsign', 'false'],
+        ['tag.gpgsign', 'false']
+    ]) {
+        runGit(['config', key, value])
+    }
+    const files = {
+        'package.json': 'cuttlely-workspace',
+        'packages/server/package.json': 'server',
+        'packages/cli/package.json': 'cuttlely',
+        'packages/chat-widget/package.json': '@cuttlely/chat'
+    }
+    for (const [file, name] of Object.entries(files)) {
+        fs.mkdirSync(path.dirname(path.join(repo, file)), { recursive: true })
+        const pkgVersion = versions[file] || version
+        fs.writeFileSync(path.join(repo, file), `{\n    "name": "${name}",\n    "version": "${pkgVersion}"\n}\n`)
+    }
+    runGit(['add', '.'])
+    runGit(['commit', '-q', '-m', 'init'])
+    if (annotate) runGit(['tag', '-a', `v${version}`, '-m', `Cuttlely ${version}`])
+    else if (lightweight) runGit(['tag', `v${version}`])
+    if (ahead) runGit(['commit', '-q', '--allow-empty', '-m', 'later'])
+    if (dirty) fs.writeFileSync(path.join(repo, 'stray.txt'), 'x\n')
+    return {
+        repo,
+        cleanup: () => fs.rmSync(dir, { recursive: true, force: true })
+    }
+}
+
+function fakeManifest(status) {
+    return async () => manifestResponse(status)
+}
+
+async function runNpm(
+    repo,
+    args,
+    { manifestStatus = 200, github = 'false', token = NPM_TOKEN, npmStatus = 0, packStatus = 0, buildStatus = 0, onNpm = [] } = {}
+) {
+    const lines = []
+    const calls = []
+    let userconfig = null
+    let userconfigMode = null
+    let userconfigMatched = false
+    try {
+        const code = await main(args, repo, {
+            log: (line = '') => lines.push(line),
+            env: token == null ? {} : { NPM_TOKEN: token },
+            fetch: fakeManifest(manifestStatus),
+            run(cmd, cmdArgs, opts = {}) {
+                if (cmd === 'git') return gitResult(opts.cwd, cmdArgs)
+                calls.push({ cmd, args: cmdArgs, cwd: opts.cwd })
+                if (cmd === 'gh') {
+                    if (github === 'missing') return { status: 1, stdout: '', stderr: 'release not found' }
+                    return { status: 0, stdout: github, stderr: '' }
+                }
+                if (cmd === 'pnpm') return { status: buildStatus, stdout: '', stderr: buildStatus === 0 ? '' : 'build failed' }
+                if (cmd === 'npm' && cmdArgs[0] === 'view') {
+                    const spec = cmdArgs[1]
+                    if (onNpm.includes(spec)) return { status: 0, stdout: spec.slice(spec.lastIndexOf('@') + 1), stderr: '' }
+                    return { status: 1, stdout: '', stderr: 'npm error code E404' }
+                }
+                if (cmd === 'npm' && cmdArgs[0] === 'pack')
+                    return { status: packStatus, stdout: '', stderr: packStatus === 0 ? '' : 'pack failed' }
+                if (cmd === 'npm' && cmdArgs[0] === 'publish') {
+                    userconfig = cmdArgs[cmdArgs.indexOf('--userconfig') + 1]
+                    const text = fs.readFileSync(userconfig, 'utf8')
+                    userconfigMode = fs.statSync(userconfig).mode & 0o777
+                    userconfigMatched = text === `//registry.npmjs.org/:_authToken=${NPM_TOKEN}\n` && !text.includes('\n\n')
+                    return { status: npmStatus, stdout: '', stderr: npmStatus === 0 ? '' : `denied ${NPM_TOKEN}` }
+                }
+                return { status: 1, stdout: '', stderr: `unexpected ${cmd}` }
+            }
+        })
+        return { code, out: lines.join('\n'), calls, userconfig, userconfigMode, userconfigMatched }
+    } catch (error) {
+        error.out = lines.join('\n')
+        error.calls = calls
+        error.userconfig = userconfig
+        throw error
+    }
+}
+
+test('npm publish refuses each failed check and does not publish', async (t) => {
+    const published = npmCheckout()
+    t.after(() => {
+        published.cleanup()
+    })
+
+    const noTag = npmCheckout({ annotate: false })
+    t.after(() => noTag.cleanup())
+    let res = await runNpm(noTag.repo, ['1.0.0', '--npm'])
+    assert.equal(res.code, 1)
+    assert.match(res.out, /Tag v1\.0\.0 does not exist/)
+    assert.equal(
+        res.calls.some((call) => call.cmd === 'npm'),
+        false
+    )
+
+    const light = npmCheckout({ annotate: false, lightweight: true })
+    t.after(() => light.cleanup())
+    res = await runNpm(light.repo, ['1.0.0', '--npm'])
+    assert.equal(res.code, 1)
+    assert.match(res.out, /not an annotated tag/)
+    assert.equal(
+        res.calls.some((call) => call.cmd === 'npm'),
+        false
+    )
+
+    const ahead = npmCheckout({ ahead: true })
+    t.after(() => ahead.cleanup())
+    res = await runNpm(ahead.repo, ['1.0.0', '--npm'])
+    assert.equal(res.code, 1)
+    assert.match(res.out, /not the annotated tag v1\.0\.0/)
+    assert.equal(
+        res.calls.some((call) => call.cmd === 'npm'),
+        false
+    )
+
+    const dirty = npmCheckout({ dirty: true })
+    t.after(() => dirty.cleanup())
+    res = await runNpm(dirty.repo, ['1.0.0', '--npm', '--dry-run'])
+    assert.equal(res.code, 1)
+    assert.match(res.out, /not clean/)
+    assert.match(res.out, /A real run would refuse/)
+    assert.equal(
+        res.calls.some((call) => call.cmd === 'npm' || call.cmd === 'pnpm'),
+        false
+    )
+
+    const cliVersion = npmCheckout({ versions: { 'packages/cli/package.json': '0.9.0' } })
+    t.after(() => cliVersion.cleanup())
+    res = await runNpm(cliVersion.repo, ['1.0.0', '--npm'])
+    assert.equal(res.code, 1)
+    assert.match(res.out, /packages\/cli\/package\.json is 0\.9\.0/)
+    assert.equal(
+        res.calls.some((call) => call.cmd === 'npm'),
+        false
+    )
+
+    const widgetVersion = npmCheckout({ versions: { 'packages/chat-widget/package.json': '0.9.0' } })
+    t.after(() => widgetVersion.cleanup())
+    res = await runNpm(widgetVersion.repo, ['1.0.0', '--npm'])
+    assert.equal(res.code, 1)
+    assert.match(res.out, /packages\/chat-widget\/package\.json is 0\.9\.0/)
+    assert.equal(
+        res.calls.some((call) => call.cmd === 'npm'),
+        false
+    )
+
+    res = await runNpm(published.repo, ['1.0.0', '--npm'], { manifestStatus: 404 })
+    assert.equal(res.code, 1)
+    assert.match(res.out, /ghcr\.io\/cuttlely\/cuttlely:1\.0\.0 is not in the registry/)
+    assert.equal(
+        res.calls.some((call) => call.cmd === 'npm'),
+        false
+    )
+
+    res = await runNpm(published.repo, ['1.0.0', '--npm'], { manifestStatus: 500 })
+    assert.equal(res.code, 1)
+    assert.match(res.out, /Could not check the image/)
+    assert.equal(
+        res.calls.some((call) => call.cmd === 'npm'),
+        false
+    )
+
+    res = await runNpm(published.repo, ['1.0.0', '--npm'], { github: 'true' })
+    assert.equal(res.code, 1)
+    assert.match(res.out, /still a draft/)
+    assert.equal(
+        res.calls.some((call) => call.cmd === 'npm'),
+        false
+    )
+
+    res = await runNpm(published.repo, ['1.0.0', '--npm'], { github: 'missing' })
+    assert.equal(res.code, 1)
+    assert.match(res.out, /is not published/)
+    assert.equal(
+        res.calls.some((call) => call.cmd === 'npm'),
+        false
+    )
+
+    res = await runNpm(published.repo, ['1.0.0', '--npm'], { token: null })
+    assert.equal(res.code, 1)
+    assert.match(res.out, /NPM_TOKEN is not set/)
+    assert.equal(res.out.includes(NPM_TOKEN), false)
+    assert.equal(
+        res.calls.some((call) => call.cmd === 'npm'),
+        false
+    )
+
+    res = await runNpm(published.repo, ['1.0.0', '--npm'], { token: '   ' })
+    assert.equal(res.code, 1)
+    assert.match(res.out, /NPM_TOKEN is not set/)
+    assert.equal(
+        res.calls.some((call) => call.cmd === 'npm'),
+        false
+    )
+})
+
+test('npm dry run passes the checks and does not pack or publish', async (t) => {
+    const repo = npmCheckout()
+    t.after(() => repo.cleanup())
+    const res = await runNpm(repo.repo, ['1.0.0', '--npm', '--dry-run'])
+    assert.equal(res.code, 0, res.out)
+    assert.match(res.out, /npm publish \.\/packages\/cli/)
+    assert.match(res.out, /npm publish \.\/packages\/chat-widget/)
+    assert.match(res.out, /npm pack --dry-run \(packages\/cli\)/)
+    assert.match(res.out, /pnpm --dir packages\/chat-widget build/)
+    assert.match(res.out, /Dry run passed/)
+    assert.equal(res.out.includes(NPM_TOKEN), false)
+    assert.equal(
+        res.calls.some((call) => call.cmd === 'npm' || call.cmd === 'pnpm'),
+        false
+    )
+    assert.ok(res.calls.some((call) => call.cmd === 'gh'))
+})
+
+test('npm publish builds, pack-checks and publishes both packages without printing the token', async (t) => {
+    const repo = npmCheckout()
+    t.after(() => repo.cleanup())
+    const res = await runNpm(repo.repo, ['1.0.0', '--npm'])
+    assert.equal(res.code, 0, res.out)
+    assert.equal(res.out.includes(NPM_TOKEN), false)
+    assert.equal(res.userconfigMatched, true)
+    assert.equal(res.userconfigMode, 0o600)
+    assert.equal(fs.existsSync(res.userconfig), false)
+    const npmCalls = res.calls.filter((call) => call.cmd === 'npm')
+    assert.deepEqual(
+        npmCalls.map((call) => call.args[0]),
+        ['pack', 'pack', 'view', 'publish', 'view', 'publish']
+    )
+    assert.equal(npmCalls[0].cwd.endsWith(`${path.sep}packages${path.sep}cli`), true)
+    assert.equal(npmCalls[1].cwd.endsWith(`${path.sep}packages${path.sep}chat-widget`), true)
+    assert.deepEqual(npmCalls[2].args.slice(0, 2), ['view', 'cuttlely@1.0.0'])
+    assert.deepEqual(npmCalls[3].args.slice(0, 2), ['publish', './packages/cli'])
+    assert.deepEqual(npmCalls[4].args.slice(0, 2), ['view', '@cuttlely/chat@1.0.0'])
+    assert.deepEqual(npmCalls[5].args.slice(0, 2), ['publish', './packages/chat-widget'])
+    assert.ok(res.calls.some((call) => call.cmd === 'pnpm' && call.args.includes('build')))
+})
+
+test('a failed widget build or pack does not publish, and a failed publish redacts the token', async (t) => {
+    const repo = npmCheckout()
+    t.after(() => repo.cleanup())
+    await assert.rejects(runNpm(repo.repo, ['1.0.0', '--npm'], { buildStatus: 1 }), (error) => {
+        assert.match(error.message, /build failed/)
+        assert.equal(
+            error.calls.some((call) => call.cmd === 'npm'),
+            false
+        )
+        return true
+    })
+    await assert.rejects(runNpm(repo.repo, ['1.0.0', '--npm'], { packStatus: 1 }), (error) => {
+        assert.match(error.message, /pack failed/)
+        assert.equal(
+            error.calls.some((call) => call.cmd === 'npm' && call.args[0] === 'publish'),
+            false
+        )
+        return true
+    })
+    await assert.rejects(runNpm(repo.repo, ['1.0.0', '--npm'], { npmStatus: 1 }), (error) => {
+        assert.match(error.message, /NPM_TOKEN/)
+        assert.equal(error.message.includes(NPM_TOKEN), false)
+        assert.equal(error.out.includes(NPM_TOKEN), false)
+        assert.equal(fs.existsSync(error.userconfig), false)
+        assert.equal(error.calls.filter((call) => call.cmd === 'npm' && call.args[0] === 'publish').length, 1)
+        return true
+    })
+})
+
+test('a resumed npm publish skips a package version npm already has', async (t) => {
+    const repo = npmCheckout()
+    t.after(() => repo.cleanup())
+    const res = await runNpm(repo.repo, ['1.0.0', '--npm'], { onNpm: ['cuttlely@1.0.0'] })
+    assert.equal(res.code, 0, res.out)
+    assert.match(res.out, /cuttlely@1\.0\.0 is already on npm, skipped/)
+    assert.equal(res.out.includes(NPM_TOKEN), false)
+    const publishes = res.calls.filter((call) => call.cmd === 'npm' && call.args[0] === 'publish')
+    assert.deepEqual(
+        publishes.map((call) => call.args[1]),
+        ['./packages/chat-widget']
+    )
+    assert.equal(fs.existsSync(res.userconfig), false)
 })

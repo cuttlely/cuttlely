@@ -23,12 +23,16 @@ const create = async (req: Request, res: Response, next: NextFunction) => {
         const workspaceId = workspaceOf(req)
         const orgId = req.user?.activeOrganizationId
         if (!orgId) throw new InternalFlowiseError(StatusCodes.NOT_FOUND, 'No active organization. Sign in and try again.')
-        const result = await demoService.create(req.body?.credentialId, {
-            orgId,
-            workspaceId,
-            subscriptionId: req.user?.activeOrganizationSubscriptionId || '',
-            actor: actorFromUser(req.user)
-        })
+        const result = await demoService.create(
+            req.body?.credentialId,
+            {
+                orgId,
+                workspaceId,
+                subscriptionId: req.user?.activeOrganizationSubscriptionId || '',
+                actor: actorFromUser(req.user)
+            },
+            req.body?.demo
+        )
         return res.json(result)
     } catch (error) {
         next(error)

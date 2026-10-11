@@ -35,6 +35,7 @@ English | [繁體中文](./i18n/README-TW.md) | [简体中文](./i18n/README-ZH.
 -   [Bring your existing flows](#bring-your-existing-flows)
 -   [Contributing](#contributing)
 -   [About and credits](#about-and-credits)
+-   [Contact](#contact)
 
 ## What you can build
 
@@ -144,7 +145,7 @@ You need Docker and one model key. The steps use OpenAI. Any chat model provider
 
     Compose pulls the published Cuttlely image. If it cannot pull it, Compose builds the image from your checkout instead, which takes several minutes the first time, and each long build step says which of four it is. `docker compose ps` shows `(health: starting)` until Cuttlely is ready, then `(healthy)`. Opening [http://localhost:43117](http://localhost:43117) early shows a **Cuttlely is starting** page that opens Cuttlely by itself.
 
-    With Node.js 20 or newer, and Docker running, you can skip the clone:
+    With Node.js 20 or newer you can skip the clone. This needs Docker, because `npx cuttlely start` pulls the image and runs it:
 
     ```bash
     npx cuttlely start
@@ -161,9 +162,9 @@ You need Docker and one model key. The steps use OpenAI. Any chat model provider
     Nothing yet? It is still starting. Run the command again in a few seconds.
 
 3. Open the link and create your account. The password needs at least 8 characters, including a lowercase letter, an uppercase letter, a digit and a special character. You are signed in and land on **Chatflows**.
-4. Try the demo. **Chatflows** shows a **Try the demo** card. Select **Add a model key**, choose **OpenAI API**, give it a name, paste the key, and select **Add**. The key is stored encrypted. Then select **Try the demo**: a ready-made bakery team opens with its chat open. Select the first starter question. The run card shows Harness Prime sending the work to the analyst, and a bar chart with the numbers from the made-up sales database appears in the chat. [Try the demo](./docs/how-to/try-the-demo.md) shows each step.
+4. Try the demo. **Chatflows** shows a **Try the demo** card. Select **Add a model key**, choose **OpenAI API**, give it a name, paste the key, and select **Add**. The key is stored encrypted. Then select **Try the demo**: a ready-made customer care team opens with its chat open. Select the first starter question, a complaint about a late espresso machine. The run card shows Harness Prime sending the work to the customer and operations specialists, then to the policy specialist, and the answer gives the decision, the reply to the customer, the actions and the evidence. All the data is made up. [Try the demo](./docs/how-to/try-the-demo.md) shows each step, and the bakery quickstart on the same card.
 
-    ![The bakery team's test chat after the first starter question: the run card says Harness Prime sent work to analyst, then a bar chart of revenue by product and an answer with the top three products.](./docs/images/try-the-demo/demo-chart.png)
+    ![The customer care team's chat after the first starter question: the run card says Harness Prime sent work to customer, operations, then policy, each done with one tool call, and the decision says the delay is Larkfield's fault, with a shipping refund, an express reship arriving 2026-10-08, a $55.80 store credit and a call from the Customer Care Lead.](./docs/images/try-the-demo/customer-care-run.png)
 
 5. Build your own team: open **Harness · Agent Team**, select **New agent team**, then **Build with AI** (the sparkle button). Your model and key are already picked under **Chat model that builds**. Pick one of the examples and select **Build**, then open the chat and select a starter question.
 6. Next time, sign in at [http://localhost:43117/signin](http://localhost:43117/signin) with **Sign in**.
@@ -201,3 +202,7 @@ Have flows from another tool? On **Chatflows**, the **Import** menu has **Import
 Cuttlely is open source under Apache 2.0. What changed in each release is in the [changelog](./CHANGELOG.md), and which versions get fixes is in [Releases and support](./docs/releases.md). The license text is in [LICENSE.md](./LICENSE.md), and attribution is in [NOTICE](./NOTICE).
 
 Cuttlely builds on open-source work, including Flowise, Hermes from Nous Research and React Flow. [CREDITS.md](./CREDITS.md) lists each project with its license and link.
+
+## Contact
+
+Questions, partnerships or press: [info@cuttlely.com](mailto:info@cuttlely.com). Bugs and feature ideas go to [issues](https://github.com/cuttlely/cuttlely/issues), and vulnerabilities go through [SECURITY.md](./SECURITY.md).

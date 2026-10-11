@@ -7,6 +7,17 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 ### Added
 
 -   The Publish check can replay 4, 10, 25, 50, or 100 past questions. 4 is the default. The server takes the most recent distinct questions, runs a few at a time, and the dialog shows progress, Stop, and the totals above the rows.
+-   The npm packages ship properly for the first time in 1.0.1, built and published from the v1.0.1 tag after the image and this release are public. `cuttlely` is the launcher: `npx cuttlely start` needs Docker, and it pulls and starts `ghcr.io/cuttlely/cuttlely` at the same version as the package. `@cuttlely/chat` is the embeddable chat widget.
+-   `pnpm release X.Y.Z --npm` is how maintainers publish those packages. It runs only from the annotated tag, once the image and the GitHub release for that version are public, and `--dry-run` shows the checks without publishing. [Releases and support](./docs/releases.md#publish-the-npm-packages) lists every check.
+
+### Changed
+
+-   `LICENSE.md` is the standard Apache License 2.0 text, so GitHub and other license tools identify it. Copyright and attribution are in `NOTICE`.
+-   **Try the demo** now opens a customer care team first. A late-order complaint comes in: a customer specialist reads the account from a support desk database, an operations specialist traces the parcel through warehouse and carrier scans, and a policy specialist decides whose fault the delay is from a written service policy once operations has found the cause, with the remedy for every tier. Harness Prime picks the remedy for the customer's tier and history and writes the decision, the reply to the customer, the actions and the evidence. Each specialist has its own made-up data and Python tools in its own folder. The bakery team stays as the quickstart, one click away on the same card.
+
+### Deprecated
+
+-   `cuttlely@1.0.0` and `@cuttlely/chat@1.0.0` on npm. They were built from a commit after the v1.0.0 tag, so they do not match it. Use 1.0.1 or later. They stay installable and are marked deprecated on npm.
 
 ## [1.0.0] - 2026-10-10
 

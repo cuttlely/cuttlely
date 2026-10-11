@@ -99,6 +99,14 @@ test('the launcher imports only Node and makes no telemetry call', () => {
     }
 })
 
+test('the default image tag is this package version', () => {
+    const pkg = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8'))
+    assert.equal(VERSION, pkg.version)
+    assert.equal(parseArgs(['start']).tag, pkg.version)
+    assert.equal(parseArgs(['upgrade']).tag, pkg.version)
+    assert.equal(`${IMAGE}:${parseArgs(['start']).tag}`, `${IMAGE}:${pkg.version}`)
+})
+
 test('--help and --version', async () => {
     const help = capture()
     assert.equal(await main(['--help'], help), 0)
@@ -172,7 +180,7 @@ test('start pulls the version tag, publishes the README port, and opens the brow
     assert.deepEqual(calls[1].args, ['pull', `${IMAGE}:${VERSION}`])
     assert.equal(calls[1].opts.stdio, 'inherit')
     assert.deepEqual(calls[4].args, containerRunArgs({ image: `${IMAGE}:${VERSION}`, port: DEFAULT_PORT, envFile: null }))
-    assert.equal(calls[4].args.at(-1), `${IMAGE}:1.0.0`)
+    assert.equal(calls[4].args.at(-1), `${IMAGE}:${VERSION}`)
     assert.ok(calls[4].args.includes(`${VOLUME_NAME}:${DATA_DIR}`))
     assert.ok(calls[4].args.includes(`${DEFAULT_PORT}:${DEFAULT_PORT}`))
     assert.ok(calls[4].args.includes('CUTTLELY_INSTALL=docker'))

@@ -7,3 +7,6 @@ website/src/content/
 website/src/generated/
 website/.astro/
 website/dist/
+
+# The license text must stay byte-for-byte identical to the Apache 2.0 original so GitHub can detect it.
+LICENSE.md
