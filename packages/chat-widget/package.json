@@ -20,7 +20,7 @@
         "test": "node --test test/*.test.js"
     },
     "devDependencies": {
-        "esbuild": "0.19.12",
+        "esbuild": "0.25.12",
         "jsdom": "^22.1.0"
     }
 }
