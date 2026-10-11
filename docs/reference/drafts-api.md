@@ -118,14 +118,17 @@ Before Publish, the check asks a few recent real questions again, once to Live a
 
 Each question runs the model twice, so a check costs tokens on the flow's model account. The server caps each check:
 
-| Limit          | Value                                                                                                                   |
-| -------------- | ----------------------------------------------------------------------------------------------------------------------- |
-| Questions      | At most 10, each at most 2,000 characters.                                                                              |
-| Tokens         | `CUTTLELY_CHECK_MAX_TOKENS`, 100,000 by default. See [History settings](./versioning-settings.md#publish-check-limits). |
-| Time           | `CUTTLELY_CHECK_MAX_SECONDS`, 180 by default, and at most 60 seconds for any one run.                                   |
-| Checks at once | One per flow, three on the server.                                                                                      |
+| Limit          | Value                                                                                                                               |
+| -------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| Questions      | `count` from 1 to 100, 4 in the dialog. A list sent without `count` is still at most 10. Each question is at most 2,000 characters. |
+| Tokens         | `CUTTLELY_CHECK_MAX_TOKENS`, 100,000 by default. See [History settings](./versioning-settings.md#publish-check-limits).             |
+| Time           | `CUTTLELY_CHECK_MAX_SECONDS`, 180 by default, and at most 60 seconds for any one run.                                               |
+| At a time      | `CUTTLELY_CHECK_CONCURRENCY`, 2 by default, from 1 to 8. Live and the draft for one question still run one after the other.         |
+| Checks at once | One per flow, three on the server.                                                                                                  |
 
-When a limit is reached, the check stops after the run in progress and keeps the answers it has. A question counts only when both Live and the draft answered it.
+When a token or time limit is reached, the check stops starting new questions. Questions already started finish, so the token total can go a little past the cap. A question counts only when both Live and the draft answered it. One question failing does not stop the others: that row has an error, and the rest continue. **Stop** keeps the questions that already finished.
+
+Which questions run when you send `count`: the most recent ones people asked this flow, newest first. Message time decides the order, and the message id breaks a tie, newest id first. The same wording counts once. Capitals and extra spaces are ignored, and the newest copy is kept. The same count on the same history returns the same questions. It is not a random sample. Questions sent with files are left out. The server reads the newest messages, 200 at a time, until it has 100 different questions or it has read 2,000 messages or the history ends. If it stops at 2,000 messages before it has 100 different questions, `pastTruncated` is true: there may be older questions it did not reach. If fewer different questions exist than `count`, it compares every one it found.
 
 What a check never does:
 
@@ -163,31 +166,44 @@ On an agentflow, the steps counted as risky:
 {
     "unavailable": null,
     "questions": [{ "text": "Do you have gluten-free bread today?", "date": "2026-10-08T16:12:03.000Z" }],
+    "pastCount": 1,
+    "pastTruncated": false,
     "riskySteps": [],
-    "limits": { "maxQuestions": 10, "maxQuestionChars": 2000, "maxTokens": 100000, "maxSeconds": 180 },
+    "limits": {
+        "maxQuestions": 100,
+        "defaultQuestions": 4,
+        "maxQuestionChars": 2000,
+        "maxTokens": 100000,
+        "maxSeconds": 180,
+        "concurrency": 2
+    },
     "liveEmpty": false,
     "check": null
 }
 ```
 
-| Field         | Meaning                                                                                                                                                                                                                                                                                                                                     |
-| ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `unavailable` | Why a check can't run now, or `null`. `code` is `off` (drafts are off), `type` (not a chatflow or an agentflow), `no-draft` (nothing to check) or `start` (an agentflow that does not start with a chat message), with a `message` to show.                                                                                                 |
-| `questions`   | Up to 10 recent questions people asked this flow, through the API, embeds and shared links or the canvas test chat, newest first and without repeats. Questions sent with files are left out. Then the flow's starter questions that nobody asked yet, marked `"starter": true` with an empty `date`, so a new flow has questions to check. |
-| `riskySteps`  | The steps that act for real, as `{ "id", "label" }`. Empty when there are none.                                                                                                                                                                                                                                                             |
-| `limits`      | The limits above, as this server has them.                                                                                                                                                                                                                                                                                                  |
-| `liveEmpty`   | `true` when Live has no cards yet, as with a flow saved only as a draft so far. Its check asks only the draft.                                                                                                                                                                                                                              |
-| `check`       | The flow's latest check, in the shape below, or `null`.                                                                                                                                                                                                                                                                                     |
+| Field           | Meaning                                                                                                                                                                                                                                                                                                                                                  |
+| --------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `unavailable`   | Why a check can't run now, or `null`. `code` is `off` (drafts are off), `type` (not a chatflow or an agentflow), `no-draft` (nothing to check) or `start` (an agentflow that does not start with a chat message), with a `message` to show.                                                                                                              |
+| `questions`     | Up to 100 recent questions people asked this flow, through the API, embeds and shared links or the canvas test chat, newest first and without repeats. Questions sent with files are left out. Then up to 10 of the flow's starter questions that nobody asked yet, marked `"starter": true` with an empty `date`, so a new flow has questions to check. |
+| `pastCount`     | How many of `questions` are past questions, not starter questions. At most 100.                                                                                                                                                                                                                                                                          |
+| `pastTruncated` | `true` when the scan stopped at 2,000 messages before it found 100 different past questions.                                                                                                                                                                                                                                                             |
+| `riskySteps`    | The steps that act for real, as `{ "id", "label" }`. Empty when there are none.                                                                                                                                                                                                                                                                          |
+| `limits`        | The limits above, as this server has them. `maxQuestions` is 100. `defaultQuestions` is 4, which the dialog selects first. `concurrency` is how many questions run at once.                                                                                                                                                                              |
+| `liveEmpty`     | `true` when Live has no cards yet, as with a flow saved only as a draft so far. Its check asks only the draft.                                                                                                                                                                                                                                           |
+| `check`         | The flow's latest check, in the shape below, or `null`.                                                                                                                                                                                                                                                                                                  |
 
 ### Start a check
 
-`POST /api/v1/flow-drafts/:chatflowId/check` with `{ "questions": ["…"], "includeRiskySteps": false }`. The questions can be any text: the suggested ones, a subset, or your own. Repeats are dropped. Answers 202 with the check, `status` `running`. The runs happen in the background; read progress with the next route.
+`POST /api/v1/flow-drafts/:chatflowId/check` with `{ "count": 4, "questions": ["…"], "includeRiskySteps": false }`.
 
-| Status | When                                                                                                                                                                                                                                                                                     |
-| ------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 400    | `questions` is not a list of text, is empty, has more than 10 questions or a question longer than 2,000 characters, or `includeRiskySteps` is not `true` or `false`.                                                                                                                     |
-| 409    | Drafts are off, the flow is not a chatflow or an agentflow, an agentflow does not start with a chat message, there are no unpublished changes, a check is already running for this flow, or the flow has risky steps and `includeRiskySteps` is not `true`. The message names the steps. |
-| 429    | `Too many checks are running on this server. Try again in a minute.`                                                                                                                                                                                                                     |
+`count` is optional. When it is sent, it must be a whole number. A number below 1 counts as 1, and above 100 as 100. The server then chooses that many past questions by the rule above. `questions`, if also sent, are extra questions added after those, still within 100 altogether, with repeats dropped. When `count` is omitted, the request is the older one: `questions` is required, at most 10, and the server runs that list. That default is unchanged. Answers 202 with the check, `status` `running`. The runs happen in the background, a few questions at a time; read progress with the next route. `completed` is how many questions both sides have answered, out of `total`.
+
+| Status | When                                                                                                                                                                                                                                                                                                                                                                                    |
+| ------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 400    | `count` is not a whole number, `questions` is not a list of text, a question is empty or longer than 2,000 characters, the list is empty when `count` is omitted, the list has more than 10 questions when `count` is omitted (or more than 100 when `count` is sent), there are no past questions for `count` and no extra questions, or `includeRiskySteps` is not `true` or `false`. |
+| 409    | Drafts are off, the flow is not a chatflow or an agentflow, an agentflow does not start with a chat message, there are no unpublished changes, a check is already running for this flow, or the flow has risky steps and `includeRiskySteps` is not `true`. The message names the steps.                                                                                                |
+| 429    | `Too many checks are running on this server. Try again in a minute.`                                                                                                                                                                                                                                                                                                                    |
 
 ### Read a check
 
@@ -205,8 +221,16 @@ On an agentflow, the steps counted as risky:
     "completed": 1,
     "draftChanged": false,
     "includeRiskySteps": false,
-    "limits": { "maxQuestions": 10, "maxQuestionChars": 2000, "maxTokens": 100000, "maxSeconds": 180 },
+    "limits": {
+        "maxQuestions": 100,
+        "defaultQuestions": 4,
+        "maxQuestionChars": 2000,
+        "maxTokens": 100000,
+        "maxSeconds": 180,
+        "concurrency": 2
+    },
     "liveEmpty": false,
+    "selection": { "requested": 4, "available": 1, "used": 1, "truncated": false },
     "cases": [
         {
             "question": "Do you have gluten-free bread today?",
@@ -228,16 +252,17 @@ On an agentflow, the steps counted as risky:
 }
 ```
 
-| Field          | Meaning                                                                                                                                                                                                                 |
-| -------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `status`       | `running`, `done`, `stopped` (a limit or Stop ended it early) or `failed` (it could not run; `error` says so).                                                                                                          |
-| `stopReason`   | `tokens`, `time` or `stopped`, when `status` is `stopped`. Otherwise `null`.                                                                                                                                            |
-| `completed`    | Questions both sides have answered, out of `total`. With `liveEmpty`, questions the draft has answered.                                                                                                                 |
-| `liveEmpty`    | `true` when Live had no cards when the check started. Then only the draft runs: `live` stays `null`, `same` stays `null`, and `summary` counts the draft's answers, with Live tokens 0 and no Live time.                |
-| `draftChanged` | `true` when the draft was saved, published or discarded after the check started, so its answers may be out of date.                                                                                                     |
-| `cases`        | One per question. `live` and `draft` are `null` until that side has run. `text` is the answer, cut at 4,000 characters, or `null` with an `error` when the run failed. `tokens` is `null` when the model reported none. |
-| `same`         | `true` when both answers match, ignoring case and spacing. `false` when they differ or either side failed. `null` until both have run. Answers from a model can vary between runs even with no change.                  |
-| `summary`      | Counts over the questions both sides answered: how many `same`, `changed` and with `errors`, total tokens per side, and the middle (median) time per side in milliseconds.                                              |
+| Field          | Meaning                                                                                                                                                                                                                                                                                                                                      |
+| -------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `status`       | `running`, `done`, `stopped` (a limit or Stop ended it early) or `failed` (it could not run; `error` says so).                                                                                                                                                                                                                               |
+| `stopReason`   | `tokens`, `time` or `stopped`, when `status` is `stopped`. Otherwise `null`.                                                                                                                                                                                                                                                                 |
+| `completed`    | Questions both sides have answered, out of `total`. With `liveEmpty`, questions the draft has answered.                                                                                                                                                                                                                                      |
+| `liveEmpty`    | `true` when Live had no cards when the check started. Then only the draft runs: `live` stays `null`, `same` stays `null`, and `summary` counts the draft's answers, with Live tokens 0 and no Live time.                                                                                                                                     |
+| `draftChanged` | `true` when the draft was saved, published or discarded after the check started, so its answers may be out of date.                                                                                                                                                                                                                          |
+| `cases`        | One per question. `live` and `draft` are `null` until that side has run. `text` is the answer, cut at 4,000 characters, or `null` with an `error` when the run failed. `tokens` is `null` when the model reported none.                                                                                                                      |
+| `same`         | `true` when both answers match, ignoring case and spacing. `false` when they differ or either side failed. `null` until both have run. Answers from a model can vary between runs even with no change.                                                                                                                                       |
+| `selection`    | Set when the request sent `count`. `requested` is the count after clamping, `available` is how many distinct past questions were found (at most 100), `used` is how many of those were included, and `truncated` means the scan stopped early. `null` when the request sent a question list and no count.                                    |
+| `summary`      | Counts over the questions both sides answered: how many `same`, `changed` and with `errors`, total tokens per side, and the middle (median) time per side in milliseconds. The dialog also shows the token and time difference between the sides. There is no better or worse score, and no price, because the check does not record a cost. |
 
 ### Stop a check
 

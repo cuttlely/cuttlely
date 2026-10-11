@@ -1,5 +1,16 @@
 // Same or changed, totals, token counts and question picking for the publish check.
-import { median, normalizeAnswer, pickQuestions, sameAnswer, stepTokens, summarize, totalTokens } from './compare'
+import {
+    COMPARE_COUNT_DEFAULT,
+    clampCompareCount,
+    median,
+    normalizeAnswer,
+    parseCompareCount,
+    pickQuestions,
+    sameAnswer,
+    stepTokens,
+    summarize,
+    totalTokens
+} from './compare'
 
 const side = (text: string | null, extra: any = {}) => ({ text, error: null, tokens: 10, ms: 100, ...extra })
 
@@ -45,6 +56,35 @@ test('token totals come from the tracer metrics, and nothing counted is null', (
 
 test('questions: newest first, one per wording, within the limits', () => {
     expect(pickQuestions(['Hi', 'hi ', '', 'x'.repeat(30), 'Where is my order?', 'Third'], 2, 20)).toEqual(['Hi', 'Where is my order?'])
+})
+
+test('a count is clamped into 1..100, and a missing count stays missing', () => {
+    expect(COMPARE_COUNT_DEFAULT).toBe(4)
+    expect(clampCompareCount(4)).toBe(4)
+    expect(clampCompareCount(1)).toBe(1)
+    expect(clampCompareCount(100)).toBe(100)
+    expect(clampCompareCount(0)).toBe(1)
+    expect(clampCompareCount(-8)).toBe(1)
+    expect(clampCompareCount(101)).toBe(100)
+    expect(clampCompareCount(250)).toBe(100)
+    expect(clampCompareCount(Number.NaN)).toBe(4)
+    expect(parseCompareCount(undefined)).toEqual({ ok: true, count: null })
+    expect(parseCompareCount(null)).toEqual({ ok: true, count: null })
+    expect(parseCompareCount(4)).toEqual({ ok: true, count: 4 })
+    expect(parseCompareCount(0)).toEqual({ ok: true, count: 1 })
+    expect(parseCompareCount(500)).toEqual({ ok: true, count: 100 })
+    expect(parseCompareCount(4.5)).toEqual({ ok: false, message: 'count must be a whole number from 1 to 100.' })
+    expect(parseCompareCount('4')).toMatchObject({ ok: false })
+    expect(parseCompareCount(true)).toMatchObject({ ok: false })
+})
+
+test('the same newest wordings are chosen every time, and repeats are dropped', () => {
+    const texts = ['  Hello ', 'hello', 'Second', 'second', 'Third', 'Hello']
+    const once = pickQuestions(texts, 3, 100)
+    expect(once).toEqual(['Hello', 'Second', 'Third'])
+    expect(pickQuestions(texts, 3, 100)).toEqual(once)
+    expect(pickQuestions(['a', 'b', 'a', 'c'], 100, 100)).toEqual(['a', 'b', 'c'])
+    expect(pickQuestions(texts, 100, 100)).toHaveLength(3)
 })
 
 describe('stepTokens', () => {

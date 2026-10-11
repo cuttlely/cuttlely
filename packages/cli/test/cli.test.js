@@ -67,7 +67,8 @@ function readyFetch(urls) {
 test('package metadata is publishable and has no runtime dependencies', () => {
     const pkg = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8'))
     assert.equal(pkg.name, 'cuttlely')
-    assert.equal(pkg.version, '1.0.0')
+    // pnpm release bumps this with the product version, so the test reads it instead of pinning one.
+    assert.match(pkg.version, /^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/)
     assert.equal(pkg.license, 'Apache-2.0')
     assert.equal(pkg.homepage, 'https://cuttlely.com')
     assert.equal(pkg.private, undefined)
@@ -77,7 +78,7 @@ test('package metadata is publishable and has no runtime dependencies', () => {
     assert.equal(pkg.repository.directory, 'packages/cli')
     assert.deepEqual(pkg.files, ['bin', 'lib', 'README.md', 'LICENSE'])
     assert.equal(pkg.dependencies, undefined)
-    assert.equal(VERSION, '1.0.0')
+    assert.equal(VERSION, pkg.version)
 })
 
 test('the launcher imports only Node and makes no telemetry call', () => {
@@ -120,7 +121,7 @@ test('--help and --version', async () => {
 
     const version = capture()
     assert.equal(await main(['--version'], version), 0)
-    assert.equal(version.text(), '1.0.0')
+    assert.equal(version.text(), JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8')).version)
 
     const none = capture()
     assert.equal(await main([], none), 0)

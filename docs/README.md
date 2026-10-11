@@ -9,11 +9,12 @@
 
 Cuttlely is the open-source agent platform for applications. It gives your applications their own intelligent capabilities and coordinated agent teams. A team is a lead agent, Harness Prime, that splits each question among specialists, and in Cuttlely it is called a harness. Your app calls a team through the API, and people can chat with it on a share link or a website embed. Knowledge pipelines (ETL), visual workflows (chatflows and agentflows) and Build with AI give the teams what they need, and every change is a draft until you publish it. It all runs on infrastructure you control.
 
-New here? Start with [Your first 10 minutes](../README.md#your-first-10-minutes), or open the bakery team in about a minute with [Try the demo](./how-to/try-the-demo.md). Building an app? Start with the [API guide](./api.md), then [Use a team from your app](../README.md#use-a-team-from-your-app). The harness [Prediction API](./how-to/harnesses.md#prediction-api) section is the reference for harness responses and stream events.
+New here? Start with [Your first 10 minutes](../README.md#your-first-10-minutes), or watch a customer care team resolve a late-order complaint in about a minute with [Try the demo](./how-to/try-the-demo.md). Building an app? Start with the [API guide](./api.md), then [Use a team from your app](../README.md#use-a-team-from-your-app). The harness [Prediction API](./how-to/harnesses.md#prediction-api) section is the reference for harness responses and stream events.
 
 ## Build
 
 -   [Harnesses](./how-to/harnesses.md). A team of specialists that Harness Prime sends work to. Build one from a description, try it, and call it from a chatflow.
+-   [How the customer care demo works](./how-to/customer-care-demo.md). Specialists that each own one system, a step that waits for another's finding, and amounts that come from code, so you can build the same kind of team on your own data.
 -   [Context and tokens](./how-to/context-and-tokens.md). How a team keeps each prompt to the job in front of it, and where a run shows the tokens it used.
 -   [Analyst mode](./how-to/analyst.md). A specialist with its own database that creates tables and answers from them. Turn it on with `CUTTLELY_ANALYST=auto`; on Render, see [Analyst database](./how-to/render.md#analyst-database).
 -   [ETL](./how-to/etl.md). Pipelines that load, clean, split, embed and store your data for search, on a schedule if you like.

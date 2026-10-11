@@ -14,6 +14,7 @@ Conventions, do and don't, and lessons a newcomer would otherwise relearn. Add a
 -   A shipped migration is never edited. New tables go in a later migration whose down drops them. MySQL and MariaDB need unique foreign-key names (`fk_<table>_<column>`) and matching column types and collations.
 -   Code comments explain the reason in words. They do not cite issue or pull request numbers.
 -   User-facing text has no git words (Draft, Publish, Roll back, Keep a copy in GitHub). The promote and GitHub card messages are tested for this.
+-   The publish check's `count` selects the newest distinct past questions (case and spacing ignored, newest copy kept). It is not a random sample. Omitting `count` still runs the caller's question list, capped at 10.
 -   User guides say "the agent runtime". Upstream names appear only in credits, license files, the import guides and literal names (D38).
 -   Guides use real screenshots taken from a running server, with made-up data.
 -   Formatting follows the root Prettier config (4 spaces, single quotes, no semicolons, print width 140). Do not reformat `hermes/`.
@@ -64,6 +65,8 @@ Conventions, do and don't, and lessons a newcomer would otherwise relearn. Add a
 -   **When `main` and a branch both add to `DECISIONS.md`,** an automatic merge can keep both copies. After resolving a notes conflict, check for a repeated heading or number.
 -   **Merge `main` into your branch right before the gate,** not earlier. On a busy day a gate that passed on a stale base cannot ship.
 -   **`pnpm verify`'s build step is not `pnpm build`.** CI builds every workspace package. The verify build step compiles the chat widget, components, the server, and the UI. A package outside that filter needs `tsc --noEmit` in `scripts/typecheck.mjs`, or a type error passes `pnpm verify --fast` and the pre-push hook.
+-   **Tests never pin the product version.** `pnpm release` runs the full verify before it bumps the version files, so a test that expects `1.0.0` passes the release and then fails on `main`. Read the version from the package's own `package.json`.
 -   **Background test servers can outlive their job** and hold ports or locks. Start them so they die with the job, and kill by port when done.
 -   **Keep `.turbo` out of the image context.** A cache hit restores only the outputs in `turbo.json`, and the UI writes `build/`, so a copied cache ships an image with no UI.
+-   **sanitize-html 2.17 loads ESM-only htmlparser2 12.** The server Jest config compiles `htmlparser2`, `domelementtype`, `domhandler`, `domutils`, `entities` and `dom-serializer`. Another ESM-only parser dependency needs the same exception, or the server unit tests fail while loading `sanitize-html`.
 -   **`npm publish` treats a bare path as GitHub shorthand.** `packages/cli` is read as owner/repo, and npm runs `git ls-remote` for it. Publish with `./packages/cli` and `./packages/chat-widget`.

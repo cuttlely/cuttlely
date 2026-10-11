@@ -7,10 +7,26 @@ module.exports = {
     // Define the root directory for tests and modules
     roots: ['<rootDir>/src'],
 
-    // Use ts-jest to transform TypeScript files
+    // Use ts-jest to transform TypeScript files.
+    // sanitize-html 2.17 depends on htmlparser2 12, which is ESM-only, along with
+    // domelementtype, domhandler, domutils, entities and dom-serializer. Jest's runner
+    // cannot load those import statements unless they are compiled. Other node_modules stay ignored.
     transform: {
-        '^.+\\.tsx?$': 'ts-jest'
+        '^.+\\.tsx?$': 'ts-jest',
+        '^.+\\.js$': [
+            'ts-jest',
+            {
+                tsconfig: {
+                    allowJs: true,
+                    esModuleInterop: true,
+                    isolatedModules: true
+                }
+            }
+        ]
     },
+    transformIgnorePatterns: [
+        '/node_modules/(?!(?:\\.pnpm/(?:htmlparser2|domelementtype|domhandler|domutils|entities|dom-serializer)@|(?:htmlparser2|domelementtype|domhandler|domutils|entities|dom-serializer)/))'
+    ],
 
     // Regular expression to find test files
     testRegex: '.*\\.test\\.tsx?$',

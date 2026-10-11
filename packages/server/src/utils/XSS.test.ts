@@ -12,7 +12,7 @@ jest.mock('./logger', () => ({
 }))
 
 import logger from './logger'
-import { getAllowedIframeOrigins, getCorsOptions, getIframeSecurityHeaders, validateCorsConfig } from './XSS'
+import { getAllowedIframeOrigins, getCorsOptions, getIframeSecurityHeaders, sanitizeMiddleware, validateCorsConfig } from './XSS'
 
 // ---------------------------------------------------------------------------
 // getCorsOptions
@@ -254,5 +254,34 @@ describe('getIframeSecurityHeaders', () => {
         expect(getIframeSecurityHeaders()).toEqual({
             'Content-Security-Policy': 'frame-ancestors https://embed.example.com https://admin.example.com'
         })
+    })
+})
+
+describe('sanitizeMiddleware', () => {
+    function run(url: string, query: Record<string, unknown> = {}) {
+        const req = { url, query: { ...query } } as any
+        sanitizeMiddleware(req, {} as any, () => undefined)
+        return req
+    }
+
+    it('keeps a path that has no markup', () => {
+        expect(run('/api/v1/prediction/abc').url).toBe('/api/v1/prediction/abc')
+    })
+
+    it('encodes an ampersand in the url and in query values', () => {
+        const req = run('/api/v1/prediction/abc?a=1&b=2', { q: 'a&b', list: ['x&y'] })
+        expect(req.url).toBe('/api/v1/prediction/abc?a=1&amp;b=2')
+        expect(req.query.q).toBe('a&amp;b')
+        expect(req.query.list).toEqual(['x&amp;y'])
+    })
+
+    it('strips a script tag from the url and from query values', () => {
+        const req = run('/api/v1/x?<script>alert(1)</script>', {
+            q: '<script>alert(1)</script>ok',
+            list: ['<img src=x onerror=alert(1)>', 'plain']
+        })
+        expect(req.url).toBe('/api/v1/x?')
+        expect(req.query.q).toBe('ok')
+        expect(req.query.list).toEqual(['', 'plain'])
     })
 })
