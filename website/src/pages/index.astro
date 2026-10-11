@@ -5,7 +5,7 @@ import { Code, Icon } from '@astrojs/starlight/components'
 import { Image } from 'astro:assets'
 import ZoomableImage from '../components/ZoomableImage.astro'
 import laptop from '../assets/cuttlely-mascot-laptop-512.webp'
-import demoChart from '../content/docs/docs/images/try-the-demo/demo-chart.png'
+import careAnswer from '../content/docs/docs/images/try-the-demo/customer-care-answer.png'
 import analystChat from '../content/docs/docs/images/harnesses/canvas-chat-analyst.png'
 import etlRun from '../content/docs/docs/images/etl/etl-run-done.png'
 import chatflow from '../content/docs/docs/images/canvas/build-with-ai-chat.png'
@@ -110,28 +110,98 @@ const installs = [
         </ul>
 
         <section id="chat-with-a-team-in-minutes" class="cl-showcase" aria-labelledby="cl-showcase-title">
-            <div class="cl-window">
+            <figure class="cl-window cl-demo-window">
                 <div class="cl-window-bar" aria-hidden="true"><span class="cl-lights"><i></i><i></i><i></i></span><span class="cl-window-url">localhost:43117</span></div>
-                <Focus
-                    src={demoChart}
-                    alt="The bakery team's test chat after the first starter question: the run card says Harness Prime sent work to analyst, then a bar chart of revenue by product and an answer with the top three products."
-                    cx={0.74}
-                    cy={0.5}
-                    zoom={1.65}
-                    ratio={4 / 3}
-                    widths={[1080, 1440]}
-                    sizes="(min-width: 68rem) 1100px, 180vw"
-                    loading="eager"
-                />
-            </div>
+                <video
+                    class="cl-demo-video"
+                    data-demo-video
+                    controls
+                    muted
+                    loop
+                    playsinline
+                    preload="none"
+                    width="1280"
+                    height="854"
+                    poster="/media/customer-care-demo-poster.webp"
+                    aria-describedby="cl-demo-caption"
+                >
+                    <source src="/media/customer-care-demo.webm" type="video/webm" />
+                    <source src="/media/customer-care-demo.mp4" type="video/mp4" />
+                </video>
+                <figcaption id="cl-demo-caption" class="cl-demo-caption">
+                    A real run, not sped up: Try the demo opens the customer care team, the first starter question goes in, and the answer is back in 16 seconds.
+                    The run card shows Harness Prime sending work to customer, operations, then policy.
+                </figcaption>
+            </figure>
             <div class="cl-showcase-copy">
-                <h2 id="cl-showcase-title" class="cl-display">Chat with a team in minutes</h2>
+                <p class="cl-kicker">Try the demo</p>
+                <h2 id="cl-showcase-title" class="cl-display">Watch a team resolve a complaint</h2>
                 <p>
-                    New to agents? You do not need to write code. Add one model key and select <strong>Try the demo</strong>: a ready-made bakery team opens with its chat
-                    open. Ask the first starter question, and the run card shows Harness Prime sending the work to the analyst, then a bar chart with the numbers from a
-                    made-up sales database.
+                    Add one model key and select <strong>Try the demo</strong>. A customer writes in about a late espresso machine. A customer specialist reads
+                    the account, an operations specialist traces the parcel, and a policy specialist checks the written policy, each with its own data and tools.
+                    Harness Prime writes the decision, the reply and the actions, with the evidence. All the data is made up.
                 </p>
-                <a class="cl-link-arrow" href="/quickstart/">Your first 10 minutes <Icon name="right-arrow" /></a>
+                <a class="cl-link-arrow" href="/docs/how-to/try-the-demo/">Try the demo <Icon name="right-arrow" /></a>
+            </div>
+        </section>
+
+        <section id="one-complaint-three-specialists" class="cl-section cl-case" aria-labelledby="case-title">
+            <div class="cl-center">
+                <p class="cl-kicker">One real run</p>
+                <h2 id="case-title" class="cl-display">Not the obvious answer</h2>
+                <blockquote class="cl-case-quote">
+                    <p>"My espresso machine was due Friday. Tracking hasn't moved in a week, and it's your second late order. I want a refund."</p>
+                    <footer>Maya Okafor, order LH-20417</footer>
+                </blockquote>
+                <p class="cl-lead">
+                    It looks like a carrier delay, and she already had a goodwill credit for the last one. The specialists find something else.
+                </p>
+            </div>
+            <ol class="cl-case-steps">
+                <li>
+                    <p class="cl-case-who"><span class="cl-case-name">customer</span> support desk database · 4.9 s · 1 tool</p>
+                    <h3 class="cl-display">A Plus customer, late twice in 120 days</h3>
+                    <p>LH-18802 arrived 3 days late on 2026-08-15, with a $10 goodwill credit. LH-20417 is late now.</p>
+                </li>
+                <li>
+                    <p class="cl-case-who"><span class="cl-case-name">operations</span> warehouse and carrier scans · 4.3 s · 1 tool</p>
+                    <h3 class="cl-display">The carrier never had the parcel</h3>
+                    <p>
+                        It failed the outbound scale check in Columbus on 2026-09-29 and went to an exception cage. Four more orders from the same packing wave
+                        are held. Reno can reship by Express for Thursday.
+                    </p>
+                </li>
+                <li>
+                    <p class="cl-case-who"><span class="cl-case-name">policy</span> after operations · 6.0 s · 1 tool</p>
+                    <h3 class="cl-display">Larkfield's fault, section 1.2</h3>
+                    <p>
+                        So the goodwill limit does not apply. A second late delivery lifts Plus to the Premier remedy: a $55.80 credit, 20% of $279.00, and a
+                        call from the Customer Care Lead. Five held orders mean an operations incident.
+                    </p>
+                </li>
+            </ol>
+            <div class="cl-case-answer">
+                <div class="cl-case-answer-copy">
+                    <p class="cl-case-who"><span class="cl-case-name">Harness Prime</span> decision, reply, actions, evidence · 16 s in all</p>
+                    <p>
+                        Refund the $9.95 shipping, reship by Express for Thursday, recall the held parcel, add a $55.80 store credit, have the Customer Care Lead
+                        call, and open an operations incident for the packing wave. Or a full refund, if Maya prefers. Every amount and section comes from a
+                        specialist's tools.
+                    </p>
+                    <a class="cl-link-arrow" href="/docs/how-to/customer-care-demo/">How the team is built <Icon name="right-arrow" /></a>
+                </div>
+                <div class="cl-shot cl-case-shot">
+                    <Focus
+                        src={careAnswer}
+                        alt="The end of the real answer to Maya: the reply, the Actions checklist with the shipping refund, the Reno reship, the recall, the $55.80 credit, the Care Lead call and the operations incident, and the Evidence from customer, operations and policy with the policy sections."
+                        cx={0.5}
+                        cy={0.6}
+                        zoom={1.75}
+                        ratio={16 / 10}
+                        widths={[720, 1080]}
+                        sizes="(min-width: 60rem) 560px, 100vw"
+                    />
+                </div>
             </div>
         </section>
 
