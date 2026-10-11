@@ -17,6 +17,12 @@
 
 The open-source agent platform for applications. Cuttlely gives your applications their own intelligent capabilities and coordinated agent teams. Start chatting with a team in minutes, then call it from your app through the API. It runs on infrastructure you control.
 
+<p align="center">
+<a href="./docs/how-to/try-the-demo.md"><img src="./docs/images/try-the-demo/customer-care-run.png" alt="A real run of the customer care team in Try the demo. A customer wrote in about a late espresso machine. The run card says Harness Prime sent work to customer, operations, then policy, each done with one tool call, in 16 seconds. The decision says the delay is Larkfield's fault, with a $9.95 shipping refund, an Express reship arriving 2026-10-08, a recall of the held parcel, a $55.80 store credit and a call from the Customer Care Lead." width="880"></a>
+</p>
+
+A customer writes in about a late order. A customer specialist reads the account, an operations specialist finds that the parcel never left the warehouse, and a policy specialist checks the written policy once operations is done, each with its own data and tools. Harness Prime writes the decision, the reply and the actions, with the evidence. [Try the demo](./docs/how-to/try-the-demo.md) opens this team on your own model key.
+
 An agent team is a lead agent with specialists. The lead, Harness Prime, splits each question into parts. Specialists do the work with their own models, tools and data, and an analyst queries real tables and hands back the actual numbers. Your app sends the team a question through the API and gets back one researched answer, a chart or an action. In Cuttlely, an agent team is called a harness. Knowledge pipelines, visual workflows and Build with AI give your teams what they need, and every change waits as a draft until you publish it. Cuttlely is open source and runs on your laptop, your own server or Render.
 
 English | [繁體中文](./i18n/README-TW.md) | [简体中文](./i18n/README-ZH.md) | [日本語](./i18n/README-JA.md) | [한국어](./i18n/README-KR.md)
