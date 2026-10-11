@@ -18,7 +18,7 @@ Where things live. Merged work is in `git log` and the closed pull requests (`gh
 | Credits and licenses                 | `CREDITS.md`, `NOTICE`, `LICENSE.md`                                                                                                                                   |
 | Contributor guide and agent rules    | `CONTRIBUTING.md`, `AGENTS.md`, `.cursor/rules/`, `.cursor/skills/`                                                                                                    |
 | Screenshots                          | `docs/images/` (taken from a running server with made-up data)                                                                                                         |
-| Website                              | `website/` (source); the pages come from `docs/` at build time                                                                                                         |
+| Website                              | `website/` (source); the pages come from `docs/` at build time. Content screenshots use `website/src/scripts/screenshot-viewer.mjs`                                    |
 | Brand assets                         | `assets/brand/`                                                                                                                                                        |
 
 ## Code artifacts

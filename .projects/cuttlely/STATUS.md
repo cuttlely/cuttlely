@@ -16,7 +16,7 @@ Cuttlely 1.0.0. The product version is the root `package.json` and `packages/ser
 -   **Sign-in and teams.** WorkOS AuthKit sign-in or one local account, teams, users and roles in the app database, and workspace scoping on every route.
 -   **Admin panel.** Admin > Server settings holds every server setting with help text, a review step, restart to apply, safe boot back to the last good settings, History, and a guided sign-in setup.
 -   **First ten minutes.** Install, first account, and Try the demo, which opens a made-up bakery team on the person's own model key with its chat open. The README section "Your first 10 minutes" walks through it.
--   **Install and deploy.** Docker Compose (SQLite, one container), from source, and a Render Blueprint (Docker web service, Postgres, disk). `docs/how-to/from-source.md` also covers the dev server, the tests and `pnpm verify`, checked end to end on a fresh clone.
+-   **Install and deploy.** Docker Compose (SQLite, one container), from source, and a Render Blueprint (Docker web service, Postgres, disk). `docs/how-to/from-source.md` covers the dev server, the tests and `pnpm verify`.
 -   **Releases.** `pnpm release` cuts a release from a clean `main`, drafts by default, and pushes the image or publishes only on a flag. The full `pnpm verify` tests upgrades from a fixture of an older release.
 -   **Graceful shutdown.** On SIGTERM or SIGINT the server stops taking new requests (`503` with `Retry-After`) and lets running answers and streams finish for up to 25 seconds (`CUTTLELY_DRAIN_TIMEOUT_MS`). The Compose files give the container 35 seconds to stop.
 -   **File links in Agent answers.** A file an Agent card links in its answer opens for 15 minutes without the flow's API key: the link carries an expiry and an HMAC over the organization, flow, chat and file name, keyed from the server's own secret. A changed or expired link falls back to the key or session checks.
@@ -26,7 +26,7 @@ Cuttlely 1.0.0. The product version is the root `package.json` and `packages/ser
 
 ## How it is checked
 
--   `pnpm verify` on Node 24 is the merge gate (DECISIONS D27). The full run has 22 steps; `pnpm verify --help` lists them. `--fast` is the docs-only subset. The typecheck step runs in both modes: components and the server, plus `tsc --noEmit` for `packages/agentflow`, `packages/observe`, and `packages/api-documentation`.
+-   `pnpm verify` on Node 24 is the merge gate (DECISIONS D27). The full run has 22 steps. `pnpm verify --help` lists every step and the `--fast` set. A docs-only change uses `--fast`. The typecheck step runs in both modes: components and the server, plus `tsc --noEmit` for `packages/agentflow`, `packages/observe`, and `packages/api-documentation`.
 -   `node harness/check.mjs` and `node etl/check.mjs` are offline checks with no model key and no network.
 -   The `smoke` step boots the built server; the `upgrade` step starts it on data from an older release; the `safeboot` step checks the settings rollback.
 -   The daily scheduled CI run on `main` also runs `pnpm test:queue-abort`, an end-to-end queue-mode abort test against a Redis service.
@@ -36,5 +36,5 @@ Cuttlely 1.0.0. The product version is the root `package.json` and `packages/ser
 
 ## Not done
 
--   No release is tagged yet, and no image is published. The first release is v1.0.0 (PLAN). The issues listed in [OPEN.md](./OPEN.md) are done; the tracker is the source of truth for anything newer.
--   The questions and known gaps in [OPEN.md](./OPEN.md).
+-   The first release, v1.0.0, is not cut. No tag exists, no image is published, and `CHANGELOG.md` is still `## [1.0.0] - Unreleased`. The release steps, including dating that heading, are in [PLAN.md](./PLAN.md).
+-   The questions and known gaps in [OPEN.md](./OPEN.md). Repository settings for the release are one of those rows.

@@ -20,7 +20,7 @@
 | 14  | No call home and our own model list (D32)                                                        | Done                                                                                     |
 | 15  | Release tooling, changelog, upgrade tests and Compose image fallback (D30, D31)                  | Done. No release is cut yet                                                              |
 | 16  | Brand, theme and screenshots (D38)                                                               | Done                                                                                     |
-| 17  | Fix the open issues                                                                              | Done. The issues in OPEN are marked done                                                 |
+| 17  | Fix the open issues                                                                              | Done. Closed issues stay in the tracker                                                  |
 | 18  | First public release, v1.0.0                                                                     | Next                                                                                     |
 | 19  | Builder UI for harness credentials and MCP servers                                               | Later                                                                                    |
 | 20  | Convert remaining `adapt` catalog rows when a harness needs them (D5)                            | Later, never blocking                                                                    |
@@ -28,7 +28,7 @@
 
 ## Next concrete tasks
 
-1. **Release v1.0.0.** A maintainer runs `pnpm release --dry-run`, then `pnpm release`, then `--push --publish` (RUNBOOK, Release). Then: make the image public, check that the README Docker install pulls it, and set up branch protection with a bypass for the releasing maintainer (D30), secret scanning with push protection, and private vulnerability reporting.
+1. **Release v1.0.0.** No tag exists and no image is published. `CHANGELOG.md` is still `## [1.0.0] - Unreleased`. A maintainer runs `pnpm release --dry-run`, then `pnpm release`, then `--push --publish` (RUNBOOK, Release). That run dates the heading and opens a fresh `## [Unreleased]`. Then make the image public and check that the README Docker install pulls it. Repository settings for the release are still to turn on (OPEN).
 2. **After v1.0.0.** Refresh the upgrade fixture from the v1.0.0 tag (D31). Check whether GitHub Actions runs on pull requests, and if it does, decide whether it joins the merge gate (OPEN).
 3. **Live checks that need real credentials.** A live credentialed run on `CUTTLELY_HARNESS_QUEUE=external` before switching its default; a live ETL run against a hosted vector store; a live upload-harness turn on a large file. Never invent keys; use a maintainer's test credentials.
 4. **Later.** The canvas card look: both compact and classic cards are offered (`CANVAS_CARD_LOOK`); decide after the first release whether classic stays. The dedicated analyst node. A builder UI for harness credentials and MCP servers.

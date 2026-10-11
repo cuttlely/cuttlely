@@ -57,7 +57,7 @@ CUTTLELY_VERIFY_JEST_WORKERS=4 pnpm verify   # unit Jest workers; default 50%
 
 The report is `.verify/verify-report.json` and `.verify/verify-summary.md` (gitignored). `--fast` does not build, so the server unit tests need a `packages/` build on disk from an earlier full verify or `pnpm build`. The typecheck step runs in both modes. It typechecks components and the server, and runs `tsc --noEmit` for `packages/agentflow`, `packages/observe`, and `packages/api-documentation`.
 
-The identity schema compare runs on every full verify. SQLite always runs. Postgres runs when `PGPASSWORD` is set; MariaDB when `MYSQL_PWD` or `CUTTLELY_TEST_MYSQL_PASSWORD` is set (`CUTTLELY_TEST_MARIADB_PORT`, default 3306); MySQL 8 when `CUTTLELY_TEST_MYSQL8_PORT` (default 3307) accepts that password or `CUTTLELY_TEST_MYSQL8_PASSWORD`. A missing server is a skip, not a pass.
+The `identity-entity-smoke` step (full verify only) compares the identity schema. SQLite always runs. Postgres runs when `PGPASSWORD` or `CUTTLELY_TEST_PG_PASSWORD` is set. MariaDB runs when `MYSQL_PWD` or `CUTTLELY_TEST_MYSQL_PASSWORD` is set (`CUTTLELY_TEST_MARIADB_PORT`, default 3306). An unset password skips that database. A set password with the server down fails the step. MySQL 8 uses `CUTTLELY_TEST_MYSQL8_PORT` (default 3307) and `CUTTLELY_TEST_MYSQL8_PASSWORD`, or the MariaDB password. A refused connection, or a server that is not MySQL 8, is a skip.
 
 The pre-push hook runs the handoff check, then `pnpm verify --fast`, then `node scripts/scan-secrets.mjs`. The handoff check rejects a push whose commits since `origin/main` change code without touching `.projects/cuttlely/`. Docs (`*.md`, `.projects/`) and tests (`*.test.*`, `*.spec.*`, `__tests__`, `__mocks__`, `cypress/`) pass without it.
 
@@ -143,7 +143,7 @@ Contributor-relevant variables. The admin panel registry (`packages/server/src/s
 -   **Postgres is not `DATABASE_URL`.** The app reads `DATABASE_TYPE=postgres` plus `DATABASE_HOST`, `DATABASE_PORT`, `DATABASE_NAME`, `DATABASE_USER` and `DATABASE_PASSWORD` (`packages/server/src/DataSource.ts`).
 -   **Restart after runtime code changes.** The server loads `harness/*.mjs` and `etl/*.mjs` once. Rebuild `packages/server` or `packages/components` after TypeScript changes.
 -   **`pnpm dev` runs the last server build.** nodemon restarts the server when a file under `packages/server/src` changes, but it starts the compiled `dist`, so a server change needs `pnpm --filter flowise build` and then one more save (OPEN 15). The UI dev server listens on `localhost` only, so use `http://localhost:8080`, not `127.0.0.1`.
--   **The verify build step compiles the chat widget, components, the server, and the UI.** `packages/agentflow`, `packages/observe`, and `packages/api-documentation` are covered by `tsc --noEmit` in the typecheck step, which `pnpm verify` and `pnpm verify --fast` both run (OPEN 16). The UI has no TypeScript project.
+-   **The verify build step compiles the chat widget, components, the server, and the UI.** `packages/agentflow`, `packages/observe`, and `packages/api-documentation` are covered by `tsc --noEmit` in the typecheck step, which `pnpm verify` and `pnpm verify --fast` both run. The UI has no TypeScript project.
 -   **Stale node definitions.** A node file whose mtime or size changed is reloaded at boot. If the canvas still shows an old definition, delete `packages/components/dist/nodes-manifest.json` and restart.
 -   **A harness needs a model on Harness Prime.** Saving without one fails with a clear message; a required credential that is missing or deleted fails with `missing_credential`; a model on a loopback or private address fails with `model_blocked` (D11).
 -   **Gateway or runtime port in use.** Set `CUTTLELY_HARNESS_GATEWAY_PORT` or `HERMES_API_PORT` and restart. `$CUTTLELY_HERMES_HOME/.env` records the runtime port from the first start.
@@ -212,6 +212,7 @@ pnpm release X.Y.Z --push --publish   # on the tagged commit: push the image, pu
 ```
 
 -   Product version files: root `package.json` and `packages/server/package.json`. Other workspace packages keep their own numbers.
+-   Until the v1.0.0 release (PLAN), the changelog heading is `## [1.0.0] - Unreleased`. A user-visible line goes in that section. `pnpm release` dates the heading and opens a fresh `## [Unreleased]` (`docs/releases.md`).
 -   The image is `linux/amd64` unless the buildx builder is `docker-container` with `linux/arm64`.
 -   The release commit goes straight to `main` with the hook skips, because the full verify already ran on that tree. Branch protection must allow the releasing maintainer to bypass.
 -   After a release, refresh the upgrade fixture (D31): build the release tag in its own checkout, run `node scripts/upgrade-fixture.mjs --server-root <that checkout> --out scripts/fixtures/upgrade`, and ship it as a pull request.

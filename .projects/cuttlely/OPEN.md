@@ -1,21 +1,10 @@
 # Open questions and blockers
 
-Owner is who must act: **maintainer** (a decision, a credential or repository settings) or **anyone** (work that can proceed without a decision). Mark a row done when it lands; do not delete it.
+Owner is who must act: **maintainer** (a decision, a credential or repository settings) or **anyone** (work that can proceed without a decision). Remove a row when the work has landed. The issue tracker keeps the history.
 
 ## Open issues
 
 The issue tracker is the source of truth for bugs and planned fixes: `gh issue list -R cuttlely/cuttlely`. Do not copy an issue's status here.
-
-| Issue                                                 | Topic                                                                   | Owner         |
-| ----------------------------------------------------- | ----------------------------------------------------------------------- | ------------- |
-| [#1](https://github.com/cuttlely/cuttlely/issues/1)   | Daily CI: a Redis service and an end-to-end queue-mode abort test       | done (PR #16) |
-| [#2](https://github.com/cuttlely/cuttlely/issues/2)   | Signed download links for files in Agent answers on key-protected flows | done          |
-| [#3](https://github.com/cuttlely/cuttlely/issues/3)   | Request variables in code inputs of legacy agent flows                  | done (PR #13) |
-| [#4](https://github.com/cuttlely/cuttlely/issues/4)   | Strict request-variable branch in the global-variable lookup            | done (PR #12) |
-| [#5](https://github.com/cuttlely/cuttlely/issues/5)   | Drain in-flight requests and streams on SIGTERM                         | done (PR #17) |
-| [#6](https://github.com/cuttlely/cuttlely/issues/6)   | A persistent upstream 429 should not end as HTTP 500                    | done (PR #21) |
-| [#7](https://github.com/cuttlely/cuttlely/issues/7)   | Deleting a flow should delete its lead rows                             | done (PR #14) |
-| [#10](https://github.com/cuttlely/cuttlely/issues/10) | Remaining dependency advisories                                         | done          |
 
 ## Questions and known gaps
 
@@ -36,4 +25,3 @@ The issue tracker is the source of truth for bugs and planned fixes: `gh issue l
 | 13  | Code execution is not a filesystem jail. A specialist that ignores its instructions can open paths the harness did not stage (D18). A real sandbox for Code execution and Shell specialists is future work.                                                                                                           | anyone                       |
 | 14  | Repository settings at the first release: branch protection with a release bypass, secret scanning with push protection, private vulnerability reporting (PLAN).                                                                                                                                                      | maintainer                   |
 | 15  | `pnpm dev` does not compile the server. nodemon restarts on a change under `packages/server/src` but runs the last `dist` build, so a change needs `pnpm --filter flowise build` and another save. A watch build that restarts after it compiles would remove that step.                                              | anyone                       |
-| 16  | Type errors in `packages/agentflow`, `packages/observe`, and `packages/api-documentation` fail the typecheck step of `pnpm verify` and `pnpm verify --fast`.                                                                                                                                                          | done                         |

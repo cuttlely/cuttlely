@@ -148,7 +148,7 @@ Agentflows V2 and harnesses cover what V1 agentflows did, so the UI offers no wa
 
 ## D37. Bringing flows from other tools
 
-Import is a supported path, not a headline. Import Flowise JSON opens a wizard that scans one chatflow, strips credential ids and password, file and folder inputs, lists deprecated nodes, and opens a canvas or refuses with a reason; it never half-converts a graph. A Langflow export opens only when it is one chat model and at most one prompt; anything else is refused with a clear message. The user selects credentials saved in this app. Workspace bundle export and import are not offered. Details: `docs/bring-your-flows.md` and the import guides it links.
+Import is a supported path, not a headline. The chatflow JSON import on the Import menu opens a wizard that scans one chatflow, strips credential ids and password, file and folder inputs, lists deprecated nodes, and opens a canvas or refuses with a reason; it never half-converts a graph. A Langflow export opens only when it is one chat model and at most one prompt; anything else is refused with a clear message. The user selects credentials saved in this app. Workspace bundle export and import are not offered. Details: `docs/bring-your-flows.md` and the import guides it links.
 
 ## D38. Product copy and naming
 
