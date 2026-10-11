@@ -133,3 +133,5 @@ apps/*/
 website/src/content/docs/
 website/src/generated/
 website/.astro/
+
+__pycache__/
