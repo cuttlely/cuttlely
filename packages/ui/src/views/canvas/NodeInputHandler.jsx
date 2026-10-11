@@ -4,7 +4,6 @@ import { useEffect, useRef, useState, useContext } from 'react'
 import { useParams } from 'react-router-dom'
 import { useSelector, useDispatch } from 'react-redux'
 import { cloneDeep } from 'lodash'
-import showdown from 'showdown'
 import parser from 'html-react-parser'
 
 // material-ui
@@ -101,6 +100,7 @@ import { baseURL, FLOWISE_CREDENTIAL_ID } from '@/store/constant'
 import { closeSnackbar as closeSnackbarAction, enqueueSnackbar as enqueueSnackbarAction, SET_CHATFLOW, SET_DIRTY } from '@/store/actions'
 import { sameCanvasValue } from '@/utils/canvasDirty'
 import { canvasFieldKey } from '@/utils/canvasFieldKey'
+import { markdownToHtml } from '@/utils/markdownToHtml'
 
 const EDITABLE_OPTIONS = ['selectedTool', 'selectedAssistant']
 
@@ -120,13 +120,6 @@ const StyledPopper = styled(Popper)({
             margin: 10
         }
     }
-})
-
-const markdownConverter = new showdown.Converter({
-    simplifiedAutoLink: true,
-    strikethrough: true,
-    tables: true,
-    tasklists: true
 })
 
 // ===========================|| NodeInputHandler ||=========================== //
@@ -1661,7 +1654,7 @@ const NodeInputHandler = ({
                 onConfirm={(generatedInstruction) => {
                     try {
                         if (inputParam?.acceptVariable && window.location.href.includes('v2/agentcanvas')) {
-                            const htmlContent = markdownConverter.makeHtml(generatedInstruction)
+                            const htmlContent = markdownToHtml(generatedInstruction)
                             data.inputs[inputParam.name] = htmlContent
                         } else {
                             data.inputs[inputParam.name] = generatedInstruction

@@ -1,6 +1,6 @@
 import { Document } from '@langchain/core/documents'
 import { BufferLoader } from '@langchain/classic/document_loaders/fs/buffer'
-import { parseOfficeAsync } from 'officeparser'
+import { parseOfficeDocument } from '../../../src/officeDocument'
 
 /**
  * Document loader that uses officeparser to load Word documents.
@@ -33,7 +33,7 @@ export class WordLoader extends BufferLoader {
 
         try {
             // Use officeparser to extract text from Word document
-            const data = await parseOfficeAsync(raw)
+            const data = await parseOfficeDocument(raw, 'Word')
 
             if (typeof data === 'string' && data.trim()) {
                 // Split content by common page/section separators

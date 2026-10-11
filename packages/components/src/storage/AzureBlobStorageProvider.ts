@@ -1,27 +1,11 @@
 import { BlobServiceClient, ContainerClient, StorageSharedKeyCredential } from '@azure/storage-blob'
 import multer from 'multer'
-import { MulterAzureStorage } from 'multer-azure-blob-storage'
 import { v4 as uuidv4 } from 'uuid'
 import { winstonAzureBlob } from 'winston-azure-blob'
+import { AzureBlobMulterStorage } from './AzureBlobMulterStorage'
 import { BaseStorageProvider } from './BaseStorageProvider'
 import { documentUploadMulterLimits } from './multerLimits'
 import { FileInfo, StorageResult, StorageSizeResult } from './IStorageProvider'
-
-/**
- * Extends MulterAzureStorage to set file.path from file.blobName after upload.
- * The server expects file.path (local/GCS) or file.key (S3) but multer-azure-blob-storage
- * only sets file.blobName. This subclass bridges that gap.
- */
-class MulterAzureStorageWithPath extends MulterAzureStorage {
-    _handleFile(req: any, file: any, cb: (error?: any, info?: any) => void): Promise<void> {
-        return super._handleFile(req, file, (err: any, info: any) => {
-            if (!err && info) {
-                info.path = info.blobName
-            }
-            cb(err, info)
-        })
-    }
-}
 
 export class AzureBlobStorageProvider extends BaseStorageProvider {
     private containerClient: ContainerClient
@@ -263,23 +247,8 @@ export class AzureBlobStorageProvider extends BaseStorageProvider {
     }
 
     getMulterStorage(): multer.Multer {
-        const connectionString = process.env.AZURE_BLOB_STORAGE_CONNECTION_STRING
-
-        let storageConfig: any = {
-            containerName: this.containerName,
-            blobName: async (_req: any, file: any) => `uploads/${uuidv4()}/${file.originalname}`
-        }
-
-        // Use connection string if available, otherwise use account name/key
-        if (connectionString && connectionString.trim() !== '') {
-            storageConfig.connectionString = connectionString
-        } else {
-            storageConfig.accountName = process.env.AZURE_BLOB_STORAGE_ACCOUNT_NAME
-            storageConfig.accessKey = process.env.AZURE_BLOB_STORAGE_ACCOUNT_KEY
-        }
-
-        const azureStorage = new MulterAzureStorageWithPath(storageConfig)
-        return multer({ storage: azureStorage, limits: documentUploadMulterLimits() })
+        const storage = new AzureBlobMulterStorage(this.containerClient, (_req, file) => `uploads/${uuidv4()}/${file.originalname}`)
+        return multer({ storage, limits: documentUploadMulterLimits() })
     }
 
     getLoggerTransports(logType: 'server' | 'error' | 'requests' | 'audit'): any[] {

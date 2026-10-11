@@ -80,6 +80,7 @@
         "html-react-parser": "^3.0.4",
         "lodash": "^4.17.21",
         "lowlight": "^3.3.0",
+        "marked": "^17.0.4",
         "moment": "^2.31.0",
         "notistack": "^2.0.4",
         "prop-types": "^15.7.2",
@@ -103,7 +104,6 @@
         "rehype-raw": "^7.0.0",
         "remark-gfm": "^3.0.1",
         "remark-math": "^5.1.1",
-        "showdown": "^2.1.0",
         "tippy.js": "^6.3.7",
         "uuid": "^10.0.0",
         "yup": "^0.32.9"
