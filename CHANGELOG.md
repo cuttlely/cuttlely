@@ -4,6 +4,8 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ## [Unreleased]
 
+## [1.0.2] - 2026-10-11
+
 ### Changed
 
 -   The web app runs on React Router 7. Pages, links, sign-in and the unsaved-changes prompt on the canvas work as before.
@@ -178,6 +180,7 @@ Back up your data directory, including its encryption key, before any upgrade. [
 -   **Node 24.** Running from source needs Node 24 (`.nvmrc`).
 -   **Data directory.** Data lives in `~/.cuttlely`, or `/var/cuttlely/data` in Docker and on Render. Keep the encryption key with the database.
 
-[Unreleased]: https://github.com/cuttlely/cuttlely/compare/v1.0.1...HEAD
+[Unreleased]: https://github.com/cuttlely/cuttlely/compare/v1.0.2...HEAD
+[1.0.2]: https://github.com/cuttlely/cuttlely/compare/v1.0.1...v1.0.2
 [1.0.1]: https://github.com/cuttlely/cuttlely/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/cuttlely/cuttlely/releases/tag/v1.0.0
