@@ -92,10 +92,11 @@ dependencies = [
   # it out of the lazy-install path that exists only for the heavy matrix deps.
   "Markdown==3.10.2; python_version >= '3.14'",
   # Skills Hub (GitHub App JWT auth — optional, only needed for bot identity)
-  "PyJWT[crypto]==2.13.0; python_version >= '3.14'",  # PYSEC-2026-175/177/178/179
+  "PyJWT[crypto]==2.15.1; python_version >= '3.14'",  # PYSEC-2026-175/177/178/179, GHSA-ffc3-869f-jxw9, GHSA-gvp8-978c-rx2q
   # urllib3 2.7.0 fixes GHSA-mf9v-mfxr-j63j (decompression-bomb bypass)
-  # and GHSA-qccp-gfcp-xxvc (header leak across origins).
-  "urllib3>=2.7.0,<3; python_version >= '3.14'",
+  # and GHSA-qccp-gfcp-xxvc (header leak across origins); 2.8.0 fixes the
+  # advisories published after it.
+  "urllib3>=2.8.0,<3; python_version >= '3.14'",
   # PyJWT[crypto] pulls cryptography in transitively. Pin it here as well, so
   # that the WeCom and Weixin crypto paths cannot fall below the patched
   # version. 50.0.0 is the floor: it fixes CVE-2026-69247, a Bleichenbacher
@@ -402,7 +403,7 @@ pty = []
 # module names.
 mcp = [
   "mcp==2.0.0",
-  "httpx2==2.7.0",
+  "httpx2==2.13.1",
   "starlette==1.3.1",
 ] # starlette: CVE-2026-48710
 # Backwards-compatible no-op alias. Relay is a core dependency on supported
@@ -418,7 +419,7 @@ teams = [
 # provides the MCP client, independently of the native driver package.
 computer-use = [
   "mcp==2.0.0",
-  "httpx2==2.7.0",
+  "httpx2==2.13.1",
   "starlette==1.3.1",
 ] # starlette: CVE-2026-48710
 acp = ["agent-client-protocol==0.9.0"]
@@ -544,7 +545,7 @@ dev = [
   "pytest==9.1.1",
   "pytest-asyncio==1.3.0",
   "mcp==2.0.0",
-  "httpx2==2.7.0",
+  "httpx2==2.13.1",
   "starlette==1.3.1",
   "ty==0.0.82",
   "ruff==0.15.10",
@@ -637,6 +638,13 @@ override-dependencies = [
   # never builds a misaki G2P. The never-true marker removes it from the lock.
   # Remove this line when misaki drops it or a 3.14-capable release fits.
   "spacy-curated-transformers; sys_platform == 'never'",
+  # Security floors for transitive packages: tornado (python-telegram-bot
+  # webhooks), oauthlib (requests-oauthlib) and multidict (aiohttp, yarl).
+  # oauthlib 4.0.0's breaking changes are in the OAuth2 provider, which
+  # nothing here runs; requests-oauthlib only uses the client side.
+  "tornado>=6.5.9",
+  "oauthlib>=4.0.0,<5",
+  "multidict>=6.9.1,<7",
 ]
 exclude-newer = "14 days"
 # h2: temporary exclude-newer exception for the CVE-2026-71554 (GHSA-6hr6-w5qg-qmwg,
@@ -747,6 +755,7 @@ modal = false
 nemo-relay = false
 neutts = "2026-07-22T14:54:23Z"
 numpy = false
+oauthlib = false
 openai = false
 opentelemetry-exporter-otlp-proto-http = false
 opentelemetry-sdk = false
