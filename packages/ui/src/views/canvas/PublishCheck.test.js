@@ -92,7 +92,7 @@ describe('PublishCheckView', () => {
             summary: { ran: 1 }
         }
         const html = render({ list: initialPicks([{ text: 'Hi' }, { text: 'Hello' }]), check })
-        expect(html).toContain('Asking question 2 of 2…')
+        expect(html).toContain('Asked 1 of 2…')
         expect(html).toContain('data-testid="check-stop"')
         expect(html).not.toContain('data-testid="check-run"')
         expect(html).toContain('Closing this window or publishing stops a check that is still running.')
@@ -115,7 +115,9 @@ describe('PublishCheckView', () => {
         }
         const html = render({ list: initialPicks([{ text: 'What is your code word?' }]), check })
         expect(html).toContain('1 of 1 answered differently.')
-        expect(html).toContain('Tokens: Live 44, draft 45. Typical time: Live 0.7 s, draft 0.5 s.')
+        expect(html).toContain(
+            'Tokens: Live 44, draft 45 (Draft used 1 more). Typical time: Live 0.7 s, draft 0.5 s (Draft was 0.1 s faster).'
+        )
         expect(html).toContain('Stopped at the token limit.')
         expect(html).toContain('The draft changed after this check ran.')
         expect(html.match(/data-testid="check-case"/g)).toHaveLength(1)
@@ -147,6 +149,66 @@ describe('PublishCheckView', () => {
         expect(render({ loadError: 'Recent questions could not be loaded.', setup: null })).toContain(
             'Recent questions could not be loaded. You can still publish.'
         )
+    })
+
+    test('the past-question picker offers 4, 10, 25, 50 and 100, and caps a short history', () => {
+        const html = render({
+            count: 50,
+            setup: {
+                unavailable: null,
+                questions: [],
+                pastCount: 37,
+                pastTruncated: false,
+                riskySteps: [],
+                limits,
+                check: null
+            },
+            list: []
+        })
+        expect(html).toContain('data-testid="compare-count"')
+        expect(html).toContain('Past questions')
+        for (const n of [4, 10, 25, 50, 100]) expect(html).toContain(`value="${n}"`)
+        expect(html).toContain('Only 37 past questions available. Comparing all 37.')
+        expect(html).toContain('That is 74 runs for 37 questions.')
+        expect(html).not.toContain('$')
+    })
+
+    test('a long result shows the totals first and the next page on Show more', () => {
+        const cases = Array.from({ length: 13 }, (_, i) => ({
+            question: `Question ${i}`,
+            live,
+            draft,
+            same: i % 2 === 0
+        }))
+        const html = render({
+            list: [],
+            check: {
+                id: 'long',
+                status: 'done',
+                total: 13,
+                completed: 13,
+                stopReason: null,
+                draftChanged: false,
+                cases,
+                summary: {
+                    ran: 13,
+                    same: 7,
+                    changed: 6,
+                    errors: 0,
+                    liveTokens: 130,
+                    draftTokens: 140,
+                    liveMedianMs: 500,
+                    draftMedianMs: 400
+                }
+            }
+        })
+        expect(html).toContain('data-testid="check-summary"')
+        expect(html).toContain('6 of 13 answered differently')
+        expect(html.indexOf('data-testid="check-summary"')).toBeLessThan(html.indexOf('data-testid="check-case"'))
+        expect(html.match(/data-testid="check-case"/g)).toHaveLength(12)
+        expect(html).toContain('data-testid="check-results-more"')
+        expect(html).toContain('Show more')
+        expect(html).not.toContain('Question 12')
     })
 
     test('on the promote page it speaks of the version from Dev, not a draft', () => {

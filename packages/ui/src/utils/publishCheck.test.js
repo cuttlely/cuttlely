@@ -1,8 +1,11 @@
 import {
     CHECK_INTRO,
     CHECK_TITLE,
+    COMPARE_COUNTS,
+    DEFAULT_COMPARE_COUNT,
     addQuestion,
     canRunCheck,
+    capMessage,
     caseBadge,
     CHECK_WORDS,
     costNote,
@@ -21,6 +24,18 @@ import {
 import * as copy from './publishCheck'
 
 const limits = { maxQuestions: 10, maxQuestionChars: 2000, maxTokens: 100000, maxSeconds: 180 }
+
+describe('how many past questions', () => {
+    test('the choices start at 4, and a short history is described in words', () => {
+        expect(DEFAULT_COMPARE_COUNT).toBe(4)
+        expect(COMPARE_COUNTS).toEqual([4, 10, 25, 50, 100])
+        expect(capMessage(4, 10)).toBe('')
+        expect(capMessage(50, 37)).toBe('Only 37 past questions available. Comparing all 37.')
+        expect(capMessage(10, 1)).toBe('Only 1 past question available. Comparing that question.')
+        expect(capMessage(25, 0)).toBe('')
+        expect(capMessage(100, 20, true)).toBe('Only 20 distinct past questions in the recent messages we looked at. Comparing all 20.')
+    })
+})
 
 describe('questions to check', () => {
     test('suggested questions are ticked up to the limit', () => {
@@ -122,8 +137,8 @@ describe('results', () => {
                 { question: 'b', live: null, draft: null }
             ]
         }
-        expect(progressText(running)).toBe('Asking question 2 of 4…')
-        expect(progressText({ status: 'running', total: 2, completed: 2 })).toBe('Asking question 2 of 2…')
+        expect(progressText(running)).toBe('Asked 1 of 4…')
+        expect(progressText({ status: 'running', total: 2, completed: 2 })).toBe('Asked 2 of 2…')
         expect(visibleCases(running)).toHaveLength(2)
         const done = {
             status: 'done',
@@ -135,10 +150,14 @@ describe('results', () => {
         }
         expect(visibleCases(done)).toHaveLength(1)
         expect(summaryText(done)).toBe('2 of 4 answered differently, 1 of 4 answered the same, 1 had an error.')
-        expect(usageText(done)).toBe('Tokens: Live 1,840, draft 188. Typical time: Live 0.6 s, draft 0.5 s.')
+        expect(usageText(done)).toBe(
+            'Tokens: Live 1,840, draft 188 (Draft used 1,652 fewer). Typical time: Live 0.6 s, draft 0.5 s (Draft was 0.1 s faster).'
+        )
         expect(summaryText({ status: 'stopped', summary: { ran: 0 } })).toBe('No question was answered by both versions.')
         expect(usageText({ summary: { ran: 0 } })).toBe('')
-        expect(usageText(done, CHECK_WORDS.promote)).toBe('Tokens: Live 1,840, from Dev 188. Typical time: Live 0.6 s, from Dev 0.5 s.')
+        expect(usageText(done, CHECK_WORDS.promote)).toBe(
+            'Tokens: Live 1,840, from Dev 188 (From Dev used 1,652 fewer). Typical time: Live 0.6 s, from Dev 0.5 s (From Dev was 0.1 s faster).'
+        )
         expect(stopReasonText('tokens')).toContain('token limit')
         expect(stopReasonText('time')).toContain('time limit')
         expect(stopReasonText('stopped')).toContain('You stopped the check')

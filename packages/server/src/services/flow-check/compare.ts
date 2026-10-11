@@ -98,7 +98,34 @@ export function totalTokens(metrics: unknown[] | undefined): number | null {
     return counted ? total : null
 }
 
-// Recent questions from chat history: newest first, one per wording, within the size limit.
+// How many past questions a compare may ask. The dialog offers 4, 10, 25, 50 and 100.
+// Any whole number from 1 to 100 is accepted; the server clamps it into that range.
+// Omitting the count is a different path: the caller sends the question list, still capped at 10.
+export const COMPARE_COUNT_MIN = 1
+export const COMPARE_COUNT_MAX = 100
+export const COMPARE_COUNT_DEFAULT = 4
+
+export function clampCompareCount(value: number): number {
+    if (!Number.isFinite(value)) return COMPARE_COUNT_DEFAULT
+    const rounded = Math.round(value)
+    if (rounded < COMPARE_COUNT_MIN) return COMPARE_COUNT_MIN
+    if (rounded > COMPARE_COUNT_MAX) return COMPARE_COUNT_MAX
+    return rounded
+}
+
+// `undefined` and `null` mean the caller did not send a count, so the check keeps the question list.
+// Anything that is not a whole number is refused. A whole number outside 1..100 is clamped.
+export function parseCompareCount(input: unknown): { ok: true; count: number | null } | { ok: false; message: string } {
+    if (input === undefined || input === null) return { ok: true, count: null }
+    if (typeof input !== 'number' || !Number.isInteger(input)) {
+        return { ok: false, message: 'count must be a whole number from 1 to 100.' }
+    }
+    return { ok: true, count: clampCompareCount(input) }
+}
+
+// Past questions, newest first, one per wording.
+// `texts` is already newest-first (message time, then message id). Case and extra spaces are ignored,
+// and the newest copy of a wording is kept. The same input always returns the same list: this is not a random sample.
 export function pickQuestions(texts: string[], max: number, maxChars: number): string[] {
     const seen = new Set<string>()
     const out: string[] = []

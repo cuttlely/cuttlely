@@ -8,6 +8,7 @@ Version history and drafts read these environment variables when the server star
 | `CUTTLELY_DRAFTS`            | unset, drafts on                         | `off`, `false`, `0`, or `no` turns drafts off. Case and surrounding spaces do not matter. Other values leave them on.    |
 | `CUTTLELY_CHECK_MAX_TOKENS`  | `100000`                                 | Most tokens one publish check may use, Live and draft together. 1,000 to 2,000,000.                                      |
 | `CUTTLELY_CHECK_MAX_SECONDS` | `180`                                    | Most seconds one publish check may run. 10 to 1,800.                                                                     |
+| `CUTTLELY_CHECK_CONCURRENCY` | `2`                                      | How many questions one publish check runs at the same time. 1 to 8.                                                      |
 | `CUTTLELY_VERSIONS_DIR`      | unset                                    | The folder for the history repo. A relative path is resolved from the server's working directory.                        |
 | `CUTTLELY_DATA_DIR`          | `~/.cuttlely`, or as the install sets it | With `CUTTLELY_VERSIONS_DIR` unset, history is `$CUTTLELY_DATA_DIR/versions`.                                            |
 
@@ -53,12 +54,13 @@ Where to set it:
 
 ## Publish check limits
 
-The [publish check](./drafts-api.md#publish-check) replays recent questions against Live and the draft before Publish, so it uses the flow's model and costs tokens. Two variables cap each check:
+The [publish check](./drafts-api.md#publish-check) replays recent questions against Live and the draft before Publish, so it uses the flow's model and costs tokens. Three variables cap each check:
 
 -   `CUTTLELY_CHECK_MAX_TOKENS`: the most tokens one check may use, counting Live and the draft together. Default 100,000. Values below 1,000 count as 1,000, and above 2,000,000 as 2,000,000.
 -   `CUTTLELY_CHECK_MAX_SECONDS`: the most seconds one check may run. Default 180. Values below 10 count as 10, and above 1,800 as 1,800.
+-   `CUTTLELY_CHECK_CONCURRENCY`: how many questions run at the same time. Default 2, from 1 to 8. Above 8 counts as 8. Each question still asks Live and then the draft, one after the other. Questions already started finish when a token or time limit is reached, so a check can go a little past the token cap.
 
-A value that is not a positive number uses the default. When a limit is reached, the check stops after the run in progress and shows the answers it has. How to run a check: [Check recent questions before you publish](../how-to/versioning.md#check-recent-questions-before-you-publish). Set them the same way as `CUTTLELY_DRAFTS` above.
+A value that is not a positive number uses the default. When a limit is reached, the check stops starting new questions and shows the answers it has. How to run a check: [Check recent questions before you publish](../how-to/versioning.md#check-recent-questions-before-you-publish). Set them the same way as `CUTTLELY_DRAFTS` above.
 
 ## Testing the GitHub copy without GitHub
 

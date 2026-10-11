@@ -1,6 +1,12 @@
 // Plain-words helpers for the publish check in the Publish dialog: recent questions asked again,
 // against Live and the draft, side by side. The check is optional and never blocks Publish.
 
+// The dialog offers these. The server accepts any whole number from 1 to 100 and clamps it.
+export const COMPARE_COUNTS = [4, 10, 25, 50, 100]
+export const DEFAULT_COMPARE_COUNT = 4
+// The same page size as the app's lists (12 rows), then Show more.
+export const RESULT_PAGE_SIZE = 12
+
 export const CHECK_TITLE = 'Check recent questions'
 export const CHECK_INTRO =
     'Ask recent questions again, on Live and on your draft, and compare the answers before you publish. This is optional.'
@@ -37,6 +43,20 @@ export const CHECK_WORDS = {
         changed: 'A newer version arrived from Dev after this check ran. Run it again to check it.',
         stillCan: 'You can still promote.'
     }
+}
+
+// Fewer past questions than the choice: say so, and compare every one we have.
+export const capMessage = (choice, available, truncated = false) => {
+    const wanted = Number(choice) || 0
+    const have = Number(available) || 0
+    if (wanted <= 0 || have <= 0 || have >= wanted) return ''
+    const comparing = have === 1 ? 'Comparing that question.' : `Comparing all ${have}.`
+    if (truncated) {
+        const noun = have === 1 ? 'past question' : 'past questions'
+        return `Only ${have} distinct ${noun} in the recent messages we looked at. ${comparing}`
+    }
+    if (have === 1) return `Only 1 past question available. ${comparing}`
+    return `Only ${have} past questions available. ${comparing}`
 }
 
 const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`
@@ -131,8 +151,24 @@ export const caseBadge = (c, liveEmpty = false) => {
 
 export const progressText = (check) => {
     if (!check) return ''
-    const next = Math.min(check.completed + 1, check.total)
-    return `Asking question ${next} of ${check.total}…`
+    const done = Math.min(Number(check.completed) || 0, Number(check.total) || 0)
+    return `Asked ${done} of ${check.total}…`
+}
+
+const tokenChange = (live, draft, side) => {
+    if (live == null || draft == null) return ''
+    const delta = Number(draft) - Number(live)
+    if (!delta) return ''
+    const amount = number(Math.abs(delta))
+    return delta < 0 ? ` (${side} used ${amount} fewer)` : ` (${side} used ${amount} more)`
+}
+
+const timeChange = (live, draft, side) => {
+    if (live == null || draft == null) return ''
+    const delta = Number(draft) - Number(live)
+    if (!delta) return ''
+    const amount = formatMs(Math.abs(delta))
+    return delta < 0 ? ` (${side} was ${amount} faster)` : ` (${side} was ${amount} slower)`
 }
 
 export const stopReasonText = (reason) => {
@@ -161,9 +197,16 @@ export const usageText = (check, words = CHECK_WORDS.publish) => {
     const s = check?.summary
     if (!s || !s.ran) return ''
     if (check.liveEmpty) return `Tokens: ${words.short} ${number(s.draftTokens)}. Typical time: ${formatMs(s.draftMedianMs)}.`
-    return `Tokens: Live ${number(s.liveTokens)}, ${words.short} ${number(s.draftTokens)}. Typical time: Live ${formatMs(
-        s.liveMedianMs
-    )}, ${words.short} ${formatMs(s.draftMedianMs)}.`
+    // Token and time differences come from the totals already measured. There is no price for this check, so no cost.
+    return `Tokens: Live ${number(s.liveTokens)}, ${words.short} ${number(s.draftTokens)}${tokenChange(
+        s.liveTokens,
+        s.draftTokens,
+        words.side
+    )}. Typical time: Live ${formatMs(s.liveMedianMs)}, ${words.short} ${formatMs(s.draftMedianMs)}${timeChange(
+        s.liveMedianMs,
+        s.draftMedianMs,
+        words.side
+    )}.`
 }
 
 // Which questions to show in the results: the ones answered, then the rest while running.
