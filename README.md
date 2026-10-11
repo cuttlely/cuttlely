@@ -18,7 +18,9 @@
 The open-source agent platform for applications. Cuttlely gives your applications their own intelligent capabilities and coordinated agent teams. Start chatting with a team in minutes, then call it from your app through the API. It runs on infrastructure you control.
 
 <p align="center">
-<a href="./docs/how-to/try-the-demo.md"><img src="./docs/images/try-the-demo/customer-care-run.png" alt="A real run of the customer care team in Try the demo. A customer wrote in about a late espresso machine. The run card says Harness Prime sent work to customer, operations, then policy, each done with one tool call, in 16 seconds. The decision says the delay is Larkfield's fault, with a $9.95 shipping refund, an Express reship arriving 2026-10-08, a recall of the held parcel, a $55.80 store credit and a call from the Customer Care Lead." width="880"></a>
+<a href="https://cuttlely.com/media/customer-care-demo.mp4"><img src="./website/public/media/customer-care-demo-poster.webp" alt="Watch a narrated run of the customer care team in Try the demo, 78 seconds with captions. The title card shows the Cuttlely mascot waving next to the logo and the line Your applications deserve agents." width="880"></a>
+<br>
+<a href="https://cuttlely.com/media/customer-care-demo.mp4">Watch the narrated run (78 seconds, sound on)</a>
 </p>
 
 A customer writes in about a late order. A customer specialist reads the account, an operations specialist finds that the parcel never left the warehouse, and a policy specialist checks the written policy once operations is done, each with its own data and tools. Harness Prime writes the decision, the reply and the actions, with the evidence. [Try the demo](./docs/how-to/try-the-demo.md) opens this team on your own model key.
