@@ -38,7 +38,7 @@ Not sure what to contribute? Some ideas:
 
 ### Developers
 
-Cuttlely has 3 different modules in a single mono repository.
+Cuttlely has 3 different modules in a single mono repository. New modules follow the boundary map in [ARCHITECTURE.md](./ARCHITECTURE.md).
 
 -   `server`: Node backend to serve API logics
 -   `ui`: React frontend
