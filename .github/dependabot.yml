@@ -1,0 +1,22 @@
+# Dependabot settings for the npm workspace.
+# Dependabot security updates are turned on in the repository settings. This file only adds ignore rules.
+# open-pull-requests-limit: 0 keeps version-update pull requests off, as they were before this file existed.
+version: 2
+updates:
+    - package-ecosystem: 'npm'
+      directories:
+          - '/'
+          - '/packages/*'
+      schedule:
+          interval: 'weekly'
+      open-pull-requests-limit: 0
+      ignore:
+          # uuid 12 and later ship as ES modules only, and our Jest setups cannot load them. 11.1.1 has the security fix.
+          - dependency-name: 'uuid'
+            versions: ['>= 12']
+          # A React Router major needs code changes (the 6 to 7 move took a data router and a new unsaved-changes prompt),
+          # so we take majors in our own pull request.
+          - dependency-name: 'react-router'
+            update-types: ['version-update:semver-major']
+          - dependency-name: 'react-router-dom'
+            update-types: ['version-update:semver-major']
