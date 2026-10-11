@@ -69,4 +69,5 @@ Conventions, do and don't, and lessons a newcomer would otherwise relearn. Add a
 -   **Background test servers can outlive their job** and hold ports or locks. Start them so they die with the job, and kill by port when done.
 -   **Keep `.turbo` out of the image context.** A cache hit restores only the outputs in `turbo.json`, and the UI writes `build/`, so a copied cache ships an image with no UI.
 -   **sanitize-html 2.17 loads ESM-only htmlparser2 12.** The server Jest config compiles `htmlparser2`, `domelementtype`, `domhandler`, `domutils`, `entities` and `dom-serializer`. Another ESM-only parser dependency needs the same exception, or the server unit tests fail while loading `sanitize-html`.
+-   **A pnpm override selector such as `yaml@2` does not match a prerelease** (`swagger-jsdoc` pins `yaml` 2.0.0-1). Add a `parent>child` override for that path, and read the lockfile after `pnpm install` to confirm the old version is gone.
 -   **`npm publish` treats a bare path as GitHub shorthand.** `packages/cli` is read as owner/repo, and npm runs `git ls-remote` for it. Publish with `./packages/cli` and `./packages/chat-widget`.
