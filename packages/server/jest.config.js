@@ -34,12 +34,12 @@ module.exports = {
     // File extensions to recognize in module resolution
     moduleFileExtensions: ['ts', 'tsx', 'js', 'jsx', 'json', 'node'],
 
-    // uuid v10+ ships ESM-only; redirect to the CJS dist so Jest can require it.
+    // uuid 11 picks its build through package exports; point Jest straight at the CommonJS build.
     // typeorm is not resolvable via pnpm symlinks in the test runner; redirect to
     // the shared manual mock so all test files get the same decorator stubs without
     // needing an inline jest.mock() factory.
     moduleNameMapper: {
-        '^uuid$': '<rootDir>/node_modules/uuid/dist/index.js',
+        '^uuid$': '<rootDir>/node_modules/uuid/dist/cjs/index.js',
         '^typeorm$': '<rootDir>/__mocks__/typeorm.ts'
     },
 
