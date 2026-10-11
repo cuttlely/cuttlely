@@ -5,6 +5,7 @@ import Default from '@astrojs/starlight/components/MarkdownContent.astro'
 const id = Astro.locals.starlightRoute?.id ?? ''
 ---
 
-<div class="cl-page" data-page={id}>
+<!-- data-screenshot-zoom marks the docs body. The build links those screenshots; logos and .not-content images stay as they are. -->
+<div class="cl-page" data-page={id} data-screenshot-zoom>
     <Default><slot /></Default>
 </div>

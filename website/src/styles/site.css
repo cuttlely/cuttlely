@@ -56,11 +56,12 @@
 }
 @media (prefers-reduced-motion: reduce) {
     .cl-button,
-    .cl-tile a {
+    .cl-tile {
         transition: none;
     }
     .cl-button:hover,
-    .cl-tile a:hover {
+    .cl-tile:hover,
+    .cl-tile:focus-within {
         transform: none;
     }
 }
@@ -526,7 +527,7 @@
     gap: 1.25rem;
     grid-template-columns: repeat(auto-fill, minmax(min(100%, 19rem), 1fr));
 }
-.cl-tile a {
+.cl-tile {
     display: flex;
     flex-direction: column;
     height: 100%;
@@ -534,14 +535,21 @@
     border: 1px solid var(--cuttlely-border);
     background: var(--cuttlely-surface);
     overflow: hidden;
-    text-decoration: none;
     color: inherit;
     transition: transform 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
 }
-.cl-tile a:hover {
+.cl-tile:hover,
+.cl-tile:focus-within {
     transform: translateY(-3px);
     border-color: var(--sl-color-text-accent);
     box-shadow: 0 24px 50px -30px var(--cuttlely-glow);
+}
+.cl-tile-link {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    text-decoration: none;
+    color: inherit;
 }
 .cl-tile .cl-focus {
     border-bottom: 1px solid var(--cuttlely-border);
@@ -670,7 +678,8 @@
 }
 
 /* ---------- docs images ---------- */
-.sl-markdown-content :where(p, li) > img:not(:where(.not-content *)) {
+.sl-markdown-content :where(p, li) > img:not(:where(.not-content *)),
+.sl-markdown-content :where(p, li) > .cl-zoom img:not(:where(.not-content *)) {
     border-radius: 0.6rem;
     border: 1px solid var(--cuttlely-border);
 }
@@ -733,6 +742,165 @@
     height: auto;
     border: 0 !important;
     border-radius: 0 !important;
+}
+
+/* ---------- screenshot viewer ---------- */
+.cl-zoom {
+    cursor: zoom-in;
+    position: relative;
+}
+.cl-focus > .cl-zoom {
+    position: absolute;
+    inset: 0;
+    display: block;
+}
+.cl-shot > .cl-zoom,
+.sl-markdown-content .cl-zoom {
+    display: block;
+    max-width: 100%;
+}
+.cl-zoom:focus-visible {
+    outline: 2px solid var(--sl-color-accent);
+    outline-offset: -3px;
+}
+.cl-zoom::after {
+    content: '';
+    position: absolute;
+    z-index: 1;
+    right: 0.55rem;
+    bottom: 0.55rem;
+    width: 1.85rem;
+    height: 1.85rem;
+    border-radius: 999px;
+    background-color: rgba(10, 13, 30, 0.72);
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23ffffff' stroke-width='2.2' stroke-linecap='round'%3E%3Ccircle cx='10.5' cy='10.5' r='6'/%3E%3Cpath d='M15 15l5 5'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: center;
+    background-size: 1.05rem;
+    box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.28);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.15s ease;
+}
+.cl-zoom:hover::after,
+.cl-zoom:focus-visible::after {
+    opacity: 1;
+}
+html.cl-viewer-open,
+html.cl-viewer-open body {
+    overflow: hidden;
+}
+.cl-viewer {
+    position: fixed;
+    inset: 0;
+    width: 100%;
+    height: 100dvh;
+    max-width: none;
+    max-height: none;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    background: #0a0d1e;
+    color: #f5f8fe;
+    color-scheme: dark;
+    overflow: hidden;
+}
+.cl-viewer::backdrop {
+    background: rgba(10, 13, 30, 0.94);
+}
+.cl-viewer-stage {
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+    touch-action: none;
+    cursor: zoom-in;
+}
+.cl-viewer-stage.is-pannable,
+.cl-viewer-stage.is-pannable .cl-viewer-img {
+    cursor: grab;
+}
+.cl-viewer-stage.is-dragging,
+.cl-viewer-stage.is-dragging .cl-viewer-img {
+    cursor: grabbing;
+}
+.cl-viewer-img {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    max-width: none;
+    transform-origin: center center;
+    user-select: none;
+    -webkit-user-select: none;
+}
+.cl-viewer-img.is-animating {
+    transition: transform 160ms ease;
+}
+.cl-viewer-caption {
+    position: absolute;
+    z-index: 2;
+    left: 0.75rem;
+    right: 0.75rem;
+    bottom: max(0.75rem, env(safe-area-inset-bottom));
+    margin: 0;
+    padding: 0.65rem 0.85rem;
+    border-radius: 0.7rem;
+    background: rgba(10, 13, 30, 0.82);
+    color: #f5f8fe;
+    font-size: 0.875rem;
+    line-height: 1.45;
+    max-height: 28vh;
+    overflow: auto;
+}
+.cl-viewer-controls {
+    position: absolute;
+    z-index: 3;
+    top: max(0.75rem, env(safe-area-inset-top));
+    right: max(0.75rem, env(safe-area-inset-right));
+    display: flex;
+    gap: 0.4rem;
+}
+.cl-viewer-controls button {
+    width: 2.75rem;
+    height: 2.75rem;
+    display: grid;
+    place-items: center;
+    padding: 0;
+    border-radius: 999px;
+    border: 1px solid rgba(255, 255, 255, 0.28);
+    background: rgba(10, 13, 30, 0.82);
+    color: #f5f8fe;
+    font: 700 1.35rem/1 var(--cuttlely-font-display), ui-sans-serif, system-ui, sans-serif;
+    cursor: pointer;
+}
+.cl-viewer-controls button:hover,
+.cl-viewer-controls button:focus-visible {
+    background: #1b2148;
+    border-color: #a78bfa;
+}
+.cl-viewer-controls button:focus-visible {
+    outline: 2px solid #a78bfa;
+    outline-offset: 2px;
+}
+@media (prefers-reduced-motion: reduce) {
+    .cl-zoom::after,
+    .cl-viewer-img.is-animating {
+        transition: none;
+    }
+}
+@media (forced-colors: active) {
+    .cl-zoom:focus-visible,
+    .cl-viewer-controls button:focus-visible {
+        outline: 2px solid Highlight;
+    }
+    .cl-viewer {
+        background: Canvas;
+        color: CanvasText;
+    }
+    .cl-viewer-controls button {
+        background: ButtonFace;
+        color: ButtonText;
+        border-color: ButtonText;
+    }
 }
 @media (max-width: 30rem) {
     .cl-terminal pre {
