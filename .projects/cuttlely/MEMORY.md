@@ -17,6 +17,7 @@ Conventions, do and don't, and lessons a newcomer would otherwise relearn. Add a
 -   User guides say "the agent runtime". Upstream names appear only in credits, license files, the import guides and literal names (D38).
 -   Guides use real screenshots taken from a running server, with made-up data.
 -   Formatting follows the root Prettier config (4 spaces, single quotes, no semicolons, print width 140). Do not reformat `hermes/`.
+-   The website home closing section uses the laptop mascot (`website/src/assets/cuttlely-mascot-laptop-512.webp`). The 404 page keeps the neutral pose.
 
 ## Do
 
