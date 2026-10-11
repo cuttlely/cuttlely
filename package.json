@@ -6,15 +6,11 @@
     "description": "The open-source agent platform for applications.",
     "homepage": "https://github.com/cuttlely/cuttlely",
     "workspaces": [
-        "packages/*",
-        "flowise",
-        "ui",
-        "components",
-        "api-documentation"
+        "packages/*"
     ],
     "scripts": {
         "build": "TURBO_TELEMETRY_DISABLED=1 turbo run build",
-        "build:docker": "TURBO_TELEMETRY_DISABLED=1 turbo run build",
+        "build:docker": "TURBO_TELEMETRY_DISABLED=1 turbo run build --filter=./packages/chat-widget --filter=./packages/components --filter=./packages/server --filter=./packages/ui --filter=./packages/api-documentation",
         "build-force": "pnpm clean && TURBO_TELEMETRY_DISABLED=1 turbo run build --force",
         "dev": "TURBO_TELEMETRY_DISABLED=1 turbo run dev --parallel --no-cache",
         "start": "run-script-os",

@@ -203,7 +203,7 @@ Have flows from another tool? On **Chatflows**, the **Import** menu has **Import
 
 ## Contributing
 
-[CONTRIBUTING.md](./CONTRIBUTING.md) and [Build from source and run the dev server](./docs/how-to/from-source.md). On Node 24, `pnpm verify` before a pull request. Security reports go to [SECURITY.md](./SECURITY.md).
+[CONTRIBUTING.md](./CONTRIBUTING.md) and [Build from source and run the dev server](./docs/how-to/from-source.md). On Node 24, `pnpm verify` before a pull request. Security reports go to [SECURITY.md](./SECURITY.md). The module boundary map is in [ARCHITECTURE.md](./ARCHITECTURE.md).
 
 ## About and credits
 

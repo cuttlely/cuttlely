@@ -65,6 +65,7 @@ The pre-push hook runs the handoff check, then `pnpm verify --fast`, then `node 
 
 ```bash
 pnpm build                    # Turbo 2 build of every package (5 tasks: chat widget, components, server, UI, and the API docs package). turbo.json sets envMode loose so tasks still see the process environment, and agentGuidance off so Turbo does not edit AGENTS.md. The build scripts set TURBO_TELEMETRY_DISABLED so the task runner does not report usage.
+pnpm build:docker             # The image build. Directory filters for those same five packages.
 CUTTLELY_LOCAL_ADMIN=true pnpm dev   # UI on localhost:8080 with live reload, server on 3000; see docs/how-to/from-source.md
 pnpm test                     # jest in server, components and ui
 pnpm lint                     # eslint (with prettier) over js, jsx, ts, tsx, json and md; hermes/ is ignored

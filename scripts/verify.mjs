@@ -49,6 +49,7 @@ const STEPS = [
         args: [
             '--test',
             path.join(ROOT, 'scripts', 'verify.test.mjs'),
+            path.join(ROOT, 'scripts', 'architecture-map.test.mjs'),
             path.join(ROOT, 'scripts', 'proprietary-paths.test.mjs'),
             path.join(ROOT, 'scripts', 'etl-list-sqlite.test.mjs'),
             path.join(ROOT, 'scripts', 'start-local-admin.test.mjs'),
