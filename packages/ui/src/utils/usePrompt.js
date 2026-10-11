@@ -1,37 +1,13 @@
-import { useCallback, useContext, useEffect } from 'react'
-import { UNSAFE_NavigationContext as NavigationContext } from 'react-router-dom'
+import { useEffect } from 'react'
+import { useBlocker } from 'react-router-dom'
 
-// https://stackoverflow.com/questions/71572678/react-router-v-6-useprompt-typescript
-
-export function useBlocker(blocker, when = true) {
-    const { navigator } = useContext(NavigationContext)
+// Asks before leaving the page while `when` is true, for example a canvas with unsaved changes.
+export function usePrompt(message, when = true) {
+    const blocker = useBlocker(when)
 
     useEffect(() => {
-        if (!when) return
-
-        const unblock = navigator.block((tx) => {
-            const autoUnblockingTx = {
-                ...tx,
-                retry() {
-                    unblock()
-                    tx.retry()
-                }
-            }
-
-            blocker(autoUnblockingTx)
-        })
-
-        return unblock
-    }, [navigator, blocker, when])
-}
-
-export function usePrompt(message, when = true) {
-    const blocker = useCallback(
-        (tx) => {
-            if (window.confirm(message)) tx.retry()
-        },
-        [message]
-    )
-
-    useBlocker(blocker, when)
+        if (blocker.state !== 'blocked') return
+        if (window.confirm(message)) blocker.proceed()
+        else blocker.reset()
+    }, [blocker, message])
 }
