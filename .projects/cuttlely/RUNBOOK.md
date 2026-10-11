@@ -64,7 +64,7 @@ The pre-push hook runs the handoff check, then `pnpm verify --fast`, then `node 
 ## Build, test, lint
 
 ```bash
-pnpm build                    # turbo build of every package (7 tasks, including agentflow and observe)
+pnpm build                    # Turbo 2 build of every package (7 tasks, including agentflow and observe). turbo.json sets envMode loose so tasks still see the process environment, and agentGuidance off so Turbo does not edit AGENTS.md. The build scripts set TURBO_TELEMETRY_DISABLED so the task runner does not report usage.
 CUTTLELY_LOCAL_ADMIN=true pnpm dev   # UI on localhost:8080 with live reload, server on 3000; see docs/how-to/from-source.md
 pnpm test                     # jest in server, components and ui
 pnpm lint                     # eslint (with prettier) over js, jsx, ts, tsx, json and md; hermes/ is ignored
@@ -194,6 +194,8 @@ bash scripts/docker-smoke.sh                                        # build, sta
 ```
 
 Compose mounts a volume at `/var/cuttlely` (the same layout as the Render disk) and uses SQLite. `CUTTLELY_IMAGE` pins a release or names a local build. Copy `.env.example` to `.env` only to override a default; never commit `.env`. `docker/Dockerfile` refuses to build; use the root `Dockerfile`.
+
+The root `Dockerfile` has two stages. The build stage has the compilers, installs every package, builds, sets up Hermes, then installs `node_modules` again with production packages only. The runtime stage copies that tree, Hermes and its Python, and installs only the system packages Cuttlely runs with (git, Chromium, python3, curl, util-linux). A system library a new runtime feature needs goes in the runtime stage's `apt-get` list. A package that has to compile at install time goes in `onlyBuiltDependencies` in the root `package.json` and in the `pnpm -r rebuild` line. After an image change, build it, start it and check ping (`bash scripts/docker-smoke.sh`).
 
 ## Website
 
