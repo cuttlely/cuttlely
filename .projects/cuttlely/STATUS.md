@@ -36,5 +36,5 @@ Cuttlely 1.0.0. The product version is the root `package.json`, `packages/server
 
 ## Not done
 
--   The first release, v1.0.0, is not cut. No tag exists, no image is published, the npm packages are not published, and `CHANGELOG.md` is still `## [1.0.0] - Unreleased`. The release steps, including dating that heading and `npm publish` after the image is pushed, are in [PLAN.md](./PLAN.md).
+-   v1.0.0 is the current release: tag `v1.0.0`, the GitHub release, image `ghcr.io/cuttlely/cuttlely:1.0.0`, and npm packages `cuttlely` and `@cuttlely/chat` at 1.0.0. `CHANGELOG.md` dates `## [1.0.0] - 2026-10-10` and keeps `## [Unreleased]` for the next change. The upgrade fixture is still the 2026-10-08 baseline ([PLAN.md](./PLAN.md)).
 -   The questions and known gaps in [OPEN.md](./OPEN.md). Repository settings for the release are one of those rows.

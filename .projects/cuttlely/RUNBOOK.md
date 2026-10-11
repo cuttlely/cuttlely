@@ -219,7 +219,7 @@ pnpm release X.Y.Z --push --publish   # on the tagged commit: push the image, pu
     npm publish packages/chat-widget --userconfig <(printf '//registry.npmjs.org/:_authToken=%s\n' "$NPM_TOKEN")
     ```
 
--   Until the v1.0.0 release (PLAN), the changelog heading is `## [1.0.0] - Unreleased`. A user-visible line goes in that section. `pnpm release` dates the heading and opens a fresh `## [Unreleased]` (`docs/releases.md`).
+-   A user-visible line goes under `## [Unreleased]`. `pnpm release` dates that heading and opens a fresh one (`docs/releases.md`). The current release heading is `## [1.0.0] - 2026-10-10`.
 -   The image is `linux/amd64` unless the buildx builder is `docker-container` with `linux/arm64`.
 -   The release commit goes straight to `main` with the hook skips, because the full verify already ran on that tree. Branch protection must allow the releasing maintainer to bypass.
 -   After a release, refresh the upgrade fixture (D31): build the release tag in its own checkout, run `node scripts/upgrade-fixture.mjs --server-root <that checkout> --out scripts/fixtures/upgrade`, and ship it as a pull request.
