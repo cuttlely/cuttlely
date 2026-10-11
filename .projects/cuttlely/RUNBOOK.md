@@ -4,6 +4,8 @@ Contributor and maintainer commands. People installing Cuttlely use the root REA
 
 ## Working on a change
 
+New to the code? [Build from source and run the dev server](../../docs/how-to/from-source.md) walks through the toolchain, the build, the dev server ports and what reloads on save, the tests and `pnpm verify`.
+
 ```bash
 git fetch origin
 git switch -c <short-topic> origin/main     # or a separate worktree per change: git worktree add -b <topic> ../cuttlely-<topic> origin/main
@@ -62,7 +64,8 @@ The pre-push hook runs the handoff check, then `pnpm verify --fast`, then `node 
 ## Build, test, lint
 
 ```bash
-pnpm build                    # turbo build of every package
+pnpm build                    # turbo build of every package (7 tasks, including agentflow and observe)
+CUTTLELY_LOCAL_ADMIN=true pnpm dev   # UI on localhost:8080 with live reload, server on 3000; see docs/how-to/from-source.md
 pnpm test                     # jest in server, components and ui
 pnpm lint                     # eslint (with prettier) over js, jsx, ts, tsx, json and md; hermes/ is ignored
 pnpm format                   # prettier write
@@ -139,6 +142,8 @@ Contributor-relevant variables. The admin panel registry (`packages/server/src/s
 -   **`DATABASE_PATH` and `SECRETKEY_PATH` are directories,** not `.../database.sqlite`. A file path there shows up as a disk I/O error when a harness reads credentials.
 -   **Postgres is not `DATABASE_URL`.** The app reads `DATABASE_TYPE=postgres` plus `DATABASE_HOST`, `DATABASE_PORT`, `DATABASE_NAME`, `DATABASE_USER` and `DATABASE_PASSWORD` (`packages/server/src/DataSource.ts`).
 -   **Restart after runtime code changes.** The server loads `harness/*.mjs` and `etl/*.mjs` once. Rebuild `packages/server` or `packages/components` after TypeScript changes.
+-   **`pnpm dev` runs the last server build.** nodemon restarts the server when a file under `packages/server/src` changes, but it starts the compiled `dist`, so a server change needs `pnpm --filter flowise build` and then one more save (OPEN 15). The UI dev server listens on `localhost` only, so use `http://localhost:8080`, not `127.0.0.1`.
+-   **`pnpm verify` does not build `packages/agentflow` or `packages/observe`.** Its build step covers the chat widget, components, server and UI. A type error in those two shows up only in `pnpm build` (OPEN 16).
 -   **Stale node definitions.** A node file whose mtime or size changed is reloaded at boot. If the canvas still shows an old definition, delete `packages/components/dist/nodes-manifest.json` and restart.
 -   **A harness needs a model on Harness Prime.** Saving without one fails with a clear message; a required credential that is missing or deleted fails with `missing_credential`; a model on a loopback or private address fails with `model_blocked` (D11).
 -   **Gateway or runtime port in use.** Set `CUTTLELY_HARNESS_GATEWAY_PORT` or `HERMES_API_PORT` and restart. `$CUTTLELY_HERMES_HOME/.env` records the runtime port from the first start.
