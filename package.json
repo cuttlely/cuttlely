@@ -14,7 +14,7 @@
     ],
     "scripts": {
         "build": "TURBO_TELEMETRY_DISABLED=1 turbo run build",
-        "build:docker": "TURBO_TELEMETRY_DISABLED=1 turbo run build --filter=!@flowiseai/agentflow --filter=!@flowiseai/observe",
+        "build:docker": "TURBO_TELEMETRY_DISABLED=1 turbo run build",
         "build-force": "pnpm clean && TURBO_TELEMETRY_DISABLED=1 turbo run build --force",
         "dev": "TURBO_TELEMETRY_DISABLED=1 turbo run dev --parallel --no-cache",
         "start": "run-script-os",

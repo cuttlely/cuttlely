@@ -111,14 +111,12 @@ If in doubt, use `type: 'password'`. The only cost is that the field must be re-
     ```bash
     cd packages/server && pnpm test
     cd packages/components && pnpm test
-    cd packages/agentflow && pnpm test
     ```
 
     Or from the repo root using `--filter`:
 
     ```bash
     pnpm --filter flowise-components test
-    pnpm --filter @flowiseai/agentflow test
     pnpm --filter flowise test # the server package. The root package is named Cuttlely.
     ```
 
