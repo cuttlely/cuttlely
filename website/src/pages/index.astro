@@ -7,12 +7,6 @@ import ZoomableImage from '../components/ZoomableImage.astro'
 import laptop from '../assets/cuttlely-mascot-laptop-512.webp'
 import careAnswer from '../content/docs/docs/images/try-the-demo/customer-care-answer.png'
 import analystChat from '../content/docs/docs/images/harnesses/canvas-chat-analyst.png'
-import etlRun from '../content/docs/docs/images/etl/etl-run-done.png'
-import chatflow from '../content/docs/docs/images/canvas/build-with-ai-chat.png'
-import workflow from '../content/docs/docs/images/canvas/canvas-workflow-panel.png'
-import analystSales from '../content/docs/docs/images/analyst/canvas-chat-sales.png'
-import buildWithAi from '../content/docs/docs/images/harnesses/build-with-ai-dialog.png'
-import embed from '../content/docs/docs/images/share-and-embed/embed-chart.png'
 import publishCheck from '../content/docs/docs/images/versioning/publish-check-results.png'
 import serverSettings from '../content/docs/docs/images/server-settings/server-settings-all.png'
 import Focus from '../components/Focus.astro'
@@ -32,54 +26,67 @@ const answer = `{
     ]
 }`
 
-const tools = [
+type ToolVideo = { slug: string; length: string; label: string }
+const tools: { title: string; text: string; href: string; video: ToolVideo }[] = [
     {
         title: 'Knowledge pipelines',
         text: 'Load files, a CSV or a code repository, clean and split them, embed them and store them for search. A run only embeds what changed.',
         href: '/docs/how-to/etl/',
-        focus: { cx: 0.8, cy: 0.5, zoom: 2 },
-        image: etlRun,
-        alt: 'An ETL pipeline after a run. The run card says succeeded: 33 embedded, 0 errors.'
+        video: {
+            slug: 'knowledge-pipelines',
+            length: '0:35',
+            label: 'A knowledge pipeline runs on a real Cuttlely server: 33 chunks embedded, then a second run embeds nothing because nothing changed, and a search finds the best match.'
+        }
     },
     {
         title: 'Chatflows',
         text: 'A chat model, the agent or chain that answers, memory and tools, on one canvas. Each chatflow gets a prediction API, an embed and a shareable link.',
         href: '/docs/how-to/canvas/',
-        focus: { cx: 0.78, cy: 0.3, zoom: 2.1 },
-        image: chatflow,
-        alt: 'A chatflow built with Build with AI. The test chat answers a tip question with a calculator step.'
+        video: {
+            slug: 'chatflows',
+            length: '0:36',
+            label: 'A bakery chatflow on a real Cuttlely server: the test chat adds up an order with a calculator to $25.20, memory carries the order into a follow-up at $29.10, and the chatflow offers an embed, a prediction API and a shareable link.'
+        }
     },
     {
         title: 'Agentflows',
         text: 'Workflows that run step by step and can start from a chat message, a form, a webhook or a schedule.',
         href: '/docs/how-to/canvas/#workflows',
-        focus: { cx: 0.78, cy: 0.22, zoom: 2 },
-        image: workflow,
-        alt: "A workflow with Start and Reply cards. The Reply card's message is open in a side panel."
+        video: {
+            slug: 'agentflows',
+            length: '0:31',
+            label: 'A bakery order desk workflow on a real Cuttlely server: the Start card offers chat, form, webhook and schedule, a complaint goes to the care agent, and a price question goes to the order agent.'
+        }
     },
     {
-        title: 'The Analyst',
-        text: 'A specialist with its own database. It creates tables, adds rows and answers questions about them with the real numbers.',
-        href: '/docs/how-to/analyst/',
-        focus: { cx: 0.8, cy: 0.42, zoom: 2.3 },
-        image: analystSales,
-        alt: 'A harness test chat. The run card says Harness Prime sent work to analyst, and the answer starts with the total by region.'
+        title: 'Harnesses: Agent Teams',
+        text: 'Harness Prime reads each message and sends the work to specialists, each with its own instructions and tools, like the Analyst with its own database. Every specialist gets a task that stands on its own, and the run card shows the tokens each one used.',
+        href: '/docs/how-to/harnesses/',
+        video: {
+            slug: 'harnesses',
+            length: '0:39',
+            label: 'A bakery agent team on a real Cuttlely server: Harness Prime sends a follow-up only to the analyst, the run card shows its tokens and Context kept, and a chart of measured prompt sizes over 40 turns compares the team with a single chatbot with tools.'
+        }
     },
     {
         title: 'Build with AI',
         text: 'Describe a team, an assistant, a pipeline or a workflow, and a first version lands on the canvas. Every part and connection is checked first.',
         href: '/docs/how-to/harnesses/#build-a-team-with-ai',
-        focus: { cx: 0.5, cy: 0.42, zoom: 1.5 },
-        image: buildWithAi,
-        alt: 'The Build with AI dialog on a blank harness canvas, with example chips, a team description and the chat model that builds.'
+        video: {
+            slug: 'build-with-ai',
+            length: '0:31',
+            label: 'Build with AI on a real Cuttlely server: a bakery team is described in plain words, built and saved in 5.3 seconds, and its first starter question is added up to $18.20.'
+        }
     },
     {
         title: 'Share and embed',
         text: 'A public link for any chatflow, and a chat button or full-page chat on your website, served by your Cuttlely server.',
         href: '/docs/how-to/share-and-embed/',
-        focus: { cx: 0.82, cy: 0.55, zoom: 2.4 },
-        image: embed,
-        alt: "A chat bubble on a made-up bakery website answers with a table and a bar chart of the week's croissant sales."
+        video: {
+            slug: 'share-and-embed',
+            length: '0:30',
+            label: 'Make Public gives a bakery chatflow a shareable link that answers with a table, and one script tag opens the same chat from a button on a made-up bakery website.'
+        }
     }
 ]
 
@@ -110,8 +117,7 @@ const installs = [
         </ul>
 
         <section id="chat-with-a-team-in-minutes" class="cl-showcase" aria-labelledby="cl-showcase-title">
-            <figure class="cl-window cl-demo-window">
-                <div class="cl-window-bar" aria-hidden="true"><span class="cl-lights"><i></i><i></i><i></i></span><span class="cl-window-url">localhost:43117</span></div>
+            <figure class="cl-demo-window">
                 <video
                     class="cl-demo-video"
                     data-demo-video
@@ -159,12 +165,12 @@ const installs = [
             </div>
             <ol class="cl-case-steps">
                 <li>
-                    <p class="cl-case-who"><span class="cl-case-name">customer</span> support desk database · 4.9 s · 1 tool</p>
+                    <p class="cl-case-who"><span class="cl-case-name">customer</span> support desk database · 6.5 s · 2 tools</p>
                     <h3 class="cl-display">A Plus customer, late twice in 120 days</h3>
                     <p>LH-18802 arrived 3 days late on 2026-08-15, with a $10 goodwill credit. LH-20417 is late now.</p>
                 </li>
                 <li>
-                    <p class="cl-case-who"><span class="cl-case-name">operations</span> warehouse and carrier scans · 4.3 s · 1 tool</p>
+                    <p class="cl-case-who"><span class="cl-case-name">operations</span> warehouse and carrier scans · 4.8 s · 1 tool</p>
                     <h3 class="cl-display">The carrier never had the parcel</h3>
                     <p>
                         It failed the outbound scale check in Columbus on 2026-09-29 and went to an exception cage. Four more orders from the same packing wave
@@ -172,7 +178,7 @@ const installs = [
                     </p>
                 </li>
                 <li>
-                    <p class="cl-case-who"><span class="cl-case-name">policy</span> after operations · 6.0 s · 1 tool</p>
+                    <p class="cl-case-who"><span class="cl-case-name">policy</span> after operations · 9.6 s · 1 tool</p>
                     <h3 class="cl-display">Larkfield's fault, section 1.2</h3>
                     <p>
                         So the goodwill limit does not apply. A second late delivery lifts Plus to the Premier remedy: a $55.80 credit, 20% of $279.00, and a
@@ -182,7 +188,7 @@ const installs = [
             </ol>
             <div class="cl-case-answer">
                 <div class="cl-case-answer-copy">
-                    <p class="cl-case-who"><span class="cl-case-name">Harness Prime</span> decision, reply, actions, evidence · 16 s in all</p>
+                    <p class="cl-case-who"><span class="cl-case-name">Harness Prime</span> decision, reply, actions, evidence · 19.8 s in all, median 16.5 s over five runs</p>
                     <p>
                         Refund the $9.95 shipping, reship by Express for Thursday, recall the held parcel, add a $55.80 store credit, have the Customer Care Lead
                         call, and open an operations incident for the packing wave. Or a full refund, if Maya prefers. Every amount and section comes from a
@@ -338,7 +344,35 @@ const installs = [
                 {
                     tools.map((tool) => (
                         <li class="cl-tile">
-                            <Focus src={tool.image} alt={tool.alt} {...tool.focus} widths={[720, 1080, 1440]} sizes="(min-width: 68rem) 760px, 100vw" />
+                            <div class="cl-tile-media">
+                                <video
+                                    class="cl-tile-video"
+                                    data-loop-video
+                                    muted
+                                    loop
+                                    playsinline
+                                    preload="none"
+                                    width="960"
+                                    height="540"
+                                    poster={`/media/products/${tool.video.slug}-poster.webp`}
+                                    aria-label={tool.video.label}
+                                >
+                                    <source src={`/media/products/${tool.video.slug}-loop.webm`} type="video/webm" />
+                                    <source src={`/media/products/${tool.video.slug}-loop.mp4`} type="video/mp4" />
+                                </video>
+                                <a class="cl-tile-play" href={`/media/products/${tool.video.slug}.mp4`} data-video-dialog-open={`video-${tool.video.slug}`}>
+                                    <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M4 2.5v11l9.5-5.5z" fill="currentColor" /></svg>
+                                    Watch with sound <span class="cl-tile-play-length">{tool.video.length}</span>
+                                </a>
+                                <dialog id={`video-${tool.video.slug}`} class="cl-video-dialog" aria-label={`${tool.title}: narrated video with captions`}>
+                                    <video controls playsinline preload="none" width="1280" height="720" poster={`/media/products/${tool.video.slug}-poster.webp`}>
+                                        <source src={`/media/products/${tool.video.slug}.mp4`} type="video/mp4" />
+                                    </video>
+                                    <form method="dialog">
+                                        <button class="cl-video-close" aria-label="Close">×</button>
+                                    </form>
+                                </dialog>
+                            </div>
                             <a class="cl-tile-link" href={tool.href}>
                                 <span class="cl-tile-body">
                                     <span class="cl-tile-title cl-display">{tool.title}</span>

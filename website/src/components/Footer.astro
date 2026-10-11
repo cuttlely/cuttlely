@@ -8,8 +8,9 @@ import SiteFooter from './SiteFooter.astro'
 <SiteFooter />
 <script>
     import { initScreenshotViewer } from '../scripts/screenshot-viewer.mjs'
-    import { initDemoVideo } from '../scripts/demo-video.mjs'
+    import { initDemoVideo, initVideoDialogs } from '../scripts/demo-video.mjs'
     initScreenshotViewer()
-    // The home page demo video. Pages without it skip this.
+    // The home page videos. Pages without them skip this.
     initDemoVideo()
+    initVideoDialogs()
 </script>
