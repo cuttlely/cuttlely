@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Cut a Cuttlely release from a maintainer machine. GitHub Actions does not run releases.
 //
-//   pnpm release [X.Y.Z | major | minor | patch] [--dry-run] [--local] [--push] [--publish]
+//   pnpm release [X.Y.Z | major | minor | patch] [--dry-run] [--local] [--push] [--publish] [--npm]
 //
 // With no version, the version comes from a "## [X.Y.Z] - Unreleased" heading in CHANGELOG.md.
 //
@@ -11,6 +11,7 @@
 //   --local     stop before anything leaves this machine: no git push and no draft release
 //   --push      also push the image to the registry (multi-arch when buildx can build arm64)
 //   --publish   publish the GitHub release instead of leaving a draft (needs the image in the registry)
+//   --npm       publish the npm packages from the annotated tag, after the image and GitHub release exist
 //
 // Other options: --image <name> (default ghcr.io/<owner>/<repo>), --skip-image-check (skip the
 // start-and-ping check of the local image), --help.
@@ -18,6 +19,7 @@
 // A run that stopped part way can be started again with the same version: a release commit that
 // is already tagged is reused, and steps that are already done are skipped.
 import { spawnSync } from 'node:child_process'
+import { randomBytes } from 'node:crypto'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -29,6 +31,20 @@ export const VERSION_FILES = [
     'packages/cli/package.json',
     'packages/chat-widget/package.json'
 ]
+
+// The two packages `pnpm release X.Y.Z --npm` publishes. Their versions stay in VERSION_FILES.
+export const NPM_PACKAGE_FILES = ['packages/cli/package.json', 'packages/chat-widget/package.json']
+export const NPM_IMAGE = 'ghcr.io/cuttlely/cuttlely'
+const MANIFEST_ACCEPT = [
+    'application/vnd.oci.image.index.v1+json',
+    'application/vnd.docker.distribution.manifest.list.v2+json',
+    'application/vnd.oci.image.manifest.v1+json',
+    'application/vnd.docker.distribution.manifest.v2+json'
+].join(', ')
+
+export function npmImageRef(version) {
+    return `${NPM_IMAGE}:${version}`
+}
 
 export function formatList(items) {
     if (items.length <= 1) return items.join('')
@@ -51,6 +67,7 @@ export function parseArgs(argv) {
         local: false,
         push: false,
         publish: false,
+        npm: false,
         image: null,
         skipImageCheck: false,
         help: false
@@ -61,6 +78,7 @@ export function parseArgs(argv) {
         else if (arg === '--local') opts.local = true
         else if (arg === '--push') opts.push = true
         else if (arg === '--publish') opts.publish = true
+        else if (arg === '--npm') opts.npm = true
         else if (arg === '--skip-image-check') opts.skipImageCheck = true
         else if (arg === '--help' || arg === '-h') opts.help = true
         else if (arg === '--image') {
@@ -75,6 +93,10 @@ export function parseArgs(argv) {
     }
     if (opts.local && (opts.push || opts.publish))
         throw new ReleaseError('--local keeps everything on this machine, so it cannot be used with --push or --publish.')
+    if (opts.npm && (opts.local || opts.push || opts.publish))
+        throw new ReleaseError('--npm publishes the npm packages from the tagged release. Run it on its own: pnpm release X.Y.Z --npm.')
+    if (opts.npm && !opts.version) throw new ReleaseError('--npm needs a version: pnpm release X.Y.Z --npm.')
+    if (opts.npm && !parseSemver(opts.version)) throw new ReleaseError(`--npm needs an exact version (X.Y.Z), not ${opts.version}.`)
     return opts
 }
 
@@ -348,6 +370,116 @@ export function preflightProblems(state) {
     return problems
 }
 
+// The registry token URL from a Bearer challenge. Only https://ghcr.io is accepted.
+export function anonymousBearerChallenge(header) {
+    if (!header) return null
+    const realm = /realm="([^"]+)"/.exec(header)
+    if (!realm) return null
+    let url
+    try {
+        url = new URL(realm[1])
+    } catch {
+        return null
+    }
+    if (url.protocol !== 'https:' || url.hostname !== 'ghcr.io') return null
+    const service = /service="([^"]+)"/.exec(header)
+    const scope = /scope="([^"]+)"/.exec(header)
+    if (service) url.searchParams.set('service', service[1])
+    if (scope) url.searchParams.set('scope', scope[1])
+    return url.toString()
+}
+
+function responseHeader(res, name) {
+    const headers = res && res.headers
+    if (!headers) return null
+    if (typeof headers.get === 'function') return headers.get(name)
+    const found = Object.keys(headers).find((key) => key.toLowerCase() === name.toLowerCase())
+    return found ? headers[found] : null
+}
+
+// Anonymous manifest check for ghcr.io/cuttlely/cuttlely:version. No registry credentials.
+export async function anonymousManifestExists(version, fetchImpl = globalThis.fetch) {
+    const manifestUrl = `https://ghcr.io/v2/cuttlely/cuttlely/manifests/${encodeURIComponent(version)}`
+    const headers = { Accept: MANIFEST_ACCEPT }
+    let res
+    try {
+        res = await fetchImpl(manifestUrl, { headers, redirect: 'manual' })
+    } catch {
+        return { ok: false, error: true }
+    }
+    if (res.status === 401) {
+        const challenge = anonymousBearerChallenge(responseHeader(res, 'www-authenticate'))
+        if (!challenge) return { ok: false, error: true }
+        let tokenRes
+        try {
+            tokenRes = await fetchImpl(challenge, { redirect: 'manual' })
+        } catch {
+            return { ok: false, error: true }
+        }
+        if (!tokenRes.ok) return { ok: false, error: true }
+        let body
+        try {
+            body = await tokenRes.json()
+        } catch {
+            return { ok: false, error: true }
+        }
+        const registryToken =
+            body && typeof body.token === 'string' ? body.token : body && typeof body.access_token === 'string' ? body.access_token : null
+        if (!registryToken) return { ok: false, error: true }
+        try {
+            res = await fetchImpl(manifestUrl, {
+                headers: { ...headers, Authorization: `Bearer ${registryToken}` },
+                redirect: 'manual'
+            })
+        } catch {
+            return { ok: false, error: true }
+        }
+    }
+    if (res.status === 200) return { ok: true, error: false }
+    if (res.status === 404) return { ok: false, error: false }
+    return { ok: false, error: true }
+}
+
+export function npmTokenValue(env) {
+    const value = env && env.NPM_TOKEN
+    if (typeof value !== 'string' || value.trim() === '') return null
+    return value.trim()
+}
+
+// Every reason `pnpm release X.Y.Z --npm` refuses, before it builds or publishes.
+export function npmPublishProblems(state) {
+    const problems = []
+    const version = state.version
+    if (state.dirty.length) {
+        problems.push(
+            `The working tree is not clean (${state.dirty.length} changed or untracked path(s), first: ${state.dirty[0]}). Commit or remove them.`
+        )
+    }
+    if (!state.tagExists) problems.push(`Tag v${version} does not exist.`)
+    else if (!state.tagAnnotated) problems.push(`v${version} is not an annotated tag.`)
+    else if (state.head !== state.tagCommit)
+        problems.push(`HEAD is ${short(state.head)}, not the annotated tag v${version} (${short(state.tagCommit)}).`)
+    const mismatched = (state.versions || []).filter((item) => item.version !== version)
+    if (mismatched.length) {
+        problems.push(
+            `Package versions must equal ${version}: ${mismatched
+                .map((item) => `${item.file} is ${item.version ?? 'missing'}`)
+                .join(', ')}.`
+        )
+    }
+    if (state.imageError) problems.push(`Could not check the image ${npmImageRef(version)} in the registry.`)
+    else if (!state.imageExists) problems.push(`The image ${npmImageRef(version)} is not in the registry.`)
+    if (state.githubRelease === 'draft') problems.push(`The GitHub release v${version} is still a draft.`)
+    else if (state.githubRelease !== 'published') problems.push(`The GitHub release v${version} is not published.`)
+    if (!state.npmToken) problems.push('NPM_TOKEN is not set.')
+    return problems
+}
+
+export function redactSecret(text, secret) {
+    if (!secret || !text) return text
+    return String(text).split(secret).join('NPM_TOKEN')
+}
+
 function short(sha) {
     return sha ? String(sha).slice(0, 7) : 'none'
 }
@@ -368,10 +500,12 @@ Cuts a release from a clean main that matches origin/main. The version defaults 
   --local             stop before anything leaves this machine (no git push, no draft release)
   --push              also push the image (multi-arch when buildx can build linux/arm64)
   --publish           publish the GitHub release instead of leaving a draft
+  --npm               publish cuttlely and @cuttlely/chat from the annotated tag vX.Y.Z
   --image <name>      image name (default ghcr.io/<owner>/<repo>)
   --skip-image-check  do not start the local image to check /api/v1/ping
 
 Without --push and --publish, the image stays on this machine and the GitHub release is a draft.
+--npm is a later step, from that tag, after the image and the GitHub release are public.
 See docs/releases.md.`
 
 // ---------- side effects ----------
@@ -546,12 +680,13 @@ async function checkImage(tag) {
     }
 }
 
-export async function main(argv = process.argv.slice(2), root = gitRoot()) {
+export async function main(argv = process.argv.slice(2), root = gitRoot(), deps = {}) {
     const opts = parseArgs(argv)
     if (opts.help) {
         say(HELP)
         return 0
     }
+    if (opts.npm) return publishNpmPackages(opts, root, deps)
     const state = readState(root, opts)
     const date = localDate()
     const created = new Date().toISOString()
@@ -720,6 +855,7 @@ export async function main(argv = process.argv.slice(2), root = gitRoot()) {
         say(`\nLocal release v${state.version} is ready. Nothing left this machine.`)
         say(`Next: pnpm release ${state.version}            push the commit and tag, draft the GitHub release`)
         say(`      pnpm release ${state.version} --push --publish   also push the image and publish`)
+        say(`      pnpm release ${state.version} --npm   publish the npm packages from the tag, after both are public`)
         return 0
     }
 
@@ -790,6 +926,131 @@ export async function main(argv = process.argv.slice(2), root = gitRoot()) {
     say(`\nRelease v${state.version} done (${mode}).`)
     if (!opts.push) say(`The image is only on this machine. Push it with: pnpm release ${state.version} --push`)
     if (!opts.publish) say(`The GitHub release is a draft. Publish it with: pnpm release ${state.version} --push --publish`)
+    say(`After the image is in the registry and the GitHub release is published, from the tag: pnpm release ${state.version} --npm`)
+    return 0
+}
+
+function readPackageVersions(root, files) {
+    return files.map((file) => {
+        try {
+            return { file, version: readPackageVersion(fs.readFileSync(path.join(root, file), 'utf8')) }
+        } catch {
+            return { file, version: null }
+        }
+    })
+}
+
+function commandFailed(res, cmd, args, token) {
+    if (res && res.error) return `${cmd} could not start.`
+    const detail = redactSecret(`${res?.stderr || ''}\n${res?.stdout || ''}`, token).trim()
+    const shown = args.map((arg) => (token && arg === token ? 'NPM_TOKEN' : arg)).join(' ')
+    return `${cmd} ${shown} failed (exit ${res?.status}).${detail ? `\n${detail}` : ''}`
+}
+
+async function publishNpmPackages(opts, root, deps) {
+    const log = deps.log || say
+    const exec = deps.run || run
+    const fetchImpl = deps.fetch || globalThis.fetch
+    const env = deps.env || process.env
+    const version = opts.version
+    const tag = `v${version}`
+    const token = npmTokenValue(env)
+    const stepTitle = (title) => log(`\n==> ${title}`)
+
+    log(`Cuttlely npm publish ${version}${opts.dryRun ? ' (dry run)' : ''}`)
+    stepTitle('Checks')
+
+    const dirty = exec('git', ['status', '--porcelain', '--untracked-files=all'], { cwd: root, allowFail: true })
+    if (dirty.status !== 0) throw new ReleaseError(commandFailed(dirty, 'git', ['status', '--porcelain'], token))
+    const headRes = exec('git', ['rev-parse', 'HEAD'], { cwd: root, allowFail: true })
+    if (headRes.status !== 0) throw new ReleaseError(commandFailed(headRes, 'git', ['rev-parse', 'HEAD'], token))
+    const tagType = exec('git', ['cat-file', '-t', tag], { cwd: root, allowFail: true })
+    const tagExists = tagType.status === 0
+    const tagAnnotated = tagExists && tagType.stdout === 'tag'
+    const peeled = tagExists ? exec('git', ['rev-parse', `${tag}^{}`], { cwd: root, allowFail: true }) : { status: 1, stdout: '' }
+    const manifest = await anonymousManifestExists(version, fetchImpl)
+    const releaseView = exec('gh', ['release', 'view', tag, '--json', 'isDraft', '--jq', '.isDraft'], { cwd: root, allowFail: true })
+    const releaseOut = (releaseView.stdout || '').trim()
+    let githubRelease = 'missing'
+    if (releaseView.status === 0 && releaseOut === 'false') githubRelease = 'published'
+    else if (releaseView.status === 0 && releaseOut === 'true') githubRelease = 'draft'
+
+    const versions = readPackageVersions(root, VERSION_FILES)
+    const state = {
+        version,
+        dirty: (dirty.stdout || '').split('\n').filter(Boolean),
+        tagExists,
+        tagAnnotated,
+        head: headRes.stdout,
+        tagCommit: peeled.status === 0 ? peeled.stdout : null,
+        versions,
+        imageExists: manifest.ok,
+        imageError: manifest.error,
+        githubRelease,
+        npmToken: Boolean(token)
+    }
+    const problems = npmPublishProblems(state)
+    const checks = [
+        [`HEAD is the annotated tag ${tag}`, tagExists && tagAnnotated && state.head === state.tagCommit],
+        ['working tree clean', state.dirty.length === 0],
+        [`package versions are ${version}`, versions.every((item) => item.version === version)],
+        [`image ${npmImageRef(version)}`, manifest.ok === true],
+        [`GitHub release ${tag} is published`, githubRelease === 'published'],
+        ['NPM_TOKEN is set', Boolean(token)]
+    ]
+    for (const [label, ok] of checks)
+        log(`  ${ok === true ? 'ok  ' : typeof ok === 'string' ? '--  ' : 'FAIL'} ${label}${typeof ok === 'string' ? `: ${ok}` : ''}`)
+
+    const plan = [
+        'pnpm --dir packages/chat-widget build',
+        'npm pack --dry-run (packages/cli)',
+        'npm pack --dry-run (packages/chat-widget)',
+        'npm publish ./packages/cli',
+        'npm publish ./packages/chat-widget'
+    ]
+    if (opts.dryRun) {
+        stepTitle('Plan (nothing below runs in a dry run)')
+        for (const line of plan) log(`  ${line}`)
+        log('  auth is a temporary npm userconfig built from NPM_TOKEN, and the token is not printed')
+    }
+    if (problems.length) {
+        stepTitle(opts.dryRun ? 'A real run would refuse' : 'Refused')
+        for (const problem of problems) log(`  - ${problem}`)
+        return 1
+    }
+    if (opts.dryRun) {
+        log('\nDry run passed. A real run would publish both packages from this tag.')
+        return 0
+    }
+
+    stepTitle('Build the chat widget')
+    const build = exec('pnpm', ['--dir', 'packages/chat-widget', 'build'], { cwd: root, allowFail: true })
+    if (build.status !== 0) throw new ReleaseError(commandFailed(build, 'pnpm', ['--dir', 'packages/chat-widget', 'build'], token))
+    log('  built packages/chat-widget')
+
+    stepTitle('npm pack --dry-run')
+    for (const file of NPM_PACKAGE_FILES) {
+        const dir = path.dirname(file)
+        const packed = exec('npm', ['pack', '--dry-run'], { cwd: path.join(root, dir), allowFail: true })
+        if (packed.status !== 0) throw new ReleaseError(commandFailed(packed, 'npm', ['pack', '--dry-run'], token))
+        log(`  ${dir} packs`)
+    }
+
+    stepTitle('Publish')
+    const userconfig = path.join(os.tmpdir(), `cuttlely-npm-${process.pid}-${randomBytes(8).toString('hex')}.npmrc`)
+    fs.writeFileSync(userconfig, `//registry.npmjs.org/:_authToken=${token}\n`, { mode: 0o600 })
+    try {
+        for (const file of NPM_PACKAGE_FILES) {
+            const dir = `./${path.dirname(file)}`
+            const args = ['publish', dir, '--userconfig', userconfig]
+            const published = exec('npm', args, { cwd: root, allowFail: true })
+            if (published.status !== 0) throw new ReleaseError(commandFailed(published, 'npm', args, token))
+            log(`  published ${dir}`)
+        }
+    } finally {
+        fs.rmSync(userconfig, { force: true })
+    }
+    log(`\nPublished ${version} to npm from ${tag}.`)
     return 0
 }
 

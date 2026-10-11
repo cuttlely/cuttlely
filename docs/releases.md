@@ -70,9 +70,12 @@ You need Node 24, pnpm, Docker and the GitHub CLI signed in (`gh auth status`). 
 4. Run it for real:
 
     ```bash
-    pnpm release                      # draft: nothing public
-    pnpm release --push --publish     # push the image and publish the release
+    pnpm release                          # draft: nothing public
+    pnpm release X.Y.Z --push --publish   # push the image and publish the GitHub release
+    pnpm release X.Y.Z --npm              # from the tag: publish the npm packages
     ```
+
+    npm publish is the last step. It runs only from the annotated tag, after the image and the GitHub release for that version are public. [Publish the npm packages](#publish-the-npm-packages) is the check list.
 
 `pnpm release` refuses unless the working tree is clean (untracked files included), the checkout is on `main`, and `main` matches `origin/main`. It also refuses when the tag already exists, when the version is not newer than the last tag, or when `CHANGELOG.md` has nothing to release.
 
@@ -99,18 +102,29 @@ The release commit is pushed straight to `main`. When `main` requires pull reque
 
 ## Publish the npm packages
 
-GitHub Actions does not publish to npm. After the image is in the registry (`pnpm release --push`, or `--push --publish`), a maintainer publishes two packages from that same checkout:
-
--   `cuttlely` (`packages/cli`) is the Docker launcher. `npx cuttlely` pulls `ghcr.io/cuttlely/cuttlely` at the package's version tag.
--   `@cuttlely/chat` (`packages/chat-widget`) is the embeddable chat widget.
-
-The server itself is not an npm package. The image carries the Python agent runtime.
-
-`NPM_TOKEN` is an npm access token for the cuttlely org, provided as an environment variable. It is not stored in this repository. `pnpm release` already builds the widget. If `packages/chat-widget/dist` is missing, run `pnpm --dir packages/chat-widget build` first.
+GitHub Actions does not publish to npm. Publish from the annotated tag, after the image is in the registry and the GitHub release is published:
 
 ```bash
-npm publish packages/cli --userconfig <(printf '//registry.npmjs.org/:_authToken=%s\n' "$NPM_TOKEN")
-npm publish packages/chat-widget --userconfig <(printf '//registry.npmjs.org/:_authToken=%s\n' "$NPM_TOKEN")
+pnpm release                          # bump, tag, and draft the GitHub release
+pnpm release X.Y.Z --push --publish   # push the image and publish the GitHub release
+git checkout vX.Y.Z                   # npm publish reads this tag
+pnpm release X.Y.Z --npm              # publish cuttlely and @cuttlely/chat
 ```
 
-Both packages set `publishConfig.access` to `public`. There is no publish workflow.
+`pnpm release X.Y.Z --npm --dry-run` runs the same checks and prints the plan. It does not build or publish.
+
+`pnpm release X.Y.Z --npm` refuses unless every one of these is true:
+
+-   `HEAD` is the annotated tag `vX.Y.Z`.
+-   The working tree is clean, untracked files included.
+-   `packages/cli/package.json` and `packages/chat-widget/package.json` are both version `X.Y.Z`, along with the other version files the release bumps (`package.json` and `packages/server/package.json`).
+-   The image `ghcr.io/cuttlely/cuttlely:X.Y.Z` is in the registry. The check is an anonymous manifest request. It does not use a registry login.
+-   The GitHub release `vX.Y.Z` is published, not a draft.
+-   `NPM_TOKEN` is set in the environment.
+
+It then builds the widget, runs `npm pack --dry-run` for both packages, and publishes them with `npm publish ./packages/cli` and `npm publish ./packages/chat-widget`. Auth is a temporary npm userconfig built from `NPM_TOKEN`. The command does not print the token, and it deletes the file when it finishes.
+
+-   `cuttlely` (`packages/cli`) is the Docker launcher. `npx cuttlely` at version `X.Y.Z` pulls `ghcr.io/cuttlely/cuttlely:X.Y.Z`, because the default image tag is that package's own version.
+-   `@cuttlely/chat` (`packages/chat-widget`) is the embeddable chat widget.
+
+The server itself is not an npm package. The image carries the Python agent runtime. `NPM_TOKEN` is an npm access token for the cuttlely org. It is not stored in this repository. Both packages set `publishConfig.access` to `public`. There is no publish workflow.

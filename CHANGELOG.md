@@ -4,6 +4,18 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ## [Unreleased]
 
+### Added
+
+-   `npx cuttlely start` and the `@cuttlely/chat` npm package ship from this tagged release. `npx cuttlely start` needs Docker: it pulls the Cuttlely image and starts it. The 1.0.0 npm versions of `cuttlely` and `@cuttlely/chat` were published from source that was not the v1.0.0 tag.
+
+### Deprecated
+
+-   The 1.0.0 npm packages `cuttlely` and `@cuttlely/chat`. Use 1.0.1.
+
+### Fixed
+
+-   The release image keeps the app UI. A build after a local verify no longer ships a container that is missing the pages you open in the browser.
+
 ## [1.0.0] - 2026-10-10
 
 The first Cuttlely release. It covers everything on `main` up to the release tag.
