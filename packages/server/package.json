@@ -151,7 +151,7 @@
         "jwt-decode": "^4.0.0",
         "langchainhub": "^0.0.11",
         "lodash": "^4.17.21",
-        "moment": "^2.29.3",
+        "moment": "^2.31.0",
         "moment-timezone": "^0.5.34",
         "multer": "2.4.0",
         "multer-azure-blob-storage": "^1.2.0",
