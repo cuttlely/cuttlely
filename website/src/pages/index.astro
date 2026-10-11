@@ -157,6 +157,81 @@ const installs = [
             </figure>
         </section>
 
+        <section id="small-context-big-answers" class="cl-section" aria-labelledby="context-title">
+            <div class="cl-center">
+                <p class="cl-kicker">Keep prompts small</p>
+                <h2 id="context-title" class="cl-display">Small context, big answers</h2>
+                <p class="cl-lead">
+                    Long chats, big tables and long rule books don't have to mean long prompts. Cuttlely gives each agent only what its job needs, keeps your data
+                    where it lives, and shows you what every run used.
+                </p>
+            </div>
+            <ul class="cl-contrasts">
+                <li>
+                    <h3 class="cl-display">Each specialist gets its own job</h3>
+                    <p class="cl-pair">
+                        <span class="cl-pair-label">Typical</span>
+                        Every agent gets the whole chat history.
+                    </p>
+                    <p class="cl-pair cl-pair-cuttlely">
+                        <span class="cl-pair-label">Cuttlely</span>
+                        Harness Prime writes each specialist a task that stands on its own. The specialist gets that task and a short recap of the recent turns.
+                    </p>
+                </li>
+                <li>
+                    <h3 class="cl-display">Data stays in the database</h3>
+                    <p class="cl-pair">
+                        <span class="cl-pair-label">Typical</span>
+                        Query results are pasted into the prompt.
+                    </p>
+                    <p class="cl-pair cl-pair-cuttlely">
+                        <span class="cl-pair-label">Cuttlely</span>
+                        The analyst runs the query and hands back one page of rows. Say "show more" and it fetches the next page. Earlier pages stay out of the
+                        next prompt.
+                    </p>
+                </li>
+                <li>
+                    <h3 class="cl-display">Rules load when they're needed</h3>
+                    <p class="cl-pair">
+                        <span class="cl-pair-label">Typical</span>
+                        Every instruction sits in one giant system prompt.
+                    </p>
+                    <p class="cl-pair cl-pair-cuttlely">
+                        <span class="cl-pair-label">Cuttlely</span>
+                        Put long rules in playbooks. A specialist sees each playbook's name and when to use it, and opens the full text only when a question needs it.
+                    </p>
+                </li>
+                <li>
+                    <h3 class="cl-display">Short handoffs</h3>
+                    <p class="cl-pair">
+                        <span class="cl-pair-label">Typical</span>
+                        Whole documents are pasted into the prompt that writes the final answer.
+                    </p>
+                    <p class="cl-pair cl-pair-cuttlely">
+                        <span class="cl-pair-label">Cuttlely</span>
+                        Harness Prime reads a capped part of each specialist's answer, with the source names and a short snippet. The documents go back to your
+                        app in the response.
+                    </p>
+                </li>
+                <li>
+                    <h3 class="cl-display">See every token</h3>
+                    <p class="cl-pair">
+                        <span class="cl-pair-label">Typical</span>
+                        You find out what a run used on next month's bill.
+                    </p>
+                    <p class="cl-pair cl-pair-cuttlely">
+                        <span class="cl-pair-label">Cuttlely</span>
+                        The run card shows input and output tokens, cached tokens when the model reports them, and how long each step took. The API response
+                        carries the same numbers. The Publish check shows Live and the draft side by side with the tokens and time each one used. If a prompt
+                        had to be shortened, the run says so.
+                    </p>
+                </li>
+            </ul>
+            <p class="cl-center">
+                <a class="cl-link-arrow" href="/docs/how-to/context-and-tokens/">How Cuttlely keeps context small <Icon name="right-arrow" /></a>
+            </p>
+        </section>
+
         <section id="use-a-team-from-your-app" class="cl-section" aria-labelledby="api-title">
             <div class="cl-center">
                 <p class="cl-kicker">Call it from your app</p>

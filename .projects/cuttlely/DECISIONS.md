@@ -56,7 +56,7 @@ The priority is a serving API that returns harness results as soon as they exist
 
 ## D14. Context token budgets, a compacted handoff and a bounded session
 
-Each specialist prompt is capped at `CUTTLELY_HARNESS_SPECIALIST_CONTEXT_TOKENS` (default 4000) and the handoff at `CUTTLELY_HARNESS_CHIEF_CONTEXT_TOKENS` (default 6000), estimated as `ceil(chars / 4)`; `0` turns a cap off. Overflow is cut and marked `[truncated]`. Tool text in the handoff is cut to 480 characters and each source to a 200-character snippet, at most 8. The next turn sees a rolling summary of older turns, up to 8 pins and the last 2 raw turns. Full documents stay on the response `sources`, never in prompts.
+Each specialist prompt is capped at `CUTTLELY_HARNESS_SPECIALIST_CONTEXT_TOKENS` (default 4000) and the handoff at `CUTTLELY_HARNESS_CHIEF_CONTEXT_TOKENS` (default 6000), estimated as `ceil(chars / 4)`; `0` turns a cap off. Overflow is cut and marked `[truncated]`. Each specialist's answer in the handoff is cut at its handoff limit, 4,000 characters by default (`SPECIALIST_HANDOFF_CHARS`; a specialist can set 160 to 20,000). When the handoff is still over the chief budget, those limits shrink in steps, and 480 characters is one of those steps, not the default. Each source is a 200-character snippet, at most 8. A page of analyst rows keeps a wider handoff so the list is not dropped; that wider room is for the answer, not a token saving. The next turn sees a rolling summary of older turns, up to 8 pins and the last 2 raw turns. Full documents stay on the response `sources`, never in prompts. The user-facing account is [Context and tokens](../../docs/how-to/context-and-tokens.md).
 
 ## D15. Harness turns go through a SQLite queue
 
