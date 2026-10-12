@@ -1,7 +1,7 @@
 import path from 'path'
 import * as fs from 'fs'
 import { StatusCodes } from 'http-status-codes'
-import { InternalFlowiseError } from '../../errors/internalFlowiseError'
+import { AppError } from '../../errors/appError'
 import { getErrorMessage } from '../../errors/utils'
 import readline from 'readline'
 
@@ -57,11 +57,11 @@ const generateDateRange = (startDate: string, endDate: string) => {
 
 const getLogs = async (startDate?: string, endDate?: string) => {
     if (!startDate || !endDate) {
-        throw new InternalFlowiseError(StatusCodes.INTERNAL_SERVER_ERROR, `Error: logService.getLogs - No start date or end date provided`)
+        throw new AppError(StatusCodes.INTERNAL_SERVER_ERROR, `Error: logService.getLogs - No start date or end date provided`)
     }
 
     if (startDate > endDate) {
-        throw new InternalFlowiseError(StatusCodes.INTERNAL_SERVER_ERROR, `Error: logService.getLogs - Start date is greater than end date`)
+        throw new AppError(StatusCodes.INTERNAL_SERVER_ERROR, `Error: logService.getLogs - Start date is greater than end date`)
     }
 
     try {
@@ -85,7 +85,7 @@ const getLogs = async (startDate?: string, endDate?: string) => {
             }
         }
     } catch (error) {
-        throw new InternalFlowiseError(StatusCodes.INTERNAL_SERVER_ERROR, `Error: logService.getLogs - ${getErrorMessage(error)}`)
+        throw new AppError(StatusCodes.INTERNAL_SERVER_ERROR, `Error: logService.getLogs - ${getErrorMessage(error)}`)
     }
 }
 

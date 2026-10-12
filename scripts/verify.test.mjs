@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { afterEach, describe, it } from 'node:test'
-import { jestMaxWorkers, unitJestArgs } from './verify.mjs'
+import { jestMaxWorkers, nodeLoadBudgetJestArgs, unitJestArgs } from './verify.mjs'
 
 const KEY = 'CUTTLELY_VERIFY_JEST_WORKERS'
 const previous = process.env[KEY]
@@ -32,6 +32,17 @@ describe('verify jest workers', () => {
         assert.equal(jestMaxWorkers(), '4')
         process.env[KEY] = '25%'
         assert.ok(unitJestArgs().includes('--maxWorkers=25%'))
+    })
+
+    it('runs the node load test from the unit step with coverage forced off', () => {
+        delete process.env[KEY]
+        const args = nodeLoadBudgetJestArgs()
+        assert.ok(args.includes('--dir'))
+        assert.ok(args.includes('packages/components'))
+        assert.ok(args.includes('--coverage=false'))
+        assert.equal(args.includes('--coverage'), false)
+        assert.ok(args.includes('nodes/load-coverage.test.ts'))
+        assert.ok(args.includes('--maxWorkers=50%'))
     })
 
     it('rejects a value Jest would not treat as a worker count', () => {

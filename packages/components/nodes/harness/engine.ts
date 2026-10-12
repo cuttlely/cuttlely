@@ -99,7 +99,7 @@ export interface HarnessEngine {
     warmHarnessProfiles(options?: { names?: string[]; baseUrl?: string; fetchImpl?: unknown; healthWaitMs?: number }): Promise<unknown>
 }
 
-// tsc rewrites import() into require(), which cannot load harness/*.mjs.
+// tsc rewrites import() into require(), which cannot load the ESM harness package.
 const importEsm = new Function('specifier', 'return import(specifier)') as (specifier: string) => Promise<HarnessEngine>
 
 let engine: Promise<HarnessEngine> | undefined
@@ -117,10 +117,9 @@ export function loadHarnessEngine(): Promise<HarnessEngine> {
 async function findEngine(): Promise<HarnessEngine> {
     let dir = __dirname
     for (let i = 0; i < 8; i += 1) {
-        const candidate = path.join(dir, 'harness', 'run.mjs')
-        if (fs.existsSync(candidate)) {
-            return importEsm(pathToFileURL(candidate).href)
-        }
+        const candidates = [path.join(dir, 'packages', 'harness', 'run.mjs'), path.join(dir, 'harness', 'run.mjs')]
+        const candidate = candidates.find((file) => fs.existsSync(file))
+        if (candidate) return importEsm(pathToFileURL(candidate).href)
         dir = path.dirname(dir)
     }
     throw new Error('Cuttlely harness engine was not found in this checkout.')

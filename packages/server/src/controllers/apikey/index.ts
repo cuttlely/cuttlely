@@ -1,13 +1,13 @@
 import { NextFunction, Request, Response } from 'express'
 import { StatusCodes } from 'http-status-codes'
 import { LoggedInUser } from '../../identity/types'
-import { InternalFlowiseError } from '../../errors/internalFlowiseError'
+import { AppError } from '../../errors/appError'
 import apikeyService from '../../services/apikey'
 import { getPageAndLimitParams } from '../../utils/pagination'
 
 function actor(user: LoggedInUser | undefined) {
     if (!user?.activeWorkspaceId || !user.permissions) {
-        throw new InternalFlowiseError(StatusCodes.UNAUTHORIZED, 'Unauthorized')
+        throw new AppError(StatusCodes.UNAUTHORIZED, 'Unauthorized')
     }
     return {
         id: user.id,
@@ -41,7 +41,7 @@ const getAllApiKeys = async (req: Request, res: Response, next: NextFunction) =>
 const createApiKey = async (req: Request, res: Response, next: NextFunction) => {
     try {
         if (typeof req.body === 'undefined' || !req.body.keyName) {
-            throw new InternalFlowiseError(StatusCodes.PRECONDITION_FAILED, `Error: apikeyController.createApiKey - keyName not provided!`)
+            throw new AppError(StatusCodes.PRECONDITION_FAILED, `Error: apikeyController.createApiKey - keyName not provided!`)
         }
         if (
             !req.body.permissions ||
@@ -49,7 +49,7 @@ const createApiKey = async (req: Request, res: Response, next: NextFunction) => 
             req.body.permissions.length === 0 ||
             !req.body.permissions.every((p: any) => typeof p === 'string')
         ) {
-            throw new InternalFlowiseError(
+            throw new AppError(
                 StatusCodes.PRECONDITION_FAILED,
                 `Error: apikeyController.createApiKey - permissions must be an array of strings!`
             )
@@ -66,10 +66,10 @@ const createApiKey = async (req: Request, res: Response, next: NextFunction) => 
 const updateApiKey = async (req: Request, res: Response, next: NextFunction) => {
     try {
         if (typeof req.params === 'undefined' || !req.params.id) {
-            throw new InternalFlowiseError(StatusCodes.PRECONDITION_FAILED, `Error: apikeyController.updateApiKey - id not provided!`)
+            throw new AppError(StatusCodes.PRECONDITION_FAILED, `Error: apikeyController.updateApiKey - id not provided!`)
         }
         if (typeof req.body === 'undefined' || !req.body.keyName) {
-            throw new InternalFlowiseError(StatusCodes.PRECONDITION_FAILED, `Error: apikeyController.updateApiKey - keyName not provided!`)
+            throw new AppError(StatusCodes.PRECONDITION_FAILED, `Error: apikeyController.updateApiKey - keyName not provided!`)
         }
         if (
             !req.body.permissions ||
@@ -77,7 +77,7 @@ const updateApiKey = async (req: Request, res: Response, next: NextFunction) => 
             req.body.permissions.length === 0 ||
             !req.body.permissions.every((p: any) => typeof p === 'string')
         ) {
-            throw new InternalFlowiseError(
+            throw new AppError(
                 StatusCodes.PRECONDITION_FAILED,
                 `Error: apikeyController.updateApiKey - permissions must be an array of strings!`
             )
@@ -94,10 +94,10 @@ const updateApiKey = async (req: Request, res: Response, next: NextFunction) => 
 const deleteApiKey = async (req: Request, res: Response, next: NextFunction) => {
     try {
         if (typeof req.params === 'undefined' || !req.params.id) {
-            throw new InternalFlowiseError(StatusCodes.PRECONDITION_FAILED, `Error: apikeyController.deleteApiKey - id not provided!`)
+            throw new AppError(StatusCodes.PRECONDITION_FAILED, `Error: apikeyController.deleteApiKey - id not provided!`)
         }
         if (!req.user?.activeWorkspaceId) {
-            throw new InternalFlowiseError(StatusCodes.PRECONDITION_FAILED, `Workspace ID is required`)
+            throw new AppError(StatusCodes.PRECONDITION_FAILED, `Workspace ID is required`)
         }
         const apiResponse = await apikeyService.deleteApiKey(req.params.id, req.user?.activeWorkspaceId)
         return res.json(apiResponse)
@@ -110,7 +110,7 @@ const deleteApiKey = async (req: Request, res: Response, next: NextFunction) => 
 const verifyApiKey = async (req: Request, res: Response, next: NextFunction) => {
     try {
         if (typeof req.params === 'undefined' || !req.params.apikey) {
-            throw new InternalFlowiseError(StatusCodes.PRECONDITION_FAILED, `Error: apikeyController.verifyApiKey - apikey not provided!`)
+            throw new AppError(StatusCodes.PRECONDITION_FAILED, `Error: apikeyController.verifyApiKey - apikey not provided!`)
         }
         const apiResponse = await apikeyService.verifyApiKey(req.params.apikey)
         return res.json(apiResponse)

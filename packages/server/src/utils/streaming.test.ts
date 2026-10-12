@@ -68,13 +68,13 @@ jest.mock('./getRunningExpressApp', () => ({
 }))
 
 jest.mock('../services/chatflows', () => {
-    const { InternalFlowiseError } = jest.requireActual('../errors/internalFlowiseError')
+    const { AppError } = jest.requireActual('../errors/appError')
     return {
         __esModule: true,
         default: {
             getChatflowById: async (id: string) => {
                 const flow = mockDb.chatflows.get(id)
-                if (!flow) throw new InternalFlowiseError(404, `Chatflow ${id} not found in the database!`)
+                if (!flow) throw new AppError(404, `Chatflow ${id} not found in the database!`)
                 return flow
             },
             checkIfChatflowIsValidForStreaming: async () => ({ isStreaming: true })
@@ -83,7 +83,7 @@ jest.mock('../services/chatflows', () => {
 })
 
 jest.mock('../services/predictions', () => {
-    const { InternalFlowiseError } = jest.requireActual('../errors/internalFlowiseError')
+    const { AppError } = jest.requireActual('../errors/appError')
     const { validateFlowAPIKey } = jest.requireActual('./validateKey')
     return {
         __esModule: true,
@@ -91,8 +91,8 @@ jest.mock('../services/predictions', () => {
             buildChatflow: async (req: any) => {
                 mockState.buildCalls += 1
                 const chatflow = mockDb.chatflows.get(req.params.id)
-                if (!(await validateFlowAPIKey(req, chatflow))) throw new InternalFlowiseError(401, 'Unauthorized')
-                if (mockState.buildError) throw new InternalFlowiseError(mockState.buildError.statusCode, mockState.buildError.message)
+                if (!(await validateFlowAPIKey(req, chatflow))) throw new AppError(401, 'Unauthorized')
+                if (mockState.buildError) throw new AppError(mockState.buildError.statusCode, mockState.buildError.message)
                 return { text: 'ok', chatId: req.body.chatId ?? 'chat-1' }
             }
         }
@@ -103,7 +103,7 @@ jest.mock('../services/predictions', () => {
 import predictionsController from '../controllers/predictions'
 import predictionsRouter from '../routes/predictions'
 import errorHandlerMiddleware from '../middlewares/errors'
-import { InternalFlowiseError } from '../errors/internalFlowiseError'
+import { AppError } from '../errors/appError'
 import { isStreamingRequest, isStreamingValue } from './streaming'
 
 const WS = 'ws-1'
@@ -282,12 +282,7 @@ describe('Streaming errors: errors after access is granted', () => {
 describe('Streaming errors: error handler', () => {
     const run = (headersSent: boolean, body: unknown) => {
         const res: any = { headersSent, setHeader: jest.fn(), status: jest.fn(() => res), json: jest.fn() }
-        errorHandlerMiddleware(
-            new InternalFlowiseError(401, 'Unauthorized'),
-            { body } as Request,
-            res as Response,
-            jest.fn() as NextFunction
-        )
+        errorHandlerMiddleware(new AppError(401, 'Unauthorized'), { body } as Request, res as Response, jest.fn() as NextFunction)
         return res
     }
 

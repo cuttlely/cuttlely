@@ -1,5 +1,5 @@
 import { StatusCodes } from 'http-status-codes'
-import { InternalFlowiseError } from '../../errors/internalFlowiseError'
+import { AppError } from '../../errors/appError'
 
 const mockGetChatflowById = jest.fn()
 const mockGetWebhookSecret = jest.fn()
@@ -81,8 +81,8 @@ describe('validateWebhookChatflow', () => {
         })
     })
 
-    it('preserves InternalFlowiseError without wrapping', async () => {
-        const original = new InternalFlowiseError(StatusCodes.NOT_FOUND, 'already an internal error')
+    it('preserves AppError without wrapping', async () => {
+        const original = new AppError(StatusCodes.NOT_FOUND, 'already an internal error')
         mockGetChatflowById.mockRejectedValue(original)
 
         await expect(webhookService.validateWebhookChatflow('some-id')).rejects.toBe(original)

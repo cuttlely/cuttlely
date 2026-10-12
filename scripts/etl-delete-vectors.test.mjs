@@ -4,7 +4,7 @@ import { describe, it } from 'node:test'
 
 describe('ETL pipeline delete', () => {
     it('removes the vectors it wrote (including an earlier store), keeps other pipelines in a shared collection, blocks runs meanwhile, and survives a store that is down', async () => {
-        await import('../etl/check/purge.mjs')
+        await import('../packages/etl/check/purge.mjs')
         if (process.exitCode) throw new Error('an etl:check purge case failed; see the FAIL line above')
     })
 })

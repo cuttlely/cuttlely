@@ -3,7 +3,7 @@ import { RateLimiterManager } from '../../utils/rateLimit'
 import chatflowsService from '../../services/chatflows'
 import logger from '../../utils/logger'
 import predictionsServices from '../../services/predictions'
-import { InternalFlowiseError } from '../../errors/internalFlowiseError'
+import { AppError } from '../../errors/appError'
 import { StatusCodes } from 'http-status-codes'
 import { getRunningExpressApp } from '../../utils/getRunningExpressApp'
 import { getErrorMessage } from '../../errors/utils'
@@ -19,22 +19,16 @@ import { validateFlowAPIKey } from '../../utils/validateKey'
 const createPrediction = async (req: Request, res: Response, next: NextFunction) => {
     try {
         if (typeof req.params === 'undefined' || !req.params.id) {
-            throw new InternalFlowiseError(
-                StatusCodes.PRECONDITION_FAILED,
-                `Error: predictionsController.createPrediction - id not provided!`
-            )
+            throw new AppError(StatusCodes.PRECONDITION_FAILED, `Error: predictionsController.createPrediction - id not provided!`)
         }
         if (!req.body) {
-            throw new InternalFlowiseError(
-                StatusCodes.PRECONDITION_FAILED,
-                `Error: predictionsController.createPrediction - body not provided!`
-            )
+            throw new AppError(StatusCodes.PRECONDITION_FAILED, `Error: predictionsController.createPrediction - body not provided!`)
         }
         const workspaceId = req.user?.activeWorkspaceId
 
         const chatflow = await chatflowsService.getChatflowById(req.params.id, workspaceId)
         if (!chatflow) {
-            throw new InternalFlowiseError(StatusCodes.NOT_FOUND, `Chatflow ${req.params.id} not found`)
+            throw new AppError(StatusCodes.NOT_FOUND, `Chatflow ${req.params.id} not found`)
         }
         logger.info(`[server]: Request originated from ${req.headers.origin || 'UNKNOWN ORIGIN'}`)
         // authorizePrediction already applied this rule before multer; kept here so the controller stays safe on its own.
@@ -43,7 +37,7 @@ const createPrediction = async (req: Request, res: Response, next: NextFunction)
             // flushHeaders() commits HTTP 200. A missing or wrong flow key has to fail here, before any SSE
             // header, because the same check inside utilBuildChatflow cannot change the status once the stream has started.
             if (!(await validateFlowAPIKey(req, chatflow))) {
-                throw new InternalFlowiseError(StatusCodes.UNAUTHORIZED, 'Unauthorized')
+                throw new AppError(StatusCodes.UNAUTHORIZED, 'Unauthorized')
             }
             const streamable = await chatflowsService.checkIfChatflowIsValidForStreaming(req.params.id)
             if (streamable?.isStreaming && isStreamingRequest(req)) {
@@ -90,7 +84,7 @@ const createPrediction = async (req: Request, res: Response, next: NextFunction)
             if (isStreamingRequest(req)) {
                 return res.status(StatusCodes.FORBIDDEN).send(unauthorizedOriginError)
             }
-            throw new InternalFlowiseError(StatusCodes.FORBIDDEN, unauthorizedOriginError)
+            throw new AppError(StatusCodes.FORBIDDEN, unauthorizedOriginError)
         }
     } catch (error) {
         next(error)

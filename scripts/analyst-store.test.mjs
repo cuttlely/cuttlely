@@ -33,8 +33,8 @@ import {
     rowPageSummary
 } from './analyst-store.mjs'
 import { analystPageRequest, parseSimpleSelect } from './analyst-page.mjs'
-import { queryAnalyst as runtimeQueryAnalyst } from '../harness/runtime/analyst-store.mjs'
-import { analystPageRequest as runtimePageRequest } from '../harness/runtime/analyst-page.mjs'
+import { queryAnalyst as runtimeQueryAnalyst } from '../packages/harness/runtime/analyst-store.mjs'
+import { analystPageRequest as runtimePageRequest } from '../packages/harness/runtime/analyst-page.mjs'
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const require = createRequire(path.join(ROOT, 'packages/components/package.json'))

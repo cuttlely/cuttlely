@@ -4,7 +4,7 @@ import { getRunningExpressApp } from '../../utils/getRunningExpressApp'
 import { UpsertHistory } from '../../database/entities/UpsertHistory'
 import { ChatFlow } from '../../database/entities/ChatFlow'
 import { DocumentStore } from '../../database/entities/DocumentStore'
-import { InternalFlowiseError } from '../../errors/internalFlowiseError'
+import { AppError } from '../../errors/appError'
 import { getErrorMessage } from '../../errors/utils'
 
 const getAllUpsertHistory = async (
@@ -45,7 +45,7 @@ const getAllUpsertHistory = async (
 
         return upsertHistory
     } catch (error) {
-        throw new InternalFlowiseError(
+        throw new AppError(
             StatusCodes.INTERNAL_SERVER_ERROR,
             `Error: upsertHistoryServices.getAllUpsertHistory - ${getErrorMessage(error)}`
         )
@@ -56,10 +56,7 @@ const patchDeleteUpsertHistory = async (ids: string[] = [], workspaceId: string)
     try {
         const uniqueIds = [...new Set((ids ?? []).filter((id) => typeof id === 'string' && id.length > 0))]
         if (uniqueIds.length === 0) {
-            throw new InternalFlowiseError(
-                StatusCodes.BAD_REQUEST,
-                'Error: upsertHistoryServices.patchDeleteUpsertHistory - ids are required!'
-            )
+            throw new AppError(StatusCodes.BAD_REQUEST, 'Error: upsertHistoryServices.patchDeleteUpsertHistory - ids are required!')
         }
 
         const appServer = getRunningExpressApp()
@@ -75,7 +72,7 @@ const patchDeleteUpsertHistory = async (ids: string[] = [], workspaceId: string)
                 select: ['id', 'chatflowid']
             })
             if (rows.length !== uniqueIds.length) {
-                throw new InternalFlowiseError(
+                throw new AppError(
                     StatusCodes.NOT_FOUND,
                     'Error: upsertHistoryServices.patchDeleteUpsertHistory - one or more upsert history records were not found!'
                 )
@@ -94,7 +91,7 @@ const patchDeleteUpsertHistory = async (ids: string[] = [], workspaceId: string)
                 const foundDocStoreIds = new Set(foundDocStores.map((d) => d.id))
                 const unauthorizedIds = remainingIds.filter((id) => !foundDocStoreIds.has(id))
                 if (unauthorizedIds.length > 0) {
-                    throw new InternalFlowiseError(
+                    throw new AppError(
                         StatusCodes.NOT_FOUND,
                         'Error: upsertHistoryServices.patchDeleteUpsertHistory - one or more upsert history records were not found in the workspace!'
                     )
@@ -111,10 +108,10 @@ const patchDeleteUpsertHistory = async (ids: string[] = [], workspaceId: string)
             if (queryRunner && !queryRunner.isReleased) await queryRunner.release()
         }
     } catch (error) {
-        if (error instanceof InternalFlowiseError) {
+        if (error instanceof AppError) {
             throw error
         }
-        throw new InternalFlowiseError(
+        throw new AppError(
             StatusCodes.INTERNAL_SERVER_ERROR,
             `Error: upsertHistoryServices.patchDeleteUpsertHistory - ${getErrorMessage(error)}`
         )
