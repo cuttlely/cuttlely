@@ -174,6 +174,10 @@ The server is not an npm package: a full install needs the Python agent runtime,
 
 `packages/components` is the package `@cuttlely/components`. Package names follow `ARCHITECTURE.md`. Path names, environment variable names, and data names stay stable. Saved custom functions and custom tools may still require the earlier specifier when an operator has allowed it through `TOOL_FUNCTION_EXTERNAL_DEP`. A compatibility alias on the workspace root keeps that require working. This narrows D1 for this package. Other packages may still use the engine's package name.
 
-## D44. Vendor the measured agent-runtime subset
+## D44. The server, UI and API docs packages have their own names
+
+`packages/server` is `@cuttlely/server`. `packages/ui` is `@cuttlely/ui`. `packages/api-documentation` is `@cuttlely/api-docs`. These packages stay private. Commands, repository paths, and the server CLI keep working. The server CLI keeps its existing bin entry and adds `cuttlely-server` on the same script. The CLI config, data, and cache directories stay on the existing directory name, so a theme file or a CLI plugin already on disk is still read. Application code does not read those directories. The server finds the UI build through the UI package name. This supersedes the last sentence of D43.
+
+## D45. Vendor the measured agent-runtime subset
 
 `hermes/CUTTLELY_LOADED.txt` is the list of agent runtime files a harness run loads. `pnpm hermes:vendor` still applies `hermes/CUTTLELY_EXCLUDE.txt` first, then keeps only the listed files plus package `__init__` files, license and attribution files, data files a kept module names, and files a local patch edits. `node scripts/measure-runtime-loads.mjs` rewrites the list; `--check` fails when a measured module is missing. Re-measure after an upstream bump and vendor that same pin. Why: messaging platforms, the plugin catalog, optional MCP descriptors and unused locale catalogs are not part of a harness run, and a measured list keeps that cut reviewable. This adds to D2; the pin, the patches and the exclude list stay.

@@ -764,6 +764,9 @@ importers:
       '@cuttlely/components':
         specifier: workspace:^
         version: link:../components
+      '@cuttlely/ui':
+        specifier: workspace:^
+        version: link:../ui
       '@google-cloud/logging-winston':
         specifier: ^6.0.0
         version: 6.0.0(encoding@0.1.13)(winston@3.12.0)
@@ -842,9 +845,6 @@ importers:
       flowise-nim-container-manager:
         specifier: ^1.0.11
         version: 1.0.11
-      flowise-ui:
-        specifier: workspace:^
-        version: link:../ui
       geoip-lite:
         specifier: ^2.0.3
         version: 2.0.3

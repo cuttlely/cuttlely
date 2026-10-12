@@ -1313,6 +1313,10 @@
         {
             "path": "packages/server/src/metrics/Prometheus.test.ts",
             "reason": "metrics prefix test sits beside the metrics provider"
+        },
+        {
+            "path": "packages/server/src/utils/telemetry-geoip-missing.test.ts",
+            "reason": "Server unit test for geolocation when the database package is absent."
         }
     ]
 }

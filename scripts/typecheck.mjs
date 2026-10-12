@@ -14,12 +14,12 @@ function main() {
     // emitDeclarationOnly typechecks components and writes the .d.ts files that check needs.
     console.log('typecheck @cuttlely/components')
     run(['--emitDeclarationOnly', '-p', 'packages/components/tsconfig.json'])
-    console.log('typecheck flowise')
+    console.log('typecheck @cuttlely/server')
     run(['--noEmit', '-p', 'packages/server/tsconfig.json'])
-    console.log('typecheck flowise-ui: no TypeScript project; the UI build step covers that package')
+    console.log('typecheck @cuttlely/ui: no TypeScript project; the UI build step covers that package')
     // CI runs `pnpm build`, which includes the API docs package. The verify build step does not.
     // `tsc --noEmit` is the type check that package runs (its build script is tsc only).
-    console.log('typecheck flowise-api')
+    console.log('typecheck @cuttlely/api-docs')
     run(['--noEmit', '-p', 'packages/api-documentation/tsconfig.json'])
 }
 
