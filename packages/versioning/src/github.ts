@@ -162,6 +162,69 @@ function apiBase(): string {
     return test && testRoot() ? test.replace(/\/+$/, '') : API
 }
 
+function trimTrailingSlashes(value: string): string {
+    let end = value.length
+    while (end > 0 && value[end - 1] === '/') end--
+    return end === value.length ? value : value.slice(0, end)
+}
+
+function withoutGitSuffix(value: string): string {
+    if (value.length < 4 || value[value.length - 4] !== '.') return value
+    const suffix = value.slice(value.length - 3)
+    if (suffix[0] !== 'g' && suffix[0] !== 'G') return value
+    if (suffix[1] !== 'i' && suffix[1] !== 'I') return value
+    if (suffix[2] !== 't' && suffix[2] !== 'T') return value
+    return value.slice(0, -4)
+}
+
+function isLineEnd(ch: string): boolean {
+    return ch === '\n' || ch === '\r' || ch === '\u2028' || ch === '\u2029'
+}
+
+// The whitespace set a JavaScript regular expression uses for \s, one character at a time.
+function isJsWhitespace(ch: string): boolean {
+    const c = ch.charCodeAt(0)
+    return (
+        c === 0x20 ||
+        c === 0x09 ||
+        c === 0x0a ||
+        c === 0x0b ||
+        c === 0x0c ||
+        c === 0x0d ||
+        c === 0x00a0 ||
+        c === 0x1680 ||
+        (c >= 0x2000 && c <= 0x200a) ||
+        c === 0x2028 ||
+        c === 0x2029 ||
+        c === 0x202f ||
+        c === 0x205f ||
+        c === 0x3000 ||
+        c === 0xfeff
+    )
+}
+
+// "rejected", then whitespace, then "main" later on that same line. The text is already lower case.
+// Walking forward once stays linear when the gap before "main" is a long run of spaces.
+function rejectedThenMain(text: string): boolean {
+    const needle = 'rejected'
+    let from = 0
+    while (from <= text.length - needle.length) {
+        const at = text.indexOf(needle, from)
+        if (at < 0) return false
+        let i = at + needle.length
+        if (i >= text.length || !isJsWhitespace(text[i])) {
+            from = at + needle.length
+            continue
+        }
+        while (i < text.length && isJsWhitespace(text[i])) i++
+        let lineEnd = i
+        while (lineEnd < text.length && !isLineEnd(text[lineEnd])) lineEnd++
+        if (text.slice(i, lineEnd).includes('main')) return true
+        from = at + needle.length
+    }
+    return false
+}
+
 // "owner/repo", "https://github.com/owner/repo" or ".../repo.git" becomes owner/repo and its HTTPS URL.
 // A local bare repo (file:///path) is accepted only with CUTTLELY_GITHUB_ALLOW_FILE_REMOTES=on, for tests.
 export function parseRepo(input: string): { repo: string; url: string } {
@@ -181,7 +244,7 @@ export function parseRepo(input: string): { repo: string; url: string } {
     else if (/^[a-z]+:\/\//i.test(text) || text.includes('@')) {
         throw new GithubError(400, 'Enter a github.com repository as owner/name or as its https://github.com address.')
     }
-    rest = rest.replace(/\/+$/, '').replace(/\.git$/i, '')
+    rest = withoutGitSuffix(trimTrailingSlashes(rest))
     const parts = rest.split('/')
     if (parts.length !== 2) throw new GithubError(400, 'Enter the repository as owner/name, for example acme/cuttlely-flows.')
     const [owner, name] = parts
@@ -247,7 +310,13 @@ export function classifyFailure(stderr: string, repo: string, timedOut = false):
             message: `GitHub refused the copy because a rule on ${repo} protects it. Let this token update the repository, or turn the rule off for it, then select Try again.`
         }
     }
-    if (/non-fast-forward|fetch first|\[rejected\]|updates were rejected|rejected\s+.*main/.test(text)) {
+    if (
+        text.includes('non-fast-forward') ||
+        text.includes('fetch first') ||
+        text.includes('[rejected]') ||
+        text.includes('updates were rejected') ||
+        rejectedThenMain(text)
+    ) {
         return {
             kind: 'diverged',
             retry: false,

@@ -272,6 +272,17 @@ describe('flow file serializer', () => {
         expect(flowFolderName(meta)).toBe('sales-desk--0b5c3a1e')
     })
 
+    test('a slug trims separator runs without keeping a dash at either end', () => {
+        expect(flowSlug('')).toBe('flow')
+        expect(flowSlug('-')).toBe('flow')
+        expect(flowSlug('---')).toBe('flow')
+        expect(flowSlug('-'.repeat(200))).toBe('flow')
+        expect(flowSlug('   ')).toBe('flow')
+        expect(flowSlug(' ' + 'a'.repeat(39) + '-' + 'b')).toBe('a'.repeat(39))
+        expect(flowSlug('a'.repeat(40) + '---tail')).toBe('a'.repeat(40))
+        expect(flowSlug('Hello---World')).toBe('hello-world')
+    })
+
     test('a node id that would collide with a definition file gets its own name', () => {
         const flow: FlowData = {
             nodes: [

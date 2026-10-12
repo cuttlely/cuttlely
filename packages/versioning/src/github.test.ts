@@ -185,13 +185,20 @@ describe('repository and token input', () => {
         [' acme/flows.git ', 'acme/flows'],
         ['https://github.com/acme/flows', 'acme/flows'],
         ['https://github.com/acme/flows.git/', 'acme/flows'],
-        ['https://www.github.com/Acme-Co/my.flows_1', 'Acme-Co/my.flows_1']
+        ['https://www.github.com/Acme-Co/my.flows_1', 'Acme-Co/my.flows_1'],
+        ['acme/flows.GIT', 'acme/flows'],
+        ['acme/flows.GiT', 'acme/flows'],
+        [`acme/flows${'/'.repeat(80)}`, 'acme/flows'],
+        [`acme/flows.git${'/'.repeat(40)}`, 'acme/flows']
     ])('%s is %s on github.com', (input, repo) => {
         expect(parseRepo(input)).toEqual({ repo, url: `https://github.com/${repo}.git` })
     })
 
     test.each([
         '',
+        '/',
+        '/'.repeat(40),
+        '.git',
         'flows',
         'acme/flows/extra',
         'git@github.com:acme/flows.git',
@@ -257,6 +264,13 @@ describe('repository and token input', () => {
 
     test('a timeout is a network failure that retries', () => {
         expect(classifyFailure('', 'acme/flows', true)).toMatchObject({ kind: 'network', retry: true })
+    })
+
+    test('a long whitespace run before main is a rejected copy', () => {
+        expect(classifyFailure(`rejected${' '.repeat(4000)}main`, 'acme/flows').kind).toBe('diverged')
+        expect(classifyFailure('rejected\nmain', 'acme/flows').kind).toBe('diverged')
+        expect(classifyFailure(`rejected${' '.repeat(80)}other`, 'acme/flows').kind).toBe('other')
+        expect(classifyFailure('rejected foo\nmain', 'acme/flows').kind).toBe('other')
     })
 })
 

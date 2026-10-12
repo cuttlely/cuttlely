@@ -144,14 +144,30 @@ export function safeName(value: string): string {
     return cleaned.replace(/^\.+/, '_') || '_'
 }
 
+function isSlugChar(ch: string): boolean {
+    return (ch >= 'a' && ch <= 'z') || (ch >= '0' && ch <= '9')
+}
+
+// Collapses separators to one dash, drops dashes at either end, then keeps 40 characters.
+// Walking the string once stays linear when the input is a long run of the same character.
 export function flowSlug(name: string): string {
-    const slug = String(name || '')
-        .toLowerCase()
-        .replace(/[^a-z0-9]+/g, '-')
-        .replace(/^-+|-+$/g, '')
-        .slice(0, 40)
-        .replace(/-+$/g, '')
-    return slug || 'flow'
+    const lower = String(name || '').toLowerCase()
+    let dashed = ''
+    let pendingDash = false
+    for (let i = 0; i < lower.length; i++) {
+        const ch = lower[i]
+        if (isSlugChar(ch)) {
+            if (pendingDash && dashed) dashed += '-'
+            dashed += ch
+            pendingDash = false
+        } else {
+            pendingDash = true
+        }
+    }
+    if (dashed.length > 40) dashed = dashed.slice(0, 40)
+    let end = dashed.length
+    while (end > 0 && dashed[end - 1] === '-') end--
+    return (end === dashed.length ? dashed : dashed.slice(0, end)) || 'flow'
 }
 
 // The flow uuid is in the folder name so two flows with one name never collide.

@@ -77,8 +77,14 @@ function entropy(text: string): number {
 }
 
 // A long token that is not a word, a path, or a URL: mixed letters and digits and high entropy.
+function withoutTrailingEquals(token: string): string {
+    let end = token.length
+    while (end > 0 && token[end - 1] === '=') end--
+    return end === token.length ? token : token.slice(0, end)
+}
+
 export function looksRandom(token: string, minLength = 20, minBits = 3.5): boolean {
-    const value = token.replace(/=+$/, '')
+    const value = withoutTrailingEquals(token)
     if (value.length < minLength) return false
     if (value === P || value.includes('://')) return false
     const classes = [/[a-z]/, /[A-Z]/, /[0-9]/].filter((re) => re.test(value)).length
