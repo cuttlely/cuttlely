@@ -1,5 +1,7 @@
 import PropTypes from 'prop-types'
 import { useContext, useState } from 'react'
+import { useSelector } from 'react-redux'
+import { useEdges } from 'reactflow'
 
 // material-ui
 import { styled, useTheme } from '@mui/material/styles'
@@ -12,6 +14,8 @@ import NodeOutputHandler from '@/views/canvas/NodeOutputHandler'
 import AdditionalParamsDialog from '@/ui-component/dialog/AdditionalParamsDialog'
 import CompactCardBody, { COMPACT_CARD_WIDTH } from '@/views/canvas/CompactCardBody'
 import { CanvasPanelContext } from '@/store/context/CanvasPanelContext'
+import { missingNodeInfo } from '@/utils/missingNode'
+import MissingNodeCard from '@/views/canvas/MissingNodeCard'
 
 // const
 import { baseURL } from '@/store/constant'
@@ -34,14 +38,17 @@ const CardWrapper = styled(MainCard)(({ theme }) => ({
 
 const MarketplaceCanvasNode = ({ data }) => {
     const theme = useTheme()
+    const canvas = useSelector((state) => state.canvas)
+    const edges = useEdges()
     const { compact } = useContext(CanvasPanelContext)
     const node = data || {}
+    const [showDialog, setShowDialog] = useState(false)
+    const [dialogProps, setDialogProps] = useState({})
+    const missing = missingNodeInfo(node, canvas?.componentNodes, canvas?.nodePackIndex)
+    if (missing) return <MissingNodeCard data={node} message={missing.message} edges={edges} />
     const inputAnchors = Array.isArray(node.inputAnchors) ? node.inputAnchors : []
     const inputParams = Array.isArray(node.inputParams) ? node.inputParams : []
     const outputAnchors = Array.isArray(node.outputAnchors) ? node.outputAnchors : []
-
-    const [showDialog, setShowDialog] = useState(false)
-    const [dialogProps, setDialogProps] = useState({})
 
     const onDialogClicked = () => {
         const dialogProps = {

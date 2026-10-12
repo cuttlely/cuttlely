@@ -168,6 +168,16 @@ describe('saving a draft', () => {
         expect(rows[0].draftFlowData).toBeNull()
     })
 
+    test('a matching canvas is not kept as a draft when stamping would be the only write', async () => {
+        const live = JSON.stringify({
+            nodes: [{ id: 'serpAPI_0', position: { x: 1, y: 2 }, data: { name: 'serpAPI', label: 'Serp API', inputs: {} } }],
+            edges: []
+        })
+        const status = await saveDraft(flow({ flowData: live }), live, context)
+        expect(status.draft).toBeNull()
+        expect(rows).toEqual([])
+    })
+
     test('an API key save records no user', async () => {
         const status = await saveDraft(flow(), canvas('Draft'), { ...context, userId: null })
         expect(status.draft?.updatedBy).toBeNull()

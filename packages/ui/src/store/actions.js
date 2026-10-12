@@ -14,6 +14,7 @@ export const SET_CHATFLOW = '@canvas/SET_CHATFLOW'
 export const SHOW_CANVAS_DIALOG = '@canvas/SHOW_CANVAS_DIALOG'
 export const HIDE_CANVAS_DIALOG = '@canvas/HIDE_CANVAS_DIALOG'
 export const SET_COMPONENT_NODES = '@canvas/SET_COMPONENT_NODES'
+export const SET_NODE_PACK_INDEX = '@canvas/SET_NODE_PACK_INDEX'
 export const SET_COMPONENT_CREDENTIALS = '@canvas/SET_COMPONENT_CREDENTIALS'
 
 // action - notifier reducer

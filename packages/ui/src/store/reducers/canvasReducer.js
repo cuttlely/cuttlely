@@ -6,6 +6,7 @@ export const initialState = {
     chatflow: null,
     canvasDialogShow: false,
     componentNodes: [],
+    nodePackIndex: [],
     componentCredentials: []
 }
 
@@ -42,6 +43,11 @@ const canvasReducer = (state = initialState, action) => {
             return {
                 ...state,
                 componentNodes: action.componentNodes
+            }
+        case actionTypes.SET_NODE_PACK_INDEX:
+            return {
+                ...state,
+                nodePackIndex: action.nodePackIndex
             }
         case actionTypes.SET_COMPONENT_CREDENTIALS:
             return {

@@ -1,0 +1,439 @@
+{
+    "nodes": [
+        {
+            "name": "DynamoDBChatMemory",
+            "label": "DynamoDB Chat Memory",
+            "pack": "@cuttlely/node-pack-caches-memory"
+        },
+        {
+            "name": "inMemoryCache",
+            "label": "InMemory Cache",
+            "pack": "@cuttlely/node-pack-caches-memory"
+        },
+        {
+            "name": "inMemoryEmbeddingCache",
+            "label": "InMemory Embedding Cache",
+            "pack": "@cuttlely/node-pack-caches-memory"
+        },
+        {
+            "name": "mem0",
+            "label": "Mem0",
+            "pack": "@cuttlely/node-pack-caches-memory"
+        },
+        {
+            "name": "momentoCache",
+            "label": "Momento Cache",
+            "pack": "@cuttlely/node-pack-caches-memory"
+        },
+        {
+            "name": "MongoDBAtlasChatMemory",
+            "label": "MongoDB Atlas Chat Memory",
+            "pack": "@cuttlely/node-pack-caches-memory"
+        },
+        {
+            "name": "RedisBackedChatMemory",
+            "label": "Redis-Backed Chat Memory",
+            "pack": "@cuttlely/node-pack-caches-memory"
+        },
+        {
+            "name": "redisCache",
+            "label": "Redis Cache",
+            "pack": "@cuttlely/node-pack-caches-memory"
+        },
+        {
+            "name": "redisEmbeddingsCache",
+            "label": "Redis Embeddings Cache",
+            "pack": "@cuttlely/node-pack-caches-memory"
+        },
+        {
+            "name": "upstashRedisBackedChatMemory",
+            "label": "Upstash Redis-Backed Chat Memory",
+            "pack": "@cuttlely/node-pack-caches-memory"
+        },
+        {
+            "name": "upstashRedisCache",
+            "label": "Upstash Redis Cache",
+            "pack": "@cuttlely/node-pack-caches-memory"
+        },
+        {
+            "name": "ZepMemory",
+            "label": "Zep Memory - Open Source",
+            "pack": "@cuttlely/node-pack-caches-memory"
+        },
+        {
+            "name": "ZepMemoryCloud",
+            "label": "Zep Memory - Cloud",
+            "pack": "@cuttlely/node-pack-caches-memory"
+        },
+        {
+            "name": "awsBedrock",
+            "label": "AWS Bedrock",
+            "pack": "@cuttlely/node-pack-legacy-chains"
+        },
+        {
+            "name": "azureOpenAI",
+            "label": "Azure OpenAI",
+            "pack": "@cuttlely/node-pack-legacy-chains"
+        },
+        {
+            "name": "cohere",
+            "label": "Cohere",
+            "pack": "@cuttlely/node-pack-legacy-chains"
+        },
+        {
+            "name": "fireworks",
+            "label": "Fireworks",
+            "pack": "@cuttlely/node-pack-legacy-chains"
+        },
+        {
+            "name": "getApiChain",
+            "label": "GET API Chain",
+            "pack": "@cuttlely/node-pack-legacy-chains"
+        },
+        {
+            "name": "googlevertexai",
+            "label": "GoogleVertexAI",
+            "pack": "@cuttlely/node-pack-legacy-chains"
+        },
+        {
+            "name": "huggingFaceInference_LLMs",
+            "label": "HuggingFace Inference",
+            "pack": "@cuttlely/node-pack-legacy-chains"
+        },
+        {
+            "name": "ibmWatsonx",
+            "label": "IBMWatsonx",
+            "pack": "@cuttlely/node-pack-legacy-chains"
+        },
+        {
+            "name": "multiPromptChain",
+            "label": "Multi Prompt Chain",
+            "pack": "@cuttlely/node-pack-legacy-chains"
+        },
+        {
+            "name": "multiRetrievalQAChain",
+            "label": "Multi Retrieval QA Chain",
+            "pack": "@cuttlely/node-pack-legacy-chains"
+        },
+        {
+            "name": "ollama",
+            "label": "Ollama",
+            "pack": "@cuttlely/node-pack-legacy-chains"
+        },
+        {
+            "name": "openAI",
+            "label": "OpenAI",
+            "pack": "@cuttlely/node-pack-legacy-chains"
+        },
+        {
+            "name": "openApiChain",
+            "label": "OpenAPI Chain",
+            "pack": "@cuttlely/node-pack-legacy-chains"
+        },
+        {
+            "name": "postApiChain",
+            "label": "POST API Chain",
+            "pack": "@cuttlely/node-pack-legacy-chains"
+        },
+        {
+            "name": "replicate",
+            "label": "Replicate",
+            "pack": "@cuttlely/node-pack-legacy-chains"
+        },
+        {
+            "name": "retrievalQAChain",
+            "label": "Retrieval QA Chain",
+            "pack": "@cuttlely/node-pack-legacy-chains"
+        },
+        {
+            "name": "sambanova",
+            "label": "Sambanova",
+            "pack": "@cuttlely/node-pack-legacy-chains"
+        },
+        {
+            "name": "togetherAI",
+            "label": "TogetherAI",
+            "pack": "@cuttlely/node-pack-legacy-chains"
+        },
+        {
+            "name": "vectorDBQAChain",
+            "label": "VectorDB QA Chain",
+            "pack": "@cuttlely/node-pack-legacy-chains"
+        },
+        {
+            "name": "arxiv",
+            "label": "Arxiv",
+            "pack": "@cuttlely/node-pack-tools-mcp"
+        },
+        {
+            "name": "awsSNS",
+            "label": "AWS SNS",
+            "pack": "@cuttlely/node-pack-tools-mcp"
+        },
+        {
+            "name": "braveSearchAPI",
+            "label": "BraveSearch API",
+            "pack": "@cuttlely/node-pack-tools-mcp"
+        },
+        {
+            "name": "braveSearchMCP",
+            "label": "Brave Search MCP",
+            "pack": "@cuttlely/node-pack-tools-mcp"
+        },
+        {
+            "name": "browserlessMCP",
+            "label": "Browserless MCP",
+            "pack": "@cuttlely/node-pack-tools-mcp"
+        },
+        {
+            "name": "codeInterpreterE2B",
+            "label": "Code Interpreter by E2B",
+            "pack": "@cuttlely/node-pack-tools-mcp"
+        },
+        {
+            "name": "composio",
+            "label": "Composio",
+            "pack": "@cuttlely/node-pack-tools-mcp"
+        },
+        {
+            "name": "exaSearch",
+            "label": "Exa Search",
+            "pack": "@cuttlely/node-pack-tools-mcp"
+        },
+        {
+            "name": "githubMCP",
+            "label": "Github MCP",
+            "pack": "@cuttlely/node-pack-tools-mcp"
+        },
+        {
+            "name": "gmail",
+            "label": "Gmail",
+            "pack": "@cuttlely/node-pack-tools-mcp"
+        },
+        {
+            "name": "googleCalendarTool",
+            "label": "Google Calendar",
+            "pack": "@cuttlely/node-pack-tools-mcp"
+        },
+        {
+            "name": "googleCustomSearch",
+            "label": "Google Custom Search",
+            "pack": "@cuttlely/node-pack-tools-mcp"
+        },
+        {
+            "name": "googleDocsTool",
+            "label": "Google Docs",
+            "pack": "@cuttlely/node-pack-tools-mcp"
+        },
+        {
+            "name": "googleDriveTool",
+            "label": "Google Drive",
+            "pack": "@cuttlely/node-pack-tools-mcp"
+        },
+        {
+            "name": "googleSheetsTool",
+            "label": "Google Sheets",
+            "pack": "@cuttlely/node-pack-tools-mcp"
+        },
+        {
+            "name": "jiraTool",
+            "label": "Jira",
+            "pack": "@cuttlely/node-pack-tools-mcp"
+        },
+        {
+            "name": "microsoftOutlook",
+            "label": "Microsoft Outlook",
+            "pack": "@cuttlely/node-pack-tools-mcp"
+        },
+        {
+            "name": "microsoftTeams",
+            "label": "Microsoft Teams",
+            "pack": "@cuttlely/node-pack-tools-mcp"
+        },
+        {
+            "name": "pipedreamMCP",
+            "label": "Pipedream MCP",
+            "pack": "@cuttlely/node-pack-tools-mcp"
+        },
+        {
+            "name": "searchAPI",
+            "label": "SearchApi",
+            "pack": "@cuttlely/node-pack-tools-mcp"
+        },
+        {
+            "name": "searXNG",
+            "label": "SearXNG",
+            "pack": "@cuttlely/node-pack-tools-mcp"
+        },
+        {
+            "name": "sequentialThinkingMCP",
+            "label": "Sequential Thinking MCP",
+            "pack": "@cuttlely/node-pack-tools-mcp"
+        },
+        {
+            "name": "serpAPI",
+            "label": "Serp API",
+            "pack": "@cuttlely/node-pack-tools-mcp"
+        },
+        {
+            "name": "serper",
+            "label": "Serper",
+            "pack": "@cuttlely/node-pack-tools-mcp"
+        },
+        {
+            "name": "slackMCP",
+            "label": "Slack MCP",
+            "pack": "@cuttlely/node-pack-tools-mcp"
+        },
+        {
+            "name": "stripeAgentTool",
+            "label": "StripeAgentTool",
+            "pack": "@cuttlely/node-pack-tools-mcp"
+        },
+        {
+            "name": "supergatewayMCP",
+            "label": "Supergateway MCP",
+            "pack": "@cuttlely/node-pack-tools-mcp"
+        },
+        {
+            "name": "tavilyAPI",
+            "label": "Tavily API",
+            "pack": "@cuttlely/node-pack-tools-mcp"
+        },
+        {
+            "name": "teradataMCP",
+            "label": "Teradata MCP",
+            "pack": "@cuttlely/node-pack-tools-mcp"
+        },
+        {
+            "name": "wolframAlpha",
+            "label": "WolframAlpha",
+            "pack": "@cuttlely/node-pack-tools-mcp"
+        },
+        {
+            "name": "Astra",
+            "label": "Astra",
+            "pack": "@cuttlely/node-pack-vector-stores"
+        },
+        {
+            "name": "chroma",
+            "label": "Chroma",
+            "pack": "@cuttlely/node-pack-vector-stores"
+        },
+        {
+            "name": "couchbase",
+            "label": "Couchbase",
+            "pack": "@cuttlely/node-pack-vector-stores"
+        },
+        {
+            "name": "documentStoreVS",
+            "label": "Document Store (Vector)",
+            "pack": "@cuttlely/node-pack-vector-stores"
+        },
+        {
+            "name": "elasticsearch",
+            "label": "Elasticsearch",
+            "pack": "@cuttlely/node-pack-vector-stores"
+        },
+        {
+            "name": "etlLocalVectorStore",
+            "label": "Local Vector Store",
+            "pack": "@cuttlely/node-pack-vector-stores"
+        },
+        {
+            "name": "faiss",
+            "label": "Faiss",
+            "pack": "@cuttlely/node-pack-vector-stores"
+        },
+        {
+            "name": "kendra",
+            "label": "AWS Kendra",
+            "pack": "@cuttlely/node-pack-vector-stores"
+        },
+        {
+            "name": "meilisearch",
+            "label": "Meilisearch",
+            "pack": "@cuttlely/node-pack-vector-stores"
+        },
+        {
+            "name": "memoryVectorStore",
+            "label": "In-Memory Vector Store",
+            "pack": "@cuttlely/node-pack-vector-stores"
+        },
+        {
+            "name": "milvus",
+            "label": "Milvus",
+            "pack": "@cuttlely/node-pack-vector-stores"
+        },
+        {
+            "name": "mongoDBAtlas",
+            "label": "MongoDB Atlas",
+            "pack": "@cuttlely/node-pack-vector-stores"
+        },
+        {
+            "name": "openSearch",
+            "label": "OpenSearch",
+            "pack": "@cuttlely/node-pack-vector-stores"
+        },
+        {
+            "name": "pinecone",
+            "label": "Pinecone",
+            "pack": "@cuttlely/node-pack-vector-stores"
+        },
+        {
+            "name": "postgres",
+            "label": "Postgres",
+            "pack": "@cuttlely/node-pack-vector-stores"
+        },
+        {
+            "name": "qdrant",
+            "label": "Qdrant",
+            "pack": "@cuttlely/node-pack-vector-stores"
+        },
+        {
+            "name": "redis",
+            "label": "Redis",
+            "pack": "@cuttlely/node-pack-vector-stores"
+        },
+        {
+            "name": "singlestore",
+            "label": "SingleStore",
+            "pack": "@cuttlely/node-pack-vector-stores"
+        },
+        {
+            "name": "supabase",
+            "label": "Supabase",
+            "pack": "@cuttlely/node-pack-vector-stores"
+        },
+        {
+            "name": "upstash",
+            "label": "Upstash Vector",
+            "pack": "@cuttlely/node-pack-vector-stores"
+        },
+        {
+            "name": "vectara",
+            "label": "Vectara",
+            "pack": "@cuttlely/node-pack-vector-stores"
+        },
+        {
+            "name": "vectaraUpload",
+            "label": "Vectara Upload File",
+            "pack": "@cuttlely/node-pack-vector-stores"
+        },
+        {
+            "name": "weaviate",
+            "label": "Weaviate",
+            "pack": "@cuttlely/node-pack-vector-stores"
+        },
+        {
+            "name": "zep",
+            "label": "Zep Collection - Open Source",
+            "pack": "@cuttlely/node-pack-vector-stores"
+        },
+        {
+            "name": "zepCloud",
+            "label": "Zep Collection - Cloud",
+            "pack": "@cuttlely/node-pack-vector-stores"
+        }
+    ]
+}

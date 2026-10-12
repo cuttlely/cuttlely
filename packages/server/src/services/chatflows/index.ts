@@ -46,6 +46,7 @@ import { VersionActor } from '../flow-versions/author'
 import { VersionKind } from '../flow-versions/store'
 import { updateStorageUsage } from '../../utils/quotaUsage'
 import { flowDataForPublicChatbotConfig } from '../../utils/sanitizeFlowData'
+import { stampNodePack } from '../../utils/nodePacks'
 
 export const enum ChatflowErrorMessage {
     INVALID_CHATFLOW_TYPE = 'Invalid Chatflow Type',
@@ -384,6 +385,7 @@ const saveChatflow = async (
     // Promote labels the first version of a flow it creates, and gets the result of that record.
     record?: Pick<UpdateChatflowOptions, 'versionRecord' | 'onVersionQueued'>
 ): Promise<any> => {
+    if (typeof newChatFlow.flowData === 'string') newChatFlow.flowData = stampNodePack(newChatFlow.flowData)
     validateChatflowType(newChatFlow.type)
     await validateHarnessCanvas(newChatFlow)
     await validateEtlCanvas(newChatFlow)
@@ -401,13 +403,8 @@ const saveChatflow = async (
         const step1Results = await appServer.AppDataSource.getRepository(ChatFlow).save(chatflow)
 
         // step 2 - convert base64 to file paths and update the chatflow
-        step1Results.flowData = await updateFlowDataWithFilePaths(
-            step1Results.id,
-            incomingFlowData,
-            orgId,
-            workspaceId,
-            subscriptionId,
-            usageCacheManager
+        step1Results.flowData = stampNodePack(
+            await updateFlowDataWithFilePaths(step1Results.id, incomingFlowData, orgId, workspaceId, subscriptionId, usageCacheManager)
         )
         await _checkAndUpdateDocumentStoreUsage(step1Results, newChatFlow.workspaceId)
         dbResponse = await appServer.AppDataSource.getRepository(ChatFlow).save(step1Results)
@@ -652,14 +649,17 @@ const updateChatflow = async (
     options: UpdateChatflowOptions = {}
 ): Promise<any> => {
     const appServer = getRunningExpressApp()
+    if (typeof updateChatFlow.flowData === 'string') updateChatFlow.flowData = stampNodePack(updateChatFlow.flowData)
     if (updateChatFlow.flowData && containsBase64File(updateChatFlow)) {
-        updateChatFlow.flowData = await updateFlowDataWithFilePaths(
-            chatflow.id,
-            updateChatFlow.flowData,
-            orgId,
-            workspaceId,
-            subscriptionId,
-            appServer.usageCacheManager
+        updateChatFlow.flowData = stampNodePack(
+            await updateFlowDataWithFilePaths(
+                chatflow.id,
+                updateChatFlow.flowData,
+                orgId,
+                workspaceId,
+                subscriptionId,
+                appServer.usageCacheManager
+            )
         )
     }
     if (updateChatFlow.type || updateChatFlow.type === '') {

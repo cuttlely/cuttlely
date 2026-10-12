@@ -78,7 +78,7 @@ export interface FlowData {
 const LAYOUT_KEYS = ['position', 'positionAbsolute', 'width', 'height']
 const UI_STATE_KEYS = ['selected', 'dragging', 'resizing']
 const CORE_DATA_KEYS = ['id', 'name', 'label', 'version', 'type', 'category', 'inputs', 'outputs', 'credential']
-const DROPPED_DATA_KEYS = ['filePath']
+const DROPPED_DATA_KEYS = ['filePath', 'nodePack']
 const SECRET_PARAM_TYPES = new Set(['password', 'file', 'folder'])
 const CREDENTIAL_INPUT = 'FLOWISE_CREDENTIAL_ID'
 const TEXT_MARK = '$text'

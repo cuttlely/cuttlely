@@ -1,4 +1,4 @@
-import { exportKnownNodeNames, missingNodeInfo, placeholderHandles } from './missingNode'
+import { exportKnownNodeNames, missingNodeInfo, packFromIndex, placeholderHandles } from './missingNode'
 
 const catalog = [{ name: 'chatOpenAI' }]
 
@@ -15,6 +15,19 @@ describe('a node that is not in the loaded catalog', () => {
             pack: '',
             message: 'Gone is not installed.'
         })
+    })
+
+    test('names the pack from the index when the saved node has no nodePack', () => {
+        const index = [{ name: 'serpAPI', label: 'Serp API', pack: '@cuttlely/node-pack-tools-mcp' }]
+        const data = { name: 'serpAPI', label: 'Serp API' }
+        expect(missingNodeInfo(data, catalog, index)).toEqual({
+            label: 'Serp API',
+            pack: '@cuttlely/node-pack-tools-mcp',
+            message: 'Serp API is not installed. Install the @cuttlely/node-pack-tools-mcp pack.'
+        })
+        expect(missingNodeInfo({ ...data, nodePack: 'sample-pack' }, catalog, index).pack).toBe('sample-pack')
+        expect(packFromIndex(index, 'other', 'Serp API')).toBe('@cuttlely/node-pack-tools-mcp')
+        expect(packFromIndex(index, 'other', 'Missing')).toBe('')
     })
 
     test('leaves a loaded node and an empty catalog alone', () => {

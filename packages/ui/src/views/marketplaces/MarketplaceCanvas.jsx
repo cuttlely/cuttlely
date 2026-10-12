@@ -4,7 +4,10 @@ import 'reactflow/dist/style.css'
 import '@/views/canvas/index.css'
 
 import { useLocation, useNavigate } from 'react-router-dom'
-import { useSelector } from 'react-redux'
+import { useDispatch, useSelector } from 'react-redux'
+import { SET_COMPONENT_NODES, SET_NODE_PACK_INDEX } from '@/store/actions'
+import nodesApi from '@/api/nodes'
+import useApi from '@/hooks/useApi'
 
 // material-ui
 import { Toolbar, Box, AppBar } from '@mui/material'
@@ -38,7 +41,10 @@ const edgeTypes = { buttonedge: '' }
 const MarketplaceCanvas = () => {
     const theme = useTheme()
     const navigate = useNavigate()
+    const dispatch = useDispatch()
     const customization = useSelector((state) => state.customization)
+    const getNodesApi = useApi(nodesApi.getAllNodes)
+    const getPackIndexApi = useApi(nodesApi.getNodePackIndex)
 
     const { state } = useLocation()
     const flowData = state?.flowData
@@ -82,6 +88,21 @@ const MarketplaceCanvas = () => {
 
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [flowData])
+
+    useEffect(() => {
+        getNodesApi.request()
+        getPackIndexApi.request()
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [])
+
+    useEffect(() => {
+        if (Array.isArray(getNodesApi.data)) dispatch({ type: SET_COMPONENT_NODES, componentNodes: getNodesApi.data })
+    }, [getNodesApi.data, dispatch])
+
+    useEffect(() => {
+        const rows = getPackIndexApi.data?.nodes
+        if (Array.isArray(rows)) dispatch({ type: SET_NODE_PACK_INDEX, nodePackIndex: rows })
+    }, [getPackIndexApi.data, dispatch])
 
     // Legacy agentflow (V1) templates are preview only, so no new legacy flow is made from them.
     const legacy = isLegacyTemplate({ type, flowData: parsedFlow })

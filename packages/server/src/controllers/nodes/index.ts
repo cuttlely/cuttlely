@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from 'express'
 import _ from 'lodash'
 import nodesService from '../../services/nodes'
+import { loadNodePackIndex } from '../../utils/nodePacks'
 import { ClientType, VALID_CLIENT_TYPES } from '@cuttlely/components'
 import { AppError } from '../../errors/appError'
 import { StatusCodes } from 'http-status-codes'
@@ -10,6 +11,14 @@ import { getWorkspaceSearchOptionsFromReq } from '../../identity/workspaceScope'
 const parseClientParam = (req: Request): ClientType | undefined => {
     const raw = req.query.client as ClientType | undefined
     return raw && VALID_CLIENT_TYPES.has(raw) ? (raw as ClientType) : undefined
+}
+
+const getNodePackIndex = async (_req: Request, res: Response, next: NextFunction) => {
+    try {
+        return res.json({ nodes: loadNodePackIndex() })
+    } catch (error) {
+        next(error)
+    }
 }
 
 const getAllNodes = async (req: Request, res: Response, next: NextFunction) => {
@@ -100,6 +109,7 @@ const executeCustomFunction = async (req: Request, res: Response, next: NextFunc
 }
 
 export default {
+    getNodePackIndex,
     getAllNodes,
     getNodeByName,
     getSingleNodeIcon,

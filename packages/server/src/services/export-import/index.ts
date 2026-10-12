@@ -28,6 +28,7 @@ import toolsService from '../tools'
 import variableService from '../variables'
 import { ChatMessageRatingType, ChatType, Platform } from '../../Interface'
 import { sanitizeNullBytes } from '../../utils/sanitize.util'
+import { stampFlowRecords } from '../../utils/nodePacks'
 
 type ExportInput = {
     agentflow: boolean
@@ -760,6 +761,10 @@ const importData = async (importData: ExportData, orgId: string, activeWorkspace
             }
 
             importData = sanitizeNullBytes(importData)
+            importData.ChatFlow = stampFlowRecords(importData.ChatFlow)
+            importData.AgentFlow = stampFlowRecords(importData.AgentFlow)
+            importData.AgentFlowV2 = stampFlowRecords(importData.AgentFlowV2)
+            importData.AssistantFlow = stampFlowRecords(importData.AssistantFlow)
 
             await queryRunner.startTransaction()
 

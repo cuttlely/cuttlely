@@ -101,7 +101,7 @@ const CanvasNode = ({ data }) => {
         }
     }, [canvas.componentNodes, data.name, data.version])
 
-    const missing = missingNodeInfo(data, canvas.componentNodes)
+    const missing = missingNodeInfo(data, canvas.componentNodes, canvas.nodePackIndex)
     if (missing) return <MissingNodeCard data={data} message={missing.message} edges={edges} />
 
     return (

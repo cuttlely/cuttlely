@@ -11,6 +11,7 @@ import { FlowVersionState } from '../../database/entities/FlowVersionState'
 import { AppError } from '../../errors/appError'
 import { containsBase64File, updateFlowDataWithFilePaths } from '../../utils/fileRepository'
 import { getRunningExpressApp } from '../../utils/getRunningExpressApp'
+import { stampNodePack } from '../../utils/nodePacks'
 
 // Test seam. A race test changes the flow's type after a draft save has started and before it writes.
 export const draftWriteHooks: { beforeDraftWrite: null | (() => Promise<void>) } = { beforeDraftWrite: null }
@@ -279,7 +280,7 @@ export async function saveDraft(flow: DraftFlow, flowData: unknown, context: Sav
             clearDraft(row)
         } else {
             if (!row.draftFlowData) row.draftBaseHash = draftBase(flow)
-            row.draftFlowData = canvas
+            row.draftFlowData = stampNodePack(canvas)
             row.draftUpdatedDate = new Date()
             row.draftUpdatedBy = context.userId || null
         }

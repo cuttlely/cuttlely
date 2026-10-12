@@ -9,7 +9,7 @@ export const STALE_DRAFT_WARNING =
 export const PUBLISH_INSTANTLY_HELP = 'Every save goes live immediately, like before drafts.'
 export const PUBLISH_INSTANTLY_LOCKED = 'Publish or discard the draft before changing this.'
 
-const SKIP_DATA_KEYS = new Set(['selected', 'status'])
+const SKIP_DATA_KEYS = new Set(['selected', 'status', 'nodePack'])
 
 // Draft chrome (the label and Publish) shows only while this flow actually saves to a draft.
 // mode "live" covers drafts off, a flow type with no drafts, and Publish instantly.

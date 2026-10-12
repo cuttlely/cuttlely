@@ -4,7 +4,7 @@ import path from 'path'
 import { StatusCodes } from 'http-status-codes'
 import { NodesPool } from '../NodesPool'
 import { credentialDefinitionDirs } from './replaceInputsWithConfig'
-import { missingNodeFailure, nodePackList, resolveNodePacks } from './nodePacks'
+import { missingNodeFailure, nodePackList, packForNode, resolveNodePacks, stampNodePack } from './nodePacks'
 
 const NODE_SOURCE = `class SampleNode {
     constructor() {
@@ -191,5 +191,57 @@ describe('a saved node that is not installed', () => {
         })
         expect(missingNodeFailure('not json', {})).toBeNull()
         expect(missingNodeFailure(undefined, {})).toBeNull()
+    })
+
+    test('uses the index when the saved node has no nodePack', () => {
+        const flow = JSON.stringify({ nodes: [{ data: { name: 'serpAPI', label: 'Serp API' } }] })
+        expect(missingNodeFailure(flow, {})).toEqual({
+            statusCode: StatusCodes.UNPROCESSABLE_ENTITY,
+            message: 'Serp API is not installed. Install the @cuttlely/node-pack-tools-mcp pack.'
+        })
+        expect(missingNodeFailure(flow, { serpAPI: {} })).toBeNull()
+        const injected = JSON.stringify({ nodes: [{ data: { name: 'samplePackNode', label: 'Sample Pack Node' } }] })
+        const index = [{ name: 'samplePackNode', label: 'Sample Pack Node', pack: 'sample-pack' }]
+        expect(missingNodeFailure(injected, {}, index)).toEqual({
+            statusCode: 422,
+            message: 'Sample Pack Node is not installed. Install the sample-pack pack.'
+        })
+        expect(packForNode('samplePackNode', '', index)).toBe('sample-pack')
+        expect(packForNode('missing', 'Sample Pack Node', index)).toBe('sample-pack')
+        const saved = JSON.stringify({
+            nodes: [{ data: { name: 'samplePackNode', label: 'Sample Pack Node', nodePack: 'kept-pack' } }]
+        })
+        expect(missingNodeFailure(saved, {}, index)?.message).toBe('Sample Pack Node is not installed. Install the kept-pack pack.')
+    })
+
+    test('stamps nodePack from the index and leaves other canvases unchanged', () => {
+        const raw = JSON.stringify({ nodes: [{ data: { name: 'serpAPI', label: 'Serp API', inputs: {} } }], edges: [] })
+        const stamped = stampNodePack(raw)
+        expect(JSON.parse(stamped).nodes[0].data.nodePack).toBe('@cuttlely/node-pack-tools-mcp')
+        expect(stampNodePack(stamped)).toBe(stamped)
+    })
+
+    test('returns malformed JSON unchanged', () => {
+        for (const raw of ['not json', '{', '', 'null']) {
+            expect(stampNodePack(raw)).toBe(raw)
+        }
+    })
+
+    test('returns flowData without a nodes list unchanged', () => {
+        for (const raw of ['{}', '{"edges":[]}', '{"nodes":{}}', '[]']) {
+            expect(stampNodePack(raw)).toBe(raw)
+        }
+    })
+
+    test('returns a canvas unchanged when no node is a pack node or every pack node already has nodePack', () => {
+        const plain = JSON.stringify({ nodes: [{ data: { name: 'chatOpenAI', label: 'ChatOpenAI' } }], edges: [] })
+        const already = JSON.stringify({
+            nodes: [
+                { data: { name: 'serpAPI', label: 'Serp API', nodePack: 'kept-pack' } },
+                { data: { name: 'chatOpenAI', label: 'ChatOpenAI' } }
+            ]
+        })
+        expect(stampNodePack(plain)).toBe(plain)
+        expect(stampNodePack(already)).toBe(already)
     })
 })

@@ -152,6 +152,18 @@ describe('version history repo', () => {
         expect(git(dir, 'rev-list', '--count', 'HEAD').trim()).toBe('3')
     })
 
+    test('a save or an update that only adds nodePack does not create a version', async () => {
+        const sha = await recordFlowVersion(chatflow('Sales Desk', flow()), { lookupCredentials })
+        expect(sha).toBeTruthy()
+        const dir = versionsDir()
+        const before = git(dir, 'rev-list', '--count', 'HEAD').trim()
+        const stamped = flow()
+        ;(stamped.nodes[1].data as { nodePack?: string }).nodePack = '@cuttlely/node-pack-tools-mcp'
+        const again = await recordFlowVersion(chatflow('Sales Desk', stamped), { lookupCredentials })
+        expect(again).toBeNull()
+        expect(git(dir, 'rev-list', '--count', 'HEAD').trim()).toBe(before)
+    })
+
     test('moving nodes is named as a move, and a rename follows the folder', async () => {
         await recordFlowVersion(chatflow('Sales Desk', flow()), { lookupCredentials })
         const moved = flow()

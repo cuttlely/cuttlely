@@ -8,6 +8,7 @@ import {
     REMOVE_DIRTY,
     SET_DIRTY,
     SET_CHATFLOW,
+    SET_NODE_PACK_INDEX,
     enqueueSnackbar as enqueueSnackbarAction,
     closeSnackbar as closeSnackbarAction
 } from '@/store/actions'
@@ -197,6 +198,7 @@ const Canvas = () => {
     // ==============================|| Chatflow API ||============================== //
 
     const getNodesApi = useApi(nodesApi.getAllNodes)
+    const getPackIndexApi = useApi(nodesApi.getNodePackIndex)
     const createNewChatflowApi = useApi(chatflowsApi.createNewChatflow)
     const updateChatflowApi = useApi(chatflowsApi.updateChatflow)
     const getSpecificChatflowApi = useApi(chatflowsApi.getSpecificChatflow)
@@ -1053,6 +1055,7 @@ const Canvas = () => {
         }
 
         getNodesApi.request()
+        getPackIndexApi.request()
 
         // Clear dirty state before leaving and remove any ongoing test triggers and webhooks
         return () => {
@@ -1061,6 +1064,12 @@ const Canvas = () => {
 
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [])
+
+    useEffect(() => {
+        const rows = getPackIndexApi.data?.nodes
+        if (!Array.isArray(rows)) return
+        dispatch({ type: SET_NODE_PACK_INDEX, nodePackIndex: rows })
+    }, [getPackIndexApi.data, dispatch])
 
     useEffect(() => {
         if (!pendingLangflow.current || !Array.isArray(getNodesApi.data)) return

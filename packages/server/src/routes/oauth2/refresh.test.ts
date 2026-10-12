@@ -5,7 +5,7 @@ import request from 'supertest'
 import { secureAxiosRequest } from '@cuttlely/components'
 import { setTeamPermissionLookup } from '../../identity/rbac'
 import errorHandlerMiddleware from '../../middlewares/errors'
-import { WHITELIST_URLS } from '../../utils/constants'
+import { API_KEY_BLACKLIST_URLS, WHITELIST_URLS } from '../../utils/constants'
 import { decryptCredentialData, encryptCredentialData } from '../../utils'
 import { getRunningExpressApp } from '../../utils/getRunningExpressApp'
 import logger from '../../utils/logger'
@@ -102,6 +102,18 @@ describe('POST /api/v1/oauth2-credential/refresh/:credentialId', () => {
         expect(WHITELIST_URLS.some((url) => refreshPath.startsWith(url))).toBe(false)
         expect(WHITELIST_URLS.some((url) => authorizePath.startsWith(url))).toBe(false)
         expect(WHITELIST_URLS.some((url) => callbackPath.startsWith(url))).toBe(true)
+    })
+
+    it('requires the same sign-in for the node list and the pack index', () => {
+        // An unauthenticated /api/v1 request that is not on the public list gets 401,
+        // whether the API-key list refuses it or the key is missing. Both node routes take that path.
+        const status = (path: string) => {
+            if (WHITELIST_URLS.some((url) => path.startsWith(url))) return 200
+            if (API_KEY_BLACKLIST_URLS.some((url) => path.startsWith(url))) return 401
+            return 401
+        }
+        expect(status('/api/v1/nodes/pack-index')).toBe(status('/api/v1/nodes'))
+        expect(status('/api/v1/nodes')).toBe(401)
     })
 
     it('returns 401 when the caller is not authenticated', async () => {
