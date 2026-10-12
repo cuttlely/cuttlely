@@ -193,6 +193,18 @@ export async function runCheck(options, io = {}) {
         return EXIT_ERROR
     }
 
+    // Set once the server has accepted the check. Every later failure tries to stop it.
+    let check = null
+    const stopIfStarted = async () => {
+        if (!check?.id) return
+        await stopCheck(fetchImpl, `${base}/${encodeURIComponent(check.id)}`, headers)
+    }
+    // The stop is best effort. A failed DELETE does not replace the exit code.
+    const failRunning = async (text) => {
+        await stopIfStarted()
+        return fail(text)
+    }
+
     try {
         const started = await callApi(fetchImpl, base, {
             method: 'POST',
@@ -207,12 +219,12 @@ export async function runCheck(options, io = {}) {
             if (isNoDraft(started)) return fail(`No draft to check. ${started.message}`)
             return fail(`Check failed (${started.status}): ${started.message}`)
         }
-        let check = started.json
+        check = started.json
         if (!check || typeof check !== 'object' || !check.id) return fail('The server did not return a check.')
         out(`Started check ${check.id} for flow ${flow} (${check.total ?? 0} questions).`)
 
         const giveUp = async () => {
-            await stopCheck(fetchImpl, `${base}/${encodeURIComponent(check.id)}`, headers)
+            await stopIfStarted()
             try {
                 writeResult(writeFile, options.jsonPath, check, secret)
             } catch (error) {
@@ -231,14 +243,10 @@ export async function runCheck(options, io = {}) {
                 signal: deadlineSignal(deadline, now)
             })
             if (polled.timeout) return giveUp()
-            if (polled.network) return fail(`Could not reach ${server}. ${polled.message}`)
-            if (polled.status === 403) {
-                // The check is already running. Stop it before returning, or it keeps spending tokens.
-                await stopCheck(fetchImpl, `${base}/${encodeURIComponent(check.id)}`, headers)
-                return fail(permissionDeniedMessage())
-            }
-            if (!polled.ok) return fail(`Check failed (${polled.status}): ${polled.message}`)
-            if (!polled.json || typeof polled.json !== 'object') return fail('The server did not return a check.')
+            if (polled.network) return failRunning(`Could not reach ${server}. ${polled.message}`)
+            if (polled.status === 403) return failRunning(permissionDeniedMessage())
+            if (!polled.ok) return failRunning(`Check failed (${polled.status}): ${polled.message}`)
+            if (!polled.json || typeof polled.json !== 'object') return failRunning('The server did not return a check.')
             const previous = check.completed
             check = polled.json
             if (check.status === 'running' && check.completed !== previous && check.completed != null) {
@@ -251,6 +259,7 @@ export async function runCheck(options, io = {}) {
         } catch (error) {
             err(say(`Could not write ${options.jsonPath}. ${error instanceof Error ? error.message : String(error)}`))
             out(say(summaryText(check)))
+            await stopIfStarted()
             return EXIT_ERROR
         }
         out(say(summaryText(check)))
@@ -267,8 +276,10 @@ export async function runCheck(options, io = {}) {
         } else if (verdict.code === EXIT_ERROR) {
             err('The check did not finish.')
         }
+        if (verdict.code === EXIT_ERROR) await stopIfStarted()
         return verdict.code
     } catch (error) {
+        await stopIfStarted()
         return fail(error instanceof Error ? error.message : String(error))
     }
 }

@@ -508,6 +508,44 @@ test('check exits 2 on 403 from the poll, stops the check, and does not print th
     assert.equal(calls[2].url, `${DEFAULT_SERVER}/api/v1/flow-drafts/flow-1/check/check-1`)
 })
 
+test('check stops the run when a poll returns 500, even if the stop fails', async () => {
+    const io = checkIo()
+    const running = checkBody({ status: 'running', completed: 0 })
+    const { fetch, calls } = scriptedFetch([
+        httpResult(202, running),
+        httpResult(500, { message: 'Database unreachable' }),
+        () => Promise.reject(new Error('stop failed'))
+    ])
+    const code = await main(['check', '--flow', 'flow-1'], { ...io, fetch })
+    assert.equal(code, 2)
+    assert.match(io.errors(), /Check failed \(500\): Database unreachable/)
+    assert.doesNotMatch(io.errors(), /stop failed/)
+    assert.deepEqual(
+        calls.map((call) => call.init.method),
+        ['POST', 'GET', 'DELETE']
+    )
+    assert.equal(calls[2].url, `${DEFAULT_SERVER}/api/v1/flow-drafts/flow-1/check/check-1`)
+})
+
+test('check stops the run when a poll cannot reach the server', async () => {
+    const io = checkIo()
+    const running = checkBody({ status: 'running', completed: 0 })
+    const { fetch, calls } = scriptedFetch([
+        httpResult(202, running),
+        () => Promise.reject(new Error('connect ECONNREFUSED')),
+        httpResult(200, { id: 'check-1', status: 'stopped' })
+    ])
+    const code = await main(['check', '--flow', 'flow-1'], { ...io, fetch })
+    assert.equal(code, 2)
+    assert.match(io.errors(), /Could not reach/)
+    assert.match(io.errors(), /ECONNREFUSED/)
+    assert.deepEqual(
+        calls.map((call) => call.init.method),
+        ['POST', 'GET', 'DELETE']
+    )
+    assert.equal(calls[2].init.method, 'DELETE')
+})
+
 test('check exits 2 on 403 from the start and makes no further calls', async () => {
     const io = checkIo()
     const { fetch, calls } = scriptedFetch([httpResult(403, { statusCode: 403, success: false, message: `Forbidden ${KEY}` })])

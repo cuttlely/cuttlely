@@ -26,11 +26,13 @@ npx cuttlely check --flow <flow id> --fail-on-changed
 | `--json`            | Write the full check to this path. Same object as [Read a check](../reference/drafts-api.md#read-a-check).                                      |
 | `--fail-on-changed` | Exit 1 when any answer is Changed. Without this flag a finished check exits 0 even when answers differ, and the summary still lists them.       |
 
-A server you started from source listens on port 3000:
+`pnpm dev` serves the API on port 3000. `scripts/start-cuttlely.sh` and `npx cuttlely start` listen on port 43117, which is already the default for `--server`.
 
 ```bash
 npx cuttlely check --flow <flow id> --server http://127.0.0.1:3000 --timeout 300 --json check.json --fail-on-changed
 ```
+
+That `--server` value is for `pnpm dev`. Leave it off when the server is `scripts/start-cuttlely.sh` or `npx cuttlely start`.
 
 From a checkout of this repository, before the published package includes the command, run `node packages/cli/bin/cuttlely.js` with the same arguments.
 
@@ -46,7 +48,7 @@ A question that errors is listed under **Errors** and is not a Changed answer. W
 | 1    | `--fail-on-changed` was set and at least one answer was Changed.                                             |
 | 2    | The check timed out, the server returned an error, `CUTTLELY_API_KEY` was missing, or the flow has no draft. |
 
-A check the server marks stopped or failed also exits 2. If the draft is saved, published, or discarded while the check runs, the command exits 2, because the answers may be for a draft that is already gone. On a timeout the command asks the server to stop the check, so the flow is not left with a check still running.
+A check the server marks stopped or failed also exits 2. If the draft is saved, published, or discarded while the check runs, the command exits 2, because the answers may be for a draft that is already gone. After the check has started, a timeout, a 403, or any other failure asks the server to stop it. That stop is best effort: if it fails, the exit code is still 2.
 
 ## GitHub Actions
 
