@@ -1,4 +1,3 @@
-import geoip from 'geoip-lite'
 import { PostHog } from 'posthog-node'
 import { v4 as uuidv4 } from 'uuid'
 import { getAppVersion } from '../utils'
@@ -42,6 +41,37 @@ export class Telemetry {
     }
 }
 
+type GeoIpModule = {
+    lookup: (ip: string) => { country?: string; region?: string } | null
+}
+
+// undefined: not tried yet. null: the package is not installed.
+let geoipModule: GeoIpModule | null | undefined
+
+function isMissingGeoip(error: unknown): boolean {
+    if (!error || typeof error !== 'object') return false
+    const code = (error as { code?: string }).code
+    const message = (error as { message?: string }).message ?? ''
+    return code === 'MODULE_NOT_FOUND' && message.includes('geoip-lite')
+}
+
+/**
+ * Loads geoip-lite on first use. A slim image can leave the package out; the
+ * server still starts, and the lookup result stays empty like an unknown IP.
+ * The missing-package note is logged once, at debug.
+ */
+function loadGeoip(): GeoIpModule | null {
+    if (geoipModule !== undefined) return geoipModule
+    try {
+        geoipModule = require('geoip-lite') as GeoIpModule
+    } catch (error) {
+        if (!isMissingGeoip(error)) throw error
+        geoipModule = null
+        logger.debug('IP geolocation database is not installed; audit events omit country and region')
+    }
+    return geoipModule
+}
+
 /**
  * Derives country code and region from an IP address using GeoIP lookup.
  *
@@ -50,7 +80,7 @@ export class Telemetry {
  * ISO country codes and region identifiers that are GDPR/HIPAA compliant.
  *
  * @param ipAddress - The IP address string to geolocate (must be valid IPv4 or IPv6)
- * @returns An object containing optional `countryCode` (ISO 3166-1 alpha-2) and `region` (state/province), or empty object if lookup fails or IP is invalid
+ * @returns An object containing optional `countryCode` (ISO 3166-1 alpha-2) and `region` (state/province), or an empty object when the IP is invalid, the lookup fails, or the database is not installed
  */
 function getGeolocation(ipAddress: string): {
     countryCode?: string
@@ -61,6 +91,8 @@ function getGeolocation(ipAddress: string): {
     }
 
     try {
+        const geoip = loadGeoip()
+        if (!geoip) return {}
         const geo = geoip.lookup(ipAddress)
         if (!geo) return {}
 

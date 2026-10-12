@@ -1,5 +1,5 @@
 {
-    "name": "flowise-api",
+    "name": "@cuttlely/api-docs",
     "version": "1.0.3",
     "private": true,
     "description": "Cuttlely API documentation server",
