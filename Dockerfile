@@ -76,7 +76,8 @@ RUN mkdir -p /opt/uv-python \
     && rm -rf node_modules packages/*/node_modules \
     && CI=true pnpm install --frozen-lockfile --prod --offline --ignore-scripts \
     && pnpm -r rebuild sqlite3 faiss-node \
-    && node scripts/check-sqlite-driver.mjs
+    && node scripts/check-sqlite-driver.mjs \
+    && node scripts/check-static-ui-image.mjs
 
 # Opt-in slim build. false (the default) keeps the IP geolocation database.
 ARG CUTTLELY_OMIT_GEOIP=false
