@@ -1402,6 +1402,10 @@
             "reason": "Vector store nodes live in the vector store pack. The local vector store stays with knowledge pipelines."
         },
         {
+            "path": "packages/node-pack-vector-stores/gulpfile.ts",
+            "reason": "Pack manifest files ship with the vector store pack."
+        },
+        {
             "path": "packages/node-pack-vector-stores/nodes/vectorstores/Astra/astra.svg",
             "reason": "Vector store nodes live in the vector store pack. The local vector store stays with knowledge pipelines."
         },
@@ -1632,6 +1636,14 @@
         {
             "path": "packages/node-pack-vector-stores/nodes/vectorstores/ZepCloud/ZepCloud.ts",
             "reason": "Vector store nodes live in the vector store pack. The local vector store stays with knowledge pipelines."
+        },
+        {
+            "path": "packages/node-pack-vector-stores/package.json",
+            "reason": "Pack manifest files ship with the vector store pack."
+        },
+        {
+            "path": "packages/node-pack-vector-stores/tsconfig.json",
+            "reason": "Pack manifest files ship with the vector store pack."
         },
         {
             "path": "packages/server/src/errors/appError/index.test.ts",

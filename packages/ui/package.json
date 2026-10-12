@@ -39,7 +39,45 @@
         "@modelcontextprotocol/sdk": ">=1.25.2",
         "multer": "2.4.0"
     },
-    "dependencies": {
+    "scripts": {
+        "dev": "vite",
+        "start": "vite",
+        "build": "vite build",
+        "test": "jest",
+        "clean": "rimraf build",
+        "nuke": "pnpm clean && rimraf node_modules .turbo"
+    },
+    "babel": {
+        "presets": [
+            [
+                "@babel/preset-env",
+                {
+                    "targets": {
+                        "node": "current"
+                    }
+                }
+            ],
+            [
+                "@babel/preset-react",
+                {
+                    "runtime": "automatic"
+                }
+            ]
+        ]
+    },
+    "browserslist": {
+        "production": [
+            ">0.2%",
+            "not dead",
+            "not op_mini all"
+        ],
+        "development": [
+            "last 1 chrome version",
+            "last 1 firefox version",
+            "last 1 safari version"
+        ]
+    },
+    "devDependencies": {
         "@codemirror/lang-javascript": "^6.2.1",
         "@codemirror/lang-json": "^6.0.1",
         "@codemirror/lang-markdown": "^6.2.5",
@@ -107,47 +145,7 @@
         "remark-math": "^5.1.1",
         "tippy.js": "^6.3.7",
         "uuid": "^11.1.1",
-        "yup": "^0.32.9"
-    },
-    "scripts": {
-        "dev": "vite",
-        "start": "vite",
-        "build": "vite build",
-        "test": "jest",
-        "clean": "rimraf build",
-        "nuke": "pnpm clean && rimraf node_modules .turbo"
-    },
-    "babel": {
-        "presets": [
-            [
-                "@babel/preset-env",
-                {
-                    "targets": {
-                        "node": "current"
-                    }
-                }
-            ],
-            [
-                "@babel/preset-react",
-                {
-                    "runtime": "automatic"
-                }
-            ]
-        ]
-    },
-    "browserslist": {
-        "production": [
-            ">0.2%",
-            "not dead",
-            "not op_mini all"
-        ],
-        "development": [
-            "last 1 chrome version",
-            "last 1 firefox version",
-            "last 1 safari version"
-        ]
-    },
-    "devDependencies": {
+        "yup": "^0.32.9",
         "@babel/eslint-parser": "^7.15.8",
         "@babel/plugin-proposal-private-property-in-object": "^7.21.11",
         "@babel/preset-react": "^7.24.7",

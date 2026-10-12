@@ -1,4 +1,4 @@
-import { NextFunction, Request, Response } from 'express'
+import express, { NextFunction, Request, Response } from 'express'
 import { rateLimit, RateLimitRequestHandler } from 'express-rate-limit'
 import { isIP } from 'net'
 import { IChatFlow, MODE } from '../Interface'
@@ -238,5 +238,38 @@ export class RateLimiterManager {
                 }
             )
         }
+    }
+}
+
+/** Client routes that fall through to the UI index. A few thousand a minute is ordinary browsing, refreshes, and deep links. */
+export const UI_PAGE_LIMIT_WINDOW_MS = 60 * 1000
+export const UI_PAGE_LIMIT_MAX = 3000
+
+/**
+ * Limiter for the UI index fallback only. Success responses carry no rate-limit headers,
+ * so a page load still looks like the uncounted handler. The key is the same client
+ * address the prediction limiter uses.
+ */
+export function uiPageRateLimiter(max = UI_PAGE_LIMIT_MAX) {
+    return rateLimit({
+        windowMs: UI_PAGE_LIMIT_WINDOW_MS,
+        max,
+        standardHeaders: false,
+        legacyHeaders: false,
+        keyGenerator: (req) => rateLimitClientKey(req),
+        message: 'Too many requests, please try again later.'
+    })
+}
+
+/**
+ * Hashed UI files. `index: false` stops a directory request from reading index.html.
+ * A request for the file itself would still match, so `/` and `/index.html` skip this
+ * handler and fall through to the page limiter. Directories are not redirected.
+ */
+export function uiAssetMiddleware(directory: string) {
+    const files = express.static(directory, { index: false, redirect: false })
+    return (req: Request, res: Response, next: NextFunction) => {
+        if ((req.method === 'GET' || req.method === 'HEAD') && (req.path === '/' || req.path === '/index.html')) return next()
+        return files(req, res, next)
     }
 }

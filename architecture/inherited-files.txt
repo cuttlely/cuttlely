@@ -812,6 +812,7 @@ packages/node-pack-vector-stores/credentials/SupabaseApi.credential.ts
 packages/node-pack-vector-stores/credentials/UpstashVectorApi.credential.ts
 packages/node-pack-vector-stores/credentials/VectaraApi.credential.ts
 packages/node-pack-vector-stores/credentials/WeaviateApi.credential.ts
+packages/node-pack-vector-stores/gulpfile.ts
 packages/node-pack-vector-stores/nodes/vectorstores/Astra/Astra.ts
 packages/node-pack-vector-stores/nodes/vectorstores/Astra/astra.svg
 packages/node-pack-vector-stores/nodes/vectorstores/Chroma/Chroma.ts
@@ -870,6 +871,8 @@ packages/node-pack-vector-stores/nodes/vectorstores/Zep/Zep.ts
 packages/node-pack-vector-stores/nodes/vectorstores/Zep/zep.svg
 packages/node-pack-vector-stores/nodes/vectorstores/ZepCloud/ZepCloud.ts
 packages/node-pack-vector-stores/nodes/vectorstores/ZepCloud/zep.svg
+packages/node-pack-vector-stores/package.json
+packages/node-pack-vector-stores/tsconfig.json
 packages/server/.env.example
 packages/server/README-ZH.md
 packages/server/README.md
@@ -1898,6 +1901,8 @@ packages/ui/src/views/workspace/EditWorkspaceUserRoleDialog.jsx
 packages/ui/src/views/workspace/WorkspaceUsers.jsx
 packages/ui/src/views/workspace/index.jsx
 packages/ui/vite.config.js
+pnpm-lock.yaml
+pnpm-lock.yaml
 pnpm-lock.yaml
 pnpm-workspace.yaml
 turbo.json
