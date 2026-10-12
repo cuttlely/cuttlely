@@ -3,7 +3,6 @@ import cors from 'cors'
 import express, { Request, Response } from 'express'
 import 'global-agent/bootstrap'
 import http from 'http'
-import path from 'path'
 import { DataSource } from 'typeorm'
 import { AbortControllerPool } from './AbortControllerPool'
 import { CachePool } from './CachePool'
@@ -39,6 +38,7 @@ import { API_KEY_BLACKLIST_URLS, WHITELIST_URLS } from './utils/constants'
 import logger, { expressRequestLogger } from './utils/logger'
 import { RateLimiterManager } from './utils/rateLimit'
 import { chatWidgetScript } from './utils/chatWidget'
+import { resolveUiBuild } from './utils/uiBuild'
 import { SSEStreamer } from './utils/SSEStreamer'
 import { Telemetry } from './utils/telemetry'
 import { validateAPIKey } from './utils/validateKey'
@@ -385,19 +385,21 @@ export class App {
         })
 
         // ----------------------------------------
-        // Serve UI static
+        // Serve the built UI. The copy in dist/ui, the repo build, and a linked
+        // UI package are all valid. A production install does not include the
+        // UI package's libraries; the files below are the ones this server serves.
         // ----------------------------------------
 
-        const packagePath = getNodeModulesPackagePath('@cuttlely/ui')
-        const uiBuildPath = path.join(packagePath, 'build')
-        const uiHtmlPath = path.join(packagePath, 'build', 'index.html')
-
-        this.app.use('/', express.static(uiBuildPath))
-
-        // All other requests not handled will return React app
-        this.app.use((req: Request, res: Response) => {
-            res.sendFile(uiHtmlPath)
-        })
+        const uiBuild = resolveUiBuild(getNodeModulesPackagePath('@cuttlely/ui'))
+        if (uiBuild) {
+            this.app.use('/', express.static(uiBuild.directory))
+            // All other requests not handled will return the UI app
+            this.app.use((req: Request, res: Response) => {
+                res.sendFile(uiBuild.indexHtml)
+            })
+        } else {
+            logger.error('❌ [server]: UI build was not found. Build the UI, then build the server.')
+        }
 
         // Error handling
         this.app.use(errorHandlerMiddleware)
