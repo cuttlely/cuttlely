@@ -1,6 +1,71 @@
 {
     "nodes": [
         {
+            "name": "DynamoDBChatMemory",
+            "label": "DynamoDB Chat Memory",
+            "pack": "@cuttlely/node-pack-caches-memory"
+        },
+        {
+            "name": "inMemoryCache",
+            "label": "InMemory Cache",
+            "pack": "@cuttlely/node-pack-caches-memory"
+        },
+        {
+            "name": "inMemoryEmbeddingCache",
+            "label": "InMemory Embedding Cache",
+            "pack": "@cuttlely/node-pack-caches-memory"
+        },
+        {
+            "name": "mem0",
+            "label": "Mem0",
+            "pack": "@cuttlely/node-pack-caches-memory"
+        },
+        {
+            "name": "momentoCache",
+            "label": "Momento Cache",
+            "pack": "@cuttlely/node-pack-caches-memory"
+        },
+        {
+            "name": "MongoDBAtlasChatMemory",
+            "label": "MongoDB Atlas Chat Memory",
+            "pack": "@cuttlely/node-pack-caches-memory"
+        },
+        {
+            "name": "RedisBackedChatMemory",
+            "label": "Redis-Backed Chat Memory",
+            "pack": "@cuttlely/node-pack-caches-memory"
+        },
+        {
+            "name": "redisCache",
+            "label": "Redis Cache",
+            "pack": "@cuttlely/node-pack-caches-memory"
+        },
+        {
+            "name": "redisEmbeddingsCache",
+            "label": "Redis Embeddings Cache",
+            "pack": "@cuttlely/node-pack-caches-memory"
+        },
+        {
+            "name": "upstashRedisBackedChatMemory",
+            "label": "Upstash Redis-Backed Chat Memory",
+            "pack": "@cuttlely/node-pack-caches-memory"
+        },
+        {
+            "name": "upstashRedisCache",
+            "label": "Upstash Redis Cache",
+            "pack": "@cuttlely/node-pack-caches-memory"
+        },
+        {
+            "name": "ZepMemory",
+            "label": "Zep Memory - Open Source",
+            "pack": "@cuttlely/node-pack-caches-memory"
+        },
+        {
+            "name": "ZepMemoryCloud",
+            "label": "Zep Memory - Cloud",
+            "pack": "@cuttlely/node-pack-caches-memory"
+        },
+        {
             "name": "arxiv",
             "label": "Arxiv",
             "pack": "@cuttlely/node-pack-tools-mcp"
