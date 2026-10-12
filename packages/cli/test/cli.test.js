@@ -405,6 +405,8 @@ test('check help documents the command and the exit codes', async () => {
     assert.equal(await main(['check', '--help'], help), 0)
     assert.match(help.text(), /cuttlely check --flow <id>/)
     assert.match(help.text(), /CUTTLELY_API_KEY/)
+    assert.match(help.text(), /chatflows:view and chatflows:update/)
+    assert.match(help.text(), /agentflows:view and agentflows:update/)
     assert.match(help.text(), /--fail-on-changed/)
     assert.match(help.text(), /0 {2}The check finished/)
     assert.match(help.text(), /1 {2}--fail-on-changed was set/)
@@ -484,6 +486,38 @@ test('check exits 2 on timeout and asks the server to stop', async () => {
         ['POST', 'GET', 'DELETE']
     )
     assert.match(io.text(), /wrote partial.json/)
+})
+
+test('check exits 2 on 403 from the poll, stops the check, and does not print the key', async () => {
+    const io = checkIo()
+    const running = checkBody({ status: 'running', completed: 0 })
+    const { fetch, calls } = scriptedFetch([
+        httpResult(202, running),
+        httpResult(403, { statusCode: 403, success: false, message: `Forbidden ${KEY}` }),
+        httpResult(200, { id: 'check-1', status: 'stopped' })
+    ])
+    const code = await main(['check', '--flow', 'flow-1', '--fail-on-changed'], { ...io, fetch })
+    assert.equal(code, 2)
+    assert.match(io.errors(), /chatflows:view and chatflows:update/)
+    assert.match(io.errors(), /agentflows:view and agentflows:update/)
+    assert.doesNotMatch(`${io.text()}\n${io.errors()}`, /test-key/)
+    assert.deepEqual(
+        calls.map((call) => call.init.method),
+        ['POST', 'GET', 'DELETE']
+    )
+    assert.equal(calls[2].url, `${DEFAULT_SERVER}/api/v1/flow-drafts/flow-1/check/check-1`)
+})
+
+test('check exits 2 on 403 from the start and makes no further calls', async () => {
+    const io = checkIo()
+    const { fetch, calls } = scriptedFetch([httpResult(403, { statusCode: 403, success: false, message: `Forbidden ${KEY}` })])
+    const code = await main(['check', '--flow', 'flow-1'], { ...io, fetch })
+    assert.equal(code, 2)
+    assert.match(io.errors(), /chatflows:view and chatflows:update/)
+    assert.match(io.errors(), /agentflows:view and agentflows:update/)
+    assert.doesNotMatch(io.errors(), /test-key/)
+    assert.equal(calls.length, 1)
+    assert.equal(calls[0].init.method, 'POST')
 })
 
 test('check exits 2 when the API key is missing and does not call the server', async () => {

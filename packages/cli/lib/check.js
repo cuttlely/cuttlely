@@ -143,6 +143,12 @@ function isNoDraft(result) {
     return result.status === 409 && typeof result.message === 'string' && /no unpublished changes/i.test(result.message)
 }
 
+// Starting a check needs update. Reading it needs view. A key with only one of those gets 403,
+// and the server message does not say which permission is missing.
+function permissionDeniedMessage() {
+    return 'The API key needs chatflows:view and chatflows:update, or agentflows:view and agentflows:update.'
+}
+
 function writeResult(writeFile, jsonPath, check, secret) {
     if (!jsonPath || !check) return
     const safe = redactValue(check, secret)
@@ -197,6 +203,7 @@ export async function runCheck(options, io = {}) {
         if (started.timeout) return fail(`Timed out after ${timeoutSeconds}s before the check started.`)
         if (started.network) return fail(`Could not reach ${server}. ${started.message}`)
         if (!started.ok) {
+            if (started.status === 403) return fail(permissionDeniedMessage())
             if (isNoDraft(started)) return fail(`No draft to check. ${started.message}`)
             return fail(`Check failed (${started.status}): ${started.message}`)
         }
@@ -225,6 +232,11 @@ export async function runCheck(options, io = {}) {
             })
             if (polled.timeout) return giveUp()
             if (polled.network) return fail(`Could not reach ${server}. ${polled.message}`)
+            if (polled.status === 403) {
+                // The check is already running. Stop it before returning, or it keeps spending tokens.
+                await stopCheck(fetchImpl, `${base}/${encodeURIComponent(check.id)}`, headers)
+                return fail(permissionDeniedMessage())
+            }
             if (!polled.ok) return fail(`Check failed (${polled.status}): ${polled.message}`)
             if (!polled.json || typeof polled.json !== 'object') return fail('The server did not return a check.')
             const previous = check.completed

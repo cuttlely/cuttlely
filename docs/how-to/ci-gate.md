@@ -6,7 +6,12 @@ The check asks the flow's recent questions again, once on Live and once on the d
 
 ## Run it
 
-The command reads the API key from `CUTTLELY_API_KEY`. It does not take the key as a flag. The key needs permission to update the flow: `chatflows:update` for a chatflow, `agentflows:update` for an agentflow. Create it under **API Keys**.
+The command reads the API key from `CUTTLELY_API_KEY`. It does not take the key as a flag. Create the key under **API Keys** with both permissions for the flow's type. Starting the check needs update, and reading the result needs view. A key with only the update permission can start the check, and the command then gets 403 when it reads the result.
+
+| Flow      | Permissions the key needs                 |
+| --------- | ----------------------------------------- |
+| Chatflow  | `chatflows:view` and `chatflows:update`   |
+| Agentflow | `agentflows:view` and `agentflows:update` |
 
 ```bash
 export CUTTLELY_API_KEY=<key>
@@ -45,7 +50,7 @@ A check the server marks stopped or failed also exits 2. If the draft is saved, 
 
 ## GitHub Actions
 
-Point the job at a Cuttlely server you already run. The workflow does not start one. Store the API key as a repository secret named `CUTTLELY_API_KEY`. Set `CUTTLELY_URL` and `CUTTLELY_FLOW_ID` as repository variables.
+Point the job at a Cuttlely server you already run. The workflow does not start one. Store the API key as a repository secret named `CUTTLELY_API_KEY`. The key needs `chatflows:view` and `chatflows:update`, or `agentflows:view` and `agentflows:update`. Set `CUTTLELY_URL` and `CUTTLELY_FLOW_ID` as repository variables.
 
 ```yaml
 name: Cuttlely draft check

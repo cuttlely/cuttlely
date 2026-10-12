@@ -2,7 +2,9 @@
 # This workflow does not start Cuttlely.
 #
 # Repository secret: CUTTLELY_API_KEY
-#   An API key that can update the flow (chatflows:update or agentflows:update).
+#   An API key with both view and update for the flow:
+#   chatflows:view and chatflows:update, or agentflows:view and agentflows:update.
+#   Update starts the check. View is required to read the result.
 # Repository variables: CUTTLELY_URL, CUTTLELY_FLOW_ID
 #   The server origin, and the flow id from the canvas address bar.
 # The flow needs a draft and at least one past question. See docs/how-to/ci-gate.md.

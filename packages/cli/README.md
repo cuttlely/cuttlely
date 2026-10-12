@@ -64,7 +64,7 @@ npx cuttlely check --flow <flow id> --server http://127.0.0.1:43117 --timeout 30
 | 1    | `--fail-on-changed` was set and at least one answer was Changed.                                             |
 | 2    | The check timed out, the server returned an error, `CUTTLELY_API_KEY` was missing, or the flow has no draft. |
 
-The key needs `chatflows:update` or `agentflows:update` for that flow. The guide is [Fail a build when answers change](https://github.com/cuttlely/cuttlely/blob/main/docs/how-to/ci-gate.md).
+The key needs both permissions for the flow: `chatflows:view` and `chatflows:update`, or `agentflows:view` and `agentflows:update`. Update starts the check. View is what reading the result uses. The guide is [Fail a build when answers change](https://github.com/cuttlely/cuttlely/blob/main/docs/how-to/ci-gate.md).
 
 The container name is `cuttlely`. `start` leaves it running when it is already on the same image and port. `upgrade` always pulls and starts it again. The volume is `cuttlely-data`, mounted at `/var/cuttlely`.
 

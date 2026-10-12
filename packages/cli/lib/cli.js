@@ -53,6 +53,7 @@ export function helpText() {
         '  logs      Show container logs. --follow keeps streaming.',
         '  upgrade   Pull the image and start it again.',
         '  check     Run the Publish check on a flow draft. Reads CUTTLELY_API_KEY.',
+        '            The key needs chatflows:view and chatflows:update, or agentflows:view and agentflows:update.',
         '',
         'Exit codes for check:',
         '  0  The check finished. No answer was Changed, or --fail-on-changed was off.',
