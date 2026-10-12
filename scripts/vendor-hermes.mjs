@@ -21,13 +21,7 @@ import { fileURLToPath } from 'node:url'
 const SCRIPT_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 export const DEFAULT_UPSTREAM = 'https://github.com/NousResearch/hermes-agent.git'
 // Files Cuttlely owns inside hermes/. They are not upstream files and are never trimmed or patched.
-export const OWN_FILES = [
-    'CUTTLELY_VENDOR.txt',
-    'CUTTLELY_EXCLUDE.txt',
-    'CUTTLELY_LOADED.txt',
-    'CUTTLELY_VENDOR.lock',
-    'UPSTREAM_COMMIT'
-]
+export const OWN_FILES = ['CUTTLELY_VENDOR.txt', 'CUTTLELY_EXCLUDE.txt', 'CUTTLELY_LOADED.txt', 'CUTTLELY_VENDOR.lock', 'UPSTREAM_COMMIT']
 const OWN_DIRS = ['patches/']
 const BOT = { name: 'cuttlely vendor', email: 'vendor@cuttlely.invalid', date: '2000-01-01T00:00:00Z' }
 
@@ -134,8 +128,59 @@ function isLicenseFile(file) {
     return /^(LICENSE|NOTICE|COPYING|AUTHORS|COPYRIGHT)(\..*)?$/i.test(base)
 }
 
+function isDataName(name) {
+    if (!name || name.startsWith('/') || name.includes('\\') || name.split('/').includes('..')) return false
+    const ext = name.includes('.') ? name.slice(name.lastIndexOf('.')) : ''
+    return DATA_EXT.has(ext) || name.endsWith('SKILL.md')
+}
+
+function quotedParts(text) {
+    return [...String(text).matchAll(/['"]([^'"\n]+)['"]/g)].map((item) => item[1])
+}
+
+// The argument list of a call, including nested calls, starting at the '(' .
+function callBody(source, openParen) {
+    let depth = 0
+    for (let i = openParen; i < source.length; i++) {
+        if (source[i] === '(') depth++
+        else if (source[i] === ')') {
+            depth--
+            if (depth === 0) return source.slice(openParen, i + 1)
+        }
+    }
+    return ''
+}
+
+// Quoted pieces joined with / , and the string arguments of os.path.join / path.join.
+export function dataPathsInSource(source) {
+    const found = []
+    const text = String(source)
+    for (const match of text.matchAll(/['"][^'"\n]+['"](?:\s*\/\s*['"][^'"\n]+['"])+/g)) {
+        const parts = quotedParts(match[0])
+        if (parts.length > 1 && parts.every((part) => part && !part.includes('..'))) found.push(parts.join('/'))
+    }
+    for (const needle of ['os.path.join', 'path.join', 'Path.joinpath']) {
+        let from = 0
+        while (from < text.length) {
+            const at = text.indexOf(needle, from)
+            if (at < 0) break
+            const open = text.indexOf('(', at + needle.length)
+            if (open < 0 || open - (at + needle.length) > 3) {
+                from = at + needle.length
+                continue
+            }
+            const body = callBody(text, open)
+            const parts = quotedParts(body).filter((part) => part && !part.includes('..') && !part.startsWith('/'))
+            if (parts.length) found.push(parts.join('/'))
+            from = open + Math.max(body.length, 1)
+        }
+    }
+    for (const match of text.matchAll(/['"]([^'"\n]{1,200})['"]/g)) found.push(match[1])
+    return found
+}
+
 // Listed files, plus package __init__ files, license and attribution files, files a local patch
-// edits, and data files a kept module names with a string literal.
+// edits, and data files a kept module names, including Path / "dir" / "file.ext" and os.path.join.
 export function filesToKeep(upstreamFiles, { loaded, patchFiles, readFile }) {
     const all = new Set(upstreamFiles)
     const keep = new Set()
@@ -164,12 +209,15 @@ export function filesToKeep(upstreamFiles, { loaded, patchFiles, readFile }) {
                     continue
                 }
                 const dir = file.includes('/') ? file.slice(0, file.lastIndexOf('/')) : ''
-                for (const match of source.matchAll(/['"]([^'"\n]{1,200})['"]/g)) {
-                    const lit = match[1]
-                    if (!lit || lit.startsWith('/') || lit.includes('\\') || lit.split('/').includes('..')) continue
-                    const ext = lit.includes('.') ? lit.slice(lit.lastIndexOf('.')) : ''
-                    if (!DATA_EXT.has(ext) && !lit.endsWith('SKILL.md')) continue
-                    const candidates = dir ? [`${dir}/${lit}`, lit] : [lit]
+                const parents = []
+                let parent = dir
+                for (let i = 0; i < 3 && parent; i++) {
+                    parents.push(parent)
+                    parent = parent.includes('/') ? parent.slice(0, parent.lastIndexOf('/')) : ''
+                }
+                for (const lit of dataPathsInSource(source)) {
+                    if (!isDataName(lit)) continue
+                    const candidates = [lit, ...parents.map((base) => `${base}/${lit}`)]
                     for (const rel of candidates) {
                         const normal = rel.replace(/\/+/g, '/').replace(/^\.\//, '')
                         if (all.has(normal) && !keep.has(normal)) {

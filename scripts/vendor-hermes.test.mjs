@@ -8,6 +8,7 @@ import { isolateProcessEnv, testGit } from './test-git.mjs'
 import {
     abort,
     check,
+    dataPathsInSource,
     excludedBy,
     filesToKeep,
     parseExcludes,
@@ -169,12 +170,45 @@ test('a loaded list keeps measured files plus inits, named data, licenses and pa
     assert.deepEqual(parseLoaded('# note\n\ntool.py\n'), ['tool.py'])
     assert.throws(() => parseLoaded('# only a comment\n'), /no paths/)
     assert.throws(() => parseLoaded('../secret\n'), /unsupported path/)
-    const readFile = (file) => (file === 'agent/core.py' ? 'open("notes.yaml")\n' : '')
+    const readFile = (file) => {
+        if (file === 'agent/core.py') return 'open("notes.yaml")\n'
+        if (file === 'gateway/status_phrases.py') {
+            return 'Path(__file__).resolve().parent / "assets" / "status_phrases.yaml"\nos.path.join(os.path.dirname(__file__), "assets", "other.toml")\n'
+        }
+        return ''
+    }
+    assert.deepEqual(dataPathsInSource('Path(__file__).resolve().parent / "assets" / "status_phrases.yaml"'), [
+        'assets/status_phrases.yaml',
+        'assets',
+        'status_phrases.yaml'
+    ])
     const keep = filesToKeep(
-        ['README.md', 'tool.py', 'extra.py', 'agent/core.py', 'agent/__init__.py', 'agent/notes.yaml', 'LICENSE', 'run.sh'],
-        { loaded: ['tool.py', 'agent/core.py'], patchFiles: ['run.sh'], readFile }
+        [
+            'README.md',
+            'tool.py',
+            'extra.py',
+            'agent/core.py',
+            'agent/__init__.py',
+            'agent/notes.yaml',
+            'gateway/status_phrases.py',
+            'gateway/assets/status_phrases.yaml',
+            'gateway/assets/other.toml',
+            'LICENSE',
+            'run.sh'
+        ],
+        { loaded: ['tool.py', 'agent/core.py', 'gateway/status_phrases.py'], patchFiles: ['run.sh'], readFile }
     )
-    for (const file of ['tool.py', 'agent/core.py', 'agent/__init__.py', 'agent/notes.yaml', 'LICENSE', 'run.sh']) {
+    for (const file of [
+        'tool.py',
+        'agent/core.py',
+        'agent/__init__.py',
+        'agent/notes.yaml',
+        'gateway/status_phrases.py',
+        'gateway/assets/status_phrases.yaml',
+        'gateway/assets/other.toml',
+        'LICENSE',
+        'run.sh'
+    ]) {
         assert.equal(keep.has(file), true, file)
     }
     assert.equal(keep.has('extra.py'), false)
