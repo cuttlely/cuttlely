@@ -1,9 +1,11 @@
 import { EvaluationRunner, ICommonObject } from '@cuttlely/components'
+import { Request } from 'express'
 import { StatusCodes } from 'http-status-codes'
 import { In } from 'typeorm'
 import { v4 as uuidv4 } from 'uuid'
 import { Assistant } from '../../database/entities/Assistant'
-import { ChatFlow } from '../../database/entities/ChatFlow'
+import { ChatFlow, EnumChatflowType } from '../../database/entities/ChatFlow'
+import { hasAnyPermission } from '../../identity/rbac'
 import { Credential } from '../../database/entities/Credential'
 import { Dataset } from '../../database/entities/Dataset'
 import { DatasetRow } from '../../database/entities/DatasetRow'
@@ -37,7 +39,14 @@ function jsonArray(value: unknown, label: string): unknown[] {
     return parsed
 }
 
-const runAgain = async (id: string, baseURL: string, orgId: string, workspaceId: string) => {
+const VIEWABLE_FLOW_TYPES = new Set<string>([EnumChatflowType.CHATFLOW, EnumChatflowType.AGENTFLOW, EnumChatflowType.MULTIAGENT])
+
+function viewPermissionForFlow(type: string | undefined): string {
+    if (type === EnumChatflowType.AGENTFLOW || type === EnumChatflowType.MULTIAGENT) return 'agentflows:view'
+    return 'chatflows:view'
+}
+
+const runAgain = async (id: string, baseURL: string, orgId: string, workspaceId: string, req: Request) => {
     try {
         const appServer = getRunningExpressApp()
         const evaluation = await appServer.AppDataSource.getRepository(Evaluation).findOneBy({
@@ -72,13 +81,13 @@ const runAgain = async (id: string, baseURL: string, orgId: string, workspaceId:
             }
         }
         data.version = true
-        return await createEvaluation(data, baseURL, orgId, workspaceId)
+        return await createEvaluation(data, baseURL, orgId, workspaceId, req)
     } catch (error) {
         throw new AppError(StatusCodes.INTERNAL_SERVER_ERROR, `Error: EvalsService.runAgain - ${getErrorMessage(error)}`)
     }
 }
 
-const createEvaluation = async (body: ICommonObject, baseURL: string, orgId: string, workspaceId: string) => {
+const createEvaluation = async (body: ICommonObject, baseURL: string, orgId: string, workspaceId: string, req: Request) => {
     try {
         const appServer = getRunningExpressApp()
         // A grading credential has to belong to this workspace before any row is saved or any run starts.
@@ -117,11 +126,20 @@ const createEvaluation = async (body: ICommonObject, baseURL: string, orgId: str
         })
         if (!dataset) throw new AppError(StatusCodes.NOT_FOUND, `Dataset ${body.datasetId} not found`)
         if (chatflowIds.length > 0) {
-            const assistants = await appServer.AppDataSource.getRepository(Assistant).find({
-                where: { id: In(chatflowIds as string[]), workspaceId }
+            const ids = chatflowIds as string[]
+            const flows = await appServer.AppDataSource.getRepository(ChatFlow).find({
+                where: { id: In(ids), workspaceId }
             })
-            if (assistants.length > 0) {
-                throw new AppError(StatusCodes.BAD_REQUEST, 'Custom assistants cannot be evaluated')
+            const byId = new Map(flows.map((flow) => [flow.id, flow]))
+            for (const id of ids) {
+                const flow = byId.get(id)
+                // Unknown, another workspace, an assistant, or a type this caller cannot view: same answer, no row.
+                if (!flow || !VIEWABLE_FLOW_TYPES.has(String(flow.type || ''))) {
+                    throw new AppError(StatusCodes.NOT_FOUND, `Flow ${id} not found`)
+                }
+                if (!(await hasAnyPermission(req, viewPermissionForFlow(flow.type)))) {
+                    throw new AppError(StatusCodes.NOT_FOUND, `Flow ${id} not found`)
+                }
             }
         }
 

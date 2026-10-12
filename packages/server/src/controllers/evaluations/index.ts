@@ -29,7 +29,7 @@ const createEvaluation = async (req: Request, res: Response, next: NextFunction)
         const body = req.body
         body.workspaceId = workspaceId
 
-        const apiResponse = await evaluationsService.createEvaluation(body, evaluationBaseUrl(), orgId, workspaceId)
+        const apiResponse = await evaluationsService.createEvaluation(body, evaluationBaseUrl(), orgId, workspaceId, req)
         return res.json(apiResponse)
     } catch (error) {
         next(error)
@@ -49,7 +49,7 @@ const runAgain = async (req: Request, res: Response, next: NextFunction) => {
         if (!workspaceId) {
             throw new AppError(StatusCodes.NOT_FOUND, `Error: evaluationsService.runAgain - workspace ${workspaceId} not found!`)
         }
-        const apiResponse = await evaluationsService.runAgain(req.params.id, evaluationBaseUrl(), orgId, workspaceId)
+        const apiResponse = await evaluationsService.runAgain(req.params.id, evaluationBaseUrl(), orgId, workspaceId, req)
         return res.json(apiResponse)
     } catch (error) {
         next(error)

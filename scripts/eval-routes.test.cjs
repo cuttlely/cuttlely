@@ -87,6 +87,7 @@ const { Evaluation } = serverRequire('./src/database/entities/Evaluation.ts')
 const { EvaluationRun } = serverRequire('./src/database/entities/EvaluationRun.ts')
 const { Credential } = serverRequire('./src/database/entities/Credential.ts')
 const { Assistant } = serverRequire('./src/database/entities/Assistant.ts')
+const { ChatFlow } = serverRequire('./src/database/entities/ChatFlow.ts')
 
 Module._load = originalLoad
 
@@ -100,7 +101,8 @@ const ROUND_TRIP_ENTITIES = [
     Evaluation,
     EvaluationRun,
     Credential,
-    Assistant
+    Assistant,
+    ChatFlow
 ]
 
 const USER = '11111111-1111-4111-8111-111111111111'
@@ -509,6 +511,13 @@ describe('evaluation routes', () => {
             delete process.env.APP_URL
             process.env.PORT = String(server.address().port)
             asOwner()
+            await dataSource.getRepository(ChatFlow).save({
+                id: 'flow-local',
+                name: 'Local flow',
+                flowData: '{}',
+                type: 'CHATFLOW',
+                workspaceId: WORKSPACE
+            })
             const dataset = await api.post('/datasets/set').send({ name: 'Live', description: 'one row' })
             assert.equal(dataset.status, 200, JSON.stringify(dataset.body))
             const row = await api.post('/datasets/rows').send({
@@ -610,6 +619,72 @@ describe('evaluation routes', () => {
             assert.match(custom.body.message, /Custom assistants/i)
             assert.equal(await dataSource.getRepository(Evaluation).count(), 0)
         } finally {
+            await cleanup()
+        }
+    })
+
+    it('rejects an unknown flow, a flow from another workspace, and a mixed list before saving', async () => {
+        const { dataSource, api, cleanup } = await openSqlite()
+        try {
+            asOwner()
+            const dataset = await api.post('/datasets/set').send({ name: 'Questions', description: 'rows' })
+            assert.equal(dataset.status, 200, JSON.stringify(dataset.body))
+            const own = await dataSource.getRepository(ChatFlow).save({
+                name: 'Support',
+                flowData: '{}',
+                type: 'CHATFLOW',
+                workspaceId: WORKSPACE
+            })
+            await dataSource.getRepository(Workspace).save({
+                id: WORKSPACE_B,
+                name: 'Other Team',
+                organizationId: ORG,
+                createdBy: USER,
+                updatedBy: USER
+            })
+            const foreign = await dataSource.getRepository(ChatFlow).save({
+                name: 'Theirs',
+                flowData: '{}',
+                type: 'CHATFLOW',
+                workspaceId: WORKSPACE_B
+            })
+            const agent = await dataSource.getRepository(ChatFlow).save({
+                name: 'Orders',
+                flowData: '{}',
+                type: 'AGENTFLOW',
+                workspaceId: WORKSPACE
+            })
+            const post = (ids) =>
+                api.post('/evaluations').send({
+                    name: 'Check',
+                    evaluationType: 'benchmarking',
+                    datasetId: dataset.body.id,
+                    datasetName: 'Questions',
+                    chatflowId: JSON.stringify(ids),
+                    chatflowName: JSON.stringify(ids.map(() => 'Flow')),
+                    chatflowType: JSON.stringify(ids.map(() => 'Chatflow'))
+                })
+            const unknown = await post(['does-not-exist'])
+            assert.equal(unknown.status, 404, JSON.stringify(unknown.body))
+            assert.match(unknown.body.message, /not found/i)
+            assert.equal(await dataSource.getRepository(Evaluation).count(), 0)
+            const otherTeam = await post([foreign.id])
+            assert.equal(otherTeam.status, 404, JSON.stringify(otherTeam.body))
+            assert.equal(await dataSource.getRepository(Evaluation).count(), 0)
+            const mixed = await post([own.id, 'does-not-exist'])
+            assert.equal(mixed.status, 404, JSON.stringify(mixed.body))
+            assert.equal(await dataSource.getRepository(Evaluation).count(), 0)
+            setTeamPermissionLookup({
+                async accessFor() {
+                    return { owner: false, permissions: ['evaluations:create', 'chatflows:view'] }
+                }
+            })
+            currentUser = () => ({ id: MEMBER, activeWorkspaceId: WORKSPACE, activeOrganizationId: ORG })
+            const hiddenAgent = await post([agent.id])
+            assert.equal(hiddenAgent.status, 404, JSON.stringify(hiddenAgent.body))
+            assert.equal(await dataSource.getRepository(Evaluation).count(), 0)
+        } finally {
+            asOwner()
             await cleanup()
         }
     })
