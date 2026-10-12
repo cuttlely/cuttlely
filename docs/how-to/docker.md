@@ -68,6 +68,13 @@ Each release is published as `ghcr.io/cuttlely/cuttlely:X.Y.Z`, and the newest r
 -   **Pin a release.** Set `CUTTLELY_IMAGE=ghcr.io/cuttlely/cuttlely:1.0.0` in `.env`, then run `docker compose up -d`.
 -   **Move to the newest release.** Run `docker compose pull`, then `docker compose up -d`. Back up the volume first and read the release's upgrade notes in the changelog. [Upgrading Cuttlely](../upgrading.md) has the backup, upgrade and roll back steps.
 -   **Build your own checkout.** Run `docker compose up -d --build`. The build is tagged with the `CUTTLELY_IMAGE` name, so set `CUTTLELY_IMAGE=cuttlely:local` in `.env` to keep it apart from the published image.
+-   **Build without Chromium.** The default image includes Chromium for the Puppeteer and Playwright document loaders. To leave it out, set `INCLUDE_BROWSER=0` and build again:
+
+```bash
+INCLUDE_BROWSER=0 docker compose up -d --build
+```
+
+`docker build --build-arg INCLUDE_BROWSER=0 -t cuttlely:no-browser .` is the same build. In that image those two loaders fail with `this image has no browser`. The agent runtime's browser tool also cannot browse there: it returns success: false, and the server keeps running. The published image `ghcr.io/cuttlely/cuttlely` is unchanged and still includes Chromium. `INCLUDE_BROWSER` accepts only `0` and `1`.
 
 The image is built for `linux/amd64`. A release can also carry `linux/arm64` when it was built on a machine that can build both. On Apple silicon, Docker runs the `amd64` image under emulation.
 

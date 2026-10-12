@@ -1,10 +1,42 @@
+import * as fs from 'fs'
+import * as os from 'os'
+import * as path from 'path'
 import {
     removeInvalidImageMarkdown,
     convertRequireToImport,
     COMMONJS_REQUIRE_REGEX,
     IMPORT_EXTRACTION_REGEX,
-    executeJavaScriptCode
+    executeJavaScriptCode,
+    assertImageHasBrowser,
+    IMAGE_WITHOUT_BROWSER_ERROR
 } from './utils'
+
+describe('assertImageHasBrowser', () => {
+    it('does nothing when the marker file is absent', () => {
+        expect(() => assertImageHasBrowser(path.join(os.tmpdir(), 'cuttlely-browser-missing-marker'))).not.toThrow()
+    })
+
+    it('fails when the image build wrote the marker file', () => {
+        const marker = path.join(os.tmpdir(), `cuttlely-no-browser-${process.pid}`)
+        fs.writeFileSync(marker, '')
+        try {
+            expect(() => assertImageHasBrowser(marker)).toThrow(IMAGE_WITHOUT_BROWSER_ERROR)
+        } finally {
+            fs.unlinkSync(marker)
+        }
+    })
+
+    it('browser document loaders check before they launch', () => {
+        for (const file of ['nodes/documentloaders/Puppeteer/Puppeteer.ts', 'nodes/documentloaders/Playwright/Playwright.ts']) {
+            const source = fs.readFileSync(path.join(__dirname, '..', file), 'utf8')
+            const init = source.slice(source.indexOf('async init'))
+            const call = init.indexOf('assertImageHasBrowser()')
+            const launch = init.search(/puppeteerLoader|playwrightLoader/)
+            expect(call).toBeGreaterThan(-1)
+            expect(launch).toBeGreaterThan(call)
+        }
+    })
+})
 
 describe('removeInvalidImageMarkdown', () => {
     describe('strips non-http/https image markdown', () => {
