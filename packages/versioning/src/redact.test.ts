@@ -91,11 +91,21 @@ describe('redactSecrets leaves ordinary text alone', () => {
 })
 
 describe('looksRandom', () => {
+    const token = join('q8Zt3', 'Lm9Vx2Rk7Wp4Ny6Bc1')
+
     test('needs length, digits and letters, and entropy', () => {
-        expect(looksRandom(join('q8Zt3', 'Lm9Vx2Rk7Wp4Ny6Bc1'))).toBe(true)
+        expect(looksRandom(token)).toBe(true)
         expect(looksRandom('aaaaaaaaaaaaaaaaaaaaaaaa1')).toBe(false)
         expect(looksRandom('internationalization')).toBe(false)
         expect(looksRandom('short1A')).toBe(false)
         expect(looksRandom('https://example.com/abc123def456ghi789')).toBe(false)
+    })
+
+    test('trailing equals are padding and do not hide or invent a token', () => {
+        expect(looksRandom('')).toBe(false)
+        expect(looksRandom('=')).toBe(false)
+        expect(looksRandom('='.repeat(80))).toBe(false)
+        expect(looksRandom(`${token}${'='.repeat(40)}`)).toBe(true)
+        expect(looksRandom(`${'='.repeat(40)}${token}`)).toBe(false)
     })
 })

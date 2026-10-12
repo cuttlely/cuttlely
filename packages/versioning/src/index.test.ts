@@ -3,9 +3,7 @@ import fs from 'fs'
 import os from 'os'
 import path from 'path'
 
-jest.mock('../../utils/logger', () => ({ __esModule: true, default: { warn: jest.fn(), info: jest.fn(), error: jest.fn() } }))
-jest.mock('../../utils/getRunningExpressApp', () => ({ getRunningExpressApp: jest.fn() }))
-
+import { useTestDeps } from './testDeps'
 import {
     credentialIds,
     flushVersions,
@@ -81,6 +79,7 @@ beforeEach(() => {
     tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'cuttlely-versions-'))
     process.env.CUTTLELY_VERSIONS = 'on'
     process.env.CUTTLELY_VERSIONS_DIR = path.join(tmp, 'versions')
+    useTestDeps()
     resetForTests()
 })
 

@@ -48,8 +48,8 @@ node packages/etl/check.mjs --stress   # adds a generated 1,000,000-row CSV and 
 ## Local verify
 
 ```bash
-pnpm verify                   # the full gate; `pnpm verify --help` lists the 23 steps
-pnpm verify --fast            # lint, boundaries, typecheck, verify-test, website-docs, chat-widget, hermes-vendor, unit, server-settings-ui, handoff-test, render-blueprint, identity-migration
+pnpm verify                   # the full gate; `pnpm verify --help` lists the 24 steps
+pnpm verify --fast            # lint, boundaries, typecheck, verify-test, website-docs, chat-widget, versioning, hermes-vendor, unit, server-settings-ui, handoff-test, render-blueprint, identity-migration
 node scripts/check-boundaries.mjs   # zone crossings; --update only shrinks the baseline
 node scripts/health-report.mjs       # health table; exits 0. --image <ref> adds the image size
 pnpm verify --skip smoke      # skip one step locally; repeat --skip for more. Not for the merge gate
@@ -59,7 +59,7 @@ CUTTLELY_VERIFY_JEST_WORKERS=4 pnpm verify   # unit Jest workers; default 50%
 
 The `unit` step runs the server Jest suite, then `packages/components/nodes/load-coverage.test.ts` with `--coverage=false` (same worker cap, Node heap 4096). That second command enforces the test's 60 second budget. `pnpm test:coverage`, including the CI build job, runs the file with instrumentation: the load and the problem checks still run, the time assertion does not, and the elapsed time is printed. No workflow job runs the file without coverage.
 
-The report is `.verify/verify-report.json` and `.verify/verify-summary.md` (gitignored). `--fast` does not build, so the server unit tests need a `packages/` build on disk from an earlier full verify or `pnpm build`. The node load test in that same step reads TypeScript source through the components Jest config and does not need `dist`. The typecheck step runs in both modes. It typechecks components and the server, and runs `tsc --noEmit` for `packages/api-documentation`.
+The report is `.verify/verify-report.json` and `.verify/verify-summary.md` (gitignored). `--fast` does not build, so the server unit tests need a `packages/` build on disk from an earlier full verify or `pnpm build`. The node load test in that same step reads TypeScript source through the components Jest config and does not need `dist`. The typecheck step runs in both modes. It typechecks components, the versioning core, and the server, and runs `tsc --noEmit` for `packages/api-documentation`.
 
 The `identity-entity-smoke` step (full verify only) compares the identity schema. SQLite always runs. Postgres runs when `PGPASSWORD` or `CUTTLELY_TEST_PG_PASSWORD` is set. MariaDB runs when `MYSQL_PWD` or `CUTTLELY_TEST_MYSQL_PASSWORD` is set (`CUTTLELY_TEST_MARIADB_PORT`, default 3306). An unset password skips that database. A set password with the server down fails the step. MySQL 8 uses `CUTTLELY_TEST_MYSQL8_PORT` (default 3307) and `CUTTLELY_TEST_MYSQL8_PASSWORD`, or the MariaDB password. A refused connection, or a server that is not MySQL 8, is a skip.
 
@@ -153,7 +153,7 @@ Contributor-relevant variables. The admin panel registry (`packages/server/src/s
 -   **Postgres is not `DATABASE_URL`.** The app reads `DATABASE_TYPE=postgres` plus `DATABASE_HOST`, `DATABASE_PORT`, `DATABASE_NAME`, `DATABASE_USER` and `DATABASE_PASSWORD` (`packages/server/src/DataSource.ts`).
 -   **Restart after runtime code changes.** The server loads `packages/harness/*.mjs` and `packages/etl/*.mjs` once. Rebuild `packages/server` or `packages/components` after TypeScript changes.
 -   **`pnpm dev` runs the last server build.** nodemon restarts the server when a file under `packages/server/src` changes, but it starts the compiled `dist`, so a server change needs `pnpm --filter @cuttlely/server build` and then one more save (OPEN 15). The UI dev server listens on `localhost` only, so use `http://localhost:8080`, not `127.0.0.1`.
--   **The verify build step compiles the chat widget, components, the server, and the UI.** `packages/api-documentation` is covered by `tsc --noEmit` in the typecheck step, which `pnpm verify` and `pnpm verify --fast` both run. The UI has no TypeScript project.
+-   **The verify build step compiles the chat widget, components, the server, and the UI.** The server build also compiles `@cuttlely/versioning`, because the server depends on it. `packages/api-documentation` is covered by `tsc --noEmit` in the typecheck step, which `pnpm verify` and `pnpm verify --fast` both run. The UI has no TypeScript project.
 -   **Stale node definitions.** A node file whose mtime or size changed is reloaded at boot. If the canvas still shows an old definition, delete `packages/components/dist/nodes-manifest.json` and restart.
 -   **A harness needs a model on Harness Prime.** Saving without one fails with a clear message; a required credential that is missing or deleted fails with `missing_credential`; a model on a loopback or private address fails with `model_blocked` (D11).
 -   **Gateway or runtime port in use.** Set `CUTTLELY_HARNESS_GATEWAY_PORT` or `HERMES_API_PORT` and restart. `$CUTTLELY_HERMES_HOME/.env` records the runtime port from the first start.

@@ -40,7 +40,8 @@ module.exports = {
     // needing an inline jest.mock() factory.
     moduleNameMapper: {
         '^uuid$': '<rootDir>/node_modules/uuid/dist/cjs/index.js',
-        '^typeorm$': '<rootDir>/__mocks__/typeorm.ts'
+        '^typeorm$': '<rootDir>/__mocks__/typeorm.ts',
+        '^@cuttlely/versioning$': '<rootDir>/../versioning/src/index.ts'
     },
 
     // Include the package's own node_modules so that Jest can resolve

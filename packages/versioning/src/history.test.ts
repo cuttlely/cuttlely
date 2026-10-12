@@ -2,10 +2,8 @@ import fs from 'fs'
 import os from 'os'
 import path from 'path'
 
-jest.mock('../../utils/logger', () => ({ __esModule: true, default: { warn: jest.fn(), info: jest.fn(), error: jest.fn() } }))
-jest.mock('../../utils/getRunningExpressApp', () => ({ getRunningExpressApp: jest.fn() }))
-
 import { diffVersion, getStore, getVersion, listVersions, recordFlowVersion, resetForTests } from './index'
+import { useTestDeps } from './testDeps'
 import { diffFlowFiles, listAllVersions, listFlowVersions, previousFlowVersion } from './history'
 import { serializeFlow } from './serialize'
 import { SECRET_PLACEHOLDER } from './redact'
@@ -68,6 +66,7 @@ beforeEach(() => {
     tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'cuttlely-history-'))
     process.env.CUTTLELY_VERSIONS = 'on'
     process.env.CUTTLELY_VERSIONS_DIR = path.join(tmp, 'versions')
+    useTestDeps()
     resetForTests()
 })
 

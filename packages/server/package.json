@@ -130,6 +130,7 @@
         "express": "^4.17.3",
         "express-rate-limit": "^6.9.0",
         "@cuttlely/components": "workspace:^",
+        "@cuttlely/versioning": "workspace:*",
         "flowise-nim-container-manager": "^1.0.11",
         "geoip-lite": "^2.0.3",
         "global-agent": "^3.0.0",
