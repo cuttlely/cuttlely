@@ -18,7 +18,7 @@
         "@cuttlely/components": "workspace:*",
         "@langchain/classic": "1.0.15",
         "@langchain/cohere": "1.0.2",
-        "@langchain/community": "1.1.12",
+        "@langchain/community": "1.1.29",
         "@langchain/core": "1.1.20",
         "@langchain/google-vertexai": "2.1.15",
         "@langchain/ollama": "1.2.2",
