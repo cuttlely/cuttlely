@@ -2,6 +2,7 @@ import { FLOWISE_METRIC_COUNTERS, IMetricsProvider } from '../Interface.Metrics'
 import express from 'express'
 import promClient, { Counter, Histogram, Registry } from 'prom-client'
 import { getVersion } from '@cuttlely/components'
+import { metricName, nodeMetricsPrefix } from './names'
 
 export class Prometheus implements IMetricsProvider {
     private app: express.Application
@@ -36,10 +37,11 @@ export class Prometheus implements IMetricsProvider {
             // derive proper counter name from the enum value (chatflow_created = Chatflow Created)
             const properCounterName: string = name.replace(/_/g, ' ').replace(/\b\w/g, (l) => l.toUpperCase())
             try {
+                const published = metricName(value)
                 this.counters.set(
                     value,
                     new promClient.Counter({
-                        name: value,
+                        name: published,
                         help: `Total number of ${properCounterName}`,
                         labelNames: ['status'],
                         registers: [this.register] // Explicitly set the registry
@@ -47,7 +49,7 @@ export class Prometheus implements IMetricsProvider {
                 )
             } catch (error) {
                 // If metric already exists, get it from the registry instead
-                const existingMetrics = this.register.getSingleMetric(value)
+                const existingMetrics = this.register.getSingleMetric(metricName(value))
                 if (existingMetrics) {
                     this.counters.set(value, existingMetrics as promClient.Counter<string>)
                 }
@@ -57,8 +59,9 @@ export class Prometheus implements IMetricsProvider {
         // in addition to the enum counters, add a few more custom counters
         // version, http_request_duration_ms, http_requests_total
         try {
+            const versionName = metricName('flowise_version_info')
             const versionGaugeCounter = new promClient.Gauge({
-                name: 'flowise_version_info',
+                name: versionName,
                 help: 'Cuttlely version info.',
                 labelNames: ['version'],
                 registers: [this.register] // Explicitly set the registry
@@ -69,15 +72,16 @@ export class Prometheus implements IMetricsProvider {
             this.counters.set('flowise_version', versionGaugeCounter)
         } catch (error) {
             // If metric already exists, get it from the registry
-            const existingMetric = this.register.getSingleMetric('flowise_version')
+            const existingMetric = this.register.getSingleMetric(metricName('flowise_version_info'))
             if (existingMetric) {
                 this.counters.set('flowise_version', existingMetric as promClient.Gauge<string>)
             }
         }
 
         try {
+            const durationName = metricName('http_request_duration_ms')
             this.httpRequestDurationMicroseconds = new promClient.Histogram({
-                name: 'http_request_duration_ms',
+                name: durationName,
                 help: 'Duration of HTTP requests in ms',
                 labelNames: ['method', 'route', 'code'],
                 buckets: [1, 5, 15, 50, 100, 200, 300, 400, 500], // buckets for response time from 0.1ms to 500ms
@@ -86,7 +90,7 @@ export class Prometheus implements IMetricsProvider {
             this.counters.set('http_request_duration_ms', this.httpRequestDurationMicroseconds)
         } catch (error) {
             // If metric already exists, get it from the registry
-            const existingMetric = this.register.getSingleMetric('http_request_duration_ms')
+            const existingMetric = this.register.getSingleMetric(metricName('http_request_duration_ms'))
             if (existingMetric) {
                 this.httpRequestDurationMicroseconds = existingMetric as Histogram<string>
                 this.counters.set('http_request_duration_ms', this.httpRequestDurationMicroseconds)
@@ -94,8 +98,9 @@ export class Prometheus implements IMetricsProvider {
         }
 
         try {
+            const requestsName = metricName('http_requests_total')
             this.requestCounter = new Counter({
-                name: 'http_requests_total',
+                name: requestsName,
                 help: 'Total number of HTTP requests',
                 labelNames: ['method', 'path', 'status'],
                 registers: [this.register] // Explicitly set the registry
@@ -103,7 +108,7 @@ export class Prometheus implements IMetricsProvider {
             this.counters.set('http_requests_total', this.requestCounter)
         } catch (error) {
             // If metric already exists, get it from the registry
-            const existingMetric = this.register.getSingleMetric('http_requests_total')
+            const existingMetric = this.register.getSingleMetric(metricName('http_requests_total'))
             if (existingMetric) {
                 this.requestCounter = existingMetric as Counter<string>
                 this.counters.set('http_requests_total', this.requestCounter)
@@ -159,7 +164,7 @@ export class Prometheus implements IMetricsProvider {
             // and ensure they're only registered with our custom registry
             promClient.collectDefaultMetrics({
                 register: this.register,
-                prefix: 'flowise_' // Add a prefix to avoid conflicts
+                prefix: nodeMetricsPrefix() // Add a prefix to avoid conflicts
             })
         }
 

@@ -2,6 +2,7 @@
 // Order: the host (environment, including packages/server/.env), then the admin settings file, then the built-in default.
 // A blank value counts as not set: Docker compose passes unset variables as empty strings.
 import { SETTINGS, SettingDef, settingFor } from './registry'
+import { partnerIsSet } from './settingAlias'
 
 export type SettingSource = 'host' | 'file' | 'default'
 
@@ -80,8 +81,11 @@ export function fileValuesToApply(
     hostKeys: Set<string> = hostSetKeys(env)
 ): Record<string, string> {
     const out: Record<string, string> = {}
+    const defaults = scriptDefaultKeys(env)
     for (const [key, value] of Object.entries(file)) {
         if (!settingFor(key) || hostKeys.has(key) || isBlank(value)) continue
+        // A host-set partner of this alias wins, the same way a host-set key wins.
+        if (partnerIsSet(env, key, defaults)) continue
         out[key] = String(value)
     }
     return out

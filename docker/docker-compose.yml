@@ -48,6 +48,10 @@ services:
             # Blank is off. auto creates analyst.db beside the app database (docs/how-to/analyst.md).
             CUTTLELY_ANALYST: ${CUTTLELY_ANALYST:-}
             FLOWISE_SECRETKEY_OVERWRITE: ${FLOWISE_SECRETKEY_OVERWRITE:-}
+            CUTTLELY_SECRETKEY_OVERWRITE: ${CUTTLELY_SECRETKEY_OVERWRITE:-}
+            CUTTLELY_FILE_SIZE_LIMIT: ${CUTTLELY_FILE_SIZE_LIMIT:-}
+            DISABLE_CUTTLELY_TELEMETRY: ${DISABLE_CUTTLELY_TELEMETRY:-}
+            METRICS_PREFIX: ${METRICS_PREFIX:-}
             TRUST_PROXY: ${TRUST_PROXY:-}
             WORKOS_API_KEY: ${WORKOS_API_KEY:-}
             WORKOS_CLIENT_ID: ${WORKOS_CLIENT_ID:-}
