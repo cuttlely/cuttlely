@@ -852,6 +852,78 @@ describe('Dev or Prod label', () => {
         expect((await sync.setEnvironment('prod')).environment).toBe('prod')
         expect((await sync.status()).role).toBe('read')
     })
+
+    test('a truncated environment file does not publish as the Dev and Prod pair', async () => {
+        const chain = [
+            { name: 'Dev', branch: 'main', server: 'dev' },
+            { name: 'Staging', branch: 'staging', server: 'staging' },
+            { name: 'Prod', branch: 'prod', server: 'prod' }
+        ]
+        await sync.setEnvironment('staging', chain)
+        await save('One')
+        await sync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)
+        const stagingRef = execFileSync('git', ['--git-dir', bare, 'rev-parse', 'refs/heads/staging'], {
+            encoding: 'utf8',
+            env: cleanEnv()
+        }).trim()
+        const pushes = gitCalls.filter((call) => call.args[0] === 'push').length
+        fs.writeFileSync(path.join(versionsDir(), '.git', 'versions-environment.json'), '{')
+        await save('Two')
+        await settle()
+        const status = await sync.status()
+        expect(status.state).toBe('stopped')
+        expect(status.message).toContain('could not be read')
+        expect(sync.environment()).toBeNull()
+        expect(sync.environments()).toEqual([])
+        expect(gitCalls.filter((call) => call.args[0] === 'push').length).toBe(pushes)
+        expect(bareMain(bare)).toBeNull()
+        expect(
+            execFileSync('git', ['--git-dir', bare, 'rev-parse', 'refs/heads/staging'], { encoding: 'utf8', env: cleanEnv() }).trim()
+        ).toBe(stagingRef)
+    })
+
+    test('a stopped copy on a middle environment is not retried by the next read', async () => {
+        sync.stop()
+        sync = makeSync({ checkEveryMs: 40 })
+        setGithubForTests(sync)
+        const chain = [
+            { name: 'Dev', branch: 'main', server: 'dev' },
+            { name: 'Staging', branch: 'staging', server: 'staging' },
+            { name: 'Prod', branch: 'prod', server: 'prod' }
+        ]
+        await sync.setEnvironment('staging', chain)
+        await save('One')
+        await sync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)
+        const work = path.join(tmp, 'elsewhere')
+        fs.mkdirSync(work)
+        const env = cleanEnv({
+            GIT_AUTHOR_NAME: 'someone',
+            GIT_AUTHOR_EMAIL: 'someone@example.invalid',
+            GIT_COMMITTER_NAME: 'someone',
+            GIT_COMMITTER_EMAIL: 'someone@example.invalid'
+        })
+        execFileSync('git', ['clone', '-q', '-b', 'staging', `file://${bare}`, '.'], { cwd: work, env })
+        fs.writeFileSync(path.join(work, 'README.md'), '# made on GitHub\n')
+        execFileSync('git', ['add', 'README.md'], { cwd: work, env })
+        execFileSync('git', ['commit', '-q', '-m', 'Initial commit'], { cwd: work, env })
+        execFileSync('git', ['push', '-q', `file://${bare}`, 'HEAD:refs/heads/staging'], { cwd: work, env })
+        await save('Two')
+        await settle()
+        const stopped = await sync.status()
+        expect(stopped.state).toBe('stopped')
+        expect(stopped.message).toContain('has changes that are not on this server')
+        const pushes = gitCalls.filter((call) => call.args[0] === 'push').length
+        const fetches = gitCalls.filter((call) => call.args[0] === 'fetch').length
+        await new Promise((resolve) => setTimeout(resolve, 120))
+        await sync.idle()
+        expect(gitCalls.filter((call) => call.args[0] === 'push').length).toBe(pushes)
+        expect(gitCalls.filter((call) => call.args[0] === 'fetch').length).toBeGreaterThan(fetches)
+        expect((await sync.status()).state).toBe('stopped')
+        expect((await sync.status()).message).toContain('has changes that are not on this server')
+        const retried = await sync.tryNow()
+        expect(gitCalls.filter((call) => call.args[0] === 'push').length).toBeGreaterThan(pushes)
+        expect(retried.state).toBe('stopped')
+    })
 })
 
 describe('local stand-in for GitHub (end-to-end runs without an account)', () => {

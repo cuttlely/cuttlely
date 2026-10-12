@@ -88,10 +88,33 @@ export const rollbackTarget = (versions = [], promotedSha) => {
     return target ? target.sha : null
 }
 
-// The card's line on Prod.
+// The environment this server reads from. "Dev" for the saved pair, or when this server is not in the list.
+export const previousEnvironmentTitle = (status) => {
+    const chain = status?.environments || []
+    const index = chain.findIndex((item) => item.server === status?.environment)
+    const previous = index > 0 ? chain[index - 1] : null
+    if (!previous || String(previous.name).toLowerCase() === 'dev') return 'Dev'
+    if (String(previous.name).toLowerCase() === 'prod') return 'Prod'
+    return previous.name
+}
+
+// The card's line on a server that only reads. Names the previous environment.
 export const readLine = (status, timeAgo) => {
     if (!status?.connected || status.role !== 'read') return ''
     if (status.state === 'retrying' || status.state === 'stopped') return ''
-    if (status.lastCheckedAt) return `Looked for new versions from Dev ${timeAgo(status.lastCheckedAt)}`
-    return 'Looking for new versions from Dev'
+    const from = previousEnvironmentTitle(status)
+    if (status.lastCheckedAt) {
+        return from === 'Dev'
+            ? `Looked for new versions from Dev ${timeAgo(status.lastCheckedAt)}`
+            : `Looked for new versions from ${from} ${timeAgo(status.lastCheckedAt)}`
+    }
+    return from === 'Dev' ? 'Looking for new versions from Dev' : `Looking for new versions from ${from}`
+}
+
+// The card's subtitle on a server that only reads.
+export const readIntro = (status) => {
+    const from = previousEnvironmentTitle(status)
+    return from === 'Dev'
+        ? 'Get new versions from your Dev server through your GitHub repository.'
+        : `Get new versions from your ${from} server through your GitHub repository.`
 }

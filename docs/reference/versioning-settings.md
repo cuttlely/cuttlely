@@ -103,7 +103,9 @@ Promotion walks an ordered list of environments. Each one has:
 | `branch` | Where that environment publishes in the shared GitHub repository.                             |
 | `server` | The identity of the server that fills that place. `environment` on that server is this value. |
 
-The list is not an environment variable. It is saved with the GitHub connection, in the history repo, by `PUT /api/v1/flow-versions/environment`. See [Label this server](./versioning-api.md#label-this-server).
+The list is not an environment variable. It is saved on each server, with that server's GitHub connection, in that server's history repo, by `PUT /api/v1/flow-versions/environment`. It is not copied to the shared repository. See [Label this server](./versioning-api.md#label-this-server).
+
+Every server in the chain should keep the same list. Promotion uses the list stored on the server that is promoting. If that list omits an environment, the remaining ones become neighbors. A Prod server whose list is only dev then prod reads dev's branch (`main` in the example below), not staging's, even while Staging is still publishing. Disconnect GitHub before a change that alters what this server reads or copies, then save the full list again.
 
 A server that was already labeled Dev or Prod, with no list in that file, loads as dev then prod. Both use the branch `main`. Dev copies there, and Prod reads it. You do not have to migrate that file. Saving `environment` as `dev` or `prod` with no list keeps writing that older file. Saving a longer list writes `environment` and `environments` together, and `environment` still names this server.
 

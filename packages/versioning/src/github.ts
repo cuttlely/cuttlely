@@ -413,6 +413,8 @@ export class GithubSync {
     private generation = 0
     private known = false
     private lastCheckedAt: string | null = null
+    // A non-retryable copy failure. Reads keep polling, but the copy stays stopped until Try again, disconnect, or connect.
+    private copyHold: string | null = null
 
     constructor(deps: GithubDeps) {
         this.deps = deps
@@ -697,7 +699,9 @@ export class GithubSync {
             if (!fs.existsSync(this.rolePath())) return { environment: null, environments: legacyEnvironments(), invalid: false }
             return parseEnvironmentFile(JSON.parse(fs.readFileSync(this.rolePath(), 'utf8')))
         } catch {
-            return { environment: null, environments: legacyEnvironments(), invalid: false }
+            // A missing file is the unlabeled server. A file that cannot be read must not fall back to Dev and Prod:
+            // that would publish a Staging or Prod server's history where Dev publishes.
+            return { environment: null, environments: [], invalid: true }
         }
     }
 
@@ -758,10 +762,7 @@ export class GithubSync {
             before.sourceBranch !== after.sourceBranch ||
             before.publishBranch !== after.publishBranch
         if (connected && changed) {
-            throw new GithubError(
-                409,
-                'Disconnect GitHub before switching this server between Dev and Prod. Dev copies its versions to the repository, and Prod only reads them.'
-            )
+            throw new GithubError(409, 'Disconnect GitHub before changing what this server reads or copies.')
         }
         await this.deps.store().ensure()
         const file = this.rolePath()
@@ -997,6 +998,8 @@ export class GithubSync {
         if (!config) throw new GithubError(409, 'GitHub is not connected.')
         this.clearTimer()
         this.failures = 0
+        // Try again is the operator intervening. A stopped copy may run once more.
+        this.copyHold = null
         await this.sync()
         return this.status()
     }
@@ -1035,6 +1038,7 @@ export class GithubSync {
         this.lastCopiedAt = null
         this.lastCopiedVersion = null
         this.lastCheckedAt = null
+        this.copyHold = null
     }
 
     private clearTimer(): void {
@@ -1068,8 +1072,16 @@ export class GithubSync {
                     const plan = this.plan()
                     if (plan.reads) await this.readOnce()
                     // A read that just failed must not be followed by a copy in the same pass.
+                    // A copy that already stopped for a reason the operator has to fix is not retried by the next read.
                     const readFailed = plan.reads && (this.state === 'retrying' || this.state === 'stopped')
-                    if (plan.copies && !readFailed) await this.pushOnce()
+                    if (plan.copies && !readFailed && !this.copyHold) await this.pushOnce()
+                    if (this.copyHold) {
+                        this.state = 'stopped'
+                        this.message = this.copyHold
+                        this.nextTryAt = null
+                        // The read that ran before the copy stopped may already have consumed its timer.
+                        if (plan.reads && !this.timer) this.schedule(this.deps.checkEveryMs ?? DEFAULT_CHECK_EVERY_MS)
+                    }
                 } while (this.again && this.state !== 'stopped' && this.state !== 'retrying')
             } catch (error) {
                 const reading = this.readOnly()
@@ -1097,8 +1109,7 @@ export class GithubSync {
         try {
             config = await this.config()
         } catch (error) {
-            this.state = 'stopped'
-            this.message = (error as Error).message
+            this.holdCopy((error as Error).message)
             return
         }
         if (!config || generation !== this.generation) return
@@ -1117,10 +1128,11 @@ export class GithubSync {
         // Disconnected or switched while scanning: never copy with the old connection.
         if (generation !== this.generation) return
         if (hit) {
-            this.state = 'stopped'
-            this.message = `Not copied to GitHub: version ${hit.sha.slice(0, 7)} has secret-shaped text (${hit.pattern}) in ${
-                hit.file
-            }. Nothing was copied.`
+            this.holdCopy(
+                `Not copied to GitHub: version ${hit.sha.slice(0, 7)} has secret-shaped text (${hit.pattern}) in ${
+                    hit.file
+                }. Nothing was copied.`
+            )
             this.log(`[versions] ${this.message}`)
             return
         }
@@ -1133,6 +1145,7 @@ export class GithubSync {
         if (generation !== this.generation) return
         if (result.ok) {
             await runGit(store.dir, ['update-ref', PUSHED_REF, head])
+            this.copyHold = null
             this.state = 'up-to-date'
             this.message = ''
             this.failures = 0
@@ -1144,12 +1157,18 @@ export class GithubSync {
         const failure = classifyFailure(`${result.stderr}\n${result.stdout}`, config.repo, result.timedOut)
         this.log(`[versions] Copy to GitHub ${config.repo} failed (${failure.kind}): ${scrub(result.stderr, config.token)}`)
         if (!failure.retry) {
-            this.state = 'stopped'
-            this.message = failure.message
-            this.nextTryAt = null
+            this.holdCopy(failure.message)
             return
         }
         this.scheduleRetry(failure.message)
+    }
+
+    // Remembers a copy that needs the operator. Later reads must not clear it or try the copy again.
+    private holdCopy(message: string): void {
+        this.copyHold = message
+        this.state = 'stopped'
+        this.message = message
+        this.nextTryAt = null
     }
 
     // Prod: reads the newest versions from Dev into INCOMING_REF. It writes nothing to the repository and never

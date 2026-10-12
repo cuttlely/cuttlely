@@ -377,7 +377,7 @@ To switch a server between Dev and Prod, disconnect GitHub first.
 
 The same repository can hold more than two environments. List them in promotion order. Each one has a name, the branch it publishes to, and a server identity. An existing Dev and Prod setup is already that list: dev, then prod, and you do not have to change it.
 
-To add Staging, save this on each server with `PUT /api/v1/flow-versions/environment`, and set `environment` to that server's identity (`dev`, `staging` or `prod`). Disconnect GitHub first if the server is already connected and this changes what it reads or copies.
+To add Staging, save this on each server with `PUT /api/v1/flow-versions/environment`, and set `environment` to that server's identity (`dev`, `staging` or `prod`). The list is stored on that server only. Save the same list on every server: if Prod's list leaves Staging out, Prod reads Dev again. Disconnect GitHub first if the server is already connected and this changes what it reads or copies.
 
 ```json
 {

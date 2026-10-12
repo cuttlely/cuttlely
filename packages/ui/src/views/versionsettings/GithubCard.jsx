@@ -59,7 +59,7 @@ import {
     tokenHint
 } from '@/utils/githubSync'
 import GithubTokenHelp from './GithubTokenHelp'
-import { incomingSummary, promotePath, readLine, sourceTitleOf } from '@/utils/promote'
+import { incomingSummary, promotePath, readIntro, readLine, sourceTitleOf } from '@/utils/promote'
 
 const pop = keyframes`
   0% { transform: scale(0.4); opacity: 0; }
@@ -135,8 +135,8 @@ RepoRow.propTypes = {
 const NEW_REPO = '__new_repo__'
 
 // onStatus hears every status the card loads or gets back, so a page around it can follow along.
-const GithubCard = ({ onStatus }) => {
-    const [status, setStatus] = useState(null)
+const GithubCard = ({ onStatus, initialStatus = null }) => {
+    const [status, setStatus] = useState(initialStatus)
     const [loadError, setLoadError] = useState('')
     const [busy, setBusy] = useState('')
     const [error, setError] = useState('')
@@ -346,9 +346,7 @@ const GithubCard = ({ onStatus }) => {
                             <Box sx={{ flex: 1 }}>
                                 <Typography variant='h4'>GitHub</Typography>
                                 <Typography variant='body2' color='text.secondary'>
-                                    {reading
-                                        ? 'Get new versions from your Dev server through your GitHub repository.'
-                                        : 'Keep a copy of every version in your own GitHub repository.'}
+                                    {reading ? readIntro(status) : 'Keep a copy of every version in your own GitHub repository.'}
                                 </Typography>
                             </Box>
                             <Chip label={chip.label} color={chip.color} variant={connected ? 'filled' : 'outlined'} />
@@ -687,6 +685,6 @@ const GithubCard = ({ onStatus }) => {
     )
 }
 
-GithubCard.propTypes = { onStatus: PropTypes.func }
+GithubCard.propTypes = { onStatus: PropTypes.func, initialStatus: PropTypes.object }
 
 export default GithubCard

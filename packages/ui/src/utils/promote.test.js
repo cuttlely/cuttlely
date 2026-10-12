@@ -10,8 +10,10 @@ import {
     incomingLabel,
     incomingSummary,
     missingIntro,
+    previousEnvironmentTitle,
     promotePath,
     promotedMessage,
+    readIntro,
     readLine,
     rollbackTarget,
     showEnvironmentChain,
@@ -97,6 +99,22 @@ describe('promote helpers', () => {
         expect(readLine({ connected: true, role: 'read', state: 'waiting' }, ago)).toBe('Looking for new versions from Dev')
         expect(readLine({ connected: true, role: 'read', state: 'retrying' }, ago)).toBe('')
         expect(readLine({ connected: true, role: 'copy' }, ago)).toBe('')
+        const prod = {
+            connected: true,
+            role: 'read',
+            state: 'up-to-date',
+            lastCheckedAt: 'x',
+            environment: 'prod',
+            environments: [
+                { name: 'Dev', server: 'dev' },
+                { name: 'Staging', server: 'staging' },
+                { name: 'Prod', server: 'prod' }
+            ]
+        }
+        expect(previousEnvironmentTitle(prod)).toBe('Staging')
+        expect(readLine(prod, ago)).toBe('Looked for new versions from Staging 2 minutes ago')
+        expect(readIntro(prod)).toBe('Get new versions from your Staging server through your GitHub repository.')
+        expect(readIntro({ environment: 'prod' })).toBe('Get new versions from your Dev server through your GitHub repository.')
     })
 })
 
