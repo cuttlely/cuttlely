@@ -1,12 +1,13 @@
 {
-    "name": "flowise",
+    "name": "@cuttlely/server",
     "version": "1.0.2",
     "private": true,
     "description": "Cuttlely server",
     "main": "dist/index",
     "types": "dist/index.d.ts",
     "bin": {
-        "flowise": "./bin/run"
+        "flowise": "./bin/run",
+        "cuttlely-server": "./bin/run"
     },
     "files": [
         "bin",
@@ -18,6 +19,10 @@
     ],
     "oclif": {
         "bin": "flowise",
+        "binAliases": [
+            "cuttlely-server"
+        ],
+        "dirname": "flowise",
         "commands": "./dist/commands"
     },
     "scripts": {
@@ -142,7 +147,7 @@
         "express-session": "^1.18.1",
         "@cuttlely/components": "workspace:^",
         "flowise-nim-container-manager": "^1.0.11",
-        "flowise-ui": "workspace:^",
+        "@cuttlely/ui": "workspace:^",
         "geoip-lite": "^2.0.3",
         "global-agent": "^3.0.0",
         "gulp": "^4.0.2",

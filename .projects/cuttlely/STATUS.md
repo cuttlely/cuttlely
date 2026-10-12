@@ -1,10 +1,10 @@
 # Status
 
-Last refreshed 2026-10-11. Check `git log origin/main` for anything newer.
+Last refreshed 2026-10-12. Check `git log origin/main` for anything newer.
 
 ## What works on `main`
 
-Cuttlely 1.0.2. The product version is the root `package.json`, `packages/server/package.json`, `packages/cli/package.json` and `packages/chat-widget/package.json`. The About dialog reads the server one. The root package name is `cuttlely-workspace` so the published launcher can be named `cuttlely`.
+Cuttlely 1.0.2. The product version is the root `package.json`, `packages/server/package.json`, `packages/cli/package.json` and `packages/chat-widget/package.json`. The About dialog reads the server one. The root package name is `cuttlely-workspace` so the published launcher can be named `cuttlely`. The server package is `@cuttlely/server`, the UI package is `@cuttlely/ui`, and the API docs package is `@cuttlely/api-docs`.
 
 -   **Agent teams (harnesses).** A harness is a named team: Harness Prime routes each question, specialists do the work in parallel, and Prime writes one answer. Specialists use canvas tools, retrievers, vector stores and MCP servers in process, and the agent runtime for Shell, Browser, Code execution, Files and MCP work. Any chat-model node can drive Prime or a specialist, with an optional fallback model. Turns stream over the prediction API, have a wall-clock budget, cap their context tokens, and report tokens and timings. Each harness has a run history page with a playground.
 -   **Analyst.** A specialist with its own isolated database (`CUTTLELY_ANALYST=auto`, or a separate Postgres URL) that creates tables, answers from real rows and pages long results.

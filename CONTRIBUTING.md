@@ -58,7 +58,7 @@ bash scripts/setup-hermes.sh
 CUTTLELY_LOCAL_ADMIN=true pnpm dev                # open http://localhost:8080
 ```
 
-`pnpm dev` serves the UI on `8080` with live reload and the server on `3000`. Server changes need `pnpm --filter flowise build`, and node changes need `pnpm --filter @cuttlely/components build`. [What updates when you save](./docs/how-to/from-source.md#what-updates-when-you-save) has the details.
+`pnpm dev` serves the UI on `8080` with live reload and the server on `3000`. Server changes need `pnpm --filter @cuttlely/server build`, and node changes need `pnpm --filter @cuttlely/components build`. [What updates when you save](./docs/how-to/from-source.md#what-updates-when-you-save) has the details.
 
 #### Step by step
 
@@ -117,7 +117,7 @@ If in doubt, use `type: 'password'`. The only cost is that the field must be re-
 
     ```bash
     pnpm --filter @cuttlely/components test
-    pnpm --filter flowise test # the server package. The root package is named Cuttlely.
+    pnpm --filter @cuttlely/server test # the server package. The root package is named Cuttlely.
     ```
 
 -   Or run all tests from the repo root:
@@ -192,6 +192,12 @@ From this repository, start Cuttlely and Hermes together with `bash scripts/star
 
 ```
 npx flowise start --PORT=3000 --DEBUG=true
+```
+
+The same script is also `cuttlely-server`:
+
+```
+npx cuttlely-server start --PORT=3000 --DEBUG=true
 ```
 
 ## Docs

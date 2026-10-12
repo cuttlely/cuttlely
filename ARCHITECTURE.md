@@ -82,6 +82,6 @@ A file added under an inherited path fails unless it is listed in [architecture/
 
 The separation work after this map:
 
--   Own package names for the packages that still use the engine's package name. `packages/components` is `@cuttlely/components`. A compatibility alias keeps saved custom functions and custom tools working. Path, environment variable, and data names stay stable.
+-   Own package names. `packages/components` is `@cuttlely/components`. `packages/server` is `@cuttlely/server`. `packages/ui` is `@cuttlely/ui`. `packages/api-documentation` is `@cuttlely/api-docs`. A compatibility alias keeps saved custom functions and custom tools working. The server CLI keeps its existing bin and adds `cuttlely-server`. Path, environment variable, and data names stay stable.
 -   Optional integration packs, so a deploy can omit node families it does not run.
 -   A smaller image.
