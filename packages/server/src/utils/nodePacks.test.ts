@@ -120,7 +120,7 @@ describe('optional node packs', () => {
 })
 
 describe('shipped node packs', () => {
-    const shipped = '@cuttlely/node-pack-vector-stores,@cuttlely/node-pack-tools-mcp'
+    const shipped = '@cuttlely/node-pack-vector-stores,@cuttlely/node-pack-tools-mcp,@cuttlely/node-pack-caches-memory'
 
     test('unset, blank, and an extra list keep the shipped packs', () => {
         const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cuttlely-node-pack-list-'))

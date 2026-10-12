@@ -305,66 +305,6 @@
             "tier": "hidden"
         },
         {
-            "name": "inMemoryCache",
-            "label": "InMemory Cache",
-            "category": "Cache",
-            "folder": "cache",
-            "file": "packages/components/nodes/cache/InMemoryCache/InMemoryCache.ts",
-            "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run.",
-            "tier": "supported"
-        },
-        {
-            "name": "inMemoryEmbeddingCache",
-            "label": "InMemory Embedding Cache",
-            "category": "Cache",
-            "folder": "cache",
-            "file": "packages/components/nodes/cache/InMemoryCache/InMemoryEmbeddingCache.ts",
-            "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run.",
-            "tier": "supported"
-        },
-        {
-            "name": "momentoCache",
-            "label": "Momento Cache",
-            "category": "Cache",
-            "folder": "cache",
-            "file": "packages/components/nodes/cache/MomentoCache/MomentoCache.ts",
-            "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run.",
-            "tier": "supported"
-        },
-        {
-            "name": "redisCache",
-            "label": "Redis Cache",
-            "category": "Cache",
-            "folder": "cache",
-            "file": "packages/components/nodes/cache/RedisCache/RedisCache.ts",
-            "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run.",
-            "tier": "supported"
-        },
-        {
-            "name": "redisEmbeddingsCache",
-            "label": "Redis Embeddings Cache",
-            "category": "Cache",
-            "folder": "cache",
-            "file": "packages/components/nodes/cache/RedisCache/RedisEmbeddingsCache.ts",
-            "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run.",
-            "tier": "supported"
-        },
-        {
-            "name": "upstashRedisCache",
-            "label": "Upstash Redis Cache",
-            "category": "Cache",
-            "folder": "cache",
-            "file": "packages/components/nodes/cache/UpstashRedisCache/UpstashRedisCache.ts",
-            "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run.",
-            "tier": "supported"
-        },
-        {
             "name": "getApiChain",
             "label": "GET API Chain",
             "category": "Chains",
@@ -1635,76 +1575,6 @@
             "tier": "supported"
         },
         {
-            "name": "DynamoDBChatMemory",
-            "label": "DynamoDB Chat Memory",
-            "category": "Memory",
-            "folder": "memory",
-            "file": "packages/components/nodes/memory/DynamoDb/DynamoDb.ts",
-            "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run.",
-            "tier": "supported"
-        },
-        {
-            "name": "mem0",
-            "label": "Mem0",
-            "category": "Memory",
-            "folder": "memory",
-            "file": "packages/components/nodes/memory/Mem0/Mem0.ts",
-            "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run.",
-            "tier": "supported"
-        },
-        {
-            "name": "MongoDBAtlasChatMemory",
-            "label": "MongoDB Atlas Chat Memory",
-            "category": "Memory",
-            "folder": "memory",
-            "file": "packages/components/nodes/memory/MongoDBMemory/MongoDBMemory.ts",
-            "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run.",
-            "tier": "supported"
-        },
-        {
-            "name": "RedisBackedChatMemory",
-            "label": "Redis-Backed Chat Memory",
-            "category": "Memory",
-            "folder": "memory",
-            "file": "packages/components/nodes/memory/RedisBackedChatMemory/RedisBackedChatMemory.ts",
-            "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run.",
-            "tier": "supported"
-        },
-        {
-            "name": "upstashRedisBackedChatMemory",
-            "label": "Upstash Redis-Backed Chat Memory",
-            "category": "Memory",
-            "folder": "memory",
-            "file": "packages/components/nodes/memory/UpstashRedisBackedChatMemory/UpstashRedisBackedChatMemory.ts",
-            "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run.",
-            "tier": "supported"
-        },
-        {
-            "name": "ZepMemory",
-            "label": "Zep Memory - Open Source",
-            "category": "Memory",
-            "folder": "memory",
-            "file": "packages/components/nodes/memory/ZepMemory/ZepMemory.ts",
-            "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run.",
-            "tier": "supported"
-        },
-        {
-            "name": "ZepMemoryCloud",
-            "label": "Zep Memory - Cloud",
-            "category": "Memory",
-            "folder": "memory",
-            "file": "packages/components/nodes/memory/ZepMemoryCloud/ZepMemoryCloud.ts",
-            "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run.",
-            "tier": "supported"
-        },
-        {
             "name": "inputModerationOpenAI",
             "label": "OpenAI Moderation",
             "category": "Moderation",
@@ -2433,6 +2303,136 @@
             "disposition": "native",
             "reason": "Runs on the current node interface. A harness binds it through init and run.",
             "tier": "core"
+        },
+        {
+            "name": "inMemoryCache",
+            "label": "InMemory Cache",
+            "category": "Cache",
+            "folder": "cache",
+            "file": "packages/node-pack-caches-memory/nodes/cache/InMemoryCache/InMemoryCache.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
+        },
+        {
+            "name": "inMemoryEmbeddingCache",
+            "label": "InMemory Embedding Cache",
+            "category": "Cache",
+            "folder": "cache",
+            "file": "packages/node-pack-caches-memory/nodes/cache/InMemoryCache/InMemoryEmbeddingCache.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
+        },
+        {
+            "name": "momentoCache",
+            "label": "Momento Cache",
+            "category": "Cache",
+            "folder": "cache",
+            "file": "packages/node-pack-caches-memory/nodes/cache/MomentoCache/MomentoCache.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
+        },
+        {
+            "name": "redisCache",
+            "label": "Redis Cache",
+            "category": "Cache",
+            "folder": "cache",
+            "file": "packages/node-pack-caches-memory/nodes/cache/RedisCache/RedisCache.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
+        },
+        {
+            "name": "redisEmbeddingsCache",
+            "label": "Redis Embeddings Cache",
+            "category": "Cache",
+            "folder": "cache",
+            "file": "packages/node-pack-caches-memory/nodes/cache/RedisCache/RedisEmbeddingsCache.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
+        },
+        {
+            "name": "upstashRedisCache",
+            "label": "Upstash Redis Cache",
+            "category": "Cache",
+            "folder": "cache",
+            "file": "packages/node-pack-caches-memory/nodes/cache/UpstashRedisCache/UpstashRedisCache.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
+        },
+        {
+            "name": "DynamoDBChatMemory",
+            "label": "DynamoDB Chat Memory",
+            "category": "Memory",
+            "folder": "memory",
+            "file": "packages/node-pack-caches-memory/nodes/memory/DynamoDb/DynamoDb.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
+        },
+        {
+            "name": "mem0",
+            "label": "Mem0",
+            "category": "Memory",
+            "folder": "memory",
+            "file": "packages/node-pack-caches-memory/nodes/memory/Mem0/Mem0.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
+        },
+        {
+            "name": "MongoDBAtlasChatMemory",
+            "label": "MongoDB Atlas Chat Memory",
+            "category": "Memory",
+            "folder": "memory",
+            "file": "packages/node-pack-caches-memory/nodes/memory/MongoDBMemory/MongoDBMemory.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
+        },
+        {
+            "name": "RedisBackedChatMemory",
+            "label": "Redis-Backed Chat Memory",
+            "category": "Memory",
+            "folder": "memory",
+            "file": "packages/node-pack-caches-memory/nodes/memory/RedisBackedChatMemory/RedisBackedChatMemory.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
+        },
+        {
+            "name": "upstashRedisBackedChatMemory",
+            "label": "Upstash Redis-Backed Chat Memory",
+            "category": "Memory",
+            "folder": "memory",
+            "file": "packages/node-pack-caches-memory/nodes/memory/UpstashRedisBackedChatMemory/UpstashRedisBackedChatMemory.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
+        },
+        {
+            "name": "ZepMemory",
+            "label": "Zep Memory - Open Source",
+            "category": "Memory",
+            "folder": "memory",
+            "file": "packages/node-pack-caches-memory/nodes/memory/ZepMemory/ZepMemory.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
+        },
+        {
+            "name": "ZepMemoryCloud",
+            "label": "Zep Memory - Cloud",
+            "category": "Memory",
+            "folder": "memory",
+            "file": "packages/node-pack-caches-memory/nodes/memory/ZepMemoryCloud/ZepMemoryCloud.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
         },
         {
             "name": "arxiv",
