@@ -728,6 +728,7 @@ packages/node-pack-tools-mcp/credentials/TavilyApi.credential.ts
 packages/node-pack-tools-mcp/credentials/TeradataBearerToken.credential.ts
 packages/node-pack-tools-mcp/credentials/TeradataTD2.credential.ts
 packages/node-pack-tools-mcp/credentials/WolframAlphaApp.credential.ts
+packages/node-pack-tools-mcp/gulpfile.ts
 packages/node-pack-tools-mcp/nodes/tools/AWSSNS/AWSSNS.ts
 packages/node-pack-tools-mcp/nodes/tools/AWSSNS/awssns.svg
 packages/node-pack-tools-mcp/nodes/tools/Arxiv/Arxiv.ts
@@ -797,6 +798,8 @@ packages/node-pack-tools-mcp/nodes/tools/TavilyAPI/TavilyAPI.ts
 packages/node-pack-tools-mcp/nodes/tools/TavilyAPI/tavily.svg
 packages/node-pack-tools-mcp/nodes/tools/WolframAlpha/WolframAlpha.ts
 packages/node-pack-tools-mcp/nodes/tools/WolframAlpha/wolframalpha.png
+packages/node-pack-tools-mcp/package.json
+packages/node-pack-tools-mcp/tsconfig.json
 packages/node-pack-vector-stores/credentials/AstraApi.credential.ts
 packages/node-pack-vector-stores/credentials/ChromaApi.credential.ts
 packages/node-pack-vector-stores/credentials/CouchbaseApi.credential.ts

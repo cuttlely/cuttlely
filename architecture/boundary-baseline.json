@@ -1419,6 +1419,10 @@
             "reason": "Tool and MCP nodes in the optional pack import the components package the same way the vector store pack does."
         },
         {
+            "path": "packages/node-pack-tools-mcp/gulpfile.ts",
+            "reason": "The tools pack manifest and build files ship with the pack, the same way the vector store pack does."
+        },
+        {
             "path": "packages/node-pack-tools-mcp/nodes/tools/Arxiv/arxiv.png",
             "reason": "Tool and MCP nodes in the optional pack import the components package the same way the vector store pack does."
         },
@@ -1693,6 +1697,14 @@
         {
             "path": "packages/node-pack-tools-mcp/nodes/tools/WolframAlpha/WolframAlpha.ts",
             "reason": "Tool and MCP nodes in the optional pack import the components package the same way the vector store pack does."
+        },
+        {
+            "path": "packages/node-pack-tools-mcp/package.json",
+            "reason": "The tools pack manifest and build files ship with the pack, the same way the vector store pack does."
+        },
+        {
+            "path": "packages/node-pack-tools-mcp/tsconfig.json",
+            "reason": "The tools pack manifest and build files ship with the pack, the same way the vector store pack does."
         },
         {
             "path": "packages/node-pack-vector-stores/credentials/AstraApi.credential.ts",
