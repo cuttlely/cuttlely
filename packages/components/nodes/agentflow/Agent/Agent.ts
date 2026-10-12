@@ -97,6 +97,18 @@ const sanitizeToolName = (name: string): string => {
     return sanitized.slice(0, 64)
 }
 
+type StepUsage = { input_tokens?: number; output_tokens?: number; total_tokens?: number }
+
+function addStepUsage(into: { input: number; output: number; total: number }, usage?: StepUsage | null) {
+    if (!usage) return
+    const input = Number(usage.input_tokens) || 0
+    const output = Number(usage.output_tokens) || 0
+    const total = Number(usage.total_tokens)
+    into.input += input
+    into.output += output
+    into.total += Number.isFinite(total) && total > 0 ? total : input + output
+}
+
 class Agent_Agentflow implements INode {
     label: string
     name: string
@@ -1088,6 +1100,8 @@ class Agent_Agentflow implements INode {
             let artifacts: any[] = []
             let fileAnnotations: any[] = []
             let additionalTokens = 0
+            let stepInputTokens = 0
+            let stepOutputTokens = 0
             let isWaitingForHumanInput = false
             let reasonContent = ''
             let thinkingDuration: number | undefined
@@ -1216,6 +1230,8 @@ class Agent_Agentflow implements INode {
                 sourceDocuments = result.sourceDocuments
                 artifacts = result.artifacts
                 additionalTokens = result.totalTokens
+                stepInputTokens = result.inputTokens || 0
+                stepOutputTokens = result.outputTokens || 0
                 isWaitingForHumanInput = result.isWaitingForHumanInput || false
                 if (result.accumulatedReasonContent !== undefined) {
                     reasonContent = result.accumulatedReasonContent
@@ -1441,7 +1457,8 @@ class Agent_Agentflow implements INode {
                 fileAnnotations,
                 isStructuredOutput,
                 reasonContentObj,
-                costMetadata
+                costMetadata,
+                stepInputTokens > 0 || stepOutputTokens > 0 ? { inputTokens: stepInputTokens, outputTokens: stepOutputTokens } : undefined
             )
 
             // End analytics tracking
@@ -2033,7 +2050,8 @@ class Agent_Agentflow implements INode {
             total_cost: number
             base_input_cost: number
             base_output_cost: number
-        }
+        },
+        stepUsage?: { inputTokens: number; outputTokens: number }
     ): any {
         const output: any = {
             content: finalResponse,
@@ -2048,17 +2066,19 @@ class Agent_Agentflow implements INode {
             output.calledTools = response.tool_calls
         }
 
-        // Include token usage metadata with accumulated tokens from tool calls
+        // Include token usage metadata with accumulated tokens from tool calls.
+        // stepUsage is the sum of every model call. Cost still uses the final message, so this does not stamp that message.
         if (response.usage_metadata) {
             const originalTokens = response.usage_metadata.total_tokens || 0
             output.usageMetadata = {
                 ...response.usage_metadata,
+                ...(stepUsage ? { input_tokens: stepUsage.inputTokens, output_tokens: stepUsage.outputTokens } : {}),
                 total_tokens: originalTokens + additionalTokens,
                 tool_call_tokens: additionalTokens
             }
         } else if (additionalTokens > 0) {
-            // If no original usage metadata but we have tool tokens
             output.usageMetadata = {
+                ...(stepUsage ? { input_tokens: stepUsage.inputTokens, output_tokens: stepUsage.outputTokens } : {}),
                 total_tokens: additionalTokens,
                 tool_call_tokens: additionalTokens
             }
@@ -2157,7 +2177,8 @@ class Agent_Agentflow implements INode {
         iterationContext,
         isStructuredOutput = false,
         accumulatedReasonContent: initialAccumulatedReasonContent,
-        accumulatedReasoningDuration: initialAccumulatedReasoningDuration
+        accumulatedReasoningDuration: initialAccumulatedReasoningDuration,
+        countIncoming = true
     }: {
         response: AIMessageChunk
         messages: BaseMessageLike[]
@@ -2174,18 +2195,23 @@ class Agent_Agentflow implements INode {
         isStructuredOutput?: boolean
         accumulatedReasonContent?: string
         accumulatedReasoningDuration?: number
+        // The caller already counted this response when it is a follow-up from the previous round.
+        countIncoming?: boolean
     }): Promise<{
         response: AIMessageChunk
         usedTools: IUsedTool[]
         sourceDocuments: Array<any>
         artifacts: any[]
         totalTokens: number
+        inputTokens: number
+        outputTokens: number
         isWaitingForHumanInput?: boolean
         accumulatedReasonContent?: string
         accumulatedReasoningDuration?: number
     }> {
-        // Track total tokens used throughout this process
-        let totalTokens = response.usage_metadata?.total_tokens || 0
+        const spent = { input: 0, output: 0, total: 0 }
+        if (countIncoming) addStepUsage(spent, response.usage_metadata)
+        let totalTokens = spent.total
         const usedTools: IUsedTool[] = []
         let sourceDocuments: Array<any> = []
         let artifacts: any[] = []
@@ -2193,17 +2219,30 @@ class Agent_Agentflow implements INode {
         // Use reasoning from caller (first turn); subsequent turns are added when we get newResponse
         let accumulatedReasonContent = initialAccumulatedReasonContent ?? ''
         let accumulatedReasoningDuration = initialAccumulatedReasoningDuration ?? 0
+        const finish = (
+            done: AIMessageChunk,
+            extra: { isWaitingForHumanInput?: boolean; accumulatedReasonContent?: string; accumulatedReasoningDuration?: number } = {}
+        ) => {
+            totalTokens = spent.total
+            return {
+                response: done,
+                usedTools,
+                sourceDocuments,
+                artifacts,
+                totalTokens,
+                inputTokens: spent.input,
+                outputTokens: spent.output,
+                isWaitingForHumanInput: extra.isWaitingForHumanInput,
+                accumulatedReasonContent: extra.accumulatedReasonContent,
+                accumulatedReasoningDuration: extra.accumulatedReasoningDuration
+            }
+        }
 
         if (!response.tool_calls || response.tool_calls.length === 0) {
-            return {
-                response,
-                usedTools: [],
-                sourceDocuments: [],
-                artifacts: [],
-                totalTokens,
+            return finish(response, {
                 accumulatedReasonContent: accumulatedReasonContent || undefined,
                 accumulatedReasoningDuration: accumulatedReasoningDuration || undefined
-            }
+            })
         }
 
         // Stream tool calls if available
@@ -2263,16 +2302,11 @@ class Agent_Agentflow implements INode {
                     if (!isStructuredOutput) {
                         sseStreamer?.streamTokenEvent(chatId, responseContent)
                     }
-                    return {
-                        response,
-                        usedTools,
-                        sourceDocuments,
-                        artifacts,
-                        totalTokens,
+                    return finish(response, {
                         isWaitingForHumanInput: true,
                         accumulatedReasonContent: accumulatedReasonContent || undefined,
                         accumulatedReasoningDuration: accumulatedReasoningDuration || undefined
-                    }
+                    })
                 }
 
                 let toolIds: ICommonObject | undefined
@@ -2381,29 +2415,41 @@ class Agent_Agentflow implements INode {
                     sseStreamer.streamTokenEvent(chatId, lastToolOutputString)
                 }
 
-                return {
-                    response: new AIMessageChunk(lastToolOutputString),
-                    usedTools,
-                    sourceDocuments,
-                    artifacts,
-                    totalTokens,
+                const kept = response.usage_metadata
+                const direct = new AIMessageChunk({
+                    content: lastToolOutputString,
+                    usage_metadata: kept
+                        ? {
+                              input_tokens: kept.input_tokens || 0,
+                              output_tokens: kept.output_tokens || 0,
+                              total_tokens: kept.total_tokens || 0
+                          }
+                        : undefined
+                })
+                return finish(direct, {
                     accumulatedReasonContent: accumulatedReasonContent || undefined,
                     accumulatedReasoningDuration: accumulatedReasoningDuration || undefined
-                }
+                })
             }
         }
 
         if (response.tool_calls.length === 0) {
             const responseContent = extractResponseContent(response)
-            return {
-                response: new AIMessageChunk(responseContent),
-                usedTools,
-                sourceDocuments,
-                artifacts,
-                totalTokens,
+            const kept = response.usage_metadata
+            const replaced = new AIMessageChunk({
+                content: responseContent,
+                usage_metadata: kept
+                    ? {
+                          input_tokens: kept.input_tokens || 0,
+                          output_tokens: kept.output_tokens || 0,
+                          total_tokens: kept.total_tokens || 0
+                      }
+                    : undefined
+            })
+            return finish(replaced, {
                 accumulatedReasonContent: accumulatedReasonContent || undefined,
                 accumulatedReasoningDuration: accumulatedReasoningDuration || undefined
-            }
+            })
         }
 
         // Get LLM response after tool calls
@@ -2428,10 +2474,8 @@ class Agent_Agentflow implements INode {
             }
         }
 
-        // Add tokens from this response
-        if (newResponse.usage_metadata?.total_tokens) {
-            totalTokens += newResponse.usage_metadata.total_tokens
-        }
+        addStepUsage(spent, newResponse.usage_metadata)
+        totalTokens = spent.total
 
         // Accumulate this turn's reasoning content and duration
         if (newResponse.additional_kwargs?.reasoning_content) {
@@ -2450,6 +2494,8 @@ class Agent_Agentflow implements INode {
                 sourceDocuments: recursiveSourceDocuments,
                 artifacts: recursiveArtifacts,
                 totalTokens: recursiveTokens,
+                inputTokens: recursiveInput,
+                outputTokens: recursiveOutput,
                 isWaitingForHumanInput: recursiveIsWaitingForHumanInput,
                 accumulatedReasonContent: recursiveAccumulatedReasonContent,
                 accumulatedReasoningDuration: recursiveAccumulatedReasoningDuration
@@ -2468,15 +2514,19 @@ class Agent_Agentflow implements INode {
                 iterationContext,
                 isStructuredOutput,
                 accumulatedReasonContent,
-                accumulatedReasoningDuration
+                accumulatedReasoningDuration,
+                countIncoming: false
             })
 
-            // Merge results from recursive tool calls
+            // The follow-up response was already added. The recursive call starts after it.
             newResponse = recursiveResponse
             usedTools.push(...recursiveUsedTools)
             sourceDocuments = [...sourceDocuments, ...recursiveSourceDocuments]
             artifacts = [...artifacts, ...recursiveArtifacts]
-            totalTokens += recursiveTokens
+            spent.input += recursiveInput
+            spent.output += recursiveOutput
+            spent.total += recursiveTokens
+            totalTokens = spent.total
             isWaitingForHumanInput = recursiveIsWaitingForHumanInput
             if (recursiveAccumulatedReasonContent !== undefined) {
                 accumulatedReasonContent = recursiveAccumulatedReasonContent
@@ -2486,16 +2536,11 @@ class Agent_Agentflow implements INode {
             }
         }
 
-        return {
-            response: newResponse,
-            usedTools,
-            sourceDocuments,
-            artifacts,
-            totalTokens,
+        return finish(newResponse, {
             isWaitingForHumanInput,
             accumulatedReasonContent: accumulatedReasonContent || undefined,
             accumulatedReasoningDuration: accumulatedReasoningDuration || undefined
-        }
+        })
     }
 
     /**
@@ -2847,7 +2892,8 @@ class Agent_Agentflow implements INode {
                 iterationContext,
                 isStructuredOutput,
                 accumulatedReasonContent,
-                accumulatedReasoningDuration
+                accumulatedReasoningDuration,
+                countIncoming: false
             })
 
             // Merge results from recursive tool calls

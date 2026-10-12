@@ -5,10 +5,10 @@ export class AddTokenUsageDay1791900000000 implements MigrationInterface {
     public async up(queryRunner: QueryRunner): Promise<void> {
         await queryRunner.query(`
             CREATE TABLE IF NOT EXISTS token_usage_day (
-                id varchar NOT NULL,
-                "workspaceId" varchar NOT NULL,
-                "flowId" varchar NOT NULL,
-                model varchar NOT NULL,
+                id varchar(36) NOT NULL,
+                "workspaceId" varchar(36) NOT NULL,
+                "flowId" varchar(64) NOT NULL,
+                model varchar(255) NOT NULL,
                 day varchar(10) NOT NULL,
                 "inputTokens" integer NOT NULL DEFAULT 0,
                 "outputTokens" integer NOT NULL DEFAULT 0,

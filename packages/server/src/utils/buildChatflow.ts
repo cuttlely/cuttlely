@@ -786,6 +786,14 @@ export const executeFlow = async ({
             if (Object.keys(setVariableNodesOutput).length) result.flowVariables = setVariableNodesOutput
             result.followUpPrompts = JSON.stringify(apiMessage.followUpPrompts)
             if (sessionToken) result.sessionToken = sessionToken
+            // Multi Agents and Sequential Agents return here. The graph already collected model usage on tokenUsage.
+            if (streamResults.tokenUsage) {
+                void recordCompletedRun(appDataSource, {
+                    workspaceId,
+                    flowId: agentflow.id,
+                    result: chatflowUsageResult({ text: finalResult }, streamResults.tokenUsage)
+                })
+            }
             return result
         }
         return undefined

@@ -116,6 +116,11 @@ function tokenPair(value: unknown): { inputTokens: number; outputTokens: number 
     const inputTokens = whole(record.prompt ?? record.promptTokens ?? record.input_tokens ?? record.inputTokens)
     const outputTokens = whole(record.completion ?? record.completionTokens ?? record.output_tokens ?? record.outputTokens)
     const toolTokens = whole(record.tool_call_tokens)
+    // Sums of every model call in the step. When they add up to tool_call_tokens, keep that split.
+    if (toolTokens > 0 && inputTokens + outputTokens === toolTokens) {
+        return { inputTokens, outputTokens }
+    }
+    // Older steps stored only the final response's split. tool_call_tokens is still the step total.
     if (toolTokens > 0) {
         const input = Math.min(inputTokens, toolTokens)
         return { inputTokens: input, outputTokens: toolTokens - input }

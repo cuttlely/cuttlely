@@ -49,6 +49,7 @@ import { Variable } from '../database/entities/Variable'
 import { getWorkspaceSearchOptions } from '../identity/workspaceScope'
 import { DataSource } from 'typeorm'
 import { CachePool } from '../CachePool'
+import { ChatflowTokenUsage, recordCompletedRun } from '../services/usage'
 
 /**
  * Build Agent Graph
@@ -103,6 +104,7 @@ export const buildAgentGraph = async ({
         const analytic = agentflow.analytic
         const uploads = incomingInput.uploads
 
+        const chatflowTokenUsage = new ChatflowTokenUsage()
         const options = {
             orgId,
             workspaceId,
@@ -117,7 +119,11 @@ export const buildAgentGraph = async ({
             cachePool,
             uploads,
             baseURL,
-            signal: signal ?? new AbortController()
+            signal: signal ?? new AbortController(),
+            // additionalCallbacks puts this on the graph, the same way a chatflow counts model calls.
+            tokenUsageCallback: chatflowTokenUsage,
+            // A harness tool on this canvas records against the chatflow. Harness.run does not.
+            recordTokenUsage: recordCompletedRun
         }
 
         let streamResults
@@ -409,7 +415,8 @@ export const buildAgentGraph = async ({
                     sourceDocuments: totalSourceDocuments,
                     artifacts: totalArtifacts,
                     usedTools: totalUsedTools,
-                    agentReasoning
+                    agentReasoning,
+                    tokenUsage: chatflowTokenUsage
                 }
             }
         } catch (e) {

@@ -2453,21 +2453,21 @@
                 },
                 {
                     "name": "workspaceId",
-                    "type": "varchar",
+                    "type": "varchar(36)",
                     "nullable": false,
                     "default": null,
                     "pk": 0
                 },
                 {
                     "name": "flowId",
-                    "type": "varchar",
+                    "type": "varchar(64)",
                     "nullable": false,
                     "default": null,
                     "pk": 0
                 },
                 {
                     "name": "model",
-                    "type": "varchar",
+                    "type": "varchar(255)",
                     "nullable": false,
                     "default": null,
                     "pk": 0
@@ -5325,25 +5325,25 @@
             "columns": [
                 {
                     "name": "id",
-                    "type": "varchar",
+                    "type": "varchar(36)",
                     "nullable": false,
                     "default": null
                 },
                 {
                     "name": "workspaceId",
-                    "type": "varchar",
+                    "type": "varchar(36)",
                     "nullable": false,
                     "default": null
                 },
                 {
                     "name": "flowId",
-                    "type": "varchar",
+                    "type": "varchar(64)",
                     "nullable": false,
                     "default": null
                 },
                 {
                     "name": "model",
-                    "type": "varchar",
+                    "type": "varchar(255)",
                     "nullable": false,
                     "default": null
                 },
@@ -8718,7 +8718,7 @@
                 },
                 {
                     "name": "workspaceId",
-                    "type": "varchar(255)",
+                    "type": "varchar(36)",
                     "nullable": false,
                     "default": null,
                     "extra": "",
@@ -8726,7 +8726,7 @@
                 },
                 {
                     "name": "flowId",
-                    "type": "varchar(255)",
+                    "type": "varchar(64)",
                     "nullable": false,
                     "default": null,
                     "extra": "",
@@ -12290,7 +12290,7 @@
                 },
                 {
                     "name": "workspaceId",
-                    "type": "varchar(255)",
+                    "type": "varchar(36)",
                     "nullable": false,
                     "default": null,
                     "extra": "",
@@ -12298,7 +12298,7 @@
                 },
                 {
                     "name": "flowId",
-                    "type": "varchar(255)",
+                    "type": "varchar(64)",
                     "nullable": false,
                     "default": null,
                     "extra": "",

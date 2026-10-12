@@ -96,6 +96,42 @@ describe('usageLinesFromRun', () => {
         expect(lines[0].inputTokens + lines[0].outputTokens).toBe(30)
     })
 
+    it('keeps the summed input and output when they add up to tool_call_tokens', () => {
+        // Three model calls, 50+20+10 in and 50+20+10 out. tool_call_tokens is 160. total_tokens still adds the last call again.
+        const step = {
+            data: {
+                input: { agentModelConfig: { modelName: 'gpt-4.1-mini' } },
+                output: {
+                    usageMetadata: {
+                        input_tokens: 80,
+                        output_tokens: 80,
+                        total_tokens: 180,
+                        tool_call_tokens: 160
+                    }
+                }
+            }
+        }
+        const lines = usageLinesFromRun({ agentFlowExecutedData: [step] })
+        expect(lines).toEqual([{ model: 'gpt-4.1-mini', inputTokens: 80, outputTokens: 80 }])
+        expect(lines[0].inputTokens + lines[0].outputTokens).toBe(160)
+    })
+
+    it('finds no tokens in a harness tool answer string, and finds them on the payload', () => {
+        expect(usageLinesFromRun('Loaf is ready.')).toEqual([])
+        const lines = usageLinesFromRun({
+            text: 'Loaf is ready.',
+            trace: {
+                route: { model: 'gpt-4.1-mini', tokens: { input_tokens: 4, output_tokens: 2 } },
+                specialists: [{ model: 'claude', tokens: { input_tokens: 6, output_tokens: 3 } }],
+                handoff: { model: 'gpt-4.1-mini', tokens: { input_tokens: 2, output_tokens: 1 } }
+            }
+        })
+        expect(lines).toEqual([
+            { model: 'gpt-4.1-mini', inputTokens: 6, outputTokens: 3 },
+            { model: 'claude', inputTokens: 6, outputTokens: 3 }
+        ])
+    })
+
     it('records a normal chatflow model end that reports usage_metadata', async () => {
         const usage = new ChatflowTokenUsage()
         usage.handleChatModelStart({ kwargs: { modelName: 'gpt-4.1-mini' } }, [], 'run-1')

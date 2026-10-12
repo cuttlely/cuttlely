@@ -172,10 +172,12 @@ export function recordCompletedRun(
 ): Promise<void> {
     const write = (async () => {
         if (!dataSource || typeof dataSource.query !== 'function') return
-        const workspaceId = String(input.workspaceId || '').trim()
+        const workspaceId = String(input.workspaceId || '')
+            .trim()
+            .slice(0, 36)
         const flowId = String(input.flowId || '')
             .trim()
-            .slice(0, 255)
+            .slice(0, 64)
         if (!workspaceId || !flowId) return
         const lines: UsageLine[] = usageLinesFromRun(input.result)
         if (!lines.length) return
