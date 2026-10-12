@@ -5,7 +5,19 @@ import os from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
 import { isolateProcessEnv, testGit } from './test-git.mjs'
-import { abort, check, excludedBy, parseExcludes, paths, patchMessage, resume, savePatches, vendor } from './vendor-hermes.mjs'
+import {
+    abort,
+    check,
+    excludedBy,
+    filesToKeep,
+    parseExcludes,
+    parseLoaded,
+    paths,
+    patchMessage,
+    resume,
+    savePatches,
+    vendor
+} from './vendor-hermes.mjs'
 
 const ID = ['-c', 'user.name=test', '-c', 'user.email=test@example.invalid', '-c', 'commit.gpgsign=false']
 isolateProcessEnv()
@@ -151,6 +163,44 @@ test('a patch that conflicts on upgrade stops before hermes/ changes, and --abor
     assert.equal(read(p, 'UPSTREAM_COMMIT').trim(), git(up, 'rev-parse', 'v2').trim())
     assert.match(read(p, 'CUTTLELY_VENDOR.lock'), /ref: v2/)
     assert.deepEqual(check(p), [])
+})
+
+test('a loaded list keeps measured files plus inits, named data, licenses and patch files', () => {
+    assert.deepEqual(parseLoaded('# note\n\ntool.py\n'), ['tool.py'])
+    assert.throws(() => parseLoaded('# only a comment\n'), /no paths/)
+    assert.throws(() => parseLoaded('../secret\n'), /unsupported path/)
+    const readFile = (file) => (file === 'agent/core.py' ? 'open("notes.yaml")\n' : '')
+    const keep = filesToKeep(
+        ['README.md', 'tool.py', 'extra.py', 'agent/core.py', 'agent/__init__.py', 'agent/notes.yaml', 'LICENSE', 'run.sh'],
+        { loaded: ['tool.py', 'agent/core.py'], patchFiles: ['run.sh'], readFile }
+    )
+    for (const file of ['tool.py', 'agent/core.py', 'agent/__init__.py', 'agent/notes.yaml', 'LICENSE', 'run.sh']) {
+        assert.equal(keep.has(file), true, file)
+    }
+    assert.equal(keep.has('extra.py'), false)
+    assert.equal(keep.has('README.md'), false)
+
+    const { up, repo, p } = setup()
+    write(path.join(up, 'LICENSE'), 'MIT\n')
+    write(path.join(up, 'extra.py'), 'x = 1\n')
+    write(path.join(up, 'agent/__init__.py'), '')
+    write(path.join(up, 'agent/notes.yaml'), 'k: 1\n')
+    write(path.join(up, 'agent/core.py'), 'def run():\n    return "notes.yaml"\n')
+    git(up, 'add', '-A')
+    git(up, 'commit', '-q', '-m', 'v1 data')
+    git(up, 'tag', '-f', 'v1')
+    write(path.join(p.hermes, 'CUTTLELY_LOADED.txt'), '# measured\ntool.py\nagent/core.py\n')
+    git(repo, 'add', '-A')
+    git(repo, 'commit', '-q', '-m', 'loaded list')
+    vendor(p, 'v1', quiet)
+    assert.ok(exists(p, 'tool.py') && exists(p, 'agent/core.py') && exists(p, 'agent/__init__.py'))
+    assert.ok(exists(p, 'agent/notes.yaml') && exists(p, 'LICENSE'))
+    assert.ok(!exists(p, 'extra.py') && !exists(p, 'README.md') && !exists(p, 'run.sh'))
+    assert.equal(read(p, 'CUTTLELY_LOADED.txt'), '# measured\ntool.py\nagent/core.py\n')
+    assert.deepEqual(check(p), [])
+    commitAll(repo, 'subset')
+    vendor(p, 'v1', quiet)
+    assert.equal(git(repo, 'status', '--porcelain'), '', 'vendoring the same measured list again changes nothing')
 })
 
 test('vendoring refuses main, uncommitted hermes/ edits, and a missing ref', () => {

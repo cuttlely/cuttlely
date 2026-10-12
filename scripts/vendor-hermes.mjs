@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 // Vendors NousResearch/hermes-agent into hermes/: upstream at a tag or commit, minus the paths in
-// hermes/CUTTLELY_EXCLUDE.txt, plus the Cuttlely patches in hermes/patches. See hermes/CUTTLELY_VENDOR.txt.
+// hermes/CUTTLELY_EXCLUDE.txt, and when hermes/CUTTLELY_LOADED.txt is present only the files that
+// list names plus package __init__ files, data files those modules name, license files and the
+// local patches. See hermes/CUTTLELY_VENDOR.txt.
 //
 //   pnpm hermes:vendor <tag-or-commit>   fetch, trim, apply the patches, and swap the result into hermes/
 //   pnpm hermes:vendor --continue        after fixing a patch that did not apply in the staging copy
@@ -19,7 +21,13 @@ import { fileURLToPath } from 'node:url'
 const SCRIPT_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 export const DEFAULT_UPSTREAM = 'https://github.com/NousResearch/hermes-agent.git'
 // Files Cuttlely owns inside hermes/. They are not upstream files and are never trimmed or patched.
-export const OWN_FILES = ['CUTTLELY_VENDOR.txt', 'CUTTLELY_EXCLUDE.txt', 'CUTTLELY_VENDOR.lock', 'UPSTREAM_COMMIT']
+export const OWN_FILES = [
+    'CUTTLELY_VENDOR.txt',
+    'CUTTLELY_EXCLUDE.txt',
+    'CUTTLELY_LOADED.txt',
+    'CUTTLELY_VENDOR.lock',
+    'UPSTREAM_COMMIT'
+]
 const OWN_DIRS = ['patches/']
 const BOT = { name: 'cuttlely vendor', email: 'vendor@cuttlely.invalid', date: '2000-01-01T00:00:00Z' }
 
@@ -58,6 +66,7 @@ export function paths(root = SCRIPT_ROOT, env = process.env) {
         hermes,
         patches: path.join(hermes, 'patches'),
         exclude: path.join(hermes, 'CUTTLELY_EXCLUDE.txt'),
+        loaded: path.join(hermes, 'CUTTLELY_LOADED.txt'),
         lock: path.join(hermes, 'CUTTLELY_VENDOR.lock'),
         upstreamCommit: path.join(hermes, 'UPSTREAM_COMMIT'),
         cache,
@@ -84,6 +93,100 @@ export function parseExcludes(text) {
             if (!name || (!anchored && name.includes('/'))) throw new VendorError(`CUTTLELY_EXCLUDE.txt: unsupported pattern "${line}"`)
             return { line, anchored, folder, name }
         })
+}
+
+// Measured files the agent runtime loads. Blank lines and # comments are skipped.
+// One repo-relative path per line. An empty list is refused so a bad file cannot wipe the tree.
+export function parseLoaded(text) {
+    const files = []
+    for (const line of String(text).split('\n')) {
+        const trimmed = line.trim()
+        if (!trimmed || trimmed.startsWith('#')) continue
+        if (trimmed.startsWith('/') || trimmed.includes('\\') || trimmed.split('/').includes('..')) {
+            throw new VendorError(`CUTTLELY_LOADED.txt: unsupported path "${trimmed}"`)
+        }
+        files.push(trimmed)
+    }
+    if (!files.length) throw new VendorError('CUTTLELY_LOADED.txt has no paths. Refusing to vendor an empty tree.')
+    return files
+}
+
+const DATA_EXT = new Set([
+    '.yaml',
+    '.yml',
+    '.json',
+    '.toml',
+    '.txt',
+    '.md',
+    '.html',
+    '.jinja',
+    '.j2',
+    '.sql',
+    '.csv',
+    '.xml',
+    '.ini',
+    '.cfg',
+    '.typed'
+])
+
+function isLicenseFile(file) {
+    const base = file.split('/').pop()
+    return /^(LICENSE|NOTICE|COPYING|AUTHORS|COPYRIGHT)(\..*)?$/i.test(base)
+}
+
+// Listed files, plus package __init__ files, license and attribution files, files a local patch
+// edits, and data files a kept module names with a string literal.
+export function filesToKeep(upstreamFiles, { loaded, patchFiles, readFile }) {
+    const all = new Set(upstreamFiles)
+    const keep = new Set()
+    for (const file of [...loaded, ...patchFiles]) if (all.has(file)) keep.add(file)
+    for (const file of upstreamFiles) if (isLicenseFile(file)) keep.add(file)
+    const addInits = () => {
+        for (const file of [...keep]) {
+            const parts = file.split('/')
+            for (let i = 1; i < parts.length; i++) {
+                const init = `${parts.slice(0, i).join('/')}/__init__.py`
+                if (all.has(init)) keep.add(init)
+            }
+        }
+    }
+    addInits()
+    if (readFile) {
+        let grew = true
+        while (grew) {
+            grew = false
+            for (const file of [...keep]) {
+                if (!file.endsWith('.py') || !all.has(file)) continue
+                let source = ''
+                try {
+                    source = readFile(file)
+                } catch {
+                    continue
+                }
+                const dir = file.includes('/') ? file.slice(0, file.lastIndexOf('/')) : ''
+                for (const match of source.matchAll(/['"]([^'"\n]{1,200})['"]/g)) {
+                    const lit = match[1]
+                    if (!lit || lit.startsWith('/') || lit.includes('\\') || lit.split('/').includes('..')) continue
+                    const ext = lit.includes('.') ? lit.slice(lit.lastIndexOf('.')) : ''
+                    if (!DATA_EXT.has(ext) && !lit.endsWith('SKILL.md')) continue
+                    const candidates = dir ? [`${dir}/${lit}`, lit] : [lit]
+                    for (const rel of candidates) {
+                        const normal = rel.replace(/\/+/g, '/').replace(/^\.\//, '')
+                        if (all.has(normal) && !keep.has(normal)) {
+                            keep.add(normal)
+                            grew = true
+                        }
+                    }
+                }
+            }
+            const before = keep.size
+            addInits()
+            if (keep.size !== before) grew = true
+        }
+    } else {
+        addInits()
+    }
+    return keep
 }
 
 export function excludedBy(file, patterns) {
@@ -302,12 +405,25 @@ export function buildBase(p, commit, previous) {
               .filter(Boolean)
               .map((file) => file.slice('hermes/'.length))
         : []
-    const drop = [...excluded, ...ignored]
+    const ignoredSet = new Set(ignored)
+    const notIgnored = rest.filter((file) => !ignoredSet.has(file))
+    let subset = []
+    if (fs.existsSync(p.loaded)) {
+        const loaded = parseLoaded(fs.readFileSync(p.loaded, 'utf8'))
+        const patchTouched = listPatches(p.patches).flatMap((patch) => patchFiles(patch.text).files)
+        const keep = filesToKeep(notIgnored, {
+            loaded,
+            patchFiles: patchTouched,
+            readFile: (file) => fs.readFileSync(path.join(p.staging, file), 'utf8')
+        })
+        subset = notIgnored.filter((file) => !keep.has(file))
+    }
+    const drop = [...excluded, ...ignored, ...subset]
     for (let i = 0; i < drop.length; i += 500) git(p.staging, ['rm', '-q', '--cached', '--', ...drop.slice(i, i + 500)])
     for (const file of drop) fs.rmSync(path.join(p.staging, file), { force: true })
     git(p.staging, ['commit', '-q', '--allow-empty', '-m', `upstream ${commit} minus excluded paths`])
     git(p.staging, ['tag', 'base'])
-    return { excluded: excluded.length, ignored }
+    return { excluded: excluded.length, ignored, subset: subset.length }
 }
 
 function applyPatches(p, patches) {
@@ -421,8 +537,8 @@ export function vendor(p, ref, log = console.log) {
     if (previous) fetchUpstream(p, previous)
     const { commit, date } = fetchUpstream(p, ref)
     log(`Upstream ${ref} is ${commit} (${date}).`)
-    const { excluded, ignored } = buildBase(p, commit, previous)
-    log(`Left out ${excluded} excluded and ${ignored.length} ignored file(s).`)
+    const { excluded, ignored, subset } = buildBase(p, commit, previous)
+    log(`Left out ${excluded} excluded, ${ignored.length} ignored, and ${subset} unlisted file(s).`)
     const state = { ref, commit, date, ignored }
     writeState(p, state)
     const applied = applyPatches(p, listPatches(p.patches))

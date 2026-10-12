@@ -12,6 +12,7 @@ Cuttlely runs agent teams on Hermes (NousResearch/hermes-agent, MIT). Hermes is 
 | `hermes/CUTTLELY_VENDOR.lock` | The upstream repository, the tag or commit asked for, the commit it resolved to, and a fingerprint of `hermes/`. Written by the script. |
 | `hermes/UPSTREAM_COMMIT`      | The pinned upstream commit.                                                                                                             |
 | `hermes/CUTTLELY_VENDOR.txt`  | Short notes: what Cuttlely uses, what is left out, and one line per patch.                                                              |
+| `hermes/CUTTLELY_LOADED.txt`  | Files a harness run loads. `pnpm hermes:vendor` keeps these, plus package init files, named data files, licenses and patch files.       |
 
 The pin today is v0.21.4+canary, commit `f42f579`.
 
@@ -29,7 +30,7 @@ The pin today is v0.21.4+canary, commit `f42f579`.
 | `acp_adapter/`                                    | The editor (ACP) adapter. Its `hermes-acp` entry point is never run.                           |
 | files the `.gitignore` files match                | For example `package-lock.json`, `dist/` and `build/`. The vendor run lists each one it drops. |
 
-`skills/`, `plugins/`, `locales/`, `plugin-catalog/`, `optional-mcps/` and `tui_gateway/` stay: Hermes reads them at boot.
+`skills/`, `plugins/`, `locales/`, `plugin-catalog/`, `optional-mcps/` and `tui_gateway/` are not excluded by folder. `CUTTLELY_LOADED.txt` is what decides which of their files stay. The measurement keeps the files a harness run opens: the API server, the agent loop, the toolsets a profile can enable (terminal, browser, code execution, file, skills_read, delegation, memory, session_search, MCP), the custom model provider, and browser and web backends. Messaging platform plugins, other model providers, the plugin catalog, optional MCP descriptors, Nix and Docker files, and locale catalogs other than English stay out. A missing locale falls back to English.
 
 ### The patches
 
@@ -87,6 +88,20 @@ To keep conflicts small, put Cuttlely logic in new Cuttlely files (like `tools/m
 Each Hermes file belongs to one patch only. `--save-patches` fetches the pinned commit to compare against, so it needs the network.
 
 To leave out another upstream folder, add it to `CUTTLELY_EXCLUDE.txt` and run `pnpm hermes:vendor` at the same pin. To bring one back, take it off the list and do the same.
+
+## Measured subset
+
+`node scripts/measure-runtime-loads.mjs` rewrites `hermes/CUTTLELY_LOADED.txt`. It needs the agent runtime's virtualenv (`bash scripts/setup-hermes.sh`, or `HERMES_PYTHON`). The script imports the modules the server boots, starts the API server the way `scripts/cuttlely-hermes-api.py` does, discovers built-in tools and bundled plugins, loads the custom model provider, and calls the harness toolsets. It then follows import statements and `importlib` literals, including lazy imports in the agent loop, the API server and those toolsets.
+
+After an upstream bump:
+
+```bash
+node scripts/measure-runtime-loads.mjs
+pnpm hermes:vendor <same-pin>
+node scripts/measure-runtime-loads.mjs --check
+```
+
+`--check` fails when a measured module is not in the tree. Commit the new list before `pnpm hermes:vendor`; the vendor command refuses an uncommitted `hermes/`. Re-running `pnpm hermes:vendor` at the same pin still changes nothing.
 
 ## What pnpm verify checks
 

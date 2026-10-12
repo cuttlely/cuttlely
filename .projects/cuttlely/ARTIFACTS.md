@@ -34,7 +34,7 @@ Where things live. Merged work is in `git log` and the closed pull requests (`gh
 | Server settings registry               | `packages/server/src/settings/registry.ts`                                                                 |
 | Upgrade fixture                        | `scripts/fixtures/upgrade/` (`scripts/upgrade-fixture.mjs`)                                                |
 | Identity schema fixtures and golden    | `scripts/fixtures/`, `scripts/identity-schema.golden.json`                                                 |
-| Agent runtime vendor inputs            | `hermes/UPSTREAM_COMMIT`, `hermes/CUTTLELY_EXCLUDE.txt`, `hermes/patches/`, `hermes/CUTTLELY_VENDOR.txt`   |
+| Agent runtime vendor inputs            | `hermes/UPSTREAM_COMMIT`, `hermes/CUTTLELY_EXCLUDE.txt`, `hermes/CUTTLELY_LOADED.txt`, `hermes/patches/`, `hermes/CUTTLELY_VENDOR.txt` |
 | Repository description                 | `.github/repo-description.txt`                                                                             |
 | npm launcher                           | `packages/cli` (`cuttlely`). Runs `ghcr.io/cuttlely/cuttlely`                                              |
 | Embeddable chat widget                 | `packages/chat-widget` (`@cuttlely/chat`). The server also serves `dist/chat.js` at `/embed/chat.js`       |
