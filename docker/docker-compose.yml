@@ -3,6 +3,7 @@
 #
 # From the repo root, `docker compose up -d` is the command in the README.
 # INCLUDE_BROWSER=0 builds this image without Chromium. The default is 1.
+# CUTTLELY_OMIT_GEOIP=true leaves out the geolocation database. The default is false.
 # The database is SQLite on the volume unless you change it in Admin, Server settings.
 
 name: cuttlely
@@ -14,6 +15,7 @@ services:
             dockerfile: Dockerfile
             args:
                 INCLUDE_BROWSER: ${INCLUDE_BROWSER:-1}
+                CUTTLELY_OMIT_GEOIP: ${CUTTLELY_OMIT_GEOIP:-false}
         restart: unless-stopped
         init: true
         # On stop, Cuttlely lets running answers finish for up to 25 seconds (CUTTLELY_DRAIN_TIMEOUT_MS). Docker's
