@@ -58,7 +58,7 @@ A shipped pack is a private workspace package at `packages/node-pack-<name>`, na
 -   Add the package name to `SHIPPED_NODE_PACKS` in `packages/server/src/utils/nodePacks.ts`.
 -   Add a dependency on the package in `@cuttlely/server`.
 -   `scripts/build-module-catalog.mjs` and the node load test already read `packages/node-pack-*/nodes` and `packages/node-pack-*/credentials`.
--   `node scripts/build-node-pack-index.mjs` rewrites `packages/server/src/utils/node-pack-index.json` from every `packages/node-pack-*/nodes` folder. The server build runs that script. A future pack is included without a second list.
+-   `node scripts/build-node-pack-index.mjs` rewrites `packages/server/src/utils/node-pack-index.json` from every `packages/node-pack-*/nodes` folder. The server build and the image build run that script with `--check` and copy the committed file into `dist`. They do not rewrite it. A stale file fails those builds. A future pack is included when the file is regenerated.
 
 `INCLUDE_NODE_PACKS=0` builds an image without those packages. The default is `1`. See [Docker](./docker.md#leave-out-optional-node-packs).
 

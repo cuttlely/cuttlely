@@ -574,6 +574,7 @@
                 "packages/server/src/database/migrations/sqlite/1782000000000-AddIdentitySignIn.ts",
                 "packages/server/src/database/migrations/sqlite/1782000000001-AddIdentityLoginGuards.ts",
                 "packages/server/src/database/migrations/sqlite/1783000000000-HashApiKey.ts",
+                "packages/server/src/identity/apiGate.ts",
                 "packages/server/src/identity/authSecrets.ts",
                 "packages/server/src/identity/cli.ts",
                 "packages/server/src/identity/constants.ts",

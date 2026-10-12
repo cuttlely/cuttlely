@@ -1303,6 +1303,7 @@ packages/server/src/routes/node-configs/index.ts
 packages/server/src/routes/node-custom-functions/index.ts
 packages/server/src/routes/node-icons/index.ts
 packages/server/src/routes/node-load-methods/index.ts
+packages/server/src/routes/nodes/auth.test.ts
 packages/server/src/routes/nodes/index.ts
 packages/server/src/routes/nvidia-nim/index.ts
 packages/server/src/routes/oauth2/index.ts
