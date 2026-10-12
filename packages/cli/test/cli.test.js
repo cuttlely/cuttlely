@@ -1,9 +1,12 @@
 import assert from 'node:assert/strict'
+import { createRequire } from 'node:module'
 import { mkdtempSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
+import { createServer } from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
+import { DEFAULT_QUESTION_COUNT, DEFAULT_SERVER, DEFAULT_TIMEOUT_SECONDS, selectVerdict } from '../lib/check.js'
 import {
     CONTAINER_NAME,
     DATA_DIR,
@@ -335,4 +338,284 @@ test('a taken port is reported without opening the browser', async () => {
     assert.equal(await main(['start'], { ...io, docker, open: (url) => opened.push(url) }), 1)
     assert.match(io.errors(), /Port 43117 is in use/)
     assert.equal(opened.length, 0)
+})
+
+const REPO = join(ROOT, '..', '..')
+const KEY = 'test-key'
+
+function checkBody(overrides = {}) {
+    return {
+        id: 'check-1',
+        status: 'done',
+        stopReason: null,
+        error: null,
+        total: 1,
+        completed: 1,
+        draftChanged: false,
+        liveEmpty: false,
+        summary: { ran: 1, same: 1, changed: 0, errors: 0, liveTokens: 10, draftTokens: 11, liveMedianMs: 100, draftMedianMs: 90 },
+        cases: [
+            {
+                question: 'What time do you open on Saturday?',
+                live: { text: 'We open at 8 AM on Saturdays.', error: null, tokens: 10, ms: 100 },
+                draft: { text: 'We open at 8 AM on Saturdays.', error: null, tokens: 11, ms: 90 },
+                same: true
+            }
+        ],
+        ...overrides
+    }
+}
+
+function changedBody() {
+    return checkBody({
+        summary: { ran: 1, same: 0, changed: 1, errors: 0, liveTokens: 10, draftTokens: 12, liveMedianMs: 100, draftMedianMs: 80 },
+        cases: [
+            {
+                question: 'What time do you open on Saturday?',
+                live: { text: 'We open at 8 AM on Saturdays.', error: null, tokens: 10, ms: 100 },
+                draft: { text: 'We open at 7 AM on Saturdays.', error: null, tokens: 12, ms: 80 },
+                same: false
+            }
+        ]
+    })
+}
+
+function httpResult(status, body) {
+    const text = typeof body === 'string' ? body : JSON.stringify(body)
+    return { status, ok: status >= 200 && status < 300, text: async () => text }
+}
+
+function scriptedFetch(steps) {
+    const calls = []
+    const fetch = async (url, init) => {
+        calls.push({ url, init, body: init && init.body })
+        const next = steps.shift()
+        if (!next) throw new Error(`unexpected ${init && init.method} ${url}`)
+        return typeof next === 'function' ? next(url, init) : next
+    }
+    return { fetch, calls }
+}
+
+function checkIo(extra = {}) {
+    const io = capture()
+    return { ...io, env: { CUTTLELY_API_KEY: KEY }, sleep: async () => {}, ...extra }
+}
+
+test('check help documents the command and the exit codes', async () => {
+    const help = capture()
+    assert.equal(await main(['check', '--help'], help), 0)
+    assert.match(help.text(), /cuttlely check --flow <id>/)
+    assert.match(help.text(), /CUTTLELY_API_KEY/)
+    assert.match(help.text(), /--fail-on-changed/)
+    assert.match(help.text(), /0 {2}The check finished/)
+    assert.match(help.text(), /1 {2}--fail-on-changed was set/)
+    assert.match(help.text(), /2 {2}The check timed out/)
+    assert.equal(DEFAULT_SERVER, `http://127.0.0.1:${DEFAULT_PORT}`)
+    assert.equal(parseArgs(['check', '--flow', 'flow-1']).server, null)
+    assert.equal(parseArgs(['check', '--flow', 'flow-1']).timeoutSeconds, null)
+    assert.equal(DEFAULT_TIMEOUT_SECONDS, 300)
+    assert.equal(DEFAULT_QUESTION_COUNT, 4)
+})
+
+test('check exits 0 when the draft answers match, and writes the JSON result', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'cuttlely-check-'))
+    const jsonPath = join(dir, 'check.json')
+    const io = checkIo()
+    const { fetch, calls } = scriptedFetch([httpResult(202, checkBody({ status: 'running', completed: 0 })), httpResult(200, checkBody())])
+    const code = await main(['check', '--flow', 'flow-1', '--json', jsonPath, '--fail-on-changed'], { ...io, fetch })
+    assert.equal(code, 0)
+    assert.equal(calls[0].init.method, 'POST')
+    assert.equal(calls[0].url, `${DEFAULT_SERVER}/api/v1/flow-drafts/flow-1/check`)
+    assert.equal(calls[0].init.headers.Authorization, `Bearer ${KEY}`)
+    assert.equal(calls[0].init.redirect, 'manual')
+    assert.deepEqual(JSON.parse(calls[0].body), { count: 4 })
+    assert.equal(calls[1].init.method, 'GET')
+    assert.equal(calls[1].url, `${DEFAULT_SERVER}/api/v1/flow-drafts/flow-1/check/check-1`)
+    assert.match(io.text(), /Questions: 1 ran, 1 same, 0 changed, 0 errors/)
+    assert.doesNotMatch(`${io.text()}\n${io.errors()}`, /test-key/)
+    const saved = JSON.parse(readFileSync(jsonPath, 'utf8'))
+    assert.equal(saved.id, 'check-1')
+    assert.equal(saved.status, 'done')
+    assert.equal(saved.summary.changed, 0)
+})
+
+test('check exits 0 without --fail-on-changed when an answer changed, and 1 with it', async () => {
+    const report = checkIo()
+    const open = scriptedFetch([httpResult(202, changedBody())])
+    assert.equal(await main(['check', '--flow', 'flow-1', '--server', 'http://127.0.0.1:3000'], { ...report, fetch: open.fetch }), 0)
+    assert.match(report.text(), /1 changed/)
+    assert.match(report.text(), /Live: We open at 8 AM on Saturdays\./)
+    assert.match(report.text(), /Draft: We open at 7 AM on Saturdays\./)
+    assert.equal(report.errors(), '')
+    assert.equal(open.calls[0].url, 'http://127.0.0.1:3000/api/v1/flow-drafts/flow-1/check')
+
+    const gate = checkIo()
+    const files = new Map()
+    const gated = scriptedFetch([httpResult(202, changedBody())])
+    const code = await main(['check', '--flow', 'flow-1', '--fail-on-changed', '--json', 'check.json'], {
+        ...gate,
+        fetch: gated.fetch,
+        writeFile: (file, text) => files.set(file, text)
+    })
+    assert.equal(code, 1)
+    assert.match(gate.errors(), /1 answer changed\./)
+    assert.equal(JSON.parse(files.get('check.json')).summary.changed, 1)
+    assert.deepEqual(selectVerdict(changedBody(), { failOnChanged: true }), { code: 1, label: 'changed' })
+    assert.deepEqual(selectVerdict(changedBody(), { failOnChanged: false }), { code: 0, label: 'pass' })
+})
+
+test('check exits 2 on timeout and asks the server to stop', async () => {
+    const io = checkIo()
+    let clock = 0
+    const running = checkBody({ status: 'running', completed: 0, summary: null, cases: [] })
+    const { fetch, calls } = scriptedFetch([httpResult(202, running), httpResult(200, running), httpResult(200, running)])
+    const code = await main(['check', '--flow', 'flow-1', '--timeout', '2', '--json', 'partial.json'], {
+        ...io,
+        fetch,
+        now: () => clock,
+        sleep: async () => {
+            clock += 1000
+        },
+        writeFile: (file, text) => io.out(`wrote ${file} ${text.length}`)
+    })
+    assert.equal(code, 2)
+    assert.match(io.errors(), /Timed out after 2s waiting for check check-1/)
+    assert.deepEqual(
+        calls.map((call) => call.init.method),
+        ['POST', 'GET', 'DELETE']
+    )
+    assert.match(io.text(), /wrote partial.json/)
+})
+
+test('check exits 2 when the API key is missing and does not call the server', async () => {
+    const io = capture()
+    const { fetch, calls } = scriptedFetch([])
+    assert.equal(await main(['check', '--flow', 'flow-1'], { ...io, env: {}, fetch }), 2)
+    assert.match(io.errors(), /CUTTLELY_API_KEY is not set/)
+    assert.equal(calls.length, 0)
+    const blank = capture()
+    assert.equal(await main(['check', '--flow', 'flow-1'], { ...blank, env: { CUTTLELY_API_KEY: '   ' }, fetch }), 2)
+    assert.equal(calls.length, 0)
+})
+
+test('check exits 2 on a server error, a missing draft, and a failed check', async () => {
+    const missing = checkIo()
+    const noDraft = scriptedFetch([
+        httpResult(409, { statusCode: 409, success: false, message: 'There are no unpublished changes to check.' })
+    ])
+    assert.equal(await main(['check', '--flow', 'flow-1'], { ...missing, fetch: noDraft.fetch }), 2)
+    assert.match(missing.errors(), /No draft to check/)
+    assert.equal(noDraft.calls.length, 1)
+
+    const broken = checkIo()
+    const failure = scriptedFetch([httpResult(500, { message: 'Database unreachable' })])
+    assert.equal(await main(['check', '--flow', 'flow-1'], { ...broken, fetch: failure.fetch }), 2)
+    assert.match(broken.errors(), /Check failed \(500\): Database unreachable/)
+
+    const refused = checkIo()
+    const down = scriptedFetch([() => Promise.reject(new Error('connect ECONNREFUSED'))])
+    assert.equal(await main(['check', '--flow', 'flow-1'], { ...refused, fetch: down.fetch }), 2)
+    assert.match(refused.errors(), /ECONNREFUSED/)
+
+    const failed = checkIo()
+    const done = scriptedFetch([httpResult(202, checkBody({ status: 'failed', error: 'The check could not run.' }))])
+    assert.equal(await main(['check', '--flow', 'flow-1', '--fail-on-changed'], { ...failed, fetch: done.fetch }), 2)
+    assert.match(failed.errors(), /The check failed\. The check could not run\./)
+
+    const stale = checkIo()
+    const moved = scriptedFetch([httpResult(202, checkBody({ draftChanged: true }))])
+    assert.equal(await main(['check', '--flow', 'flow-1', '--fail-on-changed'], { ...stale, fetch: moved.fetch }), 2)
+    assert.match(stale.errors(), /draft changed while the check was running/)
+
+    const echoed = checkIo()
+    const leak = scriptedFetch([httpResult(401, { error: `Unauthorized ${KEY}` })])
+    assert.equal(await main(['check', '--flow', 'flow-1'], { ...echoed, fetch: leak.fetch }), 2)
+    assert.match(echoed.errors(), /\[redacted\]/)
+    assert.doesNotMatch(echoed.errors(), /test-key/)
+})
+
+test('check usage failures exit 2 and other commands reject check flags', async () => {
+    const missingFlow = capture()
+    assert.equal(await main(['check'], missingFlow), 2)
+    assert.match(missingFlow.errors(), /check needs --flow/)
+
+    const badFlow = capture()
+    assert.equal(await main(['check', '--flow', '../etc'], badFlow), 2)
+    assert.match(badFlow.errors(), /--flow needs the flow id/)
+
+    const badServer = capture()
+    assert.equal(await main(['check', '--flow', 'flow-1', '--server', 'file:///tmp'], badServer), 2)
+    assert.match(badServer.errors(), /http or https/)
+
+    const keyed = capture()
+    assert.equal(await main(['check', '--flow', 'flow-1', '--server', 'http://user:secret@127.0.0.1:43117'], keyed), 2)
+    assert.match(keyed.errors(), /CUTTLELY_API_KEY/)
+
+    const start = capture()
+    assert.equal(await main(['start', '--flow', 'flow-1'], start), 1)
+    assert.match(start.errors(), /Unknown option --flow/)
+
+    const port = capture()
+    assert.equal(await main(['check', '--flow', 'flow-1', '--port', '8080'], port), 2)
+    assert.match(port.errors(), /--port is not a check option/)
+})
+
+test('check talks to a local server', async () => {
+    const seen = []
+    const server = createServer((req, res) => {
+        const chunks = []
+        req.on('data', (chunk) => chunks.push(chunk))
+        req.on('end', () => {
+            seen.push({
+                method: req.method,
+                url: req.url,
+                authorization: req.headers.authorization,
+                body: Buffer.concat(chunks).toString('utf8')
+            })
+            const body = req.method === 'POST' ? checkBody({ status: 'running', completed: 0 }) : checkBody()
+            res.writeHead(req.method === 'POST' ? 202 : 200, { 'Content-Type': 'application/json' })
+            res.end(JSON.stringify(body))
+        })
+    })
+    await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve))
+    try {
+        const { port } = server.address()
+        const io = checkIo({ sleep: async () => {} })
+        const code = await main(
+            ['check', '--flow', 'flow-1', '--server', `http://127.0.0.1:${port}`, '--fail-on-changed', '--timeout', '30'],
+            io
+        )
+        assert.equal(code, 0)
+        assert.equal(seen[0].method, 'POST')
+        assert.equal(seen[0].url, '/api/v1/flow-drafts/flow-1/check')
+        assert.equal(seen[0].authorization, `Bearer ${KEY}`)
+        assert.deepEqual(JSON.parse(seen[0].body), { count: 4 })
+        assert.equal(seen[1].method, 'GET')
+        assert.match(io.text(), /0 changed/)
+        assert.doesNotMatch(`${io.text()}\n${io.errors()}`, /test-key/)
+    } finally {
+        await new Promise((resolve) => server.close(resolve))
+    }
+})
+
+test('the example workflow is valid YAML and runs cuttlely check', () => {
+    const file = join(REPO, 'examples', 'ci', 'cuttlely-check.yml')
+    const text = readFileSync(file, 'utf8')
+    const require = createRequire(join(REPO, 'package.json'))
+    const yaml = require('js-yaml')
+    const doc = yaml.load(text)
+    assert.equal(typeof doc.name, 'string')
+    assert.ok(doc.jobs)
+    const rendered = JSON.stringify(doc)
+    assert.match(rendered, /cuttlely check/)
+    assert.match(rendered, /--fail-on-changed/)
+    assert.match(rendered, /CUTTLELY_API_KEY/)
+    assert.doesNotMatch(text, /sk-|ghp_|Bearer [A-Za-z0-9]/)
+    const guide = readFileSync(join(REPO, 'docs', 'how-to', 'ci-gate.md'), 'utf8')
+    assert.match(guide, /examples\/ci\/cuttlely-check\.yml/)
+    assert.match(guide, /exit 1|Exit codes/)
+    const index = readFileSync(join(REPO, 'docs', 'README.md'), 'utf8')
+    assert.match(index, /how-to\/ci-gate\.md/)
+    const api = readFileSync(join(REPO, 'docs', 'reference', 'drafts-api.md'), 'utf8')
+    assert.match(api, /how-to\/ci-gate\.md/)
 })

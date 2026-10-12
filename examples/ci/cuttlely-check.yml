@@ -1,0 +1,30 @@
+# Run the Publish check against a Cuttlely server you already operate.
+# This workflow does not start Cuttlely.
+#
+# Repository secret: CUTTLELY_API_KEY
+#   An API key that can update the flow (chatflows:update or agentflows:update).
+# Repository variables: CUTTLELY_URL, CUTTLELY_FLOW_ID
+#   The server origin, and the flow id from the canvas address bar.
+# The flow needs a draft and at least one past question. See docs/how-to/ci-gate.md.
+
+name: Cuttlely draft check
+
+on:
+    pull_request:
+
+jobs:
+    check:
+        runs-on: ubuntu-latest
+        steps:
+            - name: Check the draft
+              env:
+                  CUTTLELY_API_KEY: ${{ secrets.CUTTLELY_API_KEY }}
+                  CUTTLELY_URL: ${{ vars.CUTTLELY_URL }}
+                  CUTTLELY_FLOW_ID: ${{ vars.CUTTLELY_FLOW_ID }}
+              run: |
+                  npx --yes cuttlely check \
+                    --flow "$CUTTLELY_FLOW_ID" \
+                    --server "$CUTTLELY_URL" \
+                    --timeout 300 \
+                    --fail-on-changed \
+                    --json check.json
