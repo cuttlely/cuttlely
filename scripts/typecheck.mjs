@@ -20,6 +20,8 @@ function main() {
     run(['--noEmit', '-p', 'packages/node-pack-tools-mcp/tsconfig.json'])
     console.log('typecheck @cuttlely/node-pack-caches-memory')
     run(['--noEmit', '-p', 'packages/node-pack-caches-memory/tsconfig.json'])
+    console.log('typecheck @cuttlely/node-pack-legacy-chains')
+    run(['--noEmit', '-p', 'packages/node-pack-legacy-chains/tsconfig.json'])
     // The server imports this package. Emit it before the server check so the types resolve.
     console.log('typecheck @cuttlely/versioning')
     run(['--noEmit', '-p', 'packages/versioning/tsconfig.typecheck.json'])

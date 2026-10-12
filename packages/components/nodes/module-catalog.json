@@ -305,36 +305,6 @@
             "tier": "hidden"
         },
         {
-            "name": "getApiChain",
-            "label": "GET API Chain",
-            "category": "Chains",
-            "folder": "chains",
-            "file": "packages/components/nodes/chains/ApiChain/GETApiChain.ts",
-            "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run.",
-            "tier": "legacy"
-        },
-        {
-            "name": "openApiChain",
-            "label": "OpenAPI Chain",
-            "category": "Chains",
-            "folder": "chains",
-            "file": "packages/components/nodes/chains/ApiChain/OpenAPIChain.ts",
-            "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run.",
-            "tier": "legacy"
-        },
-        {
-            "name": "postApiChain",
-            "label": "POST API Chain",
-            "category": "Chains",
-            "folder": "chains",
-            "file": "packages/components/nodes/chains/ApiChain/POSTApiChain.ts",
-            "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run.",
-            "tier": "legacy"
-        },
-        {
             "name": "conversationalRetrievalQAChain",
             "label": "Conversational Retrieval QA Chain",
             "category": "Chains",
@@ -375,36 +345,6 @@
             "tier": "core"
         },
         {
-            "name": "multiPromptChain",
-            "label": "Multi Prompt Chain",
-            "category": "Chains",
-            "folder": "chains",
-            "file": "packages/components/nodes/chains/MultiPromptChain/MultiPromptChain.ts",
-            "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run.",
-            "tier": "legacy"
-        },
-        {
-            "name": "multiRetrievalQAChain",
-            "label": "Multi Retrieval QA Chain",
-            "category": "Chains",
-            "folder": "chains",
-            "file": "packages/components/nodes/chains/MultiRetrievalQAChain/MultiRetrievalQAChain.ts",
-            "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run.",
-            "tier": "legacy"
-        },
-        {
-            "name": "retrievalQAChain",
-            "label": "Retrieval QA Chain",
-            "category": "Chains",
-            "folder": "chains",
-            "file": "packages/components/nodes/chains/RetrievalQAChain/RetrievalQAChain.ts",
-            "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run.",
-            "tier": "legacy"
-        },
-        {
             "name": "sqlDatabaseChain",
             "label": "Sql Database Chain",
             "category": "Chains",
@@ -423,16 +363,6 @@
             "disposition": "native",
             "reason": "Runs on the current node interface. A harness binds it through init and run.",
             "tier": "supported"
-        },
-        {
-            "name": "vectorDBQAChain",
-            "label": "VectorDB QA Chain",
-            "category": "Chains",
-            "folder": "chains",
-            "file": "packages/components/nodes/chains/VectorDBQAChain/VectorDBQAChain.ts",
-            "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run.",
-            "tier": "legacy"
         },
         {
             "name": "awsChatBedrock",
@@ -1375,126 +1305,6 @@
             "tier": "core"
         },
         {
-            "name": "awsBedrock",
-            "label": "AWS Bedrock",
-            "category": "LLMs",
-            "folder": "llms",
-            "file": "packages/components/nodes/llms/AWSBedrock/AWSBedrock.ts",
-            "disposition": "replaced",
-            "reason": "Marked deprecated in place. Not deleted. Use AWS Bedrock Chat Models instead",
-            "tier": "legacy"
-        },
-        {
-            "name": "azureOpenAI",
-            "label": "Azure OpenAI",
-            "category": "LLMs",
-            "folder": "llms",
-            "file": "packages/components/nodes/llms/Azure OpenAI/AzureOpenAI.ts",
-            "disposition": "replaced",
-            "reason": "Marked deprecated in place. Not deleted. Use Azure OpenAI Chat Models instead",
-            "tier": "legacy"
-        },
-        {
-            "name": "cohere",
-            "label": "Cohere",
-            "category": "LLMs",
-            "folder": "llms",
-            "file": "packages/components/nodes/llms/Cohere/Cohere.ts",
-            "disposition": "replaced",
-            "reason": "Marked deprecated in place. Not deleted. Use Cohere Chat Models instead",
-            "tier": "legacy"
-        },
-        {
-            "name": "fireworks",
-            "label": "Fireworks",
-            "category": "LLMs",
-            "folder": "llms",
-            "file": "packages/components/nodes/llms/Fireworks/Fireworks.ts",
-            "disposition": "replaced",
-            "reason": "Marked deprecated in place. Not deleted. Use Fireworks Chat Models instead",
-            "tier": "legacy"
-        },
-        {
-            "name": "googlevertexai",
-            "label": "GoogleVertexAI",
-            "category": "LLMs",
-            "folder": "llms",
-            "file": "packages/components/nodes/llms/GoogleVertexAI/GoogleVertexAI.ts",
-            "disposition": "replaced",
-            "reason": "Marked deprecated in place. Not deleted. Use GoogleVertexAI Chat Models instead",
-            "tier": "legacy"
-        },
-        {
-            "name": "huggingFaceInference_LLMs",
-            "label": "HuggingFace Inference",
-            "category": "LLMs",
-            "folder": "llms",
-            "file": "packages/components/nodes/llms/HuggingFaceInference/HuggingFaceInference.ts",
-            "disposition": "replaced",
-            "reason": "Marked deprecated in place. Not deleted. Use HuggingFace Inference Chat Models instead",
-            "tier": "legacy"
-        },
-        {
-            "name": "ibmWatsonx",
-            "label": "IBMWatsonx",
-            "category": "LLMs",
-            "folder": "llms",
-            "file": "packages/components/nodes/llms/IBMWatsonx/IBMWatsonx.ts",
-            "disposition": "replaced",
-            "reason": "Marked deprecated in place. Not deleted. Use IBM Watsonx Chat Models instead",
-            "tier": "legacy"
-        },
-        {
-            "name": "ollama",
-            "label": "Ollama",
-            "category": "LLMs",
-            "folder": "llms",
-            "file": "packages/components/nodes/llms/Ollama/Ollama.ts",
-            "disposition": "replaced",
-            "reason": "Marked deprecated in place. Not deleted. Use Ollama Chat Models instead",
-            "tier": "legacy"
-        },
-        {
-            "name": "openAI",
-            "label": "OpenAI",
-            "category": "LLMs",
-            "folder": "llms",
-            "file": "packages/components/nodes/llms/OpenAI/OpenAI.ts",
-            "disposition": "replaced",
-            "reason": "Marked deprecated in place. Not deleted. Use OpenAI Chat Models instead",
-            "tier": "legacy"
-        },
-        {
-            "name": "replicate",
-            "label": "Replicate",
-            "category": "LLMs",
-            "folder": "llms",
-            "file": "packages/components/nodes/llms/Replicate/Replicate.ts",
-            "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run.",
-            "tier": "core"
-        },
-        {
-            "name": "sambanova",
-            "label": "Sambanova",
-            "category": "LLMs",
-            "folder": "llms",
-            "file": "packages/components/nodes/llms/SambaNova/Sambanova.ts",
-            "disposition": "replaced",
-            "reason": "Marked deprecated in place. Not deleted. Use Sambanova Chat Models instead",
-            "tier": "legacy"
-        },
-        {
-            "name": "togetherAI",
-            "label": "TogetherAI",
-            "category": "LLMs",
-            "folder": "llms",
-            "file": "packages/components/nodes/llms/TogetherAI/TogetherAI.ts",
-            "disposition": "replaced",
-            "reason": "Marked deprecated in place. Not deleted. Use TogetherAI Chat Models instead",
-            "tier": "legacy"
-        },
-        {
             "name": "agentMemory",
             "label": "Agent Memory",
             "category": "Memory",
@@ -2433,6 +2243,196 @@
             "disposition": "native",
             "reason": "Runs on the current node interface. A harness binds it through init and run.",
             "tier": "supported"
+        },
+        {
+            "name": "getApiChain",
+            "label": "GET API Chain",
+            "category": "Chains",
+            "folder": "chains",
+            "file": "packages/node-pack-legacy-chains/nodes/chains/ApiChain/GETApiChain.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "legacy"
+        },
+        {
+            "name": "openApiChain",
+            "label": "OpenAPI Chain",
+            "category": "Chains",
+            "folder": "chains",
+            "file": "packages/node-pack-legacy-chains/nodes/chains/ApiChain/OpenAPIChain.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "legacy"
+        },
+        {
+            "name": "postApiChain",
+            "label": "POST API Chain",
+            "category": "Chains",
+            "folder": "chains",
+            "file": "packages/node-pack-legacy-chains/nodes/chains/ApiChain/POSTApiChain.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "legacy"
+        },
+        {
+            "name": "multiPromptChain",
+            "label": "Multi Prompt Chain",
+            "category": "Chains",
+            "folder": "chains",
+            "file": "packages/node-pack-legacy-chains/nodes/chains/MultiPromptChain/MultiPromptChain.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "legacy"
+        },
+        {
+            "name": "multiRetrievalQAChain",
+            "label": "Multi Retrieval QA Chain",
+            "category": "Chains",
+            "folder": "chains",
+            "file": "packages/node-pack-legacy-chains/nodes/chains/MultiRetrievalQAChain/MultiRetrievalQAChain.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "legacy"
+        },
+        {
+            "name": "retrievalQAChain",
+            "label": "Retrieval QA Chain",
+            "category": "Chains",
+            "folder": "chains",
+            "file": "packages/node-pack-legacy-chains/nodes/chains/RetrievalQAChain/RetrievalQAChain.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "legacy"
+        },
+        {
+            "name": "vectorDBQAChain",
+            "label": "VectorDB QA Chain",
+            "category": "Chains",
+            "folder": "chains",
+            "file": "packages/node-pack-legacy-chains/nodes/chains/VectorDBQAChain/VectorDBQAChain.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "legacy"
+        },
+        {
+            "name": "awsBedrock",
+            "label": "AWS Bedrock",
+            "category": "LLMs",
+            "folder": "llms",
+            "file": "packages/node-pack-legacy-chains/nodes/llms/AWSBedrock/AWSBedrock.ts",
+            "disposition": "replaced",
+            "reason": "Marked deprecated in place. Not deleted. Use AWS Bedrock Chat Models instead",
+            "tier": "legacy"
+        },
+        {
+            "name": "azureOpenAI",
+            "label": "Azure OpenAI",
+            "category": "LLMs",
+            "folder": "llms",
+            "file": "packages/node-pack-legacy-chains/nodes/llms/Azure OpenAI/AzureOpenAI.ts",
+            "disposition": "replaced",
+            "reason": "Marked deprecated in place. Not deleted. Use Azure OpenAI Chat Models instead",
+            "tier": "legacy"
+        },
+        {
+            "name": "cohere",
+            "label": "Cohere",
+            "category": "LLMs",
+            "folder": "llms",
+            "file": "packages/node-pack-legacy-chains/nodes/llms/Cohere/Cohere.ts",
+            "disposition": "replaced",
+            "reason": "Marked deprecated in place. Not deleted. Use Cohere Chat Models instead",
+            "tier": "legacy"
+        },
+        {
+            "name": "fireworks",
+            "label": "Fireworks",
+            "category": "LLMs",
+            "folder": "llms",
+            "file": "packages/node-pack-legacy-chains/nodes/llms/Fireworks/Fireworks.ts",
+            "disposition": "replaced",
+            "reason": "Marked deprecated in place. Not deleted. Use Fireworks Chat Models instead",
+            "tier": "legacy"
+        },
+        {
+            "name": "googlevertexai",
+            "label": "GoogleVertexAI",
+            "category": "LLMs",
+            "folder": "llms",
+            "file": "packages/node-pack-legacy-chains/nodes/llms/GoogleVertexAI/GoogleVertexAI.ts",
+            "disposition": "replaced",
+            "reason": "Marked deprecated in place. Not deleted. Use GoogleVertexAI Chat Models instead",
+            "tier": "legacy"
+        },
+        {
+            "name": "huggingFaceInference_LLMs",
+            "label": "HuggingFace Inference",
+            "category": "LLMs",
+            "folder": "llms",
+            "file": "packages/node-pack-legacy-chains/nodes/llms/HuggingFaceInference/HuggingFaceInference.ts",
+            "disposition": "replaced",
+            "reason": "Marked deprecated in place. Not deleted. Use HuggingFace Inference Chat Models instead",
+            "tier": "legacy"
+        },
+        {
+            "name": "ibmWatsonx",
+            "label": "IBMWatsonx",
+            "category": "LLMs",
+            "folder": "llms",
+            "file": "packages/node-pack-legacy-chains/nodes/llms/IBMWatsonx/IBMWatsonx.ts",
+            "disposition": "replaced",
+            "reason": "Marked deprecated in place. Not deleted. Use IBM Watsonx Chat Models instead",
+            "tier": "legacy"
+        },
+        {
+            "name": "ollama",
+            "label": "Ollama",
+            "category": "LLMs",
+            "folder": "llms",
+            "file": "packages/node-pack-legacy-chains/nodes/llms/Ollama/Ollama.ts",
+            "disposition": "replaced",
+            "reason": "Marked deprecated in place. Not deleted. Use Ollama Chat Models instead",
+            "tier": "legacy"
+        },
+        {
+            "name": "openAI",
+            "label": "OpenAI",
+            "category": "LLMs",
+            "folder": "llms",
+            "file": "packages/node-pack-legacy-chains/nodes/llms/OpenAI/OpenAI.ts",
+            "disposition": "replaced",
+            "reason": "Marked deprecated in place. Not deleted. Use OpenAI Chat Models instead",
+            "tier": "legacy"
+        },
+        {
+            "name": "replicate",
+            "label": "Replicate",
+            "category": "LLMs",
+            "folder": "llms",
+            "file": "packages/node-pack-legacy-chains/nodes/llms/Replicate/Replicate.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "core"
+        },
+        {
+            "name": "sambanova",
+            "label": "Sambanova",
+            "category": "LLMs",
+            "folder": "llms",
+            "file": "packages/node-pack-legacy-chains/nodes/llms/SambaNova/Sambanova.ts",
+            "disposition": "replaced",
+            "reason": "Marked deprecated in place. Not deleted. Use Sambanova Chat Models instead",
+            "tier": "legacy"
+        },
+        {
+            "name": "togetherAI",
+            "label": "TogetherAI",
+            "category": "LLMs",
+            "folder": "llms",
+            "file": "packages/node-pack-legacy-chains/nodes/llms/TogetherAI/TogetherAI.ts",
+            "disposition": "replaced",
+            "reason": "Marked deprecated in place. Not deleted. Use TogetherAI Chat Models instead",
+            "tier": "legacy"
         },
         {
             "name": "arxiv",

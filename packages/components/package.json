@@ -53,6 +53,30 @@
         "./etl-engine": {
             "types": "./dist/nodes/etl/engine.d.ts",
             "default": "./dist/nodes/etl/engine.js"
+        },
+        "./handler": {
+            "types": "./dist/src/handler.d.ts",
+            "default": "./dist/src/handler.js"
+        },
+        "./google-utils": {
+            "types": "./dist/src/google-utils.d.ts",
+            "default": "./dist/src/google-utils.js"
+        },
+        "./openApiSpec": {
+            "types": "./dist/src/openApiSpec.d.ts",
+            "default": "./dist/src/openApiSpec.js"
+        },
+        "./httpSecurity": {
+            "types": "./dist/src/httpSecurity.d.ts",
+            "default": "./dist/src/httpSecurity.js"
+        },
+        "./moderation": {
+            "types": "./dist/nodes/moderation/Moderation.d.ts",
+            "default": "./dist/nodes/moderation/Moderation.js"
+        },
+        "./outputParserHelpers": {
+            "types": "./dist/nodes/outputparsers/OutputParserHelpers.d.ts",
+            "default": "./dist/nodes/outputparsers/OutputParserHelpers.js"
         }
     },
     "scripts": {
@@ -210,7 +234,6 @@
         "puppeteer": "^20.7.1",
         "redis": "^4.6.7",
         "remove-markdown": "^0.6.2",
-        "replicate": "^0.31.1",
         "sanitize-filename": "^1.6.3",
         "srt-parser-2": "^1.2.3",
         "typeorm": "^0.3.31",

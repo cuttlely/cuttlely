@@ -1,7 +1,14 @@
 module.exports = {
     preset: 'ts-jest',
     testEnvironment: 'node',
-    roots: ['<rootDir>/nodes', '<rootDir>/src'],
+    roots: [
+        '<rootDir>/nodes',
+        '<rootDir>/src',
+        '<rootDir>/../node-pack-vector-stores',
+        '<rootDir>/../node-pack-tools-mcp',
+        '<rootDir>/../node-pack-caches-memory',
+        '<rootDir>/../node-pack-legacy-chains'
+    ],
     transform: {
         '^.+\\.tsx?$': 'ts-jest'
     },
@@ -22,6 +29,12 @@ module.exports = {
         '^@cuttlely/components/nodes$': '<rootDir>/nodes/index.ts',
         '^@cuttlely/components/modelLoader$': '<rootDir>/src/modelLoader.ts',
         '^@cuttlely/components/etl-engine$': '<rootDir>/nodes/etl/engine.ts',
+        '^@cuttlely/components/handler$': '<rootDir>/src/handler.ts',
+        '^@cuttlely/components/google-utils$': '<rootDir>/src/google-utils.ts',
+        '^@cuttlely/components/openApiSpec$': '<rootDir>/src/openApiSpec.ts',
+        '^@cuttlely/components/httpSecurity$': '<rootDir>/src/httpSecurity.ts',
+        '^@cuttlely/components/moderation$': '<rootDir>/nodes/moderation/Moderation.ts',
+        '^@cuttlely/components/outputParserHelpers$': '<rootDir>/nodes/outputparsers/OutputParserHelpers.ts',
         '^@cuttlely/components$': '<rootDir>/src/index.ts',
         // @modelcontextprotocol/sdk is ESM-only (type:module, no exports map, no CJS builds).
         // It cannot be require()'d in Jest's CJS environment and crashes the worker.

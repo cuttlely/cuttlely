@@ -84,22 +84,6 @@
             "to": "packages/components/src/Interface.ts"
         },
         {
-            "from": "packages/components/nodes/llms/RetiredCompletionNodes.test.ts",
-            "to": "packages/components/nodes/llms/Azure OpenAI/AzureOpenAI.ts"
-        },
-        {
-            "from": "packages/components/nodes/llms/RetiredCompletionNodes.test.ts",
-            "to": "packages/components/nodes/llms/Cohere/Cohere.ts"
-        },
-        {
-            "from": "packages/components/nodes/llms/RetiredCompletionNodes.test.ts",
-            "to": "packages/components/nodes/llms/OpenAI/OpenAI.ts"
-        },
-        {
-            "from": "packages/components/nodes/llms/RetiredCompletionNodes.test.ts",
-            "to": "packages/components/src/utils.ts"
-        },
-        {
             "from": "packages/components/nodes/tools/EtlRetriever/EtlRetriever.ts",
             "to": "packages/components/src/agents.ts"
         },
@@ -1465,6 +1449,194 @@
         {
             "path": "packages/node-pack-caches-memory/tsconfig.json",
             "reason": "Cache and memory backend nodes live in the caches and memory pack. Memory that needs no outside service stays in components."
+        },
+        {
+            "path": "packages/node-pack-legacy-chains/credentials/ReplicateApi.credential.ts",
+            "reason": "Completion model and chain nodes live in the legacy chains pack."
+        },
+        {
+            "path": "packages/node-pack-legacy-chains/gulpfile.ts",
+            "reason": "Completion model and chain nodes live in the legacy chains pack."
+        },
+        {
+            "path": "packages/node-pack-legacy-chains/nodes/chains/ApiChain/get.svg",
+            "reason": "Completion model and chain nodes live in the legacy chains pack."
+        },
+        {
+            "path": "packages/node-pack-legacy-chains/nodes/chains/ApiChain/GETApiChain.ts",
+            "reason": "Completion model and chain nodes live in the legacy chains pack."
+        },
+        {
+            "path": "packages/node-pack-legacy-chains/nodes/chains/ApiChain/openapi.svg",
+            "reason": "Completion model and chain nodes live in the legacy chains pack."
+        },
+        {
+            "path": "packages/node-pack-legacy-chains/nodes/chains/ApiChain/OpenAPIChain.ts",
+            "reason": "Completion model and chain nodes live in the legacy chains pack."
+        },
+        {
+            "path": "packages/node-pack-legacy-chains/nodes/chains/ApiChain/post.svg",
+            "reason": "Completion model and chain nodes live in the legacy chains pack."
+        },
+        {
+            "path": "packages/node-pack-legacy-chains/nodes/chains/ApiChain/POSTApiChain.ts",
+            "reason": "Completion model and chain nodes live in the legacy chains pack."
+        },
+        {
+            "path": "packages/node-pack-legacy-chains/nodes/chains/ApiChain/postCore.ts",
+            "reason": "Completion model and chain nodes live in the legacy chains pack."
+        },
+        {
+            "path": "packages/node-pack-legacy-chains/nodes/chains/MultiPromptChain/MultiPromptChain.ts",
+            "reason": "Completion model and chain nodes live in the legacy chains pack."
+        },
+        {
+            "path": "packages/node-pack-legacy-chains/nodes/chains/MultiPromptChain/prompt.svg",
+            "reason": "Completion model and chain nodes live in the legacy chains pack."
+        },
+        {
+            "path": "packages/node-pack-legacy-chains/nodes/chains/MultiRetrievalQAChain/MultiRetrievalQAChain.ts",
+            "reason": "Completion model and chain nodes live in the legacy chains pack."
+        },
+        {
+            "path": "packages/node-pack-legacy-chains/nodes/chains/MultiRetrievalQAChain/qa.svg",
+            "reason": "Completion model and chain nodes live in the legacy chains pack."
+        },
+        {
+            "path": "packages/node-pack-legacy-chains/nodes/chains/RetrievalQAChain/qa.svg",
+            "reason": "Completion model and chain nodes live in the legacy chains pack."
+        },
+        {
+            "path": "packages/node-pack-legacy-chains/nodes/chains/RetrievalQAChain/RetrievalQAChain.ts",
+            "reason": "Completion model and chain nodes live in the legacy chains pack."
+        },
+        {
+            "path": "packages/node-pack-legacy-chains/nodes/chains/VectorDBQAChain/vectordb.svg",
+            "reason": "Completion model and chain nodes live in the legacy chains pack."
+        },
+        {
+            "path": "packages/node-pack-legacy-chains/nodes/chains/VectorDBQAChain/VectorDBQAChain.ts",
+            "reason": "Completion model and chain nodes live in the legacy chains pack."
+        },
+        {
+            "path": "packages/node-pack-legacy-chains/nodes/llms/AWSBedrock/aws.svg",
+            "reason": "Completion model and chain nodes live in the legacy chains pack."
+        },
+        {
+            "path": "packages/node-pack-legacy-chains/nodes/llms/AWSBedrock/AWSBedrock.ts",
+            "reason": "Completion model and chain nodes live in the legacy chains pack."
+        },
+        {
+            "path": "packages/node-pack-legacy-chains/nodes/llms/Azure OpenAI/Azure.svg",
+            "reason": "Completion model and chain nodes live in the legacy chains pack."
+        },
+        {
+            "path": "packages/node-pack-legacy-chains/nodes/llms/Azure OpenAI/AzureOpenAI.ts",
+            "reason": "Completion model and chain nodes live in the legacy chains pack."
+        },
+        {
+            "path": "packages/node-pack-legacy-chains/nodes/llms/Azure OpenAI/README.md",
+            "reason": "Completion model and chain nodes live in the legacy chains pack."
+        },
+        {
+            "path": "packages/node-pack-legacy-chains/nodes/llms/Cohere/Cohere.svg",
+            "reason": "Completion model and chain nodes live in the legacy chains pack."
+        },
+        {
+            "path": "packages/node-pack-legacy-chains/nodes/llms/Cohere/Cohere.ts",
+            "reason": "Completion model and chain nodes live in the legacy chains pack."
+        },
+        {
+            "path": "packages/node-pack-legacy-chains/nodes/llms/Fireworks/fireworks.png",
+            "reason": "Completion model and chain nodes live in the legacy chains pack."
+        },
+        {
+            "path": "packages/node-pack-legacy-chains/nodes/llms/Fireworks/Fireworks.ts",
+            "reason": "Completion model and chain nodes live in the legacy chains pack."
+        },
+        {
+            "path": "packages/node-pack-legacy-chains/nodes/llms/GoogleVertexAI/GoogleVertex.svg",
+            "reason": "Completion model and chain nodes live in the legacy chains pack."
+        },
+        {
+            "path": "packages/node-pack-legacy-chains/nodes/llms/GoogleVertexAI/GoogleVertexAI.ts",
+            "reason": "Completion model and chain nodes live in the legacy chains pack."
+        },
+        {
+            "path": "packages/node-pack-legacy-chains/nodes/llms/HuggingFaceInference/core.ts",
+            "reason": "Completion model and chain nodes live in the legacy chains pack."
+        },
+        {
+            "path": "packages/node-pack-legacy-chains/nodes/llms/HuggingFaceInference/HuggingFace.svg",
+            "reason": "Completion model and chain nodes live in the legacy chains pack."
+        },
+        {
+            "path": "packages/node-pack-legacy-chains/nodes/llms/HuggingFaceInference/HuggingFaceInference.ts",
+            "reason": "Completion model and chain nodes live in the legacy chains pack."
+        },
+        {
+            "path": "packages/node-pack-legacy-chains/nodes/llms/IBMWatsonx/ibm.png",
+            "reason": "Completion model and chain nodes live in the legacy chains pack."
+        },
+        {
+            "path": "packages/node-pack-legacy-chains/nodes/llms/IBMWatsonx/IBMWatsonx.ts",
+            "reason": "Completion model and chain nodes live in the legacy chains pack."
+        },
+        {
+            "path": "packages/node-pack-legacy-chains/nodes/llms/Ollama/Ollama.svg",
+            "reason": "Completion model and chain nodes live in the legacy chains pack."
+        },
+        {
+            "path": "packages/node-pack-legacy-chains/nodes/llms/Ollama/Ollama.ts",
+            "reason": "Completion model and chain nodes live in the legacy chains pack."
+        },
+        {
+            "path": "packages/node-pack-legacy-chains/nodes/llms/OpenAI/openai.svg",
+            "reason": "Completion model and chain nodes live in the legacy chains pack."
+        },
+        {
+            "path": "packages/node-pack-legacy-chains/nodes/llms/OpenAI/OpenAI.ts",
+            "reason": "Completion model and chain nodes live in the legacy chains pack."
+        },
+        {
+            "path": "packages/node-pack-legacy-chains/nodes/llms/Replicate/core.ts",
+            "reason": "Completion model and chain nodes live in the legacy chains pack."
+        },
+        {
+            "path": "packages/node-pack-legacy-chains/nodes/llms/Replicate/replicate.svg",
+            "reason": "Completion model and chain nodes live in the legacy chains pack."
+        },
+        {
+            "path": "packages/node-pack-legacy-chains/nodes/llms/Replicate/Replicate.ts",
+            "reason": "Completion model and chain nodes live in the legacy chains pack."
+        },
+        {
+            "path": "packages/node-pack-legacy-chains/nodes/llms/RetiredCompletionNodes.test.ts",
+            "reason": "Completion model and chain nodes live in the legacy chains pack."
+        },
+        {
+            "path": "packages/node-pack-legacy-chains/nodes/llms/SambaNova/sambanova.png",
+            "reason": "Completion model and chain nodes live in the legacy chains pack."
+        },
+        {
+            "path": "packages/node-pack-legacy-chains/nodes/llms/SambaNova/Sambanova.ts",
+            "reason": "Completion model and chain nodes live in the legacy chains pack."
+        },
+        {
+            "path": "packages/node-pack-legacy-chains/nodes/llms/TogetherAI/togetherai.png",
+            "reason": "Completion model and chain nodes live in the legacy chains pack."
+        },
+        {
+            "path": "packages/node-pack-legacy-chains/nodes/llms/TogetherAI/TogetherAI.ts",
+            "reason": "Completion model and chain nodes live in the legacy chains pack."
+        },
+        {
+            "path": "packages/node-pack-legacy-chains/package.json",
+            "reason": "Completion model and chain nodes live in the legacy chains pack."
+        },
+        {
+            "path": "packages/node-pack-legacy-chains/tsconfig.json",
+            "reason": "Completion model and chain nodes live in the legacy chains pack."
         },
         {
             "path": "packages/node-pack-tools-mcp/credentials/BrowserlessApi.credential.ts",
