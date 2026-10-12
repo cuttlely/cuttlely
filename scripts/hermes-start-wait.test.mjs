@@ -8,8 +8,8 @@ import test from 'node:test'
 const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cuttlely-start-wait-'))
 process.env.CUTTLELY_DATA_DIR = dataDir
 process.env.CUTTLELY_HERMES_HOME = path.join(dataDir, 'hermes')
-const { profileEnvPath } = await import('../harness/profile.mjs')
-const { createRun, hermesStarting, hermesStartWaitMs } = await import('../harness/client.mjs')
+const { profileEnvPath } = await import('../packages/harness/profile.mjs')
+const { createRun, hermesStarting, hermesStartWaitMs } = await import('../packages/harness/client.mjs')
 
 fs.mkdirSync(path.dirname(profileEnvPath('bakery-demo--analyst')), { recursive: true })
 fs.writeFileSync(profileEnvPath('bakery-demo--analyst'), 'API_SERVER_KEY=test-key\n')

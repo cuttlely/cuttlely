@@ -81,6 +81,8 @@ async function analystToolsAreMissing() {
 async function findModule<T>(fileName: string, missing: string) {
     let dir = __dirname
     for (let i = 0; i < 10; i += 1) {
+        const packaged = path.join(dir, 'packages', 'harness', 'runtime', fileName)
+        if (fs.existsSync(packaged)) return importEsm<T>(pathToFileURL(packaged).href)
         const runtime = path.join(dir, 'harness', 'runtime', fileName)
         if (fs.existsSync(runtime)) return importEsm<T>(pathToFileURL(runtime).href)
         const candidate = path.join(dir, 'scripts', fileName)

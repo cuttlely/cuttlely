@@ -1,14 +1,2 @@
-import { readCredentialRow } from './credential-store.mjs'
-
-export function flowiseNodeOptions() {
-    return {
-        appDataSource: {
-            getRepository() {
-                return {
-                    findOneBy: async ({ id }) => readCredentialRow(id)
-                }
-            }
-        },
-        databaseEntities: { Credential: function Credential() {} }
-    }
-}
+// Compatibility path for one release. The module lives in packages/harness/. This file can go in the release after 1.0.2.
+export * from '../packages/harness/offline-options.mjs'

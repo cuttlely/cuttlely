@@ -4,7 +4,7 @@ import { useSelector } from 'react-redux'
 import { alpha, useTheme } from '@mui/material/styles'
 import { Box, Chip, Collapse, Stack, Tooltip, Typography } from '@mui/material'
 import { IconCheck, IconChevronDown, IconChevronRight, IconX } from '@tabler/icons-react'
-import { analystChipRows, formatDuration, formatTokens, routeSummary, toolChipLabel } from '../../../../../harness/trace.mjs'
+import { analystChipRows, formatDuration, formatTokens, routeSummary, toolChipLabel } from '../../../../../packages/harness/trace.mjs'
 
 const FILL_NOTE = {
     none: 'The tool took the question as its input.',

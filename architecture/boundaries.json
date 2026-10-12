@@ -5,6 +5,7 @@
             "packages/server/src/utils/chatWidget.ts",
             "packages/server/src/utils/chatWidget.test.ts",
             "packages/cli/**",
+            "packages/harness/**",
             "harness/**",
             "harness/runtime/**",
             "scripts/analyst-*.mjs",
@@ -19,6 +20,7 @@
             "packages/ui/src/utils/harness*",
             "packages/server/src/utils/harnessStream.test.ts",
             "packages/server/src/database/migrations/*/1781000000000-AddHarnessPayloadToChatMessage.ts",
+            "packages/etl/**",
             "etl/**",
             "packages/server/src/services/etl/**",
             "packages/server/src/controllers/etl/**",
@@ -321,6 +323,7 @@
         {
             "name": "Harnesses and the Analyst",
             "paths": [
+                "packages/harness/**",
                 "harness/**",
                 "harness/runtime/**",
                 "scripts/analyst-*.mjs",
@@ -337,6 +340,7 @@
                 "packages/server/src/database/migrations/*/1781000000000-AddHarnessPayloadToChatMessage.ts"
             ],
             "entryPoints": [
+                "packages/harness/trace.mjs",
                 "harness/trace.mjs",
                 "packages/server/src/database/migrations/mariadb/1781000000000-AddHarnessPayloadToChatMessage.ts",
                 "packages/server/src/database/migrations/mysql/1781000000000-AddHarnessPayloadToChatMessage.ts",
@@ -357,6 +361,7 @@
         {
             "name": "Knowledge pipelines",
             "paths": [
+                "packages/etl/**",
                 "etl/**",
                 "packages/server/src/services/etl/**",
                 "packages/server/src/controllers/etl/**",
