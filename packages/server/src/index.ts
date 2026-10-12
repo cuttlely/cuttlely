@@ -8,13 +8,11 @@ import { AbortControllerPool } from './AbortControllerPool'
 import { CachePool } from './CachePool'
 import { ChatFlow } from './database/entities/ChatFlow'
 import { getDataSource } from './DataSource'
-import { Organization } from './database/entities/identity'
-import { Workspace } from './database/entities/identity'
 import { initAuthSecrets } from './identity/authSecrets'
-import { OPEN_SOURCE_FEATURES, localAdminEnabled } from './identity/constants'
-import { OSS_PRODUCT_ID, ossIdentity, OssIdentity } from './identity/ossPlatform'
+import { localAdminEnabled } from './identity/constants'
+import { ossIdentity, OssIdentity } from './identity/ossPlatform'
 import type { LoggedInUser } from './identity/types'
-import { MODE, Platform } from './Interface'
+import { MODE } from './Interface'
 import { IMetricsProvider } from './Interface.Metrics'
 import { OpenTelemetry } from './metrics/OpenTelemetry'
 import { Prometheus } from './metrics/Prometheus'
@@ -29,7 +27,7 @@ import etlService from './services/etl'
 import flowVersionsService from './services/flow-versions'
 import flowiseApiV1Router from './routes'
 import { attachIdentitySession } from './identity'
-import { cookieMutationAllowed } from './identity/sessionGuard'
+import { apiV1Auth } from './identity/apiGate'
 import { resolveTrustProxy } from './utils/trustProxy'
 import { UsageCacheManager } from './UsageCacheManager'
 import { getEncryptionKey, getNodeModulesPackagePath } from './utils'
@@ -237,91 +235,17 @@ export class App {
 
         const denylistURLs = process.env.DENYLIST_URLS ? process.env.DENYLIST_URLS.split(',') : []
         const whitelistURLs = WHITELIST_URLS.filter((url) => !denylistURLs.includes(url))
-        const URL_CASE_INSENSITIVE_REGEX: RegExp = /\/api\/v1\//i
-        const URL_CASE_SENSITIVE_REGEX: RegExp = /\/api\/v1\//
 
-        this.app.use(async (req, res, next) => {
-            // Step 1: Check if the req path contains /api/v1 regardless of case
-            if (URL_CASE_INSENSITIVE_REGEX.test(req.path)) {
-                // Step 2: Check if the req path is casesensitive
-                if (URL_CASE_SENSITIVE_REGEX.test(req.path)) {
-                    // Step 3: Check if the req path is in the whitelist
-                    const identityUser = await attachIdentitySession(req, res)
-                    if (identityUser) {
-                        req.user = identityUser as unknown as LoggedInUser
-                        ;(req as Request & { cuttlelyIdentity?: boolean }).cuttlelyIdentity = true
-                    }
-                    const isWhitelisted = whitelistURLs.some((url) => req.path.startsWith(url))
-                    const identitySession = (req as Request & { cuttlelyIdentity?: boolean }).cuttlelyIdentity
-                    if (isWhitelisted) {
-                        next()
-                    } else if (identitySession) {
-                        if (!cookieMutationAllowed(req.method, req.headers['x-request-from'] === 'internal')) {
-                            return res.status(401).json({ message: 'Unauthorized' })
-                        }
-                        next()
-                    } else if (req.headers['x-request-from'] === 'internal') {
-                        return res.status(401).json({ error: 'Unauthorized Access' })
-                    } else {
-                        const isAPIKeyBlacklistedURLS = API_KEY_BLACKLIST_URLS.some((url) => req.path.startsWith(url))
-                        if (isAPIKeyBlacklistedURLS) {
-                            return res.status(401).json({ error: 'Unauthorized Access' })
-                        }
-
-                        // Only check license validity for non-open-source platforms
-                        if (this.identityManager.getPlatformType() !== Platform.OPEN_SOURCE) {
-                            if (!this.identityManager.isLicenseValid()) {
-                                return res.status(401).json({ error: 'Unauthorized Access' })
-                            }
-                        }
-
-                        const { isValid, apiKey } = await validateAPIKey(req)
-                        if (!isValid || !apiKey) {
-                            return res.status(401).json({ error: 'Unauthorized Access' })
-                        }
-
-                        // Find workspace
-                        const workspace = await this.AppDataSource.getRepository(Workspace).findOne({
-                            where: { id: apiKey.workspaceId }
-                        })
-                        if (!workspace) {
-                            return res.status(401).json({ error: 'Unauthorized Access' })
-                        }
-
-                        // Find organization
-                        const activeOrganizationId = workspace.organizationId as string
-                        const org = await this.AppDataSource.getRepository(Organization).findOne({
-                            where: { id: activeOrganizationId }
-                        })
-                        if (!org) {
-                            return res.status(401).json({ error: 'Unauthorized Access' })
-                        }
-                        const subscriptionId = org.subscriptionId as string
-                        const customerId = org.customerId as string
-                        const features: { [key: string]: string } = { ...OPEN_SOURCE_FEATURES }
-                        const productId = OSS_PRODUCT_ID
-                        const apiUser: LoggedInUser = {
-                            permissions: apiKey.permissions,
-                            features,
-                            activeOrganizationId: activeOrganizationId,
-                            activeOrganizationSubscriptionId: subscriptionId,
-                            activeOrganizationCustomerId: customerId,
-                            activeOrganizationProductId: productId,
-                            isOrganizationAdmin: false,
-                            activeWorkspaceId: workspace.id,
-                            activeWorkspace: workspace.name
-                        }
-                        req.user = apiUser
-                        next()
-                    }
-                } else {
-                    return res.status(401).json({ error: 'Unauthorized Access' })
-                }
-            } else {
-                // If the req path does not contain /api/v1, then allow the request to pass through, example: /assets, /canvas
-                next()
-            }
-        })
+        this.app.use(
+            apiV1Auth({
+                whitelistURLs,
+                apiKeyBlacklistURLs: API_KEY_BLACKLIST_URLS,
+                licenseRequired: () => this.identityManager.getPlatformType() !== 'open source' && !this.identityManager.isLicenseValid(),
+                dataSource: this.AppDataSource,
+                validateAPIKey,
+                attachIdentitySession
+            })
+        )
 
         if (process.env.ENABLE_METRICS === 'true') {
             switch (process.env.METRICS_PROVIDER) {
