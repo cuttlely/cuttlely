@@ -7,5 +7,5 @@
     "access": "public",
     "baseBranch": "main",
     "updateInternalDependencies": "patch",
-    "ignore": ["cuttlely", "flowise", "flowise-api", "@cuttlely/components", "flowise-ui"]
+    "ignore": ["cuttlely", "@cuttlely/server", "@cuttlely/api-docs", "@cuttlely/components", "@cuttlely/ui"]
 }

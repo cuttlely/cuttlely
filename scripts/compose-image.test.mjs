@@ -54,6 +54,17 @@ test('the Dockerfile has a ping health check and names its source repository', (
     assert.match(dockerfile, /org\.opencontainers\.image\.source="https:\/\/github\.com\/cuttlely\/cuttlely"/)
 })
 
+test('the geolocation database stays unless the slim build argument is set', () => {
+    const dockerfile = fs.readFileSync(path.join(ROOT, 'Dockerfile'), 'utf8')
+    assert.match(dockerfile, /^ARG CUTTLELY_OMIT_GEOIP=false$/m)
+    assert.match(dockerfile, /node scripts\/omit-geoip-database\.mjs/)
+    assert.doesNotMatch(dockerfile, /ARG CUTTLELY_OMIT_GEOIP=true/)
+    for (const file of ['docker-compose.yml', 'docker/docker-compose.yml']) {
+        const doc = yaml.load(fs.readFileSync(path.join(ROOT, file), 'utf8'))
+        assert.equal(doc.services.cuttlely.build.args.CUTTLELY_OMIT_GEOIP, '${CUTTLELY_OMIT_GEOIP:-false}')
+    }
+})
+
 test('the image keeps Chromium unless INCLUDE_BROWSER=0', () => {
     const dockerfile = fs.readFileSync(path.join(ROOT, 'Dockerfile'), 'utf8')
     assert.match(dockerfile, /^ARG INCLUDE_BROWSER=1$/m)
