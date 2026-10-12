@@ -106,6 +106,7 @@
         "@cuttlely/chat": "workspace:^",
         "@cuttlely/components": "workspace:^",
         "@cuttlely/node-pack-vector-stores": "workspace:*",
+        "@cuttlely/node-pack-legacy-chains": "workspace:*",
         "@google-cloud/logging-winston": "^6.0.0",
         "@google-cloud/storage": "^7.22.0",
         "@keyv/redis": "^4.2.0",

@@ -103,7 +103,7 @@ CUTTLELY_OMIT_GEOIP=true docker compose up -d --build
 
 ### Leave out optional node packs
 
-Vector store nodes ship in `@cuttlely/node-pack-vector-stores`. The default image includes that pack, so the node list matches a from-source install. `CUTTLELY_NODE_PACKS` adds packs on top of the shipped ones. A blank value adds nothing and removes nothing. To leave the shipped packs out:
+Vector store nodes ship in `@cuttlely/node-pack-vector-stores`. Completion model nodes and the chain nodes that carry the DEPRECATING badge ship in `@cuttlely/node-pack-legacy-chains`. The default image includes both packs, so the node list matches a from-source install. `CUTTLELY_NODE_PACKS` adds packs on top of the shipped ones. A blank value adds nothing and removes nothing. To leave the shipped packs out:
 
 ```bash
 INCLUDE_NODE_PACKS=0 docker compose up -d --build
