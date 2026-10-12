@@ -8,7 +8,7 @@
 
 import { DataSource } from 'typeorm'
 import { ChatType, IComponentNodes, IncomingAgentflowInput } from '../Interface'
-import { IServerSideEventStreamer } from 'flowise-components'
+import { IServerSideEventStreamer } from '@cuttlely/components'
 import { ScheduleRecord, ScheduleTriggerType } from '../database/entities/ScheduleRecord'
 import { ScheduleTriggerStatus } from '../database/entities/ScheduleTriggerLog'
 import { ChatFlow } from '../database/entities/ChatFlow'

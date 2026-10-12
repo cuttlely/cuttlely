@@ -1,6 +1,6 @@
 import { NextFunction, Request, RequestHandler, Response } from 'express'
 import { StatusCodes } from 'http-status-codes'
-import { isPathTraversal, isValidUUID } from 'flowise-components'
+import { isPathTraversal, isValidUUID } from '@cuttlely/components'
 import { ChatFlow } from '../database/entities/ChatFlow'
 import { Workspace } from '../database/entities/identity'
 import { InternalFlowiseError } from '../errors/internalFlowiseError'

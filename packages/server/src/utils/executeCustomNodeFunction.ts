@@ -1,4 +1,4 @@
-import { handleEscapeCharacters, ICommonObject } from 'flowise-components'
+import { handleEscapeCharacters, ICommonObject } from '@cuttlely/components'
 import { databaseEntities } from '.'
 import { InternalFlowiseError } from '../errors/internalFlowiseError'
 import { StatusCodes } from 'http-status-codes'

@@ -1,7 +1,7 @@
 const removeSpecificFileFromUpload = jest.fn().mockResolvedValue(undefined)
 
-jest.mock('flowise-components', () => ({
-    ...jest.requireActual('flowise-components'),
+jest.mock('@cuttlely/components', () => ({
+    ...jest.requireActual('@cuttlely/components'),
     removeSpecificFileFromUpload: (filePath: string) => removeSpecificFileFromUpload(filePath)
 }))
 

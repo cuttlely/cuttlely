@@ -99,7 +99,7 @@ jest.mock('./getRunningExpressApp', () => ({
 
 // Same statuses and messages as chatflowsService.getChatflowById.
 jest.mock('../services/chatflows', () => {
-    const { isValidUUID } = jest.requireActual('flowise-components')
+    const { isValidUUID } = jest.requireActual('@cuttlely/components')
     const { InternalFlowiseError } = jest.requireActual('../errors/internalFlowiseError')
     return {
         __esModule: true,
