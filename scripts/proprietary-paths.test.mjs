@@ -20,7 +20,7 @@ describe('proprietary paths', () => {
         assert.equal(isCommercialPath('packages/server/dist/StripeManager.d.ts.map'), true)
         assert.equal(isCommercialPath('packages/server/src/StripeManager.js'), true)
         assert.equal(isCommercialPath('packages/server/src/services/IdentityManager.js.map'), true)
-        assert.equal(isCommercialPath('packages/components/nodes/tools/StripeTool/StripeTool.ts'), false)
+        assert.equal(isCommercialPath('packages/node-pack-tools-mcp/nodes/tools/StripeTool/StripeTool.ts'), false)
         assert.equal(isCommercialPath('packages/server/src/identity/directory.ts'), false)
         assert.deepEqual(proprietaryViolations(['extensions/a.ts', 'apps/cloud/index.js', 'apps/oss-app/index.js']), [
             'extensions/a.ts',

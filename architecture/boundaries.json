@@ -280,6 +280,7 @@
             "packages/components/**",
             "packages/node-pack-caches-memory/**",
             "packages/node-pack-vector-stores/**",
+            "packages/node-pack-tools-mcp/**",
             "packages/api-documentation/**",
             "docker/**",
             "i18n/**",

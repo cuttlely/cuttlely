@@ -1467,6 +1467,374 @@
             "reason": "Cache and memory backend nodes live in the caches and memory pack. Memory that needs no outside service stays in components."
         },
         {
+            "path": "packages/node-pack-tools-mcp/credentials/BrowserlessApi.credential.ts",
+            "reason": "Tool and MCP nodes in the optional pack import the components package the same way the vector store pack does."
+        },
+        {
+            "path": "packages/node-pack-tools-mcp/credentials/ComposioApi.credential.ts",
+            "reason": "Tool and MCP nodes in the optional pack import the components package the same way the vector store pack does."
+        },
+        {
+            "path": "packages/node-pack-tools-mcp/credentials/E2B.credential.ts",
+            "reason": "Tool and MCP nodes in the optional pack import the components package the same way the vector store pack does."
+        },
+        {
+            "path": "packages/node-pack-tools-mcp/credentials/ExaSearchApi.credential.ts",
+            "reason": "Tool and MCP nodes in the optional pack import the components package the same way the vector store pack does."
+        },
+        {
+            "path": "packages/node-pack-tools-mcp/credentials/GmailOAuth2.credential.ts",
+            "reason": "Tool and MCP nodes in the optional pack import the components package the same way the vector store pack does."
+        },
+        {
+            "path": "packages/node-pack-tools-mcp/credentials/GoogleCalendarOAuth2.credential.ts",
+            "reason": "Tool and MCP nodes in the optional pack import the components package the same way the vector store pack does."
+        },
+        {
+            "path": "packages/node-pack-tools-mcp/credentials/GoogleDocsOAuth2.credential.ts",
+            "reason": "Tool and MCP nodes in the optional pack import the components package the same way the vector store pack does."
+        },
+        {
+            "path": "packages/node-pack-tools-mcp/credentials/GoogleSearchApi.credential.ts",
+            "reason": "Tool and MCP nodes in the optional pack import the components package the same way the vector store pack does."
+        },
+        {
+            "path": "packages/node-pack-tools-mcp/credentials/JiraApiBearerToken.credential.ts",
+            "reason": "Tool and MCP nodes in the optional pack import the components package the same way the vector store pack does."
+        },
+        {
+            "path": "packages/node-pack-tools-mcp/credentials/MicrosoftOutlookOAuth2.credential.ts",
+            "reason": "Tool and MCP nodes in the optional pack import the components package the same way the vector store pack does."
+        },
+        {
+            "path": "packages/node-pack-tools-mcp/credentials/MicrosoftTeamsOAuth2.credential.ts",
+            "reason": "Tool and MCP nodes in the optional pack import the components package the same way the vector store pack does."
+        },
+        {
+            "path": "packages/node-pack-tools-mcp/credentials/PipedreamOAuthApi.credential.ts",
+            "reason": "Tool and MCP nodes in the optional pack import the components package the same way the vector store pack does."
+        },
+        {
+            "path": "packages/node-pack-tools-mcp/credentials/SerperApi.credential.ts",
+            "reason": "Tool and MCP nodes in the optional pack import the components package the same way the vector store pack does."
+        },
+        {
+            "path": "packages/node-pack-tools-mcp/credentials/SlackApi.credential.ts",
+            "reason": "Tool and MCP nodes in the optional pack import the components package the same way the vector store pack does."
+        },
+        {
+            "path": "packages/node-pack-tools-mcp/credentials/SlackOAuth2.credential.ts",
+            "reason": "Tool and MCP nodes in the optional pack import the components package the same way the vector store pack does."
+        },
+        {
+            "path": "packages/node-pack-tools-mcp/credentials/StripeApi.credential.ts",
+            "reason": "Tool and MCP nodes in the optional pack import the components package the same way the vector store pack does."
+        },
+        {
+            "path": "packages/node-pack-tools-mcp/credentials/TavilyApi.credential.ts",
+            "reason": "Tool and MCP nodes in the optional pack import the components package the same way the vector store pack does."
+        },
+        {
+            "path": "packages/node-pack-tools-mcp/credentials/TeradataBearerToken.credential.ts",
+            "reason": "Tool and MCP nodes in the optional pack import the components package the same way the vector store pack does."
+        },
+        {
+            "path": "packages/node-pack-tools-mcp/credentials/TeradataTD2.credential.ts",
+            "reason": "Tool and MCP nodes in the optional pack import the components package the same way the vector store pack does."
+        },
+        {
+            "path": "packages/node-pack-tools-mcp/credentials/WolframAlphaApp.credential.ts",
+            "reason": "Tool and MCP nodes in the optional pack import the components package the same way the vector store pack does."
+        },
+        {
+            "path": "packages/node-pack-tools-mcp/gulpfile.ts",
+            "reason": "The tools pack manifest and build files ship with the pack, the same way the vector store pack does."
+        },
+        {
+            "path": "packages/node-pack-tools-mcp/nodes/tools/Arxiv/arxiv.png",
+            "reason": "Tool and MCP nodes in the optional pack import the components package the same way the vector store pack does."
+        },
+        {
+            "path": "packages/node-pack-tools-mcp/nodes/tools/Arxiv/Arxiv.ts",
+            "reason": "Tool and MCP nodes in the optional pack import the components package the same way the vector store pack does."
+        },
+        {
+            "path": "packages/node-pack-tools-mcp/nodes/tools/Arxiv/core.ts",
+            "reason": "Tool and MCP nodes in the optional pack import the components package the same way the vector store pack does."
+        },
+        {
+            "path": "packages/node-pack-tools-mcp/nodes/tools/AWSSNS/awssns.svg",
+            "reason": "Tool and MCP nodes in the optional pack import the components package the same way the vector store pack does."
+        },
+        {
+            "path": "packages/node-pack-tools-mcp/nodes/tools/AWSSNS/AWSSNS.ts",
+            "reason": "Tool and MCP nodes in the optional pack import the components package the same way the vector store pack does."
+        },
+        {
+            "path": "packages/node-pack-tools-mcp/nodes/tools/BraveSearchAPI/brave.svg",
+            "reason": "Tool and MCP nodes in the optional pack import the components package the same way the vector store pack does."
+        },
+        {
+            "path": "packages/node-pack-tools-mcp/nodes/tools/BraveSearchAPI/BraveSearchAPI.ts",
+            "reason": "Tool and MCP nodes in the optional pack import the components package the same way the vector store pack does."
+        },
+        {
+            "path": "packages/node-pack-tools-mcp/nodes/tools/CodeInterpreterE2B/CodeInterpreterE2B.ts",
+            "reason": "Tool and MCP nodes in the optional pack import the components package the same way the vector store pack does."
+        },
+        {
+            "path": "packages/node-pack-tools-mcp/nodes/tools/CodeInterpreterE2B/e2b.png",
+            "reason": "Tool and MCP nodes in the optional pack import the components package the same way the vector store pack does."
+        },
+        {
+            "path": "packages/node-pack-tools-mcp/nodes/tools/Composio/composio.svg",
+            "reason": "Tool and MCP nodes in the optional pack import the components package the same way the vector store pack does."
+        },
+        {
+            "path": "packages/node-pack-tools-mcp/nodes/tools/Composio/Composio.ts",
+            "reason": "Tool and MCP nodes in the optional pack import the components package the same way the vector store pack does."
+        },
+        {
+            "path": "packages/node-pack-tools-mcp/nodes/tools/ExaSearch/exa.svg",
+            "reason": "Tool and MCP nodes in the optional pack import the components package the same way the vector store pack does."
+        },
+        {
+            "path": "packages/node-pack-tools-mcp/nodes/tools/ExaSearch/ExaSearch.ts",
+            "reason": "Tool and MCP nodes in the optional pack import the components package the same way the vector store pack does."
+        },
+        {
+            "path": "packages/node-pack-tools-mcp/nodes/tools/Gmail/core.ts",
+            "reason": "Tool and MCP nodes in the optional pack import the components package the same way the vector store pack does."
+        },
+        {
+            "path": "packages/node-pack-tools-mcp/nodes/tools/Gmail/gmail.svg",
+            "reason": "Tool and MCP nodes in the optional pack import the components package the same way the vector store pack does."
+        },
+        {
+            "path": "packages/node-pack-tools-mcp/nodes/tools/Gmail/Gmail.ts",
+            "reason": "Tool and MCP nodes in the optional pack import the components package the same way the vector store pack does."
+        },
+        {
+            "path": "packages/node-pack-tools-mcp/nodes/tools/GoogleCalendar/core.ts",
+            "reason": "Tool and MCP nodes in the optional pack import the components package the same way the vector store pack does."
+        },
+        {
+            "path": "packages/node-pack-tools-mcp/nodes/tools/GoogleCalendar/google-calendar.svg",
+            "reason": "Tool and MCP nodes in the optional pack import the components package the same way the vector store pack does."
+        },
+        {
+            "path": "packages/node-pack-tools-mcp/nodes/tools/GoogleCalendar/GoogleCalendar.ts",
+            "reason": "Tool and MCP nodes in the optional pack import the components package the same way the vector store pack does."
+        },
+        {
+            "path": "packages/node-pack-tools-mcp/nodes/tools/GoogleDocs/core.ts",
+            "reason": "Tool and MCP nodes in the optional pack import the components package the same way the vector store pack does."
+        },
+        {
+            "path": "packages/node-pack-tools-mcp/nodes/tools/GoogleDocs/google-docs.svg",
+            "reason": "Tool and MCP nodes in the optional pack import the components package the same way the vector store pack does."
+        },
+        {
+            "path": "packages/node-pack-tools-mcp/nodes/tools/GoogleDocs/GoogleDocs.ts",
+            "reason": "Tool and MCP nodes in the optional pack import the components package the same way the vector store pack does."
+        },
+        {
+            "path": "packages/node-pack-tools-mcp/nodes/tools/GoogleDrive/core.ts",
+            "reason": "Tool and MCP nodes in the optional pack import the components package the same way the vector store pack does."
+        },
+        {
+            "path": "packages/node-pack-tools-mcp/nodes/tools/GoogleDrive/google-drive.svg",
+            "reason": "Tool and MCP nodes in the optional pack import the components package the same way the vector store pack does."
+        },
+        {
+            "path": "packages/node-pack-tools-mcp/nodes/tools/GoogleDrive/GoogleDrive.ts",
+            "reason": "Tool and MCP nodes in the optional pack import the components package the same way the vector store pack does."
+        },
+        {
+            "path": "packages/node-pack-tools-mcp/nodes/tools/GoogleSearchAPI/google.svg",
+            "reason": "Tool and MCP nodes in the optional pack import the components package the same way the vector store pack does."
+        },
+        {
+            "path": "packages/node-pack-tools-mcp/nodes/tools/GoogleSearchAPI/GoogleSearchAPI.ts",
+            "reason": "Tool and MCP nodes in the optional pack import the components package the same way the vector store pack does."
+        },
+        {
+            "path": "packages/node-pack-tools-mcp/nodes/tools/GoogleSheets/core.ts",
+            "reason": "Tool and MCP nodes in the optional pack import the components package the same way the vector store pack does."
+        },
+        {
+            "path": "packages/node-pack-tools-mcp/nodes/tools/GoogleSheets/google-sheets.svg",
+            "reason": "Tool and MCP nodes in the optional pack import the components package the same way the vector store pack does."
+        },
+        {
+            "path": "packages/node-pack-tools-mcp/nodes/tools/GoogleSheets/GoogleSheets.ts",
+            "reason": "Tool and MCP nodes in the optional pack import the components package the same way the vector store pack does."
+        },
+        {
+            "path": "packages/node-pack-tools-mcp/nodes/tools/Jira/core.ts",
+            "reason": "Tool and MCP nodes in the optional pack import the components package the same way the vector store pack does."
+        },
+        {
+            "path": "packages/node-pack-tools-mcp/nodes/tools/Jira/jira.svg",
+            "reason": "Tool and MCP nodes in the optional pack import the components package the same way the vector store pack does."
+        },
+        {
+            "path": "packages/node-pack-tools-mcp/nodes/tools/Jira/Jira.ts",
+            "reason": "Tool and MCP nodes in the optional pack import the components package the same way the vector store pack does."
+        },
+        {
+            "path": "packages/node-pack-tools-mcp/nodes/tools/MCP/BraveSearch/brave.svg",
+            "reason": "Tool and MCP nodes in the optional pack import the components package the same way the vector store pack does."
+        },
+        {
+            "path": "packages/node-pack-tools-mcp/nodes/tools/MCP/BraveSearch/BraveSearchMCP.ts",
+            "reason": "Tool and MCP nodes in the optional pack import the components package the same way the vector store pack does."
+        },
+        {
+            "path": "packages/node-pack-tools-mcp/nodes/tools/MCP/Browserless/browserless.svg",
+            "reason": "Tool and MCP nodes in the optional pack import the components package the same way the vector store pack does."
+        },
+        {
+            "path": "packages/node-pack-tools-mcp/nodes/tools/MCP/Browserless/BrowserlessMCP.ts",
+            "reason": "Tool and MCP nodes in the optional pack import the components package the same way the vector store pack does."
+        },
+        {
+            "path": "packages/node-pack-tools-mcp/nodes/tools/MCP/Github/github.png",
+            "reason": "Tool and MCP nodes in the optional pack import the components package the same way the vector store pack does."
+        },
+        {
+            "path": "packages/node-pack-tools-mcp/nodes/tools/MCP/Github/GithubMCP.ts",
+            "reason": "Tool and MCP nodes in the optional pack import the components package the same way the vector store pack does."
+        },
+        {
+            "path": "packages/node-pack-tools-mcp/nodes/tools/MCP/Pipedream/pipedream.svg",
+            "reason": "Tool and MCP nodes in the optional pack import the components package the same way the vector store pack does."
+        },
+        {
+            "path": "packages/node-pack-tools-mcp/nodes/tools/MCP/Pipedream/PipedreamMCP.ts",
+            "reason": "Tool and MCP nodes in the optional pack import the components package the same way the vector store pack does."
+        },
+        {
+            "path": "packages/node-pack-tools-mcp/nodes/tools/MCP/SequentialThinking/sequentialthinking.svg",
+            "reason": "Tool and MCP nodes in the optional pack import the components package the same way the vector store pack does."
+        },
+        {
+            "path": "packages/node-pack-tools-mcp/nodes/tools/MCP/SequentialThinking/SequentialThinkingMCP.ts",
+            "reason": "Tool and MCP nodes in the optional pack import the components package the same way the vector store pack does."
+        },
+        {
+            "path": "packages/node-pack-tools-mcp/nodes/tools/MCP/Slack/slack.svg",
+            "reason": "Tool and MCP nodes in the optional pack import the components package the same way the vector store pack does."
+        },
+        {
+            "path": "packages/node-pack-tools-mcp/nodes/tools/MCP/Slack/SlackMCP.ts",
+            "reason": "Tool and MCP nodes in the optional pack import the components package the same way the vector store pack does."
+        },
+        {
+            "path": "packages/node-pack-tools-mcp/nodes/tools/MCP/Supergateway/SupergatewayMCP.ts",
+            "reason": "Tool and MCP nodes in the optional pack import the components package the same way the vector store pack does."
+        },
+        {
+            "path": "packages/node-pack-tools-mcp/nodes/tools/MCP/Supergateway/supermachine-logo.png",
+            "reason": "Tool and MCP nodes in the optional pack import the components package the same way the vector store pack does."
+        },
+        {
+            "path": "packages/node-pack-tools-mcp/nodes/tools/MCP/Teradata/teradata.svg",
+            "reason": "Tool and MCP nodes in the optional pack import the components package the same way the vector store pack does."
+        },
+        {
+            "path": "packages/node-pack-tools-mcp/nodes/tools/MCP/Teradata/TeradataMCP.ts",
+            "reason": "Tool and MCP nodes in the optional pack import the components package the same way the vector store pack does."
+        },
+        {
+            "path": "packages/node-pack-tools-mcp/nodes/tools/MicrosoftOutlook/core.ts",
+            "reason": "Tool and MCP nodes in the optional pack import the components package the same way the vector store pack does."
+        },
+        {
+            "path": "packages/node-pack-tools-mcp/nodes/tools/MicrosoftOutlook/MicrosoftOutlook.ts",
+            "reason": "Tool and MCP nodes in the optional pack import the components package the same way the vector store pack does."
+        },
+        {
+            "path": "packages/node-pack-tools-mcp/nodes/tools/MicrosoftOutlook/outlook.svg",
+            "reason": "Tool and MCP nodes in the optional pack import the components package the same way the vector store pack does."
+        },
+        {
+            "path": "packages/node-pack-tools-mcp/nodes/tools/MicrosoftTeams/core.ts",
+            "reason": "Tool and MCP nodes in the optional pack import the components package the same way the vector store pack does."
+        },
+        {
+            "path": "packages/node-pack-tools-mcp/nodes/tools/MicrosoftTeams/MicrosoftTeams.ts",
+            "reason": "Tool and MCP nodes in the optional pack import the components package the same way the vector store pack does."
+        },
+        {
+            "path": "packages/node-pack-tools-mcp/nodes/tools/MicrosoftTeams/teams.svg",
+            "reason": "Tool and MCP nodes in the optional pack import the components package the same way the vector store pack does."
+        },
+        {
+            "path": "packages/node-pack-tools-mcp/nodes/tools/SearchApi/searchapi.svg",
+            "reason": "Tool and MCP nodes in the optional pack import the components package the same way the vector store pack does."
+        },
+        {
+            "path": "packages/node-pack-tools-mcp/nodes/tools/SearchApi/SearchAPI.ts",
+            "reason": "Tool and MCP nodes in the optional pack import the components package the same way the vector store pack does."
+        },
+        {
+            "path": "packages/node-pack-tools-mcp/nodes/tools/Searxng/SearXNG.svg",
+            "reason": "Tool and MCP nodes in the optional pack import the components package the same way the vector store pack does."
+        },
+        {
+            "path": "packages/node-pack-tools-mcp/nodes/tools/Searxng/Searxng.ts",
+            "reason": "Tool and MCP nodes in the optional pack import the components package the same way the vector store pack does."
+        },
+        {
+            "path": "packages/node-pack-tools-mcp/nodes/tools/SerpAPI/serp.svg",
+            "reason": "Tool and MCP nodes in the optional pack import the components package the same way the vector store pack does."
+        },
+        {
+            "path": "packages/node-pack-tools-mcp/nodes/tools/SerpAPI/SerpAPI.ts",
+            "reason": "Tool and MCP nodes in the optional pack import the components package the same way the vector store pack does."
+        },
+        {
+            "path": "packages/node-pack-tools-mcp/nodes/tools/Serper/serper.svg",
+            "reason": "Tool and MCP nodes in the optional pack import the components package the same way the vector store pack does."
+        },
+        {
+            "path": "packages/node-pack-tools-mcp/nodes/tools/Serper/Serper.ts",
+            "reason": "Tool and MCP nodes in the optional pack import the components package the same way the vector store pack does."
+        },
+        {
+            "path": "packages/node-pack-tools-mcp/nodes/tools/StripeTool/stripe.png",
+            "reason": "Tool and MCP nodes in the optional pack import the components package the same way the vector store pack does."
+        },
+        {
+            "path": "packages/node-pack-tools-mcp/nodes/tools/StripeTool/StripeTool.ts",
+            "reason": "Tool and MCP nodes in the optional pack import the components package the same way the vector store pack does."
+        },
+        {
+            "path": "packages/node-pack-tools-mcp/nodes/tools/TavilyAPI/tavily.svg",
+            "reason": "Tool and MCP nodes in the optional pack import the components package the same way the vector store pack does."
+        },
+        {
+            "path": "packages/node-pack-tools-mcp/nodes/tools/TavilyAPI/TavilyAPI.ts",
+            "reason": "Tool and MCP nodes in the optional pack import the components package the same way the vector store pack does."
+        },
+        {
+            "path": "packages/node-pack-tools-mcp/nodes/tools/WolframAlpha/wolframalpha.png",
+            "reason": "Tool and MCP nodes in the optional pack import the components package the same way the vector store pack does."
+        },
+        {
+            "path": "packages/node-pack-tools-mcp/nodes/tools/WolframAlpha/WolframAlpha.ts",
+            "reason": "Tool and MCP nodes in the optional pack import the components package the same way the vector store pack does."
+        },
+        {
+            "path": "packages/node-pack-tools-mcp/package.json",
+            "reason": "The tools pack manifest and build files ship with the pack, the same way the vector store pack does."
+        },
+        {
+            "path": "packages/node-pack-tools-mcp/tsconfig.json",
+            "reason": "The tools pack manifest and build files ship with the pack, the same way the vector store pack does."
+        },
+        {
             "path": "packages/node-pack-vector-stores/credentials/AstraApi.credential.ts",
             "reason": "Vector store nodes live in the vector store pack. The local vector store stays with knowledge pipelines."
         },

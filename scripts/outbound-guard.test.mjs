@@ -21,6 +21,7 @@ const SHIPPED = [
     'packages/components/nodes',
     'packages/components/credentials',
     'packages/node-pack-caches-memory',
+    'packages/node-pack-tools-mcp',
     'packages/node-pack-vector-stores'
 ]
 
