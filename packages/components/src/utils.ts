@@ -2330,3 +2330,24 @@ export const toolSchemaToJsonSchema = (schema: unknown): ToolJsonSchema => {
     }
     return jsonSchema
 }
+
+/** Marker written by the image build when INCLUDE_BROWSER=0. Absent on the default image and on a source install. */
+export const IMAGE_WITHOUT_BROWSER_FILE = '/etc/cuttlely/no-browser'
+
+export const IMAGE_WITHOUT_BROWSER_ERROR = 'this image has no browser'
+
+/**
+ * Browser document loaders call this before they launch Chromium.
+ * An image built with INCLUDE_BROWSER=0 has no browser, so the request fails with a plain error.
+ */
+export function assertImageHasBrowser(markerPath: string = IMAGE_WITHOUT_BROWSER_FILE): void {
+    let leftOut = false
+    try {
+        leftOut = fs.existsSync(markerPath)
+    } catch {
+        leftOut = false
+    }
+    if (process.env.CUTTLELY_BROWSER === '0' || leftOut) {
+        throw new Error(IMAGE_WITHOUT_BROWSER_ERROR)
+    }
+}

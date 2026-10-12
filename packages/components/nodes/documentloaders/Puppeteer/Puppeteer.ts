@@ -4,7 +4,7 @@ import { TextSplitter } from '@langchain/textsplitters'
 import { test } from 'linkifyjs'
 import { omit } from 'lodash'
 import { PuppeteerLifeCycleEvent } from 'puppeteer'
-import { handleEscapeCharacters, INodeOutputsValue, webCrawl, xmlScrape } from '../../../src'
+import { assertImageHasBrowser, handleEscapeCharacters, INodeOutputsValue, webCrawl, xmlScrape } from '../../../src'
 import { ICommonObject, INode, INodeData, INodeParams } from '../../../src/Interface'
 import { checkDenyList } from '../../../src/httpSecurity'
 
@@ -156,6 +156,7 @@ class Puppeteer_DocumentLoaders implements INode {
     }
 
     async init(nodeData: INodeData, _: string, options: ICommonObject): Promise<any> {
+        assertImageHasBrowser()
         const textSplitter = nodeData.inputs?.textSplitter as TextSplitter
         const metadata = nodeData.inputs?.metadata
         const relativeLinksMethod = nodeData.inputs?.relativeLinksMethod as string

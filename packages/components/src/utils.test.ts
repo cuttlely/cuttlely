@@ -1,10 +1,61 @@
+import * as fs from 'fs'
+import * as os from 'os'
+import * as path from 'path'
 import {
     removeInvalidImageMarkdown,
     convertRequireToImport,
     COMMONJS_REQUIRE_REGEX,
     IMPORT_EXTRACTION_REGEX,
-    executeJavaScriptCode
+    executeJavaScriptCode,
+    assertImageHasBrowser,
+    IMAGE_WITHOUT_BROWSER_ERROR
 } from './utils'
+
+describe('assertImageHasBrowser', () => {
+    const previous = process.env.CUTTLELY_BROWSER
+
+    afterEach(() => {
+        if (previous === undefined) delete process.env.CUTTLELY_BROWSER
+        else process.env.CUTTLELY_BROWSER = previous
+    })
+
+    it('does nothing on the default image and on a source install', () => {
+        delete process.env.CUTTLELY_BROWSER
+        expect(() => assertImageHasBrowser(path.join(os.tmpdir(), 'cuttlely-browser-missing-marker'))).not.toThrow()
+    })
+
+    it('does nothing when the build kept the browser', () => {
+        process.env.CUTTLELY_BROWSER = '1'
+        expect(() => assertImageHasBrowser(path.join(os.tmpdir(), 'cuttlely-browser-missing-marker'))).not.toThrow()
+    })
+
+    it('fails with a plain error when the image was built without a browser', () => {
+        process.env.CUTTLELY_BROWSER = '0'
+        expect(() => assertImageHasBrowser(path.join(os.tmpdir(), 'cuttlely-browser-missing-marker'))).toThrow(IMAGE_WITHOUT_BROWSER_ERROR)
+    })
+
+    it('fails when the image build wrote the marker file', () => {
+        delete process.env.CUTTLELY_BROWSER
+        const marker = path.join(os.tmpdir(), `cuttlely-no-browser-${process.pid}`)
+        fs.writeFileSync(marker, '')
+        try {
+            expect(() => assertImageHasBrowser(marker)).toThrow(IMAGE_WITHOUT_BROWSER_ERROR)
+        } finally {
+            fs.unlinkSync(marker)
+        }
+    })
+
+    it('browser document loaders check before they launch', () => {
+        for (const file of ['nodes/documentloaders/Puppeteer/Puppeteer.ts', 'nodes/documentloaders/Playwright/Playwright.ts']) {
+            const source = fs.readFileSync(path.join(__dirname, '..', file), 'utf8')
+            const init = source.slice(source.indexOf('async init'))
+            const call = init.indexOf('assertImageHasBrowser()')
+            const launch = init.search(/puppeteerLoader|playwrightLoader/)
+            expect(call).toBeGreaterThan(-1)
+            expect(launch).toBeGreaterThan(call)
+        }
+    })
+})
 
 describe('removeInvalidImageMarkdown', () => {
     describe('strips non-http/https image markdown', () => {

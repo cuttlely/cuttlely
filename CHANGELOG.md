@@ -4,6 +4,10 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ## [Unreleased]
 
+### Added
+
+-   A Docker build can leave out Chromium. `INCLUDE_BROWSER=0` builds that image. The default image still includes Chromium. Puppeteer and Playwright document loaders in the smaller image fail with `this image has no browser`.
+
 ## [1.0.2] - 2026-10-11
 
 ### Changed
