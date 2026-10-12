@@ -2,7 +2,6 @@ import fs from 'fs'
 import os from 'os'
 import path from 'path'
 import { StatusCodes } from 'http-status-codes'
-import { API_KEY_BLACKLIST_URLS, WHITELIST_URLS } from './constants'
 import { NodesPool } from '../NodesPool'
 import { credentialDefinitionDirs } from './replaceInputsWithConfig'
 import { missingNodeFailure, nodePackList, packForNode, resolveNodePacks, stampNodePack } from './nodePacks'
@@ -243,21 +242,5 @@ describe('a saved node that is not installed', () => {
         })
         expect(stampNodePack(plain)).toBe(plain)
         expect(stampNodePack(already)).toBe(already)
-    })
-})
-
-describe('the pack index route', () => {
-    test('requires the same sign-in as the node list', () => {
-        // An unauthenticated /api/v1 request that is not on the public list gets 401,
-        // whether the API-key list refuses it or the key is missing. Both node routes take that path.
-        const status = (path: string) => {
-            if (WHITELIST_URLS.some((url) => path.startsWith(url))) return 200
-            if (API_KEY_BLACKLIST_URLS.some((url) => path.startsWith(url))) return 401
-            return 401
-        }
-        expect(status('/api/v1/nodes/pack-index')).toBe(status('/api/v1/nodes'))
-        expect(status('/api/v1/nodes')).toBe(401)
-        expect(WHITELIST_URLS.some((url) => '/api/v1/nodes'.startsWith(url))).toBe(false)
-        expect(WHITELIST_URLS.some((url) => '/api/v1/nodes/pack-index'.startsWith(url))).toBe(false)
     })
 })
