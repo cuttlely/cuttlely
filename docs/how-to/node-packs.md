@@ -30,7 +30,7 @@ A token that is a directory is that pack. Any other token is a package name. Eac
 
 If a pack defines a node or credential name that is already loaded, the existing one stays and the server logs a warning.
 
-Leave `CUTTLELY_NODE_PACKS` unset to load the packs that ship with the install. Today that list is `@cuttlely/node-pack-vector-stores`. Set the variable to a blank value to load none of them. Set it to a comma-separated list to load that list instead of the shipped packs. Include `@cuttlely/node-pack-vector-stores` in a custom list when those nodes should stay. It is read at start from the environment. It is not in Admin, Server settings, because it names directories on the host.
+Leave `CUTTLELY_NODE_PACKS` unset to load the packs that ship with the install. Today that list is `@cuttlely/node-pack-vector-stores`. A blank value loads none. Setting `CUTTLELY_NODE_PACKS` replaces that shipped list. It does not append to it. To keep the vector store nodes, set `CUTTLELY_NODE_PACKS=@cuttlely/node-pack-vector-stores`. Any other pack name or directory goes after a comma in that same value. It is read at start from the environment. It is not in Admin, Server settings, because it names directories on the host.
 
 ## Packs that ship with Cuttlely
 
@@ -56,7 +56,7 @@ A shipped pack is a private workspace package at `packages/node-pack-<name>`, na
 
 ## Docker
 
-Set `CUTTLELY_NODE_PACKS` in the environment you pass to Compose when you want a list other than the shipped packs. A directory has to exist inside the container, so mount that pack. A blank value loads no optional packs. Unset inside the default image loads the shipped packs, unless the image was built with `INCLUDE_NODE_PACKS=0`, which writes `/etc/cuttlely/no-node-packs` and loads none.
+Set `CUTTLELY_NODE_PACKS` in the environment you pass to Compose when you want a list other than the shipped packs. That value replaces the shipped list. It does not append. To keep the vector store nodes, set `CUTTLELY_NODE_PACKS=@cuttlely/node-pack-vector-stores`. A directory has to exist inside the container, so mount that pack. A blank value loads no optional packs. Unset inside the default image loads the shipped packs, unless the image was built with `INCLUDE_NODE_PACKS=0`, which writes `/etc/cuttlely/no-node-packs` and loads none.
 
 ## A missing node
 

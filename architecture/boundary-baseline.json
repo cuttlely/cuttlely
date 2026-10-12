@@ -1332,6 +1332,11 @@
             "to": "hermes/"
         },
         {
+            "from": "scripts/measure-runtime-loads.mjs",
+            "to": "hermes/",
+            "reason": "The runtime load measurement reads the vendored tree to record which files a harness run opens."
+        },
+        {
             "from": "scripts/outbound-guard.test.mjs",
             "to": "hermes/agent/models_dev.py"
         },
