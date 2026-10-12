@@ -5,9 +5,9 @@ const assertRunRequest = jest.fn(async () => ({}))
 jest.mock('../../services/harnesses', () => ({
     __esModule: true,
     default: {
-        assertRunRequest: (...args: any[]) => assertRunRequest(...args),
-        startRun: (...args: any[]) => startRun(...args),
-        startCanvasRun: (...args: any[]) => startCanvasRun(...args)
+        assertRunRequest: (...args: any[]) => (assertRunRequest as (...a: any[]) => any)(...args),
+        startRun: (...args: any[]) => (startRun as (...a: any[]) => any)(...args),
+        startCanvasRun: (...args: any[]) => (startCanvasRun as (...a: any[]) => any)(...args)
     }
 }))
 jest.mock('../../services/harnesses/chatImages', () => ({ chatImages: () => [] }))

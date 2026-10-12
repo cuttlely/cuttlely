@@ -8,7 +8,7 @@ jest.mock('../../services/chatflows', () => ({
 const startCanvasRun = jest.fn(async () => ({ chatId: 'c1', run: null, payload: { text: 'from the draft' } }))
 jest.mock('../../services/harnesses', () => ({
     __esModule: true,
-    default: { startCanvasRun: (...args: any[]) => startCanvasRun(...args) }
+    default: { startCanvasRun: (...args: any[]) => (startCanvasRun as (...a: any[]) => any)(...args) }
 }))
 jest.mock('../../utils/sessionOwnership', () => ({ bindRequestSession: jest.fn() }))
 const sseStreamer = { addClient: jest.fn(), removeClient: jest.fn(), streamMetadataEvent: jest.fn(), streamErrorEvent: jest.fn() }
