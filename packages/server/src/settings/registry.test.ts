@@ -75,6 +75,7 @@ describe('server settings registry', () => {
     it('keeps encryption keys, paths and code-execution switches out of the panel', () => {
         for (const key of [
             'FLOWISE_SECRETKEY_OVERWRITE',
+            'CUTTLELY_SECRETKEY_OVERWRITE',
             'SECRETKEY_AWS_ACCESS_KEY',
             'PORT',
             'CUTTLELY_DATA_DIR',

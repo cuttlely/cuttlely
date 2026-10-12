@@ -1314,5 +1314,10 @@
             "to": "hermes/patches/0005-cuttlely-models.dev-offline-by-default.patch"
         }
     ],
-    "r6Additions": []
+    "r6Additions": [
+        {
+            "path": "packages/server/src/metrics/Prometheus.test.ts",
+            "reason": "metrics prefix test sits beside the metrics provider"
+        }
+    ]
 }

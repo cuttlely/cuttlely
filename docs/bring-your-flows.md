@@ -51,7 +51,7 @@ What the scan checks, rule by rule: [Flowise migration wizard](./flowise-migrati
 -   **The prediction API.** A chatflow answers on `POST /api/v1/prediction/:id` with the same request body, so code that already calls that route keeps working once you point it at Cuttlely and use the new flow id.
 -   **Website embeds.** An old embed script does not carry over. Copy the new snippet from the chatflow's **Embed** tab: it loads Cuttlely's own chat from your Cuttlely server (`/embed/chat.js`) and uses the flow's Share settings. See [Share and embed a chat](./how-to/share-and-embed.md).
 -   **Custom tools.** On **Tools**, **Load** reads an exported tool JSON file and opens it in the **Add New Tool** dialog to save.
--   **Settings names.** Environment variables that start with `FLOWISE_`, such as `FLOWISE_SECRETKEY_OVERWRITE`, keep their names and meaning.
+-   **Settings names.** Environment variables that start with `FLOWISE_`, such as `FLOWISE_SECRETKEY_OVERWRITE`, keep their names and meaning. `CUTTLELY_SECRETKEY_OVERWRITE`, `CUTTLELY_FILE_SIZE_LIMIT` and `DISABLE_CUTTLELY_TELEMETRY` are compatibility aliases for those settings. When both names are set, the `CUTTLELY_` name is used, except the encryption key: if those two values differ, Cuttlely refuses to start.
 
 ### Move a whole install
 

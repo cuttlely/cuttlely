@@ -140,6 +140,10 @@ Contributor-relevant variables. The admin panel registry (`packages/server/src/s
 | `CUTTLELY_STARTING_PAGE`                                    | on                                          | `off` skips the boot progress page (D34)                                                                                      |
 | `CUTTLELY_DRAIN_TIMEOUT_MS`                                 | `25000`                                     | How long running answers and streams may finish after SIGTERM before they get a `503`                                         |
 | `CUTTLELY_IGNORE_ADMIN_SETTINGS`                            | unset                                       | `1` starts without the admin settings file (D35)                                                                              |
+| `CUTTLELY_SECRETKEY_OVERWRITE`                              | unset                                       | Compatibility alias for `FLOWISE_SECRETKEY_OVERWRITE`. Same value starts. Different values refuse to start.                   |
+| `CUTTLELY_FILE_SIZE_LIMIT`                                  | `50mb`                                      | Compatibility alias for the upload size limit. When both are set, this name is used.                                          |
+| `DISABLE_CUTTLELY_TELEMETRY`                                | unset                                       | `true` turns usage events off. When both disable variables are set, this name is used.                                        |
+| `METRICS_PREFIX`                                            | unset                                       | Optional prefix for published metric names. Unset keeps today's names.                                                        |
 
 ## Gotchas
 
@@ -183,7 +187,7 @@ The Blueprint is `render.yaml` (D29). Apply it from the Render Dashboard; this r
 -   The first sync asks for the `sync: false` values (the AuthKit variables and `CUTTLELY_BOOTSTRAP_EMAIL`). Never put their values in git, chat or shell history. Do not add provider API keys; harness models come from in-app credentials.
 -   Confirm the plans before the first sync. The database name, user, region and Postgres major version, and the web runtime, cannot change after create.
 -   Leave `numInstances` at 1. Wait for `GET /api/v1/ping` to return `pong`; the first boot is slow.
--   Losing `FLOWISE_SECRETKEY_OVERWRITE` makes stored credentials unreadable.
+-   Losing `FLOWISE_SECRETKEY_OVERWRITE` or `CUTTLELY_SECRETKEY_OVERWRITE` makes stored credentials unreadable. If both are set to different values, Cuttlely refuses to start.
 -   Analyst mode: set `CUTTLELY_ANALYST=auto` in the Dashboard, or a separate database in `CUTTLELY_POSTGRES_URL` when the database user cannot create roles (D23).
 
 ## Docker
