@@ -17,7 +17,7 @@
  * SQLite isolation lives in scripts/workspace-scope.isolation.test.cjs.
  */
 import { StatusCodes } from 'http-status-codes'
-import { InternalFlowiseError } from '../errors/internalFlowiseError'
+import { AppError } from '../errors/appError'
 import {
     WORKSPACE_ID_REQUIRED,
     getActiveWorkspaceIdForRequest,
@@ -29,8 +29,8 @@ function statusOf(run: () => void): number {
     try {
         run()
     } catch (error) {
-        expect(error).toBeInstanceOf(InternalFlowiseError)
-        return (error as InternalFlowiseError).statusCode
+        expect(error).toBeInstanceOf(AppError)
+        return (error as AppError).statusCode
     }
     throw new Error('expected a throw')
 }

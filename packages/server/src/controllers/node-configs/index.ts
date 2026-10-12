@@ -1,15 +1,12 @@
 import { Request, Response, NextFunction } from 'express'
 import nodeConfigsService from '../../services/node-configs'
-import { InternalFlowiseError } from '../../errors/internalFlowiseError'
+import { AppError } from '../../errors/appError'
 import { StatusCodes } from 'http-status-codes'
 
 const getAllNodeConfigs = async (req: Request, res: Response, next: NextFunction) => {
     try {
         if (!req.body) {
-            throw new InternalFlowiseError(
-                StatusCodes.PRECONDITION_FAILED,
-                `Error: nodeConfigsController.getAllNodeConfigs - body not provided!`
-            )
+            throw new AppError(StatusCodes.PRECONDITION_FAILED, `Error: nodeConfigsController.getAllNodeConfigs - body not provided!`)
         }
         const apiResponse = await nodeConfigsService.getAllNodeConfigs(req.body)
         return res.json(apiResponse)

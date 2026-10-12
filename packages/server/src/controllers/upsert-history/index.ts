@@ -1,6 +1,6 @@
 import { Request, Response, NextFunction } from 'express'
 import { StatusCodes } from 'http-status-codes'
-import { InternalFlowiseError } from '../../errors/internalFlowiseError'
+import { AppError } from '../../errors/appError'
 import chatflowsService from '../../services/chatflows'
 import documentStoreService from '../../services/documentstore'
 import upsertHistoryService from '../../services/upsert-history'
@@ -9,17 +9,14 @@ const getAllUpsertHistory = async (req: Request, res: Response, next: NextFuncti
     try {
         const workspaceId = req.user?.activeWorkspaceId
         if (!workspaceId) {
-            throw new InternalFlowiseError(
+            throw new AppError(
                 StatusCodes.NOT_FOUND,
                 `Error: upsertHistoryController.getAllUpsertHistory - workspace ${workspaceId} not found!`
             )
         }
         const chatflowid = req.params?.id as string | undefined
         if (!chatflowid) {
-            throw new InternalFlowiseError(
-                StatusCodes.BAD_REQUEST,
-                'Error: upsertHistoryController.getAllUpsertHistory - chatflow id is required!'
-            )
+            throw new AppError(StatusCodes.BAD_REQUEST, 'Error: upsertHistoryController.getAllUpsertHistory - chatflow id is required!')
         }
         let isAuthorized = true
         try {
@@ -32,7 +29,7 @@ const getAllUpsertHistory = async (req: Request, res: Response, next: NextFuncti
             }
         }
         if (!isAuthorized) {
-            throw new InternalFlowiseError(
+            throw new AppError(
                 StatusCodes.NOT_FOUND,
                 `Error: upsertHistoryController.getAllUpsertHistory - resource ${chatflowid} not found in workspace!`
             )
@@ -52,7 +49,7 @@ const patchDeleteUpsertHistory = async (req: Request, res: Response, next: NextF
     try {
         const workspaceId = req.user?.activeWorkspaceId
         if (!workspaceId) {
-            throw new InternalFlowiseError(
+            throw new AppError(
                 StatusCodes.NOT_FOUND,
                 `Error: upsertHistoryController.patchDeleteUpsertHistory - workspace ${workspaceId} not found!`
             )

@@ -3,7 +3,7 @@ import { INodeParams } from '@cuttlely/components'
 import { ChatFlow } from '../database/entities/ChatFlow'
 import { getRunningExpressApp } from '../utils/getRunningExpressApp'
 import { IUploadFileSizeAndTypes, IReactFlowNode, IReactFlowEdge } from '../Interface'
-import { InternalFlowiseError } from '../errors/internalFlowiseError'
+import { AppError } from '../errors/appError'
 
 export type IUploadConfig = {
     isSpeechToTextEnabled: boolean
@@ -23,7 +23,7 @@ export const utilGetUploadsConfig = async (chatflowid: string): Promise<IUploadC
         id: chatflowid
     })
     if (!chatflow) {
-        throw new InternalFlowiseError(StatusCodes.NOT_FOUND, `Chatflow ${chatflowid} not found`)
+        throw new AppError(StatusCodes.NOT_FOUND, `Chatflow ${chatflowid} not found`)
     }
     return computeUploadsConfig(chatflow)
 }

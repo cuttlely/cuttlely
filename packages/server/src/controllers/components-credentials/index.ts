@@ -1,6 +1,6 @@
 import { Request, Response, NextFunction } from 'express'
 import componentsCredentialsService from '../../services/components-credentials'
-import { InternalFlowiseError } from '../../errors/internalFlowiseError'
+import { AppError } from '../../errors/appError'
 import { StatusCodes } from 'http-status-codes'
 
 // Get all component credentials
@@ -17,7 +17,7 @@ const getAllComponentsCredentials = async (req: Request, res: Response, next: Ne
 const getComponentByName = async (req: Request, res: Response, next: NextFunction) => {
     try {
         if (typeof req.params === 'undefined' || !req.params.name) {
-            throw new InternalFlowiseError(
+            throw new AppError(
                 StatusCodes.PRECONDITION_FAILED,
                 `Error: componentsCredentialsController.getComponentByName - name not provided!`
             )
@@ -33,7 +33,7 @@ const getComponentByName = async (req: Request, res: Response, next: NextFunctio
 const getSingleComponentsCredentialIcon = async (req: Request, res: Response, next: NextFunction) => {
     try {
         if (typeof req.params === 'undefined' || !req.params.name) {
-            throw new InternalFlowiseError(
+            throw new AppError(
                 StatusCodes.PRECONDITION_FAILED,
                 `Error: componentsCredentialsController.getSingleComponentsCredentialIcon - name not provided!`
             )

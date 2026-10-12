@@ -82,11 +82,10 @@ jest.mock('../../database/entities/ScheduleRecord', () => ({
     ScheduleTriggerType: { AGENTFLOW: 'AGENTFLOW' }
 }))
 jest.mock('../../database/entities/identity/Workspace', () => ({ Workspace: class Workspace {} }))
-jest.mock('../../errors/internalFlowiseError', () => ({
-    InternalFlowiseError: class InternalFlowiseError extends Error {
+jest.mock('../../errors/appError', () => ({
+    AppError: class AppError extends Error {
         constructor(public statusCode: number, message: string) {
             super(message)
-            this.name = 'InternalFlowiseError'
         }
     }
 }))

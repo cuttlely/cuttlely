@@ -177,3 +177,7 @@ The server is not an npm package: a full install needs the Python agent runtime,
 ## D44. The server, UI and API docs packages have their own names
 
 `packages/server` is `@cuttlely/server`. `packages/ui` is `@cuttlely/ui`. `packages/api-documentation` is `@cuttlely/api-docs`. These packages stay private. Commands, repository paths, and the server CLI keep working. The server CLI keeps its existing bin entry and adds `cuttlely-server` on the same script. The CLI config, data, and cache directories stay on the existing directory name, so a theme file or a CLI plugin already on disk is still read. Application code does not read those directories. The server finds the UI build through the UI package name. This supersedes the last sentence of D43.
+
+## D45. The shared server error class is AppError
+
+The shared server error class is `AppError` in `packages/server/src/errors/appError`. Server code imports that class. The earlier module path and class name stay as a compatibility alias for one release. The alias is the same constructor, so `instanceof` checks work with either name. The class does not set `name`, so HTTP status codes, JSON bodies, headers and the error name on a response or a log line stay as they are. This narrows D1 for this class.

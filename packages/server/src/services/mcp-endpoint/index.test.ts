@@ -86,7 +86,7 @@ jest.mock('@modelcontextprotocol/sdk/server/streamableHttp.js', () => ({
 
 // --- Import after mocking ---
 import { StatusCodes } from 'http-status-codes'
-import { InternalFlowiseError } from '../../errors/internalFlowiseError'
+import { AppError } from '../../errors/appError'
 import mcpEndpointService from '.'
 
 // --- Helpers ---
@@ -157,7 +157,7 @@ beforeEach(() => {
 // ─────────────────────────────────────────────────────────────────────────────
 describe('handleMcpRequest', () => {
     it('returns 401 when getChatflowByIdAndVerifyToken throws UNAUTHORIZED', async () => {
-        mockGetChatflowByIdAndVerifyToken.mockRejectedValue(new InternalFlowiseError(StatusCodes.UNAUTHORIZED, 'Invalid token'))
+        mockGetChatflowByIdAndVerifyToken.mockRejectedValue(new AppError(StatusCodes.UNAUTHORIZED, 'Invalid token'))
         const res = makeRes()
 
         await mcpEndpointService.handleMcpRequest('flow-123', 'bad-token', makeReq() as any, res)
@@ -168,7 +168,7 @@ describe('handleMcpRequest', () => {
     })
 
     it('returns 404 when getChatflowByIdAndVerifyToken throws NOT_FOUND', async () => {
-        mockGetChatflowByIdAndVerifyToken.mockRejectedValue(new InternalFlowiseError(StatusCodes.NOT_FOUND, 'Not found'))
+        mockGetChatflowByIdAndVerifyToken.mockRejectedValue(new AppError(StatusCodes.NOT_FOUND, 'Not found'))
         const res = makeRes()
 
         await mcpEndpointService.handleMcpRequest('flow-123', 'token', makeReq() as any, res)
@@ -177,7 +177,7 @@ describe('handleMcpRequest', () => {
         expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ jsonrpc: '2.0', error: expect.objectContaining({ code: -32001 }) }))
     })
 
-    it('rethrows non-InternalFlowiseError auth errors', async () => {
+    it('rethrows non-AppError auth errors', async () => {
         const dbError = new Error('DB connection failed')
         mockGetChatflowByIdAndVerifyToken.mockRejectedValue(dbError)
 

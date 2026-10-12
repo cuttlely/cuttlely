@@ -1,6 +1,6 @@
 import { StatusCodes } from 'http-status-codes'
 import { IReactFlowObject, StartInputType } from '../../Interface'
-import { InternalFlowiseError } from '../../errors/internalFlowiseError'
+import { AppError } from '../../errors/appError'
 import { getErrorMessage } from '../../errors/utils'
 import { verifyWebhookSignature, verifyPlainToken } from '../../utils/signatureVerification'
 import chatflowsService from '../chatflows'
@@ -18,7 +18,7 @@ const validateWebhookChatflow = async (
     try {
         const chatflow = await chatflowsService.getChatflowById(chatflowId, workspaceId)
         if (!chatflow) {
-            throw new InternalFlowiseError(StatusCodes.NOT_FOUND, `Chatflow ${chatflowId} not found`)
+            throw new AppError(StatusCodes.NOT_FOUND, `Chatflow ${chatflowId} not found`)
         }
 
         const parsedFlowData: IReactFlowObject = JSON.parse(chatflow.flowData)
@@ -26,7 +26,7 @@ const validateWebhookChatflow = async (
         const startInputType = startNode?.data?.inputs?.startInputType as StartInputType | undefined
 
         if (startInputType !== 'webhookTrigger') {
-            throw new InternalFlowiseError(StatusCodes.NOT_FOUND, `Chatflow ${chatflowId} is not configured as a webhook trigger`)
+            throw new AppError(StatusCodes.NOT_FOUND, `Chatflow ${chatflowId} is not configured as a webhook trigger`)
         }
 
         const enableAuth = startNode?.data?.inputs?.webhookEnableAuth === true
@@ -47,7 +47,7 @@ const validateWebhookChatflow = async (
         if (enableAuth) {
             const secret = await chatflowsService.getWebhookSecret(chatflowId, chatflow.workspaceId)
             if (!secret) {
-                throw new InternalFlowiseError(
+                throw new AppError(
                     StatusCodes.INTERNAL_SERVER_ERROR,
                     'Webhook signature verification is enabled but no secret has been generated. Open the Start node and click Generate Secret.'
                 )
@@ -58,7 +58,7 @@ const validateWebhookChatflow = async (
             const sigValue = (headers?.[sigHeader] ?? '') as string
 
             if (!sigValue) {
-                throw new InternalFlowiseError(StatusCodes.UNAUTHORIZED, `Missing signature header: ${sigHeader}`)
+                throw new AppError(StatusCodes.UNAUTHORIZED, `Missing signature header: ${sigHeader}`)
             }
 
             const valid =
@@ -67,7 +67,7 @@ const validateWebhookChatflow = async (
                     : !!rawBody && verifyWebhookSignature(secret, rawBody, sigValue)
 
             if (!valid) {
-                throw new InternalFlowiseError(StatusCodes.UNAUTHORIZED, 'Invalid webhook signature')
+                throw new AppError(StatusCodes.UNAUTHORIZED, 'Invalid webhook signature')
             }
         }
 
@@ -76,7 +76,7 @@ const validateWebhookChatflow = async (
         // Method validation
         const webhookMethod = startNode?.data?.inputs?.webhookMethod
         if (webhookMethod && method?.toUpperCase() !== webhookMethod.toUpperCase()) {
-            throw new InternalFlowiseError(StatusCodes.METHOD_NOT_ALLOWED, `Method ${method} not allowed. Expected ${webhookMethod}`)
+            throw new AppError(StatusCodes.METHOD_NOT_ALLOWED, `Method ${method} not allowed. Expected ${webhookMethod}`)
         }
 
         // Content-Type validation
@@ -84,7 +84,7 @@ const validateWebhookChatflow = async (
         const webhookContentType = startNode?.data?.inputs?.webhookContentType
         const incomingContentType = (headers?.['content-type'] ?? '').toLowerCase()
         if (webhookContentType && hasBody && !incomingContentType.startsWith(webhookContentType)) {
-            throw new InternalFlowiseError(
+            throw new AppError(
                 StatusCodes.UNSUPPORTED_MEDIA_TYPE,
                 `Content-Type ${headers?.['content-type']} not allowed. Expected ${webhookContentType}`
             )
@@ -99,7 +99,7 @@ const validateWebhookChatflow = async (
                 .filter((p) => p.required && headers?.[p.name.toLowerCase()] == null)
                 .map((p) => p.name)
             if (missingHeaders.length > 0) {
-                throw new InternalFlowiseError(StatusCodes.BAD_REQUEST, `Missing required headers: ${missingHeaders.join(', ')}`)
+                throw new AppError(StatusCodes.BAD_REQUEST, `Missing required headers: ${missingHeaders.join(', ')}`)
             }
 
             // Required body param validation
@@ -109,10 +109,7 @@ const validateWebhookChatflow = async (
                 : []
             const missingParams = webhookBodyParams.filter((p) => p.required && body?.[p.name] == null).map((p) => p.name)
             if (missingParams.length > 0) {
-                throw new InternalFlowiseError(
-                    StatusCodes.BAD_REQUEST,
-                    `Missing required webhook body parameters: ${missingParams.join(', ')}`
-                )
+                throw new AppError(StatusCodes.BAD_REQUEST, `Missing required webhook body parameters: ${missingParams.join(', ')}`)
             }
 
             // Body type validation (only for params that have an explicit type declared)
@@ -136,7 +133,7 @@ const validateWebhookChatflow = async (
                 .map((p) => p.name)
 
             if (typeMismatch.length > 0) {
-                throw new InternalFlowiseError(StatusCodes.BAD_REQUEST, `Invalid type for parameter(s): ${typeMismatch.join(', ')}`)
+                throw new AppError(StatusCodes.BAD_REQUEST, `Invalid type for parameter(s): ${typeMismatch.join(', ')}`)
             }
 
             // Required query param validation
@@ -144,20 +141,14 @@ const validateWebhookChatflow = async (
             const webhookQueryParams: Array<{ name: string; required: boolean }> = Array.isArray(rawQueryParams) ? rawQueryParams : []
             const missingQueryParams = webhookQueryParams.filter((p) => p.required && query?.[p.name] == null).map((p) => p.name)
             if (missingQueryParams.length > 0) {
-                throw new InternalFlowiseError(
-                    StatusCodes.BAD_REQUEST,
-                    `Missing required query parameters: ${missingQueryParams.join(', ')}`
-                )
+                throw new AppError(StatusCodes.BAD_REQUEST, `Missing required query parameters: ${missingQueryParams.join(', ')}`)
             }
         }
 
         return { responseMode, callbackUrl, callbackSecret }
     } catch (error) {
-        if (error instanceof InternalFlowiseError) throw error
-        throw new InternalFlowiseError(
-            StatusCodes.INTERNAL_SERVER_ERROR,
-            `Error: webhookService.validateWebhookChatflow - ${getErrorMessage(error)}`
-        )
+        if (error instanceof AppError) throw error
+        throw new AppError(StatusCodes.INTERNAL_SERVER_ERROR, `Error: webhookService.validateWebhookChatflow - ${getErrorMessage(error)}`)
     }
 }
 

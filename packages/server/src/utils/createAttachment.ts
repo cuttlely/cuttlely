@@ -19,7 +19,7 @@ import { checkStorage, updateStorageUsage } from './quotaUsage'
 import { ChatFlow } from '../database/entities/ChatFlow'
 import { Workspace } from '../database/entities/identity'
 import { Organization } from '../database/entities/identity'
-import { InternalFlowiseError } from '../errors/internalFlowiseError'
+import { AppError } from '../errors/appError'
 import { StatusCodes } from 'http-status-codes'
 import { getAuthorizedChatflow, hasFlowAccess } from './authorizeFlowAccess'
 
@@ -34,10 +34,10 @@ export const createFileAttachment = async (req: Request) => {
     const chatId = req.params.chatId
 
     if (!chatflowid || !isValidUUID(chatflowid)) {
-        throw new InternalFlowiseError(StatusCodes.BAD_REQUEST, 'Invalid chatflowId format - must be a valid UUID')
+        throw new AppError(StatusCodes.BAD_REQUEST, 'Invalid chatflowId format - must be a valid UUID')
     }
     if (isPathTraversal(chatflowid) || (chatId && isPathTraversal(chatId))) {
-        throw new InternalFlowiseError(StatusCodes.BAD_REQUEST, 'Invalid path characters detected')
+        throw new AppError(StatusCodes.BAD_REQUEST, 'Invalid path characters detected')
     }
 
     // Access is checked in authorizeAttachmentUpload (routes/attachments) before multer runs.
@@ -49,10 +49,10 @@ export const createFileAttachment = async (req: Request) => {
                 id: chatflowid
             })) ?? undefined
         if (!chatflow) {
-            throw new InternalFlowiseError(StatusCodes.NOT_FOUND, `Chatflow ${chatflowid} not found`)
+            throw new AppError(StatusCodes.NOT_FOUND, `Chatflow ${chatflowid} not found`)
         }
         if (!(await hasFlowAccess(req, chatflow))) {
-            throw new InternalFlowiseError(StatusCodes.UNAUTHORIZED, 'Unauthorized')
+            throw new AppError(StatusCodes.UNAUTHORIZED, 'Unauthorized')
         }
     }
 
@@ -67,7 +67,7 @@ export const createFileAttachment = async (req: Request) => {
             id: chatflowWorkspaceId
         })
         if (!workspace) {
-            throw new InternalFlowiseError(StatusCodes.NOT_FOUND, `Workspace ${chatflowWorkspaceId} not found`)
+            throw new AppError(StatusCodes.NOT_FOUND, `Workspace ${chatflowWorkspaceId} not found`)
         }
         workspaceId = workspace.id
 
@@ -75,7 +75,7 @@ export const createFileAttachment = async (req: Request) => {
             id: workspace.organizationId
         })
         if (!org) {
-            throw new InternalFlowiseError(StatusCodes.NOT_FOUND, `Organization ${workspace.organizationId} not found`)
+            throw new AppError(StatusCodes.NOT_FOUND, `Organization ${workspace.organizationId} not found`)
         }
 
         orgId = org.id
@@ -118,7 +118,7 @@ export const createFileAttachment = async (req: Request) => {
 
     // Check if file upload is enabled
     if (!fileUploadEnabled) {
-        throw new InternalFlowiseError(StatusCodes.FORBIDDEN, 'File upload is not enabled for this chatflow')
+        throw new AppError(StatusCodes.FORBIDDEN, 'File upload is not enabled for this chatflow')
     }
 
     // Find FileLoader node
@@ -143,7 +143,7 @@ export const createFileAttachment = async (req: Request) => {
             file.mimetype = normalizeDocumentMime(file.originalname, file.mimetype)
 
             if (!allowedFileTypes.length || !allowedFileTypes.includes(file.mimetype)) {
-                throw new InternalFlowiseError(
+                throw new AppError(
                     StatusCodes.BAD_REQUEST,
                     `File type '${file.mimetype}' is not allowed. Allowed types: ${allowedFileTypes.join(', ')}`
                 )

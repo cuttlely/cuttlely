@@ -1,12 +1,12 @@
 import { NextFunction, Request, Response } from 'express'
 import { StatusCodes } from 'http-status-codes'
-import { InternalFlowiseError } from '../../errors/internalFlowiseError'
+import { AppError } from '../../errors/appError'
 import demoService from '../../services/demo'
 import { actorFromUser } from '../../services/flow-versions/author'
 
 const workspaceOf = (req: Request) => {
     const workspaceId = req.user?.activeWorkspaceId
-    if (!workspaceId) throw new InternalFlowiseError(StatusCodes.NOT_FOUND, 'No active workspace. Sign in to a workspace and try again.')
+    if (!workspaceId) throw new AppError(StatusCodes.NOT_FOUND, 'No active workspace. Sign in to a workspace and try again.')
     return workspaceId
 }
 
@@ -22,7 +22,7 @@ const create = async (req: Request, res: Response, next: NextFunction) => {
     try {
         const workspaceId = workspaceOf(req)
         const orgId = req.user?.activeOrganizationId
-        if (!orgId) throw new InternalFlowiseError(StatusCodes.NOT_FOUND, 'No active organization. Sign in and try again.')
+        if (!orgId) throw new AppError(StatusCodes.NOT_FOUND, 'No active organization. Sign in and try again.')
         const result = await demoService.create(
             req.body?.credentialId,
             {

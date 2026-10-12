@@ -3,7 +3,7 @@ import { utilGetChatMessageFeedback } from '../../utils/getChatMessageFeedback'
 import { utilAddChatMessageFeedback } from '../../utils/addChatMessageFeedback'
 import { utilUpdateChatMessageFeedback } from '../../utils/updateChatMessageFeedback'
 import { IChatMessageFeedback } from '../../Interface'
-import { InternalFlowiseError } from '../../errors/internalFlowiseError'
+import { AppError } from '../../errors/appError'
 import { getErrorMessage } from '../../errors/utils'
 
 // Get all chatmessage feedback from chatflowid
@@ -18,7 +18,7 @@ const getAllChatMessageFeedback = async (
         const dbResponse = await utilGetChatMessageFeedback(chatflowid, chatId, sortOrder, startDate, endDate)
         return dbResponse
     } catch (error) {
-        throw new InternalFlowiseError(
+        throw new AppError(
             StatusCodes.INTERNAL_SERVER_ERROR,
             `Error: feedbackService.getAllChatMessageFeedback - ${getErrorMessage(error)}`
         )
@@ -31,7 +31,7 @@ const createChatMessageFeedbackForChatflow = async (requestBody: Partial<IChatMe
         const dbResponse = await utilAddChatMessageFeedback(requestBody)
         return dbResponse
     } catch (error) {
-        throw new InternalFlowiseError(
+        throw new AppError(
             StatusCodes.INTERNAL_SERVER_ERROR,
             `Error: feedbackService.createChatMessageFeedbackForChatflow - ${getErrorMessage(error)}`
         )
@@ -44,7 +44,7 @@ const updateChatMessageFeedbackForChatflow = async (feedbackId: string, requestB
         const dbResponse = await utilUpdateChatMessageFeedback(feedbackId, requestBody)
         return dbResponse
     } catch (error) {
-        throw new InternalFlowiseError(
+        throw new AppError(
             StatusCodes.INTERNAL_SERVER_ERROR,
             `Error: feedbackService.updateChatMessageFeedbackForChatflow - ${getErrorMessage(error)}`
         )

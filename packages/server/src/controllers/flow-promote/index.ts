@@ -2,7 +2,7 @@
 // changes and the credentials it needs, the behavior check against Live, and Promote. Owner only (routes).
 import { NextFunction, Request, Response } from 'express'
 import { StatusCodes } from 'http-status-codes'
-import { InternalFlowiseError } from '../../errors/internalFlowiseError'
+import { AppError } from '../../errors/appError'
 import { ChatFlow } from '../../database/entities/ChatFlow'
 import chatflowsService from '../../services/chatflows'
 import flowCheckService, { Candidate } from '../../services/flow-check'
@@ -19,7 +19,7 @@ const VERB = 'Promoted from Dev'
 
 function workspaceOf(req: Request): string {
     const workspaceId = req.user?.activeWorkspaceId
-    if (!workspaceId) throw new InternalFlowiseError(StatusCodes.NOT_FOUND, 'Workspace not found.')
+    if (!workspaceId) throw new AppError(StatusCodes.NOT_FOUND, 'Workspace not found.')
     return workspaceId
 }
 
@@ -46,7 +46,7 @@ const promote = async (req: Request, res: Response, next: NextFunction) => {
     try {
         const workspaceId = workspaceOf(req)
         const orgId = req.user?.activeOrganizationId
-        if (!orgId) throw new InternalFlowiseError(StatusCodes.NOT_FOUND, 'Organization not found.')
+        if (!orgId) throw new AppError(StatusCodes.NOT_FOUND, 'Organization not found.')
         const candidate = await flowPromoteService.promotable(req.params.chatflowId, req.body?.sha, workspaceId)
         const { latest, row } = candidate
         const drafts = flowDraftsService.isDraftsEnabled()
@@ -68,9 +68,9 @@ const promote = async (req: Request, res: Response, next: NextFunction) => {
         // A flow this server does not have yet: created with Dev's id, so its next versions find it.
         const blank = { id: latest.flowId, name: latest.name, type: 'CHATFLOW', flowData: '{"nodes":[],"edges":[]}', workspaceId }
         const version = await flowVersionsService.getVersion(blank, latest.sha)
-        if (!version) throw new InternalFlowiseError(StatusCodes.NOT_FOUND, 'There is no new version from Dev for this flow.')
+        if (!version) throw new AppError(StatusCodes.NOT_FOUND, 'There is no new version from Dev for this flow.')
         if (version.missingCredentials.length) {
-            throw new InternalFlowiseError(StatusCodes.CONFLICT, missingCredentialsMessage(version.missingCredentials))
+            throw new AppError(StatusCodes.CONFLICT, missingCredentialsMessage(version.missingCredentials))
         }
         const app = getRunningExpressApp()
         const type = (version.type || 'CHATFLOW') as NonNullable<ChatFlow['type']>

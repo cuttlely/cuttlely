@@ -1,6 +1,6 @@
 import { NextFunction, Request, Response } from 'express'
 import { StatusCodes } from 'http-status-codes'
-import { InternalFlowiseError } from '../../errors/internalFlowiseError'
+import { AppError } from '../../errors/appError'
 import { ChatFlow } from '../../database/entities/ChatFlow'
 import chatflowsService from '../../services/chatflows'
 import flowDraftsService from '../../services/flow-drafts'
@@ -22,10 +22,10 @@ function permissionFor(type: string | null | undefined, action: 'view' | 'update
 // The flow must be in the caller's active workspace, and the caller needs the permission for its type.
 async function flowFor(req: Request, action: 'view' | 'update') {
     const workspaceId = req.user?.activeWorkspaceId
-    if (!workspaceId) throw new InternalFlowiseError(StatusCodes.NOT_FOUND, 'Workspace not found.')
+    if (!workspaceId) throw new AppError(StatusCodes.NOT_FOUND, 'Workspace not found.')
     const flow = await chatflowsService.getChatflowByIdForWorkspace(req.params.chatflowId, workspaceId)
     if (!(await hasAnyPermission(req, permissionFor(flow.type, action)))) {
-        throw new InternalFlowiseError(StatusCodes.FORBIDDEN, `You do not have permission to ${action} this type of flow.`)
+        throw new AppError(StatusCodes.FORBIDDEN, `You do not have permission to ${action} this type of flow.`)
     }
     return flow
 }
@@ -43,7 +43,7 @@ const saveDraft = async (req: Request, res: Response, next: NextFunction) => {
     try {
         const flow = await flowFor(req, 'update')
         const orgId = req.user?.activeOrganizationId
-        if (!orgId) throw new InternalFlowiseError(StatusCodes.NOT_FOUND, 'Organization not found.')
+        if (!orgId) throw new AppError(StatusCodes.NOT_FOUND, 'Organization not found.')
         const status = await flowDraftsService.saveDraft(flow, req.body?.flowData, {
             userId: req.user?.id || null,
             orgId,
@@ -85,7 +85,7 @@ const publishDraft = async (req: Request, res: Response, next: NextFunction) => 
         const flow = await flowFor(req, 'update')
         const workspaceId = req.user?.activeWorkspaceId
         const orgId = req.user?.activeOrganizationId
-        if (!workspaceId || !orgId) throw new InternalFlowiseError(StatusCodes.NOT_FOUND, 'Workspace not found.')
+        if (!workspaceId || !orgId) throw new AppError(StatusCodes.NOT_FOUND, 'Workspace not found.')
         const draft = await flowDraftsService.draftToPublish(flow, req.body?.overwriteLiveChanges)
         // The Live canvas the stale check above was made against. The save only goes through while Live is
         // still this canvas, so an update that lands meanwhile is never overwritten silently.
@@ -139,11 +139,10 @@ const rollbackLive = async (req: Request, res: Response, next: NextFunction) => 
     try {
         const flow = await flowFor(req, 'update')
         if (!flowDraftsService.isDraftsEnabled()) {
-            throw new InternalFlowiseError(StatusCodes.CONFLICT, 'Drafts are off on this server. Use Restore instead.')
+            throw new AppError(StatusCodes.CONFLICT, 'Drafts are off on this server. Use Restore instead.')
         }
         const sha = typeof req.body?.sha === 'string' ? req.body.sha : ''
-        if (!SHA.test(sha))
-            throw new InternalFlowiseError(StatusCodes.BAD_REQUEST, 'sha is a version id: 7 to 40 lowercase hex characters.')
+        if (!SHA.test(sha)) throw new AppError(StatusCodes.BAD_REQUEST, 'sha is a version id: 7 to 40 lowercase hex characters.')
         // A version of another flow type is refused while the flow has unpublished changes (updateChatflow).
         const result = await putVersionLive(req, flow, sha, { kind: 'rollback', verb: 'Rolled back Live to' })
         const status = result.chatflow
