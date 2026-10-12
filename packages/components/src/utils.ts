@@ -2347,7 +2347,7 @@ export function assertImageHasBrowser(markerPath: string = IMAGE_WITHOUT_BROWSER
     } catch {
         leftOut = false
     }
-    if (process.env.CUTTLELY_BROWSER === '0' || leftOut) {
+    if (leftOut) {
         throw new Error(IMAGE_WITHOUT_BROWSER_ERROR)
     }
 }

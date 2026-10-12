@@ -12,30 +12,11 @@ import {
 } from './utils'
 
 describe('assertImageHasBrowser', () => {
-    const previous = process.env.CUTTLELY_BROWSER
-
-    afterEach(() => {
-        if (previous === undefined) delete process.env.CUTTLELY_BROWSER
-        else process.env.CUTTLELY_BROWSER = previous
-    })
-
-    it('does nothing on the default image and on a source install', () => {
-        delete process.env.CUTTLELY_BROWSER
+    it('does nothing when the marker file is absent', () => {
         expect(() => assertImageHasBrowser(path.join(os.tmpdir(), 'cuttlely-browser-missing-marker'))).not.toThrow()
-    })
-
-    it('does nothing when the build kept the browser', () => {
-        process.env.CUTTLELY_BROWSER = '1'
-        expect(() => assertImageHasBrowser(path.join(os.tmpdir(), 'cuttlely-browser-missing-marker'))).not.toThrow()
-    })
-
-    it('fails with a plain error when the image was built without a browser', () => {
-        process.env.CUTTLELY_BROWSER = '0'
-        expect(() => assertImageHasBrowser(path.join(os.tmpdir(), 'cuttlely-browser-missing-marker'))).toThrow(IMAGE_WITHOUT_BROWSER_ERROR)
     })
 
     it('fails when the image build wrote the marker file', () => {
-        delete process.env.CUTTLELY_BROWSER
         const marker = path.join(os.tmpdir(), `cuttlely-no-browser-${process.pid}`)
         fs.writeFileSync(marker, '')
         try {

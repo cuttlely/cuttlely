@@ -74,7 +74,7 @@ Each release is published as `ghcr.io/cuttlely/cuttlely:X.Y.Z`, and the newest r
 INCLUDE_BROWSER=0 docker compose up -d --build
 ```
 
-`docker build --build-arg INCLUDE_BROWSER=0 -t cuttlely:no-browser .` is the same build. In that image those two loaders fail with `this image has no browser`. Every other node keeps working. The published image `ghcr.io/cuttlely/cuttlely` is unchanged and still includes Chromium. `INCLUDE_BROWSER` accepts only `0` and `1`.
+`docker build --build-arg INCLUDE_BROWSER=0 -t cuttlely:no-browser .` is the same build. In that image those two loaders fail with `this image has no browser`. The agent runtime's browser tool also cannot browse there: it returns success: false, and the server keeps running. The published image `ghcr.io/cuttlely/cuttlely` is unchanged and still includes Chromium. `INCLUDE_BROWSER` accepts only `0` and `1`.
 
 The image is built for `linux/amd64`. A release can also carry `linux/arm64` when it was built on a machine that can build both. On Apple silicon, Docker runs the `amd64` image under emulation.
 
