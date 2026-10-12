@@ -2330,7 +2330,8 @@ export const executeAgentFlow = async ({
         await analyticHandlers.onChainEnd(parentTraceIds, content, true)
     }
 
-    if (status === 'FINISHED') {
+    // A recursive iteration records nothing here. The parent appends those steps and records them once.
+    if (status === 'FINISHED' && !isRecursive) {
         void recordCompletedRun(appDataSource, { workspaceId, flowId: chatflowid, result: { agentFlowExecutedData } })
     }
 

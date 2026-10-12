@@ -1255,6 +1255,8 @@ paths:
                     description: The date range is not valid
                 '401':
                     description: Unauthorized
+                '403':
+                    description: The caller does not have chatflows:view or agentflows:view
 
     /ping:
         get:

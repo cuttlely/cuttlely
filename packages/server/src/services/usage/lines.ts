@@ -108,20 +108,112 @@ function whole(value: unknown): number {
     return Math.min(Math.round(n), Number.MAX_SAFE_INTEGER)
 }
 
-// Agent steps keep tool-call tokens beside the final call. Those extra tokens are output.
+// An Agent step that called tools sets tool_call_tokens to every model call in the step, the final
+// response included. total_tokens adds that final response again. tool_call_tokens is the step total.
 function tokenPair(value: unknown): { inputTokens: number; outputTokens: number } | null {
     if (!value || typeof value !== 'object') return null
     const record = value as Record<string, unknown>
     const inputTokens = whole(record.prompt ?? record.promptTokens ?? record.input_tokens ?? record.inputTokens)
-    let outputTokens = whole(record.completion ?? record.completionTokens ?? record.output_tokens ?? record.outputTokens)
+    const outputTokens = whole(record.completion ?? record.completionTokens ?? record.output_tokens ?? record.outputTokens)
     const toolTokens = whole(record.tool_call_tokens)
     if (toolTokens > 0) {
-        const total = whole(record.total_tokens ?? record.totalTokens)
-        if (inputTokens === 0 && outputTokens === 0) outputTokens = toolTokens
-        else if (total === 0 || total + 1 >= inputTokens + outputTokens + toolTokens) outputTokens += toolTokens
+        const input = Math.min(inputTokens, toolTokens)
+        return { inputTokens: input, outputTokens: toolTokens - input }
     }
     if (inputTokens === 0 && outputTokens === 0) return null
     return { inputTokens, outputTokens }
+}
+
+export interface ReportedLlmUsage {
+    model: string
+    promptTokens: number
+    completionTokens: number
+}
+
+function modelFromStart(llm: unknown, extra?: Record<string, unknown>, metadata?: Record<string, unknown>): string {
+    const kwargs = (llm as { kwargs?: Record<string, unknown> } | undefined)?.kwargs
+    const invocation = extra?.invocation_params as Record<string, unknown> | undefined
+    return cleanModel(
+        kwargs?.modelName ||
+            kwargs?.model_name ||
+            kwargs?.model ||
+            invocation?.model ||
+            invocation?.model_name ||
+            metadata?.ls_model_name ||
+            ''
+    )
+}
+
+// What a chat model already reported on handleLLMEnd. No estimate and no extra provider call.
+export function usageFromLlmEnd(output: unknown, modelHint?: string): ReportedLlmUsage | null {
+    if (!output || typeof output !== 'object') return null
+    const record = output as {
+        generations?: Array<Array<{ message?: { usage_metadata?: Record<string, unknown>; response_metadata?: Record<string, unknown> } }>>
+        llmOutput?: { tokenUsage?: Record<string, unknown>; model?: unknown }
+    }
+    const message = record.generations?.[0]?.[0]?.message
+    const meta = message?.usage_metadata
+    const tokenUsage = record.llmOutput?.tokenUsage
+    const model = cleanModel(
+        modelHint || message?.response_metadata?.model_name || message?.response_metadata?.model || record.llmOutput?.model || ''
+    )
+    if (meta && (meta.input_tokens != null || meta.output_tokens != null || meta.prompt_tokens != null)) {
+        const promptTokens = whole(meta.input_tokens ?? meta.prompt_tokens)
+        const completionTokens = whole(meta.output_tokens ?? meta.completion_tokens)
+        if (promptTokens === 0 && completionTokens === 0) return null
+        return { model, promptTokens, completionTokens }
+    }
+    if (tokenUsage) {
+        const promptTokens = whole(tokenUsage.promptTokens ?? tokenUsage.input_tokens)
+        const completionTokens = whole(tokenUsage.completionTokens ?? tokenUsage.output_tokens)
+        if (promptTokens === 0 && completionTokens === 0) return null
+        return { model, promptTokens, completionTokens }
+    }
+    return null
+}
+
+// In-process LangChain callback. The same instance can sit on a parent chain and a child chain, so a run id is counted once.
+export class ChatflowTokenUsage {
+    name = 'CuttlelyChatflowTokenUsage'
+    readonly sink: ReportedLlmUsage[] = []
+    private models = new Map<string, string>()
+    private seen = new Set<string>()
+
+    handleLLMStart(
+        llm: unknown,
+        _prompts: unknown,
+        runId: string,
+        _parent?: string,
+        extra?: Record<string, unknown>,
+        _tags?: unknown,
+        metadata?: Record<string, unknown>
+    ) {
+        this.remember(runId, modelFromStart(llm, extra, metadata))
+    }
+
+    handleChatModelStart(
+        llm: unknown,
+        _messages: unknown,
+        runId: string,
+        _parent?: string,
+        extra?: Record<string, unknown>,
+        _tags?: unknown,
+        metadata?: Record<string, unknown>
+    ) {
+        this.remember(runId, modelFromStart(llm, extra, metadata))
+    }
+
+    async handleLLMEnd(output: unknown, runId: string) {
+        if (runId && this.seen.has(runId)) return
+        if (runId) this.seen.add(runId)
+        const usage = usageFromLlmEnd(output, runId ? this.models.get(runId) : undefined)
+        this.models.delete(runId)
+        if (usage) this.sink.push(usage)
+    }
+
+    private remember(runId: string, model: string) {
+        if (runId && model && model !== 'unknown') this.models.set(runId, model)
+    }
 }
 
 function pushLine(lines: UsageLine[], model: unknown, tokens: unknown) {

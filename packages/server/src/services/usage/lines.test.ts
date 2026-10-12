@@ -1,4 +1,5 @@
-import { usageLinesFromRun, usageRange } from './lines'
+import { stepTokens } from '../flow-check/compare'
+import { ChatflowTokenUsage, usageFromLlmEnd, usageLinesFromRun, usageRange } from './lines'
 
 const NOW = new Date('2026-10-12T18:00:00.000Z')
 
@@ -50,19 +51,13 @@ describe('usageLinesFromRun', () => {
         ])
     })
 
-    it('reads agentflow steps, including tool-call tokens, and keeps models apart', () => {
+    it('reads agentflow steps and keeps models apart', () => {
         const lines = usageLinesFromRun({
             agentFlowExecutedData: [
                 {
                     data: {
                         input: { llmModelConfig: { modelName: 'gpt-4.1-mini' } },
                         output: { usageMetadata: { input_tokens: 5, output_tokens: 3 } }
-                    }
-                },
-                {
-                    data: {
-                        input: { agentModelConfig: { modelName: 'gpt-4.1-mini' } },
-                        output: { usageMetadata: { input_tokens: 7, output_tokens: 2, tool_call_tokens: 4, total_tokens: 13 } }
                     }
                 },
                 {
@@ -74,9 +69,75 @@ describe('usageLinesFromRun', () => {
             ]
         })
         expect(lines).toEqual([
-            { model: 'gpt-4.1-mini', inputTokens: 12, outputTokens: 9 },
+            { model: 'gpt-4.1-mini', inputTokens: 5, outputTokens: 3 },
             { model: 'claude', inputTokens: 1, outputTokens: 1 }
         ])
+    })
+
+    it('counts an Agent tool step once, using tool_call_tokens as the step total', () => {
+        // The final response is 12 in and 8 out (20). tool_call_tokens is 30: that final response plus the earlier call.
+        // total_tokens is 50 because it adds the final response again.
+        const step = {
+            data: {
+                input: { agentModelConfig: { modelName: 'gpt-4.1-mini' } },
+                output: {
+                    usageMetadata: {
+                        input_tokens: 12,
+                        output_tokens: 8,
+                        total_tokens: 50,
+                        tool_call_tokens: 30
+                    }
+                }
+            }
+        }
+        expect(stepTokens([step])).toEqual([{ totalTokens: 30 }])
+        const lines = usageLinesFromRun({ agentFlowExecutedData: [step] })
+        expect(lines).toEqual([{ model: 'gpt-4.1-mini', inputTokens: 12, outputTokens: 18 }])
+        expect(lines[0].inputTokens + lines[0].outputTokens).toBe(30)
+    })
+
+    it('records a normal chatflow model end that reports usage_metadata', async () => {
+        const usage = new ChatflowTokenUsage()
+        usage.handleChatModelStart({ kwargs: { modelName: 'gpt-4.1-mini' } }, [], 'run-1')
+        await usage.handleLLMEnd(
+            {
+                generations: [
+                    [
+                        {
+                            message: {
+                                usage_metadata: { input_tokens: 11, output_tokens: 4, total_tokens: 15 },
+                                response_metadata: { model_name: 'fake-chat' }
+                            }
+                        }
+                    ]
+                ]
+            },
+            'run-1'
+        )
+        await usage.handleLLMEnd(
+            {
+                generations: [[{ message: { usage_metadata: { input_tokens: 11, output_tokens: 4, total_tokens: 15 } } }]]
+            },
+            'run-1'
+        )
+        expect(usage.sink).toEqual([{ model: 'gpt-4.1-mini', promptTokens: 11, completionTokens: 4 }])
+        expect(
+            usageFromLlmEnd({ llmOutput: { tokenUsage: { promptTokens: 11, completionTokens: 4, totalTokens: 15 } } }, 'fake-chat')
+        ).toEqual({
+            model: 'fake-chat',
+            promptTokens: 11,
+            completionTokens: 4
+        })
+        expect(
+            usageLinesFromRun({
+                text: 'Fresh bread at 7.',
+                metrics: usage.sink.map((row) => ({
+                    model: row.model,
+                    promptTokens: row.promptTokens,
+                    completionTokens: row.completionTokens
+                }))
+            })
+        ).toEqual([{ model: 'gpt-4.1-mini', inputTokens: 11, outputTokens: 4 }])
     })
 
     it('reads evaluation metrics and skips a run that reported no tokens', () => {

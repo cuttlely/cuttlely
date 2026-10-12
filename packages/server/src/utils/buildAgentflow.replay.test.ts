@@ -8,6 +8,7 @@ import os from 'os'
 import path from 'path'
 import { executeAgentFlow } from './buildAgentflow'
 import { stepTokens } from '../services/flow-check/compare'
+import * as usage from '../services/usage'
 
 jest.mock('./logger', () => ({ __esModule: true, default: { warn: jest.fn(), info: jest.fn(), debug: jest.fn(), error: jest.fn() } }))
 jest.mock('@cuttlely/components', () => ({ ...jest.requireActual('@cuttlely/components'), tracingEnvEnabled: () => false }))
@@ -183,6 +184,18 @@ describe('executeAgentFlow with replay on (publish check)', () => {
     it('without replay the same iteration writes its execution (the spy sees the iteration path)', async () => {
         const { calls } = await run({ replay: false, flowData: iterationCanvas() })
         expect(calls).toEqual(expect.arrayContaining(['Execution.findOne', 'Execution.save']))
+    })
+
+    it('records each iteration step once on the top-level run', async () => {
+        const spy = jest.spyOn(usage, 'recordCompletedRun').mockImplementation(() => Promise.resolve())
+        try {
+            await run({ replay: false, flowData: iterationCanvas() })
+            expect(spy).toHaveBeenCalledTimes(1)
+            const recorded = usage.usageLinesFromRun(spy.mock.calls[0][1].result)
+            expect(recorded).toEqual([{ model: 'unknown', inputTokens: 24, outputTokens: 18 }])
+        } finally {
+            spy.mockRestore()
+        }
     })
 
     it('ignores a human input answer sent with the question', async () => {

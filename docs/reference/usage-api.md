@@ -8,6 +8,10 @@ A signed-in session can call it, and so can an API key. The totals are only for 
 
 A finished chatflow or agentflow adds its tokens under that flow's id. A harness run started from the harness API adds its tokens under the harness name. A chatflow that calls a harness stores the tokens on the chatflow only. A run that did not report token counts adds nothing. A failed write does not change the run's answer.
 
+The caller needs `chatflows:view` or `agentflows:view`. Without either, the route returns 403. The workspace owner is allowed. The same permission gates `GET /api/v1/stats/:id`.
+
+A publish check counts toward usage. Replaying a question before you publish spends tokens, and those tokens are added to that flow's daily total.
+
 The route returns token counts. It does not return prices.
 
 ## Range
