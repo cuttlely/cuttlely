@@ -52,7 +52,7 @@ import StatsCard from '@/ui-component/cards/StatsCard'
 import Feedback from '@/ui-component/extended/Feedback'
 import ThinkingCard from '@/views/chatmessage/ThinkingCard'
 import HarnessRunTrace from '@/views/chatmessage/HarnessRunTrace'
-import { traceFromPayload } from '../../../../../harness/trace.mjs'
+import { traceFromPayload } from '../../../../../packages/harness/trace.mjs'
 
 // store
 import { HIDE_CANVAS_DIALOG, SHOW_CANVAS_DIALOG } from '@/store/actions'

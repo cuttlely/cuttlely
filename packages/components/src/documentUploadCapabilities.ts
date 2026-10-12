@@ -15,7 +15,7 @@ export const MULTER_FILE_SIZE_ENVELOPE_BYTES = 64 * 1024
 
 export const MULTER_FILE_SIZE_LIMIT = MAX_DOCUMENT_UPLOAD_BYTES + MULTER_FILE_SIZE_ENVELOPE_BYTES
 
-/** Same threshold as `UPLOAD_STUB_BYTES` in `harness/uploads.mjs`. */
+/** Same threshold as `UPLOAD_STUB_BYTES` in `packages/harness/uploads.mjs`. */
 export const UPLOAD_STUB_BYTES = 1024 * 1024
 
 export interface DocumentUploadType {

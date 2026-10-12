@@ -38,6 +38,17 @@ function under(file, dir) {
     return file === dir || file.startsWith(`${dir}/`)
 }
 
+function isRuntimeEngine(file) {
+    return under(file, 'packages/harness') || under(file, 'packages/etl') || under(file, 'harness') || under(file, 'etl')
+}
+
+function runtimeImportAllowed(target) {
+    if (!target) return false
+    if (under(target, 'packages/harness') || under(target, 'packages/etl')) return true
+    if (under(target, 'packages')) return false
+    return under(target, 'harness') || under(target, 'etl') || under(target, 'scripts')
+}
+
 function isBuiltin(spec) {
     if (spec.startsWith('node:')) return true
     return BUILTINS.has(spec.split('/')[0])
@@ -731,7 +742,7 @@ export function collectBoundarySnapshot(root = ROOT, files = trackedFiles(root))
         if (!CODE_EXT.has(ext)) continue
         codeFiles += 1
         const sourceInfo = classify(file, map, cache)
-        const inRuntimeEngines = under(file, 'harness') || under(file, 'etl')
+        const inRuntimeEngines = isRuntimeEngine(file)
         const isolatedDir = under(file, 'packages/chat-widget') ? 'packages/chat-widget' : under(file, 'packages/cli') ? 'packages/cli' : ''
         for (const spec of extractSpecifiers(source)) {
             importEdges += 1
@@ -739,8 +750,7 @@ export function collectBoundarySnapshot(root = ROOT, files = trackedFiles(root))
             if (resolved.kind === 'builtin') continue
             const target = resolved.file || resolved.rel || ''
             if (inRuntimeEngines) {
-                const allowedPlace =
-                    target && (under(target, 'harness') || under(target, 'etl') || under(target, 'scripts')) && !under(target, 'packages')
+                const allowedPlace = runtimeImportAllowed(target)
                 if (resolved.kind === 'package') {
                     r1Packages.add(resolved.name)
                     addEdge(r1PackageEdges, { from: file, to: resolved.name }, 'r1pkg')
@@ -880,7 +890,7 @@ function violationsFor(snapshot, baseline) {
             to: edge.to,
             message: [
                 `R1: ${edge.from} imports ${edge.to}, which is not in ${BASELINE_FILE}.`,
-                'harness/ and etl/ may import node builtins, the recorded third-party packages, each other, and helpers in scripts/. They do not import packages/.',
+                'packages/harness and packages/etl may import node builtins, the recorded third-party packages, each other, and helpers in scripts/. They do not import other paths under packages/.',
                 fixUpdate('package')
             ].join('\n')
         })
@@ -894,12 +904,12 @@ function violationsFor(snapshot, baseline) {
             message: intoPackages
                 ? [
                       `R1: ${edge.from} imports ${edge.to}.`,
-                      'harness/ and etl/ do not import packages/. They may import node builtins, the recorded third-party packages, each other, and helpers in scripts/.',
+                      'packages/harness and packages/etl do not import other paths under packages/. They may import node builtins, the recorded third-party packages, each other, and helpers in scripts/.',
                       'Fix: delete this import. Call the other side through a helper in scripts/ or over HTTP.'
                   ].join('\n')
                 : [
                       `R1: ${edge.from} imports ${edge.to}.`,
-                      'harness/ and etl/ may import node builtins, the recorded third-party packages, each other, and helpers in scripts/.',
+                      'packages/harness and packages/etl may import node builtins, the recorded third-party packages, each other, and helpers in scripts/. They do not import other paths under packages/.',
                       fixUpdate('import')
                   ].join('\n')
         })
@@ -1008,9 +1018,10 @@ function violationsFor(snapshot, baseline) {
             rule: 'stale',
             from: item.name,
             to: item.name,
-            message: [`Stale R1 package: ${item.name} is in ${BASELINE_FILE} but harness/ and etl/ no longer import it.`, fixShrink()].join(
-                '\n'
-            )
+            message: [
+                `Stale R1 package: ${item.name} is in ${BASELINE_FILE} but packages/harness and packages/etl no longer import it.`,
+                fixShrink()
+            ].join('\n')
         })
     }
     return violations

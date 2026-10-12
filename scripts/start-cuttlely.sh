@@ -2,7 +2,7 @@
 # Start Cuttlely and the vendored Hermes runtime as one server.
 # Hermes binds 127.0.0.1 only.
 # Harness jobs default to an in-process SQLite queue (CUTTLELY_HARNESS_QUEUE=inline).
-# CUTTLELY_HARNESS_QUEUE=external runs them in harness/worker.mjs instead.
+# CUTTLELY_HARNESS_QUEUE=external runs them in packages/harness/worker.mjs instead.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -318,7 +318,7 @@ supervise_hermes() {
                             stream_open=1
                         fi
                     elif [[ -n "${NODE_BIN:-}" && -n "${ROOT:-}" && -d "$DATA/hermes-streams" ]]; then
-                        if "$NODE_BIN" "$ROOT/harness/runtime/hermes-stream.mjs" active; then
+                        if "$NODE_BIN" "$ROOT/packages/harness/runtime/hermes-stream.mjs" active; then
                             stream_open=1
                         fi
                     fi
@@ -407,7 +407,7 @@ if [[ "${CUTTLELY_HARNESS_QUEUE:-inline}" == "external" ]]; then
     count="${CUTTLELY_HARNESS_WORKERS:-1}"
     i=1
     while [[ "$i" -le "$count" ]]; do
-        "${NODE_CMD[@]}" "$ROOT/harness/worker.mjs" &
+        "${NODE_CMD[@]}" "$ROOT/packages/harness/worker.mjs" &
         WORKER_PIDS+=("$!")
         i=$((i + 1))
     done
