@@ -27,8 +27,8 @@ const STEPS = [
     {
         name: 'build',
         fast: false,
-        // Chat widget, components, server, and UI. agentflow, observe, and the API docs
-        // package are typechecked in scripts/typecheck.mjs, which --fast also runs.
+        // Chat widget, components, server, and UI. The API docs package is typechecked
+        // in scripts/typecheck.mjs, which --fast also runs.
         command: 'pnpm',
         args: [
             'exec',

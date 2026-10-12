@@ -31,6 +31,19 @@ for (const [file, context] of [
     })
 }
 
+test('the image build allowlist names packages that exist and build', () => {
+    const root = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8'))
+    const filters = [...root.scripts['build:docker'].matchAll(/--filter=(\.\/\S+)/g)].map((match) => match[1])
+    assert.ok(filters.length > 0, 'build:docker names no directory filters')
+    for (const filter of filters) {
+        const dir = path.join(ROOT, filter)
+        assert.equal(fs.existsSync(dir), true, filter)
+        const manifest = JSON.parse(fs.readFileSync(path.join(dir, 'package.json'), 'utf8'))
+        assert.equal(typeof manifest.scripts?.build, 'string', `${filter} has no build script`)
+        assert.ok(manifest.scripts.build.length > 0, filter)
+    }
+})
+
 test('the root Compose file checks health with ping', () => {
     assert.match(service('docker-compose.yml').healthcheck.test.join(' '), /\/api\/v1\/ping/)
 })

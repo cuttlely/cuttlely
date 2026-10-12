@@ -17,12 +17,8 @@ function main() {
     console.log('typecheck flowise')
     run(['--noEmit', '-p', 'packages/server/tsconfig.json'])
     console.log('typecheck flowise-ui: no TypeScript project; the UI build step covers that package')
-    // CI runs `pnpm build` for these packages. The verify build step does not.
-    // `tsc --noEmit` is the type check their build scripts run before Vite (the API docs package is tsc only).
-    console.log('typecheck @flowiseai/agentflow')
-    run(['--noEmit', '-p', 'packages/agentflow/tsconfig.json'])
-    console.log('typecheck @flowiseai/observe')
-    run(['--noEmit', '-p', 'packages/observe/tsconfig.json'])
+    // CI runs `pnpm build`, which includes the API docs package. The verify build step does not.
+    // `tsc --noEmit` is the type check that package runs (its build script is tsc only).
     console.log('typecheck flowise-api')
     run(['--noEmit', '-p', 'packages/api-documentation/tsconfig.json'])
 }

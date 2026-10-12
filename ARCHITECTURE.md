@@ -6,15 +6,15 @@ The machine-readable form of this page is [architecture/boundaries.json](./archi
 
 ## Zones
 
-| Zone      | What it is                                                                                 | Where it lives                                                                                                                                                                 |
-| --------- | ------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Core      | Harnesses, pipelines, versioning, identity, the admin panel, the widget, the CLI, and docs | The subsystem paths in the map, plus the `core-shared` bucket                                                                                                                  |
-| Inherited | The canvas engine at baseline release 3.1.4. No automatic sync                             | `packages/server`, `packages/ui`, `packages/components`, `packages/agentflow`, `packages/observe`, `packages/api-documentation`, and the root files the map lists as inherited |
-| Vendored  | The agent runtime, pinned, with a lock, a fingerprint, and patches                         | `hermes/**`                                                                                                                                                                    |
+| Zone      | What it is                                                                                 | Where it lives                                                                                                                       |
+| --------- | ------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------ |
+| Core      | Harnesses, pipelines, versioning, identity, the admin panel, the widget, the CLI, and docs | The subsystem paths in the map, plus the `core-shared` bucket                                                                        |
+| Inherited | The canvas engine at baseline release 3.1.4. No automatic sync                             | `packages/server`, `packages/ui`, `packages/components`, `packages/api-documentation`, and the root files the map lists as inherited |
+| Vendored  | The agent runtime, pinned, with a lock, a fingerprint, and patches                         | `hermes/**`                                                                                                                          |
 
 A tracked file is vendored, or it belongs to one subsystem, or it is inherited. When several path globs match, the most specific glob wins (the most literal characters). That is why `scripts/analyst-*.mjs` is part of harnesses while the rest of `scripts/` is `core-shared`. A tie is a broken map.
 
-A new file inside an inherited package stays in that package until its path is added to a subsystem. Add the path in the same change. `packages/agentflow` is 95.8% byte-identical in its non-blank code lines, and `packages/observe` is 100% byte-identical in its non-blank code lines. No product package depends on either one.
+A new file inside an inherited package stays in that package until its path is added to a subsystem. Add the path in the same change.
 
 ## What was measured
 
