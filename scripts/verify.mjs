@@ -109,6 +109,13 @@ const STEPS = [
         args: ['--dir', 'packages/chat-widget', 'test']
     },
     {
+        // Version history, redaction, trailers and the GitHub copy. Moved with the versioning core.
+        name: 'versioning',
+        fast: true,
+        command: 'pnpm',
+        args: ['--dir', 'packages/versioning', 'test']
+    },
+    {
         name: 'hermes-vendor',
         fast: true,
         command: process.execPath,
@@ -269,7 +276,7 @@ function parseArgs(argv) {
             console.log('pnpm verify [--fast] [--skip <step>]')
             console.log(`steps: ${STEPS.map((step) => step.name).join(', ')}`)
             console.log(
-                '--fast runs lint, boundaries, typecheck, verify-test, website-docs, chat-widget, hermes-vendor, unit, server-settings-ui, handoff-test, render-blueprint, and identity-migration'
+                '--fast runs lint, boundaries, typecheck, verify-test, website-docs, chat-widget, versioning, hermes-vendor, unit, server-settings-ui, handoff-test, render-blueprint, and identity-migration'
             )
             console.log('unit Jest workers default to 50%. Set CUTTLELY_VERIFY_JEST_WORKERS to a positive integer or a percentage.')
             console.log(

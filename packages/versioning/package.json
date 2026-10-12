@@ -1,0 +1,22 @@
+{
+    "name": "@cuttlely/versioning",
+    "version": "1.0.2",
+    "private": true,
+    "description": "Version history for Cuttlely canvases: serialize, redact, summary, history, trailers and the GitHub copy.",
+    "main": "dist/index.js",
+    "types": "dist/index.d.ts",
+    "license": "Apache-2.0",
+    "scripts": {
+        "build": "tsc -p tsconfig.json",
+        "clean": "rimraf dist",
+        "test": "jest --watchAll=false --forceExit"
+    },
+    "devDependencies": {
+        "@types/jest": "^29.5.14",
+        "@types/node": "^24.10.1",
+        "jest": "^29.7.0",
+        "rimraf": "^5.0.5",
+        "ts-jest": "^29.3.2",
+        "typescript": "^5.4.5"
+    }
+}

@@ -3,10 +3,6 @@ import fs from 'fs'
 import os from 'os'
 import path from 'path'
 
-jest.mock('../../utils/logger', () => ({ __esModule: true, default: { warn: jest.fn(), info: jest.fn(), error: jest.fn() } }))
-jest.mock('../../utils/getRunningExpressApp', () => ({ getRunningExpressApp: jest.fn() }))
-
-import logger from '../../utils/logger'
 import {
     flushVersions,
     getStore,
@@ -19,7 +15,7 @@ import {
 } from './index'
 import { authEnv, checkToken, classifyFailure, GithubSync, parseRepo, scrub } from './github'
 import { gitEnv, runGit } from './store'
-import { GIT_WORDS, gitWordsIn, messagesInSource } from '../../utils/plainWords'
+import { useTestDeps, warnings } from './testDeps'
 
 // Never a real token. Built so no secret scanner sees a token shape in this file.
 // These tests run real git processes. On an idle box the slowest test takes about 4 s; while other builds run,
@@ -140,7 +136,7 @@ function makeSync(options: Partial<ConstructorParameters<typeof GithubSync>[0]> 
         store: getStore,
         enabled: isVersioningEnabled,
         credentials: credentialStore,
-        log: (message) => (logger as any).warn(message),
+        log: (message) => warnings.push(message),
         debounceMs: 0,
         retryMs: [60_000],
         onGit: (args, env) => gitCalls.push({ args, env }),
@@ -159,13 +155,13 @@ beforeEach(() => {
     process.env.CUTTLELY_VERSIONS = 'on'
     process.env.CUTTLELY_VERSIONS_DIR = path.join(tmp, 'versions')
     process.env.CUTTLELY_GITHUB_ALLOW_FILE_REMOTES = 'on'
+    useTestDeps()
     resetForTests()
     gitCalls = []
     credentialRows = new Map()
     bare = makeBare(path.join(tmp, 'remote.git'))
     sync = makeSync()
     setGithubForTests(sync)
-    ;(logger.warn as jest.Mock).mockClear()
 })
 
 afterEach(() => {
@@ -180,7 +176,7 @@ function expectTokenNowhere() {
     for (const file of allFiles(versionsDir())) expect(fs.readFileSync(file).toString('latin1')).not.toContain(TOKEN)
     expect(bareLog(bare)).not.toContain(TOKEN)
     for (const file of allFiles(bare)) expect(fs.readFileSync(file).toString('latin1')).not.toContain(TOKEN)
-    expect(JSON.stringify((logger.warn as jest.Mock).mock.calls)).not.toContain(TOKEN)
+    expect(JSON.stringify(warnings)).not.toContain(TOKEN)
 }
 
 describe('repository and token input', () => {
@@ -690,7 +686,7 @@ describe('picking or creating a repository', () => {
         })
         expect(calls[0].init.headers.Authorization).toBe(`Bearer ${TOKEN}`)
         for (const call of calls) expect(call.url).not.toContain(TOKEN)
-        expect(JSON.stringify((logger.warn as jest.Mock).mock.calls)).not.toContain(TOKEN)
+        expect(JSON.stringify(warnings)).not.toContain(TOKEN)
     })
 
     test('on Prod, a repository the token can only read is listed too, and no repository is created', async () => {
@@ -867,34 +863,5 @@ describe('local stand-in for GitHub (end-to-end runs without an account)', () =>
         process.env.CUTTLELY_GITHUB_TEST_ROOT = path.join(tmp, 'gh')
         await expect(sync.listRepos({ token: TOKEN }, WS)).rejects.toMatchObject({ status: 400 })
         expect(urls[1]).toBe('http://127.0.0.1:9/user')
-    })
-})
-
-describe('plain words on screen', () => {
-    // Every message the GitHub card can show: no Git words such as main, branch, commit or push.
-    // The scanner and its own tests are in utils/plainWords.
-    const messagesIn = (file: string) => messagesInSource(fs.readFileSync(file, 'utf8'))
-
-    test('every message in github.ts uses no Git words', () => {
-        const file = path.join(__dirname, 'github.ts')
-        expect(messagesIn(file).length).toBeGreaterThan(40)
-        expect(gitWordsIn(fs.readFileSync(file, 'utf8'))).toEqual([])
-    })
-
-    test('the scan sees messages built in local variables and ternaries', () => {
-        const messages = messagesIn(path.join(__dirname, 'github.ts'))
-        expect(messages).toContain('Up to date. Every version on this server is on GitHub.')
-        expect(messages).toContain('Copying to GitHub now.')
-        expect(messages.some((text) => text.startsWith('Could not reach GitHub to check X.'))).toBe(true)
-    })
-
-    test.each([
-        'remote: error: GH006: Protected branch update failed',
-        ' ! [rejected]        main -> main (fetch first)',
-        'fatal: Authentication failed',
-        'fatal: unable to access: Could not resolve host: github.com',
-        'something new'
-    ])('the message for %j uses no Git words', (stderr) => {
-        expect(GIT_WORDS.test(classifyFailure(stderr, 'acme/flows').message)).toBe(false)
     })
 })

@@ -15,7 +15,7 @@ import {
 } from './serialize'
 import { SECRET_PLACEHOLDER } from './redact'
 
-const ROOT = path.resolve(__dirname, '..', '..', '..', '..', '..')
+const ROOT = path.resolve(__dirname, '..', '..', '..')
 
 function listJson(dir: string): string[] {
     if (!fs.existsSync(dir)) return []
