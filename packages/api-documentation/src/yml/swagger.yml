@@ -8,6 +8,7 @@ tags:
     - name: leads
     - name: ping
     - name: prediction
+    - name: stats
     - name: tools
     - name: upsert-history
     - name: variables
@@ -1195,6 +1196,66 @@ paths:
                 '500':
                     description: Internal server error
 
+    /stats/usage:
+        get:
+            tags:
+                - stats
+            security:
+                - bearerAuth: []
+            operationId: getTokenUsage
+            summary: Token totals over time
+            description: >
+                Daily input and output token totals for the caller's active workspace.
+                A finished chatflow or agentflow adds its tokens under that flow's id.
+                A harness run started from the harness API adds its tokens under the harness name.
+                The same run is not stored twice. A run that did not report token counts adds nothing.
+                `days` is 7, 30, or 90, ending today (UTC). `startDate` and `endDate` are an inclusive
+                custom range in YYYY-MM-DD and replace `days`. A custom range can cover at most 366 days.
+                `flowId` and `model` narrow the totals. This route returns token counts, not prices.
+            parameters:
+                - in: query
+                  name: days
+                  schema:
+                      type: string
+                      enum: ['7', '30', '90']
+                  description: Preset window ending today (UTC). Ignored when startDate and endDate are both set. Defaults to 7.
+                - in: query
+                  name: startDate
+                  schema:
+                      type: string
+                      format: date
+                      example: '2026-10-01'
+                  description: First UTC day of a custom range. Required together with endDate.
+                - in: query
+                  name: endDate
+                  schema:
+                      type: string
+                      format: date
+                      example: '2026-10-12'
+                  description: Last UTC day of a custom range, inclusive.
+                - in: query
+                  name: flowId
+                  schema:
+                      type: string
+                  description: Limit the totals to one chatflow, agentflow, or harness name.
+                - in: query
+                  name: model
+                  schema:
+                      type: string
+                      example: gpt-4.1-mini
+                  description: Limit the totals to one model name, as the run recorded it.
+            responses:
+                '200':
+                    description: Daily totals, totals per flow, and totals per model
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/TokenUsage'
+                '400':
+                    description: The date range is not valid
+                '401':
+                    description: Unauthorized
+
     /ping:
         get:
             tags:
@@ -1767,6 +1828,60 @@ components:
         UnauthorizedError:
             description: Access token is missing or invalid
     schemas:
+        TokenUsage:
+            type: object
+            properties:
+                startDate:
+                    type: string
+                    format: date
+                    example: '2026-10-06'
+                endDate:
+                    type: string
+                    format: date
+                    example: '2026-10-12'
+                days:
+                    type: array
+                    items:
+                        type: object
+                        properties:
+                            day:
+                                type: string
+                                format: date
+                            inputTokens:
+                                type: integer
+                            outputTokens:
+                                type: integer
+                flows:
+                    type: array
+                    description: Totals for each flow in the range, after filters.
+                    items:
+                        type: object
+                        properties:
+                            flowId:
+                                type: string
+                            inputTokens:
+                                type: integer
+                            outputTokens:
+                                type: integer
+                models:
+                    type: array
+                    description: Totals for each model in the range, after filters.
+                    items:
+                        type: object
+                        properties:
+                            model:
+                                type: string
+                            inputTokens:
+                                type: integer
+                            outputTokens:
+                                type: integer
+                totals:
+                    type: object
+                    properties:
+                        inputTokens:
+                            type: integer
+                        outputTokens:
+                            type: integer
         ApiKey:
             type: object
             properties:

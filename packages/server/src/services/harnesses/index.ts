@@ -9,6 +9,7 @@ import { databaseEntities } from '../../utils'
 import { getRunningExpressApp } from '../../utils/getRunningExpressApp'
 import logger from '../../utils/logger'
 import { orgIdForWorkspace } from '../etl'
+import { recordCompletedRun } from '../usage'
 
 // The server build targets CommonJS, and tsc rewrites import() into require().
 // require() cannot load the ESM harness package, so keep a real dynamic import.
@@ -182,7 +183,12 @@ const assertRunRequest = async (name: string, body: Record<string, unknown>) => 
 const startRun = async (
     name: string,
     body: Record<string, unknown>,
-    opts: { source?: string; signal?: AbortSignal; onEvent?: (event: { type: string }) => void } = {}
+    opts: {
+        source?: string
+        signal?: AbortSignal
+        onEvent?: (event: { type: string }) => void
+        workspaceId?: string | null
+    } = {}
 ) => {
     const prepared = await assertRunRequest(name, body)
     await configureRuntime()
@@ -214,6 +220,18 @@ const startRun = async (
         if (!recorded) {
             const history = await loadHarness('history.mjs')
             recorded = history.listRuns(name, { limit: 20 }).find((row: { chatId?: string }) => row.chatId === prepared.chatId) || null
+        }
+        const workspaceId = opts.workspaceId || prepared.harness.workspaceId
+        if (workspaceId) {
+            try {
+                void recordCompletedRun(getRunningExpressApp().AppDataSource, {
+                    workspaceId,
+                    flowId: prepared.harness.name,
+                    result: payload
+                })
+            } catch (error) {
+                logger.warn(`[usage] harness token totals were not saved: ${getErrorMessage(error)}`)
+            }
         }
         return { payload, run: recorded, chatId: prepared.chatId }
     } catch (error) {

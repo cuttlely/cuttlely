@@ -84,7 +84,10 @@ async function runHarnessCanvasChat(req: Request, res: Response, name: string) {
     const streaming = isStreamingRequest(req)
     const source = 'playground'
     if (!streaming) {
-        const outcome = await harnessesService.startRun(name, req.body || {}, { source })
+        const outcome = await harnessesService.startRun(name, req.body || {}, {
+            source,
+            workspaceId: req.user?.activeWorkspaceId
+        })
         return res.json({ chatId: outcome.chatId, run: outcome.run, ...outcome.payload })
     }
     const signal = watchClientDisconnect(res)
@@ -102,6 +105,7 @@ async function runHarnessCanvasChat(req: Request, res: Response, name: string) {
         const outcome = await harnessesService.startRun(name, req.body || {}, {
             source,
             signal,
+            workspaceId: req.user?.activeWorkspaceId,
             onEvent: (event) => write(`harness.${event.type}`, event)
         })
         write('harness.recorded', { run: outcome.run, chatId: outcome.chatId })

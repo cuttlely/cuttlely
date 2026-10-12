@@ -77,6 +77,7 @@ import { validateFlowAPIKey } from './validateKey'
 import { bindRequestSession } from './sessionOwnership'
 import logger from './logger'
 import { utilAddChatMessage } from './addChatMesage'
+import { recordCompletedRun } from '../services/usage'
 import { checkPredictions, checkStorage, updatePredictionsUsage, updateStorageUsage } from './quotaUsage'
 import { buildAgentGraph } from './buildAgentGraph'
 import { getErrorMessage } from '../errors/utils'
@@ -960,6 +961,8 @@ export const executeFlow = async ({
         if (result?.action) apiMessage.action = typeof result.action === 'string' ? result.action : JSON.stringify(result.action)
         if (replay) {
             // Only the answer: no saved message, follow-up prompts, telemetry or speech.
+            // The check still spent tokens, so the daily total includes them.
+            void recordCompletedRun(appDataSource, { workspaceId, flowId: chatflowid, result })
             return { text: resultText, sourceDocuments: result?.sourceDocuments, usedTools: result?.usedTools }
         }
         if (chatflow.followUpPrompts) {
@@ -982,6 +985,7 @@ export const executeFlow = async ({
             const metrics = await EvaluationRunner.getAndDeleteMetrics(evaluationRunId)
             result.metrics = metrics
         }
+        void recordCompletedRun(appDataSource, { workspaceId, flowId: chatflowid, result })
         await telemetry.sendTelemetry(
             'prediction_sent',
             {

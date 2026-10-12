@@ -71,6 +71,7 @@ import { AppError } from '../errors/appError'
 import { StatusCodes } from 'http-status-codes'
 import { pinOwnedMemorySession } from './sessionOwnership'
 import { fileDownloadUrl } from './fileLinkSignature'
+import { recordCompletedRun } from '../services/usage'
 
 interface IWaitingNode {
     nodeId: string
@@ -2327,6 +2328,10 @@ export const executeAgentFlow = async ({
 
     if (parentTraceIds && analyticHandlers) {
         await analyticHandlers.onChainEnd(parentTraceIds, content, true)
+    }
+
+    if (status === 'FINISHED') {
+        void recordCompletedRun(appDataSource, { workspaceId, flowId: chatflowid, result: { agentFlowExecutedData } })
     }
 
     if (isRecursive) {

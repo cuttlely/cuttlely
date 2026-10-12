@@ -96,3 +96,11 @@ Before you publish a chatflow or an agentflow, the Publish dialog can ask recent
 Those tokens are the total the check counted for that side. The check does not split them into input, output and cached, and it does not show the route, specialist and handoff times. Those stay on the run card and in the API response.
 
 The dialog is in [Check recent questions before you publish](./versioning.md#check-recent-questions-before-you-publish).
+
+## Usage over time
+
+A finished run also adds its input and output tokens to a daily total. The total is kept per workspace, per flow, per model, and per UTC day. A chatflow or an agentflow is stored under that flow's id. A harness run started from the harness API is stored under the harness name. A chatflow that calls a harness stores the tokens on the chatflow, not a second time on the harness name. A run that did not report token counts adds nothing. Saving the total never changes the answer: if the write fails, the run still returns.
+
+`GET /api/v1/stats/usage` returns those totals for the caller's workspace. The range is the last 7, 30, or 90 UTC days, or a custom `startDate` and `endDate`. You can filter with `flowId` and `model`. The response has one row per day (including days with zero tokens), a total per flow, and a total per model. The numbers are token counts. The reference is [Usage API](../reference/usage-api.md).
+
+A publish check is a finished run, so its tokens are included. A run that stops for human input is not included until it finishes.

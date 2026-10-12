@@ -69,7 +69,10 @@ const createRun = async (req: Request, res: Response, next: NextFunction) => {
     }
     if (!isStreamingRequest(req)) {
         try {
-            const outcome = await harnessesService.startRun(req.params.name, req.body || {}, { source })
+            const outcome = await harnessesService.startRun(req.params.name, req.body || {}, {
+                source,
+                workspaceId: req.user?.activeWorkspaceId
+            })
             return res.json({ chatId: outcome.chatId, run: outcome.run, ...outcome.payload })
         } catch (error) {
             next(error)
@@ -87,6 +90,7 @@ const createRun = async (req: Request, res: Response, next: NextFunction) => {
         const outcome = await harnessesService.startRun(req.params.name, req.body || {}, {
             source,
             signal,
+            workspaceId: req.user?.activeWorkspaceId,
             onEvent: (event) => writeSse(res, `harness.${event.type}`, event)
         })
         // Images a specialist made: the events named them, the chat shows them.
