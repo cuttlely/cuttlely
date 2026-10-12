@@ -10,7 +10,8 @@ module.exports = {
         '<rootDir>/../node-pack-legacy-chains'
     ],
     transform: {
-        '^.+\\.tsx?$': 'ts-jest'
+        // Same compiler as ts-jest. The wrapper records compile time for the node load budget.
+        '^.+\\.tsx?$': '<rootDir>/load-coverage-transformer.cjs'
     },
     testRegex: '(/__tests__/.*|(\\.|/)(test|spec))\\.tsx?$',
     moduleFileExtensions: ['ts', 'tsx', 'js', 'jsx', 'json', 'node'],
