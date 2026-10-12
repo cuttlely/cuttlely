@@ -914,7 +914,10 @@ describe('Dev or Prod label', () => {
         expect(stopped.message).toContain('has changes that are not on this server')
         const pushes = gitCalls.filter((call) => call.args[0] === 'push').length
         const fetches = gitCalls.filter((call) => call.args[0] === 'fetch').length
-        await new Promise((resolve) => setTimeout(resolve, 120))
+        await new Promise((resolve) => setTimeout(resolve, 80))
+        await sync.idle()
+        // Stop the next poll before reading status, so the assertion does not land mid-read.
+        sync.stop()
         await sync.idle()
         expect(gitCalls.filter((call) => call.args[0] === 'push').length).toBe(pushes)
         expect(gitCalls.filter((call) => call.args[0] === 'fetch').length).toBeGreaterThan(fetches)
