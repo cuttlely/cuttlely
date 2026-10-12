@@ -249,7 +249,10 @@ function fixture() {
         path.join(repo, 'package.json'),
         '{\n    "name": "cuttlely-workspace",\n    "version": "1.0.0",\n    "private": true\n}\n'
     )
-    fs.writeFileSync(path.join(repo, 'packages', 'server', 'package.json'), '{\n    "name": "flowise",\n    "version": "1.0.0"\n}\n')
+    fs.writeFileSync(
+        path.join(repo, 'packages', 'server', 'package.json'),
+        '{\n    "name": "@cuttlely/server",\n    "version": "1.0.0"\n}\n'
+    )
     fs.writeFileSync(path.join(repo, 'packages', 'cli', 'package.json'), '{\n    "name": "cuttlely",\n    "version": "1.0.0"\n}\n')
     fs.writeFileSync(
         path.join(repo, 'packages', 'chat-widget', 'package.json'),

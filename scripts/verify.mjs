@@ -43,8 +43,8 @@ const STEPS = [
             'build',
             '--filter=@cuttlely/chat',
             '--filter=@cuttlely/components',
-            '--filter=flowise',
-            '--filter=flowise-ui'
+            '--filter=@cuttlely/server',
+            '--filter=@cuttlely/ui'
         ],
         env: { NODE_OPTIONS: '--max-old-space-size=4096' }
     },
@@ -59,6 +59,7 @@ const STEPS = [
             path.join(ROOT, 'scripts', 'check-boundaries.test.mjs'),
             path.join(ROOT, 'scripts', 'health-report.test.mjs'),
             path.join(ROOT, 'scripts', 'components-package-alias.test.mjs'),
+            path.join(ROOT, 'scripts', 'package-names.test.mjs'),
             path.join(ROOT, 'scripts', 'proprietary-paths.test.mjs'),
             path.join(ROOT, 'scripts', 'etl-list-sqlite.test.mjs'),
             path.join(ROOT, 'scripts', 'start-local-admin.test.mjs'),
