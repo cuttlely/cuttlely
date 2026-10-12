@@ -1,7 +1,7 @@
 import { ClientType, INode, INodeOptionsValue } from '@cuttlely/components'
 import { StatusCodes } from 'http-status-codes'
 import { omit } from 'lodash'
-import { InternalFlowiseError } from '../../errors/internalFlowiseError'
+import { AppError } from '../../errors/appError'
 import { getErrorMessage } from '../../errors/utils'
 import { INodeData, MODE } from '../../Interface'
 import { databaseEntities } from '../../utils'
@@ -26,7 +26,7 @@ const getAllNodes = async (client?: ClientType) => {
         }
         return dbResponse
     } catch (error) {
-        throw new InternalFlowiseError(StatusCodes.INTERNAL_SERVER_ERROR, `Error: nodesService.getAllNodes - ${getErrorMessage(error)}`)
+        throw new AppError(StatusCodes.INTERNAL_SERVER_ERROR, `Error: nodesService.getAllNodes - ${getErrorMessage(error)}`)
     }
 }
 
@@ -44,10 +44,7 @@ const getAllNodesForCategory = async (category: string, client?: ClientType) => 
         }
         return dbResponse
     } catch (error) {
-        throw new InternalFlowiseError(
-            StatusCodes.INTERNAL_SERVER_ERROR,
-            `Error: nodesService.getAllNodesForCategory - ${getErrorMessage(error)}`
-        )
+        throw new AppError(StatusCodes.INTERNAL_SERVER_ERROR, `Error: nodesService.getAllNodesForCategory - ${getErrorMessage(error)}`)
     }
 }
 
@@ -59,10 +56,10 @@ const getNodeByName = async (nodeName: string, client?: ClientType) => {
             const descriptor = appServer.nodesPool.getNodeDescriptor(nodeName) as INode
             return filterNodeByClient(descriptor, client)
         } else {
-            throw new InternalFlowiseError(StatusCodes.NOT_FOUND, `Node ${nodeName} not found`)
+            throw new AppError(StatusCodes.NOT_FOUND, `Node ${nodeName} not found`)
         }
     } catch (error) {
-        throw new InternalFlowiseError(StatusCodes.INTERNAL_SERVER_ERROR, `Error: nodesService.getAllNodes - ${getErrorMessage(error)}`)
+        throw new AppError(StatusCodes.INTERNAL_SERVER_ERROR, `Error: nodesService.getAllNodes - ${getErrorMessage(error)}`)
     }
 }
 
@@ -101,16 +98,13 @@ const getSingleNodeAsyncOptions = async (nodeName: string, requestBody: any, wor
                 return []
             }
         } else {
-            throw new InternalFlowiseError(StatusCodes.NOT_FOUND, `Node ${nodeName} not found`)
+            throw new AppError(StatusCodes.NOT_FOUND, `Node ${nodeName} not found`)
         }
     } catch (error) {
-        if (error instanceof InternalFlowiseError) {
+        if (error instanceof AppError) {
             throw error
         }
-        throw new InternalFlowiseError(
-            StatusCodes.INTERNAL_SERVER_ERROR,
-            `Error: nodesService.getSingleNodeAsyncOptions - ${getErrorMessage(error)}`
-        )
+        throw new AppError(StatusCodes.INTERNAL_SERVER_ERROR, `Error: nodesService.getSingleNodeAsyncOptions - ${getErrorMessage(error)}`)
     }
 }
 

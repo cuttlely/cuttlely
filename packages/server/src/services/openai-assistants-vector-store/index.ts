@@ -2,21 +2,21 @@ import OpenAI from 'openai'
 import { StatusCodes } from 'http-status-codes'
 import { Credential } from '../../database/entities/Credential'
 import { WorkspaceShared } from '../../database/entities/identity'
-import { InternalFlowiseError } from '../../errors/internalFlowiseError'
+import { AppError } from '../../errors/appError'
 import { getErrorMessage } from '../../errors/utils'
 import { getRunningExpressApp } from '../../utils/getRunningExpressApp'
 import { decryptCredentialData } from '../../utils'
 import { getFileFromUpload, removeSpecificFileFromUpload } from '@cuttlely/components'
 
 const rethrowIfFlowiseError = (error: unknown): void => {
-    if (error instanceof InternalFlowiseError) {
+    if (error instanceof AppError) {
         throw error
     }
 }
 
 const resolveCredentialForWorkspace = async (credentialId: string, workspaceId: string): Promise<Credential> => {
     if (!workspaceId) {
-        throw new InternalFlowiseError(StatusCodes.BAD_REQUEST, 'Workspace ID is required')
+        throw new AppError(StatusCodes.BAD_REQUEST, 'Workspace ID is required')
     }
     const appServer = getRunningExpressApp()
     const credentialRepo = appServer.AppDataSource.getRepository(Credential)
@@ -38,7 +38,7 @@ const resolveCredentialForWorkspace = async (credentialId: string, workspaceId: 
     if (credential) {
         return credential
     }
-    throw new InternalFlowiseError(StatusCodes.NOT_FOUND, 'Credential not found')
+    throw new AppError(StatusCodes.NOT_FOUND, 'Credential not found')
 }
 
 const getAssistantVectorStore = async (credentialId: string, vectorStoreId: string, workspaceId: string) => {
@@ -48,7 +48,7 @@ const getAssistantVectorStore = async (credentialId: string, vectorStoreId: stri
         const decryptedCredentialData = await decryptCredentialData(credential.encryptedData)
         const openAIApiKey = decryptedCredentialData['openAIApiKey']
         if (!openAIApiKey) {
-            throw new InternalFlowiseError(StatusCodes.NOT_FOUND, `OpenAI ApiKey not found`)
+            throw new AppError(StatusCodes.NOT_FOUND, `OpenAI ApiKey not found`)
         }
 
         const openai = new OpenAI({ apiKey: openAIApiKey })
@@ -56,7 +56,7 @@ const getAssistantVectorStore = async (credentialId: string, vectorStoreId: stri
         return dbResponse
     } catch (error) {
         rethrowIfFlowiseError(error)
-        throw new InternalFlowiseError(
+        throw new AppError(
             StatusCodes.INTERNAL_SERVER_ERROR,
             `Error: openaiAssistantsVectorStoreService.getAssistantVectorStore - ${getErrorMessage(error)}`
         )
@@ -70,7 +70,7 @@ const listAssistantVectorStore = async (credentialId: string, workspaceId: strin
         const decryptedCredentialData = await decryptCredentialData(credential.encryptedData)
         const openAIApiKey = decryptedCredentialData['openAIApiKey']
         if (!openAIApiKey) {
-            throw new InternalFlowiseError(StatusCodes.NOT_FOUND, `OpenAI ApiKey not found`)
+            throw new AppError(StatusCodes.NOT_FOUND, `OpenAI ApiKey not found`)
         }
 
         const openai = new OpenAI({ apiKey: openAIApiKey })
@@ -78,7 +78,7 @@ const listAssistantVectorStore = async (credentialId: string, workspaceId: strin
         return dbResponse.data
     } catch (error) {
         rethrowIfFlowiseError(error)
-        throw new InternalFlowiseError(
+        throw new AppError(
             StatusCodes.INTERNAL_SERVER_ERROR,
             `Error: openaiAssistantsVectorStoreService.listAssistantVectorStore - ${getErrorMessage(error)}`
         )
@@ -92,7 +92,7 @@ const createAssistantVectorStore = async (credentialId: string, obj: OpenAI.Vect
         const decryptedCredentialData = await decryptCredentialData(credential.encryptedData)
         const openAIApiKey = decryptedCredentialData['openAIApiKey']
         if (!openAIApiKey) {
-            throw new InternalFlowiseError(StatusCodes.NOT_FOUND, `OpenAI ApiKey not found`)
+            throw new AppError(StatusCodes.NOT_FOUND, `OpenAI ApiKey not found`)
         }
 
         const openai = new OpenAI({ apiKey: openAIApiKey })
@@ -100,7 +100,7 @@ const createAssistantVectorStore = async (credentialId: string, obj: OpenAI.Vect
         return dbResponse
     } catch (error) {
         rethrowIfFlowiseError(error)
-        throw new InternalFlowiseError(
+        throw new AppError(
             StatusCodes.INTERNAL_SERVER_ERROR,
             `Error: openaiAssistantsVectorStoreService.createAssistantVectorStore - ${getErrorMessage(error)}`
         )
@@ -119,7 +119,7 @@ const updateAssistantVectorStore = async (
         const decryptedCredentialData = await decryptCredentialData(credential.encryptedData)
         const openAIApiKey = decryptedCredentialData['openAIApiKey']
         if (!openAIApiKey) {
-            throw new InternalFlowiseError(StatusCodes.NOT_FOUND, `OpenAI ApiKey not found`)
+            throw new AppError(StatusCodes.NOT_FOUND, `OpenAI ApiKey not found`)
         }
 
         const openai = new OpenAI({ apiKey: openAIApiKey })
@@ -136,7 +136,7 @@ const updateAssistantVectorStore = async (
         return dbResponse
     } catch (error) {
         rethrowIfFlowiseError(error)
-        throw new InternalFlowiseError(
+        throw new AppError(
             StatusCodes.INTERNAL_SERVER_ERROR,
             `Error: openaiAssistantsVectorStoreService.updateAssistantVectorStore - ${getErrorMessage(error)}`
         )
@@ -150,7 +150,7 @@ const deleteAssistantVectorStore = async (credentialId: string, vectorStoreId: s
         const decryptedCredentialData = await decryptCredentialData(credential.encryptedData)
         const openAIApiKey = decryptedCredentialData['openAIApiKey']
         if (!openAIApiKey) {
-            throw new InternalFlowiseError(StatusCodes.NOT_FOUND, `OpenAI ApiKey not found`)
+            throw new AppError(StatusCodes.NOT_FOUND, `OpenAI ApiKey not found`)
         }
 
         const openai = new OpenAI({ apiKey: openAIApiKey })
@@ -158,7 +158,7 @@ const deleteAssistantVectorStore = async (credentialId: string, vectorStoreId: s
         return dbResponse
     } catch (error) {
         rethrowIfFlowiseError(error)
-        throw new InternalFlowiseError(
+        throw new AppError(
             StatusCodes.INTERNAL_SERVER_ERROR,
             `Error: openaiAssistantsVectorStoreService.deleteAssistantVectorStore - ${getErrorMessage(error)}`
         )
@@ -177,7 +177,7 @@ const uploadFilesToAssistantVectorStore = async (
         const decryptedCredentialData = await decryptCredentialData(credential.encryptedData)
         const openAIApiKey = decryptedCredentialData['openAIApiKey']
         if (!openAIApiKey) {
-            throw new InternalFlowiseError(StatusCodes.NOT_FOUND, `OpenAI ApiKey not found`)
+            throw new AppError(StatusCodes.NOT_FOUND, `OpenAI ApiKey not found`)
         }
 
         const openai = new OpenAI({ apiKey: openAIApiKey })
@@ -200,18 +200,18 @@ const uploadFilesToAssistantVectorStore = async (
         })
         if (res.status === 'completed' && res.file_counts.completed === uploadedFiles.length) return uploadedFiles
         else if (res.status === 'failed')
-            throw new InternalFlowiseError(
+            throw new AppError(
                 StatusCodes.INTERNAL_SERVER_ERROR,
                 'Error: openaiAssistantsVectorStoreService.uploadFilesToAssistantVectorStore - Upload failed!'
             )
         else
-            throw new InternalFlowiseError(
+            throw new AppError(
                 StatusCodes.INTERNAL_SERVER_ERROR,
                 'Error: openaiAssistantsVectorStoreService.uploadFilesToAssistantVectorStore - Upload cancelled!'
             )
     } catch (error) {
         rethrowIfFlowiseError(error)
-        throw new InternalFlowiseError(
+        throw new AppError(
             StatusCodes.INTERNAL_SERVER_ERROR,
             `Error: openaiAssistantsVectorStoreService.uploadFilesToAssistantVectorStore - ${getErrorMessage(error)}`
         )
@@ -230,7 +230,7 @@ const deleteFilesFromAssistantVectorStore = async (
         const decryptedCredentialData = await decryptCredentialData(credential.encryptedData)
         const openAIApiKey = decryptedCredentialData['openAIApiKey']
         if (!openAIApiKey) {
-            throw new InternalFlowiseError(StatusCodes.NOT_FOUND, `OpenAI ApiKey not found`)
+            throw new AppError(StatusCodes.NOT_FOUND, `OpenAI ApiKey not found`)
         }
 
         const openai = new OpenAI({ apiKey: openAIApiKey })
@@ -247,7 +247,7 @@ const deleteFilesFromAssistantVectorStore = async (
         return { deletedFileIds, count }
     } catch (error) {
         rethrowIfFlowiseError(error)
-        throw new InternalFlowiseError(
+        throw new AppError(
             StatusCodes.INTERNAL_SERVER_ERROR,
             `Error: openaiAssistantsVectorStoreService.uploadFilesToAssistantVectorStore - ${getErrorMessage(error)}`
         )

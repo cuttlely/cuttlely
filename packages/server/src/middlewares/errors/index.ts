@@ -1,6 +1,6 @@
 import { NextFunction, Request, Response } from 'express'
 import { StatusCodes } from 'http-status-codes'
-import { InternalFlowiseError } from '../../errors/internalFlowiseError'
+import { AppError } from '../../errors/appError'
 
 // Name and code, not instanceof: the storage package and the server can each load their own multer.
 const isMulterFileTooLarge = (err: unknown): boolean => {
@@ -9,16 +9,16 @@ const isMulterFileTooLarge = (err: unknown): boolean => {
     return error.name === 'MulterError' && error.code === 'LIMIT_FILE_SIZE'
 }
 
-const asClientError = (err: InternalFlowiseError): InternalFlowiseError => {
+const asClientError = (err: AppError): AppError => {
     if (isMulterFileTooLarge(err)) {
-        return new InternalFlowiseError(StatusCodes.BAD_REQUEST, 'File is too large to upload. The limit is 25 MB.')
+        return new AppError(StatusCodes.BAD_REQUEST, 'File is too large to upload. The limit is 25 MB.')
     }
     return err
 }
 
 // we need eslint because we have to pass next arg for the error middleware
 // eslint-disable-next-line
-async function errorHandlerMiddleware(err: InternalFlowiseError, req: Request, res: Response, next: NextFunction) {
+async function errorHandlerMiddleware(err: AppError, req: Request, res: Response, next: NextFunction) {
     const error = asClientError(err)
     const statusCode = error.statusCode || StatusCodes.INTERNAL_SERVER_ERROR
     if (error.message.includes('401 Incorrect API key provided'))

@@ -1,6 +1,6 @@
 import { webCrawl, xmlScrape, checkDenyList } from '@cuttlely/components'
 import { StatusCodes } from 'http-status-codes'
-import { InternalFlowiseError } from '../../errors/internalFlowiseError'
+import { AppError } from '../../errors/appError'
 import { getErrorMessage } from '../../errors/utils'
 
 const getAllLinks = async (requestUrl: string, relativeLinksMethod: string, queryLimit: string): Promise<any> => {
@@ -9,10 +9,7 @@ const getAllLinks = async (requestUrl: string, relativeLinksMethod: string, quer
         await checkDenyList(url)
 
         if (!relativeLinksMethod) {
-            throw new InternalFlowiseError(
-                StatusCodes.INTERNAL_SERVER_ERROR,
-                `Please choose a Relative Links Method in Additional Parameters!`
-            )
+            throw new AppError(StatusCodes.INTERNAL_SERVER_ERROR, `Please choose a Relative Links Method in Additional Parameters!`)
         }
         const limit = parseInt(queryLimit)
         if (process.env.DEBUG === 'true') console.info(`Start ${relativeLinksMethod}`)
@@ -24,10 +21,7 @@ const getAllLinks = async (requestUrl: string, relativeLinksMethod: string, quer
         }
         return dbResponse
     } catch (error) {
-        throw new InternalFlowiseError(
-            StatusCodes.INTERNAL_SERVER_ERROR,
-            `Error: fetchLinksService.getAllLinks - ${getErrorMessage(error)}`
-        )
+        throw new AppError(StatusCodes.INTERNAL_SERVER_ERROR, `Error: fetchLinksService.getAllLinks - ${getErrorMessage(error)}`)
     }
 }
 

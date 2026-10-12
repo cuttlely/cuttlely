@@ -16,7 +16,7 @@ import {
     pdfOptionsFromChatbotConfig,
     resolveFileInputField
 } from '@cuttlely/components'
-import { InternalFlowiseError } from '../errors/internalFlowiseError'
+import { AppError } from '../errors/appError'
 import { getErrorMessage } from '../errors/utils'
 import logger from './logger'
 import { validateFileMimeTypeAndExtensionMatch } from './fileValidation'
@@ -44,7 +44,7 @@ const displayFileName = (filename: string): string => {
 /** Reject a document before its bytes are read when the multipart file is already over the cap. */
 export const assertDocumentUploadSize = (filename: string, size: number): void => {
     if (size > MAX_DOCUMENT_UPLOAD_BYTES && isExtractableDocument(filename)) {
-        throw new InternalFlowiseError(
+        throw new AppError(
             StatusCodes.BAD_REQUEST,
             `File ${displayFileName(filename)} is too large to send with the question. The limit is 25 MB.`
         )
@@ -69,17 +69,17 @@ export const preparePredictionUpload = async (
         return { mime, field, document: false, text: '', truncated: false, stub: false, size: buffer.length, rows: null, sheets: [] }
     }
     if (!isDocumentMimeAllowedByConfig(mime, chatbotConfig)) {
-        throw new InternalFlowiseError(StatusCodes.BAD_REQUEST, `File type '${mime}' is not allowed for this chatflow`)
+        throw new AppError(StatusCodes.BAD_REQUEST, `File type '${mime}' is not allowed for this chatflow`)
     }
     if (buffer.length > MAX_DOCUMENT_UPLOAD_BYTES) {
-        throw new InternalFlowiseError(
+        throw new AppError(
             StatusCodes.BAD_REQUEST,
             `File ${displayFileName(filename)} is too large to send with the question. The limit is 25 MB.`
         )
     }
     const policy = await loadUploadPolicy()
     if (!policy.uploadHasText(buffer)) {
-        throw new InternalFlowiseError(StatusCodes.BAD_REQUEST, `Could not read any text from ${displayFileName(filename)}`)
+        throw new AppError(StatusCodes.BAD_REQUEST, `Could not read any text from ${displayFileName(filename)}`)
     }
     const shape = await policy.describeSpreadsheet(filename, buffer)
     const stub = policy.shouldStubUpload({ filename, size: buffer.length, rows: shape.rows })
@@ -111,13 +111,13 @@ export const preparePredictionUpload = async (
             sheets: shape.sheets
         }
     } catch (error) {
-        if (error instanceof InternalFlowiseError) throw error
+        if (error instanceof AppError) throw error
         const cause = error instanceof DocumentTextError ? (error as DocumentTextError & { cause?: unknown }).cause : error
         if (cause) {
             logger.error(`[server]: document upload could not be read (${displayFileName(filename)}): ${getErrorMessage(cause)}`)
         }
         const message = error instanceof DocumentTextError ? error.message : `Could not read text from ${displayFileName(filename)}`
-        throw new InternalFlowiseError(StatusCodes.BAD_REQUEST, message)
+        throw new AppError(StatusCodes.BAD_REQUEST, message)
     }
 }
 
@@ -163,7 +163,7 @@ export const renderPredictionUploadQuestion = async (
         return part.block
     } catch (error) {
         const message = error instanceof Error ? error.message : `Could not read any text from ${displayFileName(filename)}`
-        throw new InternalFlowiseError(StatusCodes.BAD_REQUEST, message)
+        throw new AppError(StatusCodes.BAD_REQUEST, message)
     }
 }
 

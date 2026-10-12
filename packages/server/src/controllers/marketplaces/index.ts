@@ -1,6 +1,6 @@
 import { NextFunction, Request, Response } from 'express'
 import { StatusCodes } from 'http-status-codes'
-import { InternalFlowiseError } from '../../errors/internalFlowiseError'
+import { AppError } from '../../errors/appError'
 import marketplacesService from '../../services/marketplaces'
 import { stripProtectedFields } from '../../utils/stripProtectedFields'
 
@@ -17,14 +17,11 @@ const getAllTemplates = async (req: Request, res: Response, next: NextFunction) 
 const deleteCustomTemplate = async (req: Request, res: Response, next: NextFunction) => {
     try {
         if (typeof req.params === 'undefined' || !req.params.id) {
-            throw new InternalFlowiseError(
-                StatusCodes.PRECONDITION_FAILED,
-                `Error: marketplacesService.deleteCustomTemplate - id not provided!`
-            )
+            throw new AppError(StatusCodes.PRECONDITION_FAILED, `Error: marketplacesService.deleteCustomTemplate - id not provided!`)
         }
         const workspaceId = req.user?.activeWorkspaceId
         if (!workspaceId) {
-            throw new InternalFlowiseError(
+            throw new AppError(
                 StatusCodes.NOT_FOUND,
                 `Error: marketplacesController.deleteCustomTemplate - workspace ${workspaceId} not found!`
             )
@@ -48,14 +45,11 @@ const getAllCustomTemplates = async (req: Request, res: Response, next: NextFunc
 const saveCustomTemplate = async (req: Request, res: Response, next: NextFunction) => {
     try {
         if ((!req.body && !(req.body.chatflowId || req.body.tool)) || !req.body.name) {
-            throw new InternalFlowiseError(
-                StatusCodes.PRECONDITION_FAILED,
-                `Error: marketplacesService.saveCustomTemplate - body not provided!`
-            )
+            throw new AppError(StatusCodes.PRECONDITION_FAILED, `Error: marketplacesService.saveCustomTemplate - body not provided!`)
         }
         const workspaceId = req.user?.activeWorkspaceId
         if (!workspaceId) {
-            throw new InternalFlowiseError(
+            throw new AppError(
                 StatusCodes.NOT_FOUND,
                 `Error: marketplacesController.saveCustomTemplate - workspace ${workspaceId} not found!`
             )

@@ -8,7 +8,7 @@ import { getWebhookListenerRegistry } from '../../services/webhook-listener'
 import { redactSensitiveHeaders } from '@cuttlely/components'
 import { ChatType } from '../../Interface'
 import { ChatFlow } from '../../database/entities/ChatFlow'
-import { InternalFlowiseError } from '../../errors/internalFlowiseError'
+import { AppError } from '../../errors/appError'
 import { bindRequestSession } from '../../utils/sessionOwnership'
 import { dispatchCallback } from '../../utils/callbackDispatcher'
 import { getErrorMessage } from '../../errors/utils'
@@ -18,7 +18,7 @@ import logger from '../../utils/logger'
 const createWebhook = async (req: Request, res: Response, next: NextFunction) => {
     try {
         if (typeof req.params === 'undefined' || !req.params.id) {
-            throw new InternalFlowiseError(StatusCodes.PRECONDITION_FAILED, `Error: webhookController.createWebhook - id not provided!`)
+            throw new AppError(StatusCodes.PRECONDITION_FAILED, `Error: webhookController.createWebhook - id not provided!`)
         }
 
         const workspaceId = req.user?.activeWorkspaceId
@@ -68,7 +68,7 @@ const createWebhook = async (req: Request, res: Response, next: NextFunction) =>
             id: req.params.id
         })
         if (!chatflow) {
-            throw new InternalFlowiseError(StatusCodes.NOT_FOUND, `Chatflow ${req.params.id} not found`)
+            throw new AppError(StatusCodes.NOT_FOUND, `Chatflow ${req.params.id} not found`)
         }
         const owned = bindRequestSession(req, { chatflow, isInternal: false, failClosed: isResume })
         const executionChatId = owned.chatId
@@ -117,7 +117,7 @@ const createWebhook = async (req: Request, res: Response, next: NextFunction) =>
                     const parsed = new URL(callbackUrl)
                     if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') throw new Error()
                 } catch {
-                    throw new InternalFlowiseError(StatusCodes.BAD_REQUEST, `Invalid callbackUrl: must be a valid http or https URL`)
+                    throw new AppError(StatusCodes.BAD_REQUEST, `Invalid callbackUrl: must be a valid http or https URL`)
                 }
             }
 

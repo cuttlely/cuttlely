@@ -1,5 +1,5 @@
 import { StatusCodes } from 'http-status-codes'
-import { InternalFlowiseError } from '../../errors/internalFlowiseError'
+import { AppError } from '../../errors/appError'
 import { FLOWISE_COUNTER_STATUS, FLOWISE_METRIC_COUNTERS } from '../../Interface.Metrics'
 
 // typeorm is not directly resolvable under pnpm strict hoisting; provide a
@@ -190,7 +190,7 @@ describe('customMcpServersService', () => {
 
         it('should validate serverUrl and throw for invalid URL', async () => {
             await expect(customMcpServersService.createCustomMcpServer({ name: 'Bad', serverUrl: 'not-a-url' }, 'org-1')).rejects.toThrow(
-                InternalFlowiseError
+                AppError
             )
 
             await expect(customMcpServersService.createCustomMcpServer({ name: 'Bad', serverUrl: 'not-a-url' }, 'org-1')).rejects.toThrow(
@@ -204,8 +204,8 @@ describe('customMcpServersService', () => {
             ).rejects.toThrow('only http and https are allowed')
         })
 
-        it('should re-throw InternalFlowiseError as-is', async () => {
-            const specificError = new InternalFlowiseError(StatusCodes.BAD_REQUEST, 'custom error')
+        it('should re-throw AppError as-is', async () => {
+            const specificError = new AppError(StatusCodes.BAD_REQUEST, 'custom error')
             mockSave.mockRejectedValue(specificError)
 
             await expect(
@@ -213,12 +213,12 @@ describe('customMcpServersService', () => {
             ).rejects.toThrow(specificError)
         })
 
-        it('should wrap unknown errors in InternalFlowiseError', async () => {
+        it('should wrap unknown errors in AppError', async () => {
             mockSave.mockRejectedValue(new Error('db crash'))
 
             await expect(
                 customMcpServersService.createCustomMcpServer({ name: 'Test', serverUrl: 'https://example.com' }, 'org-1')
-            ).rejects.toThrow(InternalFlowiseError)
+            ).rejects.toThrow(AppError)
         })
     })
 
@@ -293,10 +293,10 @@ describe('customMcpServersService', () => {
             expect(result[0].serverUrl).toBe('************')
         })
 
-        it('should wrap errors in InternalFlowiseError', async () => {
+        it('should wrap errors in AppError', async () => {
             mockGetManyAndCount.mockRejectedValue(new Error('query failed'))
 
-            await expect(customMcpServersService.getAllCustomMcpServers('ws-1')).rejects.toThrow(InternalFlowiseError)
+            await expect(customMcpServersService.getAllCustomMcpServers('ws-1')).rejects.toThrow(AppError)
         })
     })
 
@@ -345,14 +345,14 @@ describe('customMcpServersService', () => {
         it('should throw NOT_FOUND when record does not exist', async () => {
             mockGetOne.mockResolvedValue(null)
 
-            await expect(customMcpServersService.getCustomMcpServerById('mcp-1', 'ws-1')).rejects.toThrow(InternalFlowiseError)
+            await expect(customMcpServersService.getCustomMcpServerById('mcp-1', 'ws-1')).rejects.toThrow(AppError)
             await expect(customMcpServersService.getCustomMcpServerById('mcp-1', 'ws-1')).rejects.toThrow('not found')
         })
 
-        it('should wrap unknown errors in InternalFlowiseError', async () => {
+        it('should wrap unknown errors in AppError', async () => {
             mockGetOne.mockRejectedValue(new Error('db error'))
 
-            await expect(customMcpServersService.getCustomMcpServerById('mcp-1', 'ws-1')).rejects.toThrow(InternalFlowiseError)
+            await expect(customMcpServersService.getCustomMcpServerById('mcp-1', 'ws-1')).rejects.toThrow(AppError)
         })
     })
 
@@ -484,10 +484,10 @@ describe('customMcpServersService', () => {
             expect(result).toEqual({ affected: 1 })
         })
 
-        it('should wrap errors in InternalFlowiseError', async () => {
+        it('should wrap errors in AppError', async () => {
             mockDelete.mockRejectedValue(new Error('db error'))
 
-            await expect(customMcpServersService.deleteCustomMcpServer('mcp-1', 'ws-1')).rejects.toThrow(InternalFlowiseError)
+            await expect(customMcpServersService.deleteCustomMcpServer('mcp-1', 'ws-1')).rejects.toThrow(AppError)
         })
     })
 

@@ -189,7 +189,8 @@
         },
         {
             "from": "packages/server/src/controllers/demo/index.ts",
-            "to": "packages/server/src/errors/internalFlowiseError/index.ts"
+            "to": "packages/server/src/errors/appError/index.ts",
+            "reason": "Shared server error class has its own module. Core callers import that module."
         },
         {
             "from": "packages/server/src/controllers/flow-drafts/index.ts",
@@ -197,7 +198,8 @@
         },
         {
             "from": "packages/server/src/controllers/flow-drafts/index.ts",
-            "to": "packages/server/src/errors/internalFlowiseError/index.ts"
+            "to": "packages/server/src/errors/appError/index.ts",
+            "reason": "Shared server error class has its own module. Core callers import that module."
         },
         {
             "from": "packages/server/src/controllers/flow-drafts/index.ts",
@@ -209,7 +211,8 @@
         },
         {
             "from": "packages/server/src/controllers/flow-promote/index.ts",
-            "to": "packages/server/src/errors/internalFlowiseError/index.ts"
+            "to": "packages/server/src/errors/appError/index.ts",
+            "reason": "Shared server error class has its own module. Core callers import that module."
         },
         {
             "from": "packages/server/src/controllers/flow-promote/index.ts",
@@ -229,7 +232,8 @@
         },
         {
             "from": "packages/server/src/controllers/flow-versions/index.ts",
-            "to": "packages/server/src/errors/internalFlowiseError/index.ts"
+            "to": "packages/server/src/errors/appError/index.ts",
+            "reason": "Shared server error class has its own module. Core callers import that module."
         },
         {
             "from": "packages/server/src/controllers/flow-versions/index.ts",
@@ -261,7 +265,8 @@
         },
         {
             "from": "packages/server/src/controllers/text-to-speech/index.test.ts",
-            "to": "packages/server/src/errors/internalFlowiseError/index.ts"
+            "to": "packages/server/src/errors/appError/index.ts",
+            "reason": "Shared server error class has its own module. Core callers import that module."
         },
         {
             "from": "packages/server/src/controllers/text-to-speech/index.test.ts",
@@ -325,7 +330,8 @@
         },
         {
             "from": "packages/server/src/identity/workspaceScope.test.ts",
-            "to": "packages/server/src/errors/internalFlowiseError/index.ts"
+            "to": "packages/server/src/errors/appError/index.ts",
+            "reason": "Shared server error class has its own module. Core callers import that module."
         },
         {
             "from": "packages/server/src/identity/workspaceScope.ts",
@@ -337,7 +343,8 @@
         },
         {
             "from": "packages/server/src/identity/workspaceScope.ts",
-            "to": "packages/server/src/errors/internalFlowiseError/index.ts"
+            "to": "packages/server/src/errors/appError/index.ts",
+            "reason": "Shared server error class has its own module. Core callers import that module."
         },
         {
             "from": "packages/server/src/identity/workspaceScope.ts",
@@ -381,7 +388,8 @@
         },
         {
             "from": "packages/server/src/services/builder/index.ts",
-            "to": "packages/server/src/errors/internalFlowiseError/index.ts"
+            "to": "packages/server/src/errors/appError/index.ts",
+            "reason": "Shared server error class has its own module. Core callers import that module."
         },
         {
             "from": "packages/server/src/services/builder/index.ts",
@@ -409,7 +417,8 @@
         },
         {
             "from": "packages/server/src/services/dataset/index.test.ts",
-            "to": "packages/server/src/errors/internalFlowiseError/index.ts"
+            "to": "packages/server/src/errors/appError/index.ts",
+            "reason": "Shared server error class has its own module. Core callers import that module."
         },
         {
             "from": "packages/server/src/services/dataset/index.test.ts",
@@ -421,7 +430,8 @@
         },
         {
             "from": "packages/server/src/services/demo/index.ts",
-            "to": "packages/server/src/errors/internalFlowiseError/index.ts"
+            "to": "packages/server/src/errors/appError/index.ts",
+            "reason": "Shared server error class has its own module. Core callers import that module."
         },
         {
             "from": "packages/server/src/services/demo/index.ts",
@@ -445,7 +455,8 @@
         },
         {
             "from": "packages/server/src/services/etl/index.ts",
-            "to": "packages/server/src/errors/internalFlowiseError/index.ts"
+            "to": "packages/server/src/errors/appError/index.ts",
+            "reason": "Shared server error class has its own module. Core callers import that module."
         },
         {
             "from": "packages/server/src/services/etl/index.ts",
@@ -477,7 +488,8 @@
         },
         {
             "from": "packages/server/src/services/flow-check/index.ts",
-            "to": "packages/server/src/errors/internalFlowiseError/index.ts"
+            "to": "packages/server/src/errors/appError/index.ts",
+            "reason": "Shared server error class has its own module. Core callers import that module."
         },
         {
             "from": "packages/server/src/services/flow-check/index.ts",
@@ -501,7 +513,8 @@
         },
         {
             "from": "packages/server/src/services/flow-drafts/index.ts",
-            "to": "packages/server/src/errors/internalFlowiseError/index.ts"
+            "to": "packages/server/src/errors/appError/index.ts",
+            "reason": "Shared server error class has its own module. Core callers import that module."
         },
         {
             "from": "packages/server/src/services/flow-drafts/index.ts",
@@ -525,7 +538,8 @@
         },
         {
             "from": "packages/server/src/services/flow-promote/index.ts",
-            "to": "packages/server/src/errors/internalFlowiseError/index.ts"
+            "to": "packages/server/src/errors/appError/index.ts",
+            "reason": "Shared server error class has its own module. Core callers import that module."
         },
         {
             "from": "packages/server/src/services/flow-promote/index.ts",
@@ -561,7 +575,8 @@
         },
         {
             "from": "packages/server/src/services/harnesses/index.ts",
-            "to": "packages/server/src/errors/internalFlowiseError/index.ts"
+            "to": "packages/server/src/errors/appError/index.ts",
+            "reason": "Shared server error class has its own module. Core callers import that module."
         },
         {
             "from": "packages/server/src/services/harnesses/index.ts",
@@ -637,7 +652,8 @@
         },
         {
             "from": "packages/server/src/utils/authorizeFlowAccess.ts",
-            "to": "packages/server/src/errors/internalFlowiseError/index.ts"
+            "to": "packages/server/src/errors/appError/index.ts",
+            "reason": "Shared server error class has its own module. Core callers import that module."
         },
         {
             "from": "packages/server/src/utils/authorizeFlowAccess.ts",
@@ -705,7 +721,8 @@
         },
         {
             "from": "packages/server/src/utils/authorizeUpsert.ts",
-            "to": "packages/server/src/errors/internalFlowiseError/index.ts"
+            "to": "packages/server/src/errors/appError/index.ts",
+            "reason": "Shared server error class has its own module. Core callers import that module."
         },
         {
             "from": "packages/server/src/utils/authorizeUpsert.ts",
@@ -801,7 +818,8 @@
         },
         {
             "from": "packages/server/src/utils/predictionErrors.test.ts",
-            "to": "packages/server/src/errors/internalFlowiseError/index.ts"
+            "to": "packages/server/src/errors/appError/index.ts",
+            "reason": "Shared server error class has its own module. Core callers import that module."
         },
         {
             "from": "packages/server/src/utils/predictionErrors.test.ts",
@@ -809,7 +827,8 @@
         },
         {
             "from": "packages/server/src/utils/predictionErrors.ts",
-            "to": "packages/server/src/errors/internalFlowiseError/index.ts"
+            "to": "packages/server/src/errors/appError/index.ts",
+            "reason": "Shared server error class has its own module. Core callers import that module."
         },
         {
             "from": "packages/server/src/utils/predictionErrors.ts",
@@ -821,7 +840,8 @@
         },
         {
             "from": "packages/server/src/utils/predictionUploads.ts",
-            "to": "packages/server/src/errors/internalFlowiseError/index.ts"
+            "to": "packages/server/src/errors/appError/index.ts",
+            "reason": "Shared server error class has its own module. Core callers import that module."
         },
         {
             "from": "packages/server/src/utils/predictionUploads.ts",
@@ -885,7 +905,8 @@
         },
         {
             "from": "packages/server/src/utils/sessionOwnership.ts",
-            "to": "packages/server/src/errors/internalFlowiseError/index.ts"
+            "to": "packages/server/src/errors/appError/index.ts",
+            "reason": "Shared server error class has its own module. Core callers import that module."
         },
         {
             "from": "packages/server/src/utils/sessionOwnership.ts",
@@ -901,7 +922,8 @@
         },
         {
             "from": "packages/server/src/utils/streaming.test.ts",
-            "to": "packages/server/src/errors/internalFlowiseError/index.ts"
+            "to": "packages/server/src/errors/appError/index.ts",
+            "reason": "Shared server error class has its own module. Core callers import that module."
         },
         {
             "from": "packages/server/src/utils/streaming.test.ts",
@@ -941,7 +963,8 @@
         },
         {
             "from": "packages/server/src/utils/uploadPermissions.ts",
-            "to": "packages/server/src/errors/internalFlowiseError/index.ts"
+            "to": "packages/server/src/errors/appError/index.ts",
+            "reason": "Shared server error class has its own module. Core callers import that module."
         },
         {
             "from": "packages/server/src/utils/uploadPermissions.ts",
@@ -1310,6 +1333,14 @@
         }
     ],
     "r6Additions": [
+        {
+            "path": "packages/server/src/errors/appError/index.test.ts",
+            "reason": "Shared server error class has its own module. Core callers import that module."
+        },
+        {
+            "path": "packages/server/src/errors/appError/index.ts",
+            "reason": "Shared server error class has its own module. Core callers import that module."
+        },
         {
             "path": "packages/server/src/metrics/Prometheus.test.ts",
             "reason": "metrics prefix test sits beside the metrics provider"

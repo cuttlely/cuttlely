@@ -6,7 +6,7 @@ import { aMonthAgo, clearSessionMemory } from '../../utils'
 import { getRunningExpressApp } from '../../utils/getRunningExpressApp'
 import { Between, DeleteResult, FindOptionsWhere, In } from 'typeorm'
 import { ChatMessage } from '../../database/entities/ChatMessage'
-import { InternalFlowiseError } from '../../errors/internalFlowiseError'
+import { AppError } from '../../errors/appError'
 import { StatusCodes } from 'http-status-codes'
 import { utilGetChatMessage } from '../../utils/getChatMessage'
 import { getPageAndLimitParams } from '../../utils/pagination'
@@ -36,7 +36,7 @@ const getFeedbackTypeFilters = (_feedbackTypeFilters: ChatMessageRatingType[]): 
 const createChatMessage = async (req: Request, res: Response, next: NextFunction) => {
     try {
         if (!req.body) {
-            throw new InternalFlowiseError(
+            throw new AppError(
                 StatusCodes.PRECONDITION_FAILED,
                 'Error: chatMessagesController.createChatMessage - request body not provided!'
             )
@@ -80,10 +80,7 @@ const getAllChatMessages = async (req: Request, res: Response, next: NextFunctio
             feedbackTypeFilters = getFeedbackTypeFilters(feedbackTypeFilters)
         }
         if (typeof req.params === 'undefined' || !req.params.id) {
-            throw new InternalFlowiseError(
-                StatusCodes.PRECONDITION_FAILED,
-                `Error: chatMessageController.getAllChatMessages - id not provided!`
-            )
+            throw new AppError(StatusCodes.PRECONDITION_FAILED, `Error: chatMessageController.getAllChatMessages - id not provided!`)
         }
         const apiResponse = await chatMessagesService.getAllChatMessages(
             req.params.id,
@@ -146,21 +143,18 @@ const removeAllChatMessages = async (req: Request, res: Response, next: NextFunc
     try {
         const appServer = getRunningExpressApp()
         if (typeof req.params === 'undefined' || !req.params.id) {
-            throw new InternalFlowiseError(
-                StatusCodes.PRECONDITION_FAILED,
-                'Error: chatMessagesController.removeAllChatMessages - id not provided!'
-            )
+            throw new AppError(StatusCodes.PRECONDITION_FAILED, 'Error: chatMessagesController.removeAllChatMessages - id not provided!')
         }
         const orgId = req.user?.activeOrganizationId
         if (!orgId) {
-            throw new InternalFlowiseError(
+            throw new AppError(
                 StatusCodes.NOT_FOUND,
                 `Error: chatMessagesController.removeAllChatMessages - organization ${orgId} not found!`
             )
         }
         const workspaceId = req.user?.activeWorkspaceId
         if (!workspaceId) {
-            throw new InternalFlowiseError(
+            throw new AppError(
                 StatusCodes.NOT_FOUND,
                 `Error: chatMessagesController.removeAllChatMessages - workspace ${workspaceId} not found!`
             )
@@ -307,7 +301,7 @@ const removeAllChatMessages = async (req: Request, res: Response, next: NextFunc
 const abortChatMessage = async (req: Request, res: Response, next: NextFunction) => {
     try {
         if (typeof req.params === 'undefined' || !req.params.chatflowid || !req.params.chatid) {
-            throw new InternalFlowiseError(
+            throw new AppError(
                 StatusCodes.PRECONDITION_FAILED,
                 `Error: chatMessagesController.abortChatMessage - chatflowid or chatid not provided!`
             )
