@@ -3,7 +3,7 @@
 // newer than the one it last promoted. Reading changes nothing on Prod. A person promotes a version, which puts it
 // Live through the normal update path (controllers/flow-promote): never on its own, and never over a draft.
 import { StatusCodes } from 'http-status-codes'
-import { InternalFlowiseError } from '../../errors/internalFlowiseError'
+import { AppError } from '../../errors/appError'
 import { ChatFlow } from '../../database/entities/ChatFlow'
 import { getRunningExpressApp } from '../../utils/getRunningExpressApp'
 import flowDraftsService from '../flow-drafts'
@@ -209,14 +209,14 @@ export async function listIncoming(workspaceId: string, deps: PromoteDeps = defa
 // One flow's new version from Dev, with what Promote would change and the credentials it needs here.
 // A version Dev sent is mapped to this server's own Credentials by name and type.
 export async function getIncoming(flowId: string, workspaceId: string, deps: PromoteDeps = defaultDeps): Promise<IncomingDetail> {
-    if (!FLOW_ID.test(flowId)) throw new InternalFlowiseError(StatusCodes.NOT_FOUND, 'There is no new version from Dev for this flow.')
+    if (!FLOW_ID.test(flowId)) throw new AppError(StatusCodes.NOT_FOUND, 'There is no new version from Dev for this flow.')
     const [candidate] = await candidates(workspaceId, deps, flowId)
     const item = candidate ? await toIncoming(candidate, deps, workspaceId) : null
-    if (!candidate || !item) throw new InternalFlowiseError(StatusCodes.NOT_FOUND, 'There is no new version from Dev for this flow.')
+    if (!candidate || !item) throw new AppError(StatusCodes.NOT_FOUND, 'There is no new version from Dev for this flow.')
     const base = candidate.row || blankFlow(flowId, item.name, item.type, workspaceId)
     const version = await getVersion(base, item.version.sha, deps.readOptions?.(workspaceId))
     const diff = await diffVersion(base, item.version.sha, 'current', deps.recordOptions)
-    if (!version || !diff) throw new InternalFlowiseError(StatusCodes.NOT_FOUND, 'There is no new version from Dev for this flow.')
+    if (!version || !diff) throw new AppError(StatusCodes.NOT_FOUND, 'There is no new version from Dev for this flow.')
     const { sha: _sha, against: _against, ...changes } = diff
     const type = version.type || item.type
     const checkUnavailable: IncomingDetail['checkUnavailable'] = !candidate.row
@@ -259,25 +259,22 @@ export async function incomingCanvas(
 // Checks that `sha` is still the newest version from Dev for this flow, and returns it.
 export async function promotable(flowId: string, sha: unknown, workspaceId: string, deps: PromoteDeps = defaultDeps): Promise<Candidate> {
     if (typeof sha !== 'string' || !SHA40.test(sha)) {
-        throw new InternalFlowiseError(
-            StatusCodes.BAD_REQUEST,
-            'sha is the full id of the version to promote: 40 lowercase hex characters.'
-        )
+        throw new AppError(StatusCodes.BAD_REQUEST, 'sha is the full id of the version to promote: 40 lowercase hex characters.')
     }
-    if (!isVersioningEnabled()) throw new InternalFlowiseError(StatusCodes.CONFLICT, 'Version history is off on this server.')
+    if (!isVersioningEnabled()) throw new AppError(StatusCodes.CONFLICT, 'Version history is off on this server.')
     if (deps.environment() !== 'prod') {
-        throw new InternalFlowiseError(StatusCodes.CONFLICT, 'Only a server labeled Prod promotes versions from Dev.')
+        throw new AppError(StatusCodes.CONFLICT, 'Only a server labeled Prod promotes versions from Dev.')
     }
-    if (!FLOW_ID.test(flowId)) throw new InternalFlowiseError(StatusCodes.NOT_FOUND, 'There is no new version from Dev for this flow.')
+    if (!FLOW_ID.test(flowId)) throw new AppError(StatusCodes.NOT_FOUND, 'There is no new version from Dev for this flow.')
     const [candidate] = await candidates(workspaceId, deps, flowId)
     if (!candidate) {
-        throw new InternalFlowiseError(
+        throw new AppError(
             StatusCodes.CONFLICT,
             'This version from Dev is already Live here, or it is no longer offered. Reload to see the latest.'
         )
     }
     if (candidate.latest.sha !== sha) {
-        throw new InternalFlowiseError(
+        throw new AppError(
             StatusCodes.CONFLICT,
             'A newer version of this flow arrived from Dev while you were looking. Review it, then promote.'
         )

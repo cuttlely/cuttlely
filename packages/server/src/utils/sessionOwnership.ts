@@ -4,7 +4,7 @@ import os from 'os'
 import path from 'path'
 import { Request } from 'express'
 import { StatusCodes } from 'http-status-codes'
-import { InternalFlowiseError } from '../errors/internalFlowiseError'
+import { AppError } from '../errors/appError'
 import { authSecret } from '../identity/authSecrets'
 import logger from './logger'
 
@@ -320,7 +320,7 @@ export function resolveOwnedSession(input: ResolveInput): OwnedSession {
     // A resume or a file read must not continue on a new id. Do not grant that id either.
     // `rebound` is also set when an owned chat id had no matching override session id, so it is not the refusal signal.
     if (input.failClosed && supplied && fresh) {
-        throw new InternalFlowiseError(StatusCodes.FORBIDDEN, 'Forbidden')
+        throw new AppError(StatusCodes.FORBIDDEN, 'Forbidden')
     }
 
     if (input.caller.kind === 'user') input.grants.put(input.chatflowId, sessionId, input.caller.key)
@@ -344,7 +344,7 @@ export function pinOwnedMemorySession(overrideConfig: { sessionId?: unknown } | 
     const candidate = overrideConfig.sessionId
     if (candidate === undefined || candidate === null || candidate === '') return ownedChatId
     if (typeof candidate !== 'string') {
-        throw new InternalFlowiseError(StatusCodes.BAD_REQUEST, 'Invalid sessionId: must be a string')
+        throw new AppError(StatusCodes.BAD_REQUEST, 'Invalid sessionId: must be a string')
     }
     if (candidate !== ownedChatId) overrideConfig.sessionId = ownedChatId
     return ownedChatId

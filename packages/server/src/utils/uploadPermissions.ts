@@ -10,7 +10,7 @@ import {
     resolveFileInputField
 } from '@cuttlely/components'
 import { ChatFlow } from '../database/entities/ChatFlow'
-import { InternalFlowiseError } from '../errors/internalFlowiseError'
+import { AppError } from '../errors/appError'
 import { INodeOverrides } from '../Interface'
 import { computeUploadsConfig } from './getUploadsConfig'
 
@@ -52,11 +52,10 @@ export const getUploadPermissions = (chatflow: Pick<ChatFlow, 'flowData' | 'spee
     }
 }
 
-const turnedOff = (kind: string): InternalFlowiseError =>
-    new InternalFlowiseError(StatusCodes.FORBIDDEN, `${kind} uploads are not turned on for this flow`)
+const turnedOff = (kind: string): AppError => new AppError(StatusCodes.FORBIDDEN, `${kind} uploads are not turned on for this flow`)
 
-const typeNotAllowed = (mime: string, name?: string): InternalFlowiseError =>
-    new InternalFlowiseError(
+const typeNotAllowed = (mime: string, name?: string): AppError =>
+    new AppError(
         StatusCodes.BAD_REQUEST,
         `File type '${mime || path.extname(String(name || '')) || 'unknown'}' is not allowed for this flow`
     )
@@ -114,7 +113,7 @@ export const assertBodyUploadAllowed = (upload: IFileUpload, permissions: Upload
         if (!permissions.fullFile && !permissions.ragExtensions) throw turnedOff('File')
         throw typeNotAllowed(mime, name)
     }
-    throw new InternalFlowiseError(StatusCodes.BAD_REQUEST, `Upload type '${String(type)}' is not supported`)
+    throw new AppError(StatusCodes.BAD_REQUEST, `Upload type '${String(type)}' is not supported`)
 }
 
 /** True when the flow's API override list allows a file on input `field` for some card (a document loader on the canvas). */
@@ -175,7 +174,7 @@ export const assertPredictionUploadsAllowed = async (
     if (!bodyUploads.length && !files?.length && !uploads) return
     try {
         // The store step walks anything with a length, so a list is the only accepted shape.
-        if (uploads && !Array.isArray(uploads)) throw new InternalFlowiseError(StatusCodes.BAD_REQUEST, 'The uploads field must be a list')
+        if (uploads && !Array.isArray(uploads)) throw new AppError(StatusCodes.BAD_REQUEST, 'The uploads field must be a list')
         const permissions = getUploadPermissions(chatflow)
         for (const upload of bodyUploads) assertBodyUploadAllowed(upload, permissions)
         if (files?.length) {

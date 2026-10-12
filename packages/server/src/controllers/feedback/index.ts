@@ -1,16 +1,13 @@
 import { Request, Response, NextFunction } from 'express'
 import feedbackService from '../../services/feedback'
 import { validateFeedbackForCreation, validateFeedbackForUpdate } from '../../services/feedback/validation'
-import { InternalFlowiseError } from '../../errors/internalFlowiseError'
+import { AppError } from '../../errors/appError'
 import { StatusCodes } from 'http-status-codes'
 
 const getAllChatMessageFeedback = async (req: Request, res: Response, next: NextFunction) => {
     try {
         if (typeof req.params === 'undefined' || !req.params.id) {
-            throw new InternalFlowiseError(
-                StatusCodes.PRECONDITION_FAILED,
-                `Error: feedbackController.getAllChatMessageFeedback - id not provided!`
-            )
+            throw new AppError(StatusCodes.PRECONDITION_FAILED, `Error: feedbackController.getAllChatMessageFeedback - id not provided!`)
         }
         const chatflowid = req.params.id
         const chatId = req.query?.chatId as string | undefined
@@ -27,7 +24,7 @@ const getAllChatMessageFeedback = async (req: Request, res: Response, next: Next
 const createChatMessageFeedbackForChatflow = async (req: Request, res: Response, next: NextFunction) => {
     try {
         if (!req.body) {
-            throw new InternalFlowiseError(
+            throw new AppError(
                 StatusCodes.PRECONDITION_FAILED,
                 `Error: feedbackController.createChatMessageFeedbackForChatflow - body not provided!`
             )
@@ -43,13 +40,13 @@ const createChatMessageFeedbackForChatflow = async (req: Request, res: Response,
 const updateChatMessageFeedbackForChatflow = async (req: Request, res: Response, next: NextFunction) => {
     try {
         if (!req.body) {
-            throw new InternalFlowiseError(
+            throw new AppError(
                 StatusCodes.PRECONDITION_FAILED,
                 `Error: feedbackController.updateChatMessageFeedbackForChatflow - body not provided!`
             )
         }
         if (typeof req.params === 'undefined' || !req.params.id) {
-            throw new InternalFlowiseError(
+            throw new AppError(
                 StatusCodes.PRECONDITION_FAILED,
                 `Error: feedbackController.updateChatMessageFeedbackForChatflow - id not provided!`
             )

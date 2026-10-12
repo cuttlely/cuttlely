@@ -1,7 +1,7 @@
 import { NextFunction, Request, Response } from 'express'
 import { convertTextToSpeechStream } from '@cuttlely/components'
 import { StatusCodes } from 'http-status-codes'
-import { InternalFlowiseError } from '../../errors/internalFlowiseError'
+import { AppError } from '../../errors/appError'
 import chatflowsService from '../../services/chatflows'
 import credentialsService from '../../services/credentials'
 import textToSpeechService from '../../services/text-to-speech'
@@ -22,10 +22,7 @@ const generateTextToSpeech = async (req: Request, res: Response) => {
         } = req.body
 
         if (!text) {
-            throw new InternalFlowiseError(
-                StatusCodes.BAD_REQUEST,
-                `Error: textToSpeechController.generateTextToSpeech - text not provided!`
-            )
+            throw new AppError(StatusCodes.BAD_REQUEST, `Error: textToSpeechController.generateTextToSpeech - text not provided!`)
         }
 
         let provider: string, credentialId: string, voice: string, model: string
@@ -40,7 +37,7 @@ const generateTextToSpeech = async (req: Request, res: Response) => {
                 // Fallback: get workspaceId from chatflow when req.user.activeWorkspaceId is not set (from whitelist API)
                 chatflow = await chatflowsService.getChatflowById(chatflowId)
                 if (!chatflow.isPublic) {
-                    throw new InternalFlowiseError(
+                    throw new AppError(
                         StatusCodes.UNAUTHORIZED,
                         `Error: textToSpeechController.generateTextToSpeech - unauthorized access to non-public chatflow!`
                     )
@@ -49,10 +46,7 @@ const generateTextToSpeech = async (req: Request, res: Response) => {
             }
 
             if (!workspaceId) {
-                throw new InternalFlowiseError(
-                    StatusCodes.NOT_FOUND,
-                    `Error: textToSpeechController.generateTextToSpeech - workspace not found!`
-                )
+                throw new AppError(StatusCodes.NOT_FOUND, `Error: textToSpeechController.generateTextToSpeech - workspace not found!`)
             }
             // Get TTS config from chatflow
             const ttsConfig = JSON.parse(chatflow.textToSpeech)
@@ -60,7 +54,7 @@ const generateTextToSpeech = async (req: Request, res: Response) => {
             // Find the provider with status: true
             const activeProviderKey = Object.keys(ttsConfig).find((key) => ttsConfig[key].status === true)
             if (!activeProviderKey) {
-                throw new InternalFlowiseError(
+                throw new AppError(
                     StatusCodes.BAD_REQUEST,
                     `Error: textToSpeechController.generateTextToSpeech - no active TTS provider configured in chatflow!`
                 )
@@ -80,7 +74,7 @@ const generateTextToSpeech = async (req: Request, res: Response) => {
 
             const workspaceId = req.user?.activeWorkspaceId
             if (!workspaceId) {
-                throw new InternalFlowiseError(
+                throw new AppError(
                     StatusCodes.UNAUTHORIZED,
                     `Error: textToSpeechController.generateTextToSpeech - unauthorized access, active workspace is required!`
                 )
@@ -92,17 +86,11 @@ const generateTextToSpeech = async (req: Request, res: Response) => {
         }
 
         if (!provider) {
-            throw new InternalFlowiseError(
-                StatusCodes.BAD_REQUEST,
-                `Error: textToSpeechController.generateTextToSpeech - provider not provided!`
-            )
+            throw new AppError(StatusCodes.BAD_REQUEST, `Error: textToSpeechController.generateTextToSpeech - provider not provided!`)
         }
 
         if (!credentialId) {
-            throw new InternalFlowiseError(
-                StatusCodes.BAD_REQUEST,
-                `Error: textToSpeechController.generateTextToSpeech - credentialId not provided!`
-            )
+            throw new AppError(StatusCodes.BAD_REQUEST, `Error: textToSpeechController.generateTextToSpeech - credentialId not provided!`)
         }
 
         res.setHeader('Content-Type', 'text/event-stream')
@@ -172,7 +160,7 @@ const generateTextToSpeech = async (req: Request, res: Response) => {
         }
     } catch (error) {
         // Auth and validation errors happen before the stream starts. Return their status as JSON.
-        if (!res.headersSent && error instanceof InternalFlowiseError) {
+        if (!res.headersSent && error instanceof AppError) {
             res.status(error.statusCode).json({
                 statusCode: error.statusCode,
                 success: false,
@@ -202,24 +190,15 @@ const abortTextToSpeech = async (req: Request, res: Response) => {
         const { chatId, chatMessageId, chatflowId } = req.body
 
         if (!chatId) {
-            throw new InternalFlowiseError(
-                StatusCodes.BAD_REQUEST,
-                `Error: textToSpeechController.abortTextToSpeech - chatId not provided!`
-            )
+            throw new AppError(StatusCodes.BAD_REQUEST, `Error: textToSpeechController.abortTextToSpeech - chatId not provided!`)
         }
 
         if (!chatMessageId) {
-            throw new InternalFlowiseError(
-                StatusCodes.BAD_REQUEST,
-                `Error: textToSpeechController.abortTextToSpeech - chatMessageId not provided!`
-            )
+            throw new AppError(StatusCodes.BAD_REQUEST, `Error: textToSpeechController.abortTextToSpeech - chatMessageId not provided!`)
         }
 
         if (!chatflowId) {
-            throw new InternalFlowiseError(
-                StatusCodes.BAD_REQUEST,
-                `Error: textToSpeechController.abortTextToSpeech - chatflowId not provided!`
-            )
+            throw new AppError(StatusCodes.BAD_REQUEST, `Error: textToSpeechController.abortTextToSpeech - chatflowId not provided!`)
         }
 
         const appServer = getRunningExpressApp()
@@ -244,15 +223,12 @@ const getVoices = async (req: Request, res: Response, next: NextFunction) => {
         const { provider, credentialId } = req.query
 
         if (!provider) {
-            throw new InternalFlowiseError(StatusCodes.BAD_REQUEST, `Error: textToSpeechController.getVoices - provider not provided!`)
+            throw new AppError(StatusCodes.BAD_REQUEST, `Error: textToSpeechController.getVoices - provider not provided!`)
         }
 
         const workspaceId = req.user?.activeWorkspaceId
         if (!workspaceId) {
-            throw new InternalFlowiseError(
-                StatusCodes.NOT_FOUND,
-                `Error: textToSpeechController.getVoices - workspace ${workspaceId} not found!`
-            )
+            throw new AppError(StatusCodes.NOT_FOUND, `Error: textToSpeechController.getVoices - workspace ${workspaceId} not found!`)
         }
 
         const voices = await textToSpeechService.getVoices(provider as any, credentialId as string, workspaceId)

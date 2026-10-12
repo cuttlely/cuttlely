@@ -1,5 +1,5 @@
 import { StatusCodes } from 'http-status-codes'
-import { InternalFlowiseError } from '../../errors/internalFlowiseError'
+import { AppError } from '../../errors/appError'
 import { getErrorMessage } from '../../errors/utils'
 import { getRunningExpressApp } from '../../utils/getRunningExpressApp'
 import { ChatFlow } from '../../database/entities/ChatFlow'
@@ -325,16 +325,13 @@ const checkFlowValidation = async (flowId: string, workspaceId?: string): Promis
         })
 
         if (!flow) {
-            throw new InternalFlowiseError(StatusCodes.NOT_FOUND, `Error: validationService.checkFlowValidation - flow not found!`)
+            throw new AppError(StatusCodes.NOT_FOUND, `Error: validationService.checkFlowValidation - flow not found!`)
         }
 
         const flowData: IReactFlowObject = JSON.parse(flow.flowData)
         return validateFlowData(flowData.nodes, flowData.edges, appServer.nodesPool.componentNodes)
     } catch (error) {
-        throw new InternalFlowiseError(
-            StatusCodes.INTERNAL_SERVER_ERROR,
-            `Error: validationService.checkFlowValidation - ${getErrorMessage(error)}`
-        )
+        throw new AppError(StatusCodes.INTERNAL_SERVER_ERROR, `Error: validationService.checkFlowValidation - ${getErrorMessage(error)}`)
     }
 }
 

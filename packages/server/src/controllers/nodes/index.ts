@@ -2,7 +2,7 @@ import { Request, Response, NextFunction } from 'express'
 import _ from 'lodash'
 import nodesService from '../../services/nodes'
 import { ClientType, VALID_CLIENT_TYPES } from '@cuttlely/components'
-import { InternalFlowiseError } from '../../errors/internalFlowiseError'
+import { AppError } from '../../errors/appError'
 import { StatusCodes } from 'http-status-codes'
 import { getWorkspaceSearchOptionsFromReq } from '../../identity/workspaceScope'
 
@@ -24,7 +24,7 @@ const getAllNodes = async (req: Request, res: Response, next: NextFunction) => {
 const getNodeByName = async (req: Request, res: Response, next: NextFunction) => {
     try {
         if (typeof req.params === 'undefined' || !req.params.name) {
-            throw new InternalFlowiseError(StatusCodes.PRECONDITION_FAILED, `Error: nodesController.getNodeByName - name not provided!`)
+            throw new AppError(StatusCodes.PRECONDITION_FAILED, `Error: nodesController.getNodeByName - name not provided!`)
         }
         const apiResponse = await nodesService.getNodeByName(req.params.name, parseClientParam(req))
         return res.json(apiResponse)
@@ -36,10 +36,7 @@ const getNodeByName = async (req: Request, res: Response, next: NextFunction) =>
 const getNodesByCategory = async (req: Request, res: Response, next: NextFunction) => {
     try {
         if (typeof req.params.name === 'undefined' || req.params.name === '') {
-            throw new InternalFlowiseError(
-                StatusCodes.PRECONDITION_FAILED,
-                `Error: nodesController.getNodesByCategory - name not provided!`
-            )
+            throw new AppError(StatusCodes.PRECONDITION_FAILED, `Error: nodesController.getNodesByCategory - name not provided!`)
         }
         const name = _.unescape(req.params.name)
         const apiResponse = await nodesService.getAllNodesForCategory(name, parseClientParam(req))
@@ -56,7 +53,7 @@ const UNKNOWN_NODE_ICON =
 const getSingleNodeIcon = async (req: Request, res: Response, next: NextFunction) => {
     try {
         if (typeof req.params === 'undefined' || !req.params.name) {
-            throw new InternalFlowiseError(StatusCodes.PRECONDITION_FAILED, `Error: nodesController.getSingleNodeIcon - name not provided!`)
+            throw new AppError(StatusCodes.PRECONDITION_FAILED, `Error: nodesController.getSingleNodeIcon - name not provided!`)
         }
         const apiResponse = await nodesService.getSingleNodeIcon(req.params.name)
         if (!apiResponse) {
@@ -72,16 +69,10 @@ const getSingleNodeIcon = async (req: Request, res: Response, next: NextFunction
 const getSingleNodeAsyncOptions = async (req: Request, res: Response, next: NextFunction) => {
     try {
         if (!req.body) {
-            throw new InternalFlowiseError(
-                StatusCodes.PRECONDITION_FAILED,
-                `Error: nodesController.getSingleNodeAsyncOptions - body not provided!`
-            )
+            throw new AppError(StatusCodes.PRECONDITION_FAILED, `Error: nodesController.getSingleNodeAsyncOptions - body not provided!`)
         }
         if (typeof req.params === 'undefined' || !req.params.name) {
-            throw new InternalFlowiseError(
-                StatusCodes.PRECONDITION_FAILED,
-                `Error: nodesController.getSingleNodeAsyncOptions - name not provided!`
-            )
+            throw new AppError(StatusCodes.PRECONDITION_FAILED, `Error: nodesController.getSingleNodeAsyncOptions - name not provided!`)
         }
         const body = req.body
         body.searchOptions = getWorkspaceSearchOptionsFromReq(req)
@@ -96,10 +87,7 @@ const getSingleNodeAsyncOptions = async (req: Request, res: Response, next: Next
 const executeCustomFunction = async (req: Request, res: Response, next: NextFunction) => {
     try {
         if (!req.body) {
-            throw new InternalFlowiseError(
-                StatusCodes.PRECONDITION_FAILED,
-                `Error: nodesController.executeCustomFunction - body not provided!`
-            )
+            throw new AppError(StatusCodes.PRECONDITION_FAILED, `Error: nodesController.executeCustomFunction - body not provided!`)
         }
         const orgId = req.user?.activeOrganizationId
         const workspaceId = req.user?.activeWorkspaceId

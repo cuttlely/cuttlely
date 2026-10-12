@@ -2,7 +2,7 @@ import fs from 'fs'
 import path from 'path'
 import { StatusCodes } from 'http-status-codes'
 import { ChatFlow, EnumChatflowType } from '../../database/entities/ChatFlow'
-import { InternalFlowiseError } from '../../errors/internalFlowiseError'
+import { AppError } from '../../errors/appError'
 import { getRunningExpressApp } from '../../utils/getRunningExpressApp'
 import logger from '../../utils/logger'
 import { runBuilder } from '../builder/core'
@@ -28,7 +28,7 @@ function demoDataDir(name: string): string {
         if (fs.existsSync(candidate)) return candidate
         dir = path.dirname(dir)
     }
-    throw new InternalFlowiseError(StatusCodes.INTERNAL_SERVER_ERROR, `The bundled ${name} demo data was not found.`)
+    throw new AppError(StatusCodes.INTERNAL_SERVER_ERROR, `The bundled ${name} demo data was not found.`)
 }
 
 // A specialist's own folder gets its made-up files: each .sql file becomes a SQLite database of the same name, and
@@ -81,7 +81,7 @@ async function demoPipeline(demo: DemoDefinition, workspaceId: string): Promise<
             status = ((await etlService.getRun(run.id, 0, workspaceId)) as any)?.status
         }
         if (status !== 'succeeded' && status !== 'partial')
-            throw new InternalFlowiseError(
+            throw new AppError(
                 StatusCodes.INTERNAL_SERVER_ERROR,
                 `The ${demo.pipelineName} pipeline did not finish its first run (${status || 'no status'}). Open ETL to see why.`
             )
@@ -113,7 +113,7 @@ const create = async (credentialId: unknown, caller: DemoCaller, demoId?: unknow
     const { orgId, workspaceId, subscriptionId, actor } = caller
     const demo = demoById(demoId)
     if (typeof credentialId !== 'string' || !credentialId)
-        throw new InternalFlowiseError(StatusCodes.BAD_REQUEST, 'Pick the model key the demo should use.')
+        throw new AppError(StatusCodes.BAD_REQUEST, 'Pick the model key the demo should use.')
     await credentialsService.assertCredentialInWorkspace(credentialId, workspaceId)
     const existing = await existingDemo(demo, workspaceId)
     if (existing) return { id: existing.id, name: existing.name, created: false, starterQuestions: demo.starters }
@@ -124,12 +124,12 @@ const create = async (credentialId: unknown, caller: DemoCaller, demoId?: unknow
     const credential = credentials.find((row) => row.id === credentialId)
     const model = credential && demoModelFor(credential.credentialName, nodes)
     if (!credential || !model)
-        throw new InternalFlowiseError(StatusCodes.BAD_REQUEST, 'That key is not for a chat model. Pick a model key, such as OpenAI API.')
+        throw new AppError(StatusCodes.BAD_REQUEST, 'That key is not for a chat model. Pick a model key, such as OpenAI API.')
 
     // Harness names are shared by every workspace. A record left here by a deleted demo is replaced on save.
     const record = (await loadHarness('store.mjs')).getHarness(demo.harness)
     if (record && record.workspaceId !== workspaceId)
-        throw new InternalFlowiseError(StatusCodes.CONFLICT, `A team named ${demo.harness} already exists in another workspace.`)
+        throw new AppError(StatusCodes.CONFLICT, `A team named ${demo.harness} already exists in another workspace.`)
 
     const pipelineName = demo.pipelineSample ? await demoPipeline(demo, workspaceId) : ''
     const profile = await loadHarness('profile.mjs')
@@ -147,10 +147,7 @@ const create = async (credentialId: unknown, caller: DemoCaller, demoId?: unknow
         JSON.stringify(plan)
     )
     if (!built.ok)
-        throw new InternalFlowiseError(
-            StatusCodes.INTERNAL_SERVER_ERROR,
-            `The demo team did not pass the check: ${built.problems.join(' ')}`
-        )
+        throw new AppError(StatusCodes.INTERNAL_SERVER_ERROR, `The demo team did not pass the check: ${built.problems.join(' ')}`)
 
     const chatflow = new ChatFlow()
     Object.assign(chatflow, {

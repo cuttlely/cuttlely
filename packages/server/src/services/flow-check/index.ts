@@ -13,7 +13,7 @@ import { v4 as uuidv4 } from 'uuid'
 import { EvaluationRunner } from '@cuttlely/components'
 import { ChatMessage } from '../../database/entities/ChatMessage'
 import { Organization, Workspace } from '../../database/entities/identity'
-import { InternalFlowiseError } from '../../errors/internalFlowiseError'
+import { AppError } from '../../errors/appError'
 import { ChatType, IChatFlow } from '../../Interface'
 import { OSS_PRODUCT_ID } from '../../identity/ossPlatform'
 import { getRunningExpressApp } from '../../utils/getRunningExpressApp'
@@ -326,7 +326,7 @@ export async function getCheckSetup(flow: DraftFlow & { chatbotConfig?: string |
 export async function getCheck(flow: DraftFlow, checkId: string, given?: Candidate): Promise<CheckView> {
     const candidate = await candidateFor(flow, given)
     const record = checks.get(candidate.key)
-    if (!record || record.id !== checkId) throw new InternalFlowiseError(StatusCodes.NOT_FOUND, 'That check was not found. Run it again.')
+    if (!record || record.id !== checkId) throw new AppError(StatusCodes.NOT_FOUND, 'That check was not found. Run it again.')
     const draft = candidate.canvas
     return view(record, draft ? canvasHash(draft) : null)
 }
@@ -334,7 +334,7 @@ export async function getCheck(flow: DraftFlow, checkId: string, given?: Candida
 export async function stopCheck(flow: DraftFlow, checkId: string, given?: Candidate): Promise<CheckView> {
     const candidate = await candidateFor(flow, given)
     const record = checks.get(candidate.key)
-    if (!record || record.id !== checkId) throw new InternalFlowiseError(StatusCodes.NOT_FOUND, 'That check was not found. Run it again.')
+    if (!record || record.id !== checkId) throw new AppError(StatusCodes.NOT_FOUND, 'That check was not found. Run it again.')
     if (record.status === 'running') {
         record.stopRequested = true
         for (const controller of record.inflight) controller.abort()
@@ -345,17 +345,17 @@ export async function stopCheck(flow: DraftFlow, checkId: string, given?: Candid
 
 function cleanQuestions(input: unknown, max = MAX_QUESTIONS, allowEmpty = false): string[] {
     if (input === undefined && allowEmpty) return []
-    if (!Array.isArray(input)) throw new InternalFlowiseError(StatusCodes.BAD_REQUEST, 'Send the questions to check as a list.')
+    if (!Array.isArray(input)) throw new AppError(StatusCodes.BAD_REQUEST, 'Send the questions to check as a list.')
     const texts = input.map((q) => (typeof q === 'string' ? q.trim() : ''))
-    if (texts.some((t) => !t)) throw new InternalFlowiseError(StatusCodes.BAD_REQUEST, 'Each question must be text.')
+    if (texts.some((t) => !t)) throw new AppError(StatusCodes.BAD_REQUEST, 'Each question must be text.')
     if (texts.some((t) => t.length > MAX_QUESTION_CHARS))
-        throw new InternalFlowiseError(StatusCodes.BAD_REQUEST, `Each question can be at most ${MAX_QUESTION_CHARS} characters.`)
+        throw new AppError(StatusCodes.BAD_REQUEST, `Each question can be at most ${MAX_QUESTION_CHARS} characters.`)
     const unique = pickQuestions(texts, Number.MAX_SAFE_INTEGER, MAX_QUESTION_CHARS)
     if (!unique.length) {
         if (allowEmpty) return []
-        throw new InternalFlowiseError(StatusCodes.BAD_REQUEST, 'Pick at least one question to check.')
+        throw new AppError(StatusCodes.BAD_REQUEST, 'Pick at least one question to check.')
     }
-    if (unique.length > max) throw new InternalFlowiseError(StatusCodes.BAD_REQUEST, `The check runs at most ${max} questions.`)
+    if (unique.length > max) throw new AppError(StatusCodes.BAD_REQUEST, `The check runs at most ${max} questions.`)
     return unique
 }
 
@@ -365,7 +365,7 @@ async function questionsToRun(
     body: { questions?: unknown; count?: unknown }
 ): Promise<{ questions: string[]; selection: CheckSelection | null }> {
     const parsed = parseCompareCount(body?.count)
-    if (!parsed.ok) throw new InternalFlowiseError(StatusCodes.BAD_REQUEST, parsed.message)
+    if (!parsed.ok) throw new AppError(StatusCodes.BAD_REQUEST, parsed.message)
     if (parsed.count === null) return { questions: cleanQuestions(body?.questions), selection: null }
     const loaded = await loadRecent(flowId)
     const texts = usableTexts(loaded.rows)
@@ -374,7 +374,7 @@ async function questionsToRun(
     const extras = cleanQuestions(body?.questions, COMPARE_COUNT_MAX, true)
     const questions = pickQuestions([...past, ...extras], COMPARE_COUNT_MAX, MAX_QUESTION_CHARS)
     if (!questions.length) {
-        throw new InternalFlowiseError(StatusCodes.BAD_REQUEST, 'No past questions to compare. Add a question to check.')
+        throw new AppError(StatusCodes.BAD_REQUEST, 'No past questions to compare. Add a question to check.')
     }
     return {
         questions,
@@ -397,14 +397,14 @@ export async function startCheck(
     const candidate = await candidateFor(flow as DraftFlow, given)
     const draft = candidate.canvas
     const unavailable = unavailableFor(flow as DraftFlow, candidate, Boolean(given))
-    if (unavailable) throw new InternalFlowiseError(StatusCodes.CONFLICT, unavailable.message)
+    if (unavailable) throw new AppError(StatusCodes.CONFLICT, unavailable.message)
     const { questions, selection } = await questionsToRun(flow.id, body || {})
     if (body?.includeRiskySteps !== undefined && typeof body.includeRiskySteps !== 'boolean')
-        throw new InternalFlowiseError(StatusCodes.BAD_REQUEST, 'includeRiskySteps must be true or false.')
+        throw new AppError(StatusCodes.BAD_REQUEST, 'includeRiskySteps must be true or false.')
     const includeRiskySteps = body?.includeRiskySteps === true
     const risky = riskySteps([flow.flowData, draft as string], flow.chatbotConfig)
     if (risky.length && !includeRiskySteps) {
-        throw new InternalFlowiseError(
+        throw new AppError(
             StatusCodes.CONFLICT,
             `This flow has steps that could send, write or post something for real: ${risky
                 .map((s) => s.label)
@@ -412,10 +412,10 @@ export async function startCheck(
         )
     }
     const current = checks.get(candidate.key)
-    if (current?.status === 'running') throw new InternalFlowiseError(StatusCodes.CONFLICT, 'A check is already running for this flow.')
+    if (current?.status === 'running') throw new AppError(StatusCodes.CONFLICT, 'A check is already running for this flow.')
     const running = [...checks.values()].filter((r) => r.status === 'running').length
     if (running >= MAX_RUNNING)
-        throw new InternalFlowiseError(StatusCodes.TOO_MANY_REQUESTS, 'Too many checks are running on this server. Try again in a minute.')
+        throw new AppError(StatusCodes.TOO_MANY_REQUESTS, 'Too many checks are running on this server. Try again in a minute.')
 
     const record: CheckRecord = {
         id: uuidv4(),
@@ -560,9 +560,9 @@ async function replayFlow({ flow, flowData, question, signal, baseURL }: ReplayI
     const { executeFlow } = await import('../../utils/buildChatflow')
     const app = getRunningExpressApp()
     const workspace = await app.AppDataSource.getRepository(Workspace).findOneBy({ id: flow.workspaceId as string })
-    if (!workspace) throw new InternalFlowiseError(StatusCodes.NOT_FOUND, 'Workspace not found.')
+    if (!workspace) throw new AppError(StatusCodes.NOT_FOUND, 'Workspace not found.')
     const org = await app.AppDataSource.getRepository(Organization).findOneBy({ id: workspace.organizationId })
-    if (!org) throw new InternalFlowiseError(StatusCodes.NOT_FOUND, 'Organization not found.')
+    if (!org) throw new AppError(StatusCodes.NOT_FOUND, 'Organization not found.')
     const runId = `cuttlely-check-${crypto.randomUUID()}`
     const copy = { ...flow, flowData, analytic: JSON.stringify({ evaluation: { status: true } }) } as IChatFlow
     try {

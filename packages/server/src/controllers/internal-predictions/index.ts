@@ -1,6 +1,6 @@
 import { NextFunction, Request, Response } from 'express'
 import { StatusCodes } from 'http-status-codes'
-import { InternalFlowiseError } from '../../errors/internalFlowiseError'
+import { AppError } from '../../errors/appError'
 import { getErrorMessage } from '../../errors/utils'
 import { errorEventDetails } from '../../utils/predictionErrors'
 import { MODE } from '../../Interface'
@@ -19,7 +19,7 @@ const createInternalPrediction = async (req: Request, res: Response, next: NextF
 
         const chatflow = await chatflowService.getChatflowByIdForWorkspace(req.params.id, workspaceId)
         if (!chatflow) {
-            throw new InternalFlowiseError(StatusCodes.NOT_FOUND, `Chatflow ${req.params.id} not found`)
+            throw new AppError(StatusCodes.NOT_FOUND, `Chatflow ${req.params.id} not found`)
         }
 
         bindRequestSession(req, { chatflow, isInternal: true })

@@ -64,7 +64,7 @@ import { Credential } from '../../database/entities/Credential'
 import { WorkspaceShared } from '../../database/entities/identity'
 import { requireAnyPermission } from '../../identity/rbac'
 import { getActiveWorkspaceIdForRequest } from '../../identity/workspaceScope'
-import { InternalFlowiseError } from '../../errors/internalFlowiseError'
+import { AppError } from '../../errors/appError'
 import { decryptCredentialData, encryptCredentialData } from '../../utils'
 import { getRunningExpressApp } from '../../utils/getRunningExpressApp'
 import logger from '../../utils/logger'
@@ -99,7 +99,7 @@ router.post('/authorize/:credentialId', async (req: Request, res: Response, next
         }
 
         if (!credential) {
-            return next(new InternalFlowiseError(StatusCodes.NOT_FOUND, 'Credential not found'))
+            return next(new AppError(StatusCodes.NOT_FOUND, 'Credential not found'))
         }
 
         // Decrypt the credential data to get OAuth configuration
@@ -167,11 +167,11 @@ router.post('/authorize/:credentialId', async (req: Request, res: Response, next
             redirectUri: finalRedirectUri
         })
     } catch (error) {
-        if (error instanceof InternalFlowiseError) {
+        if (error instanceof AppError) {
             return next(error)
         }
         next(
-            new InternalFlowiseError(
+            new AppError(
                 StatusCodes.INTERNAL_SERVER_ERROR,
                 `OAuth2 authorization error: ${error instanceof Error ? error.message : 'Unknown error'}`
             )
@@ -485,7 +485,7 @@ router.post(
                 }
             })
         } catch (error) {
-            if (error instanceof InternalFlowiseError) {
+            if (error instanceof AppError) {
                 return next(error)
             }
             if (axios.isAxiosError(error)) {
@@ -496,7 +496,7 @@ router.post(
                 })
             }
             logger.error(`[oauth2] token refresh error for credential ${credentialId}`)
-            next(new InternalFlowiseError(StatusCodes.INTERNAL_SERVER_ERROR, OAUTH_REFRESH_FAILED))
+            next(new AppError(StatusCodes.INTERNAL_SERVER_ERROR, OAUTH_REFRESH_FAILED))
         }
     }
 )

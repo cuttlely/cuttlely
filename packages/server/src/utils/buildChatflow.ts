@@ -39,7 +39,7 @@ import {
     IVariableOverride,
     MODE
 } from '../Interface'
-import { InternalFlowiseError } from '../errors/internalFlowiseError'
+import { AppError } from '../errors/appError'
 import { databaseEntities } from '.'
 import { ChatFlow } from '../database/entities/ChatFlow'
 import { ChatMessage } from '../database/entities/ChatMessage'
@@ -191,7 +191,7 @@ const initEndingNode = async ({
             : reactFlowNodes[reactFlowNodes.length - 1]
 
     if (!nodeToExecute) {
-        throw new InternalFlowiseError(StatusCodes.NOT_FOUND, `Node not found`)
+        throw new AppError(StatusCodes.NOT_FOUND, `Node not found`)
     }
 
     if (incomingInput.overrideConfig && apiOverrideStatus) {
@@ -526,7 +526,7 @@ export const executeFlow = async ({
     const isAgentFlowV2 = chatflow.type === 'AGENTFLOW'
     // The publish check replays chatflows and agentflows. Legacy multi-agent canvases save their runs as they go.
     if (replay && chatflow.type === 'MULTIAGENT') {
-        throw new InternalFlowiseError(StatusCodes.CONFLICT, 'The check works on chatflows and agentflows.')
+        throw new AppError(StatusCodes.CONFLICT, 'The check works on chatflows and agentflows.')
     }
     if (isAgentFlowV2) {
         return executeAgentFlow({
@@ -589,7 +589,7 @@ export const executeFlow = async ({
 
     const isAgentFlow =
         endingNodes.filter((node) => node.data.category === 'Multi Agents' || node.data.category === 'Sequential Agents').length > 0
-    if (replay && isAgentFlow) throw new InternalFlowiseError(StatusCodes.CONFLICT, 'The check works on chatflows and agentflows.')
+    if (replay && isAgentFlow) throw new AppError(StatusCodes.CONFLICT, 'The check works on chatflows and agentflows.')
 
     /*** Get Chat History ***/
     const chatHistory = await getChatHistory({
@@ -1054,7 +1054,7 @@ const checkIfStreamValid = async (
             Object.keys(endingNodeData.outputs).length &&
             !Object.values(endingNodeData.outputs ?? {}).includes(endingNodeData.name)
         ) {
-            throw new InternalFlowiseError(
+            throw new AppError(
                 StatusCodes.INTERNAL_SERVER_ERROR,
                 `Output of ${endingNodeData.label} (${endingNodeData.id}) must be ${endingNodeData.label}, can't be an Output Prediction`
             )
@@ -1088,7 +1088,7 @@ export const utilBuildChatflow = async (
         id: chatflowid
     })
     if (!chatflow) {
-        throw new InternalFlowiseError(StatusCodes.NOT_FOUND, `Chatflow ${chatflowid} not found`)
+        throw new AppError(StatusCodes.NOT_FOUND, `Chatflow ${chatflowid} not found`)
     }
     // Only the canvas test chat runs the draft. The copy is in memory; the chatflow row is never saved here.
     if (options.testDraft) chatflow.flowData = await flowDraftsService.flowDataForTestChat(chatflow)
@@ -1136,7 +1136,7 @@ export const utilBuildChatflow = async (
         if (!isInternal) {
             const isKeyValidated = await validateFlowAPIKey(req, chatflow)
             if (!isKeyValidated) {
-                throw new InternalFlowiseError(StatusCodes.UNAUTHORIZED, `Unauthorized`)
+                throw new AppError(StatusCodes.UNAUTHORIZED, `Unauthorized`)
             }
         }
 
@@ -1146,7 +1146,7 @@ export const utilBuildChatflow = async (
             id: chatflowWorkspaceId
         })
         if (!workspace) {
-            throw new InternalFlowiseError(StatusCodes.NOT_FOUND, `Workspace ${chatflowWorkspaceId} not found`)
+            throw new AppError(StatusCodes.NOT_FOUND, `Workspace ${chatflowWorkspaceId} not found`)
         }
         const workspaceId = workspace.id
 
@@ -1154,7 +1154,7 @@ export const utilBuildChatflow = async (
             id: workspace.organizationId
         })
         if (!org) {
-            throw new InternalFlowiseError(StatusCodes.NOT_FOUND, `Organization ${workspace.organizationId} not found`)
+            throw new AppError(StatusCodes.NOT_FOUND, `Organization ${workspace.organizationId} not found`)
         }
 
         const orgId = org.id

@@ -1,6 +1,6 @@
 import { Request, Response, NextFunction } from 'express'
 import { StatusCodes } from 'http-status-codes'
-import { InternalFlowiseError } from '../../errors/internalFlowiseError'
+import { AppError } from '../../errors/appError'
 import { getRunningExpressApp } from '../../utils/getRunningExpressApp'
 import { getWebhookListenerRegistry } from '../../services/webhook-listener'
 import { IReactFlowObject, StartInputType } from '../../Interface'
@@ -12,20 +12,20 @@ const HEARTBEAT_MS = 30_000
 const assertChatflowIsWebhookTriggered = async (chatflowid: string, workspaceId?: string) => {
     const chatflow = await chatflowsService.getChatflowById(chatflowid, workspaceId)
     if (!chatflow) {
-        throw new InternalFlowiseError(StatusCodes.NOT_FOUND, `Chatflow ${chatflowid} not found`)
+        throw new AppError(StatusCodes.NOT_FOUND, `Chatflow ${chatflowid} not found`)
     }
     const parsedFlowData: IReactFlowObject = JSON.parse(chatflow.flowData)
     const startNode = parsedFlowData.nodes.find((node) => node.data.name === 'startAgentflow')
     const startInputType = startNode?.data?.inputs?.startInputType as StartInputType | undefined
     if (startInputType !== 'webhookTrigger') {
-        throw new InternalFlowiseError(StatusCodes.BAD_REQUEST, `Chatflow ${chatflowid} is not configured as a webhook trigger`)
+        throw new AppError(StatusCodes.BAD_REQUEST, `Chatflow ${chatflowid} is not configured as a webhook trigger`)
     }
 }
 
 const registerListener = async (req: Request, res: Response, next: NextFunction) => {
     try {
         const chatflowid = req.params.id
-        if (!chatflowid) throw new InternalFlowiseError(StatusCodes.PRECONDITION_FAILED, 'chatflow id is required')
+        if (!chatflowid) throw new AppError(StatusCodes.PRECONDITION_FAILED, 'chatflow id is required')
 
         await assertChatflowIsWebhookTriggered(chatflowid, req.user?.activeWorkspaceId)
 
@@ -43,7 +43,7 @@ const streamListener = async (req: Request, res: Response, next: NextFunction) =
 
     try {
         if (!chatflowid || !listenerId) {
-            throw new InternalFlowiseError(StatusCodes.PRECONDITION_FAILED, 'chatflow id and listener id are required')
+            throw new AppError(StatusCodes.PRECONDITION_FAILED, 'chatflow id and listener id are required')
         }
 
         await assertChatflowIsWebhookTriggered(chatflowid, req.user?.activeWorkspaceId)
@@ -102,7 +102,7 @@ const unregisterListener = async (req: Request, res: Response, next: NextFunctio
         const chatflowid = req.params.id
         const listenerId = req.params.listenerId
         if (!chatflowid || !listenerId) {
-            throw new InternalFlowiseError(StatusCodes.PRECONDITION_FAILED, 'chatflow id and listener id are required')
+            throw new AppError(StatusCodes.PRECONDITION_FAILED, 'chatflow id and listener id are required')
         }
         const registry = getWebhookListenerRegistry()
         await registry.unregister(chatflowid, listenerId)
