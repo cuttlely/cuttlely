@@ -1,8 +1,11 @@
 // Draft and Live for one flow. ChatFlow.flowData is Live: prediction, embeds, shared links, MCP,
-// schedules and webhooks read it, unchanged. The canvas saves to a draft in flow_version_state, and the
-// canvas's own test chat runs that draft. Publish copies the draft to Live; Roll back sets Live to an earlier version.
+// schedules and webhooks read it, unchanged. A harness run reads the roster synced from that Live canvas,
+// so POST /api/v1/harnesses/:name/runs stays on Live until Publish. The canvas saves to a draft in
+// flow_version_state, and a chatflow or agentflow test chat runs that draft. Publish copies the draft to
+// Live (and syncs the harness roster); Roll back sets Live to an earlier version.
 //
-// No data migration: a flow with no state row has no draft, so nothing changes for it until it is edited.
+// No data migration: a flow with no state row has no draft. An existing harness stays the Live canvas it
+// already has, and the first edit after drafts include harnesses creates a draft.
 import crypto from 'crypto'
 import { StatusCodes } from 'http-status-codes'
 import { type EntityManager } from 'typeorm'
@@ -65,9 +68,10 @@ export async function withChatflowLock<T>(chatflowId: string, fn: (manager: Enti
     }
 }
 
-// Canvas types whose edits go to a draft. Harness and ETL canvases keep saving to Live until their
-// test runs can use a draft; assistants have no canvas.
-export const DRAFT_TYPES = ['CHATFLOW', 'MULTIAGENT', 'AGENTFLOW']
+// Canvas types whose edits go to a draft. ETL canvases keep saving to Live until a pipeline test run
+// can use a draft; assistants have no canvas. A harness canvas saves here too. Its runs keep serving
+// the published roster until Publish syncs Live.
+export const DRAFT_TYPES = ['CHATFLOW', 'MULTIAGENT', 'AGENTFLOW', 'HARNESS']
 
 // The flow fields this module reads.
 export interface DraftFlow {

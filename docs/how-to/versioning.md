@@ -66,7 +66,7 @@ Restoring needs permission to edit that kind of flow. A user who cannot edit flo
 
 ### Open a version as your draft
 
-On a chatflow or agentflow with drafts on, which is the default, the button on the version page is **Open As Draft**. The version goes on the canvas as your draft, and Live does not change until you publish.
+On a chatflow, agentflow, or harness with drafts on, which is the default, the button on the version page is **Open As Draft**. The version goes on the canvas as your draft, and Live does not change until you publish.
 
 1. Open the version.
 2. Select **Open As Draft**.
@@ -88,7 +88,7 @@ To change Live at once instead, open **Version history** and select **Roll back 
 
 ### Restore straight to Live
 
-Harnesses, pipelines, flows with **Publish instantly** on, and every flow on a server with drafts off restore straight to Live. The button is **Restore This Version**.
+Pipelines, flows with **Publish instantly** on, and every flow on a server with drafts off restore straight to Live. The button is **Restore This Version**. A harness with drafts on uses **Open As Draft** instead; **Roll back Live** is what changes the published harness.
 
 1. Open the version.
 2. Select **Restore This Version**.
@@ -96,7 +96,7 @@ Harnesses, pipelines, flows with **Publish instantly** on, and every flow on a s
 
 ![The Restore this version? dialog over the version page of Bakery helper, with Compare With Now selected and Restore This Version at the top right. It reads: The flow goes back to this version and is live right away. Nothing in history is erased: the restore is saved as a new version, so you can undo it the same way. The buttons are Cancel and Restore.](../images/versioning/restore-confirm.png)
 
-The flow goes back to that version and is live right away. That includes the canvas, the flow's name, its type, and its category. The restore runs through the same save as the canvas, so harness and pipeline settings are updated the same way.
+The flow goes back to that version and is live right away. That includes the canvas, the flow's name, its type, and its category. The restore runs through the same save as the canvas, so a pipeline is updated the same way. A harness that is saving straight to Live is updated the same way, including the roster `POST /api/v1/harnesses/:name/runs` serves.
 
 The restore is saved as a new version named `Restored: <name of that version> (<version id>)`, edited by you. To undo a restore, open the version before it and restore that one.
 
@@ -187,7 +187,7 @@ Chat history, uploaded files, runs, and the app database are not in version hist
 
 ## Drafts and Publish
 
-Drafts are on by default. A chatflow or agentflow canvas saves to a **Draft**. The prediction API, embeds, shared links, schedules and webhooks keep running **Live** until you **Publish**. The canvas test chat runs the draft, so you try the version you are editing. Harness and pipeline canvases still save straight to Live.
+Drafts are on by default. A chatflow, agentflow, or harness canvas saves to a **Draft**. The prediction API, embeds, shared links, schedules, webhooks, and `POST /api/v1/harnesses/:name/runs` keep running **Live** until you **Publish**. The canvas test chat on a chatflow or agentflow runs the draft, so you try the version you are editing. A harness canvas chat and **Try it** call that runs route, so they keep serving the published harness until you publish. Pipeline canvases still save straight to Live.
 
 The canvas says **Draft, not live yet** and when that draft was saved, or **Live** when there is nothing waiting. **Publish** opens one dialog that lists what changed, in the same words as version history. **Keep editing** closes it. **Discard draft** throws the draft away and puts Live back on the canvas.
 
@@ -197,7 +197,7 @@ Version history marks a version **Published** when it was put Live by Publish or
 
 **Publish instantly**, in the flow's configuration, makes every save live again, the way it worked before drafts. It stays off while a draft is still open: publish or discard that draft first.
 
-After an upgrade from a release without drafts, each flow's canvas stays Live as it was. Your next save on the canvas starts a draft. Scripts that update flows through `PUT /api/v1/chatflows/:id` keep writing Live; see [Drafts API](../reference/drafts-api.md).
+After an upgrade from a release without drafts, each flow's canvas stays Live as it was. Your next save on the canvas starts a draft. A harness saved before harness drafts works the same way: that canvas is Live, runs keep serving it, and the first edit on the canvas starts a draft. Nothing is copied or rewritten. Scripts that update flows through `PUT /api/v1/chatflows/:id` keep writing Live, and for a harness that save still updates the roster runs serve; see [Drafts API](../reference/drafts-api.md).
 
 To turn drafts off for the whole server, set `CUTTLELY_DRAFTS=off` (`false`, `0`, and `no` also work) and restart. The canvas then saves straight to Live, and Restore works as described above. See [History settings](../reference/versioning-settings.md#cuttlely_drafts).
 

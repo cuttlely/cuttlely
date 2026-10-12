@@ -124,7 +124,11 @@ The name is the harness id. Chatflows and the API call the harness by it. It is 
 
 ![The Save New Harness dialog with chief-of-staff typed in the name field, and Cancel and Save buttons.](../images/harnesses/save-dialog-name.png)
 
-The message `Harness saved` appears. The header shows the name and `Last edited by` with your display name. The buttons at the top right are now **Version history**, **API Endpoint**, **Save Harness**, and **Settings**.
+The first save of a new harness is Live, so a chatflow and the API can call it. After that, **Save Harness** writes a **Draft**. The header says **Draft, not live yet**, or **Live** when nothing is waiting. **Publish** puts the draft Live. **Discard draft**, in the Publish dialog, throws the draft away. `POST /api/v1/harnesses/:name/runs`, **Try it**, and the canvas chat keep serving the published harness until you publish. [Drafts and Publish](./versioning.md#drafts-and-publish) is the same flow chatflows use, including **Roll back Live**. The check that replays recent questions is not on a harness yet.
+
+A harness that was saved before drafts is already Live. The next edit on the canvas starts a draft. The saved canvas and the roster runs serve do not change until you publish.
+
+The message `Draft saved` appears for an edit. The first save says `Harness saved`. The header shows the name and `Last edited by` with your display name. The buttons at the top right are now **Version history**, **API Endpoint**, **Save Harness**, and **Settings**, and **Publish** when a draft is waiting.
 
 ![The saved chief-of-staff canvas. The header reads Last edited by Rosa Diaz, just now. No card has an orange triangle and there is no Sync Nodes button, because the template nodes are current.](../images/harnesses/canvas-saved.png)
 
@@ -134,7 +138,7 @@ An orange triangle on a card means that node was saved with an older version of 
 
 ## Test it in the canvas chat
 
-The chat button at the top right of a saved harness canvas sends your message to the saved harness. Save before you chat. Unsaved changes are not used.
+The chat button at the top right of a saved harness canvas sends your message to the published harness, the same request as `POST /api/v1/harnesses/<name>/runs`. A draft is not used until you **Publish**. Unsaved changes are not used either.
 
 1. Select the chat button (**Chat**).
 2. Ask a document question, for example: `What does the sample note say the researcher reads, and how were its vectors built?`
@@ -201,7 +205,7 @@ Build with AI works the same with classic cards. The team lands with each card a
 
 ![The same study team built with classic cards. Harness Prime, the OpenAI card and two specialists are drawn with every setting on the card.](../images/harnesses/build-with-ai-classic.png)
 
-Change anything you like afterwards, the same as a harness you built by hand. Save keeps your changes. Every save is kept in [Version history](./versioning.md). Pipelines and chatflows have the same button: see [Build a pipeline with AI](./etl.md#build-a-pipeline-with-ai) and [Build a chatflow with AI](./canvas.md#build-a-chatflow-with-ai). A chatflow built that way uses the **Harness** tool only when you name one of your saved harnesses.
+Change anything you like afterwards, the same as a harness you built by hand. The first save is Live. Later saves are a draft until you publish, and Publish records that version in [Version history](./versioning.md). Pipelines and chatflows have the same button: see [Build a pipeline with AI](./etl.md#build-a-pipeline-with-ai) and [Build a chatflow with AI](./canvas.md#build-a-chatflow-with-ai). A chatflow built that way uses the **Harness** tool only when you name one of your saved harnesses.
 
 ## Run it from the harness page
 
@@ -220,7 +224,7 @@ While it runs, the button reads **Running** and **Stop** cancels the run. The ru
 
 ![Try it after the run. The Run card says Finished, 3.3 s, and the answer says There are 2 open tasks and lists draft agenda and send invites.](../images/harnesses/harness-try-it-done.png)
 
-**Try it** is the same request as `POST /api/v1/harnesses/chief-of-staff/runs`. It uses your signed-in session.
+**Try it** is the same request as `POST /api/v1/harnesses/chief-of-staff/runs`. It uses your signed-in session, and it runs the published harness. A draft on the canvas is not used until you publish.
 
 ## Look at earlier runs
 

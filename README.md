@@ -130,7 +130,7 @@ Workflows that run step by step and can start from a chat message, a form, a web
 
 Changing an AI app that people already use should not mean testing on them. Cuttlely treats every change as a release.
 
--   **Drafts never touch Live.** On chatflows and agentflows the canvas saves to a draft. The API, embeds, shared links, schedules and webhooks keep serving Live until you publish, and the test chat runs your draft.
+-   **Drafts never touch Live.** On chatflows, agentflows, and harnesses the canvas saves to a draft. The API, embeds, shared links, schedules, webhooks, and a harness's runs keep serving Live until you publish. The test chat on a chatflow or agentflow runs your draft. A harness canvas chat keeps serving Live until you publish.
 -   **Compare before you publish.** The Publish dialog can ask up to 10 questions people really asked the flow again, once on Live and once on your draft, and show both answers side by side with the tokens and time each one took. The check never changes Live or your draft and leaves nothing in chat history. A flow with steps that post or write for real is skipped unless you choose to run it anyway.
 -   **Every version is kept.** Chatflows, agentflows, harnesses and pipelines keep each saved version, with what changed and who changed it. Open an old version as your draft, or roll Live back to it, in one step.
 -   **Promote from Dev to Prod.** Connect a Dev server and a Prod server to the same GitHub repository. Prod lists what Dev published, shows what would change and which credentials it needs, can run the same side-by-side check, and goes Live only when its owner selects **Promote to Live**. Each server keeps its own credentials; only their names travel.
