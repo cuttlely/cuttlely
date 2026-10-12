@@ -169,3 +169,7 @@ The server is not an npm package: a full install needs the Python agent runtime,
 ## D42. npm publishes only from the release tag
 
 `pnpm release X.Y.Z --npm` is the publish path for `cuttlely` and `@cuttlely/chat`. It runs after `pnpm release` has tagged the version, the image `ghcr.io/cuttlely/cuttlely:X.Y.Z` is in the registry, and the GitHub release is published. It refuses unless `HEAD` is that annotated tag, the tree is clean, the version files match `X.Y.Z`, an anonymous manifest check sees the image, the GitHub release is not a draft, and `NPM_TOKEN` is set. The token is never printed. This supersedes the publish sentence of D40.
+
+## D43. The components package name is @cuttlely/components
+
+`packages/components` is the package `@cuttlely/components`. Package names follow `ARCHITECTURE.md`. Path names, environment variable names, and data names stay stable. Saved custom functions and custom tools may still require the earlier specifier when an operator has allowed it through `TOOL_FUNCTION_EXTERNAL_DEP`. A compatibility alias on the workspace root keeps that require working. This narrows D1 for this package. Other packages may still use the engine's package name.

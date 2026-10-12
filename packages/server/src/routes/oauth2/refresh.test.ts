@@ -2,7 +2,7 @@ import axios from 'axios'
 import express, { Request } from 'express'
 import { StatusCodes } from 'http-status-codes'
 import request from 'supertest'
-import { secureAxiosRequest } from 'flowise-components'
+import { secureAxiosRequest } from '@cuttlely/components'
 import { setTeamPermissionLookup } from '../../identity/rbac'
 import errorHandlerMiddleware from '../../middlewares/errors'
 import { WHITELIST_URLS } from '../../utils/constants'
@@ -11,7 +11,7 @@ import { getRunningExpressApp } from '../../utils/getRunningExpressApp'
 import logger from '../../utils/logger'
 import oauth2Router from './index'
 
-jest.mock('flowise-components', () => ({
+jest.mock('@cuttlely/components', () => ({
     secureAxiosRequest: jest.fn()
 }))
 

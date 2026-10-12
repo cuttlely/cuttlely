@@ -54,6 +54,7 @@
         "*.{js,jsx,ts,tsx,json,md}": "eslint --fix"
     },
     "dependencies": {
+        "flowise-components": "workspace:@cuttlely/components@*",
         "run-script-os": "^1.1.6"
     },
     "devDependencies": {

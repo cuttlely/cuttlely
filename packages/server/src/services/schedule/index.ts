@@ -18,7 +18,7 @@ import {
     buildCronFromVisualPicker,
     canScheduleEnable
 } from './utils'
-import { ICommonObject } from 'flowise-components'
+import { ICommonObject } from '@cuttlely/components'
 import { ScheduleInputMode, StartInputType } from '../../Interface'
 
 export {

@@ -1,4 +1,9 @@
-import { getFilesListFromStorage, isChatScopedUploadName, removeFilesFromStorage, removeSpecificFileFromStorage } from 'flowise-components'
+import {
+    getFilesListFromStorage,
+    isChatScopedUploadName,
+    removeFilesFromStorage,
+    removeSpecificFileFromStorage
+} from '@cuttlely/components'
 
 /**
  * Removes every stored upload of these chats in one chatflow: each chat's own folder, and the documents a prediction stored
