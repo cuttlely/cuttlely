@@ -41,7 +41,7 @@ import {
     resetAnalystStoreForTests,
     rowPageSummary
 } from './analyst-store.mjs'
-import { analystPageRequest, parseSimpleSelect } from './analyst-page.mjs'
+import { ANALYST_CURSOR_ERRORS, analystPageRequest, parseSimpleSelect } from './analyst-page.mjs'
 import { presentAnalystToolResult } from '../packages/harness/context.mjs'
 import { analystChipRows } from '../packages/harness/trace.mjs'
 import { queryAnalyst as runtimeQueryAnalyst } from '../packages/harness/runtime/analyst-store.mjs'
@@ -607,6 +607,66 @@ describe('analyst sqlite storage', () => {
                 Array.from({ length: 600 }, (_, index) => index + 1)
             )
             assert.deepEqual(cardCounts, [250, 250, 100])
+            const jump = await queryAnalyst('SELECT n FROM nums ORDER BY n', { env, sqliteOpen, scope: 'cap-250-jump' })
+            const page3 = await queryAnalyst({ cursor: jump.cursor, page: 3 }, { env, sqliteOpen, scope: 'cap-250-jump' })
+            assert.equal(page3.rows[0].n, 501)
+            assert.equal(page3.rows.at(-1).n, 600)
+            assert.equal(page3.rows.length, 100)
+        } finally {
+            resetAnalystStoreForTests()
+            fs.rmSync(dir, { recursive: true, force: true })
+        }
+    })
+
+    it('pages wide notes in order, and refuses a page jump after a short page', async () => {
+        const dir = tempDir()
+        const env = { ...sqliteEnv(dir), CUTTLELY_ANALYST_ROW_CAP: '250' }
+        const sqliteOpen = (file) => new DatabaseSync(file)
+        const scope = 'wide-600'
+        const note = 'n'.repeat(400)
+        try {
+            await queryAnalyst('CREATE TABLE wide (n INTEGER PRIMARY KEY, note TEXT)', { env, sqliteOpen, scope })
+            await queryAnalyst(
+                `WITH RECURSIVE c(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM c WHERE n < 600) INSERT INTO wide (n, note) SELECT n, '${note}' FROM c`,
+                { env, sqliteOpen, scope }
+            )
+            const first = await queryAnalyst('SELECT n, note FROM wide ORDER BY n', { env, sqliteOpen, scope })
+            assert.ok(first.rows.length < 250)
+            assert.match(first.summary, /more rows available/)
+            assert.equal(first.summary.includes(' of '), false)
+            assert.equal(first.summary.includes('page 1 of'), false)
+            await assert.rejects(
+                queryAnalyst({ cursor: first.cursor, page: 3 }, { env, sqliteOpen, scope }),
+                (error) => error.message === ANALYST_CURSOR_ERRORS.page
+            )
+            const seen = first.rows.map((row) => row.n)
+            let page = await queryAnalyst({ cursor: first.cursor }, { env, sqliteOpen, scope })
+            assert.equal(page.rows[0].n, first.rows.at(-1).n + 1)
+            let guard = 0
+            while (page) {
+                guard += 1
+                assert.ok(guard < 40)
+                const card = analystChipRows({
+                    name: 'mcp__analyst__query',
+                    status: 'done',
+                    detail: JSON.stringify({ result: page })
+                })
+                const lines = presentAnalystToolResult(page)
+                    .split('\n')
+                    .filter((line) => line.startsWith('n:'))
+                assert.equal(card.rows.length, page.rows.length)
+                assert.equal(lines.length, page.rows.length)
+                assert.equal(page.rows[0].n, seen.at(-1) + 1)
+                for (const row of page.rows) seen.push(row.n)
+                const last = typeof page.summary === 'string' && page.summary.includes('last page')
+                if (!page.cursor || last) break
+                page = await queryAnalyst({ cursor: page.cursor }, { env, sqliteOpen, scope })
+            }
+            assert.deepEqual(
+                seen,
+                Array.from({ length: 600 }, (_, index) => index + 1)
+            )
+            assert.match(analystToolSpec('sqlite', 250).description, /only while every page so far returned the full row cap/)
         } finally {
             resetAnalystStoreForTests()
             fs.rmSync(dir, { recursive: true, force: true })

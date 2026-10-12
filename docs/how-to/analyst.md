@@ -171,11 +171,11 @@ The cursor lasts 15 minutes. It is dropped when Cuttlely restarts. It works only
 
 ### Every row on the run card
 
-The answer can show only the top rows, for example the top 10 accounts. The run card keeps every row each analyst query returned, up to the 100-row cap. Open the analyst row and select a query chip that says `· N rows`:
+The answer can show only the top rows, for example the top 10 accounts. The run card lists the rows that page returned, up to the configured row cap (at most 1000). Open the analyst row and select a query chip that says `· N rows`:
 
 ![Try it on the bakery-auto-timeout harness. The prompt asks the analyst to query every order sorted by qty and answer in one sentence. The analyst row is open. The chip reads mcp__analyst__query · done · 100 rows, and below it the caption 100 rows this query returned. The answer can show fewer, a table with order_id, item and qty, and the page line rows 1-100 of 150. The answer names only the six orders with the highest qty.](../images/analyst/run-card-rows.png)
 
-The table shows the first 100 rows of each query, the same rows the analyst received. Select the chip again to close it.
+The table lists the rows that page returned, up to the configured row cap (at most 1000), the same rows the analyst received. Select the chip again to close it.
 
 The list is the rows as the tool returned them, with the page line under them. A chip for a create, an insert or a failed statement has no row list.
 

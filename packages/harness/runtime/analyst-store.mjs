@@ -1145,6 +1145,8 @@ function finishPage(rawRows, paging, plan) {
         page: paging.page,
         pageSize,
         nextOffset: startOffset + shown.length,
+        // Once a page is shorter than the cap and rows remain, later jumps cannot use (page - 1) * pageSize.
+        cut: Boolean(paging.cut) || (shown.length < pageSize && more),
         lastKey: usableKey ? lastKey : null,
         expiresAt: paging.now + paging.ttl
     }
@@ -1694,8 +1696,27 @@ function replayCursor(token, input, pagingBase) {
     const requested = pageNumber(input.page)
     const pageSize = positiveInt(state.pageSize) || pageSizeOf(pagingBase)
     const nextOffset = Number.isInteger(state.nextOffset) ? state.nextOffset : state.page * pageSize
-    const page = requested == null ? state.page + 1 : requested
-    const offset = requested == null || page === state.page + 1 ? nextOffset : (page - 1) * pageSize
+    let page
+    let offset
+    let cut = Boolean(state.cut)
+    let lastKey = state.lastKey
+    if (cut) {
+        // After a short page, only the following page and a return to page 1 have a known offset.
+        if (requested == null || requested === state.page + 1) {
+            page = requested == null ? state.page + 1 : requested
+            offset = nextOffset
+        } else if (requested === 1) {
+            page = 1
+            offset = 0
+            cut = false
+            lastKey = null
+        } else {
+            throw cursorError(ANALYST_CURSOR_ERRORS.page)
+        }
+    } else {
+        page = requested == null ? state.page + 1 : requested
+        offset = requested == null || page === state.page + 1 ? nextOffset : (page - 1) * pageSize
+    }
     if (Number.isFinite(state.total) && offset >= state.total) throw cursorError(ANALYST_CURSOR_ERRORS.past)
     return {
         plan: {
@@ -1712,8 +1733,9 @@ function replayCursor(token, input, pagingBase) {
             page,
             offset,
             rowCap: pageSize,
-            previousOffset: nextOffset,
-            lastKey: state.lastKey,
+            previousOffset: page === 1 && offset === 0 ? 0 : nextOffset,
+            lastKey,
+            cut,
             cursor: token,
             statement: state.statement
         }
@@ -1739,7 +1761,7 @@ export function analystToolSpec(engine, rowCap = analystConfiguredRowCap()) {
             ? ' Use SQLite. Declare an id column as INTEGER PRIMARY KEY. SERIAL is not a SQLite type, and that id comes back null.'
             : ' Use PostgreSQL.'
     return {
-        description: `Run one SQL statement in the isolated analyst store (${dialect}). Every SQL statement or database question must use this tool, including a statement you expect to be refused or to fail. Do not predict, simulate, or paraphrase a result or error. If this tool refuses or errors, quote that text exactly. Results are capped at ${cap} rows. A capped result includes a page line that starts with "rows " and a cursor. To fetch another page, pass that cursor and do not send a new statement. page is the 1-based page number. Show the rows and the page line, not the line alone.${idNote} Pass the statement as sql. statement and query are the same field.`,
+        description: `Run one SQL statement in the isolated analyst store (${dialect}). Every SQL statement or database question must use this tool, including a statement you expect to be refused or to fail. Do not predict, simulate, or paraphrase a result or error. If this tool refuses or errors, quote that text exactly. Results are capped at ${cap} rows. A capped result includes a page line that starts with "rows " and a cursor. To fetch another page, pass that cursor and do not send a new statement. page is the next page, or 1 to read the first page again. It is a stable page number only while every page so far returned the full row cap. After a shorter page, any other page number is refused. Omit page for the next page. Show the rows and the page line, not the line alone.${idNote} Pass the statement as sql. statement and query are the same field.`,
         schema: {
             type: 'object',
             properties: {
@@ -1747,7 +1769,11 @@ export function analystToolSpec(engine, rowCap = analystConfiguredRowCap()) {
                 statement: { type: 'string', description: 'Alias of sql' },
                 query: { type: 'string', description: 'Alias of sql' },
                 cursor: { type: 'string', description: 'Page cursor from a capped result. Repeats that query.' },
-                page: { type: 'integer', description: '1-based page when using a cursor. Omit for the next page.' }
+                page: {
+                    type: 'integer',
+                    description:
+                        'Next page, or 1 to start over. A stable index only while every page returned the full row cap. Omit for the next page.'
+                }
             }
         }
     }

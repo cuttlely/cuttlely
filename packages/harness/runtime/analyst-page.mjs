@@ -384,14 +384,10 @@ export function describeAnalystPage(keptCount, { page, pageSize, total, more, st
     const fetchedThrough = end + (more ? 1 : 0)
     let known = Number.isFinite(total) ? total : null
     if (known != null && (known < fetchedThrough || (more && known <= pageSize && startBase === 0))) known = null
-    const fullPage = startBase === uniformStart && keptCount === pageSize
-    const pages = !more
-        ? page
-        : known == null
-        ? null
-        : fullPage
-        ? Math.max(page + 1, Math.ceil(known / pageSize))
-        : page + Math.ceil((known - end) / pageSize)
+    // A short page with more rows left is not a stable slice of the total, so the line names no count and no page total.
+    const shortAndMore = Boolean(more) && keptCount < pageSize
+    if (shortAndMore) known = null
+    const pages = !more ? page : known == null ? null : Math.max(page + 1, Math.ceil(known / pageSize))
     return {
         summary: rowPageSummary({
             start,
