@@ -10,7 +10,10 @@ import { fileURLToPath } from 'node:url'
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const PROOF = path.join(ROOT, 'scripts', 'hermes-git-config.py')
 const HERMES = path.join(ROOT, 'hermes')
-const VENV_PYTHON = path.join(HERMES, '.venv', 'bin', 'python')
+const VENV_DIR = path.join(HERMES, '.venv')
+const VENV_PYTHON = path.join(VENV_DIR, 'bin', 'python')
+const PROBE_TIMEOUT_MS = 20_000
+const MISSING_LAUNCHER = 'hermes/.venv/bin/python is missing'
 
 // stdlib imports do not tell two interpreters apart. ruamel and psutil are not named
 // in the proof file; worktree cleanup imports ruamel, and the bounded git probe imports psutil.
@@ -41,13 +44,47 @@ function proofModules(source) {
     return [...new Set(names)]
 }
 
-function candidates() {
+function venvDirectory() {
+    try {
+        return fs.statSync(VENV_DIR).isDirectory()
+    } catch {
+        return false
+    }
+}
+
+function launcherExecutable(file) {
+    try {
+        fs.accessSync(file, fs.constants.X_OK)
+        return true
+    } catch {
+        return false
+    }
+}
+
+// The directory, not the launcher, decides whether a broken setup must fail closed.
+export function runtimeCandidates({ venvDirExists, launcherExecutable: executable, hermesPython, venvPython }) {
     const list = []
-    if (fs.existsSync(VENV_PYTHON)) list.push({ label: 'hermes/.venv', command: VENV_PYTHON })
-    const fromEnv = process.env.HERMES_PYTHON
-    if (fromEnv && path.resolve(fromEnv) !== path.resolve(VENV_PYTHON)) list.push({ label: 'HERMES_PYTHON', command: fromEnv })
+    if (venvDirExists) {
+        list.push(
+            executable
+                ? { label: 'hermes/.venv', command: venvPython }
+                : { label: 'hermes/.venv', command: venvPython, failure: MISSING_LAUNCHER }
+        )
+    }
+    if (hermesPython && path.resolve(hermesPython) !== path.resolve(venvPython)) {
+        list.push({ label: 'HERMES_PYTHON', command: hermesPython })
+    }
     list.push({ label: 'python3', command: 'python3' })
     return list
+}
+
+function candidates() {
+    return runtimeCandidates({
+        venvDirExists: venvDirectory(),
+        launcherExecutable: launcherExecutable(VENV_PYTHON),
+        hermesPython: process.env.HERMES_PYTHON,
+        venvPython: VENV_PYTHON
+    })
 }
 
 const PROBE = `
@@ -61,24 +98,40 @@ for name in sys.argv[2:]:
         raise SystemExit(1)
 `
 
-function probe(command, modules) {
+function probe(command, modules, timeoutMs = PROBE_TIMEOUT_MS) {
     const home = fs.mkdtempSync(path.join(os.tmpdir(), 'cuttlely-git-config-probe-'))
-    const result = spawnSync(command, ['-c', PROBE, HERMES, ...modules], {
-        encoding: 'utf8',
-        cwd: ROOT,
-        env: {
-            ...process.env,
-            PYTHONPATH: HERMES,
-            PYTHONDONTWRITEBYTECODE: '1',
-            HERMES_HOME: home,
-            HOME: home
-        }
-    })
-    fs.rmSync(home, { recursive: true, force: true })
-    if (result.error) return result.error.message
-    if (result.status === 0) return ''
-    const detail = `${result.stderr || ''}${result.stdout || ''}`.trim()
-    return detail.split('\n').find((line) => line.trim()) || `exit ${result.status}`
+    try {
+        const result = spawnSync(command, ['-c', PROBE, HERMES, ...modules], {
+            encoding: 'utf8',
+            timeout: timeoutMs,
+            cwd: ROOT,
+            env: {
+                ...process.env,
+                PYTHONPATH: HERMES,
+                PYTHONDONTWRITEBYTECODE: '1',
+                HERMES_HOME: home,
+                HOME: home
+            }
+        })
+        if (result.error?.code === 'ETIMEDOUT') return 'timed out'
+        if (result.error) return result.error.message
+        if (result.status === 0) return ''
+        const detail = `${result.stderr || ''}${result.stdout || ''}`.trim()
+        return detail.split('\n').find((line) => line.trim()) || `exit ${result.status}`
+    } finally {
+        fs.rmSync(home, { recursive: true, force: true })
+    }
+}
+
+// Probe one candidate at a time. A later interpreter is not started after an earlier one imports.
+export function selectRuntime(list, { venvPresent, probe: probeCandidate }) {
+    const results = []
+    for (const candidate of list) {
+        const failure = candidate.failure != null ? candidate.failure : probeCandidate(candidate)
+        results.push({ ...candidate, failure })
+        if (!failure) break
+    }
+    return chooseRuntime(results, { venvPresent })
 }
 
 // A present hermes/.venv that cannot import is a broken setup, not a reason to skip.
@@ -106,11 +159,10 @@ export function chooseRuntime(results, { venvPresent }) {
 }
 
 function interpreter(modules) {
-    const venvPresent = fs.existsSync(VENV_PYTHON)
-    return chooseRuntime(
-        candidates().map((candidate) => ({ ...candidate, failure: probe(candidate.command, modules) })),
-        { venvPresent }
-    )
+    return selectRuntime(candidates(), {
+        venvPresent: venvDirectory(),
+        probe: (candidate) => probe(candidate.command, modules)
+    })
 }
 
 const chosen = interpreter(proofModules(fs.readFileSync(PROOF, 'utf8')))
@@ -126,6 +178,76 @@ test('chooseRuntime fails a broken hermes/.venv when nothing else can import', (
     )
     assert.equal(decision.action, 'fail')
     assert.equal(decision.detail, broken)
+})
+
+test('a missing launcher in an existing hermes/.venv fails instead of skipping', () => {
+    const list = runtimeCandidates({
+        venvDirExists: true,
+        launcherExecutable: false,
+        hermesPython: '',
+        venvPython: VENV_PYTHON
+    })
+    assert.equal(list[0].failure, MISSING_LAUNCHER)
+    const calls = []
+    const decision = selectRuntime(list, {
+        venvPresent: true,
+        probe(candidate) {
+            calls.push(candidate.label)
+            return 'psutil: ModuleNotFoundError: No module named psutil'
+        }
+    })
+    assert.deepEqual(calls, ['python3'])
+    assert.equal(decision.action, 'fail')
+    assert.equal(decision.detail, MISSING_LAUNCHER)
+})
+
+test('selectRuntime does not probe candidates after the first success', () => {
+    const calls = []
+    const decision = selectRuntime(
+        [
+            { label: 'hermes/.venv', command: '/venv/python' },
+            { label: 'HERMES_PYTHON', command: '/other/python' },
+            { label: 'python3', command: 'python3' }
+        ],
+        {
+            venvPresent: true,
+            probe(candidate) {
+                calls.push(candidate.label)
+                return ''
+            }
+        }
+    )
+    assert.deepEqual(calls, ['hermes/.venv'])
+    assert.equal(decision.action, 'run')
+    assert.equal(decision.label, 'hermes/.venv')
+})
+
+test('a probe timeout counts as failure', () => {
+    const hang = path.join(os.tmpdir(), `cuttlely-git-config-hang-${process.pid}.sh`)
+    fs.writeFileSync(hang, '#!/bin/sh\nsleep 30\n', { mode: 0o755 })
+    try {
+        const failure = probe(hang, ['psutil'], 200)
+        assert.match(failure, /timed out/)
+        const calls = []
+        const decision = selectRuntime(
+            [
+                { label: 'hermes/.venv', command: hang, failure },
+                { label: 'python3', command: 'python3' }
+            ],
+            {
+                venvPresent: true,
+                probe(candidate) {
+                    calls.push(candidate.label)
+                    return ''
+                }
+            }
+        )
+        assert.deepEqual(calls, ['python3'])
+        assert.equal(decision.action, 'run')
+        assert.equal(decision.label, 'python3')
+    } finally {
+        fs.rmSync(hang, { force: true })
+    }
 })
 
 test('chooseRuntime skips only when hermes/.venv is absent and nothing else can import', () => {
