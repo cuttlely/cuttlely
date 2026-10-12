@@ -1239,6 +1239,7 @@ packages/server/src/errors/internalFlowiseError/index.ts
 packages/server/src/errors/utils.ts
 packages/server/src/index.ts
 packages/server/src/metrics/OpenTelemetry.ts
+packages/server/src/metrics/Prometheus.test.ts
 packages/server/src/metrics/Prometheus.ts
 packages/server/src/middlewares/errors/index.ts
 packages/server/src/queue/BaseQueue.ts

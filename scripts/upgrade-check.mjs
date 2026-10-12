@@ -7,6 +7,11 @@
 //
 //   pnpm upgrade:check                      the bundled fixture
 //   pnpm upgrade:check --fixture <dir>      another fixture made by scripts/upgrade-fixture.mjs
+//   pnpm upgrade:check --key-alias existing|new|both|conflict
+//     existing: the fixture key file via the existing overwrite variable
+//     new: the same file via the product-named overwrite variable
+//     both: both variables set to that file
+//     conflict: the two variables differ, and the server must refuse to start
 //
 // The chat model is the smoke preload (scripts/smoke-fake-model.cjs): no network and no real key.
 // Needs packages/server/dist (pnpm build). Run by pnpm verify as the upgrade step.
@@ -36,6 +41,22 @@ export function freePort() {
 }
 
 // The same layout as the Docker volume: /var/cuttlely/data holds the database and the key.
+/** Which encryption-key variable the upgrade check sets from the fixture key file. */
+export function keyAliasEnv(mode, key) {
+    if (mode === undefined || mode === '' || mode === 'file') return {}
+    if (typeof key !== 'string' || key === '') throw new Error('The fixture encryption key file is empty.')
+    if (mode === 'existing') return { FLOWISE_SECRETKEY_OVERWRITE: key }
+    if (mode === 'new') return { CUTTLELY_SECRETKEY_OVERWRITE: key }
+    if (mode === 'both') return { FLOWISE_SECRETKEY_OVERWRITE: key, CUTTLELY_SECRETKEY_OVERWRITE: key }
+    if (mode === 'conflict') return { FLOWISE_SECRETKEY_OVERWRITE: key, CUTTLELY_SECRETKEY_OVERWRITE: `${key}\nnot-the-same` }
+    throw new Error('--key-alias must be existing, new, both, conflict, or file.')
+}
+
+function redactKey(text, key) {
+    if (!key) return text
+    return String(text).split(key).join('[encryption key]')
+}
+
 export function dataEnv(dataRoot, port, extra = {}) {
     const env = { ...process.env }
     for (const key of Object.keys(env)) {
@@ -276,7 +297,7 @@ async function checkData(base, cookie, meta, say) {
     return problems
 }
 
-export async function runUpgradeCheck({ fixture = DEFAULT_FIXTURE, serverRoot = ROOT, say = console.log } = {}) {
+export async function runUpgradeCheck({ fixture = DEFAULT_FIXTURE, serverRoot = ROOT, say = console.log, keyAlias = 'file' } = {}) {
     if (!fs.existsSync(path.join(serverRoot, 'packages', 'server', 'dist', 'commands'))) {
         throw new Error('packages/server/dist is missing. Build first (pnpm build, or the verify build step).')
     }
@@ -286,12 +307,31 @@ export async function runUpgradeCheck({ fixture = DEFAULT_FIXTURE, serverRoot = 
     try {
         extract(archive, dataRoot)
         say(`upgrade from ${meta.baseline.commit.slice(0, 7)} (${meta.baseline.date}, ${meta.baseline.subject})`)
+        const keyFile = path.join(dataRoot, 'data', 'encryption.key')
+        const extra = keyAliasEnv(keyAlias, fs.readFileSync(keyFile, 'utf8'))
+        if (keyAlias && keyAlias !== 'file') say(`encryption key variable: ${keyAlias}`)
 
         const port = await freePort()
         const base = `http://127.0.0.1:${port}`
-        let server = startServer(serverRoot, dataEnv(dataRoot, port), { preload })
+        let server = startServer(serverRoot, dataEnv(dataRoot, port, extra), { preload })
         let problems = []
         try {
+            if (keyAlias === 'conflict') {
+                let refused = false
+                try {
+                    await waitForPing(base, server)
+                } catch {
+                    const logs = redactKey(
+                        redactKey(server.logs.join(''), extra.FLOWISE_SECRETKEY_OVERWRITE),
+                        extra.CUTTLELY_SECRETKEY_OVERWRITE
+                    )
+                    refused = logs.includes('both set to different values')
+                    if (!refused) throw new Error(`expected a refusal when the two encryption key names differ\n${logs.slice(-2000)}`)
+                }
+                if (!refused) throw new Error('server started even though the two encryption key names differ')
+                say('both encryption key names differ: start refused')
+                return
+            }
             await waitForPing(base, server)
             say('first start on the old data: ping ok')
             const cookie = await login(base, meta.account)
@@ -328,7 +368,7 @@ export async function runUpgradeCheck({ fixture = DEFAULT_FIXTURE, serverRoot = 
             await server.stop()
         }
 
-        server = startServer(serverRoot, dataEnv(dataRoot, port), { preload })
+        server = startServer(serverRoot, dataEnv(dataRoot, port, extra), { preload })
         try {
             await waitForPing(base, server)
             const cookie = await login(base, meta.account)
@@ -350,7 +390,9 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     const args = process.argv.slice(2)
     const at = args.indexOf('--fixture')
     const fixture = at >= 0 ? path.resolve(args[at + 1]) : DEFAULT_FIXTURE
-    runUpgradeCheck({ fixture }).then(
+    const aliasAt = args.indexOf('--key-alias')
+    const keyAlias = aliasAt >= 0 ? args[aliasAt + 1] : 'file'
+    runUpgradeCheck({ fixture, keyAlias }).then(
         () => process.exit(0),
         (error) => {
             console.error(error instanceof Error ? error.message : String(error))

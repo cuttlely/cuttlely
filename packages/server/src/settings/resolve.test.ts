@@ -29,6 +29,16 @@ describe('server settings resolver', () => {
         expect(pick(rows, 'CUTTLELY_LOCAL_ADMIN').value).toBe('false')
     })
 
+    it('does not let a saved alias replace a host-set partner', () => {
+        expect(fileValuesToApply({ FLOWISE_FILE_SIZE_LIMIT: '20mb' }, { CUTTLELY_FILE_SIZE_LIMIT: '10mb' })).toEqual({})
+        expect(fileValuesToApply({ CUTTLELY_FILE_SIZE_LIMIT: '10mb' }, { FLOWISE_FILE_SIZE_LIMIT: '20mb' })).toEqual({})
+        expect(fileValuesToApply({ DISABLE_FLOWISE_TELEMETRY: 'true' }, { DISABLE_CUTTLELY_TELEMETRY: 'false' })).toEqual({})
+        expect(fileValuesToApply({}, { CUTTLELY_FILE_SIZE_LIMIT: '10mb', FLOWISE_FILE_SIZE_LIMIT: '20mb' })).toEqual({
+            CUTTLELY_FILE_SIZE_LIMIT: '10mb',
+            FLOWISE_FILE_SIZE_LIMIT: '20mb'
+        })
+    })
+
     it('applies only file values the host did not set, and ignores unknown names', () => {
         const env = { CUTTLELY_ANALYST: 'auto' }
         expect(fileValuesToApply(env, { CUTTLELY_ANALYST: '', LOG_LEVEL: 'warn', PORT: '1', FLOWISE_SECRETKEY_OVERWRITE: 'x' })).toEqual({
