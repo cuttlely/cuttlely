@@ -21,6 +21,8 @@ import { baseURL } from '@/store/constant'
 import { IconTrash, IconCopy, IconInfoCircle, IconAlertTriangle } from '@tabler/icons-react'
 import { flowContext } from '@/store/context/ReactFlowContext'
 import { normalizeNodeData } from '@/utils/normalizeCanvasFlow'
+import { missingNodeInfo } from '@/utils/missingNode'
+import MissingNodeCard from './MissingNodeCard'
 import { canvasOutputKey } from '@/utils/canvasFieldKey'
 import { cardPlugParams } from '@/utils/canvasLook'
 import { CanvasPanelContext } from '@/store/context/CanvasPanelContext'
@@ -96,6 +98,9 @@ const CanvasNode = ({ data }) => {
             }
         }
     }, [canvas.componentNodes, data.name, data.version])
+
+    const missing = missingNodeInfo(data, canvas.componentNodes)
+    if (missing) return <MissingNodeCard data={data} message={missing.message} />
 
     return (
         <>

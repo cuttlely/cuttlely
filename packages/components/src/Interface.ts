@@ -147,6 +147,8 @@ export interface INodeProperties {
     color?: string
     hint?: string
     warning?: string
+    // Set on nodes loaded from CUTTLELY_NODE_PACKS so a saved flow can name the pack later.
+    nodePack?: string
 }
 
 export interface INode extends INodeProperties {

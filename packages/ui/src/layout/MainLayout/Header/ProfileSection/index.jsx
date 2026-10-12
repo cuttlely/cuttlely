@@ -6,6 +6,7 @@ import { useNavigate } from 'react-router-dom'
 
 import { closeSnackbar as closeSnackbarAction, enqueueSnackbar as enqueueSnackbarAction, REMOVE_DIRTY } from '@/store/actions'
 import { exportData, stringify } from '@/utils/exportImport'
+import { exportKnownNodeNames } from '@/utils/missingNode'
 import useNotifier from '@/utils/useNotifier'
 
 // material-ui
@@ -216,6 +217,7 @@ const ProfileSection = ({ handleLogout }) => {
     const theme = useTheme()
 
     const customization = useSelector((state) => state.customization)
+    const componentNodes = useSelector((state) => state.canvas.componentNodes)
 
     const [open, setOpen] = useState(false)
     const [canvasLook, setCanvasLook] = useCanvasLook()
@@ -353,7 +355,7 @@ const ProfileSection = ({ handleLogout }) => {
         if (exportAllApi.data) {
             setExportDialogOpen(false)
             try {
-                const dataStr = stringify(exportData(exportAllApi.data))
+                const dataStr = stringify(exportData(exportAllApi.data, exportKnownNodeNames(componentNodes)))
                 //const dataUri = 'data:application/json;charset=utf-8,' + encodeURIComponent(dataStr)
                 const blob = new Blob([dataStr], { type: 'application/json' })
                 const dataUri = URL.createObjectURL(blob)

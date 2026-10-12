@@ -11,6 +11,8 @@ import { ButtonGroup, Avatar, Box, Typography, IconButton, Tooltip } from '@mui/
 import MainCard from '@/ui-component/cards/MainCard'
 import { flowContext } from '@/store/context/ReactFlowContext'
 import NodeInfoDialog from '@/ui-component/dialog/NodeInfoDialog'
+import { missingNodeInfo } from '@/utils/missingNode'
+import MissingNodeCard from '@/views/canvas/MissingNodeCard'
 
 // icons
 import {
@@ -204,6 +206,9 @@ const AgentFlowNode = ({ data }) => {
             }
         }
     }, [canvas.componentNodes, data.name, data.version])
+
+    const missing = missingNodeInfo(data, canvas.componentNodes)
+    if (missing) return <MissingNodeCard data={data} message={missing.message} />
 
     return (
         <div ref={ref} onMouseEnter={() => setIsHovered(true)} onMouseLeave={() => setIsHovered(false)}>

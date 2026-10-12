@@ -62,6 +62,7 @@ import {
     getAPIOverrideConfig
 } from '../utils'
 import { toPredictionError } from './predictionErrors'
+import { missingNodeFailure } from './nodePacks'
 import {
     assertDocumentUploadSize,
     localStoredUploadPath,
@@ -351,6 +352,9 @@ export const executeFlow = async ({
         streaming: false,
         ...incomingInput
     }
+
+    const missingNode = missingNodeFailure(chatflow?.flowData, componentNodes)
+    if (missingNode) throw new InternalFlowiseError(missingNode.statusCode, missingNode.message)
 
     let question = incomingInput.question || '' // Ensure question is never undefined
     let overrideConfig = incomingInput.overrideConfig ?? {}

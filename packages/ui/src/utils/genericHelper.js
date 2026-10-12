@@ -584,13 +584,16 @@ const _removeCredentialId = (obj) => {
     return newObj
 }
 
-export const generateExportFlowData = (flowData) => {
+export const generateExportFlowData = (flowData, knownNodeNames) => {
     const nodes = flowData.nodes
     const edges = flowData.edges
+    // When the catalog is loaded, a node that is not in it keeps the saved data, including inputs.
+    const known = Array.isArray(knownNodeNames) && knownNodeNames.length ? new Set(knownNodeNames) : null
 
     for (let i = 0; i < nodes.length; i += 1) {
-        nodes[i].selected = false
         const node = nodes[i]
+        if (known && node?.data?.name && !known.has(node.data.name)) continue
+        nodes[i].selected = false
 
         const newNodeData = {
             id: node.data.id,
@@ -612,6 +615,7 @@ export const generateExportFlowData = (flowData) => {
             outputs: node.data.outputs,
             selected: false
         }
+        if (typeof node.data.nodePack === 'string' && node.data.nodePack) newNodeData.nodePack = node.data.nodePack
 
         // Remove password, file & folder
         if (node.data.inputs && Object.keys(node.data.inputs).length) {

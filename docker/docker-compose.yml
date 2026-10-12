@@ -45,6 +45,9 @@ services:
             CUTTLELY_LOCAL_ADMIN: ${CUTTLELY_LOCAL_ADMIN:-}
             # Blank is off. auto creates analyst.db beside the app database (docs/how-to/analyst.md).
             CUTTLELY_ANALYST: ${CUTTLELY_ANALYST:-}
+            # Optional node packs. Blank loads only the nodes that ship with Cuttlely.
+            # A pack directory must be visible inside the container. Docs: docs/how-to/node-packs.md
+            CUTTLELY_NODE_PACKS: ${CUTTLELY_NODE_PACKS:-}
             FLOWISE_SECRETKEY_OVERWRITE: ${FLOWISE_SECRETKEY_OVERWRITE:-}
             TRUST_PROXY: ${TRUST_PROXY:-}
             WORKOS_API_KEY: ${WORKOS_API_KEY:-}

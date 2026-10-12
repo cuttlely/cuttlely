@@ -19,10 +19,10 @@ const sanitizeTool = (Tool) => {
     }
 }
 
-const sanitizeChatflow = (ChatFlow) => {
+const sanitizeChatflow = (ChatFlow, knownNodeNames) => {
     try {
         return ChatFlow.map((chatFlow) => {
-            const sanitizeFlowData = generateExportFlowData(JSON.parse(chatFlow.flowData))
+            const sanitizeFlowData = generateExportFlowData(JSON.parse(chatFlow.flowData), knownNodeNames)
             return {
                 id: chatFlow.id,
                 name: chatFlow.name,
@@ -105,16 +105,16 @@ export const stringify = (object) => {
     }
 }
 
-export const exportData = (exportAllData) => {
+export const exportData = (exportAllData, knownNodeNames) => {
     try {
         return {
-            AgentFlow: sanitizeChatflow(exportAllData.AgentFlow),
-            AgentFlowV2: sanitizeChatflow(exportAllData.AgentFlowV2),
-            AssistantFlow: sanitizeChatflow(exportAllData.AssistantFlow),
+            AgentFlow: sanitizeChatflow(exportAllData.AgentFlow, knownNodeNames),
+            AgentFlowV2: sanitizeChatflow(exportAllData.AgentFlowV2, knownNodeNames),
+            AssistantFlow: sanitizeChatflow(exportAllData.AssistantFlow, knownNodeNames),
             AssistantCustom: sanitizeAssistant(exportAllData.AssistantCustom),
             AssistantOpenAI: sanitizeAssistant(exportAllData.AssistantOpenAI),
             AssistantAzure: sanitizeAssistant(exportAllData.AssistantAzure),
-            ChatFlow: sanitizeChatflow(exportAllData.ChatFlow),
+            ChatFlow: sanitizeChatflow(exportAllData.ChatFlow, knownNodeNames),
             ChatMessage: exportAllData.ChatMessage,
             ChatMessageFeedback: exportAllData.ChatMessageFeedback,
             CustomTemplate: sanitizeCustomTemplate(exportAllData.CustomTemplate),

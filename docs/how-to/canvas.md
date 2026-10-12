@@ -117,3 +117,7 @@ CANVAS_CARD_LOOK=classic
 ```
 
 `new` (the default) gives compact cards. Anyone can still change their own browser with either switch above. The variable is listed with the other settings in [CONTRIBUTING.md](../../CONTRIBUTING.md) and in `.env.example`.
+
+## A node that is not installed
+
+A flow can name a node from an optional pack. If that pack is not loaded, the card is a placeholder that names the pack, and the rest of the flow still opens. Export keeps that node's data as it was saved. See [Optional node packs](./node-packs.md).
