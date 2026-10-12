@@ -173,3 +173,7 @@ The server is not an npm package: a full install needs the Python agent runtime,
 ## D43. The components package name is @cuttlely/components
 
 `packages/components` is the package `@cuttlely/components`. Package names follow `ARCHITECTURE.md`. Path names, environment variable names, and data names stay stable. Saved custom functions and custom tools may still require the earlier specifier when an operator has allowed it through `TOOL_FUNCTION_EXTERNAL_DEP`. A compatibility alias on the workspace root keeps that require working. This narrows D1 for this package. Other packages may still use the engine's package name.
+
+## D44. The harness and pipeline engines are workspace packages
+
+The harness runtime is `@cuttlely/harness` in `packages/harness`. The pipeline runtime is `@cuttlely/etl` in `packages/etl`, and it depends on `@cuttlely/harness`. Both packages are private. `harness/*.mjs` and `etl/*.mjs`, including `harness/runtime/` and `etl/check/`, re-export those modules for one release. `scripts/analyst-*.mjs` and `scripts/hermes-stream.mjs` re-export `packages/harness/runtime/` until the release after 1.0.2. The server and the canvas nodes load the packages by path with a real dynamic import. `packages/harness/client.mjs` is the execution seam into the agent runtime. `packages/harness/worker.mjs` is the external queue worker. This supersedes the paths named in D8 and D15.

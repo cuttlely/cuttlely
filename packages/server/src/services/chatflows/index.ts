@@ -874,8 +874,9 @@ async function loadHarnessSync() {
     let dir = __dirname
     let moduleUrl = ''
     for (let i = 0; i < 8; i += 1) {
-        const candidate = path.join(dir, 'harness', 'sync-from-flow.mjs')
-        if (fs.existsSync(candidate)) {
+        const candidates = [path.join(dir, 'packages', 'harness', 'sync-from-flow.mjs'), path.join(dir, 'harness', 'sync-from-flow.mjs')]
+        const candidate = candidates.find((file) => fs.existsSync(file))
+        if (candidate) {
             moduleUrl = pathToFileURL(candidate).href
             break
         }
@@ -884,7 +885,7 @@ async function loadHarnessSync() {
     if (!moduleUrl) {
         throw new InternalFlowiseError(StatusCodes.INTERNAL_SERVER_ERROR, 'Harness canvas sync could not find the harness engine.')
     }
-    // tsc rewrites import() into require(), which cannot load harness/*.mjs.
+    // tsc rewrites import() into require(), which cannot load the ESM harness package.
     const importEsm = new Function('specifier', 'return import(specifier)') as (specifier: string) => Promise<any>
     return importEsm(moduleUrl)
 }

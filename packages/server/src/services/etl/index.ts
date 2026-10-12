@@ -14,7 +14,7 @@ import logger from '../../utils/logger'
 import { userFacingError } from './userFacingError'
 import flowVersionsService from '../flow-versions'
 
-// The server build targets CommonJS, and tsc rewrites import() into require(), which cannot load etl/*.mjs.
+// The server build targets CommonJS, and tsc rewrites import() into require(), which cannot load the ESM pipeline package.
 const importEsm = new Function('specifier', 'return import(specifier)') as (specifier: string) => Promise<any>
 
 let apiModule: Promise<any> | undefined
@@ -23,8 +23,9 @@ let configured = false
 async function loadEtl(file = 'api.mjs'): Promise<any> {
     let dir = __dirname
     for (let i = 0; i < 8; i += 1) {
-        const candidate = path.join(dir, 'etl', file)
-        if (fs.existsSync(candidate)) return importEsm(pathToFileURL(candidate).href)
+        const candidates = [path.join(dir, 'packages', 'etl', file), path.join(dir, 'etl', file)]
+        const candidate = candidates.find((item) => fs.existsSync(item))
+        if (candidate) return importEsm(pathToFileURL(candidate).href)
         dir = path.dirname(dir)
     }
     throw new InternalFlowiseError(StatusCodes.INTERNAL_SERVER_ERROR, `ETL module ${file} was not found in this checkout.`)

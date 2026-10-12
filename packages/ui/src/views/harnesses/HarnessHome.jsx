@@ -12,7 +12,7 @@ import { StyledPermissionButton } from '@/ui-component/button/RBACButtons'
 import { baseURL } from '@/store/constant'
 import { formatListDateTime } from '@/utils/formatDate'
 import HarnessRunTrace from '@/views/chatmessage/HarnessRunTrace'
-import { emptyTrace, failTrace, reduceHarnessEvent } from '../../../../../harness/trace.mjs'
+import { emptyTrace, failTrace, reduceHarnessEvent } from '../../../../../packages/harness/trace.mjs'
 
 const STATUS_COLOR = {
     succeeded: 'success',

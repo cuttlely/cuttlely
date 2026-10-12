@@ -74,7 +74,7 @@ export interface TestDrivers {
     azure: (values: Values) => BucketProbe
     fetchText: (url: string, timeoutMs: number, maxBytes: number) => Promise<string>
     isModelList: (data: unknown) => boolean
-    /** The analyst rule that refuses the application database (harness/runtime/analyst-postgres.mjs). */
+    /** The analyst rule that refuses the application database (packages/harness/runtime/analyst-postgres.mjs). */
     checkAnalystUrl: (url: string, env: Values) => Promise<void>
     home: () => string
 }
@@ -566,6 +566,8 @@ const importEsm = new Function('specifier', 'return import(specifier)') as (spec
 export function findScript(file: string): string {
     let dir = __dirname
     for (let i = 0; i < 8; i += 1) {
+        const packaged = path.join(dir, 'packages', 'harness', 'runtime', file)
+        if (fs.existsSync(packaged)) return packaged
         const runtime = path.join(dir, 'harness', 'runtime', file)
         if (fs.existsSync(runtime)) return runtime
         const candidate = path.join(dir, 'scripts', file)
