@@ -19,6 +19,12 @@ const STEPS = [
         args: ['lint']
     },
     {
+        name: 'boundaries',
+        fast: true,
+        command: process.execPath,
+        args: [path.join(ROOT, 'scripts', 'check-boundaries.mjs')]
+    },
+    {
         name: 'typecheck',
         fast: true,
         command: process.execPath,
@@ -50,6 +56,7 @@ const STEPS = [
             '--test',
             path.join(ROOT, 'scripts', 'verify.test.mjs'),
             path.join(ROOT, 'scripts', 'architecture-map.test.mjs'),
+            path.join(ROOT, 'scripts', 'check-boundaries.test.mjs'),
             path.join(ROOT, 'scripts', 'components-package-alias.test.mjs'),
             path.join(ROOT, 'scripts', 'proprietary-paths.test.mjs'),
             path.join(ROOT, 'scripts', 'etl-list-sqlite.test.mjs'),
@@ -238,7 +245,7 @@ function parseArgs(argv) {
             console.log('pnpm verify [--fast] [--skip <step>]')
             console.log(`steps: ${STEPS.map((step) => step.name).join(', ')}`)
             console.log(
-                '--fast runs lint, typecheck, verify-test, website-docs, chat-widget, hermes-vendor, unit, server-settings-ui, handoff-test, render-blueprint, and identity-migration'
+                '--fast runs lint, boundaries, typecheck, verify-test, website-docs, chat-widget, hermes-vendor, unit, server-settings-ui, handoff-test, render-blueprint, and identity-migration'
             )
             console.log('unit Jest workers default to 50%. Set CUTTLELY_VERIFY_JEST_WORKERS to a positive integer or a percentage.')
             process.exit(0)
