@@ -50,22 +50,30 @@ describe('server, UI and API docs package names', () => {
         assert.equal(pkg.oclif.dirname, 'flowise')
         assert.equal(pkg.bin.flowise, './bin/run')
         assert.equal(pkg.bin['cuttlely-server'], './bin/run')
-        assert.equal(pkg.dependencies['@cuttlely/ui'], 'workspace:^')
+        assert.equal(pkg.devDependencies['@cuttlely/ui'], 'workspace:^')
+        assert.equal(pkg.dependencies['@cuttlely/ui'], undefined)
         assert.equal(pkg.private, true)
         assert.equal(readJson('packages/ui/package.json').private, true)
         assert.equal(readJson('packages/api-documentation/package.json').private, true)
     })
 
-    it('finds the UI build by the UI package name', () => {
+    it('serves the built UI and keeps the UI package as a devDependency', () => {
         const source = fs.readFileSync(path.join(ROOT, 'packages/server/src/index.ts'), 'utf8')
-        assert.match(source, /getNodeModulesPackagePath\('@cuttlely\/ui'\)/)
+        assert.match(source, /resolveUiBuild\(getNodeModulesPackagePath\('@cuttlely\/ui'\)\)/)
+        const ui = readJson('packages/ui/package.json')
+        assert.equal(ui.dependencies, undefined)
+        assert.equal(ui.devDependencies.react, '^18.2.0')
+        assert.equal(ui.devDependencies['@mui/icons-material'], '5.0.3')
+        assert.equal(ui.devDependencies['@tabler/icons-react'], '^3.30.0')
+        const serverBuild = readJson('packages/server/package.json').scripts.build
+        assert.match(serverBuild, /scripts\/copy-ui-build\.mjs/)
         const fromDist = path.join(ROOT, 'packages/server/dist')
         const candidates = [1, 2, 3, 4, 5].map((depth) =>
             path.join(fromDist, ...Array(depth).fill('..'), 'node_modules', '@cuttlely', 'ui')
         )
         assert.ok(
             candidates.some((candidate) => fs.existsSync(candidate)),
-            `UI package not linked for the server (${candidates[0]})`
+            `UI package not linked for a full install (${candidates[0]})`
         )
     })
 
