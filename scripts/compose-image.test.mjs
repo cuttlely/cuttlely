@@ -65,6 +65,14 @@ test('the geolocation database stays unless the slim build argument is set', () 
     }
 })
 
+test('the production image checks that the built UI is present and the UI libraries are not', () => {
+    const dockerfile = fs.readFileSync(path.join(ROOT, 'Dockerfile'), 'utf8')
+    assert.match(dockerfile, /node scripts\/check-static-ui-image\.mjs/)
+    const install = dockerfile.indexOf('pnpm install --frozen-lockfile --prod')
+    const check = dockerfile.indexOf('node scripts/check-static-ui-image.mjs')
+    assert.ok(install !== -1 && check > install, 'the UI check runs after the production install')
+})
+
 test('the image keeps Chromium unless INCLUDE_BROWSER=0', () => {
     const dockerfile = fs.readFileSync(path.join(ROOT, 'Dockerfile'), 'utf8')
     assert.match(dockerfile, /^ARG INCLUDE_BROWSER=1$/m)

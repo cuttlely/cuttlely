@@ -2,9 +2,19 @@
  * Rate limit: a forged X-Forwarded-For must not open a new prediction rate-limit bucket.
  * The key is Express's client address after TRUST_PROXY. A port or a non-IP is not a bucket.
  */
+import fs from 'fs'
+import os from 'os'
+import path from 'path'
 import express, { Request } from 'express'
 import request from 'supertest'
-import { RateLimiterManager, rateLimitClientKey } from './rateLimit'
+import {
+    RateLimiterManager,
+    UI_PAGE_LIMIT_MAX,
+    UI_PAGE_LIMIT_WINDOW_MS,
+    rateLimitClientKey,
+    uiAssetMiddleware,
+    uiPageRateLimiter
+} from './rateLimit'
 
 jest.setTimeout(30_000)
 
@@ -99,5 +109,68 @@ describe('Prediction rate limit and X-Forwarded-For', () => {
         expect(rateLimitClientKey(asReq('::ffff:203.0.113.5'))).toBe('203.0.113.5')
         expect(rateLimitClientKey(asReq('not-a-client', '::ffff:192.0.2.1'))).toBe('192.0.2.1')
         expect(rateLimitClientKey({ socket: {} } as Request)).toBe('unknown')
+    })
+})
+
+describe('UI page fallback limiter', () => {
+    it('uses a one-minute window and a few thousand requests per client', () => {
+        expect(UI_PAGE_LIMIT_WINDOW_MS).toBe(60_000)
+        expect(UI_PAGE_LIMIT_MAX).toBe(3000)
+    })
+
+    it('is wired only around the UI index fallback in the server', () => {
+        const source = fs.readFileSync(path.join(__dirname, '../index.ts'), 'utf8')
+        const limiter = fs.readFileSync(path.join(__dirname, 'rateLimit.ts'), 'utf8')
+        expect(source).toMatch(/this\.app\.use\(uiAssetMiddleware\(uiBuild\.directory\)\)/)
+        expect(source).toMatch(
+            /this\.app\.use\(uiPageRateLimiter\(\), \(_req: Request, res: Response\) => \{\s*res\.sendFile\(uiBuild\.indexHtml\)/
+        )
+        expect(limiter).toMatch(/express\.static\(directory, \{ index: false, redirect: false \}\)/)
+        expect(limiter).toMatch(/req\.path === '\/' \|\| req\.path === '\/index\.html'/)
+        expect(source).not.toMatch(/embed\/chat\.js[\s\S]{0,400}uiPageRateLimiter/)
+    })
+
+    it('limits GET / and GET /index.html, and leaves hashed assets, the embed script, and ping unlimited', async () => {
+        const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cuttlely-ui-limit-'))
+        fs.mkdirSync(path.join(dir, 'assets'))
+        fs.writeFileSync(path.join(dir, 'assets', 'app-abc123.js'), 'asset')
+        fs.writeFileSync(path.join(dir, 'index.html'), '<html>ui</html>')
+        const app = express()
+        app.get('/api/v1/ping', (_req, res) => res.type('text').send('pong'))
+        app.get('/embed/chat.js', (_req, res) => res.type('js').send('widget'))
+        app.use(uiAssetMiddleware(dir))
+        app.use(uiPageRateLimiter(3), (_req, res) => {
+            res.sendFile(path.join(dir, 'index.html'))
+        })
+
+        for (const url of ['/', '/index.html', '/']) {
+            const page = await hangGuard(request(app).get(url))
+            expect(page.status).toBe(200)
+            expect(page.type).toMatch(/html/)
+            expect(page.text).toBe('<html>ui</html>')
+            expect(page.headers['x-ratelimit-limit']).toBeUndefined()
+            expect(page.headers['ratelimit-limit']).toBeUndefined()
+            expect(page.headers['retry-after']).toBeUndefined()
+        }
+        for (const url of ['/', '/index.html', '/chatflows']) {
+            const limited = await hangGuard(request(app).get(url))
+            expect(limited.status).toBe(429)
+            expect(limited.text).toBe('Too many requests, please try again later.')
+        }
+
+        for (let i = 0; i < 8; i += 1) {
+            const asset = await hangGuard(request(app).get('/assets/app-abc123.js'))
+            expect(asset.status).toBe(200)
+            expect(asset.text).toBe('asset')
+            expect(asset.headers['x-ratelimit-limit']).toBeUndefined()
+        }
+        const embed = await hangGuard(request(app).get('/embed/chat.js'))
+        expect(embed.status).toBe(200)
+        expect(embed.text).toBe('widget')
+        const ping = await hangGuard(request(app).get('/api/v1/ping'))
+        expect(ping.status).toBe(200)
+        expect(ping.text).toBe('pong')
+
+        fs.rmSync(dir, { recursive: true, force: true })
     })
 })

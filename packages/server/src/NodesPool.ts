@@ -3,6 +3,7 @@ import path from 'path'
 import fs from 'fs'
 import { Dirent } from 'fs'
 import { getNodeModulesPackagePath } from './utils'
+import { resolveNodePacks, type NodePackLocation } from './utils/nodePacks'
 import { promises } from 'fs'
 import { ICommonObject, INode } from '@cuttlely/components'
 import logger from './utils/logger'
@@ -54,20 +55,58 @@ export class NodesPool {
      */
     async initialize() {
         const packagePath = getNodeModulesPackagePath('@cuttlely/components')
-        const manifestPath = path.join(packagePath, 'dist', 'nodes-manifest.json')
         const eager = process.env.CUTTLELY_EAGER_NODES === 'true'
-        const previous = eager ? null : readManifest(manifestPath)
-        const manifest: Manifest = { version: MANIFEST_VERSION, nodes: {}, credentials: {} }
         const started = Date.now()
-        const nodeStats = await this.initializeNodes(path.join(packagePath, 'dist', 'nodes'), previous, manifest)
-        const credentialStats = await this.initializeCredentials(path.join(packagePath, 'dist', 'credentials'), previous, manifest)
-        const required = nodeStats.required + credentialStats.required
-        const moved = nodeStats.moved + credentialStats.moved
-        if (!eager && (required > 0 || moved > 0 || !sameFiles(previous, manifest))) writeManifest(manifestPath, manifest)
+        const core = await this.loadNodePack(
+            {
+                name: '',
+                root: packagePath,
+                nodesDir: path.join(packagePath, 'dist', 'nodes'),
+                credentialsDir: path.join(packagePath, 'dist', 'credentials'),
+                manifestPath: path.join(packagePath, 'dist', 'nodes-manifest.json')
+            },
+            { eager }
+        )
+        const { packs, skipped } = resolveNodePacks(process.env.CUTTLELY_NODE_PACKS, {
+            resolvePackage: (name) => getNodeModulesPackagePath(name) || ''
+        })
+        for (const token of skipped) logger.warn(`[server]: Skipped node pack ${token}`)
+        let required = core.required
+        let cached = core.cached
+        for (const pack of packs) {
+            const stats = await this.loadNodePack(pack, { eager, optional: true })
+            required += stats.required
+            cached += stats.cached
+        }
         logger.info(
             `🔧 [server]: Nodes pool: ${Object.keys(this.componentNodes).length} nodes, ${required} files required, ` +
-                `${nodeStats.cached + credentialStats.cached} from manifest in ${Date.now() - started}ms`
+                `${cached} from manifest in ${Date.now() - started}ms`
         )
+    }
+
+    /**
+     * Load one directory of node and credential classes. Packs use the same manifest
+     * (mtime, size, and content hash) as the nodes that ship with the server.
+     * A pack does not replace a node or credential that is already registered.
+     */
+    async loadNodePack(pack: NodePackLocation, options: { eager?: boolean; optional?: boolean } = {}) {
+        const eager = options.eager ?? false
+        if (options.optional && !fs.existsSync(pack.nodesDir)) {
+            logger.warn(`[server]: Node pack ${pack.name || pack.root} has no nodes directory`)
+            return { required: 0, cached: 0, moved: 0 }
+        }
+        const previous = eager ? null : readManifest(pack.manifestPath)
+        const manifest: Manifest = { version: MANIFEST_VERSION, nodes: {}, credentials: {} }
+        const nodeStats = await this.initializeNodes(pack.nodesDir, previous, manifest, pack.name)
+        const credentialStats =
+            pack.credentialsDir && fs.existsSync(pack.credentialsDir)
+                ? await this.initializeCredentials(pack.credentialsDir, previous, manifest, pack.name)
+                : { required: 0, cached: 0, moved: 0 }
+        const required = nodeStats.required + credentialStats.required
+        const moved = nodeStats.moved + credentialStats.moved
+        const cached = nodeStats.cached + credentialStats.cached
+        if (!eager && (required > 0 || moved > 0 || !sameFiles(previous, manifest))) writeManifest(pack.manifestPath, manifest)
+        return { required, cached, moved }
     }
 
     /**
@@ -100,7 +139,7 @@ export class NodesPool {
         logger.info(`🔧 [server]: Loaded ${loaded} nodes used by saved flows in ${Date.now() - started}ms`)
     }
 
-    private async initializeNodes(dir: string, previous: Manifest | null, manifest: Manifest) {
+    private async initializeNodes(dir: string, previous: Manifest | null, manifest: Manifest, packName = '') {
         const files = (await this.getFiles(dir)).filter((file) => file.endsWith('.js'))
         const stats = { required: 0, cached: 0, moved: 0 }
         const loaded: Array<{ file: string; instance?: INode; descriptor: ICommonObject; lazy: string[] }> = []
@@ -121,6 +160,8 @@ export class NodesPool {
                 try {
                     const instance = instantiateNode(file)
                     if (!instance) return
+                    // Saved on the class before the manifest is written, so a later boot still knows the pack.
+                    if (packName) instance.nodePack = packName
                     const described = describe(instance)
                     if (described) entry.node = described
                     else entry.eager = true
@@ -139,13 +180,20 @@ export class NodesPool {
         const disabledNodes = process.env.DISABLED_NODES ? process.env.DISABLED_NODES.split(',') : []
         const skipCategories = ['Analytic', 'SpeechToText']
         for (const { file, instance, descriptor, lazy } of loaded) {
+            if (packName) descriptor.nodePack = packName
+            if (packName && this.componentNodes[descriptor.name]) {
+                // The nodes that ship with the server win. A pack that repeats a name is ignored.
+                logger.warn(`[server]: Node pack ${packName} also defines ${descriptor.name}; the existing node stays`)
+                continue
+            }
             if (/\.(svg|png|jpg)$/.test(descriptor.icon ?? '') && descriptor.credential) {
                 for (const credName of descriptor.credential.credentialNames ?? []) {
                     this.credentialIconPath[credName] = descriptor.icon
                 }
             }
             if (skipCategories.includes(descriptor.category)) continue
-            if (!appConfig.showCommunityNodes && descriptor.author) continue
+            // A pack is an operator choice, so the community-node gate stays on the shipped nodes only.
+            if (!packName && !appConfig.showCommunityNodes && descriptor.author) continue
             if (disabledNodes.includes(descriptor.name)) continue
             this.componentNodes[descriptor.name] = instance ?? lazyNode(file, descriptor, lazy)
             if (instance !== descriptor) this.descriptors[descriptor.name] = descriptor
@@ -153,7 +201,7 @@ export class NodesPool {
         return stats
     }
 
-    private async initializeCredentials(dir: string, previous: Manifest | null, manifest: Manifest) {
+    private async initializeCredentials(dir: string, previous: Manifest | null, manifest: Manifest, packName = '') {
         const files = (await this.getFiles(dir)).filter((file) => file.endsWith('.credential.js'))
         const stats = { required: 0, cached: 0, moved: 0 }
         await Promise.all(
@@ -180,6 +228,10 @@ export class NodesPool {
                     }
                 }
                 if (!credential) return
+                if (packName && this.componentCredentials[credential.name]) {
+                    logger.warn(`[server]: Node pack ${packName} also defines credential ${credential.name}; the existing credential stays`)
+                    return
+                }
                 credential.icon = this.credentialIconPath[credential.name] ?? ''
                 this.componentCredentials[credential.name] = credential as INode
             })

@@ -62,6 +62,7 @@ const STEPS = [
             path.join(ROOT, 'scripts', 'health-report.test.mjs'),
             path.join(ROOT, 'scripts', 'components-package-alias.test.mjs'),
             path.join(ROOT, 'scripts', 'package-names.test.mjs'),
+            path.join(ROOT, 'scripts', 'check-static-ui-image.test.mjs'),
             path.join(ROOT, 'scripts', 'proprietary-paths.test.mjs'),
             path.join(ROOT, 'scripts', 'etl-list-sqlite.test.mjs'),
             path.join(ROOT, 'scripts', 'start-local-admin.test.mjs'),

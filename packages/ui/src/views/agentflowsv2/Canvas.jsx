@@ -13,7 +13,7 @@ import {
     enqueueSnackbar as enqueueSnackbarAction,
     closeSnackbar as closeSnackbarAction
 } from '@/store/actions'
-import { omit, cloneDeep } from 'lodash'
+import { cloneDeep } from 'lodash'
 
 // material-ui
 import { Toolbar, Box, AppBar, Button, Fab } from '@mui/material'
@@ -70,11 +70,12 @@ import {
 import useNotifier from '@/utils/useNotifier'
 import { usePrompt } from '@/utils/usePrompt'
 import { apiErrorMessage, canvasFlowText, planCanvasSave } from '@/utils/flowDrafts'
+import { canvasSaveDocument } from '@/utils/canvasSave'
 import { canvasIsEmpty, missingCredentialsText, stashNewCanvas, takeLanding, withStarterQuestions } from '@/utils/buildWithAI'
 import BuildLandingDialog from '@/ui-component/dialog/BuildLandingDialog'
 
 // const
-import { FLOWISE_CREDENTIAL_ID, AGENTFLOW_ICONS, uiBaseURL } from '@/store/constant'
+import { AGENTFLOW_ICONS, uiBaseURL } from '@/store/constant'
 
 const nodeTypes = { agentFlow: CanvasNode, stickyNote: StickyNote, iteration: IterationNode }
 const edgeTypes = { agentFlow: AgentFlowEdge }
@@ -248,22 +249,7 @@ const AgentflowCanvas = () => {
 
     const handleSaveFlow = async (chatflowName) => {
         if (reactFlowInstance) {
-            const nodes = reactFlowInstance.getNodes().map((node) => {
-                const nodeData = cloneDeep(node.data)
-                if (Object.prototype.hasOwnProperty.call(nodeData.inputs, FLOWISE_CREDENTIAL_ID)) {
-                    nodeData.credential = nodeData.inputs[FLOWISE_CREDENTIAL_ID]
-                    nodeData.inputs = omit(nodeData.inputs, [FLOWISE_CREDENTIAL_ID])
-                }
-                node.data = {
-                    ...nodeData,
-                    selected: false,
-                    status: undefined
-                }
-                return node
-            })
-
-            const rfInstanceObject = reactFlowInstance.toObject()
-            rfInstanceObject.nodes = nodes
+            const rfInstanceObject = canvasSaveDocument(reactFlowInstance, { workflow: true })
             const flowData = JSON.stringify(rfInstanceObject)
 
             if (!chatflow.id) {

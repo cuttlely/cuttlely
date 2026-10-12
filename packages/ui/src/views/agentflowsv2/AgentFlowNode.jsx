@@ -1,7 +1,7 @@
 import PropTypes from 'prop-types'
 import { useContext, memo, useRef, useState, useEffect } from 'react'
 import { useSelector } from 'react-redux'
-import { Handle, Position, useUpdateNodeInternals, NodeToolbar } from 'reactflow'
+import { Handle, Position, useUpdateNodeInternals, useEdges, NodeToolbar } from 'reactflow'
 
 // material-ui
 import { styled, useTheme, alpha, darken, lighten } from '@mui/material/styles'
@@ -11,6 +11,8 @@ import { ButtonGroup, Avatar, Box, Typography, IconButton, Tooltip } from '@mui/
 import MainCard from '@/ui-component/cards/MainCard'
 import { flowContext } from '@/store/context/ReactFlowContext'
 import NodeInfoDialog from '@/ui-component/dialog/NodeInfoDialog'
+import { missingNodeInfo } from '@/utils/missingNode'
+import MissingNodeCard from '@/views/canvas/MissingNodeCard'
 
 // icons
 import {
@@ -64,6 +66,7 @@ const AgentFlowNode = ({ data }) => {
     const canvas = useSelector((state) => state.canvas)
     const ref = useRef(null)
     const updateNodeInternals = useUpdateNodeInternals()
+    const edges = useEdges()
     // eslint-disable-next-line
     const [position, setPosition] = useState(0)
     const [isHovered, setIsHovered] = useState(false)
@@ -204,6 +207,9 @@ const AgentFlowNode = ({ data }) => {
             }
         }
     }, [canvas.componentNodes, data.name, data.version])
+
+    const missing = missingNodeInfo(data, canvas.componentNodes)
+    if (missing) return <MissingNodeCard data={data} message={missing.message} edges={edges} />
 
     return (
         <div ref={ref} onMouseEnter={() => setIsHovered(true)} onMouseLeave={() => setIsHovered(false)}>
