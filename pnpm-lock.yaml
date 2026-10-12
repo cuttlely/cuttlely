@@ -37,6 +37,7 @@ overrides:
   '@elastic/transport': '>=8.9.3'
   '@modelcontextprotocol/sdk': ^1.32.1
   multer: 2.4.0
+  '@qdrant/js-client-rest': 1.18.0
   undici@6: 6.29.0
   undici@7: 7.30.0
   handlebars: 4.7.10
@@ -297,7 +298,7 @@ importers:
         version: 1.0.2(@langchain/core@1.1.20(@opentelemetry/api@1.9.0)(@opentelemetry/exporter-trace-otlp-proto@0.54.0(@opentelemetry/api@1.9.0))(@opentelemetry/sdk-trace-base@1.27.0(@opentelemetry/api@1.9.0))(openai@6.19.0(ws@8.22.0(bufferutil@4.0.8)(utf-8-validate@6.0.4))(zod@4.3.6))(ws@8.22.0(bufferutil@4.0.8)(utf-8-validate@6.0.4)))
       '@langchain/community':
         specifier: 1.1.12
-        version: 1.1.12(a2477f16001561f808a6accb37410a7f)
+        version: 1.1.12(d6017d975fd9af1a50d703f371943990)
       '@langchain/core':
         specifier: 1.1.20
         version: 1.1.20(@opentelemetry/api@1.9.0)(@opentelemetry/exporter-trace-otlp-proto@0.54.0(@opentelemetry/api@1.9.0))(@opentelemetry/sdk-trace-base@1.27.0(@opentelemetry/api@1.9.0))(openai@6.19.0(ws@8.22.0(bufferutil@4.0.8)(utf-8-validate@6.0.4))(zod@4.3.6))(ws@8.22.0(bufferutil@4.0.8)(utf-8-validate@6.0.4))
@@ -670,13 +671,13 @@ importers:
         version: 1.0.15(@langchain/core@1.1.20(@opentelemetry/api@1.9.0)(@opentelemetry/exporter-trace-otlp-proto@0.54.0(@opentelemetry/api@1.9.0))(@opentelemetry/sdk-trace-base@1.30.1(@opentelemetry/api@1.9.0))(openai@6.19.0(ws@8.22.0(bufferutil@4.0.8)(utf-8-validate@6.0.4))(zod@3.25.76))(ws@8.22.0(bufferutil@4.0.8)(utf-8-validate@6.0.4)))(@opentelemetry/api@1.9.0)(@opentelemetry/exporter-trace-otlp-proto@0.54.0(@opentelemetry/api@1.9.0))(@opentelemetry/sdk-trace-base@1.30.1(@opentelemetry/api@1.9.0))(openai@6.19.0(ws@8.22.0(bufferutil@4.0.8)(utf-8-validate@6.0.4))(zod@3.25.76))(typeorm@0.3.31(babel-plugin-macros@3.1.0)(ioredis@5.4.2)(mongodb@6.3.0(@aws-sdk/credential-providers@3.1002.0)(socks@2.8.10))(mysql2@3.24.5(@types/node@24.13.2))(pg@8.11.3)(redis@4.7.0)(sqlite3@6.0.1)(ts-node@10.9.2(@swc/core@1.4.6(@swc/helpers@0.5.23))(@types/node@24.13.2)(typescript@5.5.2)))(ws@8.22.0(bufferutil@4.0.8)(utf-8-validate@6.0.4))
       '@langchain/community':
         specifier: 1.1.12
-        version: 1.1.12(564693ca0485189f67a7aae28211280f)
+        version: 1.1.12(782393a2384bdb0d1ad5c79451b7dfee)
       '@langchain/core':
         specifier: 1.1.20
         version: 1.1.20(@opentelemetry/api@1.9.0)(@opentelemetry/exporter-trace-otlp-proto@0.54.0(@opentelemetry/api@1.9.0))(@opentelemetry/sdk-trace-base@1.30.1(@opentelemetry/api@1.9.0))(openai@6.19.0(ws@8.22.0(bufferutil@4.0.8)(utf-8-validate@6.0.4))(zod@3.25.76))(ws@8.22.0(bufferutil@4.0.8)(utf-8-validate@6.0.4))
       '@mem0/community':
         specifier: ^0.0.1
-        version: 0.0.1(f91afa70d06a424059e23bc24c88b1cc)
+        version: 0.0.1(5a088e9f3cd35ac2c70ed7151454fdff)
       '@upstash/redis':
         specifier: 1.22.1
         version: 1.22.1(encoding@0.1.13)
@@ -685,7 +686,7 @@ importers:
         version: 5.4.2
       mem0ai:
         specifier: ^2.1.8
-        version: 2.1.16(@anthropic-ai/sdk@0.73.0(zod@3.25.76))(@google/genai@0.7.0(bufferutil@4.0.8)(encoding@0.1.13)(utf-8-validate@6.0.4))(@mistralai/mistralai@1.14.0(bufferutil@4.0.8)(utf-8-validate@6.0.4))(@qdrant/js-client-rest@1.13.0(typescript@5.5.2))(@supabase/supabase-js@2.39.8(bufferutil@4.0.8)(utf-8-validate@6.0.4))(@types/pg@8.11.0)(@types/sqlite3@3.1.11)(groq-sdk@0.3.0(encoding@0.1.13))(neo4j-driver@5.27.0)(ollama@0.6.3)(pg@8.11.3)(redis@4.7.0)(sqlite3@6.0.1)(ws@8.22.0(bufferutil@4.0.8)(utf-8-validate@6.0.4))
+        version: 2.1.16(@anthropic-ai/sdk@0.73.0(zod@3.25.76))(@google/genai@0.7.0(bufferutil@4.0.8)(encoding@0.1.13)(utf-8-validate@6.0.4))(@mistralai/mistralai@1.14.0(bufferutil@4.0.8)(utf-8-validate@6.0.4))(@qdrant/js-client-rest@1.18.0(typescript@5.5.2))(@supabase/supabase-js@2.39.8(bufferutil@4.0.8)(utf-8-validate@6.0.4))(@types/pg@8.11.0)(@types/sqlite3@3.1.11)(groq-sdk@0.3.0(encoding@0.1.13))(neo4j-driver@5.27.0)(ollama@0.6.3)(pg@8.11.3)(redis@4.7.0)(sqlite3@6.0.1)(ws@8.22.0(bufferutil@4.0.8)(utf-8-validate@6.0.4))
       mongodb:
         specifier: 6.3.0
         version: 6.3.0(@aws-sdk/credential-providers@3.1002.0)(socks@2.8.10)
@@ -731,7 +732,7 @@ importers:
         version: 1.5.1
       '@langchain/community':
         specifier: 1.1.12
-        version: 1.1.12(ec90c8756ba9855b25353e321873c08d)
+        version: 1.1.12(7faec3b38e2b6744b556d926adc9d3e4)
       '@langchain/core':
         specifier: 1.1.20
         version: 1.1.20(@opentelemetry/api@1.9.0)(@opentelemetry/exporter-trace-otlp-proto@0.54.0(@opentelemetry/api@1.9.0))(@opentelemetry/sdk-trace-base@1.30.1(@opentelemetry/api@1.9.0))(openai@6.19.0(ws@8.22.0(bufferutil@4.0.8)(utf-8-validate@6.0.4))(zod@4.3.6))(ws@8.22.0(bufferutil@4.0.8)(utf-8-validate@6.0.4))
@@ -854,7 +855,7 @@ importers:
         specifier: 4.0.0
         version: 4.0.0
       '@qdrant/js-client-rest':
-        specifier: ^1.18.0
+        specifier: 1.18.0
         version: 1.18.0(typescript@5.5.2)
       '@supabase/supabase-js':
         specifier: ^2.29.0
@@ -3632,10 +3633,6 @@ packages:
     resolution: {integrity: sha512-Ys+3g2TaW7gADOJzPt83SJtCDhMjndcDMFVQ/Tj9iA1BfJzFKD9mAUXT3OenpuPHbI6P/myECxRJrofUsDx/5g==}
     engines: {node: ^12.22.0 || ^14.17.0 || >=16.0.0}
 
-  '@fastify/busboy@2.1.1':
-    resolution: {integrity: sha512-vBZP4NlzfOlerQTnba4aqZoMhE/a9HY7HRqoOPaETQcSQuWEIyZMHGfVu6w9wGtGK5fED5qRs2DteVCjOH60sA==}
-    engines: {node: '>=14'}
-
   '@floating-ui/core@1.6.0':
     resolution: {integrity: sha512-PcF++MykgmTj3CIyOQbKA/hDzOAiqI3mhuoN44WRCopIs1sgoDoU4oty4Jtqaj/y3oDU6fnVSm4QG0a3t5i0+g==}
 
@@ -5236,12 +5233,6 @@ packages:
       typescript:
         optional: true
 
-  '@qdrant/js-client-rest@1.13.0':
-    resolution: {integrity: sha512-bewMtnXlGvhhnfXsp0sLoLXOGvnrCM15z9lNlG0Snp021OedNAnRtKkerjk5vkOcbQWUmJHXYCuxDfcT93aSkA==}
-    engines: {node: '>=18.0.0', pnpm: '>=8'}
-    peerDependencies:
-      typescript: '>=4.7'
-
   '@qdrant/js-client-rest@1.18.0':
     resolution: {integrity: sha512-/0dqX5uV9chC1DnYSnU4gNMrDqse/pt6hHg3Rqqpl5isH7xl1xSNvffjzBoxycDD79luWn7Ho6Rh/61sOs5DNw==}
     engines: {node: '>=18.17.0', pnpm: '>=8'}
@@ -5520,9 +5511,6 @@ packages:
 
   '@selderee/plugin-htmlparser2@0.11.0':
     resolution: {integrity: sha512-P33hHGdldxGabLFjPPpaTxVolMrzrcegejx+0GxjrIb9Zv48D8yAIA/QTDR2dFl7Uz7urX8aX6+5bCZslr+gWQ==}
-
-  '@sevinf/maybe@0.5.0':
-    resolution: {integrity: sha512-ARhyoYDnY1LES3vYI0fiG6e9esWfTNcXcO6+MPJJXcnyMV3bim4lnFt45VXouV7y82F4x3YH8nOQ6VztuvUiWg==}
 
   '@sideway/address@4.1.5':
     resolution: {integrity: sha512-IqO/DUQHUkPeixNQ8n0JA6102hT9CmaljNTPmQ1u8MEhBo/R4Q8eKLN/vGZxuebwOroDB4cbpjheD4+/sKFK4Q==}
@@ -11027,7 +11015,7 @@ packages:
       '@anthropic-ai/sdk': ^0.73.0
       '@google/genai': ^0.7.0
       '@mistralai/mistralai': ^1.5.2
-      '@qdrant/js-client-rest': 1.13.0
+      '@qdrant/js-client-rest': 1.18.0
       '@supabase/supabase-js': ^2.49.1
       '@types/pg': 8.11.0
       '@types/sqlite3': 3.1.11
@@ -13904,10 +13892,6 @@ packages:
 
   undici-types@7.18.2:
     resolution: {integrity: sha512-AsuCzffGHJybSaRrmr5eHr81mwJU3kjw6M+uprWvCXiNeN9SOGwQ3Jn8jb8m3Z6izVgknn1R0FTCEAP2QrLY/w==}
-
-  undici@5.28.5:
-    resolution: {integrity: sha512-zICwjrDrcrUE0pyyJc1I2QzBkLM8FINsgOrt6WjA+BgajVq9Nxu2PbFFXUrAggLfDXlZGZBVZYw7WNV5KiBiBA==}
-    engines: {node: '>=14.0'}
 
   undici@6.29.0:
     resolution: {integrity: sha512-R+RODBqp6i2pPflGdq+xIOUkl+RNfGgHwoinecKu/JCuf2uO06cOKoDbI2P7Dn6KcswdKwrczbU6IYJ6K8X+wg==}
@@ -17912,8 +17896,6 @@ snapshots:
 
   '@eslint/js@8.57.0': {}
 
-  '@fastify/busboy@2.1.1': {}
-
   '@floating-ui/core@1.6.0':
     dependencies:
       '@floating-ui/utils': 0.2.1
@@ -18692,7 +18674,7 @@ snapshots:
     transitivePeerDependencies:
       - aws-crt
 
-  '@langchain/community@1.1.12(564693ca0485189f67a7aae28211280f)':
+  '@langchain/community@1.1.12(782393a2384bdb0d1ad5c79451b7dfee)':
     dependencies:
       '@ibm-cloud/watsonx-ai': 1.7.7
       '@langchain/classic': 1.0.15(@langchain/core@1.1.20(@opentelemetry/api@1.9.0)(@opentelemetry/exporter-trace-otlp-proto@0.54.0(@opentelemetry/api@1.9.0))(@opentelemetry/sdk-trace-base@1.30.1(@opentelemetry/api@1.9.0))(openai@6.19.0(ws@8.22.0(bufferutil@4.0.8)(utf-8-validate@6.0.4))(zod@3.25.76))(ws@8.22.0(bufferutil@4.0.8)(utf-8-validate@6.0.4)))(@opentelemetry/api@1.9.0)(@opentelemetry/exporter-trace-otlp-proto@0.54.0(@opentelemetry/api@1.9.0))(@opentelemetry/sdk-trace-base@1.30.1(@opentelemetry/api@1.9.0))(openai@6.19.0(ws@8.22.0(bufferutil@4.0.8)(utf-8-validate@6.0.4))(zod@3.25.76))(typeorm@0.3.31(babel-plugin-macros@3.1.0)(ioredis@5.4.2)(mongodb@6.3.0(@aws-sdk/credential-providers@3.1002.0)(socks@2.8.10))(mysql2@3.24.5(@types/node@24.13.2))(pg@8.11.3)(redis@4.7.0)(sqlite3@6.0.1)(ts-node@10.9.2(@swc/core@1.4.6(@swc/helpers@0.5.23))(@types/node@24.13.2)(typescript@5.5.2)))(ws@8.22.0(bufferutil@4.0.8)(utf-8-validate@6.0.4))
@@ -18723,7 +18705,7 @@ snapshots:
       '@mendable/firecrawl-js': 1.25.1
       '@notionhq/client': 2.2.14(encoding@0.1.13)
       '@opensearch-project/opensearch': 1.2.0
-      '@qdrant/js-client-rest': 1.13.0(typescript@5.5.2)
+      '@qdrant/js-client-rest': 1.18.0(typescript@5.5.2)
       '@smithy/eventstream-codec': 2.1.4
       '@smithy/protocol-http': 3.2.2
       '@smithy/signature-v4': 2.1.4
@@ -18748,7 +18730,7 @@ snapshots:
       lodash: 4.18.1
       lunary: 0.7.12(openai@6.19.0(ws@8.22.0(bufferutil@4.0.8)(utf-8-validate@6.0.4))(zod@3.25.76))(react@18.2.0)
       mammoth: 1.13.0
-      mem0ai: 2.1.16(@anthropic-ai/sdk@0.73.0(zod@3.25.76))(@google/genai@0.7.0(bufferutil@4.0.8)(encoding@0.1.13)(utf-8-validate@6.0.4))(@mistralai/mistralai@1.14.0(bufferutil@4.0.8)(utf-8-validate@6.0.4))(@qdrant/js-client-rest@1.13.0(typescript@5.5.2))(@supabase/supabase-js@2.39.8(bufferutil@4.0.8)(utf-8-validate@6.0.4))(@types/pg@8.11.0)(@types/sqlite3@3.1.11)(groq-sdk@0.3.0(encoding@0.1.13))(neo4j-driver@5.27.0)(ollama@0.6.3)(pg@8.11.3)(redis@4.7.0)(sqlite3@6.0.1)(ws@8.22.0(bufferutil@4.0.8)(utf-8-validate@6.0.4))
+      mem0ai: 2.1.16(@anthropic-ai/sdk@0.73.0(zod@3.25.76))(@google/genai@0.7.0(bufferutil@4.0.8)(encoding@0.1.13)(utf-8-validate@6.0.4))(@mistralai/mistralai@1.14.0(bufferutil@4.0.8)(utf-8-validate@6.0.4))(@qdrant/js-client-rest@1.18.0(typescript@5.5.2))(@supabase/supabase-js@2.39.8(bufferutil@4.0.8)(utf-8-validate@6.0.4))(@types/pg@8.11.0)(@types/sqlite3@3.1.11)(groq-sdk@0.3.0(encoding@0.1.13))(neo4j-driver@5.27.0)(ollama@0.6.3)(pg@8.11.3)(redis@4.7.0)(sqlite3@6.0.1)(ws@8.22.0(bufferutil@4.0.8)(utf-8-validate@6.0.4))
       mongodb: 6.3.0(@aws-sdk/credential-providers@3.1002.0)(socks@2.8.10)
       mysql2: 3.24.5(@types/node@24.13.2)
       neo4j-driver: 5.27.0
@@ -18770,12 +18752,12 @@ snapshots:
       - '@opentelemetry/sdk-trace-base'
       - peggy
 
-  '@langchain/community@1.1.12(a2477f16001561f808a6accb37410a7f)':
+  '@langchain/community@1.1.12(7faec3b38e2b6744b556d926adc9d3e4)':
     dependencies:
       '@ibm-cloud/watsonx-ai': 1.7.7
-      '@langchain/classic': 1.0.15(@langchain/core@1.1.20(@opentelemetry/api@1.9.0)(@opentelemetry/exporter-trace-otlp-proto@0.54.0(@opentelemetry/api@1.9.0))(@opentelemetry/sdk-trace-base@1.27.0(@opentelemetry/api@1.9.0))(openai@6.19.0(ws@8.22.0(bufferutil@4.0.8)(utf-8-validate@6.0.4))(zod@4.3.6))(ws@8.22.0(bufferutil@4.0.8)(utf-8-validate@6.0.4)))(@opentelemetry/api@1.9.0)(@opentelemetry/exporter-trace-otlp-proto@0.54.0(@opentelemetry/api@1.9.0))(@opentelemetry/sdk-trace-base@1.27.0(@opentelemetry/api@1.9.0))(cheerio@1.0.0-rc.12)(openai@6.19.0(ws@8.22.0(bufferutil@4.0.8)(utf-8-validate@6.0.4))(zod@4.3.6))(typeorm@0.3.31(babel-plugin-macros@3.1.0)(ioredis@5.3.2)(mongodb@6.21.0(@aws-sdk/credential-providers@3.1002.0)(socks@2.8.10))(mysql2@3.24.5(@types/node@24.13.2))(pg@8.11.3)(redis@4.6.13)(sqlite3@6.0.1)(ts-node@10.9.2(@swc/core@1.4.6(@swc/helpers@0.5.23))(@types/node@24.13.2)(typescript@5.5.2)))(ws@8.22.0(bufferutil@4.0.8)(utf-8-validate@6.0.4))
-      '@langchain/core': 1.1.20(@opentelemetry/api@1.9.0)(@opentelemetry/exporter-trace-otlp-proto@0.54.0(@opentelemetry/api@1.9.0))(@opentelemetry/sdk-trace-base@1.27.0(@opentelemetry/api@1.9.0))(openai@6.19.0(ws@8.22.0(bufferutil@4.0.8)(utf-8-validate@6.0.4))(zod@4.3.6))(ws@8.22.0(bufferutil@4.0.8)(utf-8-validate@6.0.4))
-      '@langchain/openai': 1.2.5(@langchain/core@1.1.20(@opentelemetry/api@1.9.0)(@opentelemetry/exporter-trace-otlp-proto@0.54.0(@opentelemetry/api@1.9.0))(@opentelemetry/sdk-trace-base@1.27.0(@opentelemetry/api@1.9.0))(openai@6.19.0(ws@8.22.0(bufferutil@4.0.8)(utf-8-validate@6.0.4))(zod@4.3.6))(ws@8.22.0(bufferutil@4.0.8)(utf-8-validate@6.0.4)))(ws@8.22.0(bufferutil@4.0.8)(utf-8-validate@6.0.4))
+      '@langchain/classic': 1.0.15(@langchain/core@1.1.20(@opentelemetry/api@1.9.0)(@opentelemetry/exporter-trace-otlp-proto@0.54.0(@opentelemetry/api@1.9.0))(@opentelemetry/sdk-trace-base@1.30.1(@opentelemetry/api@1.9.0))(openai@6.19.0(ws@8.22.0(bufferutil@4.0.8)(utf-8-validate@6.0.4))(zod@4.3.6))(ws@8.22.0(bufferutil@4.0.8)(utf-8-validate@6.0.4)))(@opentelemetry/api@1.9.0)(@opentelemetry/exporter-trace-otlp-proto@0.54.0(@opentelemetry/api@1.9.0))(@opentelemetry/sdk-trace-base@1.30.1(@opentelemetry/api@1.9.0))(openai@6.19.0(ws@8.22.0(bufferutil@4.0.8)(utf-8-validate@6.0.4))(zod@4.3.6))(typeorm@0.3.31(babel-plugin-macros@3.1.0)(ioredis@5.4.2)(mongodb@6.21.0(@aws-sdk/credential-providers@3.1002.0)(socks@2.8.10))(mysql2@3.24.5(@types/node@24.13.2))(pg@8.13.3)(redis@4.7.0)(sqlite3@6.0.1)(ts-node@10.9.2(@swc/core@1.4.6(@swc/helpers@0.5.23))(@types/node@24.13.2)(typescript@5.5.2)))(ws@8.22.0(bufferutil@4.0.8)(utf-8-validate@6.0.4))
+      '@langchain/core': 1.1.20(@opentelemetry/api@1.9.0)(@opentelemetry/exporter-trace-otlp-proto@0.54.0(@opentelemetry/api@1.9.0))(@opentelemetry/sdk-trace-base@1.30.1(@opentelemetry/api@1.9.0))(openai@6.19.0(ws@8.22.0(bufferutil@4.0.8)(utf-8-validate@6.0.4))(zod@4.3.6))(ws@8.22.0(bufferutil@4.0.8)(utf-8-validate@6.0.4))
+      '@langchain/openai': 1.2.5(@langchain/core@1.1.20(@opentelemetry/api@1.9.0)(@opentelemetry/exporter-trace-otlp-proto@0.54.0(@opentelemetry/api@1.9.0))(@opentelemetry/sdk-trace-base@1.30.1(@opentelemetry/api@1.9.0))(openai@6.19.0(ws@8.22.0(bufferutil@4.0.8)(utf-8-validate@6.0.4))(zod@4.3.6))(ws@8.22.0(bufferutil@4.0.8)(utf-8-validate@6.0.4)))(ws@8.22.0(bufferutil@4.0.8)(utf-8-validate@6.0.4))
       binary-extensions: 2.2.0
       flat: 5.0.2
       ibm-cloud-sdk-core: 5.9.0
@@ -18793,7 +18775,7 @@ snapshots:
       '@browserbasehq/sdk': 2.0.0(encoding@0.1.13)
       '@datastax/astra-db-ts': 1.5.0
       '@elastic/elasticsearch': 8.19.1
-      '@getzep/zep-cloud': 1.0.7(3f3dba9fca59fa56d8c0d098f7afe226)
+      '@getzep/zep-cloud': 1.0.7(f4a8850595d0ad14eeb287c357fc29dc)
       '@getzep/zep-js': 0.9.0
       '@gomomento/sdk-core': 1.68.1
       '@google-cloud/storage': 7.22.0(encoding@0.1.13)
@@ -18801,7 +18783,7 @@ snapshots:
       '@mendable/firecrawl-js': 1.25.1
       '@notionhq/client': 2.2.14(encoding@0.1.13)
       '@opensearch-project/opensearch': 1.2.0
-      '@qdrant/js-client-rest': 1.13.0(typescript@5.5.2)
+      '@qdrant/js-client-rest': 1.18.0(typescript@5.5.2)
       '@smithy/eventstream-codec': 2.1.4
       '@smithy/protocol-http': 3.2.2
       '@smithy/signature-v4': 2.1.4
@@ -18811,40 +18793,36 @@ snapshots:
       '@upstash/vector': 1.1.5
       '@zilliz/milvus2-sdk-node': 2.3.5
       apify-client: 2.9.3
-      assemblyai: 4.3.2(bufferutil@4.0.8)(utf-8-validate@6.0.4)
-      cheerio: 1.0.0-rc.12
       chromadb: 3.1.6
-      cohere-ai: 7.10.0(encoding@0.1.13)
       crypto-js: 4.2.0
       d3-dsv: 2.0.0
       epub2: 3.0.2(ts-toolbelt@9.6.0)
       faiss-node: 0.5.1
       fast-xml-parser: 5.7.3
-      google-auth-library: 9.6.3(encoding@0.1.13)
+      google-auth-library: 10.1.0
       html-to-text: 9.0.5
       ignore: 5.3.1
-      ioredis: 5.3.2
+      ioredis: 5.4.2
       jsdom: 22.1.0(bufferutil@4.0.8)(canvas@2.11.2(encoding@0.1.13))(utf-8-validate@6.0.4)
       jsonwebtoken: 9.0.3
       lodash: 4.18.1
       lunary: 0.7.12(openai@6.19.0(ws@8.22.0(bufferutil@4.0.8)(utf-8-validate@6.0.4))(zod@4.3.6))(react@18.2.0)
       mammoth: 1.13.0
-      mem0ai: 2.1.16(@anthropic-ai/sdk@0.73.0(zod@4.3.6))(@google/genai@0.7.0(bufferutil@4.0.8)(encoding@0.1.13)(utf-8-validate@6.0.4))(@mistralai/mistralai@1.14.0(bufferutil@4.0.8)(utf-8-validate@6.0.4))(@qdrant/js-client-rest@1.13.0(typescript@5.5.2))(@supabase/supabase-js@2.39.8(bufferutil@4.0.8)(utf-8-validate@6.0.4))(@types/pg@8.11.2)(@types/sqlite3@3.1.11)(groq-sdk@1.1.2)(neo4j-driver@5.27.0)(ollama@0.5.11)(pg@8.11.3)(redis@4.6.13)(sqlite3@6.0.1)(ws@8.22.0(bufferutil@4.0.8)(utf-8-validate@6.0.4))
+      mem0ai: 2.1.16(@anthropic-ai/sdk@0.73.0(zod@4.3.6))(@google/genai@0.7.0(bufferutil@4.0.8)(encoding@0.1.13)(utf-8-validate@6.0.4))(@mistralai/mistralai@1.14.0(bufferutil@4.0.8)(utf-8-validate@6.0.4))(@qdrant/js-client-rest@1.18.0(typescript@5.5.2))(@supabase/supabase-js@2.39.8(bufferutil@4.0.8)(utf-8-validate@6.0.4))(@types/pg@8.11.0)(@types/sqlite3@3.1.11)(groq-sdk@0.3.0(encoding@0.1.13))(neo4j-driver@5.27.0)(ollama@0.6.3)(pg@8.13.3)(redis@4.7.0)(sqlite3@6.0.1)(ws@8.22.0(bufferutil@4.0.8)(utf-8-validate@6.0.4))
       mongodb: 6.21.0(@aws-sdk/credential-providers@3.1002.0)(socks@2.8.10)
       mysql2: 3.24.5(@types/node@24.13.2)
       neo4j-driver: 5.27.0
       notion-to-md: 3.1.1(encoding@0.1.13)
-      officeparser: 5.1.1
       pdf-parse: 1.1.1
-      pg: 8.11.3
+      pg: 8.13.3
       playwright: 1.64.0
       portkey-ai: 0.1.16
       puppeteer: 20.9.0(bufferutil@4.0.8)(encoding@0.1.13)(typescript@5.5.2)(utf-8-validate@6.0.4)
       pyodide: 0.25.0(bufferutil@4.0.8)(utf-8-validate@6.0.4)
-      redis: 4.6.13
+      redis: 4.7.0
       replicate: 0.31.1
       srt-parser-2: 1.2.3
-      typeorm: 0.3.31(babel-plugin-macros@3.1.0)(ioredis@5.3.2)(mongodb@6.21.0(@aws-sdk/credential-providers@3.1002.0)(socks@2.8.10))(mysql2@3.24.5(@types/node@24.13.2))(pg@8.11.3)(redis@4.6.13)(sqlite3@6.0.1)(ts-node@10.9.2(@swc/core@1.4.6(@swc/helpers@0.5.23))(@types/node@24.13.2)(typescript@5.5.2))
+      typeorm: 0.3.31(babel-plugin-macros@3.1.0)(ioredis@5.4.2)(mongodb@6.21.0(@aws-sdk/credential-providers@3.1002.0)(socks@2.8.10))(mysql2@3.24.5(@types/node@24.13.2))(pg@8.13.3)(redis@4.7.0)(sqlite3@6.0.1)(ts-node@10.9.2(@swc/core@1.4.6(@swc/helpers@0.5.23))(@types/node@24.13.2)(typescript@5.5.2))
       ws: 8.22.0(bufferutil@4.0.8)(utf-8-validate@6.0.4)
     transitivePeerDependencies:
       - '@opentelemetry/api'
@@ -18933,12 +18911,12 @@ snapshots:
       - '@opentelemetry/sdk-trace-base'
       - peggy
 
-  '@langchain/community@1.1.12(ec90c8756ba9855b25353e321873c08d)':
+  '@langchain/community@1.1.12(d6017d975fd9af1a50d703f371943990)':
     dependencies:
       '@ibm-cloud/watsonx-ai': 1.7.7
-      '@langchain/classic': 1.0.15(@langchain/core@1.1.20(@opentelemetry/api@1.9.0)(@opentelemetry/exporter-trace-otlp-proto@0.54.0(@opentelemetry/api@1.9.0))(@opentelemetry/sdk-trace-base@1.30.1(@opentelemetry/api@1.9.0))(openai@6.19.0(ws@8.22.0(bufferutil@4.0.8)(utf-8-validate@6.0.4))(zod@4.3.6))(ws@8.22.0(bufferutil@4.0.8)(utf-8-validate@6.0.4)))(@opentelemetry/api@1.9.0)(@opentelemetry/exporter-trace-otlp-proto@0.54.0(@opentelemetry/api@1.9.0))(@opentelemetry/sdk-trace-base@1.30.1(@opentelemetry/api@1.9.0))(openai@6.19.0(ws@8.22.0(bufferutil@4.0.8)(utf-8-validate@6.0.4))(zod@4.3.6))(typeorm@0.3.31(babel-plugin-macros@3.1.0)(ioredis@5.4.2)(mongodb@6.21.0(@aws-sdk/credential-providers@3.1002.0)(socks@2.8.10))(mysql2@3.24.5(@types/node@24.13.2))(pg@8.13.3)(redis@4.7.0)(sqlite3@6.0.1)(ts-node@10.9.2(@swc/core@1.4.6(@swc/helpers@0.5.23))(@types/node@24.13.2)(typescript@5.5.2)))(ws@8.22.0(bufferutil@4.0.8)(utf-8-validate@6.0.4))
-      '@langchain/core': 1.1.20(@opentelemetry/api@1.9.0)(@opentelemetry/exporter-trace-otlp-proto@0.54.0(@opentelemetry/api@1.9.0))(@opentelemetry/sdk-trace-base@1.30.1(@opentelemetry/api@1.9.0))(openai@6.19.0(ws@8.22.0(bufferutil@4.0.8)(utf-8-validate@6.0.4))(zod@4.3.6))(ws@8.22.0(bufferutil@4.0.8)(utf-8-validate@6.0.4))
-      '@langchain/openai': 1.2.5(@langchain/core@1.1.20(@opentelemetry/api@1.9.0)(@opentelemetry/exporter-trace-otlp-proto@0.54.0(@opentelemetry/api@1.9.0))(@opentelemetry/sdk-trace-base@1.30.1(@opentelemetry/api@1.9.0))(openai@6.19.0(ws@8.22.0(bufferutil@4.0.8)(utf-8-validate@6.0.4))(zod@4.3.6))(ws@8.22.0(bufferutil@4.0.8)(utf-8-validate@6.0.4)))(ws@8.22.0(bufferutil@4.0.8)(utf-8-validate@6.0.4))
+      '@langchain/classic': 1.0.15(@langchain/core@1.1.20(@opentelemetry/api@1.9.0)(@opentelemetry/exporter-trace-otlp-proto@0.54.0(@opentelemetry/api@1.9.0))(@opentelemetry/sdk-trace-base@1.27.0(@opentelemetry/api@1.9.0))(openai@6.19.0(ws@8.22.0(bufferutil@4.0.8)(utf-8-validate@6.0.4))(zod@4.3.6))(ws@8.22.0(bufferutil@4.0.8)(utf-8-validate@6.0.4)))(@opentelemetry/api@1.9.0)(@opentelemetry/exporter-trace-otlp-proto@0.54.0(@opentelemetry/api@1.9.0))(@opentelemetry/sdk-trace-base@1.27.0(@opentelemetry/api@1.9.0))(cheerio@1.0.0-rc.12)(openai@6.19.0(ws@8.22.0(bufferutil@4.0.8)(utf-8-validate@6.0.4))(zod@4.3.6))(typeorm@0.3.31(babel-plugin-macros@3.1.0)(ioredis@5.3.2)(mongodb@6.21.0(@aws-sdk/credential-providers@3.1002.0)(socks@2.8.10))(mysql2@3.24.5(@types/node@24.13.2))(pg@8.11.3)(redis@4.6.13)(sqlite3@6.0.1)(ts-node@10.9.2(@swc/core@1.4.6(@swc/helpers@0.5.23))(@types/node@24.13.2)(typescript@5.5.2)))(ws@8.22.0(bufferutil@4.0.8)(utf-8-validate@6.0.4))
+      '@langchain/core': 1.1.20(@opentelemetry/api@1.9.0)(@opentelemetry/exporter-trace-otlp-proto@0.54.0(@opentelemetry/api@1.9.0))(@opentelemetry/sdk-trace-base@1.27.0(@opentelemetry/api@1.9.0))(openai@6.19.0(ws@8.22.0(bufferutil@4.0.8)(utf-8-validate@6.0.4))(zod@4.3.6))(ws@8.22.0(bufferutil@4.0.8)(utf-8-validate@6.0.4))
+      '@langchain/openai': 1.2.5(@langchain/core@1.1.20(@opentelemetry/api@1.9.0)(@opentelemetry/exporter-trace-otlp-proto@0.54.0(@opentelemetry/api@1.9.0))(@opentelemetry/sdk-trace-base@1.27.0(@opentelemetry/api@1.9.0))(openai@6.19.0(ws@8.22.0(bufferutil@4.0.8)(utf-8-validate@6.0.4))(zod@4.3.6))(ws@8.22.0(bufferutil@4.0.8)(utf-8-validate@6.0.4)))(ws@8.22.0(bufferutil@4.0.8)(utf-8-validate@6.0.4))
       binary-extensions: 2.2.0
       flat: 5.0.2
       ibm-cloud-sdk-core: 5.9.0
@@ -18956,7 +18934,7 @@ snapshots:
       '@browserbasehq/sdk': 2.0.0(encoding@0.1.13)
       '@datastax/astra-db-ts': 1.5.0
       '@elastic/elasticsearch': 8.19.1
-      '@getzep/zep-cloud': 1.0.7(f4a8850595d0ad14eeb287c357fc29dc)
+      '@getzep/zep-cloud': 1.0.7(3f3dba9fca59fa56d8c0d098f7afe226)
       '@getzep/zep-js': 0.9.0
       '@gomomento/sdk-core': 1.68.1
       '@google-cloud/storage': 7.22.0(encoding@0.1.13)
@@ -18964,7 +18942,7 @@ snapshots:
       '@mendable/firecrawl-js': 1.25.1
       '@notionhq/client': 2.2.14(encoding@0.1.13)
       '@opensearch-project/opensearch': 1.2.0
-      '@qdrant/js-client-rest': 1.13.0(typescript@5.5.2)
+      '@qdrant/js-client-rest': 1.18.0(typescript@5.5.2)
       '@smithy/eventstream-codec': 2.1.4
       '@smithy/protocol-http': 3.2.2
       '@smithy/signature-v4': 2.1.4
@@ -18974,36 +18952,40 @@ snapshots:
       '@upstash/vector': 1.1.5
       '@zilliz/milvus2-sdk-node': 2.3.5
       apify-client: 2.9.3
+      assemblyai: 4.3.2(bufferutil@4.0.8)(utf-8-validate@6.0.4)
+      cheerio: 1.0.0-rc.12
       chromadb: 3.1.6
+      cohere-ai: 7.10.0(encoding@0.1.13)
       crypto-js: 4.2.0
       d3-dsv: 2.0.0
       epub2: 3.0.2(ts-toolbelt@9.6.0)
       faiss-node: 0.5.1
       fast-xml-parser: 5.7.3
-      google-auth-library: 10.1.0
+      google-auth-library: 9.6.3(encoding@0.1.13)
       html-to-text: 9.0.5
       ignore: 5.3.1
-      ioredis: 5.4.2
+      ioredis: 5.3.2
       jsdom: 22.1.0(bufferutil@4.0.8)(canvas@2.11.2(encoding@0.1.13))(utf-8-validate@6.0.4)
       jsonwebtoken: 9.0.3
       lodash: 4.18.1
       lunary: 0.7.12(openai@6.19.0(ws@8.22.0(bufferutil@4.0.8)(utf-8-validate@6.0.4))(zod@4.3.6))(react@18.2.0)
       mammoth: 1.13.0
-      mem0ai: 2.1.16(@anthropic-ai/sdk@0.73.0(zod@4.3.6))(@google/genai@0.7.0(bufferutil@4.0.8)(encoding@0.1.13)(utf-8-validate@6.0.4))(@mistralai/mistralai@1.14.0(bufferutil@4.0.8)(utf-8-validate@6.0.4))(@qdrant/js-client-rest@1.13.0(typescript@5.5.2))(@supabase/supabase-js@2.39.8(bufferutil@4.0.8)(utf-8-validate@6.0.4))(@types/pg@8.11.0)(@types/sqlite3@3.1.11)(groq-sdk@0.3.0(encoding@0.1.13))(neo4j-driver@5.27.0)(ollama@0.6.3)(pg@8.13.3)(redis@4.7.0)(sqlite3@6.0.1)(ws@8.22.0(bufferutil@4.0.8)(utf-8-validate@6.0.4))
+      mem0ai: 2.1.16(@anthropic-ai/sdk@0.73.0(zod@4.3.6))(@google/genai@0.7.0(bufferutil@4.0.8)(encoding@0.1.13)(utf-8-validate@6.0.4))(@mistralai/mistralai@1.14.0(bufferutil@4.0.8)(utf-8-validate@6.0.4))(@qdrant/js-client-rest@1.18.0(typescript@5.5.2))(@supabase/supabase-js@2.39.8(bufferutil@4.0.8)(utf-8-validate@6.0.4))(@types/pg@8.11.2)(@types/sqlite3@3.1.11)(groq-sdk@1.1.2)(neo4j-driver@5.27.0)(ollama@0.5.11)(pg@8.11.3)(redis@4.6.13)(sqlite3@6.0.1)(ws@8.22.0(bufferutil@4.0.8)(utf-8-validate@6.0.4))
       mongodb: 6.21.0(@aws-sdk/credential-providers@3.1002.0)(socks@2.8.10)
       mysql2: 3.24.5(@types/node@24.13.2)
       neo4j-driver: 5.27.0
       notion-to-md: 3.1.1(encoding@0.1.13)
+      officeparser: 5.1.1
       pdf-parse: 1.1.1
-      pg: 8.13.3
+      pg: 8.11.3
       playwright: 1.64.0
       portkey-ai: 0.1.16
       puppeteer: 20.9.0(bufferutil@4.0.8)(encoding@0.1.13)(typescript@5.5.2)(utf-8-validate@6.0.4)
       pyodide: 0.25.0(bufferutil@4.0.8)(utf-8-validate@6.0.4)
-      redis: 4.7.0
+      redis: 4.6.13
       replicate: 0.31.1
       srt-parser-2: 1.2.3
-      typeorm: 0.3.31(babel-plugin-macros@3.1.0)(ioredis@5.4.2)(mongodb@6.21.0(@aws-sdk/credential-providers@3.1002.0)(socks@2.8.10))(mysql2@3.24.5(@types/node@24.13.2))(pg@8.13.3)(redis@4.7.0)(sqlite3@6.0.1)(ts-node@10.9.2(@swc/core@1.4.6(@swc/helpers@0.5.23))(@types/node@24.13.2)(typescript@5.5.2))
+      typeorm: 0.3.31(babel-plugin-macros@3.1.0)(ioredis@5.3.2)(mongodb@6.21.0(@aws-sdk/credential-providers@3.1002.0)(socks@2.8.10))(mysql2@3.24.5(@types/node@24.13.2))(pg@8.11.3)(redis@4.6.13)(sqlite3@6.0.1)(ts-node@10.9.2(@swc/core@1.4.6(@swc/helpers@0.5.23))(@types/node@24.13.2)(typescript@5.5.2))
       ws: 8.22.0(bufferutil@4.0.8)(utf-8-validate@6.0.4)
     transitivePeerDependencies:
       - '@opentelemetry/api'
@@ -19367,12 +19349,12 @@ snapshots:
       - encoding
       - supports-color
 
-  '@mem0/community@0.0.1(f91afa70d06a424059e23bc24c88b1cc)':
+  '@mem0/community@0.0.1(5a088e9f3cd35ac2c70ed7151454fdff)':
     dependencies:
-      '@langchain/community': 1.1.12(564693ca0485189f67a7aae28211280f)
+      '@langchain/community': 1.1.12(782393a2384bdb0d1ad5c79451b7dfee)
       '@langchain/core': 1.1.20(@opentelemetry/api@1.9.0)(@opentelemetry/exporter-trace-otlp-proto@0.54.0(@opentelemetry/api@1.9.0))(@opentelemetry/sdk-trace-base@1.30.1(@opentelemetry/api@1.9.0))(openai@6.19.0(ws@8.22.0(bufferutil@4.0.8)(utf-8-validate@6.0.4))(zod@3.25.76))(ws@8.22.0(bufferutil@4.0.8)(utf-8-validate@6.0.4))
       axios: 1.20.0(debug@4.3.4)
-      mem0ai: 2.1.16(@anthropic-ai/sdk@0.73.0(zod@3.25.76))(@google/genai@0.7.0(bufferutil@4.0.8)(encoding@0.1.13)(utf-8-validate@6.0.4))(@mistralai/mistralai@1.14.0(bufferutil@4.0.8)(utf-8-validate@6.0.4))(@qdrant/js-client-rest@1.13.0(typescript@5.5.2))(@supabase/supabase-js@2.39.8(bufferutil@4.0.8)(utf-8-validate@6.0.4))(@types/pg@8.11.0)(@types/sqlite3@3.1.11)(groq-sdk@0.3.0(encoding@0.1.13))(neo4j-driver@5.27.0)(ollama@0.6.3)(pg@8.11.3)(redis@4.7.0)(sqlite3@6.0.1)(ws@8.22.0(bufferutil@4.0.8)(utf-8-validate@6.0.4))
+      mem0ai: 2.1.16(@anthropic-ai/sdk@0.73.0(zod@3.25.76))(@google/genai@0.7.0(bufferutil@4.0.8)(encoding@0.1.13)(utf-8-validate@6.0.4))(@mistralai/mistralai@1.14.0(bufferutil@4.0.8)(utf-8-validate@6.0.4))(@qdrant/js-client-rest@1.18.0(typescript@5.5.2))(@supabase/supabase-js@2.39.8(bufferutil@4.0.8)(utf-8-validate@6.0.4))(@types/pg@8.11.0)(@types/sqlite3@3.1.11)(groq-sdk@0.3.0(encoding@0.1.13))(neo4j-driver@5.27.0)(ollama@0.6.3)(pg@8.11.3)(redis@4.7.0)(sqlite3@6.0.1)(ws@8.22.0(bufferutil@4.0.8)(utf-8-validate@6.0.4))
       uuid: 11.1.1
       zod: 3.22.4
     transitivePeerDependencies:
@@ -20244,13 +20226,6 @@ snapshots:
       - bare-buffer
       - supports-color
 
-  '@qdrant/js-client-rest@1.13.0(typescript@5.5.2)':
-    dependencies:
-      '@qdrant/openapi-typescript-fetch': 1.2.6
-      '@sevinf/maybe': 0.5.0
-      typescript: 5.5.2
-      undici: 5.28.5
-
   '@qdrant/js-client-rest@1.18.0(typescript@5.5.2)':
     dependencies:
       '@qdrant/openapi-typescript-fetch': 1.2.6
@@ -20504,8 +20479,6 @@ snapshots:
     dependencies:
       domhandler: 5.0.3
       selderee: 0.11.0
-
-  '@sevinf/maybe@0.5.0': {}
 
   '@sideway/address@4.1.5':
     dependencies:
@@ -27618,12 +27591,12 @@ snapshots:
     transitivePeerDependencies:
       - encoding
 
-  mem0ai@2.1.16(@anthropic-ai/sdk@0.73.0(zod@3.25.76))(@google/genai@0.7.0(bufferutil@4.0.8)(encoding@0.1.13)(utf-8-validate@6.0.4))(@mistralai/mistralai@1.14.0(bufferutil@4.0.8)(utf-8-validate@6.0.4))(@qdrant/js-client-rest@1.13.0(typescript@5.5.2))(@supabase/supabase-js@2.39.8(bufferutil@4.0.8)(utf-8-validate@6.0.4))(@types/pg@8.11.0)(@types/sqlite3@3.1.11)(groq-sdk@0.3.0(encoding@0.1.13))(neo4j-driver@5.27.0)(ollama@0.6.3)(pg@8.11.3)(redis@4.7.0)(sqlite3@6.0.1)(ws@8.22.0(bufferutil@4.0.8)(utf-8-validate@6.0.4)):
+  mem0ai@2.1.16(@anthropic-ai/sdk@0.73.0(zod@3.25.76))(@google/genai@0.7.0(bufferutil@4.0.8)(encoding@0.1.13)(utf-8-validate@6.0.4))(@mistralai/mistralai@1.14.0(bufferutil@4.0.8)(utf-8-validate@6.0.4))(@qdrant/js-client-rest@1.18.0(typescript@5.5.2))(@supabase/supabase-js@2.39.8(bufferutil@4.0.8)(utf-8-validate@6.0.4))(@types/pg@8.11.0)(@types/sqlite3@3.1.11)(groq-sdk@0.3.0(encoding@0.1.13))(neo4j-driver@5.27.0)(ollama@0.6.3)(pg@8.11.3)(redis@4.7.0)(sqlite3@6.0.1)(ws@8.22.0(bufferutil@4.0.8)(utf-8-validate@6.0.4)):
     dependencies:
       '@anthropic-ai/sdk': 0.73.0(zod@3.25.76)
       '@google/genai': 0.7.0(bufferutil@4.0.8)(encoding@0.1.13)(utf-8-validate@6.0.4)
       '@mistralai/mistralai': 1.14.0(bufferutil@4.0.8)(utf-8-validate@6.0.4)
-      '@qdrant/js-client-rest': 1.13.0(typescript@5.5.2)
+      '@qdrant/js-client-rest': 1.18.0(typescript@5.5.2)
       '@supabase/supabase-js': 2.39.8(bufferutil@4.0.8)(utf-8-validate@6.0.4)
       '@types/pg': 8.11.0
       '@types/sqlite3': 3.1.11
@@ -27642,12 +27615,12 @@ snapshots:
       - supports-color
       - ws
 
-  mem0ai@2.1.16(@anthropic-ai/sdk@0.73.0(zod@4.3.6))(@google/genai@0.7.0(bufferutil@4.0.8)(encoding@0.1.13)(utf-8-validate@6.0.4))(@mistralai/mistralai@1.14.0(bufferutil@4.0.8)(utf-8-validate@6.0.4))(@qdrant/js-client-rest@1.13.0(typescript@5.5.2))(@supabase/supabase-js@2.39.8(bufferutil@4.0.8)(utf-8-validate@6.0.4))(@types/pg@8.11.0)(@types/sqlite3@3.1.11)(groq-sdk@0.3.0(encoding@0.1.13))(neo4j-driver@5.27.0)(ollama@0.6.3)(pg@8.13.3)(redis@4.7.0)(sqlite3@6.0.1)(ws@8.22.0(bufferutil@4.0.8)(utf-8-validate@6.0.4)):
+  mem0ai@2.1.16(@anthropic-ai/sdk@0.73.0(zod@4.3.6))(@google/genai@0.7.0(bufferutil@4.0.8)(encoding@0.1.13)(utf-8-validate@6.0.4))(@mistralai/mistralai@1.14.0(bufferutil@4.0.8)(utf-8-validate@6.0.4))(@qdrant/js-client-rest@1.18.0(typescript@5.5.2))(@supabase/supabase-js@2.39.8(bufferutil@4.0.8)(utf-8-validate@6.0.4))(@types/pg@8.11.0)(@types/sqlite3@3.1.11)(groq-sdk@0.3.0(encoding@0.1.13))(neo4j-driver@5.27.0)(ollama@0.6.3)(pg@8.13.3)(redis@4.7.0)(sqlite3@6.0.1)(ws@8.22.0(bufferutil@4.0.8)(utf-8-validate@6.0.4)):
     dependencies:
       '@anthropic-ai/sdk': 0.73.0(zod@4.3.6)
       '@google/genai': 0.7.0(bufferutil@4.0.8)(encoding@0.1.13)(utf-8-validate@6.0.4)
       '@mistralai/mistralai': 1.14.0(bufferutil@4.0.8)(utf-8-validate@6.0.4)
-      '@qdrant/js-client-rest': 1.13.0(typescript@5.5.2)
+      '@qdrant/js-client-rest': 1.18.0(typescript@5.5.2)
       '@supabase/supabase-js': 2.39.8(bufferutil@4.0.8)(utf-8-validate@6.0.4)
       '@types/pg': 8.11.0
       '@types/sqlite3': 3.1.11
@@ -27658,31 +27631,6 @@ snapshots:
       openai: 6.19.0(ws@8.22.0(bufferutil@4.0.8)(utf-8-validate@6.0.4))(zod@3.25.76)
       pg: 8.13.3
       redis: 4.7.0
-      sqlite3: 6.0.1
-      uuid: 11.1.1
-      zod: 3.25.76
-    transitivePeerDependencies:
-      - debug
-      - supports-color
-      - ws
-    optional: true
-
-  mem0ai@2.1.16(@anthropic-ai/sdk@0.73.0(zod@4.3.6))(@google/genai@0.7.0(bufferutil@4.0.8)(encoding@0.1.13)(utf-8-validate@6.0.4))(@mistralai/mistralai@1.14.0(bufferutil@4.0.8)(utf-8-validate@6.0.4))(@qdrant/js-client-rest@1.13.0(typescript@5.5.2))(@supabase/supabase-js@2.39.8(bufferutil@4.0.8)(utf-8-validate@6.0.4))(@types/pg@8.11.2)(@types/sqlite3@3.1.11)(groq-sdk@1.1.2)(neo4j-driver@5.27.0)(ollama@0.5.11)(pg@8.11.3)(redis@4.6.13)(sqlite3@6.0.1)(ws@8.22.0(bufferutil@4.0.8)(utf-8-validate@6.0.4)):
-    dependencies:
-      '@anthropic-ai/sdk': 0.73.0(zod@4.3.6)
-      '@google/genai': 0.7.0(bufferutil@4.0.8)(encoding@0.1.13)(utf-8-validate@6.0.4)
-      '@mistralai/mistralai': 1.14.0(bufferutil@4.0.8)(utf-8-validate@6.0.4)
-      '@qdrant/js-client-rest': 1.13.0(typescript@5.5.2)
-      '@supabase/supabase-js': 2.39.8(bufferutil@4.0.8)(utf-8-validate@6.0.4)
-      '@types/pg': 8.11.2
-      '@types/sqlite3': 3.1.11
-      axios: 1.20.0(debug@4.3.4)
-      groq-sdk: 1.1.2
-      neo4j-driver: 5.27.0
-      ollama: 0.5.11
-      openai: 6.19.0(ws@8.22.0(bufferutil@4.0.8)(utf-8-validate@6.0.4))(zod@3.25.76)
-      pg: 8.11.3
-      redis: 4.6.13
       sqlite3: 6.0.1
       uuid: 11.1.1
       zod: 3.25.76
@@ -27705,6 +27653,31 @@ snapshots:
       groq-sdk: 0.3.0(encoding@0.1.13)
       neo4j-driver: 5.27.0
       ollama: 0.6.3
+      openai: 6.19.0(ws@8.22.0(bufferutil@4.0.8)(utf-8-validate@6.0.4))(zod@3.25.76)
+      pg: 8.11.3
+      redis: 4.6.13
+      sqlite3: 6.0.1
+      uuid: 11.1.1
+      zod: 3.25.76
+    transitivePeerDependencies:
+      - debug
+      - supports-color
+      - ws
+    optional: true
+
+  mem0ai@2.1.16(@anthropic-ai/sdk@0.73.0(zod@4.3.6))(@google/genai@0.7.0(bufferutil@4.0.8)(encoding@0.1.13)(utf-8-validate@6.0.4))(@mistralai/mistralai@1.14.0(bufferutil@4.0.8)(utf-8-validate@6.0.4))(@qdrant/js-client-rest@1.18.0(typescript@5.5.2))(@supabase/supabase-js@2.39.8(bufferutil@4.0.8)(utf-8-validate@6.0.4))(@types/pg@8.11.2)(@types/sqlite3@3.1.11)(groq-sdk@1.1.2)(neo4j-driver@5.27.0)(ollama@0.5.11)(pg@8.11.3)(redis@4.6.13)(sqlite3@6.0.1)(ws@8.22.0(bufferutil@4.0.8)(utf-8-validate@6.0.4)):
+    dependencies:
+      '@anthropic-ai/sdk': 0.73.0(zod@4.3.6)
+      '@google/genai': 0.7.0(bufferutil@4.0.8)(encoding@0.1.13)(utf-8-validate@6.0.4)
+      '@mistralai/mistralai': 1.14.0(bufferutil@4.0.8)(utf-8-validate@6.0.4)
+      '@qdrant/js-client-rest': 1.18.0(typescript@5.5.2)
+      '@supabase/supabase-js': 2.39.8(bufferutil@4.0.8)(utf-8-validate@6.0.4)
+      '@types/pg': 8.11.2
+      '@types/sqlite3': 3.1.11
+      axios: 1.20.0(debug@4.3.4)
+      groq-sdk: 1.1.2
+      neo4j-driver: 5.27.0
+      ollama: 0.5.11
       openai: 6.19.0(ws@8.22.0(bufferutil@4.0.8)(utf-8-validate@6.0.4))(zod@3.25.76)
       pg: 8.11.3
       redis: 4.6.13
@@ -31199,10 +31172,6 @@ snapshots:
   undici-types@6.21.0: {}
 
   undici-types@7.18.2: {}
-
-  undici@5.28.5:
-    dependencies:
-      '@fastify/busboy': 2.1.1
 
   undici@6.29.0: {}
 
