@@ -78,6 +78,7 @@ const STEPS = [
             path.join(ROOT, 'scripts', 'analyst-store.test.mjs'),
             path.join(ROOT, 'scripts', 'hermes-supervisor.test.mjs'),
             path.join(ROOT, 'scripts', 'hermes-start-wait.test.mjs'),
+            path.join(ROOT, 'scripts', 'hermes-git-config.test.mjs'),
             path.join(ROOT, 'scripts', 'live-e2e-pick.test.mjs'),
             path.join(ROOT, 'scripts', 'template-gallery-wait.test.mjs'),
             path.join(ROOT, 'scripts', 'templates-respace.test.mjs'),

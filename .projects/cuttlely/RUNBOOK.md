@@ -91,6 +91,8 @@ bash scripts/start-cuttlely.sh        # or: pnpm start:harness
 
 The server listens on `PORT` (default 43117; set `HOST=0.0.0.0` for all interfaces). The agent runtime listens on `127.0.0.1:$HERMES_API_PORT` (default 8642). Wait for `Cuttlely is ready. Open http://localhost:<port>`. Data goes to `.cuttlely/` (gitignored) unless `CUTTLELY_DATA_DIR` is set.
 
+`scripts/hermes-git-config.test.mjs` is part of the verify-test step. It builds a temporary git repository whose local config names a hook, an fsmonitor helper, and a clean/smudge filter, then runs the session snapshot and the worktree create and cleanup paths. The same fixture, called the way those paths called git before patch 0008, writes marker files; the hardened paths must not. The test runs when `HERMES_PYTHON`, `hermes/.venv/bin/python`, or `python3` can import `psutil` (the runtime's bounded git probe imports it). Without that import it skips.
+
 The start script:
 
 -   Exits early with `pnpm install && pnpm build` when the checkout is not built, and with setup steps when the chosen Python cannot import the runtime. It uses the first of `HERMES_PYTHON`, `hermes/.venv/bin/python` or `python3`.

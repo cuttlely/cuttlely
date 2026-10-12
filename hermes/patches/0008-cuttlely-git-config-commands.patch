@@ -1,0 +1,451 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: cuttlely vendor <vendor@cuttlely.invalid>
+Date: Sat, 1 Jan 2000 00:00:00 +0000
+Subject: [PATCH] cuttlely: git config commands
+
+What: automatic git calls that read or check out a repository (the session snapshot, subagent and kanban worktrees, hermes -w checkout and cleanup, delegation recovery hints, worktree reclaim, and the file-picker listing) use noninteractive_repo_git_env. Fixed keys such as core.fsmonitor and core.hooksPath stay pinned, and repository-named clean, smudge, and process filters are overridden. Discovery fails closed on includeIf, more than 256 filter keys, or a config git cannot parse, and the caller skips that automatic git operation. Why: a repository's own git config can name a command that git runs during status, checkout, and branch deletion. This is NousResearch/hermes-agent pull 130661 (v0.21.6), adapted onto the f42f579 pin. UPSTREAM_COMMIT is unchanged. The website docs and the upstream tests tree are excluded from the vendor set, so those hunks are not in this patch. _worktree_is_dirty on this pin takes only the worktree path, so that probe was hardened in place.
+---
+ agent/coding_context.py                  |  8 ++-
+ hermes_cli/_subprocess_compat.py         | 78 ++++++++++++++++++++++--
+ hermes_cli/kanban_db_workspace.py        | 12 +++-
+ hermes_cli/worktree_gc.py                | 15 +++--
+ hermes_cli/worktree_ops.py               | 53 ++++++++++++----
+ tools/async_delegation_recovery_hints.py | 12 +++-
+ tools/subagent_worktree.py               | 19 ++++--
+ tui_gateway/methods_complete_helpers.py  | 10 ++-
+ 8 files changed, 176 insertions(+), 31 deletions(-)
+
+diff --git a/agent/coding_context.py b/agent/coding_context.py
+index 94a4f2be6c4277930bf67d47b96af22b1cfdc556..6a7417666e7c3860bb2f27573578a49aeca6b07e 100644
+--- a/agent/coding_context.py
++++ b/agent/coding_context.py
+@@ -528,7 +528,13 @@ def build_coding_workspace_block(cwd: Optional[str | Path] = None) -> str:
+         f"- Root: {root}",
+     ]
+     if git_root is not None:
+-        branch, counts = _parse_status(_git(root, "status", "--porcelain=2", "--branch"))
++        # ``status`` hashes re-timestamped files through the repo-named clean filter; skip it when
++        # the filter overrides cannot be discovered rather than run it half-hardened.
++        from hermes_cli._subprocess_compat import noninteractive_repo_git_env
++        status_env = noninteractive_repo_git_env(root)
++        status = "" if status_env is None else bounded_git_probe(
++            ["git", "-C", str(root), "status", "--porcelain=2", "--branch"], timeout=_GIT_TIMEOUT, env=status_env)
++        branch, counts = _parse_status(status)
+         head = branch.get("head", "")
+         if head == "(detached)":
+             lines.append("- Branch: (detached HEAD)")
+diff --git a/hermes_cli/_subprocess_compat.py b/hermes_cli/_subprocess_compat.py
+index 645dbf2f54ef9980d1c20e529d5128f7e881b429..9fb6d1b8ad087d153135cb980a26ee31db913cdf 100644
+--- a/hermes_cli/_subprocess_compat.py
++++ b/hermes_cli/_subprocess_compat.py
+@@ -31,6 +31,8 @@ __all__ = [
+     "selected_git_env",
+     "expose_pm_git",
+     "noninteractive_git_env",
++    "noninteractive_repo_git_env",
++    "FILTER_DISCOVERY_FAILED",
+     "NO_DRIVER_DIFF_FLAGS",
+     "NO_LAZY_FETCH_ENV",
+     "pid_is_hermes",
+@@ -42,8 +44,8 @@ __all__ = [
+ # arbitrary program via ``[diff "evil"] command=/textconv=`` in ``.git/config``; because the
+ # attacker chooses the name, ``GIT_CONFIG_KEY`` overrides in ``noninteractive_git_env`` cannot
+ # enumerate it — only these flags do. ``--no-ext-diff`` kills ``command=``; ``--no-textconv`` kills
+-# ``textconv=``; each alone leaves the other live. Smudge/clean filters are neutralized by the env
+-# layer's ``core.hooksPath`` + running against the index without checkout.
++# ``textconv=``; each alone leaves the other live. Repository-named clean/smudge/process filters
++# are handled separately by ``noninteractive_repo_git_env`` at repo-scoped automatic call sites.
+ NO_DRIVER_DIFF_FLAGS = ("--no-ext-diff", "--no-textconv")
+ 
+ # Only these subcommands accept ``NO_DRIVER_DIFF_FLAGS`` — ``status`` and friends reject them
+@@ -467,6 +469,74 @@ def noninteractive_git_env(base: "Mapping[str, str] | None" = None) -> dict[str,
+     return env
+ 
+ 
++_FILTER_COMMAND_KEY = re.compile(r"^filter\..+\.(?:clean|smudge|process)$", re.IGNORECASE)
++# Any ``includeIf`` is evaluated against the CURRENT checkout: ``onbranch:`` against the current
++# branch, ``gitdir:`` against the current git dir (``.git/worktrees/<name>`` during ``worktree add``),
++# so the spawned git can load filters this discovery never saw; refuse rather than half-harden.
++# Global/system config is already /dev/null, so only repo-local includes reach this.
++_INCLUDE_IF_KEY = re.compile(r"^includeif\..*\.path$", re.IGNORECASE)
++# Each discovered key costs two env entries; a repo with tens of thousands of filters would make
++# every spawn fail with E2BIG ("Argument list too long"), so refuse past a generous cap.
++_MAX_FILTER_KEYS = 256
++# Stand-in stderr for a git call refused because filter discovery could not be trusted.
++FILTER_DISCOVERY_FAILED = "git filter discovery failed"
++
++
++def noninteractive_repo_git_env(
++    cwd: "str | os.PathLike[str]",
++    base: "Mapping[str, str] | None" = None,
++) -> "dict[str, str] | None":
++    """Harden internal git for one repository, including named clean/smudge/process filters.
++
++    The static environment can pin fixed config keys such as core.fsmonitor and
++    core.hooksPath, but a repository chooses filter driver names through .gitattributes.
++    Discover the effective filter command keys for this checkout and append empty command
++    overrides plus required=false to the already-isolated config block. Discovery is
++    bounded and fail-closed: if filter discovery cannot be trusted, callers skip the
++    automatic git operation instead of running with only partial hardening.
++    """
++    env = noninteractive_git_env(base)
++    # bounded_probe_run, not subprocess.run: Windows' post-timeout communicate() can deadlock and
++    # a bare spawn flashes a console. (Not bounded_git_probe: rc 1 = "no filters" is a verdict.)
++    proc = bounded_probe_run(
++        [
++            "git", "-C", str(cwd), "config", "--includes", "--name-only", "-z",
++            "--get-regexp", r"^(filter\..*\.(clean|smudge|process)|includeif\..*\.path)$",
++        ],
++        timeout=2, env=env,
++    )
++    if proc is None or proc.returncode not in (0, 1):
++        return None
++
++    keys: list[str] = []
++    required: list[str] = []
++    seen: set[str] = set()
++    # Dedup on the exact name ``--name-only`` prints: git lowercases section and variable but keeps
++    # the subsection's case, and ``[filter "Evil"]`` is a different driver from ``[filter "evil"]``.
++    for raw in proc.stdout.split("\0"):
++        key = raw.strip()
++        if _INCLUDE_IF_KEY.fullmatch(key):
++            return None
++        if not key or key in seen or not _FILTER_COMMAND_KEY.fullmatch(key):
++            continue
++        seen.add(key)
++        keys.append(key)
++        if len(keys) > _MAX_FILTER_KEYS:
++            return None
++        required_key = key.rsplit(".", 1)[0] + ".required"
++        if required_key not in seen:
++            seen.add(required_key)
++            required.append(required_key)
++
++    start = int(env["GIT_CONFIG_COUNT"])  # always set by noninteractive_git_env
++    overrides = [(key, "") for key in keys] + [(key, "false") for key in required]
++    for offset, (key, value) in enumerate(overrides):
++        env[f"GIT_CONFIG_KEY_{start + offset}"] = key
++        env[f"GIT_CONFIG_VALUE_{start + offset}"] = value
++    env["GIT_CONFIG_COUNT"] = str(start + len(overrides))
++    return env
++
++
+ def posix_is_zombie(pid: int) -> bool:
+     """Zombie via ``/proc/<pid>/stat`` field 3, or ``ps -o state=`` without /proc (macOS/BSD)."""
+     try:
+@@ -719,7 +789,7 @@ def _close_job(job) -> None:
+         pass
+ 
+ 
+-def bounded_git_probe(argv: Sequence[str], *, timeout: float) -> str:
++def bounded_git_probe(argv: Sequence[str], *, timeout: float, env: "Mapping[str, str] | None" = None) -> str:
+     """Run a short ``git`` probe and return stripped stdout, or ``""`` on ANY failure.
+ 
+     On Windows ``run()``'s post-timeout cleanup calls an unbounded ``communicate()``; a suspended
+@@ -745,7 +815,7 @@ def bounded_git_probe(argv: Sequence[str], *, timeout: float) -> str:
+     openai/codex#36793). ``process_group`` only changes which group the child belongs to; it does not detach
+     the terminal or alter the fast path.
+     """
+-    result = bounded_probe_run(argv, timeout=timeout, env={**noninteractive_git_env(), **NO_LAZY_FETCH_ENV})
++    result = bounded_probe_run(argv, timeout=timeout, env={**(env or noninteractive_git_env()), **NO_LAZY_FETCH_ENV})
+     if result is None or result.returncode != 0:
+         return ""
+     return (result.stdout or "").strip()
+diff --git a/hermes_cli/kanban_db_workspace.py b/hermes_cli/kanban_db_workspace.py
+index 84afc9f5093c9ed742a761a54aa7d6baf1488599..5657738909617014de719a51c9084776f60e1695 100644
+--- a/hermes_cli/kanban_db_workspace.py
++++ b/hermes_cli/kanban_db_workspace.py
+@@ -50,13 +50,23 @@ _WORKSPACE_ROW_SQL = "SELECT workspace_kind, workspace_path, branch_name FROM ta
+ 
+ 
+ def _git(repo_root: Path, *args: str, timeout: int) -> subprocess.CompletedProcess:
+-    """``git -C repo_root args``; never raises on a non-zero exit."""
++    """``git -C repo_root args``; never raises on a non-zero exit.
++
++    :func:`noninteractive_repo_git_env` (GHSA-7x36-8jrh-v4pw): the dispatcher runs ``worktree add``
++    unattended, which executes the repo's hooks, ``core.fsmonitor`` and smudge filters.
++    """
++    from hermes_cli._subprocess_compat import FILTER_DISCOVERY_FAILED, noninteractive_repo_git_env
++    env = noninteractive_repo_git_env(repo_root)
++    if env is None:
++        return subprocess.CompletedProcess(["git", "-C", str(repo_root), *args], 1, "", FILTER_DISCOVERY_FAILED)
+     return subprocess.run(
+         ["git", "-C", str(repo_root), *args],
+         capture_output=True,
+         text=True, encoding='utf-8', errors='replace',
+         timeout=timeout,
+         check=False,
++        stdin=subprocess.DEVNULL,
++        env=env,
+     )
+ 
+ 
+diff --git a/hermes_cli/worktree_gc.py b/hermes_cli/worktree_gc.py
+index e8c3c0cf627a234ca76285099234ee8d607ac84f..5119aa1ece2221fad56bc0c9dd6a9c204d5daed6 100644
+--- a/hermes_cli/worktree_gc.py
++++ b/hermes_cli/worktree_gc.py
+@@ -50,9 +50,10 @@ class BranchRecord:
+     reason: str
+ 
+ 
+-def _run(cmd: list, timeout: int, cwd: Optional[str] = None) -> subprocess.CompletedProcess:
++def _run(cmd: list, timeout: int, cwd: Optional[str] = None,
++         env: Optional[dict] = None) -> subprocess.CompletedProcess:
+     return subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace",
+-                          timeout=timeout, cwd=cwd)
++                          timeout=timeout, cwd=cwd, env=env, stdin=subprocess.DEVNULL)
+ 
+ 
+ @dataclass
+@@ -70,9 +71,15 @@ class ExternalTreeRecord:
+ def _git(args: list, cwd: str, timeout: int = 15) -> subprocess.CompletedProcess:
+     """Run git, translating timeouts into returncode 124. Every verdict fails safe toward "keep"
+     on nonzero, so a slow ``git cherry`` on a huge repo degrades to keep instead of aborting the
+-    audit mid-list."""
++    audit mid-list. :func:`noninteractive_repo_git_env` because ``status`` executes the repo's
++    ``core.fsmonitor`` and clean filters (GHSA-7x36-8jrh-v4pw)."""
++    from hermes_cli._subprocess_compat import FILTER_DISCOVERY_FAILED, noninteractive_repo_git_env
++    env = noninteractive_repo_git_env(cwd)
++    if env is None:
++        return subprocess.CompletedProcess(args=["git", *args], returncode=1, stdout="",
++                                           stderr=FILTER_DISCOVERY_FAILED)
+     try:
+-        return _run(["git", *args], timeout, cwd)
++        return _run(["git", *args], timeout, cwd, env=env)
+     except subprocess.TimeoutExpired:
+         return subprocess.CompletedProcess(args=["git", *args], returncode=124, stdout="",
+                                            stderr=f"timeout after {timeout}s")
+diff --git a/hermes_cli/worktree_ops.py b/hermes_cli/worktree_ops.py
+index b77160940bd53c058f1a39629bf145bf8958ce80..4b01f1d5d8958d93560e07d90dc2654eeeacb542 100644
+--- a/hermes_cli/worktree_ops.py
++++ b/hermes_cli/worktree_ops.py
+@@ -19,7 +19,7 @@ import uuid
+ from pathlib import Path
+ from typing import Dict, Optional
+ 
+-from hermes_cli._subprocess_compat import kill_process_tree
++from hermes_cli._subprocess_compat import kill_process_tree, noninteractive_git_env
+ from hermes_constants import get_hermes_home
+ from utils import atomic_json_write
+ 
+@@ -107,8 +107,11 @@ def _cleanup_failed_worktree_add(repo_root: str, wt_path: Path, branch_name: str
+         if wt_path.exists():
+             shutil.rmtree(wt_path, ignore_errors=True)
+         # `remove` needs the dir; `prune` drops the admin entry when it is already gone.
+-        _git_quiet(["worktree", "prune"], repo_root, timeout=15)
+-        _git_quiet(["branch", "-D", branch_name], repo_root, timeout=15)
++        _git_quiet(["worktree", "prune"], repo_root, timeout=15,
++                   stdin=subprocess.DEVNULL, env=noninteractive_git_env())
++        # A ref update runs the repository's reference-transaction hook (core.hooksPath).
++        _git_quiet(["branch", "-D", branch_name], repo_root, timeout=15,
++                   stdin=subprocess.DEVNULL, env=noninteractive_git_env())
+     except Exception as e:
+         logger.debug("cleanup after failed worktree add: %s", e)
+ 
+@@ -200,7 +203,8 @@ def _maintain_pack_health(repo_root: str) -> None:
+         logger.info("git pack sprawl (%d packs) — repacking in background", packs)
+         _run_bounded_repack(repo_root)
+         # Repacking can strand now-duplicated admin files; prune on the same pass.
+-        _git(["worktree", "prune"], repo_root, timeout=60, check=False)
++        _git(["worktree", "prune"], repo_root, timeout=60, check=False,
++             stdin=subprocess.DEVNULL, env=noninteractive_git_env())
+     except Exception as e:
+         logger.debug("pack maintenance skipped: %s", e)
+ 
+@@ -364,12 +368,18 @@ def _worktree_add(repo_root: str, wt_path: Path, branch_name: str, base_ref: str
+ 
+     Every failed attempt is swept with ``_cleanup_failed_worktree_add`` so the retry is not poisoned.
+     """
+-    from hermes_cli._subprocess_compat import noninteractive_git_env
++    from hermes_cli._subprocess_compat import noninteractive_repo_git_env
++
++    # The checkout runs repo-named smudge filters too; refuse when they cannot be neutralized.
++    env = noninteractive_repo_git_env(repo_root)
++    if env is None:
++        _cprint("\033[31m✗ Failed to create worktree: could not read the repository's filter config\033[0m")
++        return None
+ 
+     def _add(cfg):
+         # 120s: on a multi-agent box the ~10k-file checkout contends for disk (113s measured under load).
+         return _git([*cfg, "worktree", "add", str(wt_path), "-b", branch_name, base_ref], repo_root,
+-                    timeout=120, stdin=subprocess.DEVNULL, env=noninteractive_git_env())
++                    timeout=120, stdin=subprocess.DEVNULL, env=env)
+ 
+     # checkout.workers parallelizes materialization; older git ignores unknown -c keys.
+     try:
+@@ -509,9 +519,21 @@ def _worktree_has_unpushed_commits(worktree_path: str, timeout: int = 10) -> boo
+ 
+ 
+ def _worktree_is_dirty(worktree_path: str, timeout: int = 10) -> bool:
+-    """Whether a worktree has staged/unstaged/untracked changes. Fails SAFE toward True."""
++    """Whether a worktree has staged/unstaged/untracked changes. Fails SAFE toward True.
++
++    Reclaimers run this unattended. ``status`` reads the index, which executes a
++    repo-configured ``core.fsmonitor`` and clean filters, so a discovery failure
++    is reported as dirty rather than running a half-hardened probe.
++    """
++    from hermes_cli._subprocess_compat import noninteractive_repo_git_env
+     try:
+-        status = _git_out(["status", "--porcelain"], worktree_path, timeout=timeout)
++        env = noninteractive_repo_git_env(worktree_path)
++        if env is None:
++            return True
++        status = _git_out(
++            ["status", "--porcelain"], worktree_path, timeout=timeout,
++            stdin=subprocess.DEVNULL, env=env,
++        )
+         return status is None or bool(status)
+     except Exception:
+         return True
+@@ -545,7 +567,9 @@ def _deepen_shallow_repo(repo_root: str, timeout: int = 600) -> bool:
+         try:
+             for extra in (["--filter=blob:none"], []):
+                 try:
+-                    result = _git(["fetch", remote, "--unshallow", *extra], repo_root, timeout=timeout)
++                    # Unattended fetch: a repo-level core.sshCommand / credential.helper must not run.
++                    result = _git(["fetch", remote, "--unshallow", *extra], repo_root, timeout=timeout,
++                                  stdin=subprocess.DEVNULL, env=noninteractive_git_env())
+                 except subprocess.TimeoutExpired:
+                     return False
+                 if result.returncode == 0:
+@@ -694,7 +718,9 @@ def _fetch_remote_branch_heads(repo_root: str, timeout: int = 20) -> Optional[Di
+     remote-tracking ref and would read as unpushed forever.
+     """
+     try:
+-        result = _git(["ls-remote", "--heads", "origin"], repo_root, timeout=timeout)
++        # Runs from the reclaim sweep, unattended: same transport pins as the base fetch.
++        result = _git(["ls-remote", "--heads", "origin"], repo_root, timeout=timeout,
++                      stdin=subprocess.DEVNULL, env=noninteractive_git_env())
+         if result.returncode != 0:
+             return None
+         pairs = (line.split("\t", 1) for line in result.stdout.splitlines())
+@@ -888,7 +914,9 @@ def _reap_prune_verdicts(repo_root: str, verdicts: list, stale_work_cutoff: floa
+             if branch and verdict == "reap-keep-branch":
+                 kept_branches.add(branch)
+             elif branch:
+-                _git(["branch", "-D", branch], repo_root)
++                # Unattended sweep: the repository's reference-transaction hook must not run.
++                _git(["branch", "-D", branch], repo_root,
++                     stdin=subprocess.DEVNULL, env=noninteractive_git_env())
+             logger.debug("Pruned stale worktree: %s (force=%s)", entry.name, force)
+         except Exception as e:
+             logger.debug("Failed to prune worktree %s: %s", entry.name, e)
+@@ -978,5 +1006,6 @@ def _prune_orphaned_branches(repo_root: str, protect: Optional[set] = None) -> N
+         return
+     for i in range(0, len(orphaned), 50):
+         _git_quiet(["branch", "-D"] + orphaned[i:i + 50], repo_root, timeout=30,
+-                   log="Failed to prune orphaned branches")
++                   log="Failed to prune orphaned branches",
++                   stdin=subprocess.DEVNULL, env=noninteractive_git_env())
+     logger.debug("Pruned %d orphaned branches", len(orphaned))
+diff --git a/tools/async_delegation_recovery_hints.py b/tools/async_delegation_recovery_hints.py
+index 28e901e103deff78e9bd73b924962a54dde9d717..15001f9a369e86c600b7b69dd576fc7ed7cf10b5 100644
+--- a/tools/async_delegation_recovery_hints.py
++++ b/tools/async_delegation_recovery_hints.py
+@@ -15,6 +15,8 @@ import os
+ import subprocess
+ from typing import Dict, Optional
+ 
++from hermes_cli._subprocess_compat import harden_git_argv, noninteractive_repo_git_env
++
+ TAIL_LINES = 20
+ TAIL_CHARS = 2_000
+ _GIT_TIMEOUT_S = 5
+@@ -45,11 +47,17 @@ def git_state_hint(cwd: Optional[str]) -> Optional[str]:
+     if not cwd or not os.path.isdir(cwd):
+         return None
+ 
++    # noninteractive_repo_git_env (GHSA-7x36-8jrh-v4pw): runs unattended in the owner's repo and
++    # ``status`` refreshes the index, which executes a repo-configured ``core.fsmonitor`` and clean filters.
++    env = noninteractive_repo_git_env(cwd)
++    if env is None:
++        return None
++
+     def run(*args: str) -> Optional[str]:
+         try:
+-            out = subprocess.run(["git", "-C", cwd, *args], capture_output=True,
++            out = subprocess.run(["git", "-C", cwd, *harden_git_argv(args)], capture_output=True,
+                                  text=True, encoding="utf-8", errors="replace",
+-                                 stdin=subprocess.DEVNULL, timeout=_GIT_TIMEOUT_S)
++                                 stdin=subprocess.DEVNULL, timeout=_GIT_TIMEOUT_S, env=env)
+         except (OSError, subprocess.SubprocessError):
+             return None
+         return out.stdout if out.returncode == 0 else None
+diff --git a/tools/subagent_worktree.py b/tools/subagent_worktree.py
+index b30dc5bbc37baa445bc9c0fbbe113b2aaa321b08..d60ecab29fea1be9f20fa9aeb99f3873c4dcd342 100644
+--- a/tools/subagent_worktree.py
++++ b/tools/subagent_worktree.py
+@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
+ _GIT_TIMEOUT = 30
+ 
+ 
+-def _run_git(args, cwd: str, timeout: int = _GIT_TIMEOUT):
++def _run_git(args, cwd: str, timeout: int = _GIT_TIMEOUT, env=None):
+     """Run git capturing output; never raises on non-zero exit.
+ 
+     :func:`noninteractive_git_env` (GHSA-7x36-8jrh-v4pw): this runs unattended against whatever
+@@ -31,7 +31,7 @@ def _run_git(args, cwd: str, timeout: int = _GIT_TIMEOUT):
+     """
+     return subprocess.run(["git", *harden_git_argv(args)], cwd=cwd, capture_output=True,
+                           text=True, encoding="utf-8", errors="replace", timeout=timeout,
+-                          stdin=subprocess.DEVNULL, env=noninteractive_git_env())
++                          stdin=subprocess.DEVNULL, env=env or noninteractive_git_env())
+ 
+ 
+ def local_backend_active() -> bool:
+@@ -85,7 +85,13 @@ def create_subagent_worktree(parent_cwd: Optional[str], subagent_id: Optional[st
+         _ensure_gitignore_entry(repo_root)
+         base = _run_git(["rev-parse", "HEAD"], cwd=repo_root)
+         base_commit = base.stdout.strip() if base.returncode == 0 else ""
+-        result = _run_git(["worktree", "add", str(wt_path), "-b", branch, "HEAD"], cwd=repo_root)
++        # The checkout runs the repo-named smudge filter; skip isolation when it cannot be neutralized.
++        from hermes_cli._subprocess_compat import noninteractive_repo_git_env
++        add_env = noninteractive_repo_git_env(repo_root)
++        if add_env is None:
++            logger.warning("subagent worktree: filter discovery failed; not creating a worktree")
++            return None
++        result = _run_git(["worktree", "add", str(wt_path), "-b", branch, "HEAD"], cwd=repo_root, env=add_env)
+     except Exception as exc:
+         logger.warning("subagent worktree: creation failed: %s", exc)
+         return None
+@@ -146,13 +152,18 @@ def finalize_subagent_worktree(info: Dict[str, str], *, prune: bool = True) -> D
+     if not base_commit:
+         return mark_worktree_payload_unproven(
+             payload, "no base_commit recorded — commit count unmeasurable", unmeasured="commits")
++    # The status probe re-hashes files the child touched, which runs repo-named clean filters.
++    from hermes_cli._subprocess_compat import noninteractive_repo_git_env
++    probe_env = noninteractive_repo_git_env(path)
++    if probe_env is None:
++        return mark_worktree_payload_unproven(payload, "filter discovery failed", unmeasured="dirty")
+     failed, unmeasured = [], []
+     probes = (("commits", "rev-list", ["rev-list", "--count", f"{base_commit}..HEAD"],
+                lambda s: int(s or 0)),
+               ("dirty", "status", ["status", "--porcelain"], bool))
+     try:
+         for field, label, args, parse in probes:
+-            res = _run_git(args, cwd=path)
++            res = _run_git(args, cwd=path, env=probe_env)
+             if res.returncode == 0:
+                 payload[field] = parse(res.stdout.strip())
+             else:
+diff --git a/tui_gateway/methods_complete_helpers.py b/tui_gateway/methods_complete_helpers.py
+index d64d64e152f3c133028b13911ebfc1ec9b3dc2d2..d68b04423e959a7d10d106866325542ae43633ca 100644
+--- a/tui_gateway/methods_complete_helpers.py
++++ b/tui_gateway/methods_complete_helpers.py
+@@ -23,9 +23,13 @@ _fuzzy_cache: dict[str, tuple[float, list[str]]] = {}
+ 
+ def _git_repo_files(root: str):
+     """Yield ``git ls-files`` paths (tracked + untracked) relative to ``root``; empty outside a
+-    repo or on git failure/timeout. Entries above ``root`` are skipped (Cmd-P workspace scope)."""
+-    from hermes_cli._subprocess_compat import windows_hide_flags
+-    run_kw = dict(capture_output=True, timeout=2.0, check=False, stdin=subprocess.DEVNULL, creationflags=windows_hide_flags())
++    repo or on git failure/timeout. Entries above ``root`` are skipped (Cmd-P workspace scope).
++
++    :func:`noninteractive_git_env` (GHSA-7x36-8jrh-v4pw): runs on a keystroke in the session cwd,
++    and ``ls-files`` reads the index, which executes a repo-configured ``core.fsmonitor``."""
++    from hermes_cli._subprocess_compat import noninteractive_git_env, windows_hide_flags
++    run_kw = dict(capture_output=True, timeout=2.0, check=False, stdin=subprocess.DEVNULL,
++                  creationflags=windows_hide_flags(), env=noninteractive_git_env())
+     try:
+         top_result = subprocess.run(["git", "-C", root, "rev-parse", "--show-toplevel"], **run_kw)
+         if top_result.returncode != 0:
