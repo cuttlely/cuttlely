@@ -1217,6 +1217,12 @@ locales/en.yaml
 mcp_serve.py
 mini_swe_runner.py
 model_tools.py
+# The only C sources in the tree. The code scanner fails when it finds none. A harness run does not import them.
+native/fts5_cjk/README.md
+native/fts5_cjk/build.sh
+native/fts5_cjk/fts5_cjk.c
+native/fts5_cjk/vendor/sqlite3.h
+native/fts5_cjk/vendor/sqlite3ext.h
 plugins/__init__.py
 plugins/browser/_common.py
 plugins/browser/browser_use/__init__.py
