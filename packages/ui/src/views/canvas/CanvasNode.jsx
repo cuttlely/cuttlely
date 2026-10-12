@@ -1,6 +1,7 @@
 import PropTypes from 'prop-types'
 import { useContext, useState, useEffect, memo } from 'react'
 import { useSelector } from 'react-redux'
+import { useEdges } from 'reactflow'
 
 // material-ui
 import { useTheme } from '@mui/material/styles'
@@ -35,6 +36,7 @@ const CanvasNode = ({ data }) => {
     const canvas = useSelector((state) => state.canvas)
     const { deleteNode, duplicateNode } = useContext(flowContext)
     const { panelNodeId, compact } = useContext(CanvasPanelContext)
+    const edges = useEdges()
     const inPanel = panelNodeId === data.id
 
     const [showDialog, setShowDialog] = useState(false)
@@ -100,7 +102,7 @@ const CanvasNode = ({ data }) => {
     }, [canvas.componentNodes, data.name, data.version])
 
     const missing = missingNodeInfo(data, canvas.componentNodes)
-    if (missing) return <MissingNodeCard data={data} message={missing.message} />
+    if (missing) return <MissingNodeCard data={data} message={missing.message} edges={edges} />
 
     return (
         <>

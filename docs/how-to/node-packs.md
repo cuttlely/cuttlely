@@ -38,7 +38,7 @@ Set `CUTTLELY_NODE_PACKS` in the environment you pass to Compose. The path has t
 
 ## A missing node
 
-When a flow contains a node that is not loaded, the canvas shows a placeholder card. The card uses the `nodePack` value saved on that node, which is the package name of the pack that provided it. The rest of the flow stays on the canvas.
+When a flow contains a node that is not loaded, the canvas shows a placeholder card. The card uses the `nodePack` value saved on that node, which is the package name of the pack that provided it. Lines into and out of that card stay attached, including after you change another card and save, or save a draft. The rest of the flow stays on the canvas. Loading the pack later shows the node again, with those lines still connected.
 
 Export of that flow keeps the missing node's data as saved, including its inputs. Other nodes are exported as they are today.
 

@@ -1,4 +1,4 @@
-import { exportKnownNodeNames, missingNodeInfo } from './missingNode'
+import { exportKnownNodeNames, missingNodeInfo, placeholderHandles } from './missingNode'
 
 const catalog = [{ name: 'chatOpenAI' }]
 
@@ -21,6 +21,22 @@ describe('a node that is not in the loaded catalog', () => {
         expect(missingNodeInfo({ name: 'chatOpenAI', label: 'ChatOpenAI' }, catalog)).toBeNull()
         expect(missingNodeInfo({ name: 'samplePackNode', label: 'Sample Pack Node', nodePack: 'sample-pack' }, [])).toBeNull()
         expect(missingNodeInfo({ name: 'samplePackNode' }, undefined)).toBeNull()
+    })
+
+    test('keeps a handle for every saved anchor and every edge handle', () => {
+        const data = {
+            id: 'pack',
+            inputAnchors: [{ id: 'pack-in' }],
+            outputAnchors: [{ id: 'pack-out', options: [{ id: 'pack-out-option', isAnchor: true }] }]
+        }
+        const edges = [
+            { source: 'other', target: 'pack', sourceHandle: 'other-out', targetHandle: 'pack-in' },
+            { source: 'pack', target: 'down', sourceHandle: 'pack-edge-only', targetHandle: 'down-in' }
+        ]
+        expect(placeholderHandles(data, edges)).toEqual({
+            targets: ['pack-in'],
+            sources: ['pack-out', 'pack-out-option', 'pack-edge-only']
+        })
     })
 
     test('export learns names only after the catalog loads', () => {

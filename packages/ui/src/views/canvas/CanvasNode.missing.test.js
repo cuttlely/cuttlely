@@ -1,3 +1,13 @@
+jest.mock('reactflow', () => ({
+    useEdges: () => [
+        { source: 'other', target: 'n1', sourceHandle: 'other-out', targetHandle: 'n1-in' },
+        { source: 'n1', target: 'down', sourceHandle: 'n1-out', targetHandle: 'down-in' }
+    ],
+    Handle: ({ id, type }) => require('react').createElement('span', { 'data-testid': `handle-${type}`, 'data-handle-id': id }),
+    Position: { Left: 'left', Right: 'right' },
+    useUpdateNodeInternals: () => () => {}
+}))
+
 jest.mock('@/store/constant', () => ({ baseURL: 'http://localhost' }))
 jest.mock('./NodeInputHandler', () => () => null)
 jest.mock('./NodeOutputHandler', () => () => null)
@@ -53,8 +63,8 @@ describe('canvas node that is not installed', () => {
                         version: 1,
                         nodePack: 'sample-pack',
                         inputParams: [],
-                        inputAnchors: [],
-                        outputAnchors: [],
+                        inputAnchors: [{ id: 'n1-in' }],
+                        outputAnchors: [{ id: 'n1-out' }],
                         inputs: { samplePackApi_CREDENTIAL_ID: 'cred-1' }
                     }
                 })
@@ -63,5 +73,7 @@ describe('canvas node that is not installed', () => {
         expect(html).toContain('data-testid="missing-node-card"')
         expect(html).toContain('Install the sample-pack pack.')
         expect(html).not.toContain('cred-1')
+        expect(html).toContain('data-handle-id="n1-in"')
+        expect(html).toContain('data-handle-id="n1-out"')
     })
 })
