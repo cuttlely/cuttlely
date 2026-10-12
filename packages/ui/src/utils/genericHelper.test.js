@@ -1,4 +1,4 @@
-import { applyVisibleInputDefaults, showHideInputs } from './genericHelper'
+import { applyVisibleInputDefaults, generateExportFlowData, showHideInputs } from './genericHelper'
 
 describe('showHideInputs – declared defaults of sibling fields', () => {
     const buildParams = () => [
@@ -170,5 +170,57 @@ describe('applyVisibleInputDefaults', () => {
     it('handles undefined or null inputs gracefully', () => {
         expect(() => applyVisibleInputDefaults(buildParams(), undefined)).not.toThrow()
         expect(() => applyVisibleInputDefaults(buildParams(), null)).not.toThrow()
+    })
+})
+
+describe('export of a node that is not installed', () => {
+    const savedNode = {
+        id: 'n1',
+        position: { x: 1, y: 2 },
+        data: {
+            id: 'n1',
+            label: 'Sample Pack Node',
+            version: 1,
+            name: 'samplePackNode',
+            type: 'SamplePackNode',
+            nodePack: 'sample-pack',
+            inputs: { samplePackApi_CREDENTIAL_ID: 'cred-1', note: 'keep me' },
+            extra: { untouched: true }
+        }
+    }
+
+    it('keeps the missing node byte-identical and still exports a loaded node', () => {
+        const saved = { nodes: [savedNode], edges: [{ id: 'e1' }] }
+        const exported = generateExportFlowData(JSON.parse(JSON.stringify(saved)), ['chatOpenAI'])
+        expect(JSON.stringify(exported.nodes[0])).toBe(JSON.stringify(saved.nodes[0]))
+        expect(JSON.stringify(exported)).toBe(JSON.stringify(saved))
+
+        const loaded = {
+            nodes: [
+                {
+                    id: 'n2',
+                    data: {
+                        id: 'n2',
+                        label: 'Sample Pack Node',
+                        version: 1,
+                        name: 'samplePackNode',
+                        type: 'SamplePackNode',
+                        nodePack: 'sample-pack',
+                        baseClasses: ['SamplePackNode'],
+                        inputParams: [{ name: 'note', type: 'string' }],
+                        inputAnchors: [],
+                        inputs: { note: 'keep me', samplePackApi_CREDENTIAL_ID: 'cred-1' },
+                        outputAnchors: [],
+                        outputs: {},
+                        selected: false
+                    }
+                }
+            ],
+            edges: []
+        }
+        const out = generateExportFlowData(JSON.parse(JSON.stringify(loaded)), ['samplePackNode'])
+        expect(out.nodes[0].data.nodePack).toBe('sample-pack')
+        expect(out.nodes[0].data.inputs.samplePackApi_CREDENTIAL_ID).toBe('cred-1')
+        expect(out.nodes[0].data.inputs.note).toBe('keep me')
     })
 })
