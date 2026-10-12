@@ -1,4 +1,4 @@
-import { EvaluationRunner, ICommonObject } from 'flowise-components'
+import { EvaluationRunner, ICommonObject } from '@cuttlely/components'
 import { StatusCodes } from 'http-status-codes'
 import { In } from 'typeorm'
 import { v4 as uuidv4 } from 'uuid'

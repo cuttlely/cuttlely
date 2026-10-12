@@ -1,5 +1,5 @@
 {
-    "name": "flowise-components",
+    "name": "@cuttlely/components",
     "version": "3.1.4",
     "private": true,
     "description": "Cuttlely components",

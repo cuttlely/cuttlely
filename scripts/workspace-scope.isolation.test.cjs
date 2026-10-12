@@ -8,7 +8,7 @@ const { tmpdir } = require('node:os')
 const path = require('node:path')
 const { after, before, describe, it } = require('node:test')
 
-const componentStub = path.join(tmpdir(), 'cuttlely-flowise-components-stub.cjs')
+const componentStub = path.join(tmpdir(), 'cuttlely-components-stub.cjs')
 fs.writeFileSync(
     componentStub,
     `function stub() {
@@ -36,7 +36,7 @@ Module._resolveFilename = function (request, ...rest) {
     if (segments.includes('enterprise')) {
         return componentStub
     }
-    if (request === 'flowise-components' || (typeof request === 'string' && request.startsWith('flowise-components/'))) {
+    if (request === '@cuttlely/components' || (typeof request === 'string' && request.startsWith('@cuttlely/components/'))) {
         return componentStub
     }
     return resolveFilename.call(this, request, ...rest)

@@ -657,7 +657,7 @@ export function defaultDrivers(): TestDrivers {
                 clearTimeout(timer)
             }
         },
-        isModelList: (data) => require('flowise-components').isModelList(data),
+        isModelList: (data) => require('@cuttlely/components').isModelList(data),
         checkAnalystUrl: async (url, env) => {
             const module = await importEsm(require('url').pathToFileURL(findScript('analyst-postgres.mjs')).href)
             module.resolveAnalystPostgresUrl({ analystUrl: url, env })

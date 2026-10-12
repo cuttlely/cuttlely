@@ -1,6 +1,6 @@
 import fs from 'fs'
 import path from 'path'
-import type { ICommonObject } from 'flowise-components'
+import type { ICommonObject } from '@cuttlely/components'
 import type { IMessage, INodeData, INodeOverrides, IVariable, IVariableOverride } from '../Interface'
 import logger from './logger'
 
@@ -214,7 +214,7 @@ const NODE_TYPE_PICKER_LOAD_METHODS: ReadonlySet<string> = new Set(['listEmbeddi
 
 /**
  * Every input name declared by a credential in packages/components/credentials (snapshot; getCredentialInputNames adds the
- * names of the installed flowise-components credentials). Nodes read these from their inputs before the stored credential
+ * names of the installed @cuttlely/components credentials). Nodes read these from their inputs before the stored credential
  * (getCredentialParam), and findAvailableConfigs offers them as override params, so a regex is not enough: redisCachePwd,
  * accessKeyId, sessionToken, azureOpenAIApiInstanceName (which picks the Azure host) and others.
  */
@@ -383,7 +383,7 @@ export const getCredentialInputNames = (): ReadonlySet<string> => {
     if (credentialInputNames) return credentialInputNames
     const names = new Set(CREDENTIAL_INPUT_NAMES_SNAPSHOT.map((name) => name.toLowerCase()))
     try {
-        const dir = path.join(path.dirname(require.resolve('flowise-components')), '..', 'credentials')
+        const dir = path.join(path.dirname(require.resolve('@cuttlely/components')), '..', 'credentials')
         for (const file of fs.readdirSync(dir)) {
             if (!file.endsWith('.credential.js')) continue
             try {
@@ -868,7 +868,7 @@ const nestedValueAllowed = (ignored: IgnoredKeys, config: string, value: unknown
  *    with other keys, or another instance of a node type in this flow (`pinecone_9` next to `pinecone_0`), reject the
  *    whole override. Any other object, including one with keys like `chapter_1`, is a plain value.
  * 3. `vars` follows `variableOverrides`, key by key: the filtered set stays on `overrideConfig.vars`, and enabled variables
- *    are merged into `inputs.vars`, which `getVars` in flowise-components reads (CustomFunction, CustomTool, IfElse, others).
+ *    are merged into `inputs.vars`, which `getVars` in @cuttlely/components reads (CustomFunction, CustomTool, IfElse, others).
  * 4. `startState` (Start node) is checked per key: only keys declared in the Start node's state are written.
  *
  * @param {INodeData} flowNodeData node being initialised; its inputs are updated in place

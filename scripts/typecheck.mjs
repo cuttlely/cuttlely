@@ -10,9 +10,9 @@ function run(args) {
 }
 
 function main() {
-    // Server imports flowise-components types from packages/components/dist.
+    // Server imports @cuttlely/components types from packages/components/dist.
     // emitDeclarationOnly typechecks components and writes the .d.ts files that check needs.
-    console.log('typecheck flowise-components')
+    console.log('typecheck @cuttlely/components')
     run(['--emitDeclarationOnly', '-p', 'packages/components/tsconfig.json'])
     console.log('typecheck flowise')
     run(['--noEmit', '-p', 'packages/server/tsconfig.json'])
