@@ -1,6 +1,8 @@
 // Local merge gate. Run this before a pull request.
-// Full order fails fast. --fast is lint, typecheck, server unit tests, and the fast unit-test steps.
+// Full order fails fast. --fast is lint, typecheck, the unit step, and the fast unit-test steps.
 // The unit step caps Jest workers (default 50%). Override with CUTTLELY_VERIFY_JEST_WORKERS (a positive integer or a percentage).
+// It runs server Jest, then the node load test with coverage forced off so that test's 60s budget is a real check.
+// CI runs the same file only under pnpm test:coverage, which does not enforce the budget.
 import { spawnSync } from 'node:child_process'
 import { createRequire } from 'node:module'
 import fs from 'node:fs'
@@ -111,6 +113,8 @@ const STEPS = [
         args: [path.join(ROOT, 'scripts', 'vendor-hermes.mjs'), '--check']
     },
     {
+        // Server Jest, then the node load test. The second command passes --coverage=false:
+        // the 60s budget is enforced here, including on --fast. CI's coverage run is not that check.
         name: 'unit',
         fast: true,
         command: 'pnpm',
@@ -222,6 +226,23 @@ export function unitJestArgs() {
     return ['--dir', 'packages/server', 'exec', 'jest', '--watchAll=false', '--forceExit', `--maxWorkers=${jestMaxWorkers()}`]
 }
 
+// Coverage forced off. The test file skips its time assertion when Jest instruments sources.
+export function nodeLoadBudgetJestArgs() {
+    return [
+        '--dir',
+        'packages/components',
+        'exec',
+        'node',
+        '--max-old-space-size=4096',
+        'node_modules/jest/bin/jest.js',
+        '--watchAll=false',
+        '--forceExit',
+        '--coverage=false',
+        'nodes/load-coverage.test.ts',
+        `--maxWorkers=${jestMaxWorkers()}`
+    ]
+}
+
 function nodeProblem() {
     const major = Number(String(process.versions.node).split('.')[0])
     if (!Number.isFinite(major) || major < 24) {
@@ -249,6 +270,9 @@ function parseArgs(argv) {
                 '--fast runs lint, boundaries, typecheck, verify-test, website-docs, chat-widget, hermes-vendor, unit, server-settings-ui, handoff-test, render-blueprint, and identity-migration'
             )
             console.log('unit Jest workers default to 50%. Set CUTTLELY_VERIFY_JEST_WORKERS to a positive integer or a percentage.')
+            console.log(
+                'unit runs server Jest, then packages/components/nodes/load-coverage.test.ts with --coverage=false so its 60 second budget is enforced.'
+            )
             process.exit(0)
         } else if (arg === '--skip') {
             const name = argv[i + 1]
@@ -301,25 +325,45 @@ function writeReport(report) {
     fs.writeFileSync(path.join(REPORT_DIR, 'verify-summary.md'), lines.join('\n'))
 }
 
+function runCommand(command, args, env) {
+    return spawnSync(command, args, {
+        cwd: ROOT,
+        stdio: 'inherit',
+        env: { ...process.env, ...env }
+    })
+}
+
 function runStep(step) {
     const started = Date.now()
     console.log(`\n==> ${step.name}`)
-    let args = step.args
     if (step.name === 'unit') {
+        let serverArgs
+        let loadArgs
         try {
-            args = unitJestArgs()
+            serverArgs = unitJestArgs()
+            loadArgs = nodeLoadBudgetJestArgs()
         } catch (error) {
             const message = error instanceof Error ? error.message : String(error)
             console.error(message)
             return { name: step.name, status: 'fail', durationMs: Date.now() - started }
         }
         console.log(`jest maxWorkers=${jestMaxWorkers()}`)
+        const server = runCommand('pnpm', serverArgs, step.env)
+        if (server.error) console.error(server.error.message)
+        if (server.status !== 0) {
+            const durationMs = Date.now() - started
+            console.log(`<== ${step.name} fail ${formatDuration(durationMs)}`)
+            return { name: step.name, status: 'fail', durationMs }
+        }
+        console.log('node load budget (coverage off)')
+        const load = runCommand('pnpm', loadArgs, step.env)
+        const durationMs = Date.now() - started
+        const status = load.status === 0 ? 'pass' : 'fail'
+        if (load.error) console.error(load.error.message)
+        console.log(`<== ${step.name} ${status} ${formatDuration(durationMs)}`)
+        return { name: step.name, status, durationMs }
     }
-    const result = spawnSync(step.command, args, {
-        cwd: ROOT,
-        stdio: 'inherit',
-        env: { ...process.env, ...step.env }
-    })
+    const result = runCommand(step.command, step.args, step.env)
     const durationMs = Date.now() - started
     const status = result.status === 0 ? 'pass' : 'fail'
     if (result.error) console.error(result.error.message)
