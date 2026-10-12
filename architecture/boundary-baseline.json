@@ -1,0 +1,1299 @@
+{
+    "r1Packages": [
+        {
+            "name": "@langchain/core"
+        },
+        {
+            "name": "@pinecone-database/pinecone"
+        },
+        {
+            "name": "crypto-js"
+        },
+        {
+            "name": "dotenv"
+        },
+        {
+            "name": "xlsx"
+        },
+        {
+            "name": "zod-to-json-schema"
+        }
+    ],
+    "r1Edges": [],
+    "r2Edges": [
+        {
+            "from": "packages/chat-widget/scripts/build.mjs",
+            "to": "esbuild"
+        },
+        {
+            "from": "packages/chat-widget/test/dom.js",
+            "to": "jsdom"
+        }
+    ],
+    "r3Edges": [
+        {
+            "from": "packages/components/nodes/embeddings/LocalHashEmbedding/LocalHashEmbedding.ts",
+            "to": "packages/components/src/Interface.ts"
+        },
+        {
+            "from": "packages/components/nodes/embeddings/LocalHashEmbedding/LocalHashEmbedding.ts",
+            "to": "packages/components/src/utils.ts"
+        },
+        {
+            "from": "packages/components/nodes/etl/EtlFileSource/EtlFileSource.ts",
+            "to": "packages/components/src/Interface.ts"
+        },
+        {
+            "from": "packages/components/nodes/etl/EtlRepoSource/EtlRepoSource.ts",
+            "to": "packages/components/src/Interface.ts"
+        },
+        {
+            "from": "packages/components/nodes/etl/EtlTransform/EtlTransform.ts",
+            "to": "packages/components/src/Interface.ts"
+        },
+        {
+            "from": "packages/components/nodes/harness/Harness/Harness.test.ts",
+            "to": "packages/components/src/agents.ts"
+        },
+        {
+            "from": "packages/components/nodes/harness/Harness/Harness.test.ts",
+            "to": "packages/components/src/storageUtils.ts"
+        },
+        {
+            "from": "packages/components/nodes/harness/Harness/Harness.ts",
+            "to": "packages/components/src/agents.ts"
+        },
+        {
+            "from": "packages/components/nodes/harness/Harness/Harness.ts",
+            "to": "packages/components/src/Interface.ts"
+        },
+        {
+            "from": "packages/components/nodes/harness/Harness/Harness.ts",
+            "to": "packages/components/src/storageUtils.ts"
+        },
+        {
+            "from": "packages/components/nodes/harness/HarnessChief/HarnessChief.ts",
+            "to": "packages/components/src/Interface.ts"
+        },
+        {
+            "from": "packages/components/nodes/harness/HarnessSpecialist/HarnessSpecialist.ts",
+            "to": "packages/components/src/Interface.ts"
+        },
+        {
+            "from": "packages/components/nodes/llms/RetiredCompletionNodes.test.ts",
+            "to": "packages/components/nodes/llms/Azure OpenAI/AzureOpenAI.ts"
+        },
+        {
+            "from": "packages/components/nodes/llms/RetiredCompletionNodes.test.ts",
+            "to": "packages/components/nodes/llms/Cohere/Cohere.ts"
+        },
+        {
+            "from": "packages/components/nodes/llms/RetiredCompletionNodes.test.ts",
+            "to": "packages/components/nodes/llms/OpenAI/OpenAI.ts"
+        },
+        {
+            "from": "packages/components/nodes/llms/RetiredCompletionNodes.test.ts",
+            "to": "packages/components/src/utils.ts"
+        },
+        {
+            "from": "packages/components/nodes/tools/EtlRetriever/EtlRetriever.ts",
+            "to": "packages/components/src/agents.ts"
+        },
+        {
+            "from": "packages/components/nodes/tools/EtlRetriever/EtlRetriever.ts",
+            "to": "packages/components/src/Interface.ts"
+        },
+        {
+            "from": "packages/components/nodes/tools/EtlRetriever/EtlRetriever.ts",
+            "to": "packages/components/src/utils.ts"
+        },
+        {
+            "from": "packages/components/nodes/vectorstores/EtlLocal/EtlLocalVectorStore.ts",
+            "to": "packages/components/src/Interface.ts"
+        },
+        {
+            "from": "packages/components/nodes/vectorstores/EtlLocal/EtlLocalVectorStore.ts",
+            "to": "packages/components/src/utils.ts"
+        },
+        {
+            "from": "packages/components/src/anthropicUtils.test.ts",
+            "to": "packages/components/src/anthropicUtils.ts"
+        },
+        {
+            "from": "packages/components/src/anthropicUtils.test.ts",
+            "to": "packages/components/src/utils.ts"
+        },
+        {
+            "from": "packages/components/src/documentText.test.ts",
+            "to": "packages/components/src/utils.ts"
+        },
+        {
+            "from": "packages/components/src/documentText.ts",
+            "to": "packages/components/nodes/documentloaders/Csv/CsvLoader.ts"
+        },
+        {
+            "from": "packages/components/src/documentText.ts",
+            "to": "packages/components/nodes/documentloaders/MicrosoftExcel/ExcelLoader.ts"
+        },
+        {
+            "from": "packages/components/src/documentText.ts",
+            "to": "packages/components/nodes/documentloaders/MicrosoftPowerpoint/PowerpointLoader.ts"
+        },
+        {
+            "from": "packages/components/src/documentText.ts",
+            "to": "packages/components/src/utils.ts"
+        },
+        {
+            "from": "packages/components/src/documentUploadCapabilities.test.ts",
+            "to": "packages/components/src/utils.ts"
+        },
+        {
+            "from": "packages/components/src/oauthRefresh.test.ts",
+            "to": "packages/components/src/httpSecurity.ts"
+        },
+        {
+            "from": "packages/components/src/oauthRefresh.ts",
+            "to": "packages/components/src/httpSecurity.ts"
+        },
+        {
+            "from": "packages/components/src/openApiSpec.ts",
+            "to": "packages/components/src/httpSecurity.ts"
+        },
+        {
+            "from": "packages/components/src/storage/fileStorageTraversal.test.ts",
+            "to": "packages/components/src/storage/LocalStorageProvider.ts"
+        },
+        {
+            "from": "packages/components/src/storage/fileStorageTraversal.test.ts",
+            "to": "packages/components/src/storage/S3StorageProvider.ts"
+        },
+        {
+            "from": "packages/components/src/storage/multerLimits.test.ts",
+            "to": "packages/components/src/storage/LocalStorageProvider.ts"
+        },
+        {
+            "from": "packages/server/src/commands/base.test.ts",
+            "to": "packages/server/src/commands/base.ts"
+        },
+        {
+            "from": "packages/server/src/commands/settings.ts",
+            "to": "packages/server/src/commands/base.ts"
+        },
+        {
+            "from": "packages/server/src/controllers/chatflows/apikey.test.ts",
+            "to": "packages/server/src/controllers/chatflows/index.ts"
+        },
+        {
+            "from": "packages/server/src/controllers/demo/index.ts",
+            "to": "packages/server/src/errors/internalFlowiseError/index.ts"
+        },
+        {
+            "from": "packages/server/src/controllers/flow-drafts/index.ts",
+            "to": "packages/server/src/database/entities/ChatFlow.ts"
+        },
+        {
+            "from": "packages/server/src/controllers/flow-drafts/index.ts",
+            "to": "packages/server/src/errors/internalFlowiseError/index.ts"
+        },
+        {
+            "from": "packages/server/src/controllers/flow-drafts/index.ts",
+            "to": "packages/server/src/services/chatflows/index.ts"
+        },
+        {
+            "from": "packages/server/src/controllers/flow-promote/index.ts",
+            "to": "packages/server/src/database/entities/ChatFlow.ts"
+        },
+        {
+            "from": "packages/server/src/controllers/flow-promote/index.ts",
+            "to": "packages/server/src/errors/internalFlowiseError/index.ts"
+        },
+        {
+            "from": "packages/server/src/controllers/flow-promote/index.ts",
+            "to": "packages/server/src/services/chatflows/index.ts"
+        },
+        {
+            "from": "packages/server/src/controllers/flow-promote/index.ts",
+            "to": "packages/server/src/utils/getRunningExpressApp.ts"
+        },
+        {
+            "from": "packages/server/src/controllers/flow-promote/index.ts",
+            "to": "packages/server/src/utils/quotaUsage.ts"
+        },
+        {
+            "from": "packages/server/src/controllers/flow-versions/index.ts",
+            "to": "packages/server/src/database/entities/ChatFlow.ts"
+        },
+        {
+            "from": "packages/server/src/controllers/flow-versions/index.ts",
+            "to": "packages/server/src/errors/internalFlowiseError/index.ts"
+        },
+        {
+            "from": "packages/server/src/controllers/flow-versions/index.ts",
+            "to": "packages/server/src/services/chatflows/index.ts"
+        },
+        {
+            "from": "packages/server/src/controllers/harnesses/index.ts",
+            "to": "packages/server/src/errors/utils.ts"
+        },
+        {
+            "from": "packages/server/src/controllers/internal-predictions/index.test.ts",
+            "to": "packages/server/src/controllers/internal-predictions/index.ts"
+        },
+        {
+            "from": "packages/server/src/controllers/internal-predictions/index.test.ts",
+            "to": "packages/server/src/services/predictions/index.ts"
+        },
+        {
+            "from": "packages/server/src/controllers/ping/index.test.ts",
+            "to": "packages/server/src/controllers/ping/index.ts"
+        },
+        {
+            "from": "packages/server/src/controllers/text-to-speech/index.test.ts",
+            "to": "packages/components/src/index.ts"
+        },
+        {
+            "from": "packages/server/src/controllers/text-to-speech/index.test.ts",
+            "to": "packages/server/src/controllers/text-to-speech/index.ts"
+        },
+        {
+            "from": "packages/server/src/controllers/text-to-speech/index.test.ts",
+            "to": "packages/server/src/errors/internalFlowiseError/index.ts"
+        },
+        {
+            "from": "packages/server/src/controllers/text-to-speech/index.test.ts",
+            "to": "packages/server/src/services/chatflows/index.ts"
+        },
+        {
+            "from": "packages/server/src/controllers/text-to-speech/index.test.ts",
+            "to": "packages/server/src/services/credentials/index.ts"
+        },
+        {
+            "from": "packages/server/src/controllers/text-to-speech/index.test.ts",
+            "to": "packages/server/src/utils/getRunningExpressApp.ts"
+        },
+        {
+            "from": "packages/server/src/database/migrations/mariadb/1783000000000-HashApiKey.ts",
+            "to": "packages/server/src/utils/apiKey.ts"
+        },
+        {
+            "from": "packages/server/src/database/migrations/mysql/1783000000000-HashApiKey.ts",
+            "to": "packages/server/src/utils/apiKey.ts"
+        },
+        {
+            "from": "packages/server/src/database/migrations/postgres/1783000000000-HashApiKey.ts",
+            "to": "packages/server/src/utils/apiKey.ts"
+        },
+        {
+            "from": "packages/server/src/database/migrations/sqlite/1783000000000-HashApiKey.ts",
+            "to": "packages/server/src/utils/apiKey.ts"
+        },
+        {
+            "from": "packages/server/src/identity/directoryRoutes.ts",
+            "to": "packages/server/src/DataSource.ts"
+        },
+        {
+            "from": "packages/server/src/identity/http.ts",
+            "to": "packages/server/src/utils/logger.ts"
+        },
+        {
+            "from": "packages/server/src/identity/ossPlatform.ts",
+            "to": "packages/server/src/Interface.ts"
+        },
+        {
+            "from": "packages/server/src/identity/production.ts",
+            "to": "packages/server/src/DataSource.ts"
+        },
+        {
+            "from": "packages/server/src/identity/rbac.routes.test.ts",
+            "to": "packages/server/src/routes/apikey/index.ts"
+        },
+        {
+            "from": "packages/server/src/identity/rbac.routes.test.ts",
+            "to": "packages/server/src/routes/chatflows/index.ts"
+        },
+        {
+            "from": "packages/server/src/identity/rbac.routes.test.ts",
+            "to": "packages/server/src/routes/credentials/index.ts"
+        },
+        {
+            "from": "packages/server/src/identity/rbac.ts",
+            "to": "packages/server/src/DataSource.ts"
+        },
+        {
+            "from": "packages/server/src/identity/workspaceScope.test.ts",
+            "to": "packages/server/src/errors/internalFlowiseError/index.ts"
+        },
+        {
+            "from": "packages/server/src/identity/workspaceScope.ts",
+            "to": "packages/server/src/database/entities/Credential.ts"
+        },
+        {
+            "from": "packages/server/src/identity/workspaceScope.ts",
+            "to": "packages/server/src/database/entities/CustomTemplate.ts"
+        },
+        {
+            "from": "packages/server/src/identity/workspaceScope.ts",
+            "to": "packages/server/src/errors/internalFlowiseError/index.ts"
+        },
+        {
+            "from": "packages/server/src/identity/workspaceScope.ts",
+            "to": "packages/server/src/utils/getRunningExpressApp.ts"
+        },
+        {
+            "from": "packages/server/src/middlewares/errors/index.test.ts",
+            "to": "packages/server/src/middlewares/errors/index.ts"
+        },
+        {
+            "from": "packages/server/src/routes/oauth2/refresh.test.ts",
+            "to": "packages/components/src/index.ts"
+        },
+        {
+            "from": "packages/server/src/routes/oauth2/refresh.test.ts",
+            "to": "packages/server/src/middlewares/errors/index.ts"
+        },
+        {
+            "from": "packages/server/src/routes/oauth2/refresh.test.ts",
+            "to": "packages/server/src/routes/oauth2/index.ts"
+        },
+        {
+            "from": "packages/server/src/routes/oauth2/refresh.test.ts",
+            "to": "packages/server/src/utils/constants.ts"
+        },
+        {
+            "from": "packages/server/src/routes/oauth2/refresh.test.ts",
+            "to": "packages/server/src/utils/getRunningExpressApp.ts"
+        },
+        {
+            "from": "packages/server/src/routes/oauth2/refresh.test.ts",
+            "to": "packages/server/src/utils/index.ts"
+        },
+        {
+            "from": "packages/server/src/routes/oauth2/refresh.test.ts",
+            "to": "packages/server/src/utils/logger.ts"
+        },
+        {
+            "from": "packages/server/src/routes/server-settings/index.ts",
+            "to": "packages/server/src/utils/index.ts"
+        },
+        {
+            "from": "packages/server/src/services/builder/index.ts",
+            "to": "packages/server/src/errors/internalFlowiseError/index.ts"
+        },
+        {
+            "from": "packages/server/src/services/builder/index.ts",
+            "to": "packages/server/src/services/credentials/index.ts"
+        },
+        {
+            "from": "packages/server/src/services/builder/index.ts",
+            "to": "packages/server/src/utils/getRunningExpressApp.ts"
+        },
+        {
+            "from": "packages/server/src/services/builder/index.ts",
+            "to": "packages/server/src/utils/index.ts"
+        },
+        {
+            "from": "packages/server/src/services/builder/index.ts",
+            "to": "packages/server/src/utils/logger.ts"
+        },
+        {
+            "from": "packages/server/src/services/builder/recipes/workflow.ts",
+            "to": "packages/components/src/index.ts"
+        },
+        {
+            "from": "packages/server/src/services/dataset/index.test.ts",
+            "to": "packages/server/src/database/entities/Dataset.ts"
+        },
+        {
+            "from": "packages/server/src/services/dataset/index.test.ts",
+            "to": "packages/server/src/errors/internalFlowiseError/index.ts"
+        },
+        {
+            "from": "packages/server/src/services/dataset/index.test.ts",
+            "to": "packages/server/src/services/dataset/index.ts"
+        },
+        {
+            "from": "packages/server/src/services/demo/index.ts",
+            "to": "packages/server/src/database/entities/ChatFlow.ts"
+        },
+        {
+            "from": "packages/server/src/services/demo/index.ts",
+            "to": "packages/server/src/errors/internalFlowiseError/index.ts"
+        },
+        {
+            "from": "packages/server/src/services/demo/index.ts",
+            "to": "packages/server/src/services/chatflows/index.ts"
+        },
+        {
+            "from": "packages/server/src/services/demo/index.ts",
+            "to": "packages/server/src/services/credentials/index.ts"
+        },
+        {
+            "from": "packages/server/src/services/demo/index.ts",
+            "to": "packages/server/src/utils/getRunningExpressApp.ts"
+        },
+        {
+            "from": "packages/server/src/services/demo/index.ts",
+            "to": "packages/server/src/utils/logger.ts"
+        },
+        {
+            "from": "packages/server/src/services/etl/index.ts",
+            "to": "packages/server/src/database/entities/ChatFlow.ts"
+        },
+        {
+            "from": "packages/server/src/services/etl/index.ts",
+            "to": "packages/server/src/errors/internalFlowiseError/index.ts"
+        },
+        {
+            "from": "packages/server/src/services/etl/index.ts",
+            "to": "packages/server/src/errors/utils.ts"
+        },
+        {
+            "from": "packages/server/src/services/etl/index.ts",
+            "to": "packages/server/src/utils/getRunningExpressApp.ts"
+        },
+        {
+            "from": "packages/server/src/services/etl/index.ts",
+            "to": "packages/server/src/utils/index.ts"
+        },
+        {
+            "from": "packages/server/src/services/etl/index.ts",
+            "to": "packages/server/src/utils/logger.ts"
+        },
+        {
+            "from": "packages/server/src/services/etl/userFacingError.ts",
+            "to": "packages/server/src/errors/utils.ts"
+        },
+        {
+            "from": "packages/server/src/services/flow-check/index.ts",
+            "to": "packages/components/src/index.ts"
+        },
+        {
+            "from": "packages/server/src/services/flow-check/index.ts",
+            "to": "packages/server/src/database/entities/ChatMessage.ts"
+        },
+        {
+            "from": "packages/server/src/services/flow-check/index.ts",
+            "to": "packages/server/src/errors/internalFlowiseError/index.ts"
+        },
+        {
+            "from": "packages/server/src/services/flow-check/index.ts",
+            "to": "packages/server/src/Interface.ts"
+        },
+        {
+            "from": "packages/server/src/services/flow-check/index.ts",
+            "to": "packages/server/src/utils/buildChatflow.ts"
+        },
+        {
+            "from": "packages/server/src/services/flow-check/index.ts",
+            "to": "packages/server/src/utils/getRunningExpressApp.ts"
+        },
+        {
+            "from": "packages/server/src/services/flow-check/index.ts",
+            "to": "packages/server/src/utils/logger.ts"
+        },
+        {
+            "from": "packages/server/src/services/flow-drafts/index.ts",
+            "to": "packages/server/src/database/entities/ChatFlow.ts"
+        },
+        {
+            "from": "packages/server/src/services/flow-drafts/index.ts",
+            "to": "packages/server/src/errors/internalFlowiseError/index.ts"
+        },
+        {
+            "from": "packages/server/src/services/flow-drafts/index.ts",
+            "to": "packages/server/src/utils/fileRepository.ts"
+        },
+        {
+            "from": "packages/server/src/services/flow-drafts/index.ts",
+            "to": "packages/server/src/utils/getRunningExpressApp.ts"
+        },
+        {
+            "from": "packages/server/src/services/flow-promote/index.test.ts",
+            "to": "packages/server/src/database/entities/ChatFlow.ts"
+        },
+        {
+            "from": "packages/server/src/services/flow-promote/index.test.ts",
+            "to": "packages/server/src/utils/logger.ts"
+        },
+        {
+            "from": "packages/server/src/services/flow-promote/index.ts",
+            "to": "packages/server/src/database/entities/ChatFlow.ts"
+        },
+        {
+            "from": "packages/server/src/services/flow-promote/index.ts",
+            "to": "packages/server/src/errors/internalFlowiseError/index.ts"
+        },
+        {
+            "from": "packages/server/src/services/flow-promote/index.ts",
+            "to": "packages/server/src/utils/getRunningExpressApp.ts"
+        },
+        {
+            "from": "packages/server/src/services/flow-versions/github.test.ts",
+            "to": "packages/server/src/utils/logger.ts"
+        },
+        {
+            "from": "packages/server/src/services/flow-versions/index.ts",
+            "to": "packages/server/src/database/entities/Credential.ts"
+        },
+        {
+            "from": "packages/server/src/services/flow-versions/index.ts",
+            "to": "packages/server/src/errors/utils.ts"
+        },
+        {
+            "from": "packages/server/src/services/flow-versions/index.ts",
+            "to": "packages/server/src/services/credentials/index.ts"
+        },
+        {
+            "from": "packages/server/src/services/flow-versions/index.ts",
+            "to": "packages/server/src/utils/getRunningExpressApp.ts"
+        },
+        {
+            "from": "packages/server/src/services/flow-versions/index.ts",
+            "to": "packages/server/src/utils/index.ts"
+        },
+        {
+            "from": "packages/server/src/services/flow-versions/index.ts",
+            "to": "packages/server/src/utils/logger.ts"
+        },
+        {
+            "from": "packages/server/src/services/harnesses/index.ts",
+            "to": "packages/server/src/errors/internalFlowiseError/index.ts"
+        },
+        {
+            "from": "packages/server/src/services/harnesses/index.ts",
+            "to": "packages/server/src/errors/utils.ts"
+        },
+        {
+            "from": "packages/server/src/services/harnesses/index.ts",
+            "to": "packages/server/src/utils/getRunningExpressApp.ts"
+        },
+        {
+            "from": "packages/server/src/services/harnesses/index.ts",
+            "to": "packages/server/src/utils/index.ts"
+        },
+        {
+            "from": "packages/server/src/services/harnesses/index.ts",
+            "to": "packages/server/src/utils/logger.ts"
+        },
+        {
+            "from": "packages/server/src/settings/connection.ts",
+            "to": "packages/components/src/index.ts"
+        },
+        {
+            "from": "packages/server/src/startup/databaseHealth.test.ts",
+            "to": "packages/server/src/controllers/ping/index.ts"
+        },
+        {
+            "from": "packages/server/src/utils/authorizeFeedback.test.ts",
+            "to": "packages/server/src/middlewares/errors/index.ts"
+        },
+        {
+            "from": "packages/server/src/utils/authorizeFeedback.test.ts",
+            "to": "packages/server/src/routes/feedback/index.ts"
+        },
+        {
+            "from": "packages/server/src/utils/authorizeFeedback.test.ts",
+            "to": "packages/server/src/routes/get-upload-file/index.ts"
+        },
+        {
+            "from": "packages/server/src/utils/authorizeFeedback.test.ts",
+            "to": "packages/server/src/routes/openai-assistants-files/index.ts"
+        },
+        {
+            "from": "packages/server/src/utils/authorizeFeedback.test.ts",
+            "to": "packages/server/src/services/feedback/validation.ts"
+        },
+        {
+            "from": "packages/server/src/utils/authorizeFeedback.test.ts",
+            "to": "packages/server/src/utils/apiKey.ts"
+        },
+        {
+            "from": "packages/server/src/utils/authorizeFlowAccess.test.ts",
+            "to": "packages/server/src/middlewares/errors/index.ts"
+        },
+        {
+            "from": "packages/server/src/utils/authorizeFlowAccess.test.ts",
+            "to": "packages/server/src/routes/attachments/index.ts"
+        },
+        {
+            "from": "packages/server/src/utils/authorizeFlowAccess.test.ts",
+            "to": "packages/server/src/utils/apiKey.ts"
+        },
+        {
+            "from": "packages/server/src/utils/authorizeFlowAccess.test.ts",
+            "to": "packages/server/src/utils/createAttachment.ts"
+        },
+        {
+            "from": "packages/server/src/utils/authorizeFlowAccess.ts",
+            "to": "packages/components/src/index.ts"
+        },
+        {
+            "from": "packages/server/src/utils/authorizeFlowAccess.ts",
+            "to": "packages/server/src/database/entities/ChatFlow.ts"
+        },
+        {
+            "from": "packages/server/src/utils/authorizeFlowAccess.ts",
+            "to": "packages/server/src/errors/internalFlowiseError/index.ts"
+        },
+        {
+            "from": "packages/server/src/utils/authorizeFlowAccess.ts",
+            "to": "packages/server/src/services/feedback/validation.ts"
+        },
+        {
+            "from": "packages/server/src/utils/authorizeFlowAccess.ts",
+            "to": "packages/server/src/utils/domainValidation.ts"
+        },
+        {
+            "from": "packages/server/src/utils/authorizeFlowAccess.ts",
+            "to": "packages/server/src/utils/getRunningExpressApp.ts"
+        },
+        {
+            "from": "packages/server/src/utils/authorizeFlowAccess.ts",
+            "to": "packages/server/src/utils/validateKey.ts"
+        },
+        {
+            "from": "packages/server/src/utils/authorizePrediction.test.ts",
+            "to": "packages/server/src/controllers/predictions/index.ts"
+        },
+        {
+            "from": "packages/server/src/utils/authorizePrediction.test.ts",
+            "to": "packages/server/src/middlewares/errors/index.ts"
+        },
+        {
+            "from": "packages/server/src/utils/authorizePrediction.test.ts",
+            "to": "packages/server/src/routes/predictions/index.ts"
+        },
+        {
+            "from": "packages/server/src/utils/authorizePrediction.test.ts",
+            "to": "packages/server/src/utils/apiKey.ts"
+        },
+        {
+            "from": "packages/server/src/utils/authorizePrediction.test.ts",
+            "to": "packages/server/src/utils/index.ts"
+        },
+        {
+            "from": "packages/server/src/utils/authorizePrediction.test.ts",
+            "to": "packages/server/src/utils/rateLimit.ts"
+        },
+        {
+            "from": "packages/server/src/utils/authorizeUpsert.test.ts",
+            "to": "packages/server/src/middlewares/errors/index.ts"
+        },
+        {
+            "from": "packages/server/src/utils/authorizeUpsert.test.ts",
+            "to": "packages/server/src/routes/documentstore/index.ts"
+        },
+        {
+            "from": "packages/server/src/utils/authorizeUpsert.test.ts",
+            "to": "packages/server/src/routes/vectors/index.ts"
+        },
+        {
+            "from": "packages/server/src/utils/authorizeUpsert.test.ts",
+            "to": "packages/server/src/utils/apiKey.ts"
+        },
+        {
+            "from": "packages/server/src/utils/authorizeUpsert.ts",
+            "to": "packages/server/src/database/entities/ChatFlow.ts"
+        },
+        {
+            "from": "packages/server/src/utils/authorizeUpsert.ts",
+            "to": "packages/server/src/database/entities/DocumentStore.ts"
+        },
+        {
+            "from": "packages/server/src/utils/authorizeUpsert.ts",
+            "to": "packages/server/src/errors/internalFlowiseError/index.ts"
+        },
+        {
+            "from": "packages/server/src/utils/authorizeUpsert.ts",
+            "to": "packages/server/src/utils/getRunningExpressApp.ts"
+        },
+        {
+            "from": "packages/server/src/utils/authorizeUpsert.ts",
+            "to": "packages/server/src/utils/validateKey.ts"
+        },
+        {
+            "from": "packages/server/src/utils/buildAgentflow.analytics.test.ts",
+            "to": "packages/server/src/utils/buildAgentflow.ts"
+        },
+        {
+            "from": "packages/server/src/utils/buildAgentflow.analytics.test.ts",
+            "to": "packages/server/src/utils/logger.ts"
+        },
+        {
+            "from": "packages/server/src/utils/buildAgentflow.replay.test.ts",
+            "to": "packages/server/src/utils/buildAgentflow.ts"
+        },
+        {
+            "from": "packages/server/src/utils/buildAgentGraph.overrides.test.ts",
+            "to": "packages/server/src/utils/buildAgentGraph.ts"
+        },
+        {
+            "from": "packages/server/src/utils/buildAgentGraph.overrides.test.ts",
+            "to": "packages/server/src/utils/logger.ts"
+        },
+        {
+            "from": "packages/server/src/utils/chatUploadStorage.test.ts",
+            "to": "packages/components/src/index.ts"
+        },
+        {
+            "from": "packages/server/src/utils/chatWidget.ts",
+            "to": "packages/server/src/utils/index.ts"
+        },
+        {
+            "from": "packages/server/src/utils/clientAbort.test.ts",
+            "to": "packages/server/src/controllers/internal-predictions/index.ts"
+        },
+        {
+            "from": "packages/server/src/utils/clientAbort.test.ts",
+            "to": "packages/server/src/controllers/predictions/index.ts"
+        },
+        {
+            "from": "packages/server/src/utils/clientAbort.test.ts",
+            "to": "packages/server/src/middlewares/errors/index.ts"
+        },
+        {
+            "from": "packages/server/src/utils/clientAbort.test.ts",
+            "to": "packages/server/src/utils/getRunningExpressApp.ts"
+        },
+        {
+            "from": "packages/server/src/utils/codeInputLiteral.test.ts",
+            "to": "packages/server/src/utils/buildAgentGraph.ts"
+        },
+        {
+            "from": "packages/server/src/utils/createAttachment.test.ts",
+            "to": "packages/server/src/services/attachments/index.ts"
+        },
+        {
+            "from": "packages/server/src/utils/createAttachment.test.ts",
+            "to": "packages/server/src/utils/createAttachment.ts"
+        },
+        {
+            "from": "packages/server/src/utils/domainValidation.test.ts",
+            "to": "packages/server/src/utils/domainValidation.ts"
+        },
+        {
+            "from": "packages/server/src/utils/fileLinkSignature.test.ts",
+            "to": "packages/server/src/middlewares/errors/index.ts"
+        },
+        {
+            "from": "packages/server/src/utils/fileLinkSignature.test.ts",
+            "to": "packages/server/src/routes/get-upload-file/index.ts"
+        },
+        {
+            "from": "packages/server/src/utils/fileLinkSignature.test.ts",
+            "to": "packages/server/src/utils/apiKey.ts"
+        },
+        {
+            "from": "packages/server/src/utils/getGlobalVariable.test.ts",
+            "to": "packages/server/src/utils/index.ts"
+        },
+        {
+            "from": "packages/server/src/utils/getUploadsConfig.test.ts",
+            "to": "packages/server/src/utils/getUploadsConfig.ts"
+        },
+        {
+            "from": "packages/server/src/utils/modelRetryBudget.test.ts",
+            "to": "packages/components/src/index.ts"
+        },
+        {
+            "from": "packages/server/src/utils/predictionErrors.test.ts",
+            "to": "packages/server/src/errors/internalFlowiseError/index.ts"
+        },
+        {
+            "from": "packages/server/src/utils/predictionErrors.test.ts",
+            "to": "packages/server/src/utils/SSEStreamer.ts"
+        },
+        {
+            "from": "packages/server/src/utils/predictionErrors.ts",
+            "to": "packages/server/src/errors/internalFlowiseError/index.ts"
+        },
+        {
+            "from": "packages/server/src/utils/predictionErrors.ts",
+            "to": "packages/server/src/errors/utils.ts"
+        },
+        {
+            "from": "packages/server/src/utils/predictionUploads.ts",
+            "to": "packages/components/src/index.ts"
+        },
+        {
+            "from": "packages/server/src/utils/predictionUploads.ts",
+            "to": "packages/server/src/errors/internalFlowiseError/index.ts"
+        },
+        {
+            "from": "packages/server/src/utils/predictionUploads.ts",
+            "to": "packages/server/src/errors/utils.ts"
+        },
+        {
+            "from": "packages/server/src/utils/predictionUploads.ts",
+            "to": "packages/server/src/utils/fileValidation.ts"
+        },
+        {
+            "from": "packages/server/src/utils/predictionUploads.ts",
+            "to": "packages/server/src/utils/logger.ts"
+        },
+        {
+            "from": "packages/server/src/utils/quotaUsage.test.ts",
+            "to": "packages/server/src/UsageCacheManager.ts"
+        },
+        {
+            "from": "packages/server/src/utils/quotaUsage.test.ts",
+            "to": "packages/server/src/utils/quotaUsage.ts"
+        },
+        {
+            "from": "packages/server/src/utils/rateLimit.test.ts",
+            "to": "packages/server/src/utils/rateLimit.ts"
+        },
+        {
+            "from": "packages/server/src/utils/removeChatUploads.ts",
+            "to": "packages/components/src/index.ts"
+        },
+        {
+            "from": "packages/server/src/utils/replaceInputsWithConfig.test.ts",
+            "to": "packages/components/src/index.ts"
+        },
+        {
+            "from": "packages/server/src/utils/replaceInputsWithConfig.test.ts",
+            "to": "packages/server/src/utils/index.ts"
+        },
+        {
+            "from": "packages/server/src/utils/replaceInputsWithConfig.test.ts",
+            "to": "packages/server/src/utils/logger.ts"
+        },
+        {
+            "from": "packages/server/src/utils/replaceInputsWithConfig.ts",
+            "to": "packages/components/src/index.ts"
+        },
+        {
+            "from": "packages/server/src/utils/replaceInputsWithConfig.ts",
+            "to": "packages/server/src/Interface.ts"
+        },
+        {
+            "from": "packages/server/src/utils/replaceInputsWithConfig.ts",
+            "to": "packages/server/src/utils/logger.ts"
+        },
+        {
+            "from": "packages/server/src/utils/sessionOwnership.test.ts",
+            "to": "packages/components/src/index.ts"
+        },
+        {
+            "from": "packages/server/src/utils/sessionOwnership.test.ts",
+            "to": "packages/server/src/utils/index.ts"
+        },
+        {
+            "from": "packages/server/src/utils/sessionOwnership.ts",
+            "to": "packages/server/src/errors/internalFlowiseError/index.ts"
+        },
+        {
+            "from": "packages/server/src/utils/sessionOwnership.ts",
+            "to": "packages/server/src/utils/logger.ts"
+        },
+        {
+            "from": "packages/server/src/utils/SSEStreamer.metadata.test.ts",
+            "to": "packages/server/src/utils/SSEStreamer.ts"
+        },
+        {
+            "from": "packages/server/src/utils/streaming.test.ts",
+            "to": "packages/server/src/controllers/predictions/index.ts"
+        },
+        {
+            "from": "packages/server/src/utils/streaming.test.ts",
+            "to": "packages/server/src/errors/internalFlowiseError/index.ts"
+        },
+        {
+            "from": "packages/server/src/utils/streaming.test.ts",
+            "to": "packages/server/src/middlewares/errors/index.ts"
+        },
+        {
+            "from": "packages/server/src/utils/streaming.test.ts",
+            "to": "packages/server/src/routes/predictions/index.ts"
+        },
+        {
+            "from": "packages/server/src/utils/streaming.test.ts",
+            "to": "packages/server/src/utils/apiKey.ts"
+        },
+        {
+            "from": "packages/server/src/utils/uploadFileCors.test.ts",
+            "to": "packages/server/src/middlewares/errors/index.ts"
+        },
+        {
+            "from": "packages/server/src/utils/uploadFileCors.test.ts",
+            "to": "packages/server/src/routes/get-upload-file/index.ts"
+        },
+        {
+            "from": "packages/server/src/utils/uploadFileCors.test.ts",
+            "to": "packages/server/src/utils/domainValidation.ts"
+        },
+        {
+            "from": "packages/server/src/utils/uploadFileCors.test.ts",
+            "to": "packages/server/src/utils/XSS.ts"
+        },
+        {
+            "from": "packages/server/src/utils/uploadPermissions.ts",
+            "to": "packages/components/src/index.ts"
+        },
+        {
+            "from": "packages/server/src/utils/uploadPermissions.ts",
+            "to": "packages/server/src/database/entities/ChatFlow.ts"
+        },
+        {
+            "from": "packages/server/src/utils/uploadPermissions.ts",
+            "to": "packages/server/src/errors/internalFlowiseError/index.ts"
+        },
+        {
+            "from": "packages/server/src/utils/uploadPermissions.ts",
+            "to": "packages/server/src/Interface.ts"
+        },
+        {
+            "from": "packages/server/src/utils/uploadPermissions.ts",
+            "to": "packages/server/src/utils/getUploadsConfig.ts"
+        },
+        {
+            "from": "packages/ui/src/api/builder.js",
+            "to": "packages/ui/src/api/client.js"
+        },
+        {
+            "from": "packages/ui/src/api/demo.js",
+            "to": "packages/ui/src/api/client.js"
+        },
+        {
+            "from": "packages/ui/src/api/etl.js",
+            "to": "packages/ui/src/api/client.js"
+        },
+        {
+            "from": "packages/ui/src/api/flowDrafts.js",
+            "to": "packages/ui/src/api/client.js"
+        },
+        {
+            "from": "packages/ui/src/api/flowDrafts.test.js",
+            "to": "packages/ui/src/api/client.js"
+        },
+        {
+            "from": "packages/ui/src/api/flowVersions.js",
+            "to": "packages/ui/src/api/client.js"
+        },
+        {
+            "from": "packages/ui/src/api/harnesses.js",
+            "to": "packages/ui/src/api/client.js"
+        },
+        {
+            "from": "packages/ui/src/api/serverSettings.js",
+            "to": "packages/ui/src/api/client.js"
+        },
+        {
+            "from": "packages/ui/src/api/serverSetup.js",
+            "to": "packages/ui/src/store/constant.js"
+        },
+        {
+            "from": "packages/ui/src/hooks/useCanvasLook.js",
+            "to": "packages/ui/src/store/context/ConfigContext.jsx"
+        },
+        {
+            "from": "packages/ui/src/layout/MainLayout/Sidebar/MenuList/activeRoute.test.js",
+            "to": "packages/ui/src/menu-items/dashboard.js"
+        },
+        {
+            "from": "packages/ui/src/layout/MainLayout/Sidebar/MenuList/AdminSection.jsx",
+            "to": "packages/ui/src/api/role.js"
+        },
+        {
+            "from": "packages/ui/src/layout/MainLayout/Sidebar/MenuList/AdminSection.jsx",
+            "to": "packages/ui/src/layout/MainLayout/Sidebar/MenuList/NavCollapse/index.jsx"
+        },
+        {
+            "from": "packages/ui/src/themes/compStyleOverride.test.js",
+            "to": "packages/ui/src/themes/compStyleOverride.js"
+        },
+        {
+            "from": "packages/ui/src/themes/compStyleOverride.test.js",
+            "to": "packages/ui/src/themes/palette.js"
+        },
+        {
+            "from": "packages/ui/src/ui-component/dialog/BuildWithAIDialog.jsx",
+            "to": "packages/ui/src/api/assistants.js"
+        },
+        {
+            "from": "packages/ui/src/ui-component/dialog/BuildWithAIDialog.jsx",
+            "to": "packages/ui/src/api/credentials.js"
+        },
+        {
+            "from": "packages/ui/src/ui-component/dialog/BuildWithAIDialog.jsx",
+            "to": "packages/ui/src/hooks/useApi.jsx"
+        },
+        {
+            "from": "packages/ui/src/ui-component/dialog/BuildWithAIDialog.jsx",
+            "to": "packages/ui/src/store/constant.js"
+        },
+        {
+            "from": "packages/ui/src/ui-component/dialog/BuildWithAIDialog.jsx",
+            "to": "packages/ui/src/ui-component/dropdown/Dropdown.jsx"
+        },
+        {
+            "from": "packages/ui/src/ui-component/dialog/BuildWithAIDialog.jsx",
+            "to": "packages/ui/src/utils/genericHelper.js"
+        },
+        {
+            "from": "packages/ui/src/ui-component/dialog/BuildWithAIDialog.jsx",
+            "to": "packages/ui/src/views/docstore/DocStoreInputHandler.jsx"
+        },
+        {
+            "from": "packages/ui/src/ui-component/dialog/CreateUserDialog.jsx",
+            "to": "packages/ui/src/api/account.api.js"
+        },
+        {
+            "from": "packages/ui/src/ui-component/dialog/CreateUserDialog.jsx",
+            "to": "packages/ui/src/api/role.js"
+        },
+        {
+            "from": "packages/ui/src/ui-component/dialog/CreateUserDialog.jsx",
+            "to": "packages/ui/src/api/workspace.js"
+        },
+        {
+            "from": "packages/ui/src/ui-component/dialog/CreateUserDialog.jsx",
+            "to": "packages/ui/src/store/actions.js"
+        },
+        {
+            "from": "packages/ui/src/ui-component/dialog/CreateUserDialog.jsx",
+            "to": "packages/ui/src/ui-component/button/StyledButton.jsx"
+        },
+        {
+            "from": "packages/ui/src/ui-component/dialog/CreateUserDialog.jsx",
+            "to": "packages/ui/src/ui-component/dialog/ConfirmDialog.jsx"
+        },
+        {
+            "from": "packages/ui/src/ui-component/dialog/CreateUserDialog.jsx",
+            "to": "packages/ui/src/utils/useNotifier.js"
+        },
+        {
+            "from": "packages/ui/src/ui-component/extended/PublishInstantly.jsx",
+            "to": "packages/ui/src/store/actions.js"
+        },
+        {
+            "from": "packages/ui/src/ui-component/extended/PublishInstantly.jsx",
+            "to": "packages/ui/src/ui-component/switch/Switch.jsx"
+        },
+        {
+            "from": "packages/ui/src/ui-component/flow/FromDevBanner.jsx",
+            "to": "packages/ui/src/hooks/useAuth.jsx"
+        },
+        {
+            "from": "packages/ui/src/ui-component/flow/TryTheDemo.jsx",
+            "to": "packages/ui/src/api/credentials.js"
+        },
+        {
+            "from": "packages/ui/src/ui-component/flow/TryTheDemo.jsx",
+            "to": "packages/ui/src/store/context/ErrorContext.jsx"
+        },
+        {
+            "from": "packages/ui/src/ui-component/flow/TryTheDemo.jsx",
+            "to": "packages/ui/src/ui-component/button/RBACButtons.jsx"
+        },
+        {
+            "from": "packages/ui/src/ui-component/flow/TryTheDemo.jsx",
+            "to": "packages/ui/src/views/credentials/AddEditCredentialDialog.jsx"
+        },
+        {
+            "from": "packages/ui/src/ui-component/flow/TryTheDemo.jsx",
+            "to": "packages/ui/src/views/credentials/CredentialListDialog.jsx"
+        },
+        {
+            "from": "packages/ui/src/ui-component/flow/WhichFlow.jsx",
+            "to": "packages/ui/src/ui-component/button/RBACButtons.jsx"
+        },
+        {
+            "from": "packages/ui/src/utils/usePrompt.test.js",
+            "to": "packages/ui/src/utils/usePrompt.js"
+        },
+        {
+            "from": "packages/ui/src/views/canvas/CompactCardBody.jsx",
+            "to": "packages/ui/src/views/canvas/NodeInputHandler.jsx"
+        },
+        {
+            "from": "packages/ui/src/views/canvas/CompactCardBody.jsx",
+            "to": "packages/ui/src/views/canvas/NodeOutputHandler.jsx"
+        },
+        {
+            "from": "packages/ui/src/views/canvas/NodeSidePanel.jsx",
+            "to": "packages/ui/src/store/constant.js"
+        },
+        {
+            "from": "packages/ui/src/views/canvas/NodeSidePanel.jsx",
+            "to": "packages/ui/src/views/canvas/NodeInputHandler.jsx"
+        },
+        {
+            "from": "packages/ui/src/views/canvas/PublishDialog.jsx",
+            "to": "packages/ui/src/hooks/useConfirm.jsx"
+        },
+        {
+            "from": "packages/ui/src/views/canvas/PublishDialog.jsx",
+            "to": "packages/ui/src/store/actions.js"
+        },
+        {
+            "from": "packages/ui/src/views/etl/index.jsx",
+            "to": "packages/ui/src/layout/MainLayout/ViewHeader.jsx"
+        },
+        {
+            "from": "packages/ui/src/views/etl/index.jsx",
+            "to": "packages/ui/src/ui-component/button/RBACButtons.jsx"
+        },
+        {
+            "from": "packages/ui/src/views/etl/index.jsx",
+            "to": "packages/ui/src/ui-component/cards/MainCard.jsx"
+        },
+        {
+            "from": "packages/ui/src/views/harnesses/HarnessHome.jsx",
+            "to": "packages/ui/src/hooks/useApi.jsx"
+        },
+        {
+            "from": "packages/ui/src/views/harnesses/HarnessHome.jsx",
+            "to": "packages/ui/src/layout/MainLayout/ViewHeader.jsx"
+        },
+        {
+            "from": "packages/ui/src/views/harnesses/HarnessHome.jsx",
+            "to": "packages/ui/src/store/constant.js"
+        },
+        {
+            "from": "packages/ui/src/views/harnesses/HarnessHome.jsx",
+            "to": "packages/ui/src/ui-component/button/RBACButtons.jsx"
+        },
+        {
+            "from": "packages/ui/src/views/harnesses/HarnessHome.jsx",
+            "to": "packages/ui/src/ui-component/cards/MainCard.jsx"
+        },
+        {
+            "from": "packages/ui/src/views/harnesses/index.jsx",
+            "to": "packages/ui/src/hooks/useApi.jsx"
+        },
+        {
+            "from": "packages/ui/src/views/harnesses/index.jsx",
+            "to": "packages/ui/src/layout/MainLayout/ViewHeader.jsx"
+        },
+        {
+            "from": "packages/ui/src/views/harnesses/index.jsx",
+            "to": "packages/ui/src/ui-component/button/RBACButtons.jsx"
+        },
+        {
+            "from": "packages/ui/src/views/harnesses/index.jsx",
+            "to": "packages/ui/src/ui-component/cards/ItemCard.jsx"
+        },
+        {
+            "from": "packages/ui/src/views/harnesses/index.jsx",
+            "to": "packages/ui/src/ui-component/cards/MainCard.jsx"
+        },
+        {
+            "from": "packages/ui/src/views/notfound/index.jsx",
+            "to": "packages/ui/src/ui-component/cards/MainCard.jsx"
+        },
+        {
+            "from": "packages/ui/src/views/promote/index.jsx",
+            "to": "packages/ui/src/layout/MainLayout/ViewHeader.jsx"
+        },
+        {
+            "from": "packages/ui/src/views/promote/index.jsx",
+            "to": "packages/ui/src/ui-component/cards/MainCard.jsx"
+        },
+        {
+            "from": "packages/ui/src/views/promote/PromoteFlow.jsx",
+            "to": "packages/ui/src/ui-component/cards/MainCard.jsx"
+        },
+        {
+            "from": "packages/ui/src/views/serversettings/index.jsx",
+            "to": "packages/ui/src/store/actions.js"
+        },
+        {
+            "from": "packages/ui/src/views/serversettings/index.jsx",
+            "to": "packages/ui/src/ui-component/cards/MainCard.jsx"
+        },
+        {
+            "from": "packages/ui/src/views/serversettings/index.jsx",
+            "to": "packages/ui/src/utils/useNotifier.js"
+        },
+        {
+            "from": "packages/ui/src/views/serversettings/RestartScreen.jsx",
+            "to": "packages/ui/src/store/constant.js"
+        },
+        {
+            "from": "packages/ui/src/views/serversetup/index.jsx",
+            "to": "packages/ui/src/ui-component/extended/Logo.jsx"
+        },
+        {
+            "from": "packages/ui/src/views/serversetup/model.js",
+            "to": "packages/ui/src/utils/validation.js"
+        },
+        {
+            "from": "packages/ui/src/views/setup/GithubStep.jsx",
+            "to": "packages/ui/src/ui-component/extended/Logo.jsx"
+        },
+        {
+            "from": "packages/ui/src/views/versions/VersionCanvas.jsx",
+            "to": "packages/ui/src/api/chatflows.js"
+        },
+        {
+            "from": "packages/ui/src/views/versions/VersionCanvas.jsx",
+            "to": "packages/ui/src/store/actions.js"
+        },
+        {
+            "from": "packages/ui/src/views/versions/VersionCanvas.jsx",
+            "to": "packages/ui/src/store/context/ReactFlowContext.jsx"
+        },
+        {
+            "from": "packages/ui/src/views/versions/VersionCanvas.jsx",
+            "to": "packages/ui/src/ui-component/rbac/available.jsx"
+        },
+        {
+            "from": "packages/ui/src/views/versions/VersionCanvas.jsx",
+            "to": "packages/ui/src/views/agentflowsv2/AgentFlowEdge.jsx"
+        },
+        {
+            "from": "packages/ui/src/views/versions/VersionCanvas.jsx",
+            "to": "packages/ui/src/views/agentflowsv2/AgentFlowNode.jsx"
+        },
+        {
+            "from": "packages/ui/src/views/versions/VersionCanvas.jsx",
+            "to": "packages/ui/src/views/agentflowsv2/IterationNode.jsx"
+        },
+        {
+            "from": "packages/ui/src/views/versions/VersionCanvas.jsx",
+            "to": "packages/ui/src/views/agentflowsv2/StickyNote.jsx"
+        },
+        {
+            "from": "packages/ui/src/views/versions/VersionCanvas.jsx",
+            "to": "packages/ui/src/views/canvas/index.css"
+        },
+        {
+            "from": "packages/ui/src/views/versions/VersionCanvas.jsx",
+            "to": "packages/ui/src/views/canvas/StickyNote.jsx"
+        },
+        {
+            "from": "packages/ui/src/views/versions/VersionCanvas.jsx",
+            "to": "packages/ui/src/views/marketplaces/MarketplaceCanvasNode.jsx"
+        },
+        {
+            "from": "packages/ui/src/views/versionsettings/GithubCard.jsx",
+            "to": "packages/ui/src/api/credentials.js"
+        },
+        {
+            "from": "packages/ui/src/views/versionsettings/index.jsx",
+            "to": "packages/ui/src/layout/MainLayout/ViewHeader.jsx"
+        },
+        {
+            "from": "packages/ui/src/views/versionsettings/index.jsx",
+            "to": "packages/ui/src/ui-component/cards/MainCard.jsx"
+        }
+    ],
+    "r4Edges": [],
+    "r5Edges": [
+        {
+            "from": "scripts/hermes-import-smoke.mjs",
+            "to": "hermes/"
+        },
+        {
+            "from": "scripts/outbound-guard.test.mjs",
+            "to": "hermes/agent/models_dev.py"
+        },
+        {
+            "from": "scripts/outbound-guard.test.mjs",
+            "to": "hermes/patches/0005-cuttlely-models.dev-offline-by-default.patch"
+        }
+    ],
+    "r6Additions": []
+}

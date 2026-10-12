@@ -25,18 +25,19 @@ Where things live. Merged work is in `git log` and the closed pull requests (`gh
 
 ## Code artifacts
 
-| What                                   | Where                                                                                                    |
-| -------------------------------------- | -------------------------------------------------------------------------------------------------------- |
-| Sample harnesses, chatflows, pipelines | `samples/harnesses/`, `samples/chatflows/`, `samples/etl/`, `samples/demo/`                              |
-| Node catalog classification            | `packages/components/nodes/module-catalog.json` (`scripts/build-module-catalog.mjs`)                     |
-| Chat-model list                        | `packages/components/models.json`                                                                        |
-| Server settings registry               | `packages/server/src/settings/registry.ts`                                                               |
-| Upgrade fixture                        | `scripts/fixtures/upgrade/` (`scripts/upgrade-fixture.mjs`)                                              |
-| Identity schema fixtures and golden    | `scripts/fixtures/`, `scripts/identity-schema.golden.json`                                               |
-| Agent runtime vendor inputs            | `hermes/UPSTREAM_COMMIT`, `hermes/CUTTLELY_EXCLUDE.txt`, `hermes/patches/`, `hermes/CUTTLELY_VENDOR.txt` |
-| Repository description                 | `.github/repo-description.txt`                                                                           |
-| npm launcher                           | `packages/cli` (`cuttlely`). Runs `ghcr.io/cuttlely/cuttlely`                                            |
-| Embeddable chat widget                 | `packages/chat-widget` (`@cuttlely/chat`). The server also serves `dist/chat.js` at `/embed/chat.js`     |
+| What                                   | Where                                                                                                      |
+| -------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| Sample harnesses, chatflows, pipelines | `samples/harnesses/`, `samples/chatflows/`, `samples/etl/`, `samples/demo/`                                |
+| Node catalog classification            | `packages/components/nodes/module-catalog.json` (`scripts/build-module-catalog.mjs`)                       |
+| Module boundaries                      | `architecture/boundary-baseline.json`, `architecture/inherited-files.txt` (`scripts/check-boundaries.mjs`) |
+| Chat-model list                        | `packages/components/models.json`                                                                          |
+| Server settings registry               | `packages/server/src/settings/registry.ts`                                                                 |
+| Upgrade fixture                        | `scripts/fixtures/upgrade/` (`scripts/upgrade-fixture.mjs`)                                                |
+| Identity schema fixtures and golden    | `scripts/fixtures/`, `scripts/identity-schema.golden.json`                                                 |
+| Agent runtime vendor inputs            | `hermes/UPSTREAM_COMMIT`, `hermes/CUTTLELY_EXCLUDE.txt`, `hermes/patches/`, `hermes/CUTTLELY_VENDOR.txt`   |
+| Repository description                 | `.github/repo-description.txt`                                                                             |
+| npm launcher                           | `packages/cli` (`cuttlely`). Runs `ghcr.io/cuttlely/cuttlely`                                              |
+| Embeddable chat widget                 | `packages/chat-widget` (`@cuttlely/chat`). The server also serves `dist/chat.js` at `/embed/chat.js`       |
 
 ## Generated locally (gitignored)
 

@@ -30,6 +30,8 @@ jobs:
                   node-version: 24.15.0
                   cache: 'pnpm'
                   cache-dependency-path: 'pnpm-lock.yaml'
+            - name: boundaries
+              run: node scripts/check-boundaries.mjs && node --test scripts/check-boundaries.test.mjs
             - run: pnpm install
             - run: pnpm lint
 
