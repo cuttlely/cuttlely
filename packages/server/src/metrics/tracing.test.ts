@@ -301,6 +301,147 @@ describe('run trace spans', () => {
         expect(model?.attributes['content.output']).toBe('Fresh bread at 7')
     })
 
+    it('gives overlapping executeAgentFlow runs and a chatflow their own roots', async () => {
+        process.env.CUTTLELY_OTEL_TRACES = 'true'
+        const agentA = 'b7c1a6f2-1d9e-4a51-9a7e-3f1f0c2d4e5a'
+        const agentB = 'c8d2b7a3-2e0f-4b62-8b8f-4a201d3e5f6b'
+        const chatId = 'd9e3c8b4-3f10-4c73-9c90-5b312e4f607c'
+        const entered = new Set<string>()
+        let signalFirst: () => void = () => undefined
+        const firstInNode = new Promise<void>((resolve) => {
+            signalFirst = resolve
+        })
+        let release: () => void = () => undefined
+        const ready = new Promise<void>((resolve) => {
+            release = resolve
+        })
+        ;(globalThis as { __cuttlelyTraceGate?: { enter: (id: string) => Promise<void> } }).__cuttlelyTraceGate = {
+            enter: async (id: string) => {
+                entered.add(id)
+                if (id === agentA) signalFirst()
+                if (entered.size >= 3) release()
+                await ready
+            }
+        }
+        const write = (name: string, body: string) => {
+            const file = path.join(dir, `${name}.js`)
+            fs.writeFileSync(file, body)
+            return { filePath: file }
+        }
+        const step = (body: string) => `exports.nodeClass = class { async run(nodeData, input, options) { ${body} } }\n`
+        const blockingAgents = {
+            startAgentflow: write(
+                'overlap-start',
+                step(`return { id: nodeData.id, name: 'startAgentflow', input: { question: input }, output: { question: input } }`)
+            ),
+            llmAgentflow: write(
+                'overlap-llm',
+                step(
+                    `const gate = global.__cuttlelyTraceGate; if (gate) await gate.enter(options.chatflowid); return { id: nodeData.id, name: 'llmAgentflow', input: { question: input }, output: { content: 'Fresh bread at 7', usageMetadata: { input_tokens: 12, output_tokens: 9 } } }`
+                )
+            ),
+            toolAgentflow: write(
+                'overlap-tool',
+                step(
+                    `return { id: nodeData.id, name: 'toolAgentflow', input: { toolAgentflowSelectedTool: 'oven' }, output: { content: '350F' } }`
+                )
+            )
+        }
+        const blockingChat = {
+            chatOpenAI: write(
+                'overlap-model',
+                `exports.nodeClass = class { constructor() {} async init() { return {} } async run() { return {} } }\n`
+            ),
+            llmChain: write(
+                'overlap-chain',
+                `exports.nodeClass = class { constructor() {} async init() { return {} } async run(nodeData, input, options) { const gate = global.__cuttlelyTraceGate; if (gate) await gate.enter(options.chatflowid); return { text: 'At 7.' } } }\n`
+            )
+        }
+        const flowData = JSON.stringify({
+            nodes: [
+                agentNode('startAgentflow_0', 'startAgentflow', 'Start', { startInputType: 'chatInput' }),
+                agentNode('llmAgentflow_0', 'llmAgentflow', 'Bakery helper', { llmModelConfig: { modelName: 'gpt-4o-mini' } }),
+                agentNode('toolAgentflow_0', 'toolAgentflow', 'Oven', { toolAgentflowSelectedTool: 'oven' })
+            ],
+            edges: [
+                { id: 'e1', source: 'startAgentflow_0', target: 'llmAgentflow_0' },
+                { id: 'e2', source: 'llmAgentflow_0', target: 'toolAgentflow_0' }
+            ]
+        })
+        const runAgentFlow = (id: string, chat: string) =>
+            executeAgentFlow({
+                componentNodes: blockingAgents,
+                incomingInput: { question: 'When is the sourdough ready?', streaming: false },
+                chatflow: { id, name: 'Bakery helper', type: 'AGENTFLOW', flowData, workspaceId: 'ws-1' },
+                chatId: chat,
+                appDataSource: recordingDataSource(),
+                telemetry: { sendTelemetry: jest.fn() },
+                usageCacheManager: {},
+                cachePool: {},
+                sseStreamer: new Proxy({}, { get: () => () => undefined }),
+                baseURL: 'http://127.0.0.1',
+                isInternal: true,
+                orgId: 'org-1',
+                workspaceId: 'ws-1',
+                subscriptionId: 'sub-1',
+                productId: 'prod-1',
+                replay: false
+            } as any)
+        const chatFlowData = JSON.stringify({
+            nodes: [chatNode('chatOpenAI_0', 'chatOpenAI', 'Chat Models'), chatNode('llmChain_0', 'llmChain', 'Chains')],
+            edges: [{ id: 'e1', source: 'chatOpenAI_0', target: 'llmChain_0' }]
+        })
+        try {
+            const first = runAgentFlow(agentA, 'c0ffee00-0000-4000-8000-000000000011')
+            await firstInNode
+            await Promise.all([
+                first,
+                runAgentFlow(agentB, 'c0ffee00-0000-4000-8000-000000000012'),
+                executeFlow({
+                    componentNodes: blockingChat,
+                    incomingInput: { question: 'When is the sourdough ready?', streaming: false },
+                    chatflow: { id: chatId, name: 'Bakery chat', type: 'CHATFLOW', flowData: chatFlowData, workspaceId: 'ws-1' },
+                    chatId: 'c0ffee00-0000-4000-8000-000000000013',
+                    appDataSource: recordingDataSource(),
+                    telemetry: { sendTelemetry: jest.fn() },
+                    cachePool: {},
+                    usageCacheManager: {},
+                    sseStreamer: undefined,
+                    baseURL: 'http://127.0.0.1',
+                    isInternal: true,
+                    orgId: 'org-1',
+                    workspaceId: 'ws-1',
+                    subscriptionId: 'sub-1',
+                    productId: 'prod-1'
+                } as any)
+            ])
+        } finally {
+            delete (globalThis as { __cuttlelyTraceGate?: unknown }).__cuttlelyTraceGate
+        }
+        const spans = memory.spans()
+        const roots = spans.filter((span) => !span.parentSpanId)
+        const agentRoots = roots.filter((span) => span.name === 'agentflow.run')
+        const chatRoots = roots.filter((span) => span.name === 'chatflow.prediction')
+        expect(agentRoots.map((span) => span.attributes['flow.id']).sort()).toEqual([agentA, agentB])
+        expect(chatRoots.map((span) => span.attributes['flow.id'])).toEqual([chatId])
+        expect(new Set(roots.map((span) => span.traceId)).size).toBe(3)
+        const byId = new Map(spans.map((span) => [span.spanId, span]))
+        for (const root of roots) {
+            const nodes = spans.filter((span) => span.traceId === root.traceId && span.name === 'node')
+            expect(nodes.length).toBeGreaterThan(0)
+            for (const node of nodes) {
+                expect(node.attributes['flow.id']).toBe(root.attributes['flow.id'])
+                expect(node.parentSpanId).toBe(root.spanId)
+                expect(byId.get(node.parentSpanId)?.traceId).toBe(root.traceId)
+            }
+        }
+        const sharedNodeId = 'llmAgentflow_0'
+        const shared = spans.filter((span) => span.name === 'node' && span.attributes['node.id'] === sharedNodeId)
+        expect(shared).toHaveLength(2)
+        expect(new Set(shared.map((span) => span.attributes['flow.id']))).toEqual(new Set([agentA, agentB]))
+        expect(new Set(shared.map((span) => span.traceId)).size).toBe(2)
+    })
+
     it('keeps two concurrent runs on separate traces', async () => {
         process.env.CUTTLELY_OTEL_TRACES = 'true'
         let release: () => void = () => undefined
@@ -340,6 +481,43 @@ describe('run trace spans', () => {
             expect(model?.attributes['node.id']).toBe(`${root.attributes['flow.id']}-model`)
             expect(model?.traceId).toBe(root.traceId)
         }
+    })
+
+    it('does not mark a tool that is waiting for approval as ok', async () => {
+        process.env.CUTTLELY_OTEL_TRACES = 'true'
+        await traceFlow('agentflow', 'flow-approve', async () => {
+            await tracedNode('agentAgentflow_0', 'agentAgentflow', { agentModelConfig: { modelName: 'gpt-4o-mini' } }, async () => ({
+                output: {
+                    content: 'Need approval',
+                    isWaitingForHumanInput: true,
+                    calledTools: [{ name: 'oven', id: 'call-1' }],
+                    usageMetadata: { input_tokens: 4, output_tokens: 2 }
+                }
+            }))
+        })
+        const tools = memory.spans().filter((span) => span.name === 'tool')
+        expect(tools.map((span) => span.attributes['tool.name'])).toEqual(['oven'])
+        expect(tools[0].attributes['status']).toBe('pending')
+    })
+
+    it('records a tool that ran once and leaves a call that did not run pending', async () => {
+        process.env.CUTTLELY_OTEL_TRACES = 'true'
+        await traceFlow('agentflow', 'flow-mixed', async () => {
+            await tracedNode('agentAgentflow_0', 'agentAgentflow', { agentModelConfig: { modelName: 'gpt-4o-mini' } }, async () => ({
+                output: {
+                    usedTools: [{ tool: 'calculator', toolInput: '2+2', toolOutput: '4' }],
+                    calledTools: [{ name: 'calculator' }, { name: 'oven' }],
+                    usageMetadata: { input_tokens: 8, output_tokens: 3 }
+                }
+            }))
+        })
+        const tools = memory.spans().filter((span) => span.name === 'tool')
+        const calculator = tools.filter((span) => span.attributes['tool.name'] === 'calculator')
+        const oven = tools.filter((span) => span.attributes['tool.name'] === 'oven')
+        expect(calculator).toHaveLength(1)
+        expect(calculator[0].attributes['status']).toBe('ok')
+        expect(oven).toHaveLength(1)
+        expect(oven[0].attributes['status']).toBe('pending')
     })
 
     it('emits no spans for a publish check replay (cuttlelyReplay)', async () => {

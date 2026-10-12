@@ -14,7 +14,7 @@ import {
     generateFollowUpPrompts,
     tracingEnvEnabled
 } from '@cuttlely/components'
-import { flowTraceOpen, noteFlowOutcome, silenceRunTraces, traceFlow, tracedNode } from '../metrics/tracing'
+import { noteFlowOutcome, silenceRunTraces, traceFlow, tracedNode } from '../metrics/tracing'
 import {
     IncomingAgentflowInput,
     INodeData,
@@ -1562,9 +1562,10 @@ export const executeAgentFlow = async (params: IExecuteAgentFlowParams): Promise
     // A publish check replay exports no spans, including the nodes it still runs.
     if (!params.isRecursive && params.replay) return silenceRunTraces(() => runAgentFlow(params))
     // When traces are off this is one environment check and the body runs once.
-    if (!params.isRecursive && process.env.CUTTLELY_OTEL_TRACES === 'true' && !flowTraceOpen()) {
+    // isRecursive is the iteration guard: a nested pass joins the active trace instead of starting another root.
+    if (!params.isRecursive && process.env.CUTTLELY_OTEL_TRACES === 'true') {
         return traceFlow('agentflow', params.chatflow.id, async () => {
-            const result = await executeAgentFlow(params)
+            const result = await runAgentFlow(params)
             noteFlowOutcome(params.incomingInput?.question ?? params.incomingInput?.form, result?.text, result?.status)
             return result
         })

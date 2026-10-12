@@ -12,7 +12,6 @@ const MODEL_NODES = new Set(['llmAgentflow', 'agentAgentflow', 'conditionAgentAg
 
 let provider: any
 let installed = false
-let flowDepth = 0
 const failedSpans = new WeakSet<object>()
 // A publish-check replay runs inside this store so its node and model spans are not exported.
 const replaySilence = new AsyncLocalStorage<true>()
@@ -44,10 +43,6 @@ export interface FinishedTraceSpan {
 
 export function tracesInstalled(): boolean {
     return installed
-}
-
-export function flowTraceOpen(): boolean {
-    return flowDepth > 0
 }
 
 function serviceVersion(): string {
@@ -209,6 +204,12 @@ function endOk(span: SpanLike | undefined): void {
     span.end()
 }
 
+function endPending(span: SpanLike | undefined): void {
+    if (!span) return
+    span.setAttribute('status', 'pending')
+    span.end()
+}
+
 function endError(span: SpanLike | undefined, error: unknown): void {
     if (!span) return
     const message = error instanceof Error ? error.message : String(error)
@@ -220,33 +221,28 @@ function endError(span: SpanLike | undefined, error: unknown): void {
 
 export async function traceFlow<T>(kind: 'agentflow' | 'chatflow', flowId: string, fn: () => Promise<T>): Promise<T> {
     if (!tracesRequested()) return fn()
-    flowDepth += 1
+    registerCuttlelyTraces()
+    if (!installed || !provider) return await fn()
+    const { context, trace, SpanStatusCode } = api()
+    const span = provider
+        .getTracer('cuttlely')
+        .startSpan(kind === 'agentflow' ? 'agentflow.run' : 'chatflow.prediction', {}, context.active())
+    span.setAttribute('flow.id', flowId)
+    span.setAttribute('flow.kind', kind)
+    const ctx = trace.setSpan(context.active(), span)
     try {
-        registerCuttlelyTraces()
-        if (!installed || !provider) return await fn()
-        const { context, trace, SpanStatusCode } = api()
-        const span = provider
-            .getTracer('cuttlely')
-            .startSpan(kind === 'agentflow' ? 'agentflow.run' : 'chatflow.prediction', {}, context.active())
-        span.setAttribute('flow.id', flowId)
-        span.setAttribute('flow.kind', kind)
-        const ctx = trace.setSpan(context.active(), span)
-        try {
-            const result = await context.with(ctx, fn)
-            if (failedSpans.has(span)) {
-                span.setStatus({ code: SpanStatusCode.ERROR, message: String(span.attributes?.error ?? 'error') })
-            } else {
-                span.setAttribute('status', 'ok')
-                span.setStatus({ code: SpanStatusCode.OK })
-            }
-            span.end()
-            return result
-        } catch (error) {
-            endError(span, error)
-            throw error
+        const result = await context.with(ctx, fn)
+        if (failedSpans.has(span)) {
+            span.setStatus({ code: SpanStatusCode.ERROR, message: String(span.attributes?.error ?? 'error') })
+        } else {
+            span.setAttribute('status', 'ok')
+            span.setStatus({ code: SpanStatusCode.OK })
         }
-    } finally {
-        flowDepth -= 1
+        span.end()
+        return result
+    } catch (error) {
+        endError(span, error)
+        throw error
     }
 }
 
@@ -367,13 +363,21 @@ function recordLateModel(result: unknown, nodeId: string, nodeType: string, inpu
     finishModel(span, result)
 }
 
+function executedToolName(record: { tool?: unknown; name?: unknown } | undefined): string {
+    if (typeof record?.tool === 'string' && record.tool) return record.tool
+    if (typeof record?.name === 'string' && record.name) return record.name
+    return 'tool'
+}
+
 function recordLateTools(result: unknown, nodeId: string, nodeType: string): void {
     const output = (result as { output?: { usedTools?: unknown; calledTools?: unknown } } | undefined)?.output
     const used = Array.isArray(output?.usedTools) ? output.usedTools : []
     const called = Array.isArray(output?.calledTools) ? output.calledTools : []
+    const ran = new Set<string>()
     for (const tool of used) {
         const record = tool as { tool?: unknown; name?: unknown; error?: unknown; toolInput?: unknown; toolOutput?: unknown }
-        const name = typeof record?.tool === 'string' ? record.tool : typeof record?.name === 'string' ? record.name : 'tool'
+        const name = executedToolName(record)
+        ran.add(name)
         const span = openChild('tool', nodeId, nodeType, { 'tool.name': name })
         if (!span) continue
         if (record?.error) {
@@ -383,11 +387,11 @@ function recordLateTools(result: unknown, nodeId: string, nodeType: string): voi
         writeContent(span, record?.toolInput, record?.toolOutput)
         endOk(span)
     }
+    // calledTools is the model's request list. A tool that did not run (it is waiting for approval) is not a success.
     for (const tool of called) {
-        const record = tool as { name?: unknown }
-        const name = typeof record?.name === 'string' ? record.name : 'tool'
-        const span = openChild('tool', nodeId, nodeType, { 'tool.name': name })
-        endOk(span)
+        const name = executedToolName(tool as { name?: unknown })
+        if (ran.has(name)) continue
+        endPending(openChild('tool', nodeId, nodeType, { 'tool.name': name }))
     }
 }
 
