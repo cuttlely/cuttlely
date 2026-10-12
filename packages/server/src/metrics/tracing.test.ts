@@ -14,7 +14,9 @@ import {
     registerCuttlelyTraces,
     shutdownCuttlelyTraces,
     traceFlow,
+    tracedNode,
     tracesInstalled,
+    withNodeSpan,
     type FinishedTraceSpan
 } from './tracing'
 
@@ -210,7 +212,7 @@ describe('run trace spans', () => {
         }
     })
 
-    async function runChat(enabled = true) {
+    async function runChat(enabled = true, replay = false) {
         if (enabled) process.env.CUTTLELY_OTEL_TRACES = 'true'
         else delete process.env.CUTTLELY_OTEL_TRACES
         const flowData = JSON.stringify({
@@ -232,7 +234,8 @@ describe('run trace spans', () => {
             orgId: 'org-1',
             workspaceId: 'ws-1',
             subscriptionId: 'sub-1',
-            productId: 'prod-1'
+            productId: 'prod-1',
+            replay
         } as any)
     }
 
@@ -296,6 +299,54 @@ describe('run trace spans', () => {
         expect(root?.attributes['content.output']).toBe(result.text)
         const model = spans.find((span) => span.name === 'model')
         expect(model?.attributes['content.output']).toBe('Fresh bread at 7')
+    })
+
+    it('keeps two concurrent runs on separate traces', async () => {
+        process.env.CUTTLELY_OTEL_TRACES = 'true'
+        let release: () => void = () => undefined
+        const bothInside = new Promise<void>((resolve) => {
+            release = resolve
+        })
+        let entered = 0
+        const run = (flowId: string, waitMs: number) =>
+            traceFlow('chatflow', flowId, async () => {
+                entered += 1
+                if (entered === 2) release()
+                await bothInside
+                await withNodeSpan(`${flowId}-node`, 'llmChain', async () => {
+                    await tracedNode(`${flowId}-model`, 'llmAgentflow', { llmModelConfig: { modelName: 'gpt-4o-mini' } }, async () => {
+                        await new Promise((done) => setTimeout(done, waitMs))
+                        return { output: { content: flowId, usageMetadata: { input_tokens: 3, output_tokens: 1 } } }
+                    })
+                })
+            })
+        await Promise.all([run('flow-a', 25), run('flow-b', 5)])
+        const spans = memory.spans()
+        const roots = spans.filter((span) => span.name === 'chatflow.prediction')
+        expect(roots.map((span) => span.attributes['flow.id']).sort()).toEqual(['flow-a', 'flow-b'])
+        expect(new Set(roots.map((span) => span.traceId)).size).toBe(2)
+        const byId = new Map(spans.map((span) => [span.spanId, span]))
+        for (const root of roots) {
+            const mine = spans.filter((span) => span.traceId === root.traceId)
+            expect(mine.length).toBeGreaterThan(1)
+            for (const span of mine) {
+                expect(span.attributes['flow.id']).toBe(root.attributes['flow.id'])
+                if (!span.parentSpanId) continue
+                expect(byId.get(span.parentSpanId)?.traceId).toBe(root.traceId)
+            }
+            const node = mine.find((span) => span.attributes['node.id'] === `${root.attributes['flow.id']}-node`)
+            expect(node?.parentSpanId).toBe(root.spanId)
+            const model = mine.find((span) => span.name === 'model')
+            expect(model?.attributes['node.id']).toBe(`${root.attributes['flow.id']}-model`)
+            expect(model?.traceId).toBe(root.traceId)
+        }
+    })
+
+    it('emits no spans for a publish check replay (cuttlelyReplay)', async () => {
+        process.env.CUTTLELY_OTEL_TRACES = 'true'
+        const result = await runChat(true, true)
+        expect(result.text).toBe('At 7.')
+        expect(memory.spans()).toEqual([])
     })
 
     it('exports nothing when traces are disabled', async () => {

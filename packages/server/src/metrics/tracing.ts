@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from 'async_hooks'
 import { setCuttlelyTracer, tokenCount, writeContent } from '@cuttlely/components'
 import logger from '../utils/logger'
 
@@ -13,6 +14,18 @@ let provider: any
 let installed = false
 let flowDepth = 0
 const failedSpans = new WeakSet<object>()
+// A publish-check replay runs inside this store so its node and model spans are not exported.
+const replaySilence = new AsyncLocalStorage<true>()
+
+function tracesRequested(): boolean {
+    if (process.env.CUTTLELY_OTEL_TRACES !== 'true') return false
+    return !replaySilence.getStore()
+}
+
+/** Run fn with tracing suppressed. Used for a publish check replay. */
+export function silenceRunTraces<T>(fn: () => Promise<T>): Promise<T> {
+    return replaySilence.run(true, fn)
+}
 
 type SpanLike = {
     setAttribute: (key: string, value: string | number | boolean) => void
@@ -23,6 +36,7 @@ type SpanLike = {
 
 export interface FinishedTraceSpan {
     name: string
+    traceId: string
     spanId: string
     parentSpanId?: string
     attributes: Record<string, string | number | boolean>
@@ -167,9 +181,10 @@ export function installInMemoryTraces(): { spans: () => FinishedTraceSpan[]; res
                         name: string
                         parentSpanId?: string
                         attributes: Record<string, unknown>
-                        spanContext: () => { spanId: string }
+                        spanContext: () => { spanId: string; traceId: string }
                     }) => ({
                         name: span.name,
+                        traceId: span.spanContext().traceId,
                         spanId: span.spanContext().spanId,
                         parentSpanId: span.parentSpanId,
                         attributes: plainAttributes(span.attributes)
@@ -204,7 +219,7 @@ function endError(span: SpanLike | undefined, error: unknown): void {
 }
 
 export async function traceFlow<T>(kind: 'agentflow' | 'chatflow', flowId: string, fn: () => Promise<T>): Promise<T> {
-    if (process.env.CUTTLELY_OTEL_TRACES !== 'true') return fn()
+    if (!tracesRequested()) return fn()
     flowDepth += 1
     try {
         registerCuttlelyTraces()
@@ -241,7 +256,8 @@ export async function traceChatflowPrediction<T>(
     question: () => unknown,
     fn: () => Promise<T>
 ): Promise<T> {
-    if (replay || process.env.CUTTLELY_OTEL_TRACES !== 'true') return fn()
+    if (replay) return silenceRunTraces(fn)
+    if (!tracesRequested()) return fn()
     return traceFlow('chatflow', flowId, async () => {
         const result = await fn()
         noteFlowOutcome(question(), (result as { text?: unknown } | undefined)?.text)
@@ -250,7 +266,7 @@ export async function traceChatflowPrediction<T>(
 }
 
 export function noteFlowOutcome(input: unknown, output: unknown, status?: string): void {
-    if (process.env.CUTTLELY_OTEL_TRACES !== 'true' || !installed) return
+    if (!tracesRequested() || !installed) return
     const span = api().trace.getActiveSpan()
     if (!span) return
     if (status === 'ERROR' || status === 'TERMINATED') {
@@ -262,7 +278,7 @@ export function noteFlowOutcome(input: unknown, output: unknown, status?: string
 }
 
 export async function withNodeSpan<T>(nodeId: string, nodeType: string, fn: () => Promise<T>): Promise<T> {
-    if (process.env.CUTTLELY_OTEL_TRACES !== 'true' || !installed) return fn()
+    if (!tracesRequested() || !installed) return fn()
     const { context, trace, SpanStatusCode } = api()
     const span = provider.getTracer('cuttlely').startSpan('node', {}, context.active())
     span.setAttribute('node.id', nodeId)
@@ -385,7 +401,7 @@ export async function tracedNode<T>(
     inputs: Record<string, unknown> | undefined,
     fn: () => Promise<T>
 ): Promise<T> {
-    if (process.env.CUTTLELY_OTEL_TRACES !== 'true') return fn()
+    if (!tracesRequested()) return fn()
     return withNodeSpan(nodeId, nodeType, async () => {
         const modelSpan = MODEL_NODES.has(nodeType)
             ? openChild('model', nodeId, nodeType, { 'model.name': modelNameFromInputs(inputs) })
