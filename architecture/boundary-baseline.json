@@ -1295,5 +1295,10 @@
             "to": "hermes/patches/0005-cuttlely-models.dev-offline-by-default.patch"
         }
     ],
-    "r6Additions": []
+    "r6Additions": [
+        {
+            "path": "packages/server/src/utils/telemetry-geoip-missing.test.ts",
+            "reason": "Server unit test for geolocation when the database package is absent."
+        }
+    ]
 }

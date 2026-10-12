@@ -1424,6 +1424,7 @@ packages/server/src/utils/signatureVerification.test.ts
 packages/server/src/utils/signatureVerification.ts
 packages/server/src/utils/stripProtectedFields.test.ts
 packages/server/src/utils/stripProtectedFields.ts
+packages/server/src/utils/telemetry-geoip-missing.test.ts
 packages/server/src/utils/telemetry.test.ts
 packages/server/src/utils/telemetry.ts
 packages/server/src/utils/typeormDataSource.ts
