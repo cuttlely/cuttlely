@@ -126,6 +126,13 @@ describe('publish diff', () => {
         expect(lines).toContain('Rewired connections')
     })
 
+    test('a draft that matched Live does not look changed when the only difference is nodePack', () => {
+        const withPack = JSON.parse(live)
+        withPack.nodes[0].data.nodePack = '@cuttlely/node-pack-tools-mcp'
+        expect(diffCanvases(live, JSON.stringify(withPack)).changed).toEqual([])
+        expect(publishChangeLines(live, JSON.stringify(withPack))).toEqual([])
+    })
+
     test('ignores the selected flag and a canvas that is not JSON', () => {
         const selectedOnly = JSON.stringify({
             nodes: [

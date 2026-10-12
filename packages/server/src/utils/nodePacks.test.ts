@@ -2,6 +2,7 @@ import fs from 'fs'
 import os from 'os'
 import path from 'path'
 import { StatusCodes } from 'http-status-codes'
+import { API_KEY_BLACKLIST_URLS, WHITELIST_URLS } from './constants'
 import { NodesPool } from '../NodesPool'
 import { credentialDefinitionDirs } from './replaceInputsWithConfig'
 import { missingNodeFailure, nodePackList, packForNode, resolveNodePacks, stampNodePack } from './nodePacks'
@@ -218,10 +219,45 @@ describe('a saved node that is not installed', () => {
         const stamped = stampNodePack(raw)
         expect(JSON.parse(stamped).nodes[0].data.nodePack).toBe('@cuttlely/node-pack-tools-mcp')
         expect(stampNodePack(stamped)).toBe(stamped)
-        const kept = JSON.stringify({ nodes: [{ data: { name: 'chatOpenAI', label: 'ChatOpenAI' } }] })
-        expect(stampNodePack(kept)).toBe(kept)
-        expect(stampNodePack('not json')).toBe('not json')
-        const already = JSON.stringify({ nodes: [{ data: { name: 'serpAPI', label: 'Serp API', nodePack: 'kept-pack' } }] })
+    })
+
+    test('returns malformed JSON unchanged', () => {
+        for (const raw of ['not json', '{', '', 'null']) {
+            expect(stampNodePack(raw)).toBe(raw)
+        }
+    })
+
+    test('returns flowData without a nodes list unchanged', () => {
+        for (const raw of ['{}', '{"edges":[]}', '{"nodes":{}}', '[]']) {
+            expect(stampNodePack(raw)).toBe(raw)
+        }
+    })
+
+    test('returns a canvas unchanged when no node is a pack node or every pack node already has nodePack', () => {
+        const plain = JSON.stringify({ nodes: [{ data: { name: 'chatOpenAI', label: 'ChatOpenAI' } }], edges: [] })
+        const already = JSON.stringify({
+            nodes: [
+                { data: { name: 'serpAPI', label: 'Serp API', nodePack: 'kept-pack' } },
+                { data: { name: 'chatOpenAI', label: 'ChatOpenAI' } }
+            ]
+        })
+        expect(stampNodePack(plain)).toBe(plain)
         expect(stampNodePack(already)).toBe(already)
+    })
+})
+
+describe('the pack index route', () => {
+    test('requires the same sign-in as the node list', () => {
+        // An unauthenticated /api/v1 request that is not on the public list gets 401,
+        // whether the API-key list refuses it or the key is missing. Both node routes take that path.
+        const status = (path: string) => {
+            if (WHITELIST_URLS.some((url) => path.startsWith(url))) return 200
+            if (API_KEY_BLACKLIST_URLS.some((url) => path.startsWith(url))) return 401
+            return 401
+        }
+        expect(status('/api/v1/nodes/pack-index')).toBe(status('/api/v1/nodes'))
+        expect(status('/api/v1/nodes')).toBe(401)
+        expect(WHITELIST_URLS.some((url) => '/api/v1/nodes'.startsWith(url))).toBe(false)
+        expect(WHITELIST_URLS.some((url) => '/api/v1/nodes/pack-index'.startsWith(url))).toBe(false)
     })
 })
