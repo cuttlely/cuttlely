@@ -6,6 +6,7 @@
 import fs from 'fs'
 import os from 'os'
 import path from 'path'
+import { recordedQuestion } from '../services/flow-check/inputs'
 import { executeAgentFlow } from './buildAgentflow'
 import { stepTokens } from '../services/flow-check/compare'
 
@@ -36,6 +37,20 @@ beforeAll(() => {
         llmAgentflow: write(
             'llm',
             `return { id: nodeData.id, name: 'llmAgentflow', input: {}, output: { content: 'Fresh bread at 7 for: ' + input, usageMetadata: { input_tokens: 12, output_tokens: 9, total_tokens: 21 }, toldReplay: options.replay === true } }`
+        ),
+        // The same rule as the Start node: a form is stored from agentflowRuntime.form, otherwise from the input the engine passed.
+        formStart: write(
+            'form-start',
+            `const type = nodeData.inputs && nodeData.inputs.startInputType
+            const mode = nodeData.inputs && nodeData.inputs.scheduleInputMode
+            const output = {}
+            const runtimeForm = options.agentflowRuntime && options.agentflowRuntime.form
+            if (type === 'formInput' || (type === 'scheduleInput' && mode === 'form')) {
+                output.form = runtimeForm && Object.keys(runtimeForm).length ? runtimeForm : input
+            } else {
+                output.question = input
+            }
+            return { id: nodeData.id, name: 'startAgentflow', input: {}, output, state: {} }`
         )
     }
 })
@@ -85,7 +100,7 @@ function recordingDataSource() {
             }
         }
     }
-    return { calls, appDataSource: { getRepository: repo } }
+    return { calls, saved, appDataSource: { getRepository: repo } }
 }
 
 const streamer = () => {
@@ -114,12 +129,13 @@ async function run(opts: {
     flowData?: string
     incoming?: Record<string, unknown>
     chatType?: string
+    nodes?: Record<string, { filePath: string }>
 }) {
-    const { calls, appDataSource } = recordingDataSource()
+    const { calls, saved, appDataSource } = recordingDataSource()
     const { events, sseStreamer } = streamer()
     const telemetry = { sendTelemetry: jest.fn() }
     const result = await executeAgentFlow({
-        componentNodes,
+        componentNodes: opts.nodes || componentNodes,
         incomingInput: {
             streaming: false,
             humanInput: opts.humanInput,
@@ -147,7 +163,7 @@ async function run(opts: {
         productId: 'prod-1',
         replay: opts.replay
     } as any)
-    return { result, calls, events, telemetry }
+    return { result, calls, events, telemetry, saved }
 }
 
 describe('executeAgentFlow with replay on (publish check)', () => {
@@ -236,6 +252,41 @@ describe('executeAgentFlow with replay on (publish check)', () => {
         expect(schedule.result.status).toBe('FINISHED')
         expect(schedule.result.text).toContain('Run the daily report')
         expect(schedule.calls.filter((c) => c.startsWith('Execution.') || c.startsWith('ChatMessage.'))).toEqual([])
+    })
+
+    it('a real form prediction stores name: value lines, and the check reads that stored string', async () => {
+        const nodes = { ...componentNodes, startAgentflow: componentNodes.formStart }
+        const form = await run({
+            replay: false,
+            startInputType: 'formInput',
+            incoming: { form: { loaf: 'millet' } },
+            nodes
+        })
+        const stored = JSON.parse(form.saved.Execution.executionData).find((step: any) => step.data?.name === 'startAgentflow')
+        expect(stored.data.output.form).toBe('loaf: millet')
+        expect(JSON.parse(recordedQuestion(form.saved.Execution.executionData, 'formInput') as string)).toEqual({
+            form: { loaf: 'millet' }
+        })
+
+        const scheduleCanvas = JSON.stringify({
+            nodes: [
+                node('startAgentflow_0', 'startAgentflow', 'Start', { startInputType: 'scheduleInput', scheduleInputMode: 'form' }),
+                node('llmAgentflow_0', 'llmAgentflow', 'Bakery helper', { llmModel: 'chatOpenAI' })
+            ],
+            edges: [{ id: 'e1', source: 'startAgentflow_0', target: 'llmAgentflow_0', sourceHandle: 'a', targetHandle: 'b' }]
+        })
+        const schedule = await run({
+            replay: false,
+            chatType: 'SCHEDULED',
+            flowData: scheduleCanvas,
+            incoming: { form: { team: 'bakery' } },
+            nodes
+        })
+        const scheduleStored = JSON.parse(schedule.saved.Execution.executionData).find((step: any) => step.data?.name === 'startAgentflow')
+        expect(scheduleStored.data.output.form).toBe('team: bakery')
+        expect(JSON.parse(recordedQuestion(schedule.saved.Execution.executionData, 'scheduleInput') as string)).toEqual({
+            form: { team: 'bakery' }
+        })
     })
 
     it('still refuses a webhook or schedule replay that is not that kind of call', async () => {

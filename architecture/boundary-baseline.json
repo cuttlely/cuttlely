@@ -504,6 +504,11 @@
             "to": "packages/server/src/utils/logger.ts"
         },
         {
+            "from": "packages/server/src/services/flow-check/inputs.ts",
+            "to": "packages/server/src/utils/buildAgentflow.ts",
+            "reason": "The publish check reads stored form lines with the same parser that restores a form from an execution."
+        },
+        {
             "from": "packages/server/src/services/flow-drafts/index.ts",
             "to": "packages/server/src/database/entities/ChatFlow.ts"
         },

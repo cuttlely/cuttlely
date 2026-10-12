@@ -485,6 +485,26 @@ describe('form, webhook and schedule starts', () => {
         await settle()
     })
 
+    test('a stored form string from a real run is replayed, including a schedule form', async () => {
+        execution({ form: 'loaf: millet' }, '2026-10-08T10:00:00Z', 'form-run')
+        states.set('flow-1', { chatflowId: 'flow-1', draftFlowData: agentCanvas('PAPAYA', 'formInput'), publishInstantly: false })
+        const formFlow = () => flow({ type: 'AGENTFLOW', flowData: agentCanvas('MANGO', 'formInput') })
+        const setup = await getCheckSetup(formFlow())
+        expect(setup.pastCount).toBe(1)
+        expect(JSON.parse(setup.questions[0].text)).toEqual({ form: { loaf: 'millet' } })
+        const started = await startCheck(formFlow() as any, { count: 4 }, 'http://x')
+        expect(started.cases.map((c) => c.question)).toEqual([setup.questions[0].text])
+        await settle()
+
+        executions.length = 0
+        execution({ form: 'team: bakery' }, '2026-10-08T11:00:00Z', 'schedule-form')
+        states.set('flow-1', { chatflowId: 'flow-1', draftFlowData: agentCanvas('PAPAYA', 'scheduleInput'), publishInstantly: false })
+        const scheduleFlow = () => flow({ type: 'AGENTFLOW', flowData: agentCanvas('MANGO', 'scheduleInput') })
+        const schedule = await getCheckSetup(scheduleFlow())
+        expect(schedule.pastCount).toBe(1)
+        expect(JSON.parse(schedule.questions[0].text)).toEqual({ form: { team: 'bakery' } })
+    })
+
     test('no past executions returns a message instead of a refusal', async () => {
         const setup = await getCheckSetup(webhookFlow())
         expect(setup.unavailable).toBeNull()

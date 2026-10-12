@@ -1538,7 +1538,8 @@ const checkForMultipleStartNodes = (startingNodeIds: string[], isRecursive: bool
     }
 }
 
-const parseFormStringToJson = (formString: string): Record<string, string> => {
+// Also used by the publish check, which reads forms already stored in this shape.
+export const parseFormStringToJson = (formString: string): Record<string, string> => {
     const result: Record<string, string> = {}
     const lines = formString.split('\n')
 

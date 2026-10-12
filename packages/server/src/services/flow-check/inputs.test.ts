@@ -29,6 +29,21 @@ describe('recorded inputs', () => {
         expect(recordedQuestion('not json', 'webhookTrigger')).toBeNull()
     })
 
+    test('a real form run stores name: value lines, and a schedule form uses the same shape', () => {
+        const form = recordedQuestion(execution({ form: 'loaf: millet\nnote: fresh' }), 'formInput')
+        const again = recordedQuestion(execution({ form: 'note: fresh\nloaf: millet' }), 'formInput')
+        expect(JSON.parse(form as string)).toEqual({ form: { loaf: 'millet', note: 'fresh' } })
+        expect(again).toBe(form)
+        expect(recordedQuestion(execution({ form: 'loaf: millet' }), 'formInput')).toBe(
+            recordedQuestion(execution({ form: { loaf: 'millet' } }), 'formInput')
+        )
+        expect(JSON.parse(recordedQuestion(execution({ form: 'team: bakery' }), 'scheduleInput') as string)).toEqual({
+            form: { team: 'bakery' }
+        })
+        expect(recordedDraft(execution({ form: 'not a form line' }), 'formInput')).toBeNull()
+        expect(recordedDraft(execution({ form: '' }), 'scheduleInput')).toBeNull()
+    })
+
     test('a schedule input is the form, else the trigger text, including the empty-input sentinel', () => {
         expect(JSON.parse(recordedQuestion(execution({ form: { team: 'bakery' } }), 'scheduleInput') as string)).toEqual({
             form: { team: 'bakery' }

@@ -1,6 +1,7 @@
 // Recorded inputs for a form, webhook or schedule agentflow, taken from execution records.
 // The publish check replays these instead of chat questions. The text is canonical JSON so the
 // same payload counts once, and so the replay can rebuild the input the run was started with.
+import { parseFormStringToJson } from '../../utils/buildAgentflow'
 import { TriggerStart } from './kinds'
 
 export const NO_PAST_RUNS = 'No past runs to replay yet. Run this flow once, then check again.'
@@ -112,6 +113,15 @@ function startOutput(executionData: unknown): Record<string, unknown> | null {
     return asObject(start?.data?.output)
 }
 
+// A real form run stores `name: value` lines, not the object that was submitted. An object is kept as stored.
+function formFromStored(value: unknown): Record<string, unknown> | null {
+    const object = asObject(value)
+    if (object) return Object.keys(object).length ? object : null
+    if (typeof value !== 'string' || !value.trim()) return null
+    const parsed = parseFormStringToJson(value)
+    return Object.keys(parsed).length ? parsed : null
+}
+
 function plainPreview(text: string): string {
     try {
         const value = JSON.parse(text)
@@ -178,7 +188,7 @@ export function recordedDraft(executionData: unknown, kind: TriggerStart): Recor
     const output = startOutput(executionData)
     if (!output) return null
     if (kind === 'formInput') {
-        const form = asObject(output.form)
+        const form = formFromStored(output.form)
         if (!form) return null
         const text = canonicalJson({ form })
         return { key: text, text, preview: plainPreview(text), bodyKey: null, rawQuery: {}, rawHeaders: {} }
@@ -194,7 +204,7 @@ export function recordedDraft(executionData: unknown, kind: TriggerStart): Recor
         const text = canonicalJson({ webhook: { body, query: maskBag(rawQuery), headers: maskBag(rawHeaders) } })
         return { key, text, preview: bodyKey, bodyKey, rawQuery, rawHeaders }
     }
-    const form = asObject(output.form)
+    const form = formFromStored(output.form)
     if (form && Object.keys(form).length) {
         const text = canonicalJson({ form })
         return { key: text, text, preview: plainPreview(text), bodyKey: null, rawQuery: {}, rawHeaders: {} }
