@@ -240,3 +240,23 @@ export class RateLimiterManager {
         }
     }
 }
+
+/** Client routes that fall through to the UI index. A few thousand a minute is ordinary browsing, refreshes, and deep links. */
+export const UI_PAGE_LIMIT_WINDOW_MS = 60 * 1000
+export const UI_PAGE_LIMIT_MAX = 3000
+
+/**
+ * Limiter for the UI index fallback only. Success responses carry no rate-limit headers,
+ * so a page load still looks like the uncounted handler. The key is the same client
+ * address the prediction limiter uses.
+ */
+export function uiPageRateLimiter(max = UI_PAGE_LIMIT_MAX) {
+    return rateLimit({
+        windowMs: UI_PAGE_LIMIT_WINDOW_MS,
+        max,
+        standardHeaders: false,
+        legacyHeaders: false,
+        keyGenerator: (req) => rateLimitClientKey(req),
+        message: 'Too many requests, please try again later.'
+    })
+}

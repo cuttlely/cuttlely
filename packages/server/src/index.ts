@@ -36,7 +36,7 @@ import { getEncryptionKey, getNodeModulesPackagePath } from './utils'
 import { fileSizeLimit } from './settings/settingAlias'
 import { API_KEY_BLACKLIST_URLS, WHITELIST_URLS } from './utils/constants'
 import logger, { expressRequestLogger } from './utils/logger'
-import { RateLimiterManager } from './utils/rateLimit'
+import { RateLimiterManager, uiPageRateLimiter } from './utils/rateLimit'
 import { chatWidgetScript } from './utils/chatWidget'
 import { resolveUiBuild } from './utils/uiBuild'
 import { SSEStreamer } from './utils/SSEStreamer'
@@ -393,8 +393,8 @@ export class App {
         const uiBuild = resolveUiBuild(getNodeModulesPackagePath('@cuttlely/ui'))
         if (uiBuild) {
             this.app.use('/', express.static(uiBuild.directory))
-            // All other requests not handled will return the UI app
-            this.app.use((req: Request, res: Response) => {
+            // Client routes read index.html. Hashed files are served above and are not counted.
+            this.app.use(uiPageRateLimiter(), (_req: Request, res: Response) => {
                 res.sendFile(uiBuild.indexHtml)
             })
         } else {
