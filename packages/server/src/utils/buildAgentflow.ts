@@ -1624,10 +1624,8 @@ export const executeAgentFlow = async ({
         throw new Error('Start input type not found')
     }
 
-    // The publish check sends one question as a chat message, so it can only replay a flow that starts with one.
-    if (replay && !isRecursive && startInputType !== 'chatInput') {
-        throw new AppError(StatusCodes.CONFLICT, 'The check works on agentflows that start with a chat message.')
-    }
+    // A publish-check replay may start from a chat message or from a recorded form, webhook or schedule input.
+    // Webhook and schedule starts still require their own chat type, so a replay cannot call them as a prediction.
     if (!isRecursive) {
         if (startInputType === 'webhookTrigger' && chatType !== ChatType.WEBHOOK) {
             const configuredMethod = ((startNode?.data?.inputs?.webhookMethod as string) || 'POST').toUpperCase()

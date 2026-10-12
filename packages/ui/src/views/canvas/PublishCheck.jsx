@@ -24,6 +24,7 @@ import {
     CHECK_WORDS,
     COMPARE_COUNTS,
     DEFAULT_COMPARE_COUNT,
+    NO_PAST_RUNS,
     POLL_MS,
     RESULT_PAGE_SIZE,
     RUN_ANYWAY_LABEL,
@@ -33,6 +34,7 @@ import {
     caseBadge,
     costNote,
     initialPicks,
+    inputPreview,
     pickedQuestions,
     progressText,
     riskyWarning,
@@ -72,7 +74,7 @@ const Side = ({ title, side, running, empty }) => (
 
 Side.propTypes = { title: PropTypes.string, side: PropTypes.object, running: PropTypes.bool, empty: PropTypes.string }
 
-export const CheckResults = ({ check, words = CHECK_WORDS.publish }) => {
+export const CheckResults = ({ check, words = CHECK_WORDS.publish, replayInputs = false }) => {
     const theme = useTheme()
     const [shown, setShown] = useState(RESULT_PAGE_SIZE)
     useEffect(() => {
@@ -121,8 +123,16 @@ export const CheckResults = ({ check, words = CHECK_WORDS.publish }) => {
                         sx={{ border: '1px solid', borderColor: theme.palette.divider, borderRadius: 1, p: 1.25 }}
                     >
                         <Stack direction='row' spacing={1} alignItems='flex-start' sx={{ mb: 1 }}>
-                            <Typography variant='body2' sx={{ fontWeight: 600, flex: 1, wordBreak: 'break-word' }}>
-                                {c.question}
+                            <Typography
+                                variant='body2'
+                                sx={{
+                                    fontWeight: 600,
+                                    flex: 1,
+                                    wordBreak: 'break-word',
+                                    ...(replayInputs ? { fontFamily: 'monospace', fontSize: '0.8rem' } : {})
+                                }}
+                            >
+                                {replayInputs ? inputPreview(c.question) : c.question}
                             </Typography>
                             <Chip
                                 size='small'
@@ -157,7 +167,7 @@ export const CheckResults = ({ check, words = CHECK_WORDS.publish }) => {
     )
 }
 
-CheckResults.propTypes = { check: PropTypes.object, words: PropTypes.object }
+CheckResults.propTypes = { check: PropTypes.object, words: PropTypes.object, replayInputs: PropTypes.bool }
 
 // Everything the panel shows, from plain props, so it can be rendered in tests without a server.
 export const PublishCheckView = ({
@@ -192,13 +202,22 @@ export const PublishCheckView = ({
     const running = check?.status === 'running'
     const risky = setup?.riskySteps || []
     const unavailable = setup?.unavailable || null
+    const replayInputs = Boolean(setup?.replayInputs)
     const past = (setup?.questions || []).filter((q) => !q.starter)
     const pastCount = Number.isFinite(Number(setup?.pastCount)) ? Number(setup.pastCount) : past.length
     const used = pastCount > 0 ? Math.min(count, pastCount) : 0
     const addedPicked = pastCount > 0 ? list.filter((q) => q.added && q.picked).length : 0
     const questionCount = pastCount > 0 ? used + addedPicked : picked
     const checklist = pastCount > 0 ? list.filter((q) => q.added) : list
-    const cap = capMessage(count, pastCount, Boolean(setup?.pastTruncated))
+    const unit = replayInputs ? 'run' : 'question'
+    const cap = capMessage(count, pastCount, Boolean(setup?.pastTruncated), unit)
+    const intro = replayInputs
+        ? setup?.liveEmpty
+            ? words.introInputsNew || words.introNew
+            : words.introInputs || words.intro
+        : setup?.liveEmpty
+        ? words.introNew
+        : words.intro
     if (unavailable?.code === 'off') return null
     const runnable = canRunCheck({ picked: questionCount, riskySteps: risky, runAnyway, running: running || starting, unavailable })
 
@@ -228,7 +247,7 @@ export const PublishCheckView = ({
             {!loading && !loadError && setup && !unavailable && (
                 <>
                     <Typography variant='body2' color='text.secondary' sx={{ mt: 0.5 }}>
-                        {setup.liveEmpty ? words.introNew : words.intro}
+                        {intro}
                     </Typography>
                     {cap && (
                         <Typography variant='body2' sx={{ mt: 1 }} data-testid='compare-cap'>
@@ -245,9 +264,12 @@ export const PublishCheckView = ({
                                         key={`${index}-${q.text}`}
                                         variant='body2'
                                         data-testid='compare-question'
-                                        sx={{ wordBreak: 'break-word' }}
+                                        sx={{
+                                            wordBreak: 'break-word',
+                                            ...(replayInputs ? { fontFamily: 'monospace', fontSize: '0.8rem' } : {})
+                                        }}
                                     >
-                                        {q.text}
+                                        {replayInputs ? inputPreview(q.text) : q.text}
                                     </Typography>
                                 ))}
                             {used > previewShown && (
@@ -263,8 +285,8 @@ export const PublishCheckView = ({
                         </Stack>
                     )}
                     {pastCount === 0 && checklist.length === 0 ? (
-                        <Typography variant='body2' color='text.secondary' sx={{ mt: 1 }}>
-                            No one has asked this flow anything yet. Add a question to check.
+                        <Typography variant='body2' color='text.secondary' sx={{ mt: 1 }} data-testid='check-empty'>
+                            {replayInputs ? NO_PAST_RUNS : 'No one has asked this flow anything yet. Add a question to check.'}
                         </Typography>
                     ) : checklist.length > 0 ? (
                         <Stack sx={{ mt: 1 }} aria-label='Questions to check'>
@@ -299,28 +321,30 @@ export const PublishCheckView = ({
                             })}
                         </Stack>
                     ) : null}
-                    <Stack direction='row' spacing={1} sx={{ mt: 1 }} alignItems='flex-start'>
-                        <TextField
-                            size='small'
-                            fullWidth
-                            placeholder='Add your own question'
-                            value={newQuestion}
-                            disabled={running || starting}
-                            onChange={(event) => onNewQuestion(event.target.value)}
-                            onKeyDown={(event) => {
-                                if (event.key === 'Enter') {
-                                    event.preventDefault()
-                                    onAdd()
-                                }
-                            }}
-                            error={Boolean(addError)}
-                            helperText={addError || ' '}
-                            inputProps={{ 'aria-label': 'Add your own question', maxLength: limits.maxQuestionChars || 2000 }}
-                        />
-                        <Button variant='outlined' onClick={onAdd} disabled={running || starting || !String(newQuestion || '').trim()}>
-                            Add
-                        </Button>
-                    </Stack>
+                    {!replayInputs && (
+                        <Stack direction='row' spacing={1} sx={{ mt: 1 }} alignItems='flex-start'>
+                            <TextField
+                                size='small'
+                                fullWidth
+                                placeholder='Add your own question'
+                                value={newQuestion}
+                                disabled={running || starting}
+                                onChange={(event) => onNewQuestion(event.target.value)}
+                                onKeyDown={(event) => {
+                                    if (event.key === 'Enter') {
+                                        event.preventDefault()
+                                        onAdd()
+                                    }
+                                }}
+                                error={Boolean(addError)}
+                                helperText={addError || ' '}
+                                inputProps={{ 'aria-label': 'Add your own question', maxLength: limits.maxQuestionChars || 2000 }}
+                            />
+                            <Button variant='outlined' onClick={onAdd} disabled={running || starting || !String(newQuestion || '').trim()}>
+                                Add
+                            </Button>
+                        </Stack>
+                    )}
                     {risky.length > 0 && (
                         <Alert severity='warning' data-testid='check-risky' sx={{ mt: 0.5 }}>
                             {riskyWarning(risky)}
@@ -339,18 +363,21 @@ export const PublishCheckView = ({
                         </Alert>
                     )}
                     <Typography variant='body2' color='text.secondary' sx={{ mt: 1 }} data-testid='check-cost'>
-                        {costNote(limits, questionCount, words, Boolean(setup.liveEmpty))}
+                        {costNote(limits, questionCount, words, Boolean(setup.liveEmpty), unit)}
                     </Typography>
                     <Stack direction='row' spacing={1} sx={{ mt: 1 }} alignItems='center' flexWrap='wrap' useFlexGap>
                         <TextField
                             select
                             size='small'
-                            label='Past questions'
+                            label={replayInputs ? 'Past runs' : 'Past questions'}
                             value={String(COMPARE_COUNTS.includes(count) ? count : DEFAULT_COMPARE_COUNT)}
                             disabled={running || starting || pastCount === 0}
                             onChange={(event) => onCount(Number(event.target.value))}
                             SelectProps={{ native: true }}
-                            inputProps={{ 'aria-label': 'Past questions', 'data-testid': 'compare-count' }}
+                            inputProps={{
+                                'aria-label': replayInputs ? 'Past runs' : 'Past questions',
+                                'data-testid': 'compare-count'
+                            }}
                             sx={{ width: 148 }}
                         >
                             {COMPARE_COUNTS.map((n) => (
@@ -377,7 +404,7 @@ export const PublishCheckView = ({
                             {error}
                         </Alert>
                     )}
-                    <CheckResults check={check} words={words} />
+                    <CheckResults check={check} words={words} replayInputs={replayInputs} />
                 </>
             )}
         </Box>

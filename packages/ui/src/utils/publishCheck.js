@@ -10,6 +10,8 @@ export const RESULT_PAGE_SIZE = 12
 export const CHECK_TITLE = 'Check recent questions'
 export const CHECK_INTRO =
     'Ask recent questions again, on Live and on your draft, and compare the answers before you publish. This is optional.'
+export const NO_PAST_RUNS = 'No past runs to replay yet. Run this flow once, then check again.'
+export const INPUT_PREVIEW_CHARS = 180
 export const CHECK_VARY_NOTE = 'Answers from a model can vary a little between runs, even with no change.'
 export const CHECK_CLOSE_NOTE = 'Closing this window or publishing stops a check that is still running.'
 export const RUN_ANYWAY_LABEL = 'Run it anyway, including those steps'
@@ -25,6 +27,9 @@ export const CHECK_WORDS = {
         yours: 'your draft',
         intro: CHECK_INTRO,
         introNew: 'Ask questions on your draft before you publish. Live is empty until the first publish. This is optional.',
+        introInputs: 'Run recent inputs again on Live and on your draft, and compare the answers before you publish. This is optional.',
+        introInputsNew:
+            'Run recent inputs again on your draft before you publish. Live is empty until the first publish. This is optional.',
         emptyLive: 'Empty until the first publish',
         closeNote: CHECK_CLOSE_NOTE,
         optional: 'Publish works with or without a check.',
@@ -37,6 +42,10 @@ export const CHECK_WORDS = {
         yours: 'the version from Dev',
         intro: 'Ask recent questions again, on Live and on the version from Dev, and compare the answers before you promote. This is optional.',
         introNew: 'Ask questions on the version from Dev before you promote. Live is empty until the first promote. This is optional.',
+        introInputs:
+            'Run recent inputs again on Live and on the version from Dev, and compare the answers before you promote. This is optional.',
+        introInputsNew:
+            'Run recent inputs again on the version from Dev before you promote. Live is empty until the first promote. This is optional.',
         emptyLive: 'Empty until the first promote',
         closeNote: 'Leaving this page or promoting stops a check that is still running.',
         optional: 'Promote works with or without a check.',
@@ -46,17 +55,35 @@ export const CHECK_WORDS = {
 }
 
 // Fewer past questions than the choice: say so, and compare every one we have.
-export const capMessage = (choice, available, truncated = false) => {
+// `unit` is `run` when the check replays recorded inputs instead of questions. The default keeps the question wording.
+export const capMessage = (choice, available, truncated = false, unit = 'question') => {
     const wanted = Number(choice) || 0
     const have = Number(available) || 0
     if (wanted <= 0 || have <= 0 || have >= wanted) return ''
-    const comparing = have === 1 ? 'Comparing that question.' : `Comparing all ${have}.`
+    const noun = unit === 'run' ? 'run' : 'question'
+    const nouns = unit === 'run' ? 'runs' : 'questions'
+    const comparing = have === 1 ? `Comparing that ${noun}.` : `Comparing all ${have}.`
     if (truncated) {
-        const noun = have === 1 ? 'past question' : 'past questions'
-        return `Only ${have} distinct ${noun} in the recent messages we looked at. ${comparing}`
+        const label = have === 1 ? `past ${noun}` : `past ${nouns}`
+        const looked = unit === 'run' ? 'recent executions' : 'recent messages'
+        return `Only ${have} distinct ${label} in the ${looked} we looked at. ${comparing}`
     }
-    if (have === 1) return `Only 1 past question available. ${comparing}`
-    return `Only ${have} past questions available. ${comparing}`
+    if (have === 1) return `Only 1 past ${noun} available. ${comparing}`
+    return `Only ${have} past ${nouns} available. ${comparing}`
+}
+
+// Compact JSON for a recorded input. Webhook rows show the body. A plain schedule question is shown as JSON text.
+export const inputPreview = (text, max = INPUT_PREVIEW_CHARS) => {
+    let value = text
+    try {
+        value = JSON.parse(text)
+    } catch {
+        /* show the stored text */
+    }
+    const payload = value && typeof value === 'object' ? value.webhook?.body ?? value.form ?? value.question ?? value : value
+    const shown = typeof payload === 'string' ? JSON.stringify(payload) : JSON.stringify(payload)
+    if (!shown) return '(empty input)'
+    return shown.length > max ? `${shown.slice(0, max)}…` : shown
 }
 
 const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`
@@ -99,16 +126,19 @@ export const minutes = (seconds) => {
 }
 
 // With an empty Live (never published) each question runs once, on the draft.
-export const costNote = (limits = {}, picked = 0, words = CHECK_WORDS.publish, liveEmpty = false) => {
+// `unit` is `run` when each row is a recorded input. The default keeps the question wording.
+export const costNote = (limits = {}, picked = 0, words = CHECK_WORDS.publish, liveEmpty = false, unit = 'question') => {
+    const one = unit === 'run' ? 'recorded input' : 'question'
+    const many = unit === 'run' ? 'recorded inputs' : 'questions'
     if (liveEmpty) {
         const once = picked ? ` That is ${plural(picked, 'run', 'runs')}.` : ''
-        return `Live is empty, so each question runs once, on ${words.yours}, and the check costs tokens.${once} A check stops at ${number(
+        return `Live is empty, so each ${one} runs once, on ${words.yours}, and the check costs tokens.${once} A check stops at ${number(
             limits.maxTokens
         )} tokens or ${minutes(limits.maxSeconds)}, whichever comes first.`
     }
     const runs = picked * 2
-    const runsText = picked ? ` That is ${plural(runs, 'run', 'runs')} for ${plural(picked, 'question', 'questions')}.` : ''
-    return `Each question runs twice, once on Live and once on ${
+    const runsText = picked ? ` That is ${plural(runs, 'run', 'runs')} for ${plural(picked, one, many)}.` : ''
+    return `Each ${one} runs twice, once on Live and once on ${
         words.yours
     }, so the check uses the model and costs tokens.${runsText} A check stops at ${number(limits.maxTokens)} tokens or ${minutes(
         limits.maxSeconds

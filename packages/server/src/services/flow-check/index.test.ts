@@ -10,11 +10,13 @@ jest.mock('../flow-drafts', () => ({
     canvasHash: (flowData: string) => `hash:${flowData}`
 }))
 const messages: any[] = []
+const executions: any[] = []
 const queryState = { take: undefined as number | undefined, skip: 0 }
 const queryBuilder: any = {
     select: () => queryBuilder,
     where: () => queryBuilder,
     andWhere: () => queryBuilder,
+    leftJoinAndSelect: () => queryBuilder,
     orderBy: () => queryBuilder,
     addOrderBy: () => queryBuilder,
     take: (n: number) => {
@@ -29,6 +31,16 @@ const queryBuilder: any = {
         const start = queryState.skip || 0
         const end = queryState.take == null ? undefined : start + queryState.take
         return messages.slice(start, end)
+    },
+    getManyAndCount: async () => {
+        const ordered = [...executions].sort((a, b) => {
+            const ta = new Date(a.updatedDate || a.createdDate || 0).getTime()
+            const tb = new Date(b.updatedDate || b.createdDate || 0).getTime()
+            return tb - ta
+        })
+        const start = queryState.skip || 0
+        const end = queryState.take == null ? undefined : start + queryState.take
+        return [ordered.slice(start, end), ordered.length]
     }
 }
 const writes = { save: jest.fn(), insert: jest.fn(), update: jest.fn() }
@@ -75,6 +87,7 @@ beforeEach(() => {
     checks.clear()
     states.clear()
     messages.length = 0
+    executions.length = 0
     queryState.take = undefined
     queryState.skip = 0
     draftsOn = true
@@ -99,6 +112,7 @@ describe('setup', () => {
         expect(setup.riskySteps).toEqual([])
         expect(setup.pastCount).toBe(1)
         expect(setup.pastTruncated).toBe(false)
+        expect(setup.replayInputs).toBe(false)
         expect(setup.limits).toEqual({
             maxQuestions: 100,
             defaultQuestions: 4,
@@ -334,6 +348,16 @@ describe('agentflows', () => {
         expect(writes.update).not.toHaveBeenCalled()
     })
 
+    test('chat-started behavior is unchanged when the flow also has no executions', async () => {
+        messages.push({ content: 'When is the rye ready?', createdDate: new Date('2026-10-08T10:00:00Z'), fileUploads: null })
+        const setup = await getCheckSetup(agentflow())
+        expect(setup.replayInputs).toBe(false)
+        expect(setup.questions.map((q) => q.text)).toEqual(['When is the rye ready?'])
+        const started = await startCheck(agentflow() as any, { questions: ['When is the rye ready?'] }, 'http://x')
+        await settle()
+        expect((await getCheck(agentflow(), started.id)).cases[0].question).toBe('When is the rye ready?')
+    })
+
     test('agentflow steps that act for real need includeRiskySteps', async () => {
         states.set('flow-1', {
             chatflowId: 'flow-1',
@@ -347,6 +371,90 @@ describe('agentflows', () => {
             statusCode: 409,
             message: expect.stringContaining('Send the order')
         })
+    })
+})
+
+describe('form, webhook and schedule starts', () => {
+    const webhookOutput = (body: Record<string, unknown>, extra: Record<string, unknown> = {}) => ({
+        webhook: { body, headers: { 'x-bakery': '1' }, query: {}, ...extra }
+    })
+    const execution = (output: unknown, iso: string, id: string) =>
+        executions.push({
+            id,
+            executionData: JSON.stringify([
+                { nodeId: 'startAgentflow_0', nodeLabel: 'Start', data: { name: 'startAgentflow', output }, status: 'FINISHED' }
+            ]),
+            createdDate: new Date(iso),
+            updatedDate: new Date(iso)
+        })
+    const webhookFlow = () => flow({ type: 'AGENTFLOW', flowData: agentCanvas('MANGO', 'webhookTrigger') })
+
+    beforeEach(() => {
+        states.set('flow-1', { chatflowId: 'flow-1', draftFlowData: agentCanvas('PAPAYA', 'webhookTrigger'), publishInstantly: false })
+    })
+
+    test('a webhook-started flow replays the newest distinct recorded payloads and writes nothing', async () => {
+        execution(webhookOutput({ event: 'bake', loaf: 'rye' }), '2026-10-08T09:00:00Z', 'older')
+        // Same payload, keys in another order: one input, and the newer copy is the one kept.
+        execution(
+            { webhook: { query: {}, headers: { 'x-bakery': '1' }, body: { loaf: 'rye', event: 'bake' } } },
+            '2026-10-08T10:00:00Z',
+            'same-payload'
+        )
+        execution(webhookOutput({ event: 'close' }), '2026-10-08T11:00:00Z', 'newer')
+        const seen: string[] = []
+        replayHooks.run = async ({ flow: f, question }) => {
+            seen.push(`${f.type}:${JSON.parse(question).webhook.body.event}`)
+            return { text: 'ok', metrics: [{ totalTokens: 8 }] }
+        }
+        const setup = await getCheckSetup(webhookFlow())
+        expect(setup.unavailable).toBeNull()
+        expect(setup.replayInputs).toBe(true)
+        expect(setup.pastCount).toBe(2)
+        expect(setup.questions.map((q) => JSON.parse(q.text).webhook.body.event)).toEqual(['close', 'bake'])
+        const started = await startCheck(webhookFlow() as any, { count: 4 }, 'http://x')
+        expect(started.selection).toMatchObject({ requested: 4, available: 2, used: 2 })
+        await settle()
+        const done = await getCheck(webhookFlow(), started.id)
+        expect(done.status).toBe('done')
+        expect(done.cases.map((c) => JSON.parse(c.question).webhook.body.event)).toEqual(['close', 'bake'])
+        expect(done.cases[0]).toMatchObject({ live: { text: 'ok' }, draft: { text: 'ok' }, same: true })
+        expect(seen.filter((item) => item === 'AGENTFLOW:close')).toHaveLength(2)
+        expect(seen.filter((item) => item === 'AGENTFLOW:bake')).toHaveLength(2)
+        expect(writes.save).not.toHaveBeenCalled()
+        expect(writes.insert).not.toHaveBeenCalled()
+        expect(writes.update).not.toHaveBeenCalled()
+    })
+
+    test('no past executions returns a message instead of a refusal', async () => {
+        const setup = await getCheckSetup(webhookFlow())
+        expect(setup.unavailable).toBeNull()
+        expect(setup.replayInputs).toBe(true)
+        expect(setup.questions).toEqual([])
+        await expect(startCheck(webhookFlow() as any, { count: 4 }, 'http://x')).rejects.toMatchObject({
+            statusCode: 400,
+            message: 'No past runs to replay yet. Run this flow once, then check again.'
+        })
+    })
+
+    test('a risky step on a webhook-started flow is blocked the same way as a chat-started flow', async () => {
+        execution(webhookOutput({ event: 'bake' }), '2026-10-08T10:00:00Z', 'one')
+        states.set('flow-1', {
+            chatflowId: 'flow-1',
+            draftFlowData: agentCanvas('PAPAYA', 'webhookTrigger', [
+                { id: 'httpAgentflow_0', data: { name: 'httpAgentflow', category: 'Agent Flows', label: 'Send the order' } }
+            ]),
+            publishInstantly: false
+        })
+        expect((await getCheckSetup(webhookFlow())).riskySteps).toEqual([{ id: 'httpAgentflow_0', label: 'Send the order' }])
+        await expect(startCheck(webhookFlow() as any, { count: 4 }, 'http://x')).rejects.toMatchObject({
+            statusCode: 409,
+            message: expect.stringContaining('Send the order')
+        })
+        const started = await startCheck(webhookFlow() as any, { count: 4, includeRiskySteps: true }, 'http://x')
+        expect(started.includeRiskySteps).toBe(true)
+        await settle()
+        expect((await getCheck(webhookFlow(), started.id)).status).toBe('done')
     })
 })
 

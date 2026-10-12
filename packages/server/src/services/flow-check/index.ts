@@ -2,6 +2,11 @@
 // Live and the draft, and show the answers, tokens and time side by side.
 // `count` (1 to 100, 4 in the dialog) selects the newest distinct questions. A few run at a time.
 //
+// An agentflow that starts from a form, a webhook or a schedule has no chat questions. The same check
+// reads recent execution records and replays those recorded inputs (the form payload, the webhook
+// payload, or the schedule trigger input), capped by the same count. With no past runs it says so.
+// It does not refuse the flow. Legacy multi-agent flows stay out of this check.
+//
 // A replay runs the canvas in memory through executeFlow with replay on: a new chat id, so memory starts
 // empty; no chat messages, follow-ups, telemetry, usage counts or tracing are written; Live is never saved.
 // Chatflows and agentflows can be checked. An agentflow replay also writes no execution record.
@@ -18,6 +23,7 @@ import { ChatType, IChatFlow } from '../../Interface'
 import { OSS_PRODUCT_ID } from '../../identity/ossPlatform'
 import { getRunningExpressApp } from '../../utils/getRunningExpressApp'
 import logger from '../../utils/logger'
+import executionsService from '../executions'
 import flowDraftsService, { canvasHash, DraftFlow } from '../flow-drafts'
 import {
     COMPARE_COUNT_DEFAULT,
@@ -33,7 +39,8 @@ import {
     totalTokens
 } from './compare'
 import { RiskyStep, riskySteps } from './risk'
-import { Unavailable, startUnavailable, typeUnavailable } from './kinds'
+import { NO_PAST_RUNS, recordedQuestion, replayFromQuestion } from './inputs'
+import { TriggerStart, Unavailable, startUnavailable, triggerStart, typeUnavailable } from './kinds'
 
 // A question list sent without `count` stays capped at 10, which is what this route accepted before.
 export const MAX_QUESTIONS = 10
@@ -101,6 +108,9 @@ export interface CheckSetup {
     limits: CheckLimits
     // Live has no cards yet (the flow was never published), so the check asks only the draft.
     liveEmpty: boolean
+    // True when this agentflow starts from a form, a webhook or a schedule, so `questions` are recorded
+    // inputs (canonical JSON) rather than chat questions. False for chatflows and chat-started agentflows.
+    replayInputs: boolean
     check: CheckView | null
 }
 
@@ -281,6 +291,45 @@ function usableTexts(rows: RecentRow[]): string[] {
     return rows.filter((row) => !row.fileUploads || row.fileUploads === '[]').map((row) => row.content)
 }
 
+// Newest execution records for this flow, paged, until 100 different inputs or the history ends.
+// The executions service orders by the record's update time, newest first. A payload counts once.
+const EXEC_PAGE = 50
+
+async function loadInputs(
+    flow: { id: string; workspaceId?: string | null },
+    kind: TriggerStart
+): Promise<{ questions: Array<{ text: string; date: string }>; truncated: boolean }> {
+    const found: Array<{ text: string; date: string }> = []
+    const seen = new Set<string>()
+    let scanned = 0
+    let truncated = false
+    for (let page = 1; scanned < SCAN_CAP && found.length < COMPARE_COUNT_MAX; page++) {
+        const { data, total } = await executionsService.getAllExecutions({
+            agentflowId: flow.id,
+            workspaceId: flow.workspaceId || undefined,
+            page,
+            limit: EXEC_PAGE
+        })
+        if (!data.length) break
+        for (const row of data) {
+            scanned += 1
+            const text = recordedQuestion(row.executionData, kind)
+            if (text && !seen.has(text)) {
+                seen.add(text)
+                found.push({ text, date: row.createdDate ? new Date(row.createdDate).toISOString() : '' })
+                if (found.length >= COMPARE_COUNT_MAX) break
+            }
+            if (scanned >= SCAN_CAP) {
+                truncated = true
+                break
+            }
+        }
+        if (found.length >= COMPARE_COUNT_MAX || scanned >= SCAN_CAP) break
+        if (page * EXEC_PAGE >= total) break
+    }
+    return { questions: found, truncated: truncated && found.length < COMPARE_COUNT_MAX }
+}
+
 function questionsFromRows(rows: RecentRow[], max: number): Array<{ text: string; date: string }> {
     const usable = rows.filter((row) => !row.fileUploads || row.fileUploads === '[]')
     const picked = pickQuestions(usableTexts(rows), max, MAX_QUESTION_CHARS)
@@ -307,9 +356,12 @@ export async function getCheckSetup(flow: DraftFlow & { chatbotConfig?: string |
     const draft = candidate.canvas
     const unavailable = unavailableFor(flow, candidate, Boolean(given))
     const record = checks.get(candidate.key)
+    const kind = unavailable ? null : triggerStart(flow.type, [flow.flowData, draft])
     const offered =
         unavailable?.code === 'off' || unavailable?.code === 'type'
             ? { questions: [], pastCount: 0, pastTruncated: false }
+            : kind
+            ? await inputsFor(flow, kind)
             : await questionsFor(flow)
     return {
         unavailable,
@@ -319,8 +371,14 @@ export async function getCheckSetup(flow: DraftFlow & { chatbotConfig?: string |
         riskySteps: riskySteps(draft ? [flow.flowData, draft] : [flow.flowData], flow.chatbotConfig),
         limits: checkLimits(),
         liveEmpty: liveIsEmpty(flow.flowData),
+        replayInputs: Boolean(kind),
         check: record ? view(record, draft ? canvasHash(draft) : null) : null
     }
+}
+
+async function inputsFor(flow: DraftFlow, kind: TriggerStart) {
+    const loaded = await loadInputs(flow, kind)
+    return { questions: loaded.questions, pastCount: loaded.questions.length, pastTruncated: loaded.truncated }
 }
 
 export async function getCheck(flow: DraftFlow, checkId: string, given?: Candidate): Promise<CheckView> {
@@ -387,6 +445,31 @@ async function questionsToRun(
     }
 }
 
+// `count` selects the newest distinct recorded inputs. A question list, when `count` is omitted, is the
+// older path and still runs those strings. Extra questions sent with `count` are not mixed in: a typed
+// sentence is not a form payload or a webhook body.
+async function inputsToRun(
+    flow: { id: string; workspaceId?: string | null },
+    kind: TriggerStart,
+    body: { questions?: unknown; count?: unknown }
+): Promise<{ questions: string[]; selection: CheckSelection | null }> {
+    const parsed = parseCompareCount(body?.count)
+    if (!parsed.ok) throw new AppError(StatusCodes.BAD_REQUEST, parsed.message)
+    if (parsed.count === null) return { questions: cleanQuestions(body?.questions), selection: null }
+    const loaded = await loadInputs(flow, kind)
+    const inputs = loaded.questions.slice(0, parsed.count).map((item) => item.text)
+    if (!inputs.length) throw new AppError(StatusCodes.BAD_REQUEST, NO_PAST_RUNS)
+    return {
+        questions: inputs,
+        selection: {
+            requested: parsed.count,
+            available: loaded.questions.length,
+            used: inputs.length,
+            truncated: loaded.truncated && loaded.questions.length < COMPARE_COUNT_MAX
+        }
+    }
+}
+
 export async function startCheck(
     flow: IChatFlow,
     body: { questions?: unknown; includeRiskySteps?: unknown; count?: unknown },
@@ -398,7 +481,8 @@ export async function startCheck(
     const draft = candidate.canvas
     const unavailable = unavailableFor(flow as DraftFlow, candidate, Boolean(given))
     if (unavailable) throw new AppError(StatusCodes.CONFLICT, unavailable.message)
-    const { questions, selection } = await questionsToRun(flow.id, body || {})
+    const kind = triggerStart(flow.type, [flow.flowData, draft])
+    const { questions, selection } = kind ? await inputsToRun(flow, kind, body || {}) : await questionsToRun(flow.id, body || {})
     if (body?.includeRiskySteps !== undefined && typeof body.includeRiskySteps !== 'boolean')
         throw new AppError(StatusCodes.BAD_REQUEST, 'includeRiskySteps must be true or false.')
     const includeRiskySteps = body?.includeRiskySteps === true
@@ -565,9 +649,11 @@ async function replayFlow({ flow, flowData, question, signal, baseURL }: ReplayI
     if (!org) throw new AppError(StatusCodes.NOT_FOUND, 'Organization not found.')
     const runId = `cuttlely-check-${crypto.randomUUID()}`
     const copy = { ...flow, flowData, analytic: JSON.stringify({ evaluation: { status: true } }) } as IChatFlow
+    // A form, webhook or schedule canvas replays the recorded input. A chat canvas replays the question.
+    const replay = replayFromQuestion(question, triggerStart(flow.type, [flowData]))
     try {
         const result = await executeFlow({
-            incomingInput: { question, streaming: false, history: [] } as any,
+            incomingInput: replay.incoming as any,
             chatflow: copy,
             chatId: uuidv4(),
             baseURL,
@@ -583,7 +669,7 @@ async function replayFlow({ flow, flowData, question, signal, baseURL }: ReplayI
             workspaceId: workspace.id,
             subscriptionId: org.subscriptionId as string,
             productId: OSS_PRODUCT_ID,
-            chatType: ChatType.INTERNAL,
+            chatType: replay.chatType as ChatType,
             signal,
             replay: true
         })

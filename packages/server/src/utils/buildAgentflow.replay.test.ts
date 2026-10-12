@@ -107,13 +107,24 @@ const iterationCanvas = () =>
         edges: [{ id: 'e1', source: 'startAgentflow_0', target: 'iterationAgentflow_0', sourceHandle: 'a', targetHandle: 'b' }]
     })
 
-async function run(opts: { replay: boolean; startInputType?: string; humanInput?: unknown; flowData?: string }) {
+async function run(opts: {
+    replay: boolean
+    startInputType?: string
+    humanInput?: unknown
+    flowData?: string
+    incoming?: Record<string, unknown>
+    chatType?: string
+}) {
     const { calls, appDataSource } = recordingDataSource()
     const { events, sseStreamer } = streamer()
     const telemetry = { sendTelemetry: jest.fn() }
     const result = await executeAgentFlow({
         componentNodes,
-        incomingInput: { question: 'When is the sourdough ready?', streaming: false, humanInput: opts.humanInput } as any,
+        incomingInput: {
+            streaming: false,
+            humanInput: opts.humanInput,
+            ...(opts.incoming || { question: 'When is the sourdough ready?' })
+        } as any,
         chatflow: {
             id: 'b7c1a6f2-1d9e-4a51-9a7e-3f1f0c2d4e5a',
             name: 'Bakery helper',
@@ -129,6 +140,7 @@ async function run(opts: { replay: boolean; startInputType?: string; humanInput?
         sseStreamer: sseStreamer as any,
         baseURL: 'http://127.0.0.1',
         isInternal: true,
+        chatType: opts.chatType,
         orgId: 'org-1',
         workspaceId: 'ws-1',
         subscriptionId: 'sub-1',
@@ -191,12 +203,47 @@ describe('executeAgentFlow with replay on (publish check)', () => {
         expect(calls.filter((c) => c.startsWith('Execution.') || c.startsWith('ChatMessage.'))).toEqual([])
     })
 
-    it('refuses a flow that does not start with a chat message', async () => {
-        for (const startInputType of ['formInput', 'scheduleInput']) {
-            await expect(run({ replay: true, startInputType })).rejects.toMatchObject({
-                statusCode: 409,
-                message: 'The check works on agentflows that start with a chat message.'
-            })
-        }
+    it('replays a form, webhook or schedule start from the recorded input and writes nothing', async () => {
+        const form = await run({ replay: true, startInputType: 'formInput', incoming: { form: { loaf: 'rye' } } })
+        expect(form.result.status).toBe('FINISHED')
+        expect(form.result.text).toContain('loaf: rye')
+        expect(form.calls.filter((c) => c.startsWith('Execution.') || c.startsWith('ChatMessage.'))).toEqual([])
+
+        const webhookCanvas = JSON.stringify({
+            nodes: [
+                node('startAgentflow_0', 'startAgentflow', 'Start', { startInputType: 'webhookTrigger', webhookInputMode: 'payload' }),
+                node('llmAgentflow_0', 'llmAgentflow', 'Bakery helper', { llmModel: 'chatOpenAI' })
+            ],
+            edges: [{ id: 'e1', source: 'startAgentflow_0', target: 'llmAgentflow_0', sourceHandle: 'a', targetHandle: 'b' }]
+        })
+        const webhook = await run({
+            replay: true,
+            startInputType: 'webhookTrigger',
+            chatType: 'WEBHOOK',
+            flowData: webhookCanvas,
+            incoming: { webhook: { body: { event: 'bake' }, headers: {}, query: {} } }
+        })
+        expect(webhook.result.status).toBe('FINISHED')
+        expect(webhook.result.text).toContain('bake')
+        expect(webhook.calls.filter((c) => c.startsWith('Execution.') || c.startsWith('ChatMessage.'))).toEqual([])
+
+        const schedule = await run({
+            replay: true,
+            startInputType: 'scheduleInput',
+            chatType: 'SCHEDULED',
+            incoming: { question: 'Run the daily report' }
+        })
+        expect(schedule.result.status).toBe('FINISHED')
+        expect(schedule.result.text).toContain('Run the daily report')
+        expect(schedule.calls.filter((c) => c.startsWith('Execution.') || c.startsWith('ChatMessage.'))).toEqual([])
+    })
+
+    it('still refuses a webhook or schedule replay that is not that kind of call', async () => {
+        await expect(run({ replay: true, startInputType: 'webhookTrigger', incoming: { webhook: { body: {} } } })).rejects.toMatchObject({
+            statusCode: 400
+        })
+        await expect(run({ replay: true, startInputType: 'scheduleInput', incoming: { question: 'Run it' } })).rejects.toMatchObject({
+            statusCode: 400
+        })
     })
 })
