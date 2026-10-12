@@ -12,11 +12,6 @@ export function emptyDeps(): VersioningDeps {
                 return []
             }
         },
-        flows: {
-            async get() {
-                return null
-            }
-        },
         log: {
             warn(message: string) {
                 warnings.push(message)

@@ -16,11 +16,11 @@ import { VersioningDeps } from './ports'
 import { VersionedFlow } from './types'
 
 export type { VersionedFlow } from './types'
-export type { CredentialStorage, FlowLookup, VersionLog, VersioningDeps } from './ports'
+export type { CredentialStorage, VersionLog, VersioningDeps } from './ports'
 
 let deps: VersioningDeps | null = null
 
-// The server adapter calls this once, with its storage, flow lookup and log.
+// The server adapter calls this once, with its storage and log.
 export function configureVersioning(next: VersioningDeps): void {
     deps = next
 }
@@ -186,21 +186,6 @@ async function credentialNames(flowData: string, workspaceId?: string): Promise<
     return requireDeps().storage.namesForIds(ids, workspaceId)
 }
 
-// A caller that already has the canvas skips the lookup. A caller with only an id uses it.
-async function resolveFlow(saved: VersionedFlow): Promise<VersionedFlow> {
-    if (!saved || typeof saved.flowData === 'string') return saved
-    const loaded = saved.id ? await requireDeps().flows.get(saved.id) : null
-    if (!loaded) return saved
-    return {
-        id: saved.id,
-        name: saved.name || loaded.name,
-        type: saved.type ?? loaded.type,
-        category: saved.category ?? loaded.category,
-        flowData: loaded.flowData,
-        workspaceId: saved.workspaceId ?? loaded.workspaceId
-    }
-}
-
 function enqueue<T>(task: () => Promise<T>): Promise<T> {
     const run = queue.then(task, task)
     queue = run.catch(() => undefined)
@@ -233,7 +218,7 @@ export interface RecordOptions {
 export function recordFlowVersion(saved: VersionedFlow, options: RecordOptions = {}): Promise<string | null> {
     if (!isVersioningEnabled() || !saved?.id) return Promise.resolve(null)
     // Copy now, before the queued write. A later edit of the caller's object must not change this version.
-    const copied: VersionedFlow = {
+    const flow: VersionedFlow = {
         id: saved.id,
         name: saved.name,
         type: saved.type,
@@ -242,9 +227,7 @@ export function recordFlowVersion(saved: VersionedFlow, options: RecordOptions =
         workspaceId: saved.workspaceId
     }
     return enqueue(async () => {
-        const flowId = copied.id
         try {
-            const flow = await resolveFlow(copied)
             const repo = getStore()
             await repo.ensure()
             const lookup = options.lookupCredentials || credentialNames
@@ -280,7 +263,7 @@ export function recordFlowVersion(saved: VersionedFlow, options: RecordOptions =
             }
             return sha
         } catch (error) {
-            return fail(flowId, error)
+            return fail(flow.id, error)
         }
     })
 }

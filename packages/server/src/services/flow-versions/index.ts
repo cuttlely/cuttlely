@@ -1,5 +1,5 @@
 // Thin server adapter. The versioning core lives in @cuttlely/versioning.
-// This file implements storage, flow lookup and logging, and keeps the calls the server already makes.
+// This file implements storage and logging, and keeps the calls the server already makes.
 import { In, IsNull } from 'typeorm'
 import { Credential } from '../../database/entities/Credential'
 import logger from '../../utils/logger'
@@ -28,7 +28,6 @@ import {
     withPrefix,
     type CredentialRef,
     type CredentialStorage,
-    type FlowLookup,
     type GithubCredentialStore
 } from '@cuttlely/versioning'
 
@@ -60,13 +59,6 @@ const storage: CredentialStorage = {
     }
 }
 
-// Callers pass the saved flow. This lookup answers a caller that has only an id.
-const flows: FlowLookup = {
-    async get() {
-        return null
-    }
-}
-
 // The GitHub token is a Github API credential in Credentials, read only when copying.
 // Only the id, name and type are queried here; the value is decrypted in memory and never logged.
 const githubCredentials: GithubCredentialStore = {
@@ -90,7 +82,7 @@ const githubCredentials: GithubCredentialStore = {
     }
 }
 
-configureVersioning({ storage, flows, log, githubCredentials })
+configureVersioning({ storage, log, githubCredentials })
 
 export {
     credentialIds,

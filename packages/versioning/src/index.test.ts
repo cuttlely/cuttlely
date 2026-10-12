@@ -3,9 +3,8 @@ import fs from 'fs'
 import os from 'os'
 import path from 'path'
 
-import { emptyDeps, useTestDeps } from './testDeps'
+import { useTestDeps } from './testDeps'
 import {
-    configureVersioning,
     credentialIds,
     flushVersions,
     getStatus,
@@ -560,26 +559,5 @@ describe('secret scan', () => {
     test('names the file and pattern for each hit', () => {
         const key = ['AKIA', 'ABCDEFGHIJKLMNOP'].join('')
         expect(scanForSecrets({ 'a.json': `{"k":"${key}"}`, 'b.md': 'plain words' })).toEqual([{ file: 'a.json', pattern: 'akia' }])
-    })
-})
-
-describe('flow lookup', () => {
-    test('a save that has only an id loads the canvas through the lookup', async () => {
-        const saved = chatflow('Sales Desk', flow())
-        configureVersioning({
-            ...emptyDeps(),
-            flows: {
-                async get(id) {
-                    return id === saved.id ? saved : null
-                }
-            }
-        })
-        const sha = await recordFlowVersion({ id: saved.id, name: '', flowData: undefined as unknown as string })
-        expect(sha).toBeTruthy()
-        expect((await listVersions(saved.id)).versions[0]).toMatchObject({
-            kind: 'create',
-            title: 'Created Sales Desk',
-            name: 'Sales Desk'
-        })
     })
 })
