@@ -66,11 +66,13 @@ jobs:
             - uses: actions/checkout@v6
             - run: docker build --no-cache -t cuttlely .
             - name: Use Node.js 24.15.0
+              id: node
+              continue-on-error: true
               uses: actions/setup-node@v6
               with:
                   node-version: 24.15.0
-            # Report only. A missing size does not fail the image build.
+            # Report only. A missing size, or a Node setup that did not succeed, does not fail the image build.
             - name: Health report
-              if: always()
+              if: always() && steps.node.outcome == 'success'
               continue-on-error: true
               run: node scripts/health-report.mjs --image cuttlely
