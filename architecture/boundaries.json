@@ -259,8 +259,6 @@
             "packages/server/**",
             "packages/ui/**",
             "packages/components/**",
-            "packages/agentflow/**",
-            "packages/observe/**",
             "packages/api-documentation/**",
             "docker/**",
             "i18n/**",

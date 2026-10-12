@@ -28,7 +28,7 @@ Cuttlely 1.0.2. The product version is the root `package.json`, `packages/server
 
 ## How it is checked
 
--   `pnpm verify` on Node 24 is the merge gate (DECISIONS D27). The full run has 23 steps. `pnpm verify --help` lists every step and the `--fast` set. A docs-only change uses `--fast`. The `boundaries` step fails a new import across a zone, or a new file under an inherited path that is not assigned to a subsystem. The typecheck step runs in both modes: components and the server, plus `tsc --noEmit` for `packages/agentflow`, `packages/observe`, and `packages/api-documentation`.
+-   `pnpm verify` on Node 24 is the merge gate (DECISIONS D27). The full run has 23 steps. `pnpm verify --help` lists every step and the `--fast` set. A docs-only change uses `--fast`. The `boundaries` step fails a new import across a zone, or a new file under an inherited path that is not assigned to a subsystem. A recorded line that is no longer in the tree fails until `node scripts/check-boundaries.mjs --update` shrinks the list. The typecheck step runs in both modes: components and the server, plus `tsc --noEmit` for `packages/api-documentation`.
 -   `node harness/check.mjs` and `node etl/check.mjs` are offline checks with no model key and no network.
 -   The `smoke` step boots the built server; the `upgrade` step starts it on data from an older release; the `safeboot` step checks the settings rollback.
 -   The daily scheduled CI run on `main` also runs `pnpm test:queue-abort`, an end-to-end queue-mode abort test against a Redis service.

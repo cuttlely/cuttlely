@@ -180,12 +180,11 @@ Then open [http://localhost:8080](http://localhost:8080). Use `localhost`, not `
 
 ### What starts
 
-| Address                                        | What it is                                                                                                                         | Package folder                           |
-| ---------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------- |
-| `http://localhost:8080`                        | The app in your browser. Open this one                                                                                             | `packages/ui`                            |
-| `http://localhost:3000`                        | The server and its API. Restarts when you save a server file                                                                       | `packages/server`                        |
-| `127.0.0.1:43118`                              | The harness gateway, started by the server                                                                                         | `packages/server`                        |
-| `http://localhost:5173` and the next free port | Preview servers for the agentflow canvas package and the observe package. Ignore both. One of them moves off `5173` if it is taken | `packages/agentflow`, `packages/observe` |
+| Address                 | What it is                                                   | Package folder    |
+| ----------------------- | ------------------------------------------------------------ | ----------------- |
+| `http://localhost:8080` | The app in your browser. Open this one                       | `packages/ui`     |
+| `http://localhost:3000` | The server and its API. Restarts when you save a server file | `packages/server` |
+| `127.0.0.1:43118`       | The harness gateway, started by the server                   | `packages/server` |
 
 The page at `8080` sends every `/api` request on to the server at `3000`. Both were up within a few seconds. `pnpm dev` does not start the agent runtime, so `X-Cuttlely-Hermes` on that ping is `unknown` until you [run the runtime beside the UI](#harness-specialists-while-you-work-on-the-ui).
 

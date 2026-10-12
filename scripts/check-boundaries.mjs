@@ -852,6 +852,10 @@ function fixUpdate(kind) {
     return `Fix: node scripts/check-boundaries.mjs --update --allow-new "why this ${kind} stays". --update alone only shrinks the baseline.`
 }
 
+function fixShrink() {
+    return 'Fix: run node scripts/check-boundaries.mjs --update to shrink the list.'
+}
+
 function violationsFor(snapshot, baseline) {
     const violations = [...snapshot.dependencyViolations]
     if (!baseline) {
@@ -951,6 +955,7 @@ function violationsFor(snapshot, baseline) {
         })
     }
     const inheritedKnown = new Set(baseline.inherited)
+    const inheritedNow = new Set(snapshot.inheritedFiles)
     for (const file of snapshot.inheritedFiles) {
         if (inheritedKnown.has(file)) continue
         violations.push({
@@ -962,6 +967,50 @@ function violationsFor(snapshot, baseline) {
                 'Fix: add its path to a subsystem, or to core-shared, in architecture/boundaries.json.',
                 fixUpdate('file')
             ].join('\n')
+        })
+    }
+    for (const file of baseline.inherited) {
+        if (inheritedNow.has(file)) continue
+        violations.push({
+            rule: 'stale',
+            from: file,
+            to: file,
+            message: [
+                `Stale inherited file: ${file} is listed in ${INHERITED_FILE} but is not an inherited file in this tree.`,
+                fixShrink()
+            ].join('\n')
+        })
+    }
+    const staleEdges = [
+        ['R1', removedEdges(snapshot.r1Edges, baseline.r1Edges)],
+        ['R2', removedEdges(snapshot.r2Edges, baseline.r2Edges)],
+        ['R3', removedEdges(snapshot.r3Edges, baseline.r3Edges)],
+        ['R4', removedEdges(snapshot.r4Edges, baseline.r4Edges)],
+        ['R5', removedEdges(snapshot.r5Edges, baseline.r5Edges)]
+    ]
+    for (const [rule, edges] of staleEdges) {
+        for (const edge of edges) {
+            violations.push({
+                rule: 'stale',
+                from: edge.from,
+                to: edge.to,
+                message: [
+                    `Stale ${rule} crossing: ${edge.from} -> ${edge.to} is in ${BASELINE_FILE} but that import is not in this tree.`,
+                    fixShrink()
+                ].join('\n')
+            })
+        }
+    }
+    const usedPackages = new Set(snapshot.r1Packages)
+    for (const item of baseline.r1Packages) {
+        if (usedPackages.has(item.name)) continue
+        violations.push({
+            rule: 'stale',
+            from: item.name,
+            to: item.name,
+            message: [`Stale R1 package: ${item.name} is in ${BASELINE_FILE} but harness/ and etl/ no longer import it.`, fixShrink()].join(
+                '\n'
+            )
         })
     }
     return violations

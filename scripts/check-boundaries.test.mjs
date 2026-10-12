@@ -230,6 +230,32 @@ describe('baseline ratchet', () => {
         assert.equal(saved.r6Additions[0].reason, 'this file stays with the inherited engine')
         assert.match(fs.readFileSync(path.join(root, 'architecture/inherited-files.txt'), 'utf8'), /brand-new\.ts/)
     })
+
+    it('fails when a recorded line is no longer in the tree', () => {
+        const root = make({
+            'packages/server/src/identity/index.ts': "import '../utils/logger.ts'\n",
+            'architecture/inherited-files.txt': 'packages/server/src/utils/logger.ts\npackages/server/src/utils/gone.ts\n',
+            'architecture/boundary-baseline.json': `${JSON.stringify(
+                {
+                    ...EMPTY_BASELINE,
+                    r3Edges: [
+                        { from: 'packages/server/src/identity/index.ts', to: 'packages/server/src/utils/logger.ts' },
+                        { from: 'packages/server/src/identity/index.ts', to: 'packages/server/src/utils/gone.ts' }
+                    ]
+                },
+                null,
+                4
+            )}\n`
+        })
+        const text = messages(root)
+        assert.match(text, /Stale inherited file: packages\/server\/src\/utils\/gone\.ts/)
+        assert.match(text, /Stale R3 crossing: packages\/server\/src\/identity\/index\.ts -> packages\/server\/src\/utils\/gone\.ts/)
+        assert.match(text, /node scripts\/check-boundaries\.mjs --update/)
+        assert.match(text, /shrink the list/)
+        const shrunk = updateBaseline(root, { allowNew: false })
+        assert.equal(shrunk.ok, true)
+        assert.deepEqual(checkBoundaries(root).violations, [])
+    })
 })
 
 describe('this repo', () => {
