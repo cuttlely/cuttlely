@@ -1539,17 +1539,16 @@ const checkForMultipleStartNodes = (startingNodeIds: string[], isRecursive: bool
 }
 
 // Also used by the publish check, which reads forms already stored in this shape.
+// Split on the first ": " so a value may itself contain a colon. Values come back as strings.
 export const parseFormStringToJson = (formString: string): Record<string, string> => {
     const result: Record<string, string> = {}
-    const lines = formString.split('\n')
-
-    for (const line of lines) {
-        const [key, value] = line.split(': ').map((part) => part.trim())
-        if (key && value) {
-            result[key] = value
-        }
+    for (const line of formString.split('\n')) {
+        const splitAt = line.indexOf(': ')
+        if (splitAt <= 0) continue
+        const key = line.slice(0, splitAt).trim()
+        const value = line.slice(splitAt + 2).trim()
+        if (key && value) result[key] = value
     }
-
     return result
 }
 

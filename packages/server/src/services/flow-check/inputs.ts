@@ -69,9 +69,17 @@ export function isVolatileHeader(name: string): boolean {
     return false
 }
 
+// A sensitive key hides its whole value. Other objects and arrays are walked, so user[password]=s3cret
+// (stored as { user: { password } }) does not leak.
+function maskValue(value: unknown): unknown {
+    if (Array.isArray(value)) return value.map((item) => maskValue(item))
+    if (value && typeof value === 'object') return maskBag(value as Record<string, unknown>)
+    return value
+}
+
 function maskBag(bag: Record<string, unknown>): Record<string, unknown> {
     const masked: Record<string, unknown> = {}
-    for (const [key, value] of Object.entries(bag)) masked[key] = isSensitiveKey(key) ? REDACTED : value
+    for (const [key, value] of Object.entries(bag)) masked[key] = isSensitiveKey(key) ? REDACTED : maskValue(value)
     return masked
 }
 
@@ -150,7 +158,7 @@ function differingHeaders(row: RecordedRow, group: RecordedRow[]): string[] {
 function formatHeader(name: string, row: RecordedRow): string {
     if (!Object.prototype.hasOwnProperty.call(row.rawHeaders, name)) return name
     if (isSensitiveKey(name)) return `${name}: ${REDACTED}`
-    const value = row.rawHeaders[name]
+    const value = maskValue(row.rawHeaders[name])
     return `${name}: ${typeof value === 'string' ? value : canonicalJson(value)}`
 }
 

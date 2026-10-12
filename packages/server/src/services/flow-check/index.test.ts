@@ -36,7 +36,8 @@ const queryBuilder: any = {
         const ordered = [...executions].sort((a, b) => {
             const ta = new Date(a.updatedDate || a.createdDate || 0).getTime()
             const tb = new Date(b.updatedDate || b.createdDate || 0).getTime()
-            return tb - ta
+            if (tb !== ta) return tb - ta
+            return String(b.id).localeCompare(String(a.id))
         })
         const start = queryState.skip || 0
         const end = queryState.take == null ? undefined : start + queryState.take
@@ -503,6 +504,21 @@ describe('form, webhook and schedule starts', () => {
         const schedule = await getCheckSetup(scheduleFlow())
         expect(schedule.pastCount).toBe(1)
         expect(JSON.parse(schedule.questions[0].text)).toEqual({ form: { team: 'bakery' } })
+    })
+
+    test('rows that share one timestamp are paged without repeats or gaps', async () => {
+        const stamp = '2026-10-08T10:00:00Z'
+        for (let i = 1; i <= 60; i++) {
+            const id = `e-${String(i).padStart(2, '0')}`
+            execution(webhookOutput({ event: id }), stamp, id)
+        }
+        const setup = await getCheckSetup(webhookFlow())
+        expect(setup.pastCount).toBe(60)
+        expect(setup.pastTruncated).toBe(false)
+        const events = setup.questions.map((q) => JSON.parse(q.text).webhook.body.event)
+        expect(new Set(events).size).toBe(60)
+        expect(events.slice(0, 3)).toEqual(['e-60', 'e-59', 'e-58'])
+        expect(events[59]).toBe('e-01')
     })
 
     test('no past executions returns a message instead of a refusal', async () => {

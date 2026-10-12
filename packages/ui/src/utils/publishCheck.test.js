@@ -57,6 +57,22 @@ describe('recorded input preview', () => {
         expect(inputPreview(second, undefined, [first, second])).toContain('x-github-event: release')
         expect(inputPreview(second, undefined, [first, second])).toContain('authorization: [REDACTED]')
         expect(inputPreview(second, undefined, [first, second])).not.toContain('sekret')
+        const nested = (name, secret) =>
+            JSON.stringify({
+                webhook: {
+                    body: { event: 'bake' },
+                    query: { user: { password: 's3cret', name } },
+                    headers: { 'x-extra': { user: { password: secret } } }
+                }
+            })
+        const nestedPreview = inputPreview(nested('ada', 'header-secret'), undefined, [
+            nested('ada', 'header-secret'),
+            nested('bea', 'other-secret')
+        ])
+        expect(nestedPreview).toContain('[REDACTED]')
+        expect(nestedPreview).toContain('ada')
+        expect(nestedPreview).not.toContain('s3cret')
+        expect(nestedPreview).not.toContain('header-secret')
         const long = JSON.stringify({ form: { note: 'x'.repeat(200) } })
         expect(inputPreview(long, 20).endsWith('…')).toBe(true)
         expect(inputPreview(long, 20).length).toBe(21)

@@ -30,10 +30,13 @@ describe('recorded inputs', () => {
     })
 
     test('a real form run stores name: value lines, and a schedule form uses the same shape', () => {
-        const form = recordedQuestion(execution({ form: 'loaf: millet\nnote: fresh' }), 'formInput')
-        const again = recordedQuestion(execution({ form: 'note: fresh\nloaf: millet' }), 'formInput')
-        expect(JSON.parse(form as string)).toEqual({ form: { loaf: 'millet', note: 'fresh' } })
+        const form = recordedQuestion(execution({ form: 'loaf: rye\ncount: 2' }), 'formInput')
+        const again = recordedQuestion(execution({ form: 'count: 2\nloaf: rye' }), 'formInput')
+        expect(JSON.parse(form as string)).toEqual({ form: { loaf: 'rye', count: '2' } })
         expect(again).toBe(form)
+        expect(JSON.parse(recordedQuestion(execution({ form: 'note: size: large' }), 'formInput') as string).form).toEqual({
+            note: 'size: large'
+        })
         expect(recordedQuestion(execution({ form: 'loaf: millet' }), 'formInput')).toBe(
             recordedQuestion(execution({ form: { loaf: 'millet' } }), 'formInput')
         )
@@ -129,6 +132,21 @@ describe('webhook distinctness and masking', () => {
         expect(rows[1].text).toContain('[REDACTED]')
         expect(rows[2].preview).toBe('{"event":"close"}')
         expect(rows[2].text).toContain('"authorization":"[REDACTED]"')
+    })
+
+    test('masks nested query and header values whose keys are sensitive', () => {
+        const row = webhookRow({
+            body: { event: 'bake' },
+            query: { user: { password: 's3cret', name: 'ada' }, items: [{ token: 'nested-token' }, { loaf: 'rye' }] },
+            headers: { 'x-extra': { user: { password: 'header-secret' }, note: 'keep' } }
+        })
+        const text = row?.text || ''
+        for (const secret of ['s3cret', 'nested-token', 'header-secret']) expect(text).not.toContain(secret)
+        const parsed = JSON.parse(text).webhook
+        expect(parsed.query.user).toEqual({ password: '[REDACTED]', name: 'ada' })
+        expect(parsed.query.items).toEqual([{ token: '[REDACTED]' }, { loaf: 'rye' }])
+        expect(parsed.headers['x-extra']).toEqual({ user: { password: '[REDACTED]' }, note: 'keep' })
+        expect(row?.preview).not.toContain('s3cret')
     })
 
     test('masks cookie, token, secret, key, password and signature query values', () => {

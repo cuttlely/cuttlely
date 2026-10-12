@@ -79,9 +79,15 @@ const isSensitiveKey = (name) => {
     return SENSITIVE_PARTS.some((part) => key.includes(part))
 }
 
+const maskValue = (value) => {
+    if (Array.isArray(value)) return value.map((item) => maskValue(item))
+    if (value && typeof value === 'object') return maskBag(value)
+    return value
+}
+
 const maskBag = (bag) => {
     const masked = {}
-    for (const [key, value] of Object.entries(bag || {})) masked[key] = isSensitiveKey(key) ? '[REDACTED]' : value
+    for (const [key, value] of Object.entries(bag || {})) masked[key] = isSensitiveKey(key) ? '[REDACTED]' : maskValue(value)
     return masked
 }
 
@@ -124,9 +130,10 @@ export const inputPreview = (text, max = INPUT_PREVIEW_CHARS, siblings) => {
             const headers = [...names].sort().map((name) => {
                 const entry = (value.webhook.headers || {})[name]
                 if (entry === undefined) return name
+                const shownEntry = maskValue(entry)
                 return isSensitiveKey(name)
                     ? `${name}: [REDACTED]`
-                    : `${name}: ${typeof entry === 'string' ? entry : JSON.stringify(entry)}`
+                    : `${name}: ${typeof shownEntry === 'string' ? shownEntry : JSON.stringify(shownEntry)}`
             })
             parts.push(`headers ${headers.join(', ')}`)
         }
