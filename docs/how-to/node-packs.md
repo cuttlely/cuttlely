@@ -30,7 +30,7 @@ A token that is a directory is that pack. Any other token is a package name. Eac
 
 If a pack defines a node or credential name that is already loaded, the existing one stays and the server logs a warning.
 
-Leave `CUTTLELY_NODE_PACKS` unset, or blank, to load only the nodes that ship with Cuttlely.
+Leave `CUTTLELY_NODE_PACKS` unset, or blank, to load only the nodes that ship with Cuttlely. It is read at start from the environment. It is not in Admin, Server settings, because it names directories on the host.
 
 ## Docker
 
