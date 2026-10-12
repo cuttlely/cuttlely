@@ -1,5 +1,5 @@
 import { StatusCodes } from 'http-status-codes'
-import { InternalFlowiseError } from '../errors/internalFlowiseError'
+import { AppError } from '../errors/appError'
 import { getErrorMessage } from '../errors/utils'
 
 // A short code for each status a prediction can fail with, so a client can act on it without reading the message.
@@ -110,11 +110,11 @@ const isHarnessError = (error: unknown, message: string) =>
  * keeps its status; a model provider that keeps rate limiting is 429 with Retry-After (the provider's wait when it
  * sent one); a harness that cannot run is 422; anything else is 500.
  */
-export const toPredictionError = (error: unknown): InternalFlowiseError => {
-    if (error instanceof InternalFlowiseError && error.statusCode >= 400 && error.statusCode < 500) return error
+export const toPredictionError = (error: unknown): AppError => {
+    if (error instanceof AppError && error.statusCode >= 400 && error.statusCode < 500) return error
     const limited = providerRateLimit(error)
     if (limited) {
-        const rateLimited = new InternalFlowiseError(
+        const rateLimited = new AppError(
             StatusCodes.TOO_MANY_REQUESTS,
             `The model provider (or another service this flow calls) is limiting requests right now. Try again in ${limited.retryAfterSeconds} seconds.`
         )
@@ -122,8 +122,8 @@ export const toPredictionError = (error: unknown): InternalFlowiseError => {
         return rateLimited
     }
     const message = getErrorMessage(error)
-    if (isHarnessError(error, message)) return new InternalFlowiseError(StatusCodes.UNPROCESSABLE_ENTITY, message)
-    return new InternalFlowiseError(StatusCodes.INTERNAL_SERVER_ERROR, message)
+    if (isHarnessError(error, message)) return new AppError(StatusCodes.UNPROCESSABLE_ENTITY, message)
+    return new AppError(StatusCodes.INTERNAL_SERVER_ERROR, message)
 }
 
 /**

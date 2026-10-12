@@ -4,7 +4,7 @@ import { DataSource, In } from 'typeorm'
 import { ScheduleRecord, ScheduleTriggerType } from '../../database/entities/ScheduleRecord'
 import { ScheduleTriggerLog, ScheduleTriggerStatus } from '../../database/entities/ScheduleTriggerLog'
 import { ChatFlow } from '../../database/entities/ChatFlow'
-import { InternalFlowiseError } from '../../errors/internalFlowiseError'
+import { AppError } from '../../errors/appError'
 import { getErrorMessage } from '../../errors/utils'
 import { getRunningExpressApp } from '../../utils/getRunningExpressApp'
 import logger from '../../utils/logger'
@@ -127,11 +127,8 @@ const createOrUpdateSchedule = async (input: CreateScheduleInput): Promise<Sched
         logger.debug(`[ScheduleService]: Created schedule ${saved.id} for ${input.triggerType}:${input.targetId}`)
         return saved
     } catch (error) {
-        if (error instanceof InternalFlowiseError) throw error
-        throw new InternalFlowiseError(
-            StatusCodes.INTERNAL_SERVER_ERROR,
-            `Error: scheduleService.createOrUpdateSchedule - ${getErrorMessage(error)}`
-        )
+        if (error instanceof AppError) throw error
+        throw new AppError(StatusCodes.INTERNAL_SERVER_ERROR, `Error: scheduleService.createOrUpdateSchedule - ${getErrorMessage(error)}`)
     }
 }
 
@@ -153,10 +150,7 @@ const deleteScheduleForTarget = async (
         logger.debug(`[ScheduleService]: Deleted schedule for ${triggerType}:${targetId}`)
         return record
     } catch (error) {
-        throw new InternalFlowiseError(
-            StatusCodes.INTERNAL_SERVER_ERROR,
-            `Error: scheduleService.deleteScheduleForTarget - ${getErrorMessage(error)}`
-        )
+        throw new AppError(StatusCodes.INTERNAL_SERVER_ERROR, `Error: scheduleService.deleteScheduleForTarget - ${getErrorMessage(error)}`)
     }
 }
 
@@ -170,10 +164,7 @@ const getEnabledSchedulesBatch = async (skip: number = 0, take: number = SCHEDUL
             take
         })
     } catch (error) {
-        throw new InternalFlowiseError(
-            StatusCodes.INTERNAL_SERVER_ERROR,
-            `Error: scheduleService.getEnabledSchedulesBatch - ${getErrorMessage(error)}`
-        )
+        throw new AppError(StatusCodes.INTERNAL_SERVER_ERROR, `Error: scheduleService.getEnabledSchedulesBatch - ${getErrorMessage(error)}`)
     }
 }
 
@@ -263,10 +254,7 @@ const getScheduleStatus = async (
             return { record, canEnable: false, reason: 'Could not parse flow data' }
         }
     } catch (error) {
-        throw new InternalFlowiseError(
-            StatusCodes.INTERNAL_SERVER_ERROR,
-            `Error: scheduleService.getScheduleStatus - ${getErrorMessage(error)}`
-        )
+        throw new AppError(StatusCodes.INTERNAL_SERVER_ERROR, `Error: scheduleService.getScheduleStatus - ${getErrorMessage(error)}`)
     }
 }
 
@@ -283,13 +271,13 @@ const toggleScheduleEnabled = async (targetId: string, workspaceId: string, enab
             where: { targetId, triggerType: ScheduleTriggerType.AGENTFLOW, workspaceId }
         })
         if (!record) {
-            throw new InternalFlowiseError(StatusCodes.NOT_FOUND, 'No schedule record found for this flow')
+            throw new AppError(StatusCodes.NOT_FOUND, 'No schedule record found for this flow')
         }
 
         if (enabled) {
             const status = await getScheduleStatus(targetId, workspaceId)
             if (!status.canEnable) {
-                throw new InternalFlowiseError(StatusCodes.BAD_REQUEST, status.reason || 'Cannot enable schedule: invalid configuration')
+                throw new AppError(StatusCodes.BAD_REQUEST, status.reason || 'Cannot enable schedule: invalid configuration')
             }
         }
 
@@ -298,11 +286,8 @@ const toggleScheduleEnabled = async (targetId: string, workspaceId: string, enab
         logger.debug(`[ScheduleService]: Schedule ${record.id} toggled to ${enabled ? 'enabled' : 'disabled'}`)
         return saved
     } catch (error) {
-        if (error instanceof InternalFlowiseError) throw error
-        throw new InternalFlowiseError(
-            StatusCodes.INTERNAL_SERVER_ERROR,
-            `Error: scheduleService.toggleScheduleEnabled - ${getErrorMessage(error)}`
-        )
+        if (error instanceof AppError) throw error
+        throw new AppError(StatusCodes.INTERNAL_SERVER_ERROR, `Error: scheduleService.toggleScheduleEnabled - ${getErrorMessage(error)}`)
     }
 }
 
@@ -386,10 +371,7 @@ const getTriggerLogs = async (
 
         return { data, total, page, limit }
     } catch (error) {
-        throw new InternalFlowiseError(
-            StatusCodes.INTERNAL_SERVER_ERROR,
-            `Error: scheduleService.getTriggerLogs - ${getErrorMessage(error)}`
-        )
+        throw new AppError(StatusCodes.INTERNAL_SERVER_ERROR, `Error: scheduleService.getTriggerLogs - ${getErrorMessage(error)}`)
     }
 }
 
@@ -433,11 +415,8 @@ const deleteTriggerLogs = async (
         logger.debug(`[ScheduleService]: Deleted ${result.affected ?? 0} trigger logs and ${deletedExecutions} executions`)
         return { success: true, deletedLogs: result.affected ?? 0, deletedExecutions }
     } catch (error) {
-        if (error instanceof InternalFlowiseError) throw error
-        throw new InternalFlowiseError(
-            StatusCodes.INTERNAL_SERVER_ERROR,
-            `Error: scheduleService.deleteTriggerLogs - ${getErrorMessage(error)}`
-        )
+        if (error instanceof AppError) throw error
+        throw new AppError(StatusCodes.INTERNAL_SERVER_ERROR, `Error: scheduleService.deleteTriggerLogs - ${getErrorMessage(error)}`)
     }
 }
 

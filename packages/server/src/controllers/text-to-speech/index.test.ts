@@ -1,7 +1,7 @@
 import { Request, Response } from 'express'
 import { StatusCodes } from 'http-status-codes'
 import { convertTextToSpeechStream } from '@cuttlely/components'
-import { InternalFlowiseError } from '../../errors/internalFlowiseError'
+import { AppError } from '../../errors/appError'
 import chatflowsService from '../../services/chatflows'
 import credentialsService from '../../services/credentials'
 import { getRunningExpressApp } from '../../utils/getRunningExpressApp'
@@ -120,7 +120,7 @@ describe('generateTextToSpeech', () => {
 
     it('returns 404 and does not stream when the credential is not in the workspace', async () => {
         mockCredentialsService.assertCredentialInWorkspace.mockRejectedValue(
-            new InternalFlowiseError(StatusCodes.NOT_FOUND, 'Credential cred-1 not found')
+            new AppError(StatusCodes.NOT_FOUND, 'Credential cred-1 not found')
         )
         const req = makeReq({
             body: bodyConfig,

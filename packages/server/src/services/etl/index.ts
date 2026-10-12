@@ -4,7 +4,7 @@ import { Readable } from 'stream'
 import { pathToFileURL } from 'url'
 import { StatusCodes } from 'http-status-codes'
 import { In } from 'typeorm'
-import { InternalFlowiseError } from '../../errors/internalFlowiseError'
+import { AppError } from '../../errors/appError'
 import { getErrorMessage } from '../../errors/utils'
 import { ChatFlow, EnumChatflowType } from '../../database/entities/ChatFlow'
 import { Workspace } from '../../database/entities/identity'
@@ -27,7 +27,7 @@ async function loadEtl(file = 'api.mjs'): Promise<any> {
         if (fs.existsSync(candidate)) return importEsm(pathToFileURL(candidate).href)
         dir = path.dirname(dir)
     }
-    throw new InternalFlowiseError(StatusCodes.INTERNAL_SERVER_ERROR, `ETL module ${file} was not found in this checkout.`)
+    throw new AppError(StatusCodes.INTERNAL_SERVER_ERROR, `ETL module ${file} was not found in this checkout.`)
 }
 
 // Reuses the Workspace import this service already has. Harness calls this instead of importing the entity.
@@ -73,21 +73,21 @@ async function etl(): Promise<any> {
     return api
 }
 
-function asFlowiseError(error: any): InternalFlowiseError {
+function asAppError(error: any): AppError {
     const status =
-        error instanceof InternalFlowiseError
+        error instanceof AppError
             ? error.statusCode
             : error?.etlError
             ? error.status || StatusCodes.BAD_REQUEST
             : StatusCodes.INTERNAL_SERVER_ERROR
-    return new InternalFlowiseError(status, userFacingError(error))
+    return new AppError(status, userFacingError(error))
 }
 
 async function call<T>(fn: (api: any) => T | Promise<T>): Promise<T> {
     try {
         return await fn(await etl())
     } catch (error) {
-        throw asFlowiseError(error)
+        throw asAppError(error)
     }
 }
 
@@ -137,8 +137,7 @@ const getVersion = (id: string, version: number, workspaceId?: string) =>
 const preview = (id: string, body: Record<string, any>, workspaceId?: string) =>
     call(async (api) => {
         let flowData = body?.flowData
-        if (!workspaceId)
-            throw new InternalFlowiseError(StatusCodes.BAD_REQUEST, 'No active workspace. Sign in to a workspace and try again.')
+        if (!workspaceId) throw new AppError(StatusCodes.BAD_REQUEST, 'No active workspace. Sign in to a workspace and try again.')
         const known = api.getPipeline(id)
         if (known) await requirePipeline(api, id, workspaceId)
         if (!flowData) {
@@ -146,7 +145,7 @@ const preview = (id: string, body: Record<string, any>, workspaceId?: string) =>
             const chatflow = await getRunningExpressApp().AppDataSource.getRepository(ChatFlow).findOneBy({ id, workspaceId })
             flowData = chatflow?.flowData
         }
-        if (!flowData) throw new InternalFlowiseError(StatusCodes.BAD_REQUEST, 'Add nodes to the canvas before previewing.')
+        if (!flowData) throw new AppError(StatusCodes.BAD_REQUEST, 'Add nodes to the canvas before previewing.')
         const ctx = await contextFor(known || { id, workspaceId })
         return api.previewPipeline({
             pipelineId: id,
@@ -200,8 +199,7 @@ const listSamples = () => call((api) => api.listSamples())
 
 const importSample = (sampleId: string, workspaceId?: string) =>
     call(async (api) => {
-        if (!workspaceId)
-            throw new InternalFlowiseError(StatusCodes.BAD_REQUEST, 'No active workspace. Sign in to a workspace and try again.')
+        if (!workspaceId) throw new AppError(StatusCodes.BAD_REQUEST, 'No active workspace. Sign in to a workspace and try again.')
         const sample = api.loadSample(sampleId)
         const repo = getRunningExpressApp().AppDataSource.getRepository(ChatFlow)
         let name = sample.name

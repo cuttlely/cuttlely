@@ -100,14 +100,14 @@ jest.mock('./getRunningExpressApp', () => ({
 // Same statuses and messages as chatflowsService.getChatflowById.
 jest.mock('../services/chatflows', () => {
     const { isValidUUID } = jest.requireActual('@cuttlely/components')
-    const { InternalFlowiseError } = jest.requireActual('../errors/internalFlowiseError')
+    const { AppError } = jest.requireActual('../errors/appError')
     return {
         __esModule: true,
         default: {
             getChatflowById: async (id: string) => {
-                if (!isValidUUID(id)) throw new InternalFlowiseError(400, 'Invalid Chatflow ID')
+                if (!isValidUUID(id)) throw new AppError(400, 'Invalid Chatflow ID')
                 const flow = mockDb.chatflows.get(id)
-                if (!flow) throw new InternalFlowiseError(404, `Chatflow ${id} not found in the database!`)
+                if (!flow) throw new AppError(404, `Chatflow ${id} not found in the database!`)
                 return flow
             },
             checkIfChatflowIsValidForStreaming: async () => ({ isStreaming: true })
@@ -116,7 +116,7 @@ jest.mock('../services/chatflows', () => {
 })
 
 jest.mock('../services/predictions', () => {
-    const { InternalFlowiseError } = jest.requireActual('../errors/internalFlowiseError')
+    const { AppError } = jest.requireActual('../errors/appError')
     const { validateFlowAPIKey } = jest.requireActual('./validateKey')
     return {
         __esModule: true,
@@ -124,7 +124,7 @@ jest.mock('../services/predictions', () => {
             buildChatflow: async (req: any) => {
                 mockState.controllerCalls += 1
                 const chatflow = mockDb.chatflows.get(req.params.id)
-                if (!(await validateFlowAPIKey(req, chatflow))) throw new InternalFlowiseError(401, 'Unauthorized')
+                if (!(await validateFlowAPIKey(req, chatflow))) throw new AppError(401, 'Unauthorized')
                 return { text: 'ok', chatId: req.body.chatId ?? 'chat-1', files: (req.files ?? []).map((f: any) => f.originalname) }
             }
         }

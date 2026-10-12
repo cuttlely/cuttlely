@@ -1,5 +1,5 @@
 import { StatusCodes } from 'http-status-codes'
-import { InternalFlowiseError } from '../../errors/internalFlowiseError'
+import { AppError } from '../../errors/appError'
 import { getErrorMessage } from '../../errors/utils'
 import {
     buildFlow,
@@ -40,7 +40,7 @@ const buildAndInitTool = async (chatflowid: string, reqWorkspaceId?: string, _ch
         (node: IReactFlowNode) => node.data.inputAnchors.find((acr) => acr.type === 'Tool') && node.data.category === 'Agents'
     )
     if (!toolAgentNode) {
-        throw new InternalFlowiseError(StatusCodes.NOT_FOUND, `Agent with tools not found in chatflow ${chatflowid}`)
+        throw new AppError(StatusCodes.NOT_FOUND, `Agent with tools not found in chatflow ${chatflowid}`)
     }
 
     const { graph, nodeDependencies } = constructGraphs(nodes, edges)
@@ -70,7 +70,7 @@ const buildAndInitTool = async (chatflowid: string, reqWorkspaceId?: string, _ch
         id: chatflowWorkspaceId
     })
     if (!workspace) {
-        throw new InternalFlowiseError(StatusCodes.NOT_FOUND, `Workspace ${chatflowWorkspaceId} not found`)
+        throw new AppError(StatusCodes.NOT_FOUND, `Workspace ${chatflowWorkspaceId} not found`)
     }
     const workspaceId = workspace.id
 
@@ -78,7 +78,7 @@ const buildAndInitTool = async (chatflowid: string, reqWorkspaceId?: string, _ch
         id: workspace.organizationId
     })
     if (!org) {
-        throw new InternalFlowiseError(StatusCodes.NOT_FOUND, `Organization ${workspace.organizationId} not found`)
+        throw new AppError(StatusCodes.NOT_FOUND, `Organization ${workspace.organizationId} not found`)
     }
 
     const orgId = org.id
@@ -117,7 +117,7 @@ const buildAndInitTool = async (chatflowid: string, reqWorkspaceId?: string, _ch
             : reactFlowNodes[reactFlowNodes.length - 1]
 
     if (!nodeToExecute) {
-        throw new InternalFlowiseError(StatusCodes.NOT_FOUND, `Node not found`)
+        throw new AppError(StatusCodes.NOT_FOUND, `Node not found`)
     }
 
     const flowDataObj: ICommonObject = { chatflowid, chatId }
@@ -156,13 +156,10 @@ const getAgentTools = async (chatflowid: string, workspaceId?: string): Promise<
         const tools = agent.tools
         return tools.map(convertToOpenAIFunction)
     } catch (error) {
-        if (error instanceof InternalFlowiseError) {
+        if (error instanceof AppError) {
             throw error
         }
-        throw new InternalFlowiseError(
-            StatusCodes.INTERNAL_SERVER_ERROR,
-            `Error: openaiRealTimeService.getAgentTools - ${getErrorMessage(error)}`
-        )
+        throw new AppError(StatusCodes.INTERNAL_SERVER_ERROR, `Error: openaiRealTimeService.getAgentTools - ${getErrorMessage(error)}`)
     }
 }
 
@@ -180,7 +177,7 @@ const executeAgentTool = async (
         const tool = tools.find((tool: any) => tool.name === toolName)
 
         if (!tool) {
-            throw new InternalFlowiseError(StatusCodes.NOT_FOUND, `Tool ${toolName} not found`)
+            throw new AppError(StatusCodes.NOT_FOUND, `Tool ${toolName} not found`)
         }
 
         const inputArgsObj = typeof inputArgs === 'string' ? JSON.parse(inputArgs) : inputArgs
@@ -226,13 +223,10 @@ const executeAgentTool = async (
             artifacts
         }
     } catch (error) {
-        if (error instanceof InternalFlowiseError) {
+        if (error instanceof AppError) {
             throw error
         }
-        throw new InternalFlowiseError(
-            StatusCodes.INTERNAL_SERVER_ERROR,
-            `Error: openaiRealTimeService.executeAgentTool - ${getErrorMessage(error)}`
-        )
+        throw new AppError(StatusCodes.INTERNAL_SERVER_ERROR, `Error: openaiRealTimeService.executeAgentTool - ${getErrorMessage(error)}`)
     }
 }
 

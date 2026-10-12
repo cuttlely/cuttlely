@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, jest } from '@jest/globals'
 import { StatusCodes } from 'http-status-codes'
 import { Dataset } from '../../database/entities/Dataset'
-import { InternalFlowiseError } from '../../errors/internalFlowiseError'
+import { AppError } from '../../errors/appError'
 
 type DatasetRec = {
     id: string
@@ -135,9 +135,9 @@ describe('datasetService.reorderDatasetRow', () => {
             .reorderDatasetRow(DATASET_A, [{ id: ROW_B1, sequenceNo: 99 }], WORKSPACE_A)
             .catch((caught: unknown) => caught)
 
-        expect(error).toBeInstanceOf(InternalFlowiseError)
-        expect((error as InternalFlowiseError).statusCode).toBe(StatusCodes.NOT_FOUND)
-        expect((error as InternalFlowiseError).message).toBe(`Dataset Row ${ROW_B1} not found`)
+        expect(error).toBeInstanceOf(AppError)
+        expect((error as AppError).statusCode).toBe(StatusCodes.NOT_FOUND)
+        expect((error as AppError).message).toBe(`Dataset Row ${ROW_B1} not found`)
         expect(sequences()).toEqual(beforeRows)
         expect(updated()).toEqual(beforeDates)
     })
@@ -154,7 +154,7 @@ describe('datasetService.reorderDatasetRow', () => {
                 ],
                 WORKSPACE_A
             )
-        ).rejects.toBeInstanceOf(InternalFlowiseError)
+        ).rejects.toBeInstanceOf(AppError)
         expect(sequences()).toEqual(beforeRows)
         expect(updated()).toEqual(beforeDates)
     })

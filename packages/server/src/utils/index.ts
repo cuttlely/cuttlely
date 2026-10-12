@@ -58,7 +58,7 @@ import { Variable } from '../database/entities/Variable'
 import { DocumentStore } from '../database/entities/DocumentStore'
 import { DocumentStoreFileChunk } from '../database/entities/DocumentStoreFileChunk'
 import { CustomMcpServer } from '../database/entities/CustomMcpServer'
-import { InternalFlowiseError } from '../errors/internalFlowiseError'
+import { AppError } from '../errors/appError'
 import { StatusCodes } from 'http-status-codes'
 import { getFlowNodeLabels, replaceInputsWithConfig, warnUnmatchedAllowlistLabels } from './replaceInputsWithConfig'
 import { pinOwnedMemorySession } from './sessionOwnership'
@@ -315,11 +315,11 @@ export const getEndingNodes = (
     // If there are multiple endingnodes, the failed ones will be automatically ignored.
     // And only ensure that at least one can pass the verification.
     const verifiedEndingNodes: typeof endingNodes = []
-    let error: InternalFlowiseError | null = null
+    let error: AppError | null = null
     for (const endingNode of endingNodes) {
         const endingNodeData = endingNode.data
         if (!endingNodeData) {
-            error = new InternalFlowiseError(StatusCodes.INTERNAL_SERVER_ERROR, `Ending node ${endingNode.id} data not found`)
+            error = new AppError(StatusCodes.INTERNAL_SERVER_ERROR, `Ending node ${endingNode.id} data not found`)
 
             continue
         }
@@ -336,7 +336,7 @@ export const getEndingNodes = (
                 endingNodeData.category !== 'Sequential Agents' &&
                 endingNodeData.category !== 'Harness'
             ) {
-                error = new InternalFlowiseError(
+                error = new AppError(
                     StatusCodes.INTERNAL_SERVER_ERROR,
                     'This chatflow cannot chat yet. Add a Chain, Agent, or Engine, connect the model to it, and save.'
                 )
@@ -351,7 +351,7 @@ export const getEndingNodes = (
     }
 
     if (endingNodes.length === 0 || error === null) {
-        error = new InternalFlowiseError(
+        error = new AppError(
             StatusCodes.INTERNAL_SERVER_ERROR,
             'This chatflow cannot chat yet. Add a Chain, Agent, or Engine, connect the model to it, and save.'
         )
@@ -1659,7 +1659,7 @@ export const getMemorySessionId = (
         // A client chat id selects memory only when it is the owned id. A copy of someone else's id does not.
         if (incomingInput.chatId) {
             if (typeof incomingInput.chatId !== 'string') {
-                throw new InternalFlowiseError(StatusCodes.BAD_REQUEST, 'Invalid chatId: must be a string')
+                throw new AppError(StatusCodes.BAD_REQUEST, 'Invalid chatId: must be a string')
             }
             if (incomingInput.chatId === chatId) return chatId
         }
@@ -1669,7 +1669,7 @@ export const getMemorySessionId = (
     // The owned chat id is the session, so two callers do not share that memory.
     if (memoryNode && memoryNode.data.inputs?.sessionId !== undefined && memoryNode.data.inputs?.sessionId !== '') {
         if (typeof memoryNode.data.inputs.sessionId !== 'string') {
-            throw new InternalFlowiseError(StatusCodes.BAD_REQUEST, 'Invalid sessionId: must be a string')
+            throw new AppError(StatusCodes.BAD_REQUEST, 'Invalid sessionId: must be a string')
         }
         return chatId
     }

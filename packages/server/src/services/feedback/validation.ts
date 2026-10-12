@@ -1,6 +1,6 @@
 import { StatusCodes } from 'http-status-codes'
 import { ChatMessageRatingType, IChatMessageFeedback } from '../../Interface'
-import { InternalFlowiseError } from '../../errors/internalFlowiseError'
+import { AppError } from '../../errors/appError'
 import { getRunningExpressApp } from '../../utils/getRunningExpressApp'
 import { ChatMessage } from '../../database/entities/ChatMessage'
 import { ChatMessageFeedback } from '../../database/entities/ChatMessageFeedback'
@@ -16,7 +16,7 @@ export const validateMessageExists = async (messageId: string): Promise<ChatMess
     })
 
     if (!message) {
-        throw new InternalFlowiseError(StatusCodes.NOT_FOUND, `Message with ID ${messageId} not found`)
+        throw new AppError(StatusCodes.NOT_FOUND, `Message with ID ${messageId} not found`)
     }
 
     return message
@@ -33,7 +33,7 @@ export const validateFeedbackExists = async (feedbackId: string): Promise<ChatMe
     })
 
     if (!feedbackExists) {
-        throw new InternalFlowiseError(StatusCodes.NOT_FOUND, `Feedback with ID ${feedbackId} not found`)
+        throw new AppError(StatusCodes.NOT_FOUND, `Feedback with ID ${feedbackId} not found`)
     }
 
     return feedbackExists
@@ -47,16 +47,16 @@ const RATINGS = new Set<string>(Object.values(ChatMessageRatingType))
 /** A rating must be one of ChatMessageRatingType's values (400 otherwise). */
 export const validateRating = (rating: unknown): ChatMessageRatingType => {
     if (typeof rating !== 'string' || !RATINGS.has(rating)) {
-        throw new InternalFlowiseError(StatusCodes.BAD_REQUEST, `Invalid rating: must be one of ${[...RATINGS].join(', ')}`)
+        throw new AppError(StatusCodes.BAD_REQUEST, `Invalid rating: must be one of ${[...RATINGS].join(', ')}`)
     }
     return rating as ChatMessageRatingType
 }
 
 /** Feedback text: a string (empty clears it) of at most MAX_FEEDBACK_CONTENT_LENGTH characters (400 otherwise). */
 export const validateContent = (content: unknown): string => {
-    if (typeof content !== 'string') throw new InternalFlowiseError(StatusCodes.BAD_REQUEST, 'Invalid content: must be a string')
+    if (typeof content !== 'string') throw new AppError(StatusCodes.BAD_REQUEST, 'Invalid content: must be a string')
     if (content.length > MAX_FEEDBACK_CONTENT_LENGTH) {
-        throw new InternalFlowiseError(StatusCodes.BAD_REQUEST, `Invalid content: at most ${MAX_FEEDBACK_CONTENT_LENGTH} characters`)
+        throw new AppError(StatusCodes.BAD_REQUEST, `Invalid content: at most ${MAX_FEEDBACK_CONTENT_LENGTH} characters`)
     }
     return content
 }
@@ -76,13 +76,13 @@ export const validateFeedbackForCreation = async (feedback: Partial<IChatMessage
     if (feedback.messageId) {
         message = await validateMessageExists(feedback.messageId)
     } else {
-        throw new InternalFlowiseError(StatusCodes.BAD_REQUEST, 'Message ID is required')
+        throw new AppError(StatusCodes.BAD_REQUEST, 'Message ID is required')
     }
 
     // If chatId is provided, validate it matches the message's chatId
     if (feedback.chatId) {
         if (message.chatId !== feedback.chatId) {
-            throw new InternalFlowiseError(
+            throw new AppError(
                 StatusCodes.BAD_REQUEST,
                 `Inconsistent chat ID: message with ID ${message.id} does not belong to chat with ID ${feedback.chatId}`
             )
@@ -95,7 +95,7 @@ export const validateFeedbackForCreation = async (feedback: Partial<IChatMessage
     // If chatflowid is provided, validate it matches the message's chatflowid
     if (feedback.chatflowid) {
         if (message.chatflowid !== feedback.chatflowid) {
-            throw new InternalFlowiseError(
+            throw new AppError(
                 StatusCodes.BAD_REQUEST,
                 `Inconsistent chatflow ID: message with ID ${message.id} does not belong to chatflow with ID ${feedback.chatflowid}`
             )

@@ -1,7 +1,7 @@
 import { describe, it, expect, jest, beforeEach } from '@jest/globals'
 import { StatusCodes } from 'http-status-codes'
 import { ChatMessageRatingType, ChatType } from '../../Interface'
-import { InternalFlowiseError } from '../../errors/internalFlowiseError'
+import { AppError } from '../../errors/appError'
 
 jest.mock('../../utils/getRunningExpressApp', () => ({
     getRunningExpressApp: jest.fn()
@@ -73,7 +73,7 @@ describe('statsService.getChatflowStats', () => {
         it('throws when activeWorkspaceId is not provided', async () => {
             await expect(
                 statsService.getChatflowStats(CHATFLOW_ID, undefined as any, undefined, undefined, undefined, undefined)
-            ).rejects.toBeInstanceOf(InternalFlowiseError)
+            ).rejects.toBeInstanceOf(AppError)
 
             expect(mockChatFlowRepo.findOneBy).not.toHaveBeenCalled()
         })
@@ -83,7 +83,7 @@ describe('statsService.getChatflowStats', () => {
 
             await expect(
                 statsService.getChatflowStats(CHATFLOW_ID, WORKSPACE_ID, undefined, undefined, undefined, undefined)
-            ).rejects.toBeInstanceOf(InternalFlowiseError)
+            ).rejects.toBeInstanceOf(AppError)
 
             expect(mockMessageRepo.createQueryBuilder).not.toHaveBeenCalled()
         })
@@ -223,7 +223,7 @@ describe('statsService.getChatflowStats', () => {
     })
 
     describe('error handling', () => {
-        it('wraps unexpected errors as InternalFlowiseError with 500 status', async () => {
+        it('wraps unexpected errors as AppError with 500 status', async () => {
             mockQb.getRawOne.mockRejectedValue(new Error('DB connection lost'))
 
             let caught: any
@@ -233,7 +233,7 @@ describe('statsService.getChatflowStats', () => {
                 caught = e
             }
 
-            expect(caught).toBeInstanceOf(InternalFlowiseError)
+            expect(caught).toBeInstanceOf(AppError)
             expect(caught.statusCode).toBe(StatusCodes.INTERNAL_SERVER_ERROR)
             expect(caught.message).toContain('statsService.getChatflowStats')
         })

@@ -229,7 +229,21 @@ const initOptions = {
     }
 }
 
-jest.setTimeout(60000)
+// The load itself stays under a minute without instrumentation. Coverage collection
+// (Jest's default babel provider) makes the same load slower than that, so the
+// file timeout has to outlast a coverage run. The 60s figure is asserted below
+// only when this process is not instrumented.
+const LOAD_BUDGET_MS = 60_000
+jest.setTimeout(180_000)
+
+// Jest assigns this while requiring a file it rewrote for collectCoverage.
+// Test files are left alone, so the map is empty until a node or credential loads.
+function coverageInstrumentationOn(): boolean {
+    const coverage = (globalThis as { __coverage__?: Record<string, unknown> }).__coverage__
+    if (!coverage || typeof coverage !== 'object') return false
+    const marker = `${path.sep}packages${path.sep}components${path.sep}`
+    return Object.keys(coverage).some((file) => path.normalize(file).includes(marker))
+}
 
 describe('node and credential load coverage', () => {
     beforeAll(() => {
@@ -378,7 +392,14 @@ describe('node and credential load coverage', () => {
         const broadSkips = skips.filter((entry) => entry.reason === BROAD_INIT_SKIP).map((entry) => entry.name)
         process.stdout.write(`${summary}\n`)
         process.stdout.write(`broad skips (${BROAD_INIT_SKIP}=${broadSkips.length}): ${broadSkips.join(', ')}\n`)
-        expect({ problems, elapsedUnder60s: elapsed < 60000, summary }).toEqual({
+        // Instrumentation dominates the clock, so a coverage run still has to load
+        // every class and still fails on `problems`, but it does not fail the budget.
+        if (coverageInstrumentationOn()) {
+            process.stdout.write(`time budget not enforced under coverage; elapsed ${elapsed}ms\n`)
+            expect({ problems, summary }).toEqual({ problems: [], summary })
+            return
+        }
+        expect({ problems, elapsedUnder60s: elapsed < LOAD_BUDGET_MS, summary }).toEqual({
             problems: [],
             elapsedUnder60s: true,
             summary

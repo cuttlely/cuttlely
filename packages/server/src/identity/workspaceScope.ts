@@ -23,7 +23,7 @@ import { Credential } from '../database/entities/Credential'
 import { CustomTemplate } from '../database/entities/CustomTemplate'
 import { WorkspaceShared } from '../database/entities/identity/WorkspaceShared'
 import { WorkspaceUser } from '../database/entities/identity/WorkspaceUser'
-import { InternalFlowiseError } from '../errors/internalFlowiseError'
+import { AppError } from '../errors/appError'
 
 const OPEN_MEMBERSHIP = new Set(['active', 'invited'])
 
@@ -55,7 +55,7 @@ function nonEmpty(value: unknown): string | null {
 /** Find condition for one workspace. A missing or blank id is 400, not a match-all and not a match on "". */
 export function getWorkspaceSearchOptions(workspaceId?: string | null): { workspaceId: FindOperator<string> } {
     const id = nonEmpty(workspaceId)
-    if (!id) throw new InternalFlowiseError(StatusCodes.BAD_REQUEST, WORKSPACE_ID_REQUIRED)
+    if (!id) throw new AppError(StatusCodes.BAD_REQUEST, WORKSPACE_ID_REQUIRED)
     return { workspaceId: Equal(id) }
 }
 
@@ -73,12 +73,12 @@ export function getWorkspaceSearchOptionsFromReq(req: RequestWithUser): { worksp
  */
 export function getActiveWorkspaceIdForRequest(req: RequestWithUser): string {
     const user = req.user
-    if (!user) throw new InternalFlowiseError(StatusCodes.UNAUTHORIZED, 'Unauthorized')
+    if (!user) throw new AppError(StatusCodes.UNAUTHORIZED, 'Unauthorized')
     const workspaceId = nonEmpty(user.activeWorkspaceId)
     const organizationId = nonEmpty(user.activeOrganizationId)
-    if (!workspaceId || !organizationId) throw new InternalFlowiseError(StatusCodes.UNAUTHORIZED, 'Unauthorized')
+    if (!workspaceId || !organizationId) throw new AppError(StatusCodes.UNAUTHORIZED, 'Unauthorized')
     const interactive = user.isOrganizationAdmin === true || Object.prototype.hasOwnProperty.call(user, 'id')
-    if (interactive && !nonEmpty(user.id)) throw new InternalFlowiseError(StatusCodes.UNAUTHORIZED, 'Unauthorized')
+    if (interactive && !nonEmpty(user.id)) throw new AppError(StatusCodes.UNAUTHORIZED, 'Unauthorized')
     return workspaceId
 }
 

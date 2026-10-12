@@ -1,5 +1,5 @@
 import { StatusCodes } from 'http-status-codes'
-import { InternalFlowiseError } from '../../errors/internalFlowiseError'
+import { AppError } from '../../errors/appError'
 import { getRunningExpressApp } from '../../utils/getRunningExpressApp'
 import { databaseEntities } from '../../utils'
 import logger from '../../utils/logger'
@@ -28,14 +28,14 @@ export const builderKinds = () => Object.keys(recipes) as BuilderKind[]
 // person picked, with a credential from their own workspace; there is no default key.
 const build = async (kind: string, request: unknown, chatModel: BuildingModel | undefined, workspaceId: string): Promise<BuildResult> => {
     const recipe = recipes[kind as BuilderKind]
-    if (!recipe) throw new InternalFlowiseError(StatusCodes.NOT_FOUND, `There is no builder for "${kind}".`)
+    if (!recipe) throw new AppError(StatusCodes.NOT_FOUND, `There is no builder for "${kind}".`)
     const description = typeof request === 'string' ? request.trim() : ''
-    if (!description) throw new InternalFlowiseError(StatusCodes.BAD_REQUEST, 'Describe what to build.')
+    if (!description) throw new AppError(StatusCodes.BAD_REQUEST, 'Describe what to build.')
     if (description.length > MAX_REQUEST_CHARS)
-        throw new InternalFlowiseError(StatusCodes.BAD_REQUEST, `Keep the description under ${MAX_REQUEST_CHARS} characters.`)
-    if (!chatModel?.name) throw new InternalFlowiseError(StatusCodes.BAD_REQUEST, 'Pick the chat model that builds.')
+        throw new AppError(StatusCodes.BAD_REQUEST, `Keep the description under ${MAX_REQUEST_CHARS} characters.`)
+    if (!chatModel?.name) throw new AppError(StatusCodes.BAD_REQUEST, 'Pick the chat model that builds.')
     const credential = modelCredential(chatModel)
-    if (!credential) throw new InternalFlowiseError(StatusCodes.BAD_REQUEST, 'Pick a credential for the chat model that builds.')
+    if (!credential) throw new AppError(StatusCodes.BAD_REQUEST, 'Pick a credential for the chat model that builds.')
     await credentialsService.assertCredentialInWorkspace(credential, workspaceId)
 
     const appServer = getRunningExpressApp()
