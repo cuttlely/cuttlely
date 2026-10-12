@@ -1,7 +1,14 @@
 module.exports = {
     preset: 'ts-jest',
     testEnvironment: 'node',
-    roots: ['<rootDir>/nodes', '<rootDir>/src', '<rootDir>/../node-pack-tools-mcp', '<rootDir>/../node-pack-legacy-chains'],
+    roots: [
+        '<rootDir>/nodes',
+        '<rootDir>/src',
+        '<rootDir>/../node-pack-vector-stores',
+        '<rootDir>/../node-pack-tools-mcp',
+        '<rootDir>/../node-pack-caches-memory',
+        '<rootDir>/../node-pack-legacy-chains'
+    ],
     transform: {
         '^.+\\.tsx?$': 'ts-jest'
     },

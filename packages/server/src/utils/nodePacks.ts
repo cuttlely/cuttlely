@@ -12,6 +12,7 @@ export const NODE_PACKS_ENV = 'CUTTLELY_NODE_PACKS'
 export const SHIPPED_NODE_PACKS = [
     '@cuttlely/node-pack-vector-stores',
     '@cuttlely/node-pack-tools-mcp',
+    '@cuttlely/node-pack-caches-memory',
     '@cuttlely/node-pack-legacy-chains'
 ]
 

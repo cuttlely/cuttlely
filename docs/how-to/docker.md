@@ -103,13 +103,13 @@ CUTTLELY_OMIT_GEOIP=true docker compose up -d --build
 
 ### Leave out optional node packs
 
-Vector store nodes ship in `@cuttlely/node-pack-vector-stores`. Tool and MCP server nodes that call an outside service ship in `@cuttlely/node-pack-tools-mcp`. Completion model nodes and the chain nodes that carry the DEPRECATING badge ship in `@cuttlely/node-pack-legacy-chains`. The default image includes those packs, so the node list matches a from-source install. `CUTTLELY_NODE_PACKS` adds packs on top of the shipped ones. A blank value adds nothing and removes nothing. To leave the shipped packs out:
+Vector store nodes ship in `@cuttlely/node-pack-vector-stores`. Tool and MCP server nodes that call an outside service ship in `@cuttlely/node-pack-tools-mcp`. Cache nodes and memory backends that use an outside service ship in `@cuttlely/node-pack-caches-memory`. Completion model nodes and the chain nodes that carry the DEPRECATING badge ship in `@cuttlely/node-pack-legacy-chains`. The default image includes those packs, so the node list matches a from-source install. `CUTTLELY_NODE_PACKS` adds packs on top of the shipped ones. A blank value adds nothing and removes nothing. To leave the shipped packs out:
 
 ```bash
 INCLUDE_NODE_PACKS=0 docker compose up -d --build
 ```
 
-`docker build --build-arg INCLUDE_NODE_PACKS=0 -t cuttlely:slim .` is the same build. `INCLUDE_NODE_PACKS` accepts only `0` and `1`. The default is `1`. That build writes `/etc/cuttlely/no-node-packs`, so the shipped packs are skipped. Packs named in `CUTTLELY_NODE_PACKS` still load. In the slim image a saved vector store node, a tool or MCP node from the tools pack, or a completion model or chain node from the legacy chains pack, opens as a placeholder, and a prediction returns 422. [Optional node packs](./node-packs.md) describes the pack layout.
+`docker build --build-arg INCLUDE_NODE_PACKS=0 -t cuttlely:slim .` is the same build. `INCLUDE_NODE_PACKS` accepts only `0` and `1`. The default is `1`. That build writes `/etc/cuttlely/no-node-packs`, so the shipped packs are skipped. Packs named in `CUTTLELY_NODE_PACKS` still load. In the slim image a saved vector store node, a tool or MCP node from the tools pack, a cache or outside-service memory node, or a completion model or chain node from the legacy chains pack, opens as a placeholder, and a prediction returns 422. [Optional node packs](./node-packs.md) describes the pack layout.
 
 ### All three
 
