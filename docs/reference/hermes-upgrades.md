@@ -4,15 +4,15 @@ Cuttlely runs agent teams on Hermes (NousResearch/hermes-agent, MIT). Hermes is 
 
 ## What is in hermes/
 
-| Path                          | What it is                                                                                                                              |
-| ----------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
-| upstream files                | Hermes at the commit in `hermes/UPSTREAM_COMMIT`, minus the excluded paths.                                                             |
-| `hermes/CUTTLELY_EXCLUDE.txt` | Upstream paths left out. `pnpm hermes:vendor` drops them, and `pnpm verify` fails if one comes back.                                    |
-| `hermes/patches/`             | Cuttlely's changes to Hermes, one patch file per change. Each opens with what it changes and why.                                       |
-| `hermes/CUTTLELY_VENDOR.lock` | The upstream repository, the tag or commit asked for, the commit it resolved to, and a fingerprint of `hermes/`. Written by the script. |
-| `hermes/UPSTREAM_COMMIT`      | The pinned upstream commit.                                                                                                             |
-| `hermes/CUTTLELY_VENDOR.txt`  | Short notes: what Cuttlely uses, what is left out, and one line per patch.                                                              |
-| `hermes/CUTTLELY_LOADED.txt`  | Files a harness run loads. `pnpm hermes:vendor` keeps these, plus package init files, named data files, licenses and patch files.       |
+| Path                          | What it is                                                                                                                                                            |
+| ----------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| upstream files                | Hermes at the commit in `hermes/UPSTREAM_COMMIT`, minus the excluded paths.                                                                                           |
+| `hermes/CUTTLELY_EXCLUDE.txt` | Upstream paths left out. `pnpm hermes:vendor` drops them, and `pnpm verify` fails if one comes back.                                                                  |
+| `hermes/patches/`             | Cuttlely's changes to Hermes, one patch file per change. Each opens with what it changes and why.                                                                     |
+| `hermes/CUTTLELY_VENDOR.lock` | The upstream repository, the tag or commit asked for, the commit it resolved to, and a fingerprint of `hermes/`. Written by the script.                               |
+| `hermes/UPSTREAM_COMMIT`      | The pinned upstream commit.                                                                                                                                           |
+| `hermes/CUTTLELY_VENDOR.txt`  | Short notes: what Cuttlely uses, what is left out, and one line per patch.                                                                                            |
+| `hermes/CUTTLELY_LOADED.txt`  | Files a harness run loads. `pnpm hermes:vendor` keeps these, plus package init files, named data files, licenses, patch files, and the build and lock metadata below. |
 
 The pin today is v0.21.4+canary, commit `f42f579`.
 
@@ -30,18 +30,19 @@ The pin today is v0.21.4+canary, commit `f42f579`.
 | `acp_adapter/`                                    | The editor (ACP) adapter. Its `hermes-acp` entry point is never run.                           |
 | files the `.gitignore` files match                | For example `package-lock.json`, `dist/` and `build/`. The vendor run lists each one it drops. |
 
-`skills/`, `plugins/`, `locales/`, `plugin-catalog/`, `optional-mcps/` and `tui_gateway/` are not excluded by folder. `CUTTLELY_LOADED.txt` is what decides which of their files stay. The measurement keeps the files a harness run opens: the API server, the agent loop, the toolsets a profile can enable (terminal, browser, code execution, file, skills_read, delegation, memory, session_search, MCP), the custom model provider, and browser and web backends. Messaging platform plugins, other model providers, the plugin catalog, optional MCP descriptors, Nix and Docker files, and locale catalogs other than English stay out. A missing locale falls back to English. `native/fts5_cjk` stays: it is the only C in the tree, and the code scanner fails when it finds no C sources.
+`skills/`, `plugins/`, `locales/`, `plugin-catalog/`, `optional-mcps/` and `tui_gateway/` are not excluded by folder. `CUTTLELY_LOADED.txt` is what decides which of their files stay. The measurement keeps the files a harness run opens: the API server, the agent loop, the toolsets a profile can enable (terminal, browser, code execution, file, skills_read, delegation, memory, session_search, MCP), the custom model provider, and browser and web backends. Messaging platform plugins, other model providers, the plugin catalog, optional MCP descriptors, Nix and Docker files, and locale catalogs other than English stay out. A missing locale falls back to English. `native/fts5_cjk` stays: it is the only C in the tree, and the code scanner fails when it finds no C sources. The vendor step also always keeps `.python-version`, `pyproject.toml`, `uv.lock` and `pm/lock.json`. `scripts/setup-hermes.sh` reads `.python-version` and, on Python 3.14, installs the locked set from `uv.lock`.
 
 ### The patches
 
-| Patch                    | Files                                                                                                          | What it does                                                                                                                                        |
-| ------------------------ | -------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 0001 delegate roster     | `run_agent.py`, `tools/delegate_tool.py`, `tools/delegate_tool_toolsets.py`                                    | Each specialist gets the tool allowlist from its profile's roster, and a harness chief's delegation waits for the result.                           |
-| 0002 MCP retry           | `tools/mcp_tool*.py` (logic in the new `tools/mcp_tool_cuttlely.py`), `tests/tools/test_cuttlely_mcp_retry.py` | Retries an empty startup tool list, rediscovers tools, keeps expected analyst results off the circuit breaker, and scopes page cursors to one chat. |
-| 0003 API server MCP wait | `gateway/platforms/api_server.py`                                                                              | An API run waits for MCP tools before it builds the agent. Its usage also reports the cached prompt tokens.                                         |
-| 0004 skills_read toolset | `toolsets.py`                                                                                                  | A read-only skills toolset (`skills_list`, `skill_view`) for specialists with playbooks.                                                            |
-| 0005 models.dev offline  | `agent/models_dev.py`                                                                                          | No models.dev request unless `CUTTLELY_MODELS_DEV=1`. Cached data still serves; lookups without data fall through to the other sources.             |
-| 0006 security pins       | `pyproject.toml`, `uv.lock`, `package.json`, `tests-js/package.json`                                           | Raises dependencies that have published security advisories to fixed versions. Drop it once upstream ships them.                                    |
+| Patch                    | Files                                                                                                          | What it does                                                                                                                                                                            |
+| ------------------------ | -------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 0001 delegate roster     | `run_agent.py`, `tools/delegate_tool.py`, `tools/delegate_tool_toolsets.py`                                    | Each specialist gets the tool allowlist from its profile's roster, and a harness chief's delegation waits for the result.                                                               |
+| 0002 MCP retry           | `tools/mcp_tool*.py` (logic in the new `tools/mcp_tool_cuttlely.py`), `tests/tools/test_cuttlely_mcp_retry.py` | Retries an empty startup tool list, rediscovers tools, keeps expected analyst results off the circuit breaker, and scopes page cursors to one chat.                                     |
+| 0003 API server MCP wait | `gateway/platforms/api_server.py`                                                                              | An API run waits for MCP tools before it builds the agent. Its usage also reports the cached prompt tokens.                                                                             |
+| 0004 skills_read toolset | `toolsets.py`                                                                                                  | A read-only skills toolset (`skills_list`, `skill_view`) for specialists with playbooks.                                                                                                |
+| 0005 models.dev offline  | `agent/models_dev.py`                                                                                          | No models.dev request unless `CUTTLELY_MODELS_DEV=1`. Cached data still serves; lookups without data fall through to the other sources.                                                 |
+| 0006 security pins       | `pyproject.toml`, `uv.lock`, `package.json`, `tests-js/package.json`                                           | Raises dependencies that have published security advisories to fixed versions. Drop it once upstream ships them.                                                                        |
+| 0007 unused dependencies | `pyproject.toml`, `uv.lock` (continues 0006)                                                                   | Drops tenacity, jinja2, watchfiles and resvg-py from the core dependency list and relocks for Python 3.14. jinja2 stays on the kittentts extra and watchfiles stays on the modal extra. |
 
 ## Upgrade Hermes
 
@@ -85,7 +86,7 @@ To keep conflicts small, put Cuttlely logic in new Cuttlely files (like `tools/m
 3. For a file no patch owns yet, run `pnpm hermes:vendor --save-patches --new "<short name>" --message "What: ... Why: ..."`. That adds a new patch file.
 4. Add a line for a new patch to `hermes/CUTTLELY_VENDOR.txt` and to the table above.
 
-Each Hermes file belongs to one patch only. `--save-patches` fetches the pinned commit to compare against, so it needs the network.
+A later patch may continue a file an earlier patch already edits. `--save-patches` leaves that earlier patch as it is and writes the new edit into the last patch that lists the file. A file no patch lists still needs `--new`. `--save-patches` fetches the pinned commit to compare against, so it needs the network.
 
 To leave out another upstream folder, add it to `CUTTLELY_EXCLUDE.txt` and run `pnpm hermes:vendor` at the same pin. To bring one back, take it off the list and do the same.
 
@@ -105,9 +106,9 @@ node scripts/measure-runtime-loads.mjs --check
 
 ## What pnpm verify checks
 
-| Step            | When          | Fails if                                                                                                                                                                                                      |
-| --------------- | ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `hermes-vendor` | fast and full | a path in `CUTTLELY_EXCLUDE.txt` is back, a patch no longer matches the files, two patches share a file, or anything in `hermes/` changed outside the script (`CUTTLELY_VENDOR.txt` excepted). Works offline. |
-| `hermes-import` | full          | a Hermes module Cuttlely runs does not import from `hermes/`. Uses `HERMES_PYTHON` or `hermes/.venv`, and skips with a message when neither exists.                                                           |
+| Step            | When          | Fails if                                                                                                                                                                            |
+| --------------- | ------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `hermes-vendor` | fast and full | a path in `CUTTLELY_EXCLUDE.txt` is back, a patch no longer matches the files, or anything in `hermes/` changed outside the script (`CUTTLELY_VENDOR.txt` excepted). Works offline. |
+| `hermes-import` | full          | a Hermes module Cuttlely runs does not import from `hermes/`. Uses `HERMES_PYTHON` or `hermes/.venv`, and skips with a message when neither exists.                                 |
 
 A failing `hermes-vendor` after an intended edit means the edit is not saved as a patch yet: run `pnpm hermes:vendor --save-patches`.

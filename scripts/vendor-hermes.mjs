@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 // Vendors NousResearch/hermes-agent into hermes/: upstream at a tag or commit, minus the paths in
 // hermes/CUTTLELY_EXCLUDE.txt, and when hermes/CUTTLELY_LOADED.txt is present only the files that
-// list names plus package __init__ files, data files those modules name, license files and the
-// local patches. See hermes/CUTTLELY_VENDOR.txt.
+// list names plus package __init__ files, data files those modules name, license files, the
+// build and lock metadata the image install reads, and the local patches. See hermes/CUTTLELY_VENDOR.txt.
 //
 //   pnpm hermes:vendor <tag-or-commit>   fetch, trim, apply the patches, and swap the result into hermes/
 //   pnpm hermes:vendor --continue        after fixing a patch that did not apply in the staging copy
@@ -10,7 +10,8 @@
 //   pnpm hermes:vendor --save-patches    turn edits made in hermes/ into patch files (--new <name> for new files)
 //   pnpm hermes:vendor --check           offline guard used by pnpm verify
 //
-// hermes/ is only written after every patch applies. Each patch owns its files; no file is in two patches.
+// hermes/ is only written after every patch applies. A later patch may continue a file. The last
+// patch owns further edits; earlier patches keep the diffs they already have.
 import { spawnSync } from 'node:child_process'
 import crypto from 'node:crypto'
 import fs from 'node:fs'
@@ -22,6 +23,10 @@ const SCRIPT_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '
 export const DEFAULT_UPSTREAM = 'https://github.com/NousResearch/hermes-agent.git'
 // Files Cuttlely owns inside hermes/. They are not upstream files and are never trimmed or patched.
 export const OWN_FILES = ['CUTTLELY_VENDOR.txt', 'CUTTLELY_EXCLUDE.txt', 'CUTTLELY_LOADED.txt', 'CUTTLELY_VENDOR.lock', 'UPSTREAM_COMMIT']
+// scripts/setup-hermes.sh and the image build read these even when no loaded module names them.
+// .python-version selects the interpreter (3.14 installs from uv.lock). pyproject.toml and uv.lock
+// are that install. pm/lock.json is the checksum source for the uv pin in the Dockerfile.
+export const BUILD_METADATA = ['.python-version', 'pyproject.toml', 'uv.lock', 'pm/lock.json']
 const OWN_DIRS = ['patches/']
 const BOT = { name: 'cuttlely vendor', email: 'vendor@cuttlely.invalid', date: '2000-01-01T00:00:00Z' }
 
@@ -179,13 +184,15 @@ export function dataPathsInSource(source) {
     return found
 }
 
-// Listed files, plus package __init__ files, license and attribution files, files a local patch
-// edits, and data files a kept module names, including Path / "dir" / "file.ext" and os.path.join.
+// Listed files, plus package __init__ files, license and attribution files, build and lock
+// metadata, files a local patch edits, and data files a kept module names, including
+// Path / "dir" / "file.ext" and os.path.join.
 export function filesToKeep(upstreamFiles, { loaded, patchFiles, readFile }) {
     const all = new Set(upstreamFiles)
     const keep = new Set()
     for (const file of [...loaded, ...patchFiles]) if (all.has(file)) keep.add(file)
     for (const file of upstreamFiles) if (isLicenseFile(file)) keep.add(file)
+    for (const file of BUILD_METADATA) if (all.has(file)) keep.add(file)
     const addInits = () => {
         for (const file of [...keep]) {
             const parts = file.split('/')
@@ -281,14 +288,12 @@ export function patchFiles(text) {
     return { files, created }
 }
 
+// Last patch that lists a file owns further edits. An earlier patch may still list it; that
+// earlier diff stays, and the later patch continues the file.
 export function patchOwners(patches) {
     const owners = new Map()
     for (const patch of patches) {
-        for (const file of patchFiles(patch.text).files) {
-            if (owners.has(file))
-                throw new VendorError(`${file} is in both ${owners.get(file)} and ${patch.name}. Keep each file in one patch.`)
-            owners.set(file, patch.name)
-        }
+        for (const file of patchFiles(patch.text).files) owners.set(file, patch.name)
     }
     return owners
 }
@@ -643,25 +648,46 @@ export function savePatches(p, { name, message } = {}, log = console.log) {
         clearStaging(p)
         throw new VendorError(`No patch owns ${unowned.join(', ')}. Run again with --new <name> --message "<what and why>".`)
     }
-    const commitFiles = (files, subject, body) => {
-        for (const file of files) {
-            const from = path.join(p.hermes, file)
-            const to = path.join(p.staging, file)
-            if (fs.existsSync(from)) {
-                fs.mkdirSync(path.dirname(to), { recursive: true })
-                fs.copyFileSync(from, to)
-                fs.chmodSync(to, fs.statSync(from).mode & 0o777)
-                git(p.staging, ['add', '-f', '--', file])
-            } else if (fs.existsSync(to)) {
-                git(p.staging, ['rm', '-q', '--', file])
-            }
+    const copyFromHermes = (file) => {
+        const from = path.join(p.hermes, file)
+        const to = path.join(p.staging, file)
+        if (fs.existsSync(from)) {
+            fs.mkdirSync(path.dirname(to), { recursive: true })
+            fs.copyFileSync(from, to)
+            fs.chmodSync(to, fs.statSync(from).mode & 0o777)
+            git(p.staging, ['add', '-f', '--', file])
+        } else if (fs.existsSync(to)) {
+            git(p.staging, ['rm', '-q', '--', file])
         }
+    }
+    const commitFiles = (files, subject, body) => {
+        for (const file of files) copyFromHermes(file)
         git(p.staging, ['commit', '-q', '--allow-empty', '-m', subject, ...(body ? ['-m', body] : [])])
     }
     for (const patch of patches) {
-        const files = [...owners.entries()].filter(([, owner]) => owner === patch.name).map(([file]) => file)
+        const touched = patchFiles(patch.text).files
+        const finalFiles = touched.filter((file) => owners.get(file) === patch.name)
+        const continued = touched.filter((file) => owners.get(file) !== patch.name)
         const { subject, body } = patchMessage(patch.text)
-        commitFiles(files, subject, body)
+        if (continued.length) {
+            // Replay the earlier patch as written. Copying the working tree here would fold a
+            // later patch's edit into this one.
+            const applied = git(p.staging, ['apply', '--index', patch.file], { allowFail: true })
+            if (applied.status !== 0) {
+                clearStaging(p)
+                throw new VendorError(
+                    `${patch.name} no longer applies on its own, so a later patch cannot continue its files.\n${(
+                        applied.stderr ||
+                        applied.stdout ||
+                        ''
+                    ).trim()}`
+                )
+            }
+            for (const file of finalFiles) copyFromHermes(file)
+            git(p.staging, ['commit', '-q', '--allow-empty', '-m', subject, ...(body ? ['-m', body] : [])])
+        } else {
+            commitFiles(finalFiles, subject, body)
+        }
     }
     if (unowned.length) commitFiles(unowned, `cuttlely: ${name}`, message || '')
     const patchDir = exportPatches(p)
