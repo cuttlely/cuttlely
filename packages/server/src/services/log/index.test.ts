@@ -1,12 +1,13 @@
 import express, { Request } from 'express'
 import fs from 'fs'
+import http from 'http'
 import os from 'os'
 import path from 'path'
 import request from 'supertest'
 import errorHandlerMiddleware from '../../middlewares/errors'
 import { setTeamPermissionLookup } from '../../identity/rbac'
 import router from '../../routes/log'
-import { LOG_FILE_BYTES, LOG_MAX_LINES } from './index'
+import { LOG_FILE_BYTES, LOG_MAX_BYTES, LOG_MAX_LINES, stampsForRange } from './index'
 
 const OWNER = { id: 'owner-1', activeWorkspaceId: 'team-a', permissions: [] as string[] }
 const MEMBER = { id: 'member-1', activeWorkspaceId: 'team-a', permissions: ['chatflows:view'] }
@@ -164,4 +165,106 @@ describe('masking and caps', () => {
         expect(res.body.lines.join('\n')).not.toContain(HEAD)
         expect(Buffer.byteLength(res.body.lines.join('\n'))).toBeLessThanOrEqual(LOG_FILE_BYTES)
     })
+
+    it('masks a multiline private key before the lines are split', async () => {
+        const bodyLine = 'QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVo'
+        const begin = '-----BEGIN ' + 'RSA PRIVATE KEY-----'
+        const footer = '-----END ' + 'RSA PRIVATE KEY-----'
+        const pem = [begin, bodyLine, bodyLine, footer].join('\n')
+        const text = ['2026-10-12 15:00:00 [INFO]: dumped key', pem, '2026-10-12 15:00:01 [INFO]: still here'].join('\n')
+        writeLog(process.env.LOG_PATH as string, `server.log.${STAMP}`, text + '\n')
+        const res = await app(OWNER).get(`/api/v1/logs?startDate=${STAMP}&endDate=${STAMP}&level=debug`)
+        expect(res.status).toBe(200)
+        const shown = res.body.lines.join('\n')
+        expect(shown).not.toContain(bodyLine)
+        expect(shown).not.toContain(footer)
+        expect(shown).not.toContain('PRIVATE KEY')
+        expect(shown).toContain('[secret hidden]')
+        expect(shown).toContain('still here')
+    })
+
+    it('reads newer rotation segments before the cap', async () => {
+        const padding = 'x'.repeat(80)
+        const segment = (marker: string) => {
+            const lines = [marker]
+            while (Buffer.byteLength(lines.join('\n')) <= LOG_FILE_BYTES + 2048) lines.push(padding)
+            lines.push(marker + '-END')
+            return lines.join('\n') + '\n'
+        }
+        const dir = process.env.LOG_PATH as string
+        for (let index = 0; index <= 7; index += 1) {
+            const name = index === 0 ? `server.log.${STAMP}` : `server.log.${STAMP}.${index}`
+            writeLog(dir, name, segment(index === 7 ? 'LATEST-SEGMENT' : `SEG-${index}`))
+        }
+        const res = await app(OWNER).get(`/api/v1/logs?startDate=${STAMP}&endDate=${STAMP}&level=debug`)
+        expect(res.status).toBe(200)
+        const shown = res.body.lines.join('\n')
+        expect(shown).toContain('LATEST-SEGMENT-END')
+        expect(shown).not.toContain('SEG-0-END')
+        expect(Buffer.byteLength(shown)).toBeLessThanOrEqual(LOG_MAX_BYTES)
+    })
+})
+
+describe('server clock for Last hour', () => {
+    it('Last hour uses the server clock, not a browser offset', async () => {
+        const now = new Date()
+        const serverStamp = stampsForRange('1h', now).end
+        const browser = new Date(now.getTime() - 8 * 60 * 60 * 1000)
+        const browserStamp = stampsForRange('1h', browser).end
+        expect(browserStamp).not.toBe(serverStamp)
+        const dir = process.env.LOG_PATH as string
+        writeLog(dir, `server.log.${serverStamp}`, '2026-10-12 15:00:00 [INFO]: SERVER-LOCAL-HOUR\n')
+        writeLog(dir, `server.log.${browserStamp}`, '2026-10-12 07:00:00 [INFO]: BROWSER-OFFSET-HOUR\n')
+        const res = await app(OWNER).get('/api/v1/logs?range=1h&level=debug')
+        expect(res.status).toBe(200)
+        const shown = res.body.lines.join('\n')
+        expect(shown).toContain('SERVER-LOCAL-HOUR')
+        expect(shown).not.toContain('BROWSER-OFFSET-HOUR')
+    })
+
+    it('a later refresh window includes the new hour', () => {
+        const first = stampsForRange('1h', new Date(2026, 9, 12, 15, 10, 0))
+        const later = stampsForRange('1h', new Date(2026, 9, 12, 16, 5, 0))
+        expect(first).toEqual({ start: '2026-10-12-14', end: '2026-10-12-15' })
+        expect(later).toEqual({ start: '2026-10-12-15', end: '2026-10-12-16' })
+    })
+})
+
+describe('a file over 2MB', () => {
+    it('returns a capped 200 for a file over 2MB on every fetch', async () => {
+        const target = 2_101_270
+        const line = Buffer.from('2026-10-12 15:04:00 [INFO]: tick ' + 'm'.repeat(64) + '\n')
+        const body = Buffer.alloc(target + line.length)
+        for (let offset = 0; offset + line.length <= body.length; offset += line.length) line.copy(body, offset)
+        body.write('TAIL-OVER-TWO-MEG\n', body.length - Buffer.byteLength('TAIL-OVER-TWO-MEG\n'))
+        fs.mkdirSync(process.env.LOG_PATH as string, { recursive: true })
+        fs.writeFileSync(path.join(process.env.LOG_PATH as string, `server.log.${STAMP}`), body)
+        expect(fs.statSync(path.join(process.env.LOG_PATH as string, `server.log.${STAMP}`)).size).toBeGreaterThan(2_000_000)
+
+        const server = express()
+        server.use((req, _res, next) => {
+            ;(req as Request).user = OWNER as Express.User
+            next()
+        })
+        server.use('/api/v1/logs', router)
+        server.use(errorHandlerMiddleware)
+        const listener = http.createServer(server)
+        await new Promise<void>((resolve) => listener.listen(0, '127.0.0.1', () => resolve()))
+        const address = listener.address()
+        const port = typeof address === 'object' && address ? address.port : 0
+        try {
+            for (let attempt = 0; attempt < 4; attempt += 1) {
+                const res = await fetch(`http://127.0.0.1:${port}/api/v1/logs?startDate=${STAMP}&endDate=${STAMP}&level=info`)
+                expect(res.status).toBe(200)
+                const payload = (await res.json()) as { truncated: boolean; lines: string[] }
+                expect(payload.truncated).toBe(true)
+                const shown = payload.lines.join('\n')
+                expect(shown).toContain('TAIL-OVER-TWO-MEG')
+                expect(Buffer.byteLength(JSON.stringify(payload))).toBeLessThan(400_000)
+                expect(Buffer.byteLength(shown)).toBeLessThanOrEqual(LOG_FILE_BYTES)
+            }
+        } finally {
+            await new Promise<void>((resolve, reject) => listener.close((error) => (error ? reject(error) : resolve())))
+        }
+    }, 20000)
 })

@@ -22,6 +22,7 @@ import ErrorBoundary from '@/ErrorBoundary'
 import useApi from '@/hooks/useApi'
 import logsApi from '@/api/log'
 import { useError } from '@/store/context/ErrorContext'
+import { logsQuery } from './query'
 
 import LogsEmptySVG from '@/assets/images/logs_empty.svg'
 import 'react-datepicker/dist/react-datepicker.css'
@@ -77,35 +78,6 @@ const getDateTimeFormatted = (date) => {
     return `${year}-${month}-${day}-${hour}`
 }
 
-const subtractTime = (months, days, hours) => {
-    let checkDate = new Date()
-
-    if (months > 0) {
-        checkDate.setMonth(checkDate.getMonth() - months)
-    } else {
-        checkDate.setMonth(checkDate.getMonth())
-    }
-
-    if (days > 0) {
-        checkDate.setDate(checkDate.getDate() - days)
-    } else {
-        checkDate.setDate(checkDate.getDate())
-    }
-
-    if (hours > 0) {
-        checkDate.setHours(checkDate.getHours() - hours)
-    } else {
-        checkDate.setHours(checkDate.getHours())
-    }
-
-    const year = checkDate.getFullYear()
-    const month = (checkDate.getMonth() + 1).toString().padStart(2, '0')
-    const day = checkDate.getDate().toString().padStart(2, '0')
-    const hour = checkDate.getHours().toString().padStart(2, '0')
-
-    return `${year}-${month}-${day}-${hour}`
-}
-
 const Logs = () => {
     const colorTheme = useTheme()
 
@@ -136,78 +108,53 @@ const Logs = () => {
     const [configured, setConfigured] = useState(true)
     const [truncated, setTruncated] = useState(false)
     const [level, setLevel] = useState('info')
-    const [rangeStart, setRangeStart] = useState('')
-    const [rangeEnd, setRangeEnd] = useState('')
     const [selectedTimeSearch, setSelectedTimeSearch] = useState('Last hour')
     const [startDate, setStartDate] = useState(getDateBefore('hours', 1))
     const [endDate, setEndDate] = useState(new Date())
 
-    const loadLogs = (start, end, nextLevel = level) => {
-        setRangeStart(start)
-        setRangeEnd(end)
-        getLogsApi.request(start, end, nextLevel)
+    const loadLogs = (selection, nextLevel = level, from = startDate, to = endDate) => {
+        getLogsApi.request(
+            logsQuery({
+                selection,
+                level: nextLevel,
+                startDate: getDateTimeFormatted(from),
+                endDate: getDateTimeFormatted(to)
+            })
+        )
     }
 
     const handleTimeSelectionChange = (event) => {
-        setSelectedTimeSearch(event.target.value)
-        switch (event.target.value) {
-            case 'Last hour':
-                loadLogs(subtractTime(0, 0, 1), getDateTimeFormatted())
-                break
-            case 'Last 4 hours':
-                loadLogs(subtractTime(0, 0, 4), getDateTimeFormatted())
-                break
-            case 'Last 24 hours':
-                loadLogs(subtractTime(0, 0, 24), getDateTimeFormatted())
-                break
-            case 'Last 2 days':
-                loadLogs(subtractTime(0, 2, 0), getDateTimeFormatted())
-                break
-            case 'Last 7 days':
-                loadLogs(subtractTime(0, 7, 0), getDateTimeFormatted())
-                break
-            case 'Last 14 days':
-                loadLogs(subtractTime(0, 14, 0), getDateTimeFormatted())
-                break
-            case 'Last 1 month':
-                loadLogs(subtractTime(1, 0, 0), getDateTimeFormatted())
-                break
-            case 'Last 2 months':
-                loadLogs(subtractTime(2, 0, 0), getDateTimeFormatted())
-                break
-            case 'Last 3 months':
-                loadLogs(subtractTime(3, 0, 0), getDateTimeFormatted())
-                break
-            case 'Custom':
-                setStartDate(getDateBefore('hours', 1))
-                setEndDate(new Date())
-                loadLogs(subtractTime(0, 0, 1), getDateTimeFormatted())
-                break
-            default:
-                break
+        const selection = event.target.value
+        setSelectedTimeSearch(selection)
+        if (selection === 'Custom') {
+            const from = getDateBefore('hours', 1)
+            const to = new Date()
+            setStartDate(from)
+            setEndDate(to)
+            loadLogs(selection, level, from, to)
+            return
         }
+        loadLogs(selection)
     }
 
     const onStartDateSelected = (date) => {
         setStartDate(date)
-        loadLogs(getDateTimeFormatted(date), getDateTimeFormatted(endDate))
+        loadLogs('Custom', level, date, endDate)
     }
 
     const onEndDateSelected = (date) => {
         setEndDate(date)
-        loadLogs(getDateTimeFormatted(startDate), getDateTimeFormatted(date))
+        loadLogs('Custom', level, startDate, date)
     }
 
     const onLevelChange = (event) => {
         const nextLevel = event.target.value
         setLevel(nextLevel)
-        if (rangeStart && rangeEnd) loadLogs(rangeStart, rangeEnd, nextLevel)
+        loadLogs(selectedTimeSearch, nextLevel)
     }
 
     useEffect(() => {
-        const currentTimeFormatted = getDateTimeFormatted()
-        const startTimeFormatted = subtractTime(0, 0, 1)
-        loadLogs(startTimeFormatted, currentTimeFormatted)
+        loadLogs('Last hour', 'info')
 
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [])
@@ -318,8 +265,8 @@ const Logs = () => {
                                     size='small'
                                     variant='outlined'
                                     startIcon={<IconRefresh size={16} />}
-                                    onClick={() => rangeStart && rangeEnd && loadLogs(rangeStart, rangeEnd)}
-                                    disabled={isLoading || !rangeStart || !rangeEnd}
+                                    onClick={() => loadLogs(selectedTimeSearch)}
+                                    disabled={isLoading}
                                 >
                                     Refresh
                                 </Button>

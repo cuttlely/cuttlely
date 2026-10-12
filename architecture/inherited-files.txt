@@ -1892,6 +1892,8 @@ packages/ui/src/views/roles/index.jsx
 packages/ui/src/views/schedule/ScheduleHistoryDrawer.jsx
 packages/ui/src/views/schedule/ScheduleHistoryFAB.jsx
 packages/ui/src/views/serverlogs/index.jsx
+packages/ui/src/views/serverlogs/query.js
+packages/ui/src/views/serverlogs/query.test.js
 packages/ui/src/views/settings/index.jsx
 packages/ui/src/views/tools/CustomMcpServerDialog.jsx
 packages/ui/src/views/tools/HowToUseFunctionDialog.jsx

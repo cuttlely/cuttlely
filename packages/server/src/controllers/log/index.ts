@@ -5,14 +5,21 @@ const queryText = (value: unknown): string => (typeof value === 'string' ? value
 
 const getLogs = async (req: Request, res: Response, next: NextFunction) => {
     try {
-        const apiResponse = await logService.getLogs(
-            queryText(req.query?.startDate),
-            queryText(req.query?.endDate),
-            queryText(req.query?.level) || undefined
-        )
+        // The capped body is finished before any response bytes are written.
+        const apiResponse = await logService.getLogs({
+            startDate: queryText(req.query?.startDate) || undefined,
+            endDate: queryText(req.query?.endDate) || undefined,
+            level: queryText(req.query?.level) || undefined,
+            range: queryText(req.query?.range) || undefined
+        })
+        if (res.headersSent) return
         res.setHeader('Cache-Control', 'no-store')
-        res.json(apiResponse)
+        res.status(200).json(apiResponse)
     } catch (error) {
+        if (res.headersSent) {
+            res.end()
+            return
+        }
         next(error)
     }
 }

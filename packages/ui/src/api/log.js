@@ -1,6 +1,6 @@
 import client from './client'
 
-const getLogs = (startDate, endDate, level) => client.get('/logs', { params: { startDate, endDate, level } })
+const getLogs = (params) => client.get('/logs', { params })
 
 export default {
     getLogs
