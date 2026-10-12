@@ -553,16 +553,8 @@
             "to": "packages/server/src/utils/getRunningExpressApp.ts"
         },
         {
-            "from": "packages/server/src/services/flow-versions/github.test.ts",
-            "to": "packages/server/src/utils/logger.ts"
-        },
-        {
             "from": "packages/server/src/services/flow-versions/index.ts",
             "to": "packages/server/src/database/entities/Credential.ts"
-        },
-        {
-            "from": "packages/server/src/services/flow-versions/index.ts",
-            "to": "packages/server/src/errors/utils.ts"
         },
         {
             "from": "packages/server/src/services/flow-versions/index.ts",

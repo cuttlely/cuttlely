@@ -16,6 +16,10 @@ function main() {
     run(['--emitDeclarationOnly', '-p', 'packages/components/tsconfig.json'])
     console.log('typecheck @cuttlely/node-pack-vector-stores')
     run(['--noEmit', '-p', 'packages/node-pack-vector-stores/tsconfig.json'])
+    // The server imports this package. Emit it before the server check so the types resolve.
+    console.log('typecheck @cuttlely/versioning')
+    run(['--noEmit', '-p', 'packages/versioning/tsconfig.typecheck.json'])
+    run(['-p', 'packages/versioning/tsconfig.json'])
     console.log('typecheck @cuttlely/server')
     run(['--noEmit', '-p', 'packages/server/tsconfig.json'])
     console.log('typecheck @cuttlely/ui: no TypeScript project; the UI build step covers that package')

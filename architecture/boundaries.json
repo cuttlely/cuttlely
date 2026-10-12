@@ -33,6 +33,7 @@
             "packages/components/nodes/embeddings/LocalHashEmbedding/**",
             "packages/ui/src/views/etl/**",
             "packages/ui/src/api/etl.js",
+            "packages/versioning/**",
             "packages/server/src/services/flow-versions/**",
             "packages/server/src/services/flow-drafts/**",
             "packages/server/src/services/flow-check/**",
@@ -387,6 +388,7 @@
         {
             "name": "Versioning",
             "paths": [
+                "packages/versioning/**",
                 "packages/server/src/services/flow-versions/**",
                 "packages/server/src/services/flow-drafts/**",
                 "packages/server/src/services/flow-check/**",
@@ -421,6 +423,7 @@
                 "packages/server/src/services/flow-versions/author.ts",
                 "packages/server/src/services/flow-versions/index.ts",
                 "packages/server/src/services/flow-versions/store.ts",
+                "packages/versioning/src/index.ts",
                 "packages/ui/src/api/flowDrafts.js",
                 "packages/ui/src/api/flowVersions.js",
                 "packages/ui/src/ui-component/extended/PublishInstantly.jsx",
