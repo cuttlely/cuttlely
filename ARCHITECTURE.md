@@ -70,11 +70,16 @@ The inherited baseline is release 3.1.4. There is no automatic sync. Security ad
 
 Do not edit files under `hermes/` by hand. Rebuild that tree with `pnpm hermes:vendor` (`--save-patches` when the edit should stick). The steps, the lock, and the patch list are in [docs/reference/hermes-upgrades.md](./docs/reference/hermes-upgrades.md).
 
+## Enforced boundaries
+
+`pnpm verify` and CI run `scripts/check-boundaries.mjs`. It reads [architecture/boundaries.json](./architecture/boundaries.json). A new import that crosses a zone fails, and the message names the file pair and how to fix it. Crossings that already exist are in [architecture/boundary-baseline.json](./architecture/boundary-baseline.json). `node scripts/check-boundaries.mjs --update` only shrinks that file. Recording a new crossing takes `--allow-new` and a reason, stored next to the edge.
+
+A file added under an inherited path fails unless it is listed in [architecture/inherited-files.txt](./architecture/inherited-files.txt) or its path is assigned to a subsystem. Add the path to a subsystem, or to `core-shared`, in the map.
+
 ## Roadmap
 
 The separation work after this map:
 
--   Enforced boundaries, so a subsystem cannot grow a new import into inherited code without a review.
 -   Own package names for the packages that still use the engine's package name.
 -   Optional integration packs, so a deploy can omit node families it does not run.
 -   A smaller image.
