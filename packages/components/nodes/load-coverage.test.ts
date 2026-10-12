@@ -3,6 +3,7 @@ import fs from 'fs'
 import http from 'http'
 import https from 'https'
 import net from 'net'
+import os from 'os'
 import path from 'path'
 import tls from 'tls'
 
@@ -93,6 +94,47 @@ function restoreOutbound() {
 
 const load = require as (id: string) => Loaded
 const loadCredential = require as (id: string) => CredentialModule
+
+// Same path as load-coverage-transformer.cjs. One file per Jest worker.
+function transformLogPath(): string {
+    const id = process.env.JEST_WORKER_ID || '0'
+    return path.join(os.tmpdir(), `cuttlely-node-load-${id}.log`)
+}
+
+let transformLogOffset = 0
+let transformFiles = 0
+
+function consumeTransformMs(): number {
+    const logPath = transformLogPath()
+    if (!fs.existsSync(logPath)) return 0
+    const size = fs.statSync(logPath).size
+    if (size <= transformLogOffset) return 0
+    const fd = fs.openSync(logPath, 'r')
+    const buf = Buffer.alloc(size - transformLogOffset)
+    fs.readSync(fd, buf, 0, buf.length, transformLogOffset)
+    fs.closeSync(fd)
+    transformLogOffset = size
+    let compiled = 0
+    for (const line of buf.toString('utf8').split('\n')) {
+        if (!line) continue
+        const ms = Number(line)
+        if (!Number.isFinite(ms)) continue
+        compiled += ms
+        transformFiles += 1
+    }
+    return compiled
+}
+
+// require() of a .ts file includes ts-jest compile time on a cold cache.
+// The transformer appends that time while require() is on the stack.
+// A warm cache appends nothing, so the whole require is module evaluation.
+function timedLoad<T>(loader: (id: string) => T, file: string): { exported: T; evalMs: number; transformMs: number } {
+    const started = Date.now()
+    const exported = loader(file)
+    const wall = Date.now() - started
+    const compiled = consumeTransformMs()
+    return { exported, evalMs: Math.max(0, wall - compiled), transformMs: compiled }
+}
 
 function skippedCategories(): Set<string> {
     const source = fs.readFileSync(path.join(repoRoot, 'packages/server/src/NodesPool.ts'), 'utf8')
@@ -239,11 +281,13 @@ const initOptions = {
     }
 }
 
-// The load itself stays under a minute without instrumentation. Coverage collection
-// (Jest's default babel provider) makes the same load slower than that, so the
-// file timeout has to outlast a coverage run. The 60s figure is asserted below
-// only when this process is not instrumented.
-const LOAD_BUDGET_MS = 60_000
+// Module evaluation (require of every node and credential, plus the inits this
+// file actually calls) is about 5s warm or cold. A cold Jest cache spends about
+// 70s in ts-jest before that, which used to blow a single 60s clock.
+// The load budget is the evaluation. The ceiling is the whole test, compile included.
+// The file timeout stays above the ceiling so a slow compile fails this assertion.
+const LOAD_BUDGET_MS = 20_000
+const COLD_TOTAL_MS = 150_000
 jest.setTimeout(180_000)
 
 // Jest assigns this while requiring a file it rewrote for collectCoverage.
@@ -257,20 +301,27 @@ function coverageInstrumentationOn(): boolean {
 
 describe('node and credential load coverage', () => {
     beforeAll(() => {
+        const logPath = transformLogPath()
+        fs.writeFileSync(logPath, '')
+        transformLogOffset = 0
+        transformFiles = 0
         installOutboundBlock()
     })
 
     afterAll(() => {
         restoreOutbound()
+        fs.rmSync(transformLogPath(), { force: true })
     })
 
     it('loads every catalog node and credential class without a network call', async () => {
         const started = Date.now()
         const problems: Problem[] = []
+        const catalogStarted = Date.now()
         const catalogCheck = spawnSync(process.execPath, [path.join(repoRoot, 'scripts/build-module-catalog.mjs'), '--check'], {
             cwd: repoRoot,
             encoding: 'utf8'
         })
+        const catalogMs = Date.now() - catalogStarted
         if (catalogCheck.status !== 0) {
             problems.push(catalogCheck.stderr || catalogCheck.stdout || 'module catalog check failed')
         }
@@ -282,12 +333,22 @@ describe('node and credential load coverage', () => {
         const credentialClasses = new Map<string, Record<string, any>>()
         const inited: string[] = []
         const skips: Array<{ name: string; reason: string }> = []
+        let credentialEvalMs = 0
+        let credentialTransformMs = 0
+        let nodeEvalMs = 0
+        let nodeTransformMs = 0
+        let initMs = 0
+        let slowestEval = { file: '', ms: 0 }
 
         for (const credentialsRoot of credentialRoots()) {
             for (const file of walk(credentialsRoot, (candidate) => candidate.endsWith('.credential.ts'))) {
                 let instance: Record<string, any>
                 try {
-                    const exported = loadCredential(file)
+                    const timed = timedLoad(loadCredential, file)
+                    credentialEvalMs += timed.evalMs
+                    credentialTransformMs += timed.transformMs
+                    if (timed.evalMs > slowestEval.ms) slowestEval = { file: path.relative(repoRoot, file), ms: timed.evalMs }
+                    const exported = timed.exported
                     if (!exported.credClass) throw new Error('missing credClass')
                     instance = new exported.credClass()
                 } catch (error) {
@@ -312,7 +373,11 @@ describe('node and credential load coverage', () => {
             const abs = path.join(repoRoot, entry.file)
             let instance: Record<string, any>
             try {
-                const exported = load(abs)
+                const timed = timedLoad(load, abs)
+                nodeEvalMs += timed.evalMs
+                nodeTransformMs += timed.transformMs
+                if (timed.evalMs > slowestEval.ms) slowestEval = { file: entry.file, ms: timed.evalMs }
+                const exported = timed.exported
                 if (!exported.nodeClass) throw new Error('missing nodeClass')
                 instance = new exported.nodeClass()
             } catch (error) {
@@ -348,6 +413,7 @@ describe('node and credential load coverage', () => {
                 continue
             }
             const before = outbound.length
+            const initStarted = Date.now()
             try {
                 const inputs: Record<string, unknown> = {}
                 sampleInputs(instance.inputs, inputs)
@@ -382,6 +448,8 @@ describe('node and credential load coverage', () => {
                 else if (message.includes('experimental-vm-modules'))
                     skips.push({ name: entry.name, reason: 'init imports an ES module the test runner cannot load' })
                 else problems.push(`${entry.name} init failed: ${message}`)
+            } finally {
+                initMs += Date.now() - initStarted
             }
         }
 
@@ -398,23 +466,34 @@ describe('node and credential load coverage', () => {
         if (outbound.length) problems.push(`outbound calls: ${outbound.join(', ')}`)
 
         const elapsed = Date.now() - started
+        const loadMs = credentialEvalMs + nodeEvalMs + initMs
+        const compiledMs = credentialTransformMs + nodeTransformMs
+        process.stdout.write(
+            `load phases: catalog=${catalogMs}ms credentialEval=${credentialEvalMs}ms nodeEval=${nodeEvalMs}ms init=${initMs}ms load=${loadMs}ms/${LOAD_BUDGET_MS}ms transform=${compiledMs}ms transformFiles=${transformFiles} slowestEval=${slowestEval.ms}ms ${slowestEval.file} total=${elapsed}ms/${COLD_TOTAL_MS}ms\n`
+        )
         const skipCounts = new Map<string, number>()
         for (const skipEntry of skips) skipCounts.set(skipEntry.reason, (skipCounts.get(skipEntry.reason) || 0) + 1)
         const skipSummary = [...skipCounts.entries()].map(([reason, count]) => `${reason}=${count}`).join(', ')
-        const summary = `loaded ${loaded} nodes, ${credentialClasses.size} credentials, inited ${inited.length}, skipped ${skips.length} (${skipSummary}), outbound ${outbound.length}, ${elapsed}ms, tiers core=${tierTotals.core} supported=${tierTotals.supported} legacy=${tierTotals.legacy} hidden=${tierTotals.hidden}`
+        const summary = `loaded ${loaded} nodes, ${credentialClasses.size} credentials, inited ${inited.length}, skipped ${skips.length} (${skipSummary}), outbound ${outbound.length}, load ${loadMs}ms, transform ${compiledMs}ms, total ${elapsed}ms, tiers core=${tierTotals.core} supported=${tierTotals.supported} legacy=${tierTotals.legacy} hidden=${tierTotals.hidden}`
         const broadSkips = skips.filter((entry) => entry.reason === BROAD_INIT_SKIP).map((entry) => entry.name)
         process.stdout.write(`${summary}\n`)
         process.stdout.write(`broad skips (${BROAD_INIT_SKIP}=${broadSkips.length}): ${broadSkips.join(', ')}\n`)
         // Instrumentation dominates the clock, so a coverage run still has to load
-        // every class and still fails on `problems`, but it does not fail the budget.
+        // every class and still fails on `problems`, but it does not fail either budget.
         if (coverageInstrumentationOn()) {
             process.stdout.write(`time budget not enforced under coverage; elapsed ${elapsed}ms\n`)
             expect({ problems, summary }).toEqual({ problems: [], summary })
             return
         }
-        expect({ problems, elapsedUnder60s: elapsed < LOAD_BUDGET_MS, summary }).toEqual({
+        expect({
+            problems,
+            loadWithinBudget: loadMs < LOAD_BUDGET_MS,
+            coldTotalWithinCeiling: elapsed < COLD_TOTAL_MS,
+            summary
+        }).toEqual({
             problems: [],
-            elapsedUnder60s: true,
+            loadWithinBudget: true,
+            coldTotalWithinCeiling: true,
             summary
         })
     })

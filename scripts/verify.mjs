@@ -1,7 +1,7 @@
 // Local merge gate. Run this before a pull request.
 // Full order fails fast. --fast is lint, typecheck, the unit step, and the fast unit-test steps.
 // The unit step caps Jest workers (default 50%). Override with CUTTLELY_VERIFY_JEST_WORKERS (a positive integer or a percentage).
-// It runs server Jest, then the node load test with coverage forced off so that test's 60s budget is a real check.
+// It runs server Jest, then the node load test with coverage forced off so that test's load budget is a real check.
 // CI runs the same file only under pnpm test:coverage, which does not enforce the budget.
 import { spawnSync } from 'node:child_process'
 import { createRequire } from 'node:module'
@@ -131,7 +131,8 @@ const STEPS = [
     },
     {
         // Server Jest, then the node load test. The second command passes --coverage=false:
-        // the 60s budget is enforced here, including on --fast. CI's coverage run is not that check.
+        // the load budget (module evaluation, not cold compile) is enforced here, including on --fast.
+        // CI's coverage run is not that check.
         name: 'unit',
         fast: true,
         command: 'pnpm',
@@ -288,7 +289,7 @@ function parseArgs(argv) {
             )
             console.log('unit Jest workers default to 50%. Set CUTTLELY_VERIFY_JEST_WORKERS to a positive integer or a percentage.')
             console.log(
-                'unit runs server Jest, then packages/components/nodes/load-coverage.test.ts with --coverage=false so its 60 second budget is enforced.'
+                'unit runs server Jest, then packages/components/nodes/load-coverage.test.ts with --coverage=false so its load budget is enforced (module evaluation, separate from the cold-compile ceiling).'
             )
             process.exit(0)
         } else if (arg === '--skip') {
