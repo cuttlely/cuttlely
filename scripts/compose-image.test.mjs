@@ -54,6 +54,13 @@ test('the Dockerfile has a ping health check and names its source repository', (
     assert.match(dockerfile, /org\.opencontainers\.image\.source="https:\/\/github\.com\/cuttlely\/cuttlely"/)
 })
 
+test('the geolocation database stays unless the slim build argument is set', () => {
+    const dockerfile = fs.readFileSync(path.join(ROOT, 'Dockerfile'), 'utf8')
+    assert.match(dockerfile, /^ARG CUTTLELY_OMIT_GEOIP=false$/m)
+    assert.match(dockerfile, /node scripts\/omit-geoip-database\.mjs/)
+    assert.doesNotMatch(dockerfile, /ARG CUTTLELY_OMIT_GEOIP=true/)
+})
+
 test('.env.example documents CUTTLELY_IMAGE with the published name', () => {
     const env = fs.readFileSync(path.join(ROOT, '.env.example'), 'utf8')
     assert.match(env, /^# CUTTLELY_IMAGE=ghcr\.io\/cuttlely\/cuttlely:\d+\.\d+\.\d+$/m)

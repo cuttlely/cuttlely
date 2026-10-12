@@ -76,6 +76,7 @@ const STEPS = [
             path.join(ROOT, 'scripts', 'release.test.mjs'),
             path.join(ROOT, 'scripts', 'test-git-isolation.test.mjs'),
             path.join(ROOT, 'scripts', 'compose-image.test.mjs'),
+            path.join(ROOT, 'scripts', 'omit-geoip-database.test.mjs'),
             path.join(ROOT, 'packages', 'cli', 'test', 'cli.test.js'),
             path.join(ROOT, 'scripts', 'upgrade-check.test.mjs'),
             path.join(ROOT, 'scripts', 'outbound-guard.test.mjs'),

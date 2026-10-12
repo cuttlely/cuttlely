@@ -75,6 +75,20 @@ The image is built for `linux/amd64`. A release can also carry `linux/arm64` whe
 
 `docker compose config` prints the file and does not start containers.
 
+## Leave out the geolocation database
+
+The default image includes the IP geolocation database (`geoip-lite`). Audit events use it to record a country and a region, then mask the IP. It is the largest package in the image. A normal build keeps it, and audit events stay the same.
+
+A build can leave the database out:
+
+```bash
+docker build --build-arg CUTTLELY_OMIT_GEOIP=true -t cuttlely:local .
+```
+
+`CUTTLELY_OMIT_GEOIP` defaults to `false`. Set it to `true` and the image build leaves `geoip-lite` out after the production install. The server still starts. Audit events then have no country and no region, the same result as an IP the database does not know. `docker compose up -d --build` does not pass this argument, so that build keeps the database.
+
+The argument applies at build time. Changing it means building the image again. To run the image you just built, set `CUTTLELY_IMAGE=cuttlely:local` in `.env` and run `docker compose up -d`.
+
 ## Data
 
 SQLite is `/var/cuttlely/data/database.sqlite` on the named volume `cuttlely-data`. Uploads, harness files, ETL files, logs, the agent runtime home, and version history (`/var/cuttlely/versions`, see [Version history](./versioning.md#where-the-history-lives)) are the other directories on that volume. The first boot writes `encryption.key` in `/var/cuttlely/data`. Losing the volume, or changing `FLOWISE_SECRETKEY_OVERWRITE`, makes stored credentials unreadable.
