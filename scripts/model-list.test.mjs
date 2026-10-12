@@ -164,12 +164,35 @@ const NO_CURRENT_MODELS = {
     'llm/cohere': 'Cohere deprecated command and command-light, the Generate API models, on Sept 15, 2025'
 }
 
+function nodeSourceRoots() {
+    const roots = [path.join(ROOT, 'packages/components/nodes')]
+    const packagesDir = path.join(ROOT, 'packages')
+    for (const name of fs.readdirSync(packagesDir)) {
+        if (!name.startsWith('node-pack-')) continue
+        const nodes = path.join(packagesDir, name, 'nodes')
+        if (fs.existsSync(nodes)) roots.push(nodes)
+    }
+    return roots
+}
+
+// Built class for a node source. Packs compile to packages/<name>/dist/nodes, the same shape as components.
+function builtNode(nodesDir, file) {
+    return path.join(path.dirname(nodesDir), 'dist', 'nodes', file.replace(/\.ts$/, '.js'))
+}
+
 describe('model dropdowns on nodes', () => {
-    const nodesDir = path.join(ROOT, 'packages/components/nodes')
-    const sources = fs
-        .readdirSync(nodesDir, { recursive: true })
-        .filter((file) => String(file).endsWith('.ts') && !String(file).endsWith('.test.ts'))
-        .map((file) => [String(file), fs.readFileSync(path.join(nodesDir, String(file)), 'utf8')])
+    const sources = []
+    for (const nodesDir of nodeSourceRoots()) {
+        for (const entry of fs.readdirSync(nodesDir, { recursive: true })) {
+            const file = String(entry)
+            if (!file.endsWith('.ts') || file.endsWith('.test.ts')) continue
+            sources.push([
+                path.relative(ROOT, path.join(nodesDir, file)),
+                fs.readFileSync(path.join(nodesDir, file), 'utf8'),
+                builtNode(nodesDir, file)
+            ])
+        }
+    }
 
     it('every getModels() call names a node that has models in the bundled list', () => {
         const calls = []
@@ -192,10 +215,10 @@ describe('model dropdowns on nodes', () => {
 
     it('every model dropdown keeps a typed or saved model name, and its default is in the list', async () => {
         let checked = 0
-        for (const [file, text] of sources) {
+        for (const [file, text, distFile] of sources) {
             const match = text.match(/getModels\(\s*MODEL_TYPE\.(CHAT|LLM|EMBEDDING)\s*,\s*'([^']+)'\s*\)/)
             if (!match || !/loadMethod: 'listModels'/.test(text)) continue
-            const { nodeClass } = await import(path.join(ROOT, 'packages/components/dist/nodes', file.replace(/\.ts$/, '.js')))
+            const { nodeClass } = await import(distFile)
             if (!nodeClass) continue
             const node = new nodeClass()
             const field = node.inputs.find((input) => input.loadMethod === 'listModels')

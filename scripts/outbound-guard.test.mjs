@@ -20,9 +20,10 @@ const SHIPPED = [
     'packages/components/src',
     'packages/components/nodes',
     'packages/components/credentials',
-    'packages/node-pack-caches-memory',
+    'packages/node-pack-vector-stores',
     'packages/node-pack-tools-mcp',
-    'packages/node-pack-vector-stores'
+    'packages/node-pack-caches-memory',
+    'packages/node-pack-legacy-chains'
 ]
 
 const RULES = [

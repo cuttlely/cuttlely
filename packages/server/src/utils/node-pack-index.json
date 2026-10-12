@@ -66,6 +66,101 @@
             "pack": "@cuttlely/node-pack-caches-memory"
         },
         {
+            "name": "awsBedrock",
+            "label": "AWS Bedrock",
+            "pack": "@cuttlely/node-pack-legacy-chains"
+        },
+        {
+            "name": "azureOpenAI",
+            "label": "Azure OpenAI",
+            "pack": "@cuttlely/node-pack-legacy-chains"
+        },
+        {
+            "name": "cohere",
+            "label": "Cohere",
+            "pack": "@cuttlely/node-pack-legacy-chains"
+        },
+        {
+            "name": "fireworks",
+            "label": "Fireworks",
+            "pack": "@cuttlely/node-pack-legacy-chains"
+        },
+        {
+            "name": "getApiChain",
+            "label": "GET API Chain",
+            "pack": "@cuttlely/node-pack-legacy-chains"
+        },
+        {
+            "name": "googlevertexai",
+            "label": "GoogleVertexAI",
+            "pack": "@cuttlely/node-pack-legacy-chains"
+        },
+        {
+            "name": "huggingFaceInference_LLMs",
+            "label": "HuggingFace Inference",
+            "pack": "@cuttlely/node-pack-legacy-chains"
+        },
+        {
+            "name": "ibmWatsonx",
+            "label": "IBMWatsonx",
+            "pack": "@cuttlely/node-pack-legacy-chains"
+        },
+        {
+            "name": "multiPromptChain",
+            "label": "Multi Prompt Chain",
+            "pack": "@cuttlely/node-pack-legacy-chains"
+        },
+        {
+            "name": "multiRetrievalQAChain",
+            "label": "Multi Retrieval QA Chain",
+            "pack": "@cuttlely/node-pack-legacy-chains"
+        },
+        {
+            "name": "ollama",
+            "label": "Ollama",
+            "pack": "@cuttlely/node-pack-legacy-chains"
+        },
+        {
+            "name": "openAI",
+            "label": "OpenAI",
+            "pack": "@cuttlely/node-pack-legacy-chains"
+        },
+        {
+            "name": "openApiChain",
+            "label": "OpenAPI Chain",
+            "pack": "@cuttlely/node-pack-legacy-chains"
+        },
+        {
+            "name": "postApiChain",
+            "label": "POST API Chain",
+            "pack": "@cuttlely/node-pack-legacy-chains"
+        },
+        {
+            "name": "replicate",
+            "label": "Replicate",
+            "pack": "@cuttlely/node-pack-legacy-chains"
+        },
+        {
+            "name": "retrievalQAChain",
+            "label": "Retrieval QA Chain",
+            "pack": "@cuttlely/node-pack-legacy-chains"
+        },
+        {
+            "name": "sambanova",
+            "label": "Sambanova",
+            "pack": "@cuttlely/node-pack-legacy-chains"
+        },
+        {
+            "name": "togetherAI",
+            "label": "TogetherAI",
+            "pack": "@cuttlely/node-pack-legacy-chains"
+        },
+        {
+            "name": "vectorDBQAChain",
+            "label": "VectorDB QA Chain",
+            "pack": "@cuttlely/node-pack-legacy-chains"
+        },
+        {
             "name": "arxiv",
             "label": "Arxiv",
             "pack": "@cuttlely/node-pack-tools-mcp"

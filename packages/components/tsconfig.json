@@ -18,7 +18,13 @@
             "@cuttlely/components/storageUtils": ["src/storageUtils.ts"],
             "@cuttlely/components/nodes": ["nodes/index.ts"],
             "@cuttlely/components/modelLoader": ["src/modelLoader.ts"],
-            "@cuttlely/components/etl-engine": ["nodes/etl/engine.ts"]
+            "@cuttlely/components/etl-engine": ["nodes/etl/engine.ts"],
+            "@cuttlely/components/handler": ["src/handler.ts"],
+            "@cuttlely/components/google-utils": ["src/google-utils.ts"],
+            "@cuttlely/components/openApiSpec": ["src/openApiSpec.ts"],
+            "@cuttlely/components/httpSecurity": ["src/httpSecurity.ts"],
+            "@cuttlely/components/moderation": ["nodes/moderation/Moderation.ts"],
+            "@cuttlely/components/outputParserHelpers": ["nodes/outputparsers/OutputParserHelpers.ts"]
         },
         "resolveJsonModule": true,
         "esModuleInterop": true /* Emit additional JavaScript to ease support for importing CommonJS modules. This enables `allowSyntheticDefaultImports` for type compatibility. */,
