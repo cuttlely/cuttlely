@@ -23,6 +23,7 @@ import {
     safeOrderKeys,
     stripPageColumns
 } from './analyst-page.mjs'
+import { encryptionKeyConflict, encryptionKeyOverwrite } from './setting-alias.cjs'
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const require = createRequire(path.join(ROOT, 'packages/components/package.json'))
@@ -329,11 +330,14 @@ function decryptJson(payload, key) {
 }
 
 async function encryptionKey(env) {
-    const overwrite = clean(env.FLOWISE_SECRETKEY_OVERWRITE)
+    const conflict = encryptionKeyConflict(env)
+    if (conflict) throw new Error(conflict)
+    // Trim, as this reader already did. The server keeps the raw overwrite, including spaces.
+    const overwrite = clean(encryptionKeyOverwrite(env))
     if (overwrite) return overwrite
     if (clean(env.SECRETKEY_STORAGE_TYPE).toLowerCase() === 'aws') {
         throw new Error(
-            'Analyst mode stores the role password with the credential encryption key. Set FLOWISE_SECRETKEY_OVERWRITE to that key, or set CUTTLELY_POSTGRES_URL to a separate database.'
+            'Analyst mode stores the role password with the credential encryption key. Set CUTTLELY_SECRETKEY_OVERWRITE or FLOWISE_SECRETKEY_OVERWRITE to that key, or set CUTTLELY_POSTGRES_URL to a separate database.'
         )
     }
     const dir = secretDir(env)

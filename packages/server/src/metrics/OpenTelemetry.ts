@@ -4,6 +4,7 @@ import { ATTR_SERVICE_NAME, ATTR_SERVICE_VERSION } from '@opentelemetry/semantic
 import { MeterProvider, PeriodicExportingMetricReader, Histogram } from '@opentelemetry/sdk-metrics'
 import { diag, DiagLogLevel, DiagConsoleLogger, Attributes, Counter } from '@opentelemetry/api'
 import { getVersion } from 'flowise-components'
+import { metricName } from './names'
 import express from 'express'
 
 // Create a static map to track created metrics and prevent duplicates
@@ -111,16 +112,17 @@ export class OpenTelemetry implements IMetricsProvider {
             enumEntries.forEach(([name, value]) => {
                 try {
                     // Check if we've already created this metric
-                    if (!createdMetrics.has(value)) {
+                    const published = metricName(value)
+                    if (!createdMetrics.has(published)) {
                         // derive proper counter name from the enum value (chatflow_created = Chatflow Created)
                         const properCounterName: string = name.replace(/_/g, ' ').replace(/\b\w/g, (l) => l.toUpperCase())
                         this.counters.set(
                             value,
-                            meter.createCounter(value, {
+                            meter.createCounter(published, {
                                 description: properCounterName
                             })
                         )
-                        createdMetrics.set(value, true)
+                        createdMetrics.set(published, true)
                     }
                 } catch (error) {
                     // Log error but continue with other metrics
@@ -130,14 +132,15 @@ export class OpenTelemetry implements IMetricsProvider {
 
             try {
                 // Add version gauge if not already created
-                if (!createdMetrics.has('flowise_version')) {
-                    const versionGuage = meter.createGauge('flowise_version', {
+                const versionName = metricName('flowise_version')
+                if (!createdMetrics.has(versionName)) {
+                    const versionGuage = meter.createGauge(versionName, {
                         description: 'Cuttlely version'
                     })
                     // remove the last dot from the version string, e.g. 2.1.3 -> 2.13 (gauge needs a number - float)
                     const formattedVersion = flowiseVersion.version.replace(/\.(\d+)$/, '$1')
                     versionGuage.record(parseFloat(formattedVersion))
-                    createdMetrics.set('flowise_version', true)
+                    createdMetrics.set(versionName, true)
                 }
             } catch (error) {
                 console.error('Error creating version gauge:', error)
@@ -145,11 +148,12 @@ export class OpenTelemetry implements IMetricsProvider {
 
             try {
                 // HTTP requests counter
-                if (!createdMetrics.has('http_requests_total')) {
-                    this.httpRequestCounter = meter.createCounter('http_requests_total', {
+                const requestsName = metricName('http_requests_total')
+                if (!createdMetrics.has(requestsName)) {
+                    this.httpRequestCounter = meter.createCounter(requestsName, {
                         description: 'Counts the number of HTTP requests received'
                     })
-                    createdMetrics.set('http_requests_total', true)
+                    createdMetrics.set(requestsName, true)
                 }
             } catch (error) {
                 console.error('Error creating HTTP request counter:', error)
@@ -157,11 +161,12 @@ export class OpenTelemetry implements IMetricsProvider {
 
             try {
                 // HTTP request duration histogram
-                if (!createdMetrics.has('http_request_duration_ms')) {
-                    this.httpRequestDuration = meter.createHistogram('http_request_duration_ms', {
+                const durationName = metricName('http_request_duration_ms')
+                if (!createdMetrics.has(durationName)) {
+                    this.httpRequestDuration = meter.createHistogram(durationName, {
                         description: 'Records the duration of HTTP requests in ms'
                     })
-                    createdMetrics.set('http_request_duration_ms', true)
+                    createdMetrics.set(durationName, true)
                 }
             } catch (error) {
                 console.error('Error creating HTTP request duration histogram:', error)

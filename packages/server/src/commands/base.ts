@@ -5,6 +5,7 @@ import dotenv from 'dotenv'
 import path from 'path'
 import logger from '../utils/logger'
 import { drainTimeoutMs } from '../settings/runs'
+import { encryptionKeyConflict } from '../settings/settingAlias'
 
 export { startState }
 
@@ -19,6 +20,7 @@ export abstract class BaseCommand extends Command {
     static flags = {
         // General Settings
         FLOWISE_FILE_SIZE_LIMIT: Flags.string(),
+        CUTTLELY_FILE_SIZE_LIMIT: Flags.string(),
         CUSTOM_MCP_TOOLS_MAX_BYTES: Flags.string(),
         CUSTOM_MCP_AUTHORIZE_TIMEOUT_MS: Flags.string(),
         PORT: Flags.string(),
@@ -29,6 +31,7 @@ export abstract class BaseCommand extends Command {
         NUMBER_OF_PROXIES: Flags.string(),
         SHOW_COMMUNITY_NODES: Flags.string(),
         DISABLE_FLOWISE_TELEMETRY: Flags.string(),
+        DISABLE_CUTTLELY_TELEMETRY: Flags.string(),
         DISABLED_NODES: Flags.string(),
 
         // Logging
@@ -85,6 +88,7 @@ export abstract class BaseCommand extends Command {
         SECRETKEY_STORAGE_TYPE: Flags.string(),
         SECRETKEY_PATH: Flags.string(),
         FLOWISE_SECRETKEY_OVERWRITE: Flags.string(),
+        CUTTLELY_SECRETKEY_OVERWRITE: Flags.string(),
         SECRETKEY_AWS_ACCESS_KEY: Flags.string(),
         SECRETKEY_AWS_SECRET_KEY: Flags.string(),
         SECRETKEY_AWS_REGION: Flags.string(),
@@ -159,6 +163,7 @@ export abstract class BaseCommand extends Command {
         METRICS_PROVIDER: Flags.string(),
         METRICS_INCLUDE_NODE_METRICS: Flags.string(),
         METRICS_SERVICE_NAME: Flags.string(),
+        METRICS_PREFIX: Flags.string(),
         METRICS_OPEN_TELEMETRY_METRIC_ENDPOINT: Flags.string(),
         METRICS_OPEN_TELEMETRY_PROTOCOL: Flags.string(),
         METRICS_OPEN_TELEMETRY_DEBUG: Flags.string(),
@@ -236,5 +241,10 @@ export abstract class BaseCommand extends Command {
                 process.env[key] = flags[key]
             }
         })
+        const conflict = encryptionKeyConflict(process.env)
+        if (conflict) {
+            logger.error(conflict)
+            await this.failExit()
+        }
     }
 }

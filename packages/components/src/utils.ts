@@ -7,6 +7,7 @@ import { Runnable, type RunnableConfig } from '@langchain/core/runnables'
 import { TextSplitter } from '@langchain/textsplitters'
 import axios from 'axios'
 import { AES, enc } from 'crypto-js'
+import { encryptionKeyOverwrite } from './settingAlias'
 import * as fs from 'fs'
 import JSON5 from 'json5'
 import { cloneDeep, get, omit } from 'lodash'
@@ -583,9 +584,8 @@ export const getEncryptionKeyPath = (): string => {
  * @returns {Promise<string>}
  */
 const getEncryptionKey = async (): Promise<string> => {
-    if (process.env.FLOWISE_SECRETKEY_OVERWRITE !== undefined && process.env.FLOWISE_SECRETKEY_OVERWRITE !== '') {
-        return process.env.FLOWISE_SECRETKEY_OVERWRITE
-    }
+    const overwrite = encryptionKeyOverwrite(process.env)
+    if (overwrite !== undefined) return overwrite
     try {
         if (USE_AWS_SECRETS_MANAGER && secretsManagerClient) {
             const secretId = process.env.SECRETKEY_AWS_NAME || 'FlowiseEncryptionKey'
