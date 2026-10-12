@@ -2341,6 +2341,10 @@
             "reason": "The node list and pack index sign-in test stays with the inherited nodes routes."
         },
         {
+            "path": "packages/server/src/services/executions/index.test.ts",
+            "reason": "The executions paging test lives next to the service it checks."
+        },
+        {
             "path": "packages/server/src/utils/telemetry-geoip-missing.test.ts",
             "reason": "Server unit test for geolocation when the database package is absent."
         }
