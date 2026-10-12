@@ -1323,6 +1323,10 @@
     ],
     "r6Additions": [
         {
+            "path": "packages/components/load-coverage-transformer.cjs",
+            "reason": "Jest transformer that records ts-jest compile time for the node load budget"
+        },
+        {
             "path": "packages/node-pack-caches-memory/credentials/DynamodbMemoryApi.credential.ts",
             "reason": "Cache and memory backend nodes live in the caches and memory pack. Memory that needs no outside service stays in components."
         },
