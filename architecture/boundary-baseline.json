@@ -488,6 +488,11 @@
         },
         {
             "from": "packages/server/src/services/flow-check/index.ts",
+            "to": "packages/server/src/services/executions/index.ts",
+            "reason": "The publish check reads recent execution records to replay form, webhook and schedule inputs."
+        },
+        {
+            "from": "packages/server/src/services/flow-check/index.ts",
             "to": "packages/server/src/utils/buildChatflow.ts"
         },
         {
