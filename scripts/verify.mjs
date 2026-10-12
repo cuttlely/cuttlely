@@ -98,7 +98,8 @@ const STEPS = [
             path.join(ROOT, 'examples', 'web-app', 'server.test.mjs'),
             path.join(ROOT, 'website', 'scripts', 'sync-docs.test.mjs'),
             path.join(ROOT, 'website', 'scripts', 'check-site.test.mjs'),
-            path.join(ROOT, 'website', 'scripts', 'screenshot-zoom.test.mjs')
+            path.join(ROOT, 'website', 'scripts', 'screenshot-zoom.test.mjs'),
+            path.join(ROOT, 'scripts', 'permission-keys.test.mjs')
         ]
     },
     {
