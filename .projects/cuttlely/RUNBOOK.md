@@ -51,6 +51,7 @@ node etl/check.mjs --stress   # adds a generated 1,000,000-row CSV and a 401-fil
 pnpm verify                   # the full gate; `pnpm verify --help` lists the 23 steps
 pnpm verify --fast            # lint, boundaries, typecheck, verify-test, website-docs, chat-widget, hermes-vendor, unit, server-settings-ui, handoff-test, render-blueprint, identity-migration
 node scripts/check-boundaries.mjs   # zone crossings; --update only shrinks the baseline
+node scripts/health-report.mjs       # health table; exits 0. --image <ref> adds the image size
 pnpm verify --skip smoke      # skip one step locally; repeat --skip for more. Not for the merge gate
 pnpm verify:comment           # prints the summary for a pull request comment
 CUTTLELY_VERIFY_JEST_WORKERS=4 pnpm verify   # unit Jest workers; default 50%
