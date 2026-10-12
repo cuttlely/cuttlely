@@ -92,3 +92,32 @@ The repo is created the first time history is used, by a save or by opening hist
 Moving the repo: stop Cuttlely, move the folder, set `CUTTLELY_VERSIONS_DIR` to the new place, and start Cuttlely. A folder with no repo in it starts a new, empty history on the next save.
 
 The repo layout and commit format are in [Version files](./version-files.md).
+
+## Environments
+
+Promotion walks an ordered list of environments. Each one has:
+
+| Field    | Meaning                                                                                       |
+| -------- | --------------------------------------------------------------------------------------------- |
+| `name`   | What the promote page shows.                                                                  |
+| `branch` | Where that environment publishes in the shared GitHub repository.                             |
+| `server` | The identity of the server that fills that place. `environment` on that server is this value. |
+
+The list is not an environment variable. It is saved with the GitHub connection, in the history repo, by `PUT /api/v1/flow-versions/environment`. See [Label this server](./versioning-api.md#label-this-server).
+
+A server that was already labeled Dev or Prod, with no list in that file, loads as dev then prod. Both use the branch `main`. Dev copies there, and Prod reads it. You do not have to migrate that file. Saving `environment` as `dev` or `prod` with no list keeps writing that older file. Saving a longer list writes `environment` and `environments` together, and `environment` still names this server.
+
+Dev, Staging and Prod:
+
+```json
+{
+    "environment": "staging",
+    "environments": [
+        { "name": "Dev", "branch": "main", "server": "dev" },
+        { "name": "Staging", "branch": "staging", "server": "staging" },
+        { "name": "Prod", "branch": "prod", "server": "prod" }
+    ]
+}
+```
+
+Promotion moves only to the next environment: Dev to Staging, then Staging to Prod. Dev to Prod is refused while Staging is between them. Each hop still runs the behavior check and matches credentials by name. With only Dev and Prod, promotion works as before. How to set this up: [Add Staging between Dev and Prod](../how-to/versioning.md#add-staging-between-dev-and-prod).

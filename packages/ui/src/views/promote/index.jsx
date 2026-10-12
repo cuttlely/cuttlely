@@ -7,6 +7,7 @@ import ViewHeader from '@/layout/MainLayout/ViewHeader'
 import flowVersionsApi from '@/api/flowVersions'
 import { apiErrorMessage } from '@/utils/flowDrafts'
 import { timeAgo } from '@/utils/githubSync'
+import { sourceTitleOf } from '@/utils/promote'
 import { PromoteListView } from './PromoteViews'
 
 const Promote = () => {
@@ -49,7 +50,14 @@ const Promote = () => {
     return (
         <MainCard>
             <Stack flexDirection='column' sx={{ gap: 3 }}>
-                <ViewHeader title='From Dev' description='Review what Dev published and promote it to Live on this server' />
+                <ViewHeader
+                    title={sourceTitleOf(list) === 'Dev' ? 'From Dev' : `From ${sourceTitleOf(list)}`}
+                    description={
+                        sourceTitleOf(list) === 'Dev'
+                            ? 'Review what Dev published and promote it to Live on this server'
+                            : `Review what ${sourceTitleOf(list)} published and promote it to Live on this server`
+                    }
+                />
                 <PromoteListView
                     list={list}
                     status={status}

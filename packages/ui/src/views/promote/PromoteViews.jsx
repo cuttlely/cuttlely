@@ -21,17 +21,19 @@ import { CHANGE_COLORS, describeDiff, relativeTime } from '@/utils/versionHistor
 import {
     CREDENTIALS_PATH,
     DRAFT_NOTE,
-    HOW_IT_WORKS,
     MISSING_TITLE,
     NEW_FLOW_NOTE,
     changesLine,
     credentialText,
     historyNote,
+    howItWorks,
     incomingLabel,
     incomingSummary,
     missingIntro,
     promotePath,
-    promotedMessage
+    promotedMessage,
+    showEnvironmentChain,
+    sourceTitleOf
 } from '@/utils/promote'
 
 const LINE_COLORS = { added: CHANGE_COLORS.added, changed: CHANGE_COLORS.changed, removed: '#c62828', moved: '#757575' }
@@ -59,7 +61,7 @@ const byLine = (version, now) =>
     [version?.author ? `by ${version.author}` : '', version?.date ? relativeTime(version.date, now) : ''].filter(Boolean).join(' · ')
 
 // One flow with a new version from Dev, as a card on the list.
-export const IncomingCard = ({ flow, now }) => {
+export const IncomingCard = ({ flow, now, sourceTitle = 'Dev' }) => {
     const theme = useTheme()
     const isNew = flow.status === 'new'
     return (
@@ -86,7 +88,7 @@ export const IncomingCard = ({ flow, now }) => {
                                 <Typography variant='h5' noWrap>
                                     {flow.name}
                                 </Typography>
-                                <Chip size='small' color={isNew ? 'secondary' : 'primary'} label={incomingLabel(flow)} />
+                                <Chip size='small' color={isNew ? 'secondary' : 'primary'} label={incomingLabel(flow, sourceTitle)} />
                                 {flow.hasDraft && (
                                     <Chip
                                         size='small'
@@ -100,7 +102,7 @@ export const IncomingCard = ({ flow, now }) => {
                                 {flow.version?.title}
                             </Typography>
                             <Typography variant='caption' color='text.secondary'>
-                                {[byLine(flow.version, now), changesLine(flow)].filter(Boolean).join(' · ')}
+                                {[byLine(flow.version, now), changesLine(flow, sourceTitle)].filter(Boolean).join(' · ')}
                             </Typography>
                         </Box>
                         <IconArrowRight size={20} color={theme.palette.text.secondary} />
@@ -110,12 +112,14 @@ export const IncomingCard = ({ flow, now }) => {
         </Card>
     )
 }
-IncomingCard.propTypes = { flow: PropTypes.object.isRequired, now: PropTypes.number }
+IncomingCard.propTypes = { flow: PropTypes.object.isRequired, now: PropTypes.number, sourceTitle: PropTypes.string }
 
 // The list: every flow with a new version from Dev.
 export const PromoteListView = ({ list, status, loading, error, checking, onCheckNow, now, timeAgo }) => {
     const theme = useTheme()
     const flows = list?.flows || []
+    const sourceTitle = sourceTitleOf(list)
+    const chain = showEnvironmentChain(list)
     if (loading) {
         return (
             <Stack direction='row' spacing={1} alignItems='center' sx={{ py: 4 }}>
@@ -143,9 +147,29 @@ export const PromoteListView = ({ list, status, loading, error, checking, onChec
     }
     return (
         <Stack spacing={2}>
+            {chain && (
+                <Stack spacing={1}>
+                    <Stack direction='row' spacing={1} alignItems='center' data-testid='environment-chain' flexWrap='wrap' useFlexGap>
+                        {(list.environments || []).map((env, index) => (
+                            <Box key={env.server} sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                {index > 0 ? <IconArrowRight size={16} /> : null}
+                                <Chip
+                                    size='small'
+                                    label={env.name}
+                                    color={env.server === list.target ? 'primary' : 'default'}
+                                    variant={env.server === list.target ? 'filled' : 'outlined'}
+                                />
+                            </Box>
+                        ))}
+                    </Stack>
+                    <Typography variant='body2' data-testid='promote-next'>
+                        Promote moves a version to the next environment.
+                    </Typography>
+                </Stack>
+            )}
             <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ sm: 'center' }} justifyContent='space-between'>
                 <Typography variant='body2' color='text.secondary' sx={{ maxWidth: 680 }}>
-                    {HOW_IT_WORKS}
+                    {howItWorks(list)}
                 </Typography>
                 <Stack direction='row' spacing={1} alignItems='center' sx={{ flexShrink: 0 }}>
                     {status?.lastCheckedAt && (
@@ -168,20 +192,22 @@ export const PromoteListView = ({ list, status, loading, error, checking, onChec
                         <IconCheck size={26} />
                     </Avatar>
                     <Typography variant='h4' sx={{ mt: 1.5 }}>
-                        Everything from Dev is Live here
+                        {sourceTitle === 'Dev' ? 'Everything from Dev is Live here' : `Everything from ${sourceTitle} is Live here`}
                     </Typography>
                     <Typography variant='body2' color='text.secondary' sx={{ mt: 0.5 }}>
-                        When Dev publishes a new version, it shows up here to review and promote.
+                        {sourceTitle === 'Dev'
+                            ? 'When Dev publishes a new version, it shows up here to review and promote.'
+                            : `When ${sourceTitle} publishes a new version, it shows up here to review and promote.`}
                     </Typography>
                 </Box>
             ) : (
                 <>
                     <Typography variant='h4' data-testid='promote-summary'>
-                        {incomingSummary(flows)}
+                        {incomingSummary(flows, sourceTitle)}
                     </Typography>
                     <Stack spacing={1.5}>
                         {flows.map((flow) => (
-                            <IncomingCard key={flow.flowId} flow={flow} now={now} />
+                            <IncomingCard key={flow.flowId} flow={flow} now={now} sourceTitle={sourceTitle} />
                         ))}
                     </Stack>
                 </>
@@ -215,7 +241,8 @@ export const PromoteDetailView = ({
     onRollBack,
     openPath,
     check,
-    now
+    now,
+    sourceTitle = 'Dev'
 }) => {
     const theme = useTheme()
     if (loading) {
@@ -232,7 +259,7 @@ export const PromoteDetailView = ({
                 <Alert severity='info'>{error}</Alert>
                 <Box>
                     <Button component={RouterLink} to={promotePath()} startIcon={<IconArrowLeft size={16} />}>
-                        All new versions from Dev
+                        {sourceTitle === 'Dev' ? 'All new versions from Dev' : `All new versions from ${sourceTitle}`}
                     </Button>
                 </Box>
             </Stack>
@@ -263,7 +290,7 @@ export const PromoteDetailView = ({
                 </Typography>
                 {!rolledBack && !result.unchanged && (
                     <Typography variant='body2' color='text.secondary' sx={{ mt: 1 }}>
-                        {historyNote(result)}
+                        {historyNote(result, sourceTitle)}
                     </Typography>
                 )}
                 {result.hasDraft && !rolledBack && (
@@ -295,7 +322,7 @@ export const PromoteDetailView = ({
                         </Button>
                     )}
                     <Button component={RouterLink} to={promotePath()}>
-                        All new versions from Dev
+                        {sourceTitle === 'Dev' ? 'All new versions from Dev' : `All new versions from ${sourceTitle}`}
                     </Button>
                 </Stack>
             </Box>
@@ -306,7 +333,7 @@ export const PromoteDetailView = ({
         <Stack spacing={3} sx={{ pb: 10 }}>
             <Box>
                 <Button component={RouterLink} to={promotePath()} size='small' startIcon={<IconArrowLeft size={16} />} sx={{ mb: 1 }}>
-                    All new versions from Dev
+                    {sourceTitle === 'Dev' ? 'All new versions from Dev' : `All new versions from ${sourceTitle}`}
                 </Button>
                 <Box
                     sx={{
@@ -319,7 +346,7 @@ export const PromoteDetailView = ({
                     }}
                 >
                     <Stack direction='row' spacing={1} alignItems='center' flexWrap='wrap' useFlexGap>
-                        <Chip size='small' color={isNew ? 'secondary' : 'primary'} label={incomingLabel(detail)} />
+                        <Chip size='small' color={isNew ? 'secondary' : 'primary'} label={incomingLabel(detail, sourceTitle)} />
                         {detail.version?.shortSha && (
                             <Typography variant='caption' color='text.secondary'>
                                 Version {detail.version.shortSha}
@@ -333,7 +360,9 @@ export const PromoteDetailView = ({
                         {detail.version?.title}
                     </Typography>
                     <Typography variant='caption' color='text.secondary'>
-                        Published on Dev {byLine(detail.version, now)}
+                        {sourceTitle === 'Dev'
+                            ? `Published on Dev ${byLine(detail.version, now)}`
+                            : `Published on ${sourceTitle} ${byLine(detail.version, now)}`}
                     </Typography>
                 </Box>
             </Box>
@@ -367,7 +396,18 @@ export const PromoteDetailView = ({
                     </Section>
                 </Box>
                 <Box sx={{ flex: 1, minWidth: 0 }}>
-                    <Section title={isNew ? 'Published on Dev' : 'What changed on Dev'} testId='promote-dev-changes'>
+                    <Section
+                        title={
+                            isNew
+                                ? sourceTitle === 'Dev'
+                                    ? 'Published on Dev'
+                                    : `Published on ${sourceTitle}`
+                                : sourceTitle === 'Dev'
+                                ? 'What changed on Dev'
+                                : `What changed on ${sourceTitle}`
+                        }
+                        testId='promote-dev-changes'
+                    >
                         <Stack spacing={1}>
                             {(detail.changes || []).map((change) => (
                                 <Box key={change.sha} sx={{ pl: 1.5, borderLeft: '2px solid', borderColor: theme.palette.divider }}>
@@ -501,5 +541,6 @@ PromoteDetailView.propTypes = {
     onRollBack: PropTypes.func,
     openPath: PropTypes.string,
     check: PropTypes.node,
-    now: PropTypes.number
+    now: PropTypes.number,
+    sourceTitle: PropTypes.string
 }

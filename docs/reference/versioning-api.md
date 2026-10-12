@@ -238,35 +238,43 @@ The connect, disconnect, copy and label routes answer with the status. It never 
     "nextTryAt": null,
     "connectedAt": "2026-10-08T23:40:58.000Z",
     "environment": "dev",
+    "environments": [
+        { "name": "dev", "branch": "main", "server": "dev" },
+        { "name": "prod", "branch": "main", "server": "prod" }
+    ],
+    "promotes": false,
     "role": "copy",
     "lastCheckedAt": null,
     "incomingVersion": null
 }
 ```
 
-| Field               | Meaning                                                                               |
-| ------------------- | ------------------------------------------------------------------------------------- |
-| `enabled`           | `false` when history is off. Then `state` is `off` and nothing is copied.             |
-| `credential`        | The **Github API** credential that holds the token: its id and name, never the token. |
-| `state`             | One of the states below.                                                              |
-| `message`           | One plain sentence for the screen.                                                    |
-| `waiting`           | Versions on this server that are not on GitHub yet. `null` when it cannot be counted. |
-| `lastCopiedAt`      | When the last copy finished, since the server started. `null` before the first copy.  |
-| `lastCopiedVersion` | The short id of the newest version on GitHub after that copy.                         |
-| `nextTryAt`         | When Cuttlely tries again after a failure, while `state` is `retrying`.               |
-| `role`              | `copy` on Dev or an unlabeled server. `read` on Prod: it only reads the repository.   |
-| `lastCheckedAt`     | Prod: when it last looked for new versions from Dev. `null` on Dev.                   |
-| `incomingVersion`   | Prod: the short id of the newest version it found there. `null` on Dev or when empty. |
+| Field               | Meaning                                                                                                   |
+| ------------------- | --------------------------------------------------------------------------------------------------------- |
+| `enabled`           | `false` when history is off. Then `state` is `off` and nothing is copied.                                 |
+| `credential`        | The **Github API** credential that holds the token: its id and name, never the token.                     |
+| `state`             | One of the states below.                                                                                  |
+| `message`           | One plain sentence for the screen.                                                                        |
+| `waiting`           | Versions on this server that are not on GitHub yet. `null` when it cannot be counted.                     |
+| `lastCopiedAt`      | When the last copy finished, since the server started. `null` before the first copy.                      |
+| `lastCopiedVersion` | The short id of the newest version on GitHub after that copy.                                             |
+| `nextTryAt`         | When Cuttlely tries again after a failure, while `state` is `retrying`.                                   |
+| `environment`       | This server's identity in `environments`: `dev`, `prod`, another server identity, or `null`.              |
+| `environments`      | Promotion order. A saved Dev or Prod label with no list is dev, then prod.                                |
+| `promotes`          | `true` when this server promotes from the previous environment.                                           |
+| `role`              | `copy` when this server publishes versions. `read` on the last environment: it only reads the repository. |
+| `lastCheckedAt`     | Prod: when it last looked for new versions from Dev. `null` on Dev.                                       |
+| `incomingVersion`   | Prod: the short id of the newest version it found there. `null` on Dev or when empty.                     |
 
-| `state`         | Meaning                                                                                                                                                                                                                                    |
-| --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `not-connected` | No repository. History stays on the server.                                                                                                                                                                                                |
-| `up-to-date`    | Every version is on GitHub.                                                                                                                                                                                                                |
-| `waiting`       | New versions are queued and are copied in a few seconds.                                                                                                                                                                                   |
-| `copying`       | A copy is running.                                                                                                                                                                                                                         |
-| `retrying`      | GitHub could not be reached, refused the token, or the copy failed for another reason. Cuttlely tries again on its own, waiting longer each time, up to 15 minutes.                                                                        |
-| `stopped`       | Copying needs you. GitHub's `main` has commits this server does not have, a branch rule or ruleset on GitHub refuses the copy, a version holds secret-shaped text, or the GitHub credential was deleted or is empty. `message` says which. |
-| `off`           | History is off on this server.                                                                                                                                                                                                             |
+| `state`         | Meaning                                                                                                                                                                                                                                                        |
+| --------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `not-connected` | No repository. History stays on the server.                                                                                                                                                                                                                    |
+| `up-to-date`    | Every version is on GitHub.                                                                                                                                                                                                                                    |
+| `waiting`       | New versions are queued and are copied in a few seconds.                                                                                                                                                                                                       |
+| `copying`       | A copy is running.                                                                                                                                                                                                                                             |
+| `retrying`      | GitHub could not be reached, refused the token, or the copy failed for another reason. Cuttlely tries again on its own, waiting longer each time, up to 15 minutes.                                                                                            |
+| `stopped`       | Copying needs you. The branch this server publishes to has commits this server does not have, a branch rule or ruleset on GitHub refuses the copy, a version holds secret-shaped text, or the GitHub credential was deleted or is empty. `message` says which. |
+| `off`           | History is off on this server.                                                                                                                                                                                                                                 |
 
 ### Connect
 
@@ -334,7 +342,7 @@ or `{ "credentialId": "<credential id>" }`. Asks GitHub which repositories the t
 
 Creates a private, empty repository with that name in the token's account and answers with it, in the list format. Connect it next. A fine-grained token can create repositories only with **Administration** set to **Read and write** for all repositories, so most fine-grained tokens get 400 `This token cannot create repositories…`; create the repository on GitHub instead. A name that is taken is 409.
 
-### Label this server Dev or Prod
+### Label this server
 
 `PUT /api/v1/flow-versions/environment`
 
@@ -342,15 +350,32 @@ Creates a private, empty repository with that name in the token's account and an
 { "environment": "prod" }
 ```
 
-`dev`, `prod`, or `null` to clear it. It is kept in the history repo's `.git` folder, not in a version.
+`dev`, `prod`, or `null` to clear it. That is the saved pair: dev, then prod. It is kept in the history repo's `.git` folder, not in a version, and an existing file with only `environment` still loads as that pair.
 
-The label decides what the server does with a connected repository. Dev (or no label) copies its versions there. Prod only reads it: it never copies its own versions, so its saves never reach GitHub. Switching between Dev and Prod while a repository is connected is 409; disconnect first. Nothing on GitHub changes either way.
+To put another environment between them, send the ordered list. Each entry has a `name` (shown in the app), a `branch` (where that environment publishes), and a `server` (the identity `environment` matches). Names, server identities and branches have to be different. The saved pair is the one exception: both branches stay `main`.
+
+```json
+{
+    "environment": "staging",
+    "environments": [
+        { "name": "Dev", "branch": "main", "server": "dev" },
+        { "name": "Staging", "branch": "staging", "server": "staging" },
+        { "name": "Prod", "branch": "prod", "server": "prod" }
+    ]
+}
+```
+
+`environment` has to be one of the `server` values, or `null`. Sending `environment` alone later picks another server in the list that is already saved. A server that is not in the list is 400.
+
+The first environment copies its versions to its branch. Each later one reads the previous environment's branch and can promote from it. The last environment only reads. One in the middle reads the previous branch and copies its own published versions, including promotions, to its own branch, so the next environment can read them. Promotion does not skip: Dev to Prod is refused while Staging is between them. On every hop the behavior check and the credential-name check still run.
+
+Switching this server, or saving a list that changes what it reads or copies, while a repository is connected is 409; disconnect first. Nothing on GitHub changes either way. A saved Dev or Prod label with no list behaves as before: Dev copies to `main`, and Prod reads `main`.
 
 ### How copying works
 
 -   A new version, from a save, Publish, Roll back, restore or delete, is copied a few seconds after it is recorded. Drafts are not versions, so they are not copied.
 -   Copying runs in the background. It never slows down or fails a save, Publish or Roll back.
--   Cuttlely pushes this server's `main` to the repository's `main`. It never force-pushes. When GitHub's `main` has changes this server does not have, copying stops with `state: "stopped"` and GitHub keeps its changes.
+-   Cuttlely pushes this server's `main` to the repository branch for this environment. With the saved Dev and Prod pair, that branch is `main`. With a longer list, each environment that publishes uses its own branch. It never force-pushes. When that branch on GitHub has changes this server does not have, copying stops with `state: "stopped"` and GitHub keeps its changes.
 -   Before each copy, the versions being copied, their files and their titles, are checked again for key-shaped text, with the same patterns as a commit (see [Version files](./version-files.md#markers)). A hit stops the copy and names the version and pattern, never the text.
 -   The token is a **Github API** credential, encrypted like every credential. Change it on the Credentials page and the next copy uses the new one. The connection itself (repository, its address, credential id and name) is a file in the history repo's `.git` folder, outside the files Git tracks, so it is never in a version. The token reaches Git only in the environment of the copy, as an HTTP header for that repository. It is not written into the repo's settings, a remote address, a command line, or the logs.
 -   Flow credentials are never copied. Each version names the credentials a flow uses by name and type, as in [Version files](./version-files.md), so another server can match them to its own Credentials by name.
@@ -359,12 +384,16 @@ The label decides what the server does with a connected repository. Dev (or no l
 ### How Prod reads
 
 -   Prod connects to the repository Dev copies to, with the same `PUT /github`. An empty repository is fine (Dev has not copied yet). A repository with other content and no `main` is refused. The token needs **Contents: Read** only.
--   Every two minutes, and on `POST /github/push` (**Try again**), Prod reads the repository's `main` into the ref `refs/versions/incoming`. It changes nothing else: not its own history, not a flow, not a draft, not Live. A failed read retries like a failed copy and never affects Live flows.
+-   Every two minutes, and on `POST /github/push` (**Try again**), Prod reads the previous environment's branch into the ref `refs/versions/incoming`. With the saved Dev and Prod pair, that branch is `main`. It changes nothing else: not its own history, not a flow, not a draft, not Live. A failed read retries like a failed copy and never affects Live flows.
 -   Disconnecting forgets `refs/versions/incoming` too.
 
 ## Promote from Dev to Prod
 
-On a server labeled Prod, these routes list the flows with a new version from Dev, show one with what it changes and the credentials it needs, run the behavior check against Live, and promote it. How to use it from the app: [Move a flow from Dev to Prod](../how-to/versioning.md#move-a-flow-from-dev-to-prod). They need a signed-in organization owner, like the GitHub routes. On any other server the list is empty and Promote is 409.
+On a server that has a previous environment (Prod, in the saved pair), these routes list the flows with a new version from that environment, show one with what it changes and the credentials it needs, run the behavior check against Live, and promote it. Promotion moves only to the next environment. How to use it from the app: [Move a flow from Dev to Prod](../how-to/versioning.md#move-a-flow-from-dev-to-prod). They need a signed-in organization owner, like the GitHub routes. On the first environment the list is empty and Promote is 409.
+
+The list also returns `environments` (the order), `source` (the previous server identity) and `target` (this server). A saved Dev and Prod label returns dev, then prod, with `source` `dev`.
+
+`POST /incoming/:chatflowId/promote` accepts an optional `from`, the previous server identity. A `from` that is not the previous environment is 409 `Promotion only moves to the next environment.` Omitting `from` promotes from the previous environment, as the app does.
 
 | Method   | Route                                  | What it does                                                   |
 | -------- | -------------------------------------- | -------------------------------------------------------------- |

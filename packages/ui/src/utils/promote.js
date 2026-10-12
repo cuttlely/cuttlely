@@ -9,22 +9,40 @@ export const promotePath = (flowId) => (flowId ? `${PROMOTE_PATH}/${encodeURICom
 const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`
 
 // "2 flows have a new version from Dev", for the card and the flows list.
-export const incomingSummary = (flows = []) => {
+export const incomingSummary = (flows = [], sourceTitle = 'Dev') => {
     const n = flows.length
     if (!n) return ''
-    return n === 1 ? '1 flow has a new version from Dev' : `${n} flows have a new version from Dev`
+    return n === 1 ? `1 flow has a new version from ${sourceTitle}` : `${n} flows have a new version from ${sourceTitle}`
 }
 
 // The line on each flow.
-export const incomingLabel = (flow) => (flow?.status === 'new' ? 'New flow from Dev' : 'New version available from Dev')
+export const incomingLabel = (flow, sourceTitle = 'Dev') =>
+    flow?.status === 'new' ? `New flow from ${sourceTitle}` : `New version available from ${sourceTitle}`
 
 // "3 changes on Dev since the last promote", or for a new flow how many versions Dev has published.
-export const changesLine = (flow) => {
+export const changesLine = (flow, sourceTitle = 'Dev') => {
     const n = (flow?.changes || []).length
     const more = flow?.moreChanges ? '+' : ''
     if (!n) return ''
-    if (flow?.status === 'new' || !flow?.lastPromoted) return `${plural(n, 'version', 'versions')}${more} published on Dev`
-    return `${plural(n, 'change', 'changes')}${more} on Dev since the last promote`
+    if (flow?.status === 'new' || !flow?.lastPromoted) return `${plural(n, 'version', 'versions')}${more} published on ${sourceTitle}`
+    return `${plural(n, 'change', 'changes')}${more} on ${sourceTitle} since the last promote`
+}
+
+// The previous environment, as the screen names it. "Dev" when the list is the saved pair or the name is dev.
+export const sourceTitleOf = (record) => {
+    const chain = record?.environments || []
+    const source = chain.find((item) => item.server === record?.source)
+    if (!source || String(source.name).toLowerCase() === 'dev') return 'Dev'
+    if (String(source.name).toLowerCase() === 'prod') return 'Prod'
+    return source.name
+}
+
+export const showEnvironmentChain = (record) => (record?.environments || []).length > 2
+
+export const howItWorks = (record) => {
+    if (!showEnvironmentChain(record)) return HOW_IT_WORKS
+    const from = sourceTitleOf(record)
+    return `${from} publishes versions, and this server promotes them to Live. Promotion moves only to the next environment. Nothing goes Live here until you promote it.`
 }
 
 // "OpenAI key (OpenAI)" style names for the missing-credentials list. The type is shown as Dev wrote it.
@@ -51,10 +69,12 @@ export const promotedMessage = (result) => {
     return 'Promoted. This version is now Live on this server.'
 }
 
-export const historyNote = (result) =>
+export const historyNote = (result, sourceTitle = 'Dev') =>
     result?.recorded === false
         ? 'It is Live, but it could not be added to version history here.'
-        : 'History shows it as promoted from Dev. Roll back from version history any time.'
+        : sourceTitle === 'Dev'
+        ? 'History shows it as promoted from Dev. Roll back from version history any time.'
+        : `History shows it as promoted from ${sourceTitle}. Roll back from version history any time.`
 
 // Promote can run when nothing is missing and nothing is in flight.
 export const canPromote = ({ detail, promoting = false, done = false }) =>

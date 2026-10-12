@@ -21,10 +21,21 @@ import { execFile, spawn } from 'child_process'
 import readline from 'readline'
 import fs from 'fs'
 import path from 'path'
+import {
+    isLegacyChain,
+    legacyEnvironments,
+    parseEnvironmentFile,
+    parseEnvironmentsAllowingLegacy,
+    syncPlan,
+    type EnvironmentConfig,
+    type NamedEnvironment,
+    type SyncPlan
+} from './environments'
 import { gitEnv, runGit, VersionStore } from './store'
 import { scanForSecrets } from './secrets'
 
 export type ServerRole = 'dev' | 'prod' | null
+export type { NamedEnvironment }
 
 export type GithubState = 'off' | 'not-connected' | 'up-to-date' | 'waiting' | 'copying' | 'retrying' | 'stopped'
 
@@ -45,10 +56,14 @@ export interface GithubStatus {
     lastCopiedVersion: string | null
     nextTryAt: string | null
     connectedAt: string | null
-    // The label an owner gives this server: Dev or Prod.
-    environment: ServerRole
-    // What this server does with the repository. copy: its published versions are copied there (Dev, or no
-    // label). read: it only reads new versions from Dev there, and never writes to it (Prod).
+    // Which environment this server is: a server identity from `environments`, or null.
+    environment: string | null
+    // Promotion order. A saved Dev or Prod label with no list is dev, then prod.
+    environments: NamedEnvironment[]
+    // This server promotes versions from the previous environment.
+    promotes: boolean
+    // What this server does with the repository. copy: its published versions are copied there (the first
+    // environment, a middle one, or no label). read: it only reads new versions from the previous one (the last).
     role: 'copy' | 'read'
     // Prod: when it last read the repository, and the newest version it found there. Null on Dev.
     lastCheckedAt: string | null
@@ -542,6 +557,8 @@ export class GithubSync {
             nextTryAt: null,
             connectedAt: null,
             environment: null,
+            environments: legacyEnvironments(),
+            promotes: false,
             role: 'copy',
             lastCheckedAt: null,
             incomingVersion: null
@@ -549,9 +566,27 @@ export class GithubSync {
         if (!blank.enabled) {
             return { ...blank, state: 'off', message: 'Version history is off on this server, so there is nothing to copy.' }
         }
-        blank.environment = this.environment()
-        blank.role = blank.environment === 'prod' ? 'read' : 'copy'
-        if (blank.role === 'read') blank.message = 'Not connected. Connect the repository Dev copies to, to see its new versions here.'
+        const plan = this.plan()
+        const saved = this.readEnvironment()
+        blank.environment = saved.environment
+        blank.environments = saved.invalid ? [] : saved.environments
+        blank.promotes = plan.reads
+        blank.role = plan.reads && !plan.copies ? 'read' : 'copy'
+        if (saved.invalid) {
+            return {
+                ...blank,
+                state: 'stopped',
+                promotes: false,
+                role: 'copy',
+                message: 'The environment list could not be read. Save it again.'
+            }
+        }
+        if (blank.role === 'read') {
+            blank.message =
+                this.fromLabel() === 'Dev'
+                    ? 'Not connected. Connect the repository Dev copies to, to see its new versions here.'
+                    : `Not connected. Connect the repository ${this.fromLabel()} copies to, to see its new versions here.`
+        }
         let config: ActiveConfig | null
         try {
             config = await this.config()
@@ -602,23 +637,31 @@ export class GithubSync {
             lastCopiedAt: this.lastCopiedAt,
             lastCopiedVersion: this.lastCopiedVersion,
             nextTryAt: this.nextTryAt && state === 'retrying' ? new Date(this.nextTryAt).toISOString() : null,
-            connectedAt: config.connectedAt
+            connectedAt: config.connectedAt,
+            lastCheckedAt: plan.reads ? this.lastCheckedAt : null,
+            incomingVersion: plan.reads ? (await this.refSha(INCOMING_REF))?.slice(0, 7) || null : null
         }
     }
 
-    // Prod: what the card shows. It never counts versions waiting to be copied: Prod copies nothing.
+    // The last environment: what the card shows. It never counts versions waiting to be copied.
     private async readStatus(blank: GithubStatus, config: ActiveConfig): Promise<GithubStatus> {
         const incoming = await this.refSha(INCOMING_REF)
+        const fromDev = this.fromLabel() === 'Dev'
         let state = this.state
         let message = this.message
         if (state === 'up-to-date')
             message = incoming
-                ? 'Looks for new versions from Dev every few minutes. Nothing on this server is copied to GitHub.'
-                : 'Nothing from Dev yet. Cuttlely looks again every few minutes.'
-        if (state === 'waiting') message = 'Looking for new versions from Dev soon.'
+                ? fromDev
+                    ? 'Looks for new versions from Dev every few minutes. Nothing on this server is copied to GitHub.'
+                    : `Looks for new versions from ${this.fromLabel()} every few minutes. Nothing on this server is copied to GitHub.`
+                : fromDev
+                ? 'Nothing from Dev yet. Cuttlely looks again every few minutes.'
+                : `Nothing from ${this.fromLabel()} yet. Cuttlely looks again every few minutes.`
+        if (state === 'waiting')
+            message = fromDev ? 'Looking for new versions from Dev soon.' : `Looking for new versions from ${this.fromLabel()} soon.`
         if (state === 'copying') {
             state = 'waiting'
-            message = 'Looking for new versions from Dev now.'
+            message = fromDev ? 'Looking for new versions from Dev now.' : `Looking for new versions from ${this.fromLabel()} now.`
         }
         return {
             ...blank,
@@ -639,38 +682,82 @@ export class GithubSync {
         }
     }
 
-    // Prod reads from the repository; Dev, or a server with no label, copies to it.
-    private readMode(): boolean {
-        return this.environment() === 'prod'
+    // The last environment only reads. The first, and a server with no label on the Dev/Prod pair, only copies.
+    private readOnly(): boolean {
+        const plan = this.plan()
+        return plan.reads && !plan.copies
     }
 
     private rolePath(): string {
         return path.join(this.deps.store().dir, '.git', ROLE_FILE)
     }
 
-    environment(): ServerRole {
+    private readEnvironment(): EnvironmentConfig {
         try {
-            const value = JSON.parse(fs.readFileSync(this.rolePath(), 'utf8'))?.environment
-            return value === 'dev' || value === 'prod' ? value : null
+            if (!fs.existsSync(this.rolePath())) return { environment: null, environments: legacyEnvironments(), invalid: false }
+            return parseEnvironmentFile(JSON.parse(fs.readFileSync(this.rolePath(), 'utf8')))
         } catch {
-            return null
+            return { environment: null, environments: legacyEnvironments(), invalid: false }
         }
     }
 
-    // Names this server Dev or Prod, or clears the label. It does not change what the server does yet.
-    async setEnvironment(value: unknown): Promise<GithubStatus> {
+    private plan(): SyncPlan {
+        const saved = this.readEnvironment()
+        if (saved.invalid) return { reads: false, copies: false, sourceBranch: null, publishBranch: null }
+        return syncPlan(saved.environments, saved.environment)
+    }
+
+    // The previous environment, as the screen names it. "Dev" for the saved pair.
+    private fromLabel(): string {
+        const saved = this.readEnvironment()
+        const index = saved.environments.findIndex((item) => item.server === saved.environment)
+        const previous = index > 0 ? saved.environments[index - 1] : null
+        if (!previous || previous.name.toLowerCase() === 'dev') return 'Dev'
+        if (previous.name.toLowerCase() === 'prod') return 'Prod'
+        return previous.name
+    }
+
+    environments(): NamedEnvironment[] {
+        const saved = this.readEnvironment()
+        return saved.invalid ? [] : saved.environments
+    }
+
+    environment(): string | null {
+        return this.readEnvironment().environment
+    }
+
+    // Names this server, or saves the ordered list. A Dev or Prod label with no list stays the old file.
+    async setEnvironment(value: unknown, environmentsInput?: unknown): Promise<GithubStatus> {
         if (!this.deps.enabled()) throw new GithubError(409, 'Version history is off on this server.')
-        const role = value === 'dev' || value === 'prod' ? value : value === null || value === '' ? null : undefined
-        if (role === undefined) throw new GithubError(400, 'Pick Dev or Prod.')
-        // Dev copies to the repository and Prod only reads it, so switching while connected would change
-        // what this server does with it. Disconnect first; nothing on GitHub changes.
-        let saved: SavedConfig | null = null
-        try {
-            saved = this.readSaved()
-        } catch {
-            saved = { repo: '' } as SavedConfig
+        const current = this.readEnvironment()
+        let nextChain = current.invalid ? legacyEnvironments() : current.environments
+        let nextEnv: string | null
+        if (environmentsInput !== undefined) {
+            const parsed = parseEnvironmentsAllowingLegacy(environmentsInput)
+            if (!parsed.ok) throw new GithubError(400, parsed.error)
+            nextChain = parsed.environments
         }
-        if (saved && (role === 'prod') !== this.readMode()) {
+        if (value === null || value === '') nextEnv = null
+        else if (typeof value === 'string' && nextChain.some((item) => item.server === value)) nextEnv = value
+        else {
+            throw new GithubError(400, isLegacyChain(nextChain) ? 'Pick Dev or Prod.' : 'Pick an environment from the list.')
+        }
+        const before = current.invalid
+            ? { reads: false, copies: false, sourceBranch: null, publishBranch: null }
+            : syncPlan(current.environments, current.environment)
+        const after = syncPlan(nextChain, nextEnv)
+        let connected = false
+        try {
+            connected = Boolean(this.readSaved())
+        } catch {
+            connected = true
+        }
+        const changed =
+            before.reads !== after.reads ||
+            before.copies !== after.copies ||
+            before.sourceBranch !== after.sourceBranch ||
+            before.publishBranch !== after.publishBranch
+        if (connected && changed) {
             throw new GithubError(
                 409,
                 'Disconnect GitHub before switching this server between Dev and Prod. Dev copies its versions to the repository, and Prod only reads them.'
@@ -678,8 +765,14 @@ export class GithubSync {
         }
         await this.deps.store().ensure()
         const file = this.rolePath()
-        if (role) fs.writeFileSync(file, JSON.stringify({ environment: role }) + '\n')
-        else fs.rmSync(file, { force: true })
+        if (isLegacyChain(nextChain)) {
+            if (nextEnv) fs.writeFileSync(file, JSON.stringify({ environment: nextEnv }) + '\n')
+            else fs.rmSync(file, { force: true })
+        } else {
+            const body: { environment?: string; environments: NamedEnvironment[] } = { environments: nextChain }
+            if (nextEnv) body.environment = nextEnv
+            fs.writeFileSync(file, JSON.stringify(body) + '\n')
+        }
         return this.status()
     }
 
@@ -717,7 +810,7 @@ export class GithubSync {
     // The repositories this token can write to, most recently changed first. Nothing is saved.
     async listRepos(input: { token?: string; credentialId?: string }, workspaceId?: string): Promise<GithubRepoList> {
         const { token } = await this.tokenFrom(input, workspaceId)
-        const reading = this.readMode()
+        const reading = this.readOnly()
         const user = await this.api(token, 'GET', '/user')
         if (user.status === 401 || user.status === 403)
             throw new GithubError(400, 'GitHub did not accept this token. Check it and paste it again.')
@@ -751,7 +844,7 @@ export class GithubSync {
     // Makes a new private, empty repository for this history. Then connect it.
     async createRepo(input: { token?: string; credentialId?: string; name?: string }, workspaceId?: string): Promise<GithubRepoChoice> {
         // Prod reads the repository Dev copies to; a new one would have nothing in it.
-        if (this.readMode()) throw new GithubError(409, 'Prod reads the repository your Dev server copies to. Pick that one instead.')
+        if (this.readOnly()) throw new GithubError(409, 'Prod reads the repository your Dev server copies to. Pick that one instead.')
         const { token } = await this.tokenFrom(input, workspaceId)
         const name = String(input?.name ?? '').trim()
         if (!NAME.test(name) || name === '.' || name === '..') {
@@ -791,7 +884,11 @@ export class GithubSync {
         const token = picked.token
         const store = this.deps.store()
         await store.ensure()
-        const reading = this.readMode()
+        const savedEnv = this.readEnvironment()
+        if (savedEnv.invalid) throw new GithubError(409, 'The environment list could not be read. Save it again.')
+        const plan = syncPlan(savedEnv.environments, savedEnv.environment)
+        const reading = plan.reads && !plan.copies
+        const legacy = isLegacyChain(savedEnv.environments)
 
         // Every ref, not just main: a repository with only master, trunk or a tag is not empty.
         const check = await this.git(['ls-remote', url], authEnv(url, token), CHECK_TIMEOUT_MS)
@@ -815,20 +912,31 @@ export class GithubSync {
         const remoteMain = (refs.find((line) => /\srefs\/heads\/main$/.test(line)) || '').split(/\s/)[0] || ''
         const otherContent = `${repo} already has other content. Connect an empty repository (create it without a README or license), or one this server copied to before.`
         let pushed: string | null = null
-        if (reading) {
-            // Prod reads what Dev copied. An empty repository is fine: Dev has not copied anything yet.
-            if (!remoteMain && refs.length) {
-                throw new GithubError(
-                    409,
-                    `${repo} has other content and no versions from a Dev server. Connect the repository your Dev server copies to.`
-                )
+        if (legacy) {
+            if (reading) {
+                // Prod reads what Dev copied. An empty repository is fine: Dev has not copied anything yet.
+                if (!remoteMain && refs.length) {
+                    throw new GithubError(
+                        409,
+                        `${repo} has other content and no versions from a Dev server. Connect the repository your Dev server copies to.`
+                    )
+                }
+            } else if (remoteMain) {
+                const head = await this.refSha('refs/heads/main')
+                if (!head || !(await this.isAncestor(remoteMain, head))) throw new GithubError(409, otherContent)
+                pushed = remoteMain
+            } else if (refs.length) {
+                throw new GithubError(409, otherContent)
             }
-        } else if (remoteMain) {
-            const head = await this.refSha('refs/heads/main')
-            if (!head || !(await this.isAncestor(remoteMain, head))) throw new GithubError(409, otherContent)
-            pushed = remoteMain
-        } else if (refs.length) {
-            throw new GithubError(409, otherContent)
+        } else if (plan.publishBranch) {
+            // Other environments may already publish here. Only this server's own publish name has to match its history.
+            const mark = `refs/heads/${plan.publishBranch}`
+            const remotePublish = (refs.find((line) => line.endsWith(` ${mark}`) || line.endsWith(`\t${mark}`)) || '').split(/\s/)[0] || ''
+            if (remotePublish) {
+                const head = await this.refSha('refs/heads/main')
+                if (!head || !(await this.isAncestor(remotePublish, head))) throw new GithubError(409, otherContent)
+                pushed = remotePublish
+            }
         }
 
         this.generation += 1
@@ -896,8 +1004,8 @@ export class GithubSync {
     // A new version was committed. Copy it soon. Never throws.
     notify(): void {
         try {
-            // Prod copies nothing, so its own saves never start a copy.
-            if (this.state === 'stopped' || this.readMode()) return
+            // The last environment copies nothing, so its own saves never start a copy.
+            if (this.state === 'stopped' || !this.plan().copies) return
             this.schedule(this.deps.debounceMs ?? 3000)
         } catch {
             // never break a save
@@ -957,17 +1065,23 @@ export class GithubSync {
             try {
                 do {
                     this.again = false
-                    if (this.readMode()) await this.readOnce()
-                    else await this.pushOnce()
+                    const plan = this.plan()
+                    if (plan.reads) await this.readOnce()
+                    // A read that just failed must not be followed by a copy in the same pass.
+                    const readFailed = plan.reads && (this.state === 'retrying' || this.state === 'stopped')
+                    if (plan.copies && !readFailed) await this.pushOnce()
                 } while (this.again && this.state !== 'stopped' && this.state !== 'retrying')
             } catch (error) {
-                const reading = this.readMode()
+                const reading = this.readOnly()
                 this.log(`[versions] GitHub ${reading ? 'check' : 'copy'} failed: ${scrub((error as Error)?.message || String(error))}`)
                 // Never sit in "waiting": try again later like any other failure.
                 this.scheduleRetry(
                     reading
-                        ? 'Something went wrong while looking for new versions from Dev.'
-                        : 'Something went wrong while copying to GitHub.'
+                        ? this.fromLabel() === 'Dev'
+                            ? 'Something went wrong while looking for new versions from Dev.'
+                            : `Something went wrong while looking for new versions from ${this.fromLabel()}.`
+                        : 'Something went wrong while copying to GitHub.',
+                    reading
                 )
             } finally {
                 this.running = null
@@ -1013,7 +1127,7 @@ export class GithubSync {
 
         this.state = 'copying'
         const result = await this.git(
-            ['push', '--porcelain', '--no-verify', config.url, `${head}:refs/heads/main`],
+            ['push', '--porcelain', '--no-verify', config.url, `${head}:refs/heads/${this.plan().publishBranch || 'main'}`],
             authEnv(config.url, config.token)
         )
         if (generation !== this.generation) return
@@ -1055,7 +1169,14 @@ export class GithubSync {
         await this.deps.store().ensure()
         this.state = 'copying'
         const result = await this.git(
-            ['fetch', '--no-tags', '--no-recurse-submodules', '--quiet', config.url, `+refs/heads/main:${INCOMING_NEXT_REF}`],
+            [
+                'fetch',
+                '--no-tags',
+                '--no-recurse-submodules',
+                '--quiet',
+                config.url,
+                `+refs/heads/${this.plan().sourceBranch || 'main'}:${INCOMING_NEXT_REF}`
+            ],
             authEnv(config.url, config.token)
         )
         const dir = this.deps.store().dir
@@ -1091,16 +1212,16 @@ export class GithubSync {
             return
         }
         this.log(`[versions] Reading GitHub ${config.repo} failed (${failure.kind}): ${scrub(result.stderr, config.token)}`)
-        this.scheduleRetry(failure.message)
+        this.scheduleRetry(failure.message, true)
     }
 
-    private scheduleRetry(reason: string): void {
+    private scheduleRetry(reason: string, reading = this.readOnly()): void {
         const waits = this.deps.retryMs?.length ? this.deps.retryMs : DEFAULT_RETRY_MS
         const wait = waits[Math.min(this.failures, waits.length - 1)]
         this.failures += 1
         this.state = 'retrying'
         this.nextTryAt = this.now() + wait
-        this.message = this.readMode()
+        this.message = reading
             ? `${reason} Live flows keep working. Cuttlely tries again on its own.`
             : `${reason} Publishing keeps working. Cuttlely tries again on its own.`
         if (this.timer) clearTimeout(this.timer)

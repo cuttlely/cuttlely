@@ -13,7 +13,9 @@ import {
     promotePath,
     promotedMessage,
     readLine,
-    rollbackTarget
+    rollbackTarget,
+    showEnvironmentChain,
+    sourceTitleOf
 } from './promote'
 
 describe('promote helpers', () => {
@@ -59,6 +61,32 @@ describe('promote helpers', () => {
         expect(rollbackTarget(versions, 'p')).toBe('l')
         expect(rollbackTarget(versions, 'zzz')).toBeNull()
         expect(rollbackTarget([{ sha: 'p' }], 'p')).toBeNull()
+    })
+
+    test('a longer chain names the previous environment, and the saved pair stays Dev', () => {
+        const pair = {
+            environments: [
+                { name: 'dev', server: 'dev' },
+                { name: 'prod', server: 'prod' }
+            ],
+            source: 'dev',
+            target: 'prod'
+        }
+        const chain = {
+            environments: [
+                { name: 'Dev', server: 'dev' },
+                { name: 'Staging', server: 'staging' },
+                { name: 'Prod', server: 'prod' }
+            ],
+            source: 'staging',
+            target: 'prod'
+        }
+        expect(showEnvironmentChain(pair)).toBe(false)
+        expect(sourceTitleOf(pair)).toBe('Dev')
+        expect(showEnvironmentChain(chain)).toBe(true)
+        expect(sourceTitleOf(chain)).toBe('Staging')
+        expect(incomingSummary([{}], 'Staging')).toBe('1 flow has a new version from Staging')
+        expect(incomingLabel({ status: 'update' }, 'Staging')).toBe('New version available from Staging')
     })
 
     test('the card line on Prod', () => {

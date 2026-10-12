@@ -823,6 +823,35 @@ describe('Dev or Prod label', () => {
         expect((await sync.setEnvironment(null)).environment).toBeNull()
         await expect(sync.setEnvironment('staging')).rejects.toMatchObject({ status: 400, message: 'Pick Dev or Prod.' })
     })
+
+    test('a saved Dev or Prod label stays the old file and loads as dev then prod', async () => {
+        await sync.setEnvironment('prod')
+        const file = path.join(versionsDir(), '.git', 'versions-environment.json')
+        expect(JSON.parse(fs.readFileSync(file, 'utf8'))).toEqual({ environment: 'prod' })
+        expect(sync.environments()).toEqual([
+            { name: 'dev', branch: 'main', server: 'dev' },
+            { name: 'prod', branch: 'main', server: 'prod' }
+        ])
+        expect((await sync.status()).promotes).toBe(true)
+    })
+
+    test('an ordered list is saved beside the server identity', async () => {
+        const chain = [
+            { name: 'Dev', branch: 'main', server: 'dev' },
+            { name: 'Staging', branch: 'staging', server: 'staging' },
+            { name: 'Prod', branch: 'prod', server: 'prod' }
+        ]
+        const status = await sync.setEnvironment('staging', chain)
+        expect(status.environment).toBe('staging')
+        expect(status.environments.map((item) => item.server)).toEqual(['dev', 'staging', 'prod'])
+        expect(status.promotes).toBe(true)
+        expect(status.role).toBe('copy')
+        const file = path.join(versionsDir(), '.git', 'versions-environment.json')
+        expect(JSON.parse(fs.readFileSync(file, 'utf8'))).toEqual({ environment: 'staging', environments: chain })
+        await expect(sync.setEnvironment('nope')).rejects.toMatchObject({ status: 400, message: 'Pick an environment from the list.' })
+        expect((await sync.setEnvironment('prod')).environment).toBe('prod')
+        expect((await sync.status()).role).toBe('read')
+    })
 })
 
 describe('local stand-in for GitHub (end-to-end runs without an account)', () => {

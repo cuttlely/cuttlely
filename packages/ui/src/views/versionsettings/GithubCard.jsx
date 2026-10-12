@@ -59,7 +59,7 @@ import {
     tokenHint
 } from '@/utils/githubSync'
 import GithubTokenHelp from './GithubTokenHelp'
-import { incomingSummary, promotePath, readLine } from '@/utils/promote'
+import { incomingSummary, promotePath, readLine, sourceTitleOf } from '@/utils/promote'
 
 const pop = keyframes`
   0% { transform: scale(0.4); opacity: 0; }
@@ -192,21 +192,24 @@ const GithubCard = ({ onStatus }) => {
     const connected = Boolean(status?.connected)
     // Prod only reads the repository: new versions from Dev arrive there to promote.
     const reading = status?.role === 'read'
+    const reviews = reading || Boolean(status?.promotes)
     const [incoming, setIncoming] = useState(null)
     useEffect(() => {
-        if (!reading || !connected) {
+        if (!reviews || !connected) {
             setIncoming(null)
             return undefined
         }
         let cancelled = false
         flowVersionsApi
             .listIncoming()
-            .then((res) => !cancelled && setIncoming(res.data?.flows || []))
+            .then((res) => !cancelled && setIncoming(res.data || null))
             .catch(() => !cancelled && setIncoming(null))
         return () => {
             cancelled = true
         }
-    }, [reading, connected, status?.incomingVersion, status?.lastCheckedAt])
+    }, [reviews, connected, status?.incomingVersion, status?.lastCheckedAt])
+    const incomingFlows = incoming?.flows || []
+    const sourceTitle = sourceTitleOf(incoming)
     const tokenBody = tokenChoice === NEW_TOKEN ? { token } : { credentialId: tokenChoice }
     const shown = useMemo(() => filterRepos(repos, query), [repos, query])
 
@@ -392,29 +395,33 @@ const GithubCard = ({ onStatus }) => {
                                         ? 'This server only reads the repository. Live flows never wait for GitHub.'
                                         : 'Publishing never waits for GitHub.'}
                                 </Typography>
-                                {reading && incoming && (
+                                {reviews && incoming && (
                                     <Box
                                         data-testid='card-incoming'
                                         sx={{
                                             p: 1.5,
                                             borderRadius: 2,
-                                            bgcolor: incoming.length ? 'primary.light' : 'action.hover',
+                                            bgcolor: incomingFlows.length ? 'primary.light' : 'action.hover',
                                             display: 'flex',
                                             alignItems: 'center',
                                             gap: 1.5
                                         }}
                                     >
-                                        {incoming.length ? <IconRocket size={22} /> : <IconCheck size={22} />}
-                                        <Typography variant='body2' sx={{ flex: 1, fontWeight: incoming.length ? 600 : 400 }}>
-                                            {incoming.length ? incomingSummary(incoming) : 'Everything from Dev is Live here.'}
+                                        {incomingFlows.length ? <IconRocket size={22} /> : <IconCheck size={22} />}
+                                        <Typography variant='body2' sx={{ flex: 1, fontWeight: incomingFlows.length ? 600 : 400 }}>
+                                            {incomingFlows.length
+                                                ? incomingSummary(incomingFlows, sourceTitle)
+                                                : sourceTitle === 'Dev'
+                                                ? 'Everything from Dev is Live here.'
+                                                : `Everything from ${sourceTitle} is Live here.`}
                                         </Typography>
                                         <Button
                                             size='small'
-                                            variant={incoming.length ? 'contained' : 'text'}
+                                            variant={incomingFlows.length ? 'contained' : 'text'}
                                             component={RouterLink}
                                             to={promotePath()}
                                         >
-                                            {incoming.length ? 'Review' : 'Open'}
+                                            {incomingFlows.length ? 'Review' : 'Open'}
                                         </Button>
                                     </Box>
                                 )}
@@ -648,14 +655,24 @@ const GithubCard = ({ onStatus }) => {
                                         size='small'
                                         value={status.environment || ''}
                                         onChange={changeEnvironment}
-                                        aria-label='This server is Dev or Prod'
+                                        aria-label={
+                                            (status.environments || []).length > 2 ? 'This server is' : 'This server is Dev or Prod'
+                                        }
                                     >
-                                        <ToggleButton value='dev' sx={{ px: 2.5 }}>
-                                            Dev
-                                        </ToggleButton>
-                                        <ToggleButton value='prod' sx={{ px: 2.5 }}>
-                                            Prod
-                                        </ToggleButton>
+                                        {(status.environments || []).length > 2
+                                            ? status.environments.map((env) => (
+                                                  <ToggleButton key={env.server} value={env.server} sx={{ px: 2.5 }}>
+                                                      {env.name}
+                                                  </ToggleButton>
+                                              ))
+                                            : [
+                                                  <ToggleButton key='dev' value='dev' sx={{ px: 2.5 }}>
+                                                      Dev
+                                                  </ToggleButton>,
+                                                  <ToggleButton key='prod' value='prod' sx={{ px: 2.5 }}>
+                                                      Prod
+                                                  </ToggleButton>
+                                              ]}
                                         <ToggleButton value='' sx={{ px: 2 }}>
                                             Not set
                                         </ToggleButton>

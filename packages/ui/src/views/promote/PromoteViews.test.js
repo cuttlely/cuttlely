@@ -31,6 +31,25 @@ describe('PromoteListView', () => {
         expect(html).toContain('Look now')
     })
 
+    test('shows the chain and promotes to the next environment', () => {
+        const html = render({
+            list: list([], {
+                environments: [
+                    { name: 'Dev', server: 'dev' },
+                    { name: 'Staging', server: 'staging' },
+                    { name: 'Prod', server: 'prod' }
+                ],
+                source: 'staging',
+                target: 'prod'
+            })
+        })
+        expect(html).toContain('environment-chain')
+        expect(html).toContain('Staging')
+        expect(html).toContain('Promote moves a version to the next environment.')
+        expect(html).toContain('Everything from Staging is Live here')
+        expect(render({ list: list([]) })).not.toContain('environment-chain')
+    })
+
     test('says when everything is Live, and when the server is not set up as Prod', () => {
         expect(render({ list: list([]) })).toContain('Everything from Dev is Live here')
         expect(render({ list: list([], { enabled: false }) })).toContain('server labeled Prod')
