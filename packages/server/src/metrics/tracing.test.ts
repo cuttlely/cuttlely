@@ -432,7 +432,9 @@ describe('run trace spans', () => {
             for (const node of nodes) {
                 expect(node.attributes['flow.id']).toBe(root.attributes['flow.id'])
                 expect(node.parentSpanId).toBe(root.spanId)
-                expect(byId.get(node.parentSpanId)?.traceId).toBe(root.traceId)
+                const parentId = node.parentSpanId
+                if (!parentId) throw new Error('node span has no parent')
+                expect(byId.get(parentId)?.traceId).toBe(root.traceId)
             }
         }
         const sharedNodeId = 'llmAgentflow_0'
