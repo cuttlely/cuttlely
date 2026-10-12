@@ -12,7 +12,7 @@ import { initAuthSecrets } from './identity/authSecrets'
 import { localAdminEnabled } from './identity/constants'
 import { ossIdentity, OssIdentity } from './identity/ossPlatform'
 import type { LoggedInUser } from './identity/types'
-import { MODE } from './Interface'
+import { MODE, Platform } from './Interface'
 import { IMetricsProvider } from './Interface.Metrics'
 import { OpenTelemetry } from './metrics/OpenTelemetry'
 import { Prometheus } from './metrics/Prometheus'
@@ -240,7 +240,8 @@ export class App {
             apiV1Auth({
                 whitelistURLs,
                 apiKeyBlacklistURLs: API_KEY_BLACKLIST_URLS,
-                licenseRequired: () => this.identityManager.getPlatformType() !== 'open source' && !this.identityManager.isLicenseValid(),
+                licenseRequired: () =>
+                    this.identityManager.getPlatformType() !== Platform.OPEN_SOURCE && !this.identityManager.isLicenseValid(),
                 dataSource: this.AppDataSource,
                 validateAPIKey,
                 attachIdentitySession
