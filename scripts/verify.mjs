@@ -35,7 +35,7 @@ const STEPS = [
     {
         name: 'build',
         fast: false,
-        // Chat widget, components, the vector store pack, server, and UI. The API docs
+        // Chat widget, components, the shipped node packs, server, and UI. The API docs
         // package is typechecked in scripts/typecheck.mjs, which --fast also runs.
         command: 'pnpm',
         args: [
@@ -45,6 +45,7 @@ const STEPS = [
             'build',
             '--filter=@cuttlely/chat',
             '--filter=@cuttlely/components',
+            '--filter=@cuttlely/node-pack-caches-memory',
             '--filter=@cuttlely/node-pack-vector-stores',
             '--filter=@cuttlely/server',
             '--filter=@cuttlely/ui'

@@ -1339,6 +1339,134 @@
     ],
     "r6Additions": [
         {
+            "path": "packages/node-pack-caches-memory/credentials/DynamodbMemoryApi.credential.ts",
+            "reason": "Cache and memory backend nodes live in the caches and memory pack. Memory that needs no outside service stays in components."
+        },
+        {
+            "path": "packages/node-pack-caches-memory/credentials/Mem0MemoryApi.credential.ts",
+            "reason": "Cache and memory backend nodes live in the caches and memory pack. Memory that needs no outside service stays in components."
+        },
+        {
+            "path": "packages/node-pack-caches-memory/credentials/MomentoCacheApi.credential.ts",
+            "reason": "Cache and memory backend nodes live in the caches and memory pack. Memory that needs no outside service stays in components."
+        },
+        {
+            "path": "packages/node-pack-caches-memory/credentials/UpstashRedisApi.credential.ts",
+            "reason": "Cache and memory backend nodes live in the caches and memory pack. Memory that needs no outside service stays in components."
+        },
+        {
+            "path": "packages/node-pack-caches-memory/credentials/UpstashRedisMemoryApi.credential.ts",
+            "reason": "Cache and memory backend nodes live in the caches and memory pack. Memory that needs no outside service stays in components."
+        },
+        {
+            "path": "packages/node-pack-caches-memory/gulpfile.ts",
+            "reason": "Cache and memory backend nodes live in the caches and memory pack. Memory that needs no outside service stays in components."
+        },
+        {
+            "path": "packages/node-pack-caches-memory/nodes/cache/InMemoryCache/InMemoryCache.ts",
+            "reason": "Cache and memory backend nodes live in the caches and memory pack. Memory that needs no outside service stays in components."
+        },
+        {
+            "path": "packages/node-pack-caches-memory/nodes/cache/InMemoryCache/InMemoryEmbeddingCache.ts",
+            "reason": "Cache and memory backend nodes live in the caches and memory pack. Memory that needs no outside service stays in components."
+        },
+        {
+            "path": "packages/node-pack-caches-memory/nodes/cache/InMemoryCache/Memory.svg",
+            "reason": "Cache and memory backend nodes live in the caches and memory pack. Memory that needs no outside service stays in components."
+        },
+        {
+            "path": "packages/node-pack-caches-memory/nodes/cache/MomentoCache/Momento.svg",
+            "reason": "Cache and memory backend nodes live in the caches and memory pack. Memory that needs no outside service stays in components."
+        },
+        {
+            "path": "packages/node-pack-caches-memory/nodes/cache/MomentoCache/MomentoCache.ts",
+            "reason": "Cache and memory backend nodes live in the caches and memory pack. Memory that needs no outside service stays in components."
+        },
+        {
+            "path": "packages/node-pack-caches-memory/nodes/cache/RedisCache/redis.svg",
+            "reason": "Cache and memory backend nodes live in the caches and memory pack. Memory that needs no outside service stays in components."
+        },
+        {
+            "path": "packages/node-pack-caches-memory/nodes/cache/RedisCache/RedisCache.ts",
+            "reason": "Cache and memory backend nodes live in the caches and memory pack. Memory that needs no outside service stays in components."
+        },
+        {
+            "path": "packages/node-pack-caches-memory/nodes/cache/RedisCache/RedisEmbeddingsCache.ts",
+            "reason": "Cache and memory backend nodes live in the caches and memory pack. Memory that needs no outside service stays in components."
+        },
+        {
+            "path": "packages/node-pack-caches-memory/nodes/cache/UpstashRedisCache/Upstash.svg",
+            "reason": "Cache and memory backend nodes live in the caches and memory pack. Memory that needs no outside service stays in components."
+        },
+        {
+            "path": "packages/node-pack-caches-memory/nodes/cache/UpstashRedisCache/UpstashRedisCache.ts",
+            "reason": "Cache and memory backend nodes live in the caches and memory pack. Memory that needs no outside service stays in components."
+        },
+        {
+            "path": "packages/node-pack-caches-memory/nodes/memory/DynamoDb/dynamodb.svg",
+            "reason": "Cache and memory backend nodes live in the caches and memory pack. Memory that needs no outside service stays in components."
+        },
+        {
+            "path": "packages/node-pack-caches-memory/nodes/memory/DynamoDb/DynamoDb.ts",
+            "reason": "Cache and memory backend nodes live in the caches and memory pack. Memory that needs no outside service stays in components."
+        },
+        {
+            "path": "packages/node-pack-caches-memory/nodes/memory/Mem0/mem0.svg",
+            "reason": "Cache and memory backend nodes live in the caches and memory pack. Memory that needs no outside service stays in components."
+        },
+        {
+            "path": "packages/node-pack-caches-memory/nodes/memory/Mem0/Mem0.ts",
+            "reason": "Cache and memory backend nodes live in the caches and memory pack. Memory that needs no outside service stays in components."
+        },
+        {
+            "path": "packages/node-pack-caches-memory/nodes/memory/MongoDBMemory/mongodb.svg",
+            "reason": "Cache and memory backend nodes live in the caches and memory pack. Memory that needs no outside service stays in components."
+        },
+        {
+            "path": "packages/node-pack-caches-memory/nodes/memory/MongoDBMemory/MongoDBMemory.ts",
+            "reason": "Cache and memory backend nodes live in the caches and memory pack. Memory that needs no outside service stays in components."
+        },
+        {
+            "path": "packages/node-pack-caches-memory/nodes/memory/RedisBackedChatMemory/redis.svg",
+            "reason": "Cache and memory backend nodes live in the caches and memory pack. Memory that needs no outside service stays in components."
+        },
+        {
+            "path": "packages/node-pack-caches-memory/nodes/memory/RedisBackedChatMemory/RedisBackedChatMemory.ts",
+            "reason": "Cache and memory backend nodes live in the caches and memory pack. Memory that needs no outside service stays in components."
+        },
+        {
+            "path": "packages/node-pack-caches-memory/nodes/memory/UpstashRedisBackedChatMemory/upstash.svg",
+            "reason": "Cache and memory backend nodes live in the caches and memory pack. Memory that needs no outside service stays in components."
+        },
+        {
+            "path": "packages/node-pack-caches-memory/nodes/memory/UpstashRedisBackedChatMemory/UpstashRedisBackedChatMemory.ts",
+            "reason": "Cache and memory backend nodes live in the caches and memory pack. Memory that needs no outside service stays in components."
+        },
+        {
+            "path": "packages/node-pack-caches-memory/nodes/memory/ZepMemory/zep.svg",
+            "reason": "Cache and memory backend nodes live in the caches and memory pack. Memory that needs no outside service stays in components."
+        },
+        {
+            "path": "packages/node-pack-caches-memory/nodes/memory/ZepMemory/ZepMemory.ts",
+            "reason": "Cache and memory backend nodes live in the caches and memory pack. Memory that needs no outside service stays in components."
+        },
+        {
+            "path": "packages/node-pack-caches-memory/nodes/memory/ZepMemoryCloud/zep.svg",
+            "reason": "Cache and memory backend nodes live in the caches and memory pack. Memory that needs no outside service stays in components."
+        },
+        {
+            "path": "packages/node-pack-caches-memory/nodes/memory/ZepMemoryCloud/ZepMemoryCloud.ts",
+            "reason": "Cache and memory backend nodes live in the caches and memory pack. Memory that needs no outside service stays in components."
+        },
+        {
+            "path": "packages/node-pack-caches-memory/package.json",
+            "reason": "Cache and memory backend nodes live in the caches and memory pack. Memory that needs no outside service stays in components."
+        },
+        {
+            "path": "packages/node-pack-caches-memory/tsconfig.json",
+            "reason": "Cache and memory backend nodes live in the caches and memory pack. Memory that needs no outside service stays in components."
+        },
+        {
             "path": "packages/node-pack-vector-stores/credentials/AstraApi.credential.ts",
             "reason": "Vector store nodes live in the vector store pack. The local vector store stays with knowledge pipelines."
         },

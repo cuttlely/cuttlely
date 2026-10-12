@@ -9,7 +9,7 @@ export const NODE_PACKS_ENV = 'CUTTLELY_NODE_PACKS'
 
 // Always loaded, unless the image was built with INCLUDE_NODE_PACKS=0.
 // A later pack adds its package name here.
-export const SHIPPED_NODE_PACKS = ['@cuttlely/node-pack-vector-stores']
+export const SHIPPED_NODE_PACKS = ['@cuttlely/node-pack-vector-stores', '@cuttlely/node-pack-caches-memory']
 
 // Written by an image build that leaves shipped packs out. Extra packs in CUTTLELY_NODE_PACKS still load.
 export const NO_NODE_PACKS_FILE = '/etc/cuttlely/no-node-packs'
