@@ -11,8 +11,9 @@ import { markdown } from '@codemirror/lang-markdown'
 import { sublime } from '@uiw/codemirror-theme-sublime'
 
 // material-ui
-import { Box, Skeleton, Stack, Select, MenuItem, ListItemButton } from '@mui/material'
+import { Box, Button, Skeleton, Stack, Select, MenuItem, ListItemButton, Typography } from '@mui/material'
 import { useTheme } from '@mui/material/styles'
+import { IconRefresh } from '@tabler/icons-react'
 
 // ui
 import ViewHeader from '@/layout/MainLayout/ViewHeader'
@@ -37,6 +38,13 @@ DatePickerCustomInput.propTypes = {
     value: PropTypes.string,
     onClick: PropTypes.func
 }
+
+const logLevels = [
+    { value: 'error', label: 'Errors' },
+    { value: 'warn', label: 'Warnings' },
+    { value: 'info', label: 'Info' },
+    { value: 'debug', label: 'Debug' }
+]
 
 const searchTimeRanges = [
     'Last hour',
@@ -125,44 +133,55 @@ const Logs = () => {
 
     const [isLoading, setLoading] = useState(true)
     const [logData, setLogData] = useState('')
+    const [configured, setConfigured] = useState(true)
+    const [truncated, setTruncated] = useState(false)
+    const [level, setLevel] = useState('info')
+    const [rangeStart, setRangeStart] = useState('')
+    const [rangeEnd, setRangeEnd] = useState('')
     const [selectedTimeSearch, setSelectedTimeSearch] = useState('Last hour')
     const [startDate, setStartDate] = useState(getDateBefore('hours', 1))
     const [endDate, setEndDate] = useState(new Date())
+
+    const loadLogs = (start, end, nextLevel = level) => {
+        setRangeStart(start)
+        setRangeEnd(end)
+        getLogsApi.request(start, end, nextLevel)
+    }
 
     const handleTimeSelectionChange = (event) => {
         setSelectedTimeSearch(event.target.value)
         switch (event.target.value) {
             case 'Last hour':
-                getLogsApi.request(subtractTime(0, 0, 1), getDateTimeFormatted())
+                loadLogs(subtractTime(0, 0, 1), getDateTimeFormatted())
                 break
             case 'Last 4 hours':
-                getLogsApi.request(subtractTime(0, 0, 4), getDateTimeFormatted())
+                loadLogs(subtractTime(0, 0, 4), getDateTimeFormatted())
                 break
             case 'Last 24 hours':
-                getLogsApi.request(subtractTime(0, 0, 24), getDateTimeFormatted())
+                loadLogs(subtractTime(0, 0, 24), getDateTimeFormatted())
                 break
             case 'Last 2 days':
-                getLogsApi.request(subtractTime(0, 2, 0), getDateTimeFormatted())
+                loadLogs(subtractTime(0, 2, 0), getDateTimeFormatted())
                 break
             case 'Last 7 days':
-                getLogsApi.request(subtractTime(0, 7, 0), getDateTimeFormatted())
+                loadLogs(subtractTime(0, 7, 0), getDateTimeFormatted())
                 break
             case 'Last 14 days':
-                getLogsApi.request(subtractTime(0, 14, 0), getDateTimeFormatted())
+                loadLogs(subtractTime(0, 14, 0), getDateTimeFormatted())
                 break
             case 'Last 1 month':
-                getLogsApi.request(subtractTime(1, 0, 0), getDateTimeFormatted())
+                loadLogs(subtractTime(1, 0, 0), getDateTimeFormatted())
                 break
             case 'Last 2 months':
-                getLogsApi.request(subtractTime(2, 0, 0), getDateTimeFormatted())
+                loadLogs(subtractTime(2, 0, 0), getDateTimeFormatted())
                 break
             case 'Last 3 months':
-                getLogsApi.request(subtractTime(3, 0, 0), getDateTimeFormatted())
+                loadLogs(subtractTime(3, 0, 0), getDateTimeFormatted())
                 break
             case 'Custom':
                 setStartDate(getDateBefore('hours', 1))
                 setEndDate(new Date())
-                getLogsApi.request(subtractTime(0, 0, 1), getDateTimeFormatted())
+                loadLogs(subtractTime(0, 0, 1), getDateTimeFormatted())
                 break
             default:
                 break
@@ -171,18 +190,24 @@ const Logs = () => {
 
     const onStartDateSelected = (date) => {
         setStartDate(date)
-        getLogsApi.request(getDateTimeFormatted(date), getDateTimeFormatted(endDate))
+        loadLogs(getDateTimeFormatted(date), getDateTimeFormatted(endDate))
     }
 
     const onEndDateSelected = (date) => {
         setEndDate(date)
-        getLogsApi.request(getDateTimeFormatted(startDate), getDateTimeFormatted(date))
+        loadLogs(getDateTimeFormatted(startDate), getDateTimeFormatted(date))
+    }
+
+    const onLevelChange = (event) => {
+        const nextLevel = event.target.value
+        setLevel(nextLevel)
+        if (rangeStart && rangeEnd) loadLogs(rangeStart, rangeEnd, nextLevel)
     }
 
     useEffect(() => {
         const currentTimeFormatted = getDateTimeFormatted()
         const startTimeFormatted = subtractTime(0, 0, 1)
-        getLogsApi.request(startTimeFormatted, currentTimeFormatted)
+        loadLogs(startTimeFormatted, currentTimeFormatted)
 
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [])
@@ -192,13 +217,12 @@ const Logs = () => {
     }, [getLogsApi.loading])
 
     useEffect(() => {
-        if (getLogsApi.data && getLogsApi.data.length > 0) {
-            let totalLogs = ''
-            for (const logData of getLogsApi.data) {
-                totalLogs += logData + '\n'
-            }
-            setLogData(totalLogs)
-        }
+        const payload = getLogsApi.data
+        if (!payload || Array.isArray(payload)) return
+        setConfigured(payload.configured !== false)
+        setTruncated(Boolean(payload.truncated))
+        const lines = Array.isArray(payload.lines) ? payload.lines : []
+        setLogData(lines.join('\n'))
     }, [getLogsApi.data])
 
     return (
@@ -226,12 +250,26 @@ const Logs = () => {
                         </Box>
                     ) : (
                         <>
-                            <Stack sx={{ alignItems: 'center', justifyContent: 'flex-start', gap: 2 }} flexDirection='row'>
+                            <Stack sx={{ alignItems: 'center', justifyContent: 'flex-start', gap: 2 }} flexDirection='row' flexWrap='wrap'>
+                                <Select
+                                    size='small'
+                                    sx={{ minWidth: '140px' }}
+                                    value={level}
+                                    onChange={onLevelChange}
+                                    inputProps={{ 'aria-label': 'Log level' }}
+                                >
+                                    {logLevels.map((item) => (
+                                        <MenuItem key={item.value} value={item.value}>
+                                            {item.label}
+                                        </MenuItem>
+                                    ))}
+                                </Select>
                                 <Select
                                     size='small'
                                     sx={{ minWidth: '200px' }}
                                     value={selectedTimeSearch}
                                     onChange={handleTimeSelectionChange}
+                                    inputProps={{ 'aria-label': 'Time range' }}
                                 >
                                     {searchTimeRanges.map((range) => (
                                         <MenuItem key={range} value={range}>
@@ -276,8 +314,33 @@ const Logs = () => {
                                         </Stack>
                                     </>
                                 )}
+                                <Button
+                                    size='small'
+                                    variant='outlined'
+                                    startIcon={<IconRefresh size={16} />}
+                                    onClick={() => rangeStart && rangeEnd && loadLogs(rangeStart, rangeEnd)}
+                                    disabled={isLoading || !rangeStart || !rangeEnd}
+                                >
+                                    Refresh
+                                </Button>
                             </Stack>
-                            {logData ? (
+                            {truncated && configured && (
+                                <Typography variant='body2'>
+                                    Showing the most recent lines. Older lines in this range were left out.
+                                </Typography>
+                            )}
+                            {!configured ? (
+                                <Stack
+                                    sx={{ alignItems: 'flex-start', justifyContent: 'center', gap: 1, maxWidth: 640 }}
+                                    flexDirection='column'
+                                >
+                                    <Typography variant='h4'>No log file is configured</Typography>
+                                    <Typography>
+                                        Set LOG_PATH to the directory where the server writes logs. Docker Compose and the published image
+                                        use /var/cuttlely/logs. A from-source server writes a logs directory when LOG_PATH is unset.
+                                    </Typography>
+                                </Stack>
+                            ) : logData ? (
                                 <CodeMirror
                                     value={logData}
                                     height={'calc(100vh - 220px)'}
@@ -301,7 +364,7 @@ const Logs = () => {
                                             alt='LogsEmptySVG'
                                         />
                                     </Box>
-                                    <div>No Logs Yet</div>
+                                    <div>No log lines in this range</div>
                                 </Stack>
                             )}
                         </>

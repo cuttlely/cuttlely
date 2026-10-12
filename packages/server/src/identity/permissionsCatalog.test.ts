@@ -56,6 +56,7 @@ describe('permission catalogs', () => {
         expect(rows.map((row) => row.key).some((key) => key.startsWith('workspace:'))).toBe(false)
         expect(rows.map((row) => row.key)).not.toContain('users:manage')
         expect(rows.map((row) => row.key)).not.toContain('roles:manage')
+        expect(rows.map((row) => row.key)).not.toContain('logs:view')
     })
 
     it('GET /auth/permissions/ROLE returns the same open-source list the dialog keeps', async () => {
@@ -66,5 +67,6 @@ describe('permission catalogs', () => {
         expect(response.status).toBe(200)
         const visible = permissionsAfterPlatformFilter(response.body, 'open-source')
         expect(Object.values(visible).flat().length).toBeGreaterThan(0)
+        expect(visible.logs?.map((row) => row.key)).toContain('logs:view')
     })
 })

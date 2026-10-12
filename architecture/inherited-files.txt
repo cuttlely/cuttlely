@@ -1360,6 +1360,7 @@ packages/server/src/services/fetch-links/index.ts
 packages/server/src/services/flow-configs/index.ts
 packages/server/src/services/leads/index.ts
 packages/server/src/services/load-prompts/index.ts
+packages/server/src/services/log/index.test.ts
 packages/server/src/services/log/index.ts
 packages/server/src/services/marketplaces/index.ts
 packages/server/src/services/mcp-endpoint/index.test.ts

@@ -363,6 +363,9 @@ const CreateEditRoleDialog = ({ show, dialogProps, onCancel, onConfirm, setError
                                             {category === 'chatflows' && (
                                                 <p className='category-note'>These permissions also cover Harnesses and ETL pipelines.</p>
                                             )}
+                                            {category === 'logs' && (
+                                                <p className='category-note'>Server log files. Lines are masked before they are shown.</p>
+                                            )}
                                             <button
                                                 type='button'
                                                 hidden={dialogProps.type === 'VIEW'}
