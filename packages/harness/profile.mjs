@@ -304,7 +304,7 @@ function modelKey(model) {
     return ''
 }
 
-function resolveRoster(record) {
+function resolveRoster(record, profileName = record.name) {
     const chiefModel = modelChoice(record.chief?.model)
     if (!chiefModel) {
         throw new HarnessError('missing_model', `Harness "${record.name}" cannot run: no Harness Prime model. ${CHIEF_MODEL_REQUIRED}`)
@@ -326,7 +326,7 @@ function resolveRoster(record) {
         if (mixed && !specialist.model) {
             throw new HarnessError('bad_model', `Specialist "${specialist.name}" needs a model when the roster uses more than one.`)
         }
-        const profile = specialistProfileName(record.name, specialist.name)
+        const profile = specialistProfileName(profileName, specialist.name)
         if (seen.has(profile)) {
             throw new HarnessError('bad_name', `Specialist "${specialist.name}" collides with another model profile.`)
         }
@@ -587,12 +587,12 @@ export function writePlaybooks(dir, playbooks) {
     }
 }
 
-function compileSpecialistProfile(record, specialist) {
+function compileSpecialistProfile(record, specialist, profileName) {
     const dir = profileDir(specialist.profileName)
     fs.mkdirSync(dir, { recursive: true })
     const workspace = specialistWorkspace(specialist.profileName)
     fs.mkdirSync(workspace, { recursive: true })
-    writeIfChanged(path.join(dir, 'harness-parent'), `${record.name}\n`)
+    writeIfChanged(path.join(dir, 'harness-parent'), `${profileName}\n`)
     writeIfChanged(path.join(dir, 'SOUL.md'), specialistSoul(specialist))
     writePlaybooks(dir, specialist.playbooks || [])
     const issued = issueSpecialistToken(record, specialist)
@@ -671,19 +671,20 @@ function forgetRetiredSpecialistProfiles(harnessName, keep) {
     }
 }
 
-export function compileProfile(record) {
-    const dir = profileDir(record.name)
+export function compileProfile(record, options = {}) {
+    const profileName = options.profileName || record.name
+    const dir = profileDir(profileName)
     fs.mkdirSync(path.join(dir, 'memory'), { recursive: true })
     fs.mkdirSync(path.join(dir, 'sessions'), { recursive: true })
 
-    const resolved = resolveRoster(record)
+    const resolved = resolveRoster(record, profileName)
     const keep = new Set()
     for (const specialist of resolved.specialists) {
         if (!specialist.profileName) continue
         keep.add(specialist.profileName)
-        compileSpecialistProfile(record, specialist)
+        compileSpecialistProfile(record, specialist, profileName)
     }
-    forgetRetiredSpecialistProfiles(record.name, keep)
+    forgetRetiredSpecialistProfiles(profileName, keep)
 
     const compiled = {
         ...record,
@@ -731,11 +732,46 @@ export function compileProfile(record) {
         yaml.push('  max_iterations: 20')
     }
     pushMcpServers(yaml, mcpBlocks)
-    pushModel(yaml, record.name)
+    pushModel(yaml, profileName)
     writeIfChanged(path.join(dir, 'config.yaml'), yaml.join('\n') + '\n')
 
-    const apiServerKey = writeProfileSecrets(record.name, toolCredentialEnv(record))
+    const apiServerKey = writeProfileSecrets(profileName, toolCredentialEnv(record))
     return { dir, roster: compiled, apiServerKey }
+}
+
+// A canvas try compiles here, never into the published profile directory. Each id is its own directory.
+export function tryProfileName(tryId) {
+    const id = String(tryId || '').toLowerCase()
+    if (!/^[a-f0-9]{8,32}$/.test(id)) {
+        throw new HarnessError('bad_name', 'A try profile id is 8 to 32 hex characters.')
+    }
+    return `try${id}`
+}
+
+export function compileTryProfile(record, tryId) {
+    return compileProfile(record, { profileName: tryProfileName(tryId) })
+}
+
+export function discardTryProfile(tryId) {
+    const scope = tryProfileName(tryId)
+    const root = path.join(hermesHome(), 'profiles')
+    if (fs.existsSync(root)) {
+        for (const entry of fs.readdirSync(root)) {
+            if (entry !== scope && !entry.startsWith(`${scope}--`)) continue
+            const dir = path.join(root, entry)
+            const env = readEnvFile(path.join(dir, '.env'))
+            if (env.OPENAI_API_KEY) forgetProfileToken(env.OPENAI_API_KEY)
+            fs.rmSync(dir, { recursive: true, force: true })
+        }
+    }
+    const workRoot = path.join(dataRoot(), 'workspaces')
+    if (fs.existsSync(workRoot)) {
+        for (const entry of fs.readdirSync(workRoot)) {
+            if (entry !== scope && !entry.startsWith(`${scope}--`)) continue
+            fs.rmSync(path.join(workRoot, entry), { recursive: true, force: true })
+        }
+    }
+    compiledProfiles.delete(scope)
 }
 
 const compiledProfiles = new Map()

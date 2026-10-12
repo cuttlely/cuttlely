@@ -12,13 +12,24 @@ process.env.CUTTLELY_HERMES_HOME = path.join(dataDir, 'hermes')
 delete process.env.HERMES_API_URL
 
 const { saveHarness } = await import('./store.mjs')
-const { compileProfile, modelConfigured, readProfileEnv, CHIEF_TOOLSETS, routerDialectNote, specialistSoul, specialistSummary } =
-    await import('./profile.mjs')
+const {
+    compileProfile,
+    compileProfileCached,
+    compileTryProfile,
+    discardTryProfile,
+    modelConfigured,
+    readProfileEnv,
+    CHIEF_TOOLSETS,
+    routerDialectNote,
+    specialistSoul,
+    specialistSummary
+} = await import('./profile.mjs')
 const { appendMessage, readMessages, readPromptContext, sessionKey } = await import('./session.mjs')
 const { chiefContextTokens, estimateTokens, specialistContextTokens, DEFAULT_CHIEF_CONTEXT_TOKENS, DEFAULT_SPECIALIST_CONTEXT_TOKENS } =
     await import('./context.mjs')
 const {
     harnessForTurn,
+    runHooks,
     runHarness: runHarnessRaw,
     warmHarnessProfiles,
     ROUTE_WHOLE_TASK,
@@ -9697,10 +9708,144 @@ else process.env.FLOWISE_SECRETKEY_OVERWRITE = savedSecretOverwrite
 fs.rmSync(dataDir, { recursive: true, force: true })
 fs.rmSync(credDir, { recursive: true, force: true })
 
+function profileTree(dir) {
+    if (!fs.existsSync(dir)) return ''
+    const files = []
+    const walk = (current) => {
+        for (const name of fs.readdirSync(current).sort()) {
+            const file = path.join(current, name)
+            if (fs.statSync(file).isDirectory()) walk(file)
+            else files.push(`${path.relative(dir, file)}\0${fs.readFileSync(file)}`)
+        }
+    }
+    walk(dir)
+    return files.join('\n')
+}
+
+const tryLiveModel = nodeModel('echoChat', { credential: 'cred-xai', label: 'Echo Chat', inputs: { modelName: 'gpt-4.1' } })
+saveHarness(
+    {
+        name: 'try-live',
+        chief: { instructions: 'LIVE-INSTRUCTIONS', model: tryLiveModel },
+        specialists: [
+            {
+                name: 'shell',
+                instructions: 'LIVE-SPECIALIST',
+                shell: true,
+                browser: false,
+                codeExecution: false,
+                fileAccess: false,
+                modules: [],
+                mcpServers: []
+            }
+        ]
+    },
+    { overwrite: true }
+)
+compileProfileCached(getHarness('try-live'))
+const publishedProfile = path.join(process.env.CUTTLELY_HERMES_HOME, 'profiles', 'try-live')
+const publishedSpecialist = path.join(process.env.CUTTLELY_HERMES_HOME, 'profiles', 'try-live--shell')
+const publishedBytes = profileTree(publishedProfile)
+const publishedSpecialistBytes = profileTree(publishedSpecialist)
+const tryA = 'a'.repeat(16)
+const tryB = 'b'.repeat(16)
+const draftOf = (tryId, instructions) => ({
+    ...getHarness('try-live'),
+    tryId,
+    chief: { ...getHarness('try-live').chief, instructions }
+})
+const compiledA = compileTryProfile(draftOf(tryA, 'DRAFT-A'), tryA)
+const compiledB = compileTryProfile(draftOf(tryB, 'DRAFT-B'), tryB)
+check(
+    'two draft tries compile into different profiles',
+    compiledA.dir !== compiledB.dir &&
+        !compiledA.dir.endsWith(`${path.sep}try-live`) &&
+        !compiledB.dir.endsWith(`${path.sep}try-live`) &&
+        fs.readFileSync(path.join(compiledA.dir, 'SOUL.md'), 'utf8').includes('DRAFT-A') &&
+        fs.readFileSync(path.join(compiledB.dir, 'SOUL.md'), 'utf8').includes('DRAFT-B')
+)
+check(
+    'draft tries do not change the published profile',
+    profileTree(publishedProfile) === publishedBytes && profileTree(publishedSpecialist) === publishedSpecialistBytes
+)
+discardTryProfile(tryA)
+discardTryProfile(tryB)
+check(
+    'discarding a try removes only that profile',
+    !fs.existsSync(compiledA.dir) &&
+        !fs.existsSync(compiledB.dir) &&
+        profileTree(publishedProfile) === publishedBytes &&
+        profileTree(publishedSpecialist) === publishedSpecialistBytes
+)
+
+const tryC = 'c'.repeat(16)
+const soulFetch = async (_url, init) => {
+    const body = JSON.parse(init?.body || '{}')
+    const soulFile = path.join(process.env.CUTTLELY_HERMES_HOME, 'profiles', body.model || '', 'SOUL.md')
+    const soul = fs.existsSync(soulFile) ? fs.readFileSync(soulFile, 'utf8') : ''
+    return { ok: true, status: 200, statusText: 'OK', text: async () => JSON.stringify({ output: soul, status: 'completed' }) }
+}
+const echoReply = (messages) => {
+    const plain = plainChatMessages(messages)
+    const system = String(plain[0]?.content || '')
+    const user = String(plain.at(-1)?.content || '')
+    if (system.includes('You route work')) {
+        return { content: JSON.stringify({ steps: [{ specialist: 'shell', task: user }] }) }
+    }
+    return { content: user }
+}
+let externalDuringTry = null
+let duringTry = { untouched: false, profile: '', specialist: '' }
+runHooks.afterProfile = async ({ tryId }) => {
+    if (tryId !== tryC) return
+    duringTry.untouched = profileTree(publishedProfile) === publishedBytes && profileTree(publishedSpecialist) === publishedSpecialistBytes
+    externalDuringTry = await runHarnessRaw({
+        name: 'try-live',
+        chatId: 'published-while-draft',
+        input: 'What are the rules?',
+        loadNode: async () => recordingChat([], echoReply),
+        fetchImpl: soulFetch,
+        baseUrl: 'http://127.0.0.1:8642'
+    })
+    duringTry.profile = profileTree(publishedProfile)
+    duringTry.specialist = profileTree(publishedSpecialist)
+    throw new Error('mid-try')
+}
+let midTry = null
+try {
+    await runHarnessRaw({
+        name: 'try-live',
+        chatId: 'draft-try',
+        input: 'What are the rules?',
+        record: draftOf(tryC, 'DRAFT-C'),
+        loadNode: async () => recordingChat([], echoReply),
+        fetchImpl: soulFetch,
+        baseUrl: 'http://127.0.0.1:8642'
+    })
+} catch (error) {
+    midTry = error
+} finally {
+    runHooks.afterProfile = null
+}
+check(
+    'a published run during a draft try uses the published roster and output',
+    externalDuringTry?.text?.includes('LIVE-SPECIALIST') &&
+        !externalDuringTry.text.includes('DRAFT-C') &&
+        getHarness('try-live').chief.instructions === 'LIVE-INSTRUCTIONS'
+)
+const tryGone = !fs.existsSync(path.join(process.env.CUTTLELY_HERMES_HOME, 'profiles', `try${tryC}`))
+const sameAfterError = profileTree(publishedProfile) === duringTry.profile && profileTree(publishedSpecialist) === duringTry.specialist
+check(
+    'an error mid-try leaves the published profile byte-identical and removes the try profile',
+    duringTry.untouched && midTry?.message === 'mid-try' && sameAfterError && tryGone,
+    `mid=${midTry?.message} untouched=${duringTry.untouched} same=${sameAfterError} gone=${tryGone}`
+)
+
 if (failures.length) {
     console.error(`\n${failures.length} check(s) failed`)
     process.exit(1)
 }
+
 console.log('\nAll harness checks passed')
 
 function messageContent(message) {

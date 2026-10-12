@@ -31,6 +31,8 @@ import { analystScopeKey, endAnalystRun, withAnalystScope } from './runtime/anal
 import { cachedPromptTokens, invokeChat, resolveModel } from './model.mjs'
 import {
     compileProfileCached,
+    compileTryProfile,
+    discardTryProfile,
     hasAnalystTool,
     needsAgentLoop,
     routerDialectNote,
@@ -58,6 +60,9 @@ import { normalizeArithmeticQuestion, validArgs } from './tool-fallback.mjs'
 import { buildRunTrace, publicModelLabel, publicSources, publicTask, snapshotSpecialist, sumCallTokens } from './trace.mjs'
 
 let runtimeContextFor = null
+
+// Tests pause a draft try after its profile is compiled and before the model runs.
+export const runHooks = { afterProfile: null }
 
 export function configureHarnessRuntime({ contextFor } = {}) {
     runtimeContextFor = typeof contextFor === 'function' ? contextFor : null
@@ -164,6 +169,13 @@ export async function runHarness(args = {}) {
         failure = error
         throw error
     } finally {
+        if (args.record?.tryId) {
+            try {
+                discardTryProfile(args.record.tryId)
+            } catch (error) {
+                console.warn(`[harness] try profile was not removed: ${error.message}`)
+            }
+        }
         rememberRun(args, started, pending, result, failure)
     }
 }
@@ -257,9 +269,13 @@ async function runTurn(
     let roster = harness
     let profileMs = 0
     if (needsHermes) {
-        const compiled = compileProfileCached(harness)
+        // A try id compiles into its own profile directory. The published profile is not opened for write.
+        const compiled = harness.tryId ? compileTryProfile(harness, harness.tryId) : compileProfileCached(harness)
         profileMs = Date.now() - profileStarted
         roster = compiled.roster || harness
+    }
+    if (typeof runHooks.afterProfile === 'function') {
+        await runHooks.afterProfile({ name, tryId: harness.tryId || null, roster })
     }
     const clientSignal = readClientSignal(signal)
     const budget = turnBudgetMs(budgetMs)

@@ -1,4 +1,4 @@
-import { randomUUID } from 'crypto'
+import { randomBytes, randomUUID } from 'crypto'
 import fs from 'fs'
 import path from 'path'
 import { pathToFileURL } from 'url'
@@ -233,21 +233,8 @@ const startRun = async (
     }
 }
 
-// The published profile is what external runs compile. A canvas run may compile the draft over it, so put the
-// saved roster back when the try finishes.
-async function restorePublishedProfile(name: string) {
-    try {
-        const store = await loadHarness('store.mjs')
-        const live = store.getHarness(name)
-        if (!live) return
-        const profile = await loadHarness('profile.mjs')
-        profile.compileProfileCached(live)
-    } catch (error) {
-        logger.warn(`[harness] ${name} published profile was not restored: ${getErrorMessage(error)}`)
-    }
-}
-
-// Canvas chat and Try it. The draft canvas when one exists, otherwise the Live canvas. The saved harness is not written.
+// Canvas chat and Try it. The draft canvas when one exists, otherwise the Live canvas. The saved harness and its
+// profile are not written. The try compiles under its own id and is removed when the run ends.
 const startCanvasRun = async (
     chatflow: { id: string; name: string; type?: string | null; flowData: string; workspaceId: string },
     body: Record<string, unknown>,
@@ -256,18 +243,14 @@ const startCanvasRun = async (
     const flowData = await flowDraftsService.flowDataForTestChat(chatflow)
     const sync = await loadHarness('sync-from-flow.mjs')
     const appServer = getRunningExpressApp()
-    const record = sync.rosterFromFlow({
+    const roster = sync.rosterFromFlow({
         name: chatflow.name,
         chatflowId: chatflow.id,
         flowData,
         workspaceId: chatflow.workspaceId,
         componentNodes: appServer.nodesPool?.componentNodes
     })
-    try {
-        return await startRun(chatflow.name, body, { ...opts, record })
-    } finally {
-        await restorePublishedProfile(chatflow.name)
-    }
+    return await startRun(chatflow.name, body, { ...opts, record: { ...roster, tryId: randomBytes(8).toString('hex') } })
 }
 
 export default {
