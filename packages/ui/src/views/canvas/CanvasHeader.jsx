@@ -48,6 +48,7 @@ import useConfirm from '@/hooks/useConfirm'
 
 // utils
 import { generateExportFlowData } from '@/utils/genericHelper'
+import { exportKnownNodeNames } from '@/utils/missingNode'
 import { saveFlowPlaceholder } from '@/utils/saveFlowPlaceholder'
 import { uiBaseURL } from '@/store/constant'
 import { closeSnackbar as closeSnackbarAction, enqueueSnackbar as enqueueSnackbarAction, SET_CHATFLOW } from '@/store/actions'
@@ -279,7 +280,7 @@ const CanvasHeader = ({
         } else if (setting === 'exportChatflow') {
             try {
                 const flowData = JSON.parse(chatflow.flowData)
-                let dataStr = JSON.stringify(generateExportFlowData(flowData), null, 2)
+                let dataStr = JSON.stringify(generateExportFlowData(flowData, exportKnownNodeNames(canvas.componentNodes)), null, 2)
                 //let dataUri = 'data:application/json;charset=utf-8,' + encodeURIComponent(dataStr)
                 const blob = new Blob([dataStr], { type: 'application/json' })
                 const dataUri = URL.createObjectURL(blob)

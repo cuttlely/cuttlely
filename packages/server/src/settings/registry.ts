@@ -1262,7 +1262,8 @@ export const KEPT_OUT: KeptOutGroup[] = [
             'CUTTLELY_IMAGE',
             'INCLUDE_BROWSER',
             'CUTTLELY_OMIT_GEOIP',
-            'CUTTLELY_INSTALL'
+            'CUTTLELY_INSTALL',
+            'CUTTLELY_NODE_PACKS'
         ],
         why: 'The settings file lives in the data folder, and the host or volume decides these.'
     },

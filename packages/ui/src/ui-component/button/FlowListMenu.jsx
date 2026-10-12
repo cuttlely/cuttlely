@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useDispatch } from 'react-redux'
+import { useDispatch, useSelector } from 'react-redux'
 import PropTypes from 'prop-types'
 
 import { styled, alpha } from '@mui/material/styles'
@@ -32,6 +32,7 @@ import TagDialog from '@/ui-component/dialog/TagDialog'
 import StarterPromptsDialog from '@/ui-component/dialog/StarterPromptsDialog'
 
 import { generateExportFlowData } from '@/utils/genericHelper'
+import { exportKnownNodeNames } from '@/utils/missingNode'
 import useNotifier from '@/utils/useNotifier'
 import ChatFeedbackDialog from '../dialog/ChatFeedbackDialog'
 import AllowedDomainsDialog from '../dialog/AllowedDomainsDialog'
@@ -77,6 +78,7 @@ const StyledMenu = styled((props) => (
 
 export default function FlowListMenu({ chatflow, isAgentCanvas, isAgentflowV2, setError, updateFlowsApi, currentPage, pageLimit }) {
     const { confirm } = useConfirm()
+    const componentNodes = useSelector((state) => state.canvas.componentNodes)
     const dispatch = useDispatch()
     const updateChatflowApi = useApi(chatflowsApi.updateChatflow)
 
@@ -322,7 +324,7 @@ export default function FlowListMenu({ chatflow, isAgentCanvas, isAgentflowV2, s
         setAnchorEl(null)
         try {
             const flowData = JSON.parse(chatflow.flowData)
-            let dataStr = JSON.stringify(generateExportFlowData(flowData), null, 2)
+            let dataStr = JSON.stringify(generateExportFlowData(flowData, exportKnownNodeNames(componentNodes)), null, 2)
             //let dataUri = 'data:application/json;charset=utf-8,' + encodeURIComponent(dataStr)
             const blob = new Blob([dataStr], { type: 'application/json' })
             const dataUri = URL.createObjectURL(blob)

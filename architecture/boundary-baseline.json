@@ -817,6 +817,11 @@
             "to": "packages/components/src/index.ts"
         },
         {
+            "from": "packages/server/src/utils/nodePacks.test.ts",
+            "to": "packages/server/src/NodesPool.ts",
+            "reason": "The node pack load test constructs the node pool."
+        },
+        {
             "from": "packages/server/src/utils/predictionErrors.test.ts",
             "to": "packages/server/src/errors/appError/index.ts",
             "reason": "Shared server error class has its own module. Core callers import that module."
@@ -1129,6 +1134,11 @@
         {
             "from": "packages/ui/src/utils/usePrompt.test.js",
             "to": "packages/ui/src/utils/usePrompt.js"
+        },
+        {
+            "from": "packages/ui/src/views/canvas/CanvasNode.missing.test.js",
+            "to": "packages/ui/src/views/canvas/CanvasNode.jsx",
+            "reason": "The canvas test renders a node that is not installed."
         },
         {
             "from": "packages/ui/src/views/canvas/CompactCardBody.jsx",

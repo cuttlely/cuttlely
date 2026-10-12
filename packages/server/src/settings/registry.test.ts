@@ -83,6 +83,7 @@ describe('server settings registry', () => {
             'TOOL_FUNCTION_EXTERNAL_DEP',
             'HTTP_SECURITY_CHECK',
             'CUTTLELY_ETL_ROOTS',
+            'CUTTLELY_NODE_PACKS',
             'REDIS_PASSWORD'
         ]) {
             expect(settingFor(key)).toBeUndefined()

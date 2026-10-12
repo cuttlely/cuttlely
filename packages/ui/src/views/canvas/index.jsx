@@ -79,6 +79,7 @@ import { flowiseCanvasJson } from '@/utils/flowiseImport'
 import { hydrateLangflowFlow, isLangflowExport, langflowToFlowise } from '@/utils/langflowImport'
 import { hydrateRawCanvasNodes, normalizeCanvasFlow, repairFlowEdges, specsByName, stripRawCanvasMarker } from '@/utils/normalizeCanvasFlow'
 import { apiErrorMessage, canvasFlowText, planCanvasSave } from '@/utils/flowDrafts'
+import { canvasSaveDocument } from '@/utils/canvasSave'
 import {
     asSavedCards,
     canvasIsEmpty,
@@ -381,22 +382,7 @@ const Canvas = () => {
 
     const handleSaveFlow = async (chatflowName) => {
         if (reactFlowInstance) {
-            const nodes = reactFlowInstance.getNodes().map((node) => {
-                const nodeData = cloneDeep(node.data)
-                if (Object.prototype.hasOwnProperty.call(nodeData.inputs, FLOWISE_CREDENTIAL_ID)) {
-                    nodeData.credential = nodeData.inputs[FLOWISE_CREDENTIAL_ID]
-                    nodeData.inputs = omit(nodeData.inputs, [FLOWISE_CREDENTIAL_ID])
-                }
-                stripRawCanvasMarker(nodeData)
-                node.data = {
-                    ...nodeData,
-                    selected: false
-                }
-                return node
-            })
-
-            const rfInstanceObject = reactFlowInstance.toObject()
-            rfInstanceObject.nodes = nodes
+            const rfInstanceObject = canvasSaveDocument(reactFlowInstance)
             const flowData = JSON.stringify(rfInstanceObject)
 
             if (!isAgentCanvas && !isHarnessCanvas && !isEtlCanvas && !chatflowCanChat(rfInstanceObject)) {
