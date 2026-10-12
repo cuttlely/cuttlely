@@ -676,8 +676,9 @@ export const getCredentialData = async (selectedCredentialId: string, options: I
             return {}
         }
         // A flow passes its workspace. A key owned by that workspace or shared into it can be decrypted.
-        // A key that belongs only to some other workspace cannot.
-        if (workspaceId && !(await credentialReadableInWorkspace(appDataSource as any, credential, workspaceId))) {
+        // A key that belongs only to some other workspace cannot. The repository is untyped, so the row is narrowed here.
+        const readable = credential as { id: string; workspaceId?: string }
+        if (workspaceId && !(await credentialReadableInWorkspace(appDataSource as any, readable, workspaceId))) {
             throw new Error(`Credential ${selectedCredentialId} not found`)
         }
 
