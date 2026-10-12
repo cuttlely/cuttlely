@@ -35,20 +35,69 @@ export const ANALYST_ROLE = 'analyst_reader'
 export const ANALYST_SCHEMA = 'analyst'
 export const ANALYST_STATEMENT_TIMEOUT = '15s'
 export const ANALYST_STATEMENT_TIMEOUT_MS = 15000
+// Hard ceiling. The admin setting and a node override are both clamped to this.
+export const ANALYST_STATEMENT_TIMEOUT_MAX_MS = 120000
 export const ANALYST_TIMEOUT_MESSAGE = 'canceling statement due to statement timeout'
 export const ANALYST_ROW_CAP = 100
+// Hard ceiling. A larger page would paste too much of a table into the prompt.
+export const ANALYST_ROW_CAP_MAX = 1000
 export { rowPageSummary, analystPageRequest, analystPageTask } from './analyst-page.mjs'
 
 const analystCall = new AsyncLocalStorage()
 const pageCursors = new Map()
 const SQLITE_WORKER = path.join(path.dirname(fileURLToPath(import.meta.url)), 'analyst-sqlite-worker.mjs')
 
-// Every analyst statement gets a timeout set by Cuttlely on that call. Auto storage stays capped at 15 seconds:
-// a caller can ask for less, and nothing can ask for more until a setting for it ships.
-export function analystStatementTimeoutMs(value) {
-    const ms = Math.floor(Number(value))
-    if (!Number.isFinite(ms) || ms <= 0) return ANALYST_STATEMENT_TIMEOUT_MS
-    return Math.min(ms, ANALYST_STATEMENT_TIMEOUT_MS)
+function positiveInt(value) {
+    const n = Math.floor(Number(value))
+    return Number.isFinite(n) && n > 0 ? n : null
+}
+
+// The admin setting is the ceiling. Unset or unusable values keep today's default. A host value above the
+// hard maximum is brought down to it, the same way the settings page refuses that value.
+export function analystConfiguredRowCap(env = process.env) {
+    const n = positiveInt(env?.CUTTLELY_ANALYST_ROW_CAP)
+    if (n == null) return ANALYST_ROW_CAP
+    return Math.min(n, ANALYST_ROW_CAP_MAX)
+}
+
+export function analystConfiguredTimeoutMs(env = process.env) {
+    const n = positiveInt(env?.CUTTLELY_ANALYST_STATEMENT_TIMEOUT_MS)
+    if (n == null) return ANALYST_STATEMENT_TIMEOUT_MS
+    return Math.min(n, ANALYST_STATEMENT_TIMEOUT_MAX_MS)
+}
+
+// A node or a single call may ask for fewer rows. It cannot ask for more than the admin ceiling.
+export function analystRowCap(value, env = process.env) {
+    const ceiling = analystConfiguredRowCap(env)
+    const n = positiveInt(value)
+    if (n == null) return ceiling
+    return Math.min(n, ceiling)
+}
+
+// A node or a single call may ask for a shorter timeout. It cannot ask for more than the admin ceiling.
+export function analystStatementTimeoutMs(value, env = process.env) {
+    const ceiling = analystConfiguredTimeoutMs(env)
+    const n = positiveInt(value)
+    if (n == null) return ceiling
+    return Math.min(n, ceiling)
+}
+
+export function analystCallLimits(requested = {}, env = process.env) {
+    return {
+        rowCap: analystRowCap(requested.rowCap, env),
+        timeoutMs: analystStatementTimeoutMs(requested.statementTimeoutMs, env)
+    }
+}
+
+function pageSizeOf(paging) {
+    const n = positiveInt(paging?.rowCap)
+    return n == null ? ANALYST_ROW_CAP : n
+}
+
+// Postgres shows whole seconds as '15s'. Anything else stays in milliseconds.
+export function analystStatementTimeoutSetting(ms = ANALYST_STATEMENT_TIMEOUT_MS) {
+    if (ms % 1000 === 0) return `${ms / 1000}s`
+    return `${ms}ms`
 }
 
 export function analystScopeKey(harness, chatId) {
@@ -273,16 +322,50 @@ function sqliteAreaFor(env, workspace) {
     const legacyFile = analystSqliteFile(env, legacy)
     if (!ownFile || fs.existsSync(ownFile) || !fs.existsSync(legacyFile)) return own
     const claim = `${legacyFile}.workspace`
+    return claimLegacyWorkspace(claim, tag) ? legacy : own
+}
+
+// The claim file has to appear with its tag already written. Opening it with an exclusive create and then
+// writing leaves a window where the file exists and is still empty, and a second workspace can read that
+// empty file. link() publishes the name only after the bytes are in the temp file, so exactly one workspace
+// can take the legacy store.
+function claimLegacyWorkspace(claim, tag) {
+    const tmp = `${claim}.${process.pid}.${randomBytes(6).toString('hex')}.tmp`
+    let fd
     try {
-        fs.writeFileSync(claim, tag, { flag: 'wx', mode: 0o600 })
-        return legacy
-    } catch (error) {
-        if (error.code !== 'EEXIST') return own
+        fd = fs.openSync(tmp, 'wx', 0o600)
+        fs.writeSync(fd, String(tag))
+        try {
+            fs.fsyncSync(fd)
+        } catch {
+            // The bytes are already in the temp file. link() is what publishes the name.
+        }
+    } catch {
+        fs.rmSync(tmp, { force: true })
+        return false
+    } finally {
+        if (fd !== undefined) {
+            try {
+                fs.closeSync(fd)
+            } catch {
+                // Already closed.
+            }
+        }
     }
     try {
-        return fs.readFileSync(claim, 'utf8').trim() === tag ? legacy : own
-    } catch {
-        return own
+        try {
+            fs.linkSync(tmp, claim)
+            return true
+        } catch (error) {
+            if (error.code !== 'EEXIST') return false
+            try {
+                return fs.readFileSync(claim, 'utf8').trim() === tag
+            } catch {
+                return false
+            }
+        }
+    } finally {
+        fs.rmSync(tmp, { force: true })
     }
 }
 
@@ -630,7 +713,11 @@ async function provisionPostgres(env, workspace = '') {
                 } else if (createdSecret) {
                     await client.query(`ALTER ROLE ${role} WITH LOGIN PASSWORD ${quoteLiteral(password)}`)
                 }
-                await client.query(`ALTER ROLE ${role} SET statement_timeout TO ${quoteLiteral(ANALYST_STATEMENT_TIMEOUT)}`)
+                await client.query(
+                    `ALTER ROLE ${role} SET statement_timeout TO ${quoteLiteral(
+                        analystStatementTimeoutSetting(analystConfiguredTimeoutMs(env))
+                    )}`
+                )
                 await client.query(`ALTER ROLE ${role} SET search_path TO ${quoteIdent(area.schema)}`)
                 await client.query(`CREATE SCHEMA IF NOT EXISTS ${quoteIdent(area.schema)}`)
                 await isolateRole(client, area)
@@ -815,11 +902,12 @@ export async function ensureAnalystStore(env = process.env, options = {}) {
 
 function shapeResult(result, paging = null) {
     const rows = Array.isArray(result.rows) ? result.rows : []
+    const pageSize = pageSizeOf(paging)
     if (rows.length > 0 || result.command === 'SELECT' || result.command === 'SHOW' || result.command === 'EXPLAIN') {
-        if (paging && rows.length > ANALYST_ROW_CAP) {
+        if (paging && rows.length > pageSize) {
             return finishPage(
-                rows.slice(0, ANALYST_ROW_CAP + 1),
-                { ...paging, page: 1, total: rows.length },
+                rows.slice(0, pageSize + 1),
+                { ...paging, page: 1, total: rows.length, rowCap: pageSize },
                 {
                     mode: 'buffer',
                     statement: paging.statement,
@@ -827,11 +915,11 @@ function shapeResult(result, paging = null) {
                 }
             )
         }
-        const truncated = rows.length > ANALYST_ROW_CAP
-        const kept = truncated ? rows.slice(0, ANALYST_ROW_CAP) : rows
+        const truncated = rows.length > pageSize
+        const kept = truncated ? rows.slice(0, pageSize) : rows
         const described = describeAnalystPage(kept.length, {
             page: 1,
-            pageSize: ANALYST_ROW_CAP,
+            pageSize,
             total: rows.length,
             more: truncated
         })
@@ -969,7 +1057,7 @@ async function countPlan(runner, plan) {
 }
 
 function finishPage(rawRows, paging, plan) {
-    const pageSize = ANALYST_ROW_CAP
+    const pageSize = pageSizeOf(paging)
     const more = rawRows.length > pageSize
     const keptRaw = rawRows.slice(0, pageSize)
     const described = describeAnalystPage(keptRaw.length, {
@@ -995,6 +1083,7 @@ function finishPage(rawRows, paging, plan) {
         rows: plan.mode === 'buffer' ? plan.rows : null,
         total: paging.total,
         page: paging.page,
+        pageSize,
         lastKey: usableKey ? lastKey : null,
         expiresAt: paging.now + paging.ttl
     }
@@ -1004,7 +1093,7 @@ function finishPage(rawRows, paging, plan) {
 }
 
 async function readSelectPage(runner, plan, paging) {
-    const pageSize = ANALYST_ROW_CAP
+    const pageSize = pageSizeOf(paging)
     const limit = pageSize + 1
     const offset = (paging.page - 1) * pageSize
     if (plan.mode === 'buffer') {
@@ -1124,8 +1213,8 @@ function analystPgClient(store, ms) {
     })
 }
 
-async function queryPostgres(store, statement, replay, timeoutMs = ANALYST_STATEMENT_TIMEOUT_MS) {
-    const ms = analystStatementTimeoutMs(timeoutMs)
+async function queryPostgres(store, statement, replay, timeoutMs = ANALYST_STATEMENT_TIMEOUT_MS, env = process.env) {
+    const ms = analystStatementTimeoutMs(timeoutMs, env)
     const scope = replay?.paging?.scope || ''
     if (scope) return queryPostgresRun(scope, store, statement, replay, ms)
     const client = analystPgClient(store, ms)
@@ -1342,7 +1431,7 @@ async function querySqliteStopped(file, statement, options, replay) {
     const reply = await sqliteWorkerRequest(
         scope,
         { file, statement, replay, run: Boolean(scope) },
-        analystStatementTimeoutMs(options.statementTimeoutMs)
+        analystStatementTimeoutMs(options.statementTimeoutMs, options.env || process.env)
     )
     if (!reply?.ok) throw new AnalystToolError(reply?.message || 'The analyst query failed.', reply?.outcome)
     for (const [token, state] of reply.cursors || []) pageCursors.set(token, state)
@@ -1448,7 +1537,7 @@ async function runSqliteStatement(db, guard, statement, replay) {
 }
 
 // A PostgresUrl credential or CUTTLELY_POSTGRES_URL points at a database the user chose. Every call opens a
-// read-only session with the statement timeout, and results get the same 100-row cap, page line and cursor as
+// read-only session with the statement timeout, and results get the same row cap, page line and cursor as
 // the isolated store. The URL and its password never reach a result, an error or a cursor.
 function urlStoreKey(postgresUrl) {
     return ['url', createHash('sha256').update(String(postgresUrl)).digest('hex')].join('\0')
@@ -1465,8 +1554,8 @@ function urlSecrets(postgresUrl) {
     return secrets
 }
 
-async function queryUrlPostgres(postgresUrl, statement, replay, timeoutMs = ANALYST_STATEMENT_TIMEOUT_MS) {
-    const ms = analystStatementTimeoutMs(timeoutMs)
+async function queryUrlPostgres(postgresUrl, statement, replay, timeoutMs = ANALYST_STATEMENT_TIMEOUT_MS, env = process.env) {
+    const ms = analystStatementTimeoutMs(timeoutMs, env)
     const client = new Client({
         connectionString: postgresUrl,
         application_name: 'cuttlely-analyst',
@@ -1492,16 +1581,18 @@ async function queryUrlPostgres(postgresUrl, statement, replay, timeoutMs = ANAL
 
 export async function queryAnalystUrl(postgresUrl, sqlOrInput, options = {}) {
     const input = sqlOrInput && typeof sqlOrInput === 'object' && !Array.isArray(sqlOrInput) ? sqlOrInput : { sql: sqlOrInput }
+    const env = options.env || process.env
     const pagingBase = {
         scope: callScope(options),
         now: nowOf(options),
         ttl: ttlOf(options),
-        storeKey: urlStoreKey(postgresUrl)
+        storeKey: urlStoreKey(postgresUrl),
+        rowCap: analystRowCap(options.rowCap, env)
     }
     const cursor = clean(input.cursor)
     if (cursor) {
         const replay = replayCursor(cursor, input, pagingBase)
-        return queryUrlPostgres(postgresUrl, replay.plan.statement, replay, options.statementTimeoutMs)
+        return queryUrlPostgres(postgresUrl, replay.plan.statement, replay, options.statementTimeoutMs, options.env || process.env)
     }
     sweepCursors(pagingBase.now)
     const statement = oneSqlStatement(analystSqlText(input))
@@ -1512,12 +1603,13 @@ export async function queryAnalystUrl(postgresUrl, sqlOrInput, options = {}) {
             plan: null,
             paging: { ...pagingBase, statement, page: 1, previousOffset: 0, lastKey: null, cursor: '' }
         },
-        options.statementTimeoutMs
+        options.statementTimeoutMs,
+        options.env || process.env
     )
 }
 
-export function analystUrlToolSpec() {
-    const base = analystToolSpec('postgres')
+export function analystUrlToolSpec(rowCap) {
+    const base = analystToolSpec('postgres', rowCap)
     return {
         ...base,
         description: `Run a read-only SQL query (PostgreSQL). It cannot create or change tables. ${base.description.replace(
@@ -1540,7 +1632,8 @@ function replayCursor(token, input, pagingBase) {
     if (sql && oneSqlStatement(sql) !== oneSqlStatement(state.statement)) throw cursorError(ANALYST_CURSOR_ERRORS.sql)
     const requested = pageNumber(input.page)
     const page = requested == null ? state.page + 1 : requested
-    if (Number.isFinite(state.total) && (page - 1) * ANALYST_ROW_CAP >= state.total) throw cursorError(ANALYST_CURSOR_ERRORS.past)
+    const pageSize = positiveInt(state.pageSize) || pageSizeOf(pagingBase)
+    if (Number.isFinite(state.total) && (page - 1) * pageSize >= state.total) throw cursorError(ANALYST_CURSOR_ERRORS.past)
     return {
         plan: {
             mode: state.mode,
@@ -1554,7 +1647,8 @@ function replayCursor(token, input, pagingBase) {
             scope: state.scope,
             total: state.total,
             page,
-            previousOffset: state.page * ANALYST_ROW_CAP,
+            rowCap: pageSize,
+            previousOffset: state.page * pageSize,
             lastKey: state.lastKey,
             cursor: token,
             statement: state.statement
@@ -1573,14 +1667,15 @@ export function analystSqlText(input) {
     return ''
 }
 
-export function analystToolSpec(engine) {
+export function analystToolSpec(engine, rowCap = analystConfiguredRowCap()) {
     const dialect = engine === 'postgres' ? 'PostgreSQL' : 'SQLite'
+    const cap = positiveInt(rowCap) || ANALYST_ROW_CAP
     const idNote =
         dialect === 'SQLite'
             ? ' Use SQLite. Declare an id column as INTEGER PRIMARY KEY. SERIAL is not a SQLite type, and that id comes back null.'
             : ' Use PostgreSQL.'
     return {
-        description: `Run one SQL statement in the isolated analyst store (${dialect}). Every SQL statement or database question must use this tool, including a statement you expect to be refused or to fail. Do not predict, simulate, or paraphrase a result or error. If this tool refuses or errors, quote that text exactly. Results are capped at 100 rows. A capped result includes a page line that starts with "rows " and a cursor. To fetch another page, pass that cursor and do not send a new statement. page is the 1-based page number. Show the rows and the page line, not the line alone.${idNote} Pass the statement as sql. statement and query are the same field.`,
+        description: `Run one SQL statement in the isolated analyst store (${dialect}). Every SQL statement or database question must use this tool, including a statement you expect to be refused or to fail. Do not predict, simulate, or paraphrase a result or error. If this tool refuses or errors, quote that text exactly. Results are capped at ${cap} rows. A capped result includes a page line that starts with "rows " and a cursor. To fetch another page, pass that cursor and do not send a new statement. page is the 1-based page number. Show the rows and the page line, not the line alone.${idNote} Pass the statement as sql. statement and query are the same field.`,
         schema: {
             type: 'object',
             properties: {
@@ -1627,7 +1722,8 @@ export async function queryAnalyst(sqlOrInput, options = {}) {
         scope: callScope(options),
         now: nowOf(options),
         ttl: ttlOf(options),
-        storeKey: storeKey(env, workspace)
+        storeKey: storeKey(env, workspace),
+        rowCap: analystRowCap(options.rowCap, env)
     }
     const storeOptions = { ...options, workspace }
     const cursor = clean(input.cursor)
@@ -1638,7 +1734,7 @@ export async function queryAnalyst(sqlOrInput, options = {}) {
             const file = assertAnalystSqlite(store.file, env)
             return await querySqliteStopped(file, replay.plan.statement, options, replay)
         }
-        return queryPostgres(store, replay.plan.statement, replay, options.statementTimeoutMs)
+        return queryPostgres(store, replay.plan.statement, replay, options.statementTimeoutMs, env)
     }
     sweepCursors(pagingBase.now)
     const statement = oneSqlStatement(analystSqlText(input))
@@ -1652,5 +1748,5 @@ export async function queryAnalyst(sqlOrInput, options = {}) {
         const file = assertAnalystSqlite(store.file, env)
         return await querySqliteStopped(file, statement, options, replay)
     }
-    return queryPostgres(store, statement, replay, options.statementTimeoutMs)
+    return queryPostgres(store, statement, replay, options.statementTimeoutMs, env)
 }

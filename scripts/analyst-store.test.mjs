@@ -1,18 +1,27 @@
 import assert from 'node:assert/strict'
+import { spawn } from 'node:child_process'
 import { createHash, randomBytes } from 'node:crypto'
 import { createRequire } from 'node:module'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { describe, it } from 'node:test'
-import { fileURLToPath } from 'node:url'
+import { pathToFileURL, fileURLToPath } from 'node:url'
 import { DatabaseSync } from 'node:sqlite'
 import {
     ANALYST_ROLE,
     ANALYST_ROW_CAP,
+    ANALYST_ROW_CAP_MAX,
     ANALYST_STATEMENT_TIMEOUT_MS,
+    ANALYST_STATEMENT_TIMEOUT_MAX_MS,
     ANALYST_TIMEOUT_MESSAGE,
+    analystCallLimits,
+    analystConfiguredRowCap,
+    analystConfiguredTimeoutMs,
+    analystRowCap,
     analystStatementTimeoutMs,
+    analystStatementTimeoutSetting,
+    provisionAnalyst,
     endAnalystRun,
     analystWorkspaceTag,
     ANALYST_SHARING_REFUSED,
@@ -20,7 +29,6 @@ import {
     applicationSqliteFile,
     assertAnalystSqlite,
     oneSqlStatement,
-    provisionAnalyst,
     analystSqlText,
     analystErrorOutcome,
     analystToolSpec,
@@ -40,6 +48,100 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const require = createRequire(path.join(ROOT, 'packages/components/package.json'))
 const CryptoJS = require('crypto-js')
 const { Client } = require('pg')
+
+const STORE_URL = pathToFileURL(path.join(ROOT, 'packages/harness/runtime/analyst-store.mjs')).href
+
+// Several processes provision at the same moment. Each reports whether it could read the legacy row.
+function claimLegacyTogether(dir, workspaces) {
+    const go = path.join(dir, 'go')
+    const legacy = new DatabaseSync(path.join(dir, 'analyst.db'))
+    legacy.exec('CREATE TABLE legacy_notes (body text)')
+    legacy.exec("INSERT INTO legacy_notes (body) VALUES ('kept')")
+    legacy.close()
+    const script = `
+import fs from 'node:fs'
+import { DatabaseSync } from 'node:sqlite'
+import { provisionAnalyst } from ${JSON.stringify(STORE_URL)}
+const workspace = process.env.CLAIM_WORKSPACE
+const dir = process.env.CLAIM_DIR
+const go = process.env.CLAIM_GO
+const env = {
+    DATABASE_TYPE: 'sqlite',
+    DATABASE_PATH: dir,
+    SECRETKEY_PATH: dir + '/secrets',
+    CUTTLELY_ANALYST: 'auto',
+    FLOWISE_SECRETKEY_OVERWRITE: 'analyst-test-key'
+}
+process.stdout.write('READY\\n')
+const started = Date.now()
+while (!fs.existsSync(go)) {
+    if (Date.now() - started > 20000) throw new Error('timed out waiting to start')
+    await new Promise((resolve) => setTimeout(resolve, 5))
+}
+const store = await provisionAnalyst(env, { workspace })
+const db = new DatabaseSync(store.file)
+let rows = []
+let legacyError = ''
+try {
+    rows = db.prepare('SELECT body FROM legacy_notes').all().map((row) => row.body)
+} catch (error) {
+    legacyError = error.message
+}
+db.exec('CREATE TABLE marks (body text)')
+db.prepare('INSERT INTO marks (body) VALUES (?)').run(workspace)
+const marks = db.prepare('SELECT body FROM marks').all().map((row) => row.body)
+db.close()
+process.stdout.write('RESULT ' + JSON.stringify({ workspace, file: store.file, legacy: rows, legacyError, marks }) + '\\n')
+`
+    const children = workspaces.map((workspace) => {
+        const child = spawn(process.execPath, ['--input-type=module', '-e', script], {
+            env: { ...process.env, CLAIM_WORKSPACE: workspace, CLAIM_DIR: dir, CLAIM_GO: go },
+            stdio: ['ignore', 'pipe', 'pipe']
+        })
+        let out = ''
+        let err = ''
+        child.stdout.setEncoding('utf8')
+        child.stderr.setEncoding('utf8')
+        child.stdout.on('data', (chunk) => {
+            out += chunk
+        })
+        child.stderr.on('data', (chunk) => {
+            err += chunk
+        })
+        const ready = new Promise((resolve, reject) => {
+            const timer = setTimeout(() => reject(new Error(`claim child ${workspace} did not start: ${err}`)), 20000)
+            child.stdout.on('data', () => {
+                if (out.includes('READY')) {
+                    clearTimeout(timer)
+                    resolve()
+                }
+            })
+            child.on('exit', (code) => {
+                if (!out.includes('READY')) reject(new Error(`claim child ${workspace} exited ${code} before ready: ${err}\n${out}`))
+            })
+        })
+        const done = new Promise((resolve, reject) => {
+            child.on('error', reject)
+            child.on('exit', (code) => {
+                if (code !== 0) {
+                    reject(new Error(`claim child ${workspace} exited ${code}: ${err}\n${out}`))
+                    return
+                }
+                const line = out.split('\n').find((item) => item.startsWith('RESULT '))
+                if (!line) {
+                    reject(new Error(`claim child ${workspace} returned no result: ${err}\n${out}`))
+                    return
+                }
+                resolve(JSON.parse(line.slice('RESULT '.length)))
+            })
+        })
+        return { ready, done }
+    })
+    return Promise.all(children.map((child) => child.ready)).then(() => {
+        fs.writeFileSync(go, '1')
+        return Promise.all(children.map((child) => child.done))
+    })
+}
 
 function digest(value) {
     return createHash('sha256').update(String(value)).digest('hex')
@@ -346,14 +448,152 @@ describe('analyst sqlite storage', () => {
         }
     })
 
-    it('caps the timeout at 15 seconds', () => {
+    it('caps the timeout at 15 seconds unless the server setting raises it, and never past the hard maximum', () => {
+        const none = {}
         assert.equal(ANALYST_STATEMENT_TIMEOUT_MS, 15000)
-        assert.equal(analystStatementTimeoutMs(undefined), 15000)
-        assert.equal(analystStatementTimeoutMs(0), 15000)
-        assert.equal(analystStatementTimeoutMs('abc'), 15000)
-        assert.equal(analystStatementTimeoutMs(500), 500)
-        assert.equal(analystStatementTimeoutMs(60000), 15000)
-        assert.equal(analystStatementTimeoutMs(600000), 15000)
+        assert.equal(ANALYST_STATEMENT_TIMEOUT_MAX_MS, 120000)
+        assert.equal(analystStatementTimeoutSetting(15000), '15s')
+        assert.equal(analystStatementTimeoutSetting(250), '250ms')
+        assert.equal(analystConfiguredTimeoutMs(none), 15000)
+        assert.equal(analystStatementTimeoutMs(undefined, none), 15000)
+        assert.equal(analystStatementTimeoutMs(0, none), 15000)
+        assert.equal(analystStatementTimeoutMs('abc', none), 15000)
+        assert.equal(analystStatementTimeoutMs(500, none), 500)
+        assert.equal(analystStatementTimeoutMs(60000, none), 15000)
+        assert.equal(analystStatementTimeoutMs(600000, none), 15000)
+        const raised = { CUTTLELY_ANALYST_STATEMENT_TIMEOUT_MS: '60000' }
+        assert.equal(analystConfiguredTimeoutMs(raised), 60000)
+        assert.equal(analystStatementTimeoutMs(undefined, raised), 60000)
+        assert.equal(analystStatementTimeoutMs(500, raised), 500)
+        assert.equal(analystStatementTimeoutMs(90000, raised), 60000)
+        const over = { CUTTLELY_ANALYST_STATEMENT_TIMEOUT_MS: '999999999' }
+        assert.equal(analystConfiguredTimeoutMs(over), ANALYST_STATEMENT_TIMEOUT_MAX_MS)
+        assert.equal(analystStatementTimeoutMs(undefined, over), ANALYST_STATEMENT_TIMEOUT_MAX_MS)
+        assert.equal(analystConfiguredTimeoutMs({ CUTTLELY_ANALYST_STATEMENT_TIMEOUT_MS: '0' }), 15000)
+        assert.equal(analystConfiguredTimeoutMs({ CUTTLELY_ANALYST_STATEMENT_TIMEOUT_MS: 'nope' }), 15000)
+    })
+
+    it('caps rows at 100 unless the server setting changes it, and a node override cannot exceed that', () => {
+        const none = {}
+        assert.equal(ANALYST_ROW_CAP, 100)
+        assert.equal(ANALYST_ROW_CAP_MAX, 1000)
+        assert.equal(analystConfiguredRowCap(none), 100)
+        assert.equal(analystRowCap(undefined, none), 100)
+        assert.equal(analystRowCap(0, none), 100)
+        assert.equal(analystRowCap(40, none), 40)
+        assert.equal(analystRowCap(500, none), 100)
+        const raised = { CUTTLELY_ANALYST_ROW_CAP: '250' }
+        assert.equal(analystConfiguredRowCap(raised), 250)
+        assert.equal(analystRowCap(undefined, raised), 250)
+        assert.equal(analystRowCap(40, raised), 40)
+        assert.equal(analystRowCap(400, raised), 250)
+        assert.equal(analystConfiguredRowCap({ CUTTLELY_ANALYST_ROW_CAP: '5000' }), ANALYST_ROW_CAP_MAX)
+        assert.equal(analystConfiguredRowCap({ CUTTLELY_ANALYST_ROW_CAP: '0' }), 100)
+        assert.deepEqual(analystCallLimits({ rowCap: 40, statementTimeoutMs: 800 }, raised), { rowCap: 40, timeoutMs: 800 })
+        assert.deepEqual(analystCallLimits({ rowCap: 900, statementTimeoutMs: 999999 }, raised), { rowCap: 250, timeoutMs: 15000 })
+        assert.deepEqual(analystCallLimits({}, { CUTTLELY_ANALYST_ROW_CAP: '80', CUTTLELY_ANALYST_STATEMENT_TIMEOUT_MS: '4000' }), {
+            rowCap: 80,
+            timeoutMs: 4000
+        })
+        assert.match(analystToolSpec('sqlite', 25).description, /capped at 25 rows/)
+        assert.match(analystUrlToolSpec(25).description, /capped at 25 rows/)
+        assert.match(analystToolSpec('sqlite', undefined).description, /capped at 100 rows/)
+    })
+
+    it('pages at the server row cap, and a node override can only lower it', async () => {
+        const dir = tempDir()
+        const env = { ...sqliteEnv(dir), CUTTLELY_ANALYST_ROW_CAP: '10' }
+        const sqliteOpen = (file) => new DatabaseSync(file)
+        try {
+            await queryAnalyst('CREATE TABLE nums (n integer)', { env, sqliteOpen })
+            await queryAnalyst(
+                'WITH RECURSIVE c(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM c WHERE n < 25) INSERT INTO nums (n) SELECT n FROM c',
+                { env, sqliteOpen }
+            )
+            const serverPage = await queryAnalyst('SELECT n FROM nums ORDER BY n', { env, sqliteOpen })
+            assert.equal(serverPage.rows.length, 10)
+            assert.equal(serverPage.rows.at(-1).n, 10)
+            assert.match(serverPage.summary, /^rows 1-10 of 25 /)
+            const tighter = await queryAnalyst('SELECT n FROM nums ORDER BY n', { env, sqliteOpen, rowCap: 4 })
+            assert.equal(tighter.rows.length, 4)
+            assert.equal(tighter.rows.at(-1).n, 4)
+            const next = await queryAnalyst({ cursor: tighter.cursor }, { env, sqliteOpen, rowCap: 4 })
+            assert.equal(next.rows[0].n, 5)
+            assert.equal(next.rows.length, 4)
+            const over = await queryAnalyst('SELECT n FROM nums ORDER BY n', { env, sqliteOpen, rowCap: 80 })
+            assert.equal(over.rows.length, 10)
+            assert.equal(over.rows.at(-1).n, 10)
+        } finally {
+            resetAnalystStoreForTests()
+            fs.rmSync(dir, { recursive: true, force: true })
+        }
+    })
+
+    it('stops a statement at the server timeout, including a request that asks for longer', { timeout: 20000 }, async () => {
+        const dir = tempDir()
+        const env = { ...sqliteEnv(dir), CUTTLELY_ANALYST_STATEMENT_TIMEOUT_MS: '300' }
+        const sql = 'WITH RECURSIVE c(x) AS (SELECT 1 UNION ALL SELECT x + 1 FROM c) SELECT count(*) AS n FROM c'
+        try {
+            await assert.rejects(queryAnalyst(sql, { env }), (error) => error.message === ANALYST_TIMEOUT_MESSAGE)
+            await assert.rejects(
+                queryAnalyst(sql, { env, statementTimeoutMs: 60000 }),
+                (error) => error.message === ANALYST_TIMEOUT_MESSAGE
+            )
+        } finally {
+            resetAnalystStoreForTests()
+            fs.rmSync(dir, { recursive: true, force: true })
+        }
+    })
+
+    it('gives a legacy analyst.db to exactly one workspace when several ask at once', { timeout: 120000 }, async () => {
+        const rounds = 5
+        const width = 6
+        for (let round = 0; round < rounds; round += 1) {
+            const dir = tempDir()
+            const names = Array.from({ length: width }, (_, index) => `ws-${round}-${index}`)
+            try {
+                const results = await claimLegacyTogether(dir, names)
+                const winners = results.filter((row) => row.legacy.includes('kept'))
+                assert.equal(winners.length, 1, JSON.stringify(results))
+                const winner = winners[0]
+                assert.equal(path.basename(winner.file), 'analyst.db')
+                assert.equal(fs.readFileSync(`${winner.file}.workspace`, 'utf8').trim(), analystWorkspaceTag(winner.workspace))
+                assert.deepEqual(winner.marks, [winner.workspace])
+                const files = new Set(results.map((row) => row.file))
+                assert.equal(files.size, width)
+                for (const row of results) {
+                    if (row.workspace === winner.workspace) continue
+                    assert.equal(row.legacy.includes('kept'), false)
+                    assert.match(row.legacyError, /no such table/)
+                    assert.deepEqual(row.marks, [row.workspace])
+                    assert.equal(path.basename(row.file).startsWith('analyst-'), true)
+                }
+                const winnerDb = new DatabaseSync(winner.file)
+                assert.deepEqual(
+                    winnerDb
+                        .prepare('SELECT body FROM marks')
+                        .all()
+                        .map((row) => row.body),
+                    [winner.workspace]
+                )
+                winnerDb.close()
+                for (const row of results) {
+                    if (row.workspace === winner.workspace) continue
+                    const loserDb = new DatabaseSync(row.file)
+                    assert.equal(loserDb.prepare("SELECT name FROM sqlite_master WHERE name = 'legacy_notes'").get(), undefined)
+                    assert.deepEqual(
+                        loserDb
+                            .prepare('SELECT body FROM marks')
+                            .all()
+                            .map((entry) => entry.body),
+                        [row.workspace]
+                    )
+                    loserDb.close()
+                }
+            } finally {
+                fs.rmSync(dir, { recursive: true, force: true })
+            }
+        }
     })
 
     it('does not create sqlite storage for another database type', async () => {

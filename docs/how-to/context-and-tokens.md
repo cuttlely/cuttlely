@@ -32,7 +32,7 @@ Ask `baker` what is in the chocolate cake. The menu document comes back with a n
 
 The analyst is a specialist. It is not a separate canvas node. Its database tool is the **QUERY** action on **PostgreSQL MCP**.
 
-A query returns one page of rows. The page is 100 rows. A statement that already asks for fewer rows returns that many. There is no setting that raises the page size. The rows stay in the database. The specialist receives that page, formatted as rows, and a page line when more rows exist. The raw tool payload is not pasted into the prompt.
+A query returns one page of rows. The page is 100 rows unless you change **Row cap** under **Admin** > **Server settings** > **Analyst** (`CUTTLELY_ANALYST_ROW_CAP`, from 1 to 1000). A lower cap puts fewer rows into the specialist's prompt and into the handoff, so that turn carries less context. A statement that already asks for fewer rows returns that many. A PostgreSQL MCP node can set a still lower cap; it cannot raise the page above the server cap. The rows stay in the database. The specialist receives that page, formatted as rows, and a page line when more rows exist. The raw tool payload is not pasted into the prompt.
 
 With 150 Saturday cake orders, the first answer ends like this:
 
