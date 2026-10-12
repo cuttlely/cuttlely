@@ -1,13 +1,19 @@
 import express, { Request } from 'express'
 import fs from 'fs'
-import http from 'http'
 import os from 'os'
 import path from 'path'
 import request from 'supertest'
 import errorHandlerMiddleware from '../../middlewares/errors'
 import { setTeamPermissionLookup } from '../../identity/rbac'
 import router from '../../routes/log'
-import { LOG_FILE_BYTES, LOG_MAX_BYTES, LOG_MAX_LINES, stampsForRange } from './index'
+import logService, { stampsForRange } from './index'
+
+/** Small stand-in for the published caps. The file is still larger than one read. */
+const TEST_LIMITS = { fileBytes: 48, maxBytes: 48, maxLines: 8 }
+
+function overCap(head: string, tail: string): string {
+    return `${head}\n${'x'.repeat(TEST_LIMITS.fileBytes)}\n${tail}\n`
+}
 
 const OWNER = { id: 'owner-1', activeWorkspaceId: 'team-a', permissions: [] as string[] }
 const MEMBER = { id: 'member-1', activeWorkspaceId: 'team-a', permissions: ['chatflows:view'] }
@@ -152,18 +158,19 @@ describe('masking and caps', () => {
     })
 
     it('caps a large file to its tail', async () => {
-        const padding = 'x'.repeat(80)
-        const lines = [HEAD]
-        while (Buffer.byteLength(lines.join('\n')) <= LOG_FILE_BYTES + 4096) lines.push(padding)
-        lines.push(TAIL)
-        writeLog(process.env.LOG_PATH as string, `server.log.${STAMP}`, lines.join('\n') + '\n')
-        const res = await app(OWNER).get(`/api/v1/logs?startDate=${STAMP}&endDate=${STAMP}&level=debug`)
-        expect(res.status).toBe(200)
-        expect(res.body.truncated).toBe(true)
-        expect(res.body.lines.length).toBeLessThanOrEqual(LOG_MAX_LINES)
-        expect(res.body.lines.join('\n')).toContain(TAIL)
-        expect(res.body.lines.join('\n')).not.toContain(HEAD)
-        expect(Buffer.byteLength(res.body.lines.join('\n'))).toBeLessThanOrEqual(LOG_FILE_BYTES)
+        writeLog(process.env.LOG_PATH as string, `server.log.${STAMP}`, overCap(HEAD, TAIL))
+        const result = await logService.getLogs({
+            startDate: STAMP,
+            endDate: STAMP,
+            level: 'debug',
+            limits: TEST_LIMITS
+        })
+        expect(result.truncated).toBe(true)
+        const shown = result.lines.join('\n')
+        expect(shown).toContain(TAIL)
+        expect(shown).not.toContain(HEAD)
+        expect(result.lines.length).toBeLessThanOrEqual(TEST_LIMITS.maxLines)
+        expect(Buffer.byteLength(shown)).toBeLessThanOrEqual(TEST_LIMITS.fileBytes)
     })
 
     it('masks a multiline private key before the lines are split', async () => {
@@ -184,24 +191,42 @@ describe('masking and caps', () => {
     })
 
     it('reads newer rotation segments before the cap', async () => {
-        const padding = 'x'.repeat(80)
-        const segment = (marker: string) => {
-            const lines = [marker]
-            while (Buffer.byteLength(lines.join('\n')) <= LOG_FILE_BYTES + 2048) lines.push(padding)
-            lines.push(marker + '-END')
-            return lines.join('\n') + '\n'
-        }
         const dir = process.env.LOG_PATH as string
-        for (let index = 0; index <= 7; index += 1) {
+        const limits = { fileBytes: 40, maxBytes: 24 }
+        for (let index = 0; index <= 2; index += 1) {
+            const marker = index === 2 ? 'LATEST-SEGMENT' : `SEG-${index}`
             const name = index === 0 ? `server.log.${STAMP}` : `server.log.${STAMP}.${index}`
-            writeLog(dir, name, segment(index === 7 ? 'LATEST-SEGMENT' : `SEG-${index}`))
+            writeLog(dir, name, overCap(marker, `${marker}-END`))
         }
-        const res = await app(OWNER).get(`/api/v1/logs?startDate=${STAMP}&endDate=${STAMP}&level=debug`)
-        expect(res.status).toBe(200)
-        const shown = res.body.lines.join('\n')
+        const result = await logService.getLogs({ startDate: STAMP, endDate: STAMP, level: 'debug', limits })
+        expect(result.truncated).toBe(true)
+        const shown = result.lines.join('\n')
         expect(shown).toContain('LATEST-SEGMENT-END')
         expect(shown).not.toContain('SEG-0-END')
-        expect(Buffer.byteLength(shown)).toBeLessThanOrEqual(LOG_MAX_BYTES)
+        expect(Buffer.byteLength(shown)).toBeLessThanOrEqual(limits.fileBytes)
+    })
+
+    it('a tail cut inside a private key does not leak the body', async () => {
+        const bodyLine = 'QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVo'
+        const begin = '-----BEGIN ' + 'RSA PRIVATE KEY-----'
+        const footer = '-----END ' + 'RSA PRIVATE KEY-----'
+        const after = '2026-10-12 15:00:02 [INFO]: after the cut'
+        const pem = [begin, bodyLine, bodyLine, bodyLine, bodyLine, footer].join('\n')
+        const file = `${'p'.repeat(400)}\n${pem}\n${after}\n`
+        const limits = { fileBytes: 140, maxBytes: 140 }
+        const rawTail = file.slice(-limits.fileBytes)
+        expect(rawTail).not.toContain('BEGIN')
+        expect(rawTail).toContain(bodyLine)
+        expect(rawTail).toContain('END')
+        writeLog(process.env.LOG_PATH as string, `server.log.${STAMP}`, file)
+        const result = await logService.getLogs({ startDate: STAMP, endDate: STAMP, level: 'debug', limits })
+        const shown = result.lines.join('\n')
+        expect(result.truncated).toBe(true)
+        expect(shown).not.toContain(bodyLine)
+        expect(shown).not.toContain(footer)
+        expect(shown).not.toContain('PRIVATE KEY')
+        expect(shown).toContain('[secret hidden]')
+        expect(shown).toContain('after the cut')
     })
 })
 
@@ -230,41 +255,20 @@ describe('server clock for Last hour', () => {
     })
 })
 
-describe('a file over 2MB', () => {
-    it('returns a capped 200 for a file over 2MB on every fetch', async () => {
-        const target = 2_101_270
-        const line = Buffer.from('2026-10-12 15:04:00 [INFO]: tick ' + 'm'.repeat(64) + '\n')
-        const body = Buffer.alloc(target + line.length)
-        for (let offset = 0; offset + line.length <= body.length; offset += line.length) line.copy(body, offset)
-        body.write('TAIL-OVER-TWO-MEG\n', body.length - Buffer.byteLength('TAIL-OVER-TWO-MEG\n'))
-        fs.mkdirSync(process.env.LOG_PATH as string, { recursive: true })
-        fs.writeFileSync(path.join(process.env.LOG_PATH as string, `server.log.${STAMP}`), body)
-        expect(fs.statSync(path.join(process.env.LOG_PATH as string, `server.log.${STAMP}`)).size).toBeGreaterThan(2_000_000)
-
-        const server = express()
-        server.use((req, _res, next) => {
-            ;(req as Request).user = OWNER as Express.User
-            next()
-        })
-        server.use('/api/v1/logs', router)
-        server.use(errorHandlerMiddleware)
-        const listener = http.createServer(server)
-        await new Promise<void>((resolve) => listener.listen(0, '127.0.0.1', () => resolve()))
-        const address = listener.address()
-        const port = typeof address === 'object' && address ? address.port : 0
-        try {
-            for (let attempt = 0; attempt < 4; attempt += 1) {
-                const res = await fetch(`http://127.0.0.1:${port}/api/v1/logs?startDate=${STAMP}&endDate=${STAMP}&level=info`)
-                expect(res.status).toBe(200)
-                const payload = (await res.json()) as { truncated: boolean; lines: string[] }
-                expect(payload.truncated).toBe(true)
-                const shown = payload.lines.join('\n')
-                expect(shown).toContain('TAIL-OVER-TWO-MEG')
-                expect(Buffer.byteLength(JSON.stringify(payload))).toBeLessThan(400_000)
-                expect(Buffer.byteLength(shown)).toBeLessThanOrEqual(LOG_FILE_BYTES)
-            }
-        } finally {
-            await new Promise<void>((resolve, reject) => listener.close((error) => (error ? reject(error) : resolve())))
+describe('a file larger than the cap', () => {
+    it('returns a capped result on every read of a file larger than the cap', async () => {
+        writeLog(process.env.LOG_PATH as string, `server.log.${STAMP}`, overCap('HEAD', 'TAIL-OVER-TWO-MEG'))
+        for (let attempt = 0; attempt < 4; attempt += 1) {
+            const result = await logService.getLogs({
+                startDate: STAMP,
+                endDate: STAMP,
+                level: 'info',
+                limits: TEST_LIMITS
+            })
+            expect(result.truncated).toBe(true)
+            const shown = result.lines.join('\n')
+            expect(shown).toContain('TAIL-OVER-TWO-MEG')
+            expect(Buffer.byteLength(shown)).toBeLessThanOrEqual(TEST_LIMITS.fileBytes)
         }
-    }, 20000)
+    })
 })

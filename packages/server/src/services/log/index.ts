@@ -1,7 +1,7 @@
 import fs from 'fs'
 import path from 'path'
 import { StatusCodes } from 'http-status-codes'
-import { redactSecrets } from '@cuttlely/versioning'
+import { redactSecrets, SECRET_PLACEHOLDER } from '@cuttlely/versioning'
 import { AppError } from '../../errors/appError'
 import config from '../../utils/config'
 
@@ -215,6 +215,26 @@ function trimToBytes(text: string, maxBytes: number): string {
     return newline >= 0 ? sliced.slice(newline + 1) : sliced
 }
 
+const PEM_BEGIN = /-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----/
+const PEM_END = /-----END [A-Z0-9 ]*PRIVATE KEY-----/
+
+/**
+ * A tail cut can start after BEGIN. The body and footer would then have no header for
+ * the redactor to match. Drop that leading partial block through the footer.
+ */
+function hideCutPem(text: string): string {
+    let rest = text
+    while (rest) {
+        const end = PEM_END.exec(rest)
+        if (!end) return rest
+        const begin = PEM_BEGIN.exec(rest)
+        if (begin && begin.index < end.index) return rest
+        const after = rest.slice(end.index + end[0].length).replace(/^\r?\n/, '')
+        rest = after ? `${SECRET_PLACEHOLDER}\n${after}` : SECRET_PLACEHOLDER
+    }
+    return rest
+}
+
 function lineLevel(line: string): string | null {
     const match = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} \[([A-Za-z]+)\]:/.exec(line)
     return match ? match[1].toLowerCase() : null
@@ -235,6 +255,13 @@ export function filterByLevel(lines: string[], minimum: LogLevel): string[] {
     return kept
 }
 
+/** Tests pass a smaller cap. Callers that omit it keep the published limits. */
+export interface LogReadLimits {
+    fileBytes?: number
+    maxBytes?: number
+    maxLines?: number
+}
+
 export interface LogQuery {
     startDate?: string
     endDate?: string
@@ -242,10 +269,18 @@ export interface LogQuery {
     /** Server-local window. When set, startDate and endDate are ignored. */
     range?: string
     now?: Date
+    limits?: LogReadLimits
+}
+
+function takenLimit(value: number | undefined, fallback: number): number {
+    return typeof value === 'number' && Number.isFinite(value) && value > 0 ? Math.floor(value) : fallback
 }
 
 const getLogs = async (query: LogQuery = {}): Promise<LogRead> => {
     const minimum = oneLevel(query.level)
+    const fileBytes = takenLimit(query.limits?.fileBytes, LOG_FILE_BYTES)
+    const maxBytes = takenLimit(query.limits?.maxBytes, LOG_MAX_BYTES)
+    const maxLines = takenLimit(query.limits?.maxLines, LOG_MAX_LINES)
     let startDate = query.startDate
     let endDate = query.endDate
     if (query.range) {
@@ -286,16 +321,17 @@ const getLogs = async (query: LogQuery = {}): Promise<LogRead> => {
     let used = 0
     let truncated = false
     for (const file of files) {
-        if (used >= LOG_MAX_BYTES) {
+        if (used >= maxBytes) {
             truncated = true
             break
         }
-        const allowance = Math.min(LOG_FILE_BYTES, LOG_MAX_BYTES - used)
+        const allowance = Math.min(fileBytes, maxBytes - used)
         const tail = await readTail(file.fullPath, allowance)
         if (tail.capped) truncated = true
-        if (!tail.text) continue
-        parts.push(tail.text)
-        used += Buffer.byteLength(tail.text)
+        const cleaned = hideCutPem(tail.text)
+        if (!cleaned) continue
+        parts.push(cleaned)
+        used += Buffer.byteLength(cleaned)
     }
 
     // Redact the whole window before splitting. A private key spans lines; per-line redaction
@@ -305,8 +341,8 @@ const getLogs = async (query: LogQuery = {}): Promise<LogRead> => {
     text = redactSecrets(text).text
     let lines = text ? text.split('\n') : []
     lines = filterByLevel(lines, minimum)
-    if (lines.length > LOG_MAX_LINES) {
-        lines = lines.slice(-LOG_MAX_LINES)
+    if (lines.length > maxLines) {
+        lines = lines.slice(-maxLines)
         truncated = true
     }
     return { configured: true, lines, truncated }

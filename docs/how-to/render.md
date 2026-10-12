@@ -78,34 +78,34 @@ Model keys are not environment variables here. The Blueprint has no `OPENAI_API_
 
 The app database is Postgres. Cuttlely does not read `DATABASE_URL`. It reads the separate `DATABASE_*` variables, which the Blueprint fills from `cuttlely-db`.
 
-| Variable                               | Blueprint value             | Notes                                                                                                             |
-| -------------------------------------- | --------------------------- | ----------------------------------------------------------------------------------------------------------------- |
-| `PORT`                                 | set by Render               | Don't set it in the file.                                                                                         |
-| `HOST`                                 | `0.0.0.0`                   |                                                                                                                   |
-| `NODE_OPTIONS`                         | `--max-old-space-size=4096` | The runtime heap. The image build uses a larger heap.                                                             |
-| `DATABASE_TYPE`                        | `postgres`                  |                                                                                                                   |
-| `DATABASE_HOST`                        | from `cuttlely-db`          | The internal host.                                                                                                |
-| `DATABASE_PORT`                        | from `cuttlely-db`          | The server's default is `5432` when it's unset.                                                                   |
-| `DATABASE_NAME`                        | from `cuttlely-db`          |                                                                                                                   |
-| `DATABASE_USER`                        | from `cuttlely-db`          |                                                                                                                   |
-| `DATABASE_PASSWORD`                    | from `cuttlely-db`          |                                                                                                                   |
-| `DATABASE_SSL`                         | `false`                     | The internal host doesn't use TLS. An external address would need `true`.                                         |
-| `DATABASE_PATH`                        | `/var/cuttlely/data`        | A directory. App rows are in Postgres. The key files live here.                                                   |
-| `SECRETKEY_PATH`                       | `/var/cuttlely/data`        |                                                                                                                   |
-| `BLOB_STORAGE_PATH`                    | `/var/cuttlely/storage`     | Uploads.                                                                                                          |
-| `STORAGE_TYPE`                         | `local`                     | Files go on the disk.                                                                                             |
-| `CUTTLELY_DATA_DIR`                    | `/var/cuttlely`             | Harness records and version history (`/var/cuttlely/versions`).                                                   |
-| `CUTTLELY_HERMES_HOME`                 | `/var/cuttlely/hermes`      | `HERMES_HOME` matches it.                                                                                         |
-| `CUTTLELY_ETL_DIR`                     | `/var/cuttlely/etl`         | ETL runs, local vector stores, and uploads. See [ETL](./etl.md#settings).                                         |
-| `LOG_PATH`                             | `/var/cuttlely/logs`        | Also shown under **Admin** > **Logs** for an owner or a role with `logs:view`. Secrets in those lines are masked. |
-| `TRUST_PROXY`                          | `1`                         | One Render proxy hop.                                                                                             |
-| `WORKOS_*`, `CUTTLELY_BOOTSTRAP_EMAIL` | `sync: false`               | Entered when you create the Blueprint.                                                                            |
-| `FLOWISE_SECRETKEY_OVERWRITE`          | generated                   | The credential encryption key. Render generates it once and keeps it.                                             |
-| `CUTTLELY_ANALYST`                     | not set                     | See [Analyst database](#analyst-database).                                                                        |
-| `CUTTLELY_POSTGRES_URL`                | not set                     | See [Analyst database](#analyst-database).                                                                        |
-| `CUTTLELY_LOCAL_ADMIN`                 | not set                     | The password form stays off.                                                                                      |
-| `CUTTLELY_VERSIONS`                    | not set                     | Version history is on. Set `off` on the **Environment** page to turn it off.                                      |
-| `CUTTLELY_DRAFTS`                      | not set                     | Drafts are on. Set `off` on the **Environment** page to save to Live.                                             |
+| Variable                               | Blueprint value             | Notes                                                                                                                                                            |
+| -------------------------------------- | --------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `PORT`                                 | set by Render               | Don't set it in the file.                                                                                                                                        |
+| `HOST`                                 | `0.0.0.0`                   |                                                                                                                                                                  |
+| `NODE_OPTIONS`                         | `--max-old-space-size=4096` | The runtime heap. The image build uses a larger heap.                                                                                                            |
+| `DATABASE_TYPE`                        | `postgres`                  |                                                                                                                                                                  |
+| `DATABASE_HOST`                        | from `cuttlely-db`          | The internal host.                                                                                                                                               |
+| `DATABASE_PORT`                        | from `cuttlely-db`          | The server's default is `5432` when it's unset.                                                                                                                  |
+| `DATABASE_NAME`                        | from `cuttlely-db`          |                                                                                                                                                                  |
+| `DATABASE_USER`                        | from `cuttlely-db`          |                                                                                                                                                                  |
+| `DATABASE_PASSWORD`                    | from `cuttlely-db`          |                                                                                                                                                                  |
+| `DATABASE_SSL`                         | `false`                     | The internal host doesn't use TLS. An external address would need `true`.                                                                                        |
+| `DATABASE_PATH`                        | `/var/cuttlely/data`        | A directory. App rows are in Postgres. The key files live here.                                                                                                  |
+| `SECRETKEY_PATH`                       | `/var/cuttlely/data`        |                                                                                                                                                                  |
+| `BLOB_STORAGE_PATH`                    | `/var/cuttlely/storage`     | Uploads.                                                                                                                                                         |
+| `STORAGE_TYPE`                         | `local`                     | Files go on the disk.                                                                                                                                            |
+| `CUTTLELY_DATA_DIR`                    | `/var/cuttlely`             | Harness records and version history (`/var/cuttlely/versions`).                                                                                                  |
+| `CUTTLELY_HERMES_HOME`                 | `/var/cuttlely/hermes`      | `HERMES_HOME` matches it.                                                                                                                                        |
+| `CUTTLELY_ETL_DIR`                     | `/var/cuttlely/etl`         | ETL runs, local vector stores, and uploads. See [ETL](./etl.md#settings).                                                                                        |
+| `LOG_PATH`                             | `/var/cuttlely/logs`        | Also shown under **Admin** > **Logs** for an owner or a role with `logs:view`. Presets use a range token on the server clock. Redaction runs on the joined text. |
+| `TRUST_PROXY`                          | `1`                         | One Render proxy hop.                                                                                                                                            |
+| `WORKOS_*`, `CUTTLELY_BOOTSTRAP_EMAIL` | `sync: false`               | Entered when you create the Blueprint.                                                                                                                           |
+| `FLOWISE_SECRETKEY_OVERWRITE`          | generated                   | The credential encryption key. Render generates it once and keeps it.                                                                                            |
+| `CUTTLELY_ANALYST`                     | not set                     | See [Analyst database](#analyst-database).                                                                                                                       |
+| `CUTTLELY_POSTGRES_URL`                | not set                     | See [Analyst database](#analyst-database).                                                                                                                       |
+| `CUTTLELY_LOCAL_ADMIN`                 | not set                     | The password form stays off.                                                                                                                                     |
+| `CUTTLELY_VERSIONS`                    | not set                     | Version history is on. Set `off` on the **Environment** page to turn it off.                                                                                     |
+| `CUTTLELY_DRAFTS`                      | not set                     | Drafts are on. Set `off` on the **Environment** page to save to Live.                                                                                            |
 
 A Blueprint sync sets every variable that has a value in the file back to that value. Change those in `render.yaml`. Variables the file doesn't list, such as `CUTTLELY_ANALYST`, stay as you set them in the Dashboard.
 
