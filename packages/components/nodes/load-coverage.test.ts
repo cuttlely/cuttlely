@@ -42,6 +42,15 @@ type Loaded = { nodeClass?: new () => Record<string, any> }
 type CredentialModule = { credClass?: new () => Record<string, any> }
 
 const outbound: string[] = []
+const BROAD_INIT_SKIP = 'init needs a service, a file, or another node'
+
+const originalHttpRequest = http.request
+const originalHttpGet = http.get
+const originalHttpsRequest = https.request
+const originalHttpsGet = https.get
+const originalNetConnect = net.connect
+const originalTlsConnect = tls.connect
+const originalFetch = globalThis.fetch
 
 function blocked(kind: string) {
     return () => {
@@ -52,13 +61,25 @@ function blocked(kind: string) {
     }
 }
 
-http.request = blocked('http.request') as typeof http.request
-http.get = blocked('http.get') as typeof http.get
-https.request = blocked('https.request') as typeof https.request
-https.get = blocked('https.get') as typeof https.get
-net.connect = blocked('net.connect') as typeof net.connect
-tls.connect = blocked('tls.connect') as typeof tls.connect
-globalThis.fetch = blocked('fetch') as typeof fetch
+function installOutboundBlock() {
+    http.request = blocked('http.request') as typeof http.request
+    http.get = blocked('http.get') as typeof http.get
+    https.request = blocked('https.request') as typeof https.request
+    https.get = blocked('https.get') as typeof https.get
+    net.connect = blocked('net.connect') as typeof net.connect
+    tls.connect = blocked('tls.connect') as typeof tls.connect
+    globalThis.fetch = blocked('fetch') as typeof fetch
+}
+
+function restoreOutbound() {
+    http.request = originalHttpRequest
+    http.get = originalHttpGet
+    https.request = originalHttpsRequest
+    https.get = originalHttpsGet
+    net.connect = originalNetConnect
+    tls.connect = originalTlsConnect
+    globalThis.fetch = originalFetch
+}
 
 const load = require as (id: string) => Loaded
 const loadCredential = require as (id: string) => CredentialModule
@@ -163,8 +184,7 @@ function initSkipReason(instance: Record<string, any>, source: string): string {
         return 'init reaches the network'
     if (/getVars\s*\(|appDataSource|executeJavaScriptCode|createCodeExecutionSandbox/.test(body))
         return 'init runs caller code or reads the database'
-    if (!LOCAL_INIT_CATEGORIES.has(String(instance.category)) && !LOCAL_INIT_NAMES.has(String(instance.name)))
-        return 'init needs a service, a file, or another node'
+    if (!LOCAL_INIT_CATEGORIES.has(String(instance.category)) && !LOCAL_INIT_NAMES.has(String(instance.name))) return BROAD_INIT_SKIP
     return ''
 }
 
@@ -212,6 +232,14 @@ const initOptions = {
 jest.setTimeout(60000)
 
 describe('node and credential load coverage', () => {
+    beforeAll(() => {
+        installOutboundBlock()
+    })
+
+    afterAll(() => {
+        restoreOutbound()
+    })
+
     it('loads every catalog node and credential class without a network call', async () => {
         const started = Date.now()
         const problems: Problem[] = []
@@ -347,7 +375,9 @@ describe('node and credential load coverage', () => {
         for (const skipEntry of skips) skipCounts.set(skipEntry.reason, (skipCounts.get(skipEntry.reason) || 0) + 1)
         const skipSummary = [...skipCounts.entries()].map(([reason, count]) => `${reason}=${count}`).join(', ')
         const summary = `loaded ${loaded} nodes, ${credentialClasses.size} credentials, inited ${inited.length}, skipped ${skips.length} (${skipSummary}), outbound ${outbound.length}, ${elapsed}ms, tiers core=${tierTotals.core} supported=${tierTotals.supported} legacy=${tierTotals.legacy} hidden=${tierTotals.hidden}`
+        const broadSkips = skips.filter((entry) => entry.reason === BROAD_INIT_SKIP).map((entry) => entry.name)
         process.stdout.write(`${summary}\n`)
+        process.stdout.write(`broad skips (${BROAD_INIT_SKIP}=${broadSkips.length}): ${broadSkips.join(', ')}\n`)
         expect({ problems, elapsedUnder60s: elapsed < 60000, summary }).toEqual({
             problems: [],
             elapsedUnder60s: true,
