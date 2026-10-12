@@ -66,7 +66,7 @@ Errors come back in plain words, never with a secret in them. Model keys themsel
 
 ## Analyst limits
 
-**Analyst** also sets how much one query may return and how long it may run. Both apply the next time the server starts. A host value above the maximum is treated as the maximum.
+**Analyst** also sets how much one query may return and how long it may run. Both apply the next time the server starts. A host value above the maximum is treated as the maximum. A query timeout below 1 second is raised to 1 second. Zero, a negative number, or text that is not a number counts as unset, so the default applies, and the server logs that once.
 
 | Setting           | Variable                                | Default    | Range            |
 | ----------------- | --------------------------------------- | ---------- | ---------------- |

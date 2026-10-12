@@ -22,6 +22,7 @@ import {
     analystStatementTimeoutMs,
     analystStatementTimeoutSetting,
     provisionAnalyst,
+    resetAnalystLimitWarningsForTests,
     endAnalystRun,
     analystWorkspaceTag,
     ANALYST_SHARING_REFUSED,
@@ -41,6 +42,8 @@ import {
     rowPageSummary
 } from './analyst-store.mjs'
 import { analystPageRequest, parseSimpleSelect } from './analyst-page.mjs'
+import { presentAnalystToolResult } from '../packages/harness/context.mjs'
+import { analystChipRows } from '../packages/harness/trace.mjs'
 import { queryAnalyst as runtimeQueryAnalyst } from '../packages/harness/runtime/analyst-store.mjs'
 import { analystPageRequest as runtimePageRequest } from '../packages/harness/runtime/analyst-page.mjs'
 
@@ -471,6 +474,42 @@ describe('analyst sqlite storage', () => {
         assert.equal(analystStatementTimeoutMs(undefined, over), ANALYST_STATEMENT_TIMEOUT_MAX_MS)
         assert.equal(analystConfiguredTimeoutMs({ CUTTLELY_ANALYST_STATEMENT_TIMEOUT_MS: '0' }), 15000)
         assert.equal(analystConfiguredTimeoutMs({ CUTTLELY_ANALYST_STATEMENT_TIMEOUT_MS: 'nope' }), 15000)
+        assert.equal(analystConfiguredTimeoutMs({ CUTTLELY_ANALYST_STATEMENT_TIMEOUT_MS: '1' }), 1000)
+        assert.equal(analystConfiguredTimeoutMs({ CUTTLELY_ANALYST_STATEMENT_TIMEOUT_MS: '999' }), 1000)
+    })
+
+    it('warns once when a host limit is unset-shaped, and raises a short timeout to one second', () => {
+        resetAnalystLimitWarningsForTests()
+        const warnings = []
+        const original = console.warn
+        console.warn = (message) => warnings.push(String(message))
+        try {
+            assert.equal(analystConfiguredRowCap({ CUTTLELY_ANALYST_ROW_CAP: '0' }), 100)
+            assert.equal(analystConfiguredRowCap({ CUTTLELY_ANALYST_ROW_CAP: '0' }), 100)
+            assert.equal(analystConfiguredRowCap({ CUTTLELY_ANALYST_ROW_CAP: '-4' }), 100)
+            assert.equal(analystConfiguredRowCap({ CUTTLELY_ANALYST_ROW_CAP: 'nope' }), 100)
+            assert.equal(analystConfiguredRowCap({}), 100)
+            assert.equal(analystConfiguredTimeoutMs({ CUTTLELY_ANALYST_STATEMENT_TIMEOUT_MS: '0' }), 15000)
+            assert.equal(analystConfiguredTimeoutMs({ CUTTLELY_ANALYST_STATEMENT_TIMEOUT_MS: '-8' }), 15000)
+            assert.equal(analystConfiguredTimeoutMs({ CUTTLELY_ANALYST_STATEMENT_TIMEOUT_MS: 'abc' }), 15000)
+            assert.equal(analystConfiguredTimeoutMs({ CUTTLELY_ANALYST_STATEMENT_TIMEOUT_MS: '1' }), 1000)
+            assert.equal(analystConfiguredTimeoutMs({ CUTTLELY_ANALYST_STATEMENT_TIMEOUT_MS: '1' }), 1000)
+            assert.equal(analystConfiguredTimeoutMs({ CUTTLELY_ANALYST_STATEMENT_TIMEOUT_MS: '999' }), 1000)
+            assert.equal(analystConfiguredTimeoutMs({}), 15000)
+        } finally {
+            console.warn = original
+        }
+        const rowZero = warnings.filter((message) => message.includes('row cap') && message.includes('"0"'))
+        assert.equal(rowZero.length, 1)
+        assert.equal(warnings.filter((message) => message.includes('row cap') && message.includes('"-4"')).length, 1)
+        assert.equal(warnings.filter((message) => message.includes('row cap') && message.includes('"nope"')).length, 1)
+        assert.equal(warnings.filter((message) => message.includes('query timeout') && message.includes('"0"')).length, 1)
+        assert.equal(warnings.filter((message) => message.includes('query timeout') && message.includes('"1"')).length, 1)
+        assert.equal(
+            warnings.some((message) => message.includes('below 1 second')),
+            true
+        )
+        assert.equal(warnings.filter((message) => message.includes('""')).length, 0)
     })
 
     it('caps rows at 100 unless the server setting changes it, and a node override cannot exceed that', () => {
@@ -529,9 +568,103 @@ describe('analyst sqlite storage', () => {
         }
     })
 
+    it('pages a 600-row table at a cap of 250 once each, and the run card count matches', async () => {
+        const dir = tempDir()
+        const env = { ...sqliteEnv(dir), CUTTLELY_ANALYST_ROW_CAP: '250' }
+        const sqliteOpen = (file) => new DatabaseSync(file)
+        const scope = 'cap-250'
+        try {
+            await queryAnalyst('CREATE TABLE nums (n INTEGER PRIMARY KEY)', { env, sqliteOpen, scope })
+            await queryAnalyst(
+                'WITH RECURSIVE c(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM c WHERE n < 600) INSERT INTO nums (n) SELECT n FROM c',
+                { env, sqliteOpen, scope }
+            )
+            const seen = []
+            const cardCounts = []
+            let page = await queryAnalyst('SELECT n FROM nums ORDER BY n', { env, sqliteOpen, scope })
+            let guard = 0
+            while (page) {
+                guard += 1
+                assert.ok(guard < 8)
+                const lines = presentAnalystToolResult(page)
+                    .split('\n')
+                    .filter((line) => line.startsWith('n:'))
+                const card = analystChipRows({
+                    name: 'mcp__analyst__query',
+                    status: 'done',
+                    detail: JSON.stringify({ result: page })
+                })
+                assert.equal(lines.length, page.rows.length)
+                assert.equal(card.rows.length, page.rows.length)
+                cardCounts.push(card.rows.length)
+                for (const row of page.rows) seen.push(row.n)
+                const last = typeof page.summary === 'string' && page.summary.includes('last page')
+                if (!page.cursor || last) break
+                page = await queryAnalyst({ cursor: page.cursor }, { env, sqliteOpen, scope })
+            }
+            assert.deepEqual(
+                seen,
+                Array.from({ length: 600 }, (_, index) => index + 1)
+            )
+            assert.deepEqual(cardCounts, [250, 250, 100])
+        } finally {
+            resetAnalystStoreForTests()
+            fs.rmSync(dir, { recursive: true, force: true })
+        }
+    })
+
+    it('advances the cursor only by the rows that fit the handoff budget', async () => {
+        const dir = tempDir()
+        const env = { ...sqliteEnv(dir), CUTTLELY_ANALYST_ROW_CAP: '250' }
+        const sqliteOpen = (file) => new DatabaseSync(file)
+        const scope = 'wide-page'
+        const note = 'n'.repeat(400)
+        try {
+            await queryAnalyst('CREATE TABLE wide (n INTEGER PRIMARY KEY, note TEXT)', { env, sqliteOpen, scope })
+            await queryAnalyst(
+                `WITH RECURSIVE c(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM c WHERE n < 40) INSERT INTO wide (n, note) SELECT n, '${note}' FROM c`,
+                { env, sqliteOpen, scope }
+            )
+            const seen = []
+            let page = await queryAnalyst('SELECT n, note FROM wide ORDER BY n', { env, sqliteOpen, scope })
+            let guard = 0
+            let previousEnd = 0
+            while (page) {
+                guard += 1
+                assert.ok(guard < 8)
+                assert.ok(page.rows.length < 250)
+                const lines = presentAnalystToolResult(page)
+                    .split('\n')
+                    .filter((line) => line.startsWith('n:'))
+                const card = analystChipRows({
+                    name: 'mcp__analyst__query',
+                    status: 'done',
+                    detail: JSON.stringify({ result: page })
+                })
+                assert.equal(lines.length, page.rows.length)
+                assert.equal(card.rows.length, page.rows.length)
+                assert.equal(page.rows[0].n, previousEnd + 1)
+                previousEnd = page.rows.at(-1).n
+                for (const row of page.rows) seen.push(row.n)
+                const last = typeof page.summary === 'string' && page.summary.includes('last page')
+                if (!page.cursor || last) break
+                page = await queryAnalyst({ cursor: page.cursor }, { env, sqliteOpen, scope })
+            }
+            assert.ok(seen.length === 40)
+            assert.ok(guard > 1)
+            assert.deepEqual(
+                seen,
+                Array.from({ length: 40 }, (_, index) => index + 1)
+            )
+        } finally {
+            resetAnalystStoreForTests()
+            fs.rmSync(dir, { recursive: true, force: true })
+        }
+    })
+
     it('stops a statement at the server timeout, including a request that asks for longer', { timeout: 20000 }, async () => {
         const dir = tempDir()
-        const env = { ...sqliteEnv(dir), CUTTLELY_ANALYST_STATEMENT_TIMEOUT_MS: '300' }
+        const env = { ...sqliteEnv(dir), CUTTLELY_ANALYST_STATEMENT_TIMEOUT_MS: '1000' }
         const sql = 'WITH RECURSIVE c(x) AS (SELECT 1 UNION ALL SELECT x + 1 FROM c) SELECT count(*) AS n FROM c'
         try {
             await assert.rejects(queryAnalyst(sql, { env }), (error) => error.message === ANALYST_TIMEOUT_MESSAGE)

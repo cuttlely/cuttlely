@@ -24,6 +24,7 @@ import {
     stripPageColumns
 } from './analyst-page.mjs'
 import { encryptionKeyConflict, encryptionKeyOverwrite } from '../../../scripts/setting-alias.cjs'
+import { analystShownRows } from '../context.mjs'
 
 // Repo root. This module lives in packages/harness/runtime/.
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..')
@@ -52,18 +53,67 @@ function positiveInt(value) {
     return Number.isFinite(n) && n > 0 ? n : null
 }
 
-// The admin setting is the ceiling. Unset or unusable values keep today's default. A host value above the
-// hard maximum is brought down to it, the same way the settings page refuses that value.
+// Blank is unset. 0, a negative number, and text that is not a number are also unset, and each distinct
+// bad value is logged once. A timeout below one second is raised to one second, matching the settings page.
+const ANALYST_TIMEOUT_MIN_MS = 1000
+const analystLimitWarnings = new Set()
+
+export function resetAnalystLimitWarningsForTests() {
+    analystLimitWarnings.clear()
+}
+
+function warnAnalystLimit(name, raw, message) {
+    const shown = String(raw).replace(/\s+/g, ' ').slice(0, 80)
+    const key = `${name}:${shown}`
+    if (analystLimitWarnings.has(key)) return
+    analystLimitWarnings.add(key)
+    console.warn(message)
+}
+
+function hostLimit(raw) {
+    if (raw == null || String(raw).trim() === '') return { kind: 'unset' }
+    const text = String(raw).trim()
+    const n = Math.floor(Number(text))
+    if (!Number.isFinite(n)) return { kind: 'bad', raw: text }
+    return { kind: 'number', n, raw: text }
+}
+
+// The admin setting is the ceiling. Unset keeps today's default. A host value above the hard maximum is
+// brought down to it, the same way the settings page refuses that value.
 export function analystConfiguredRowCap(env = process.env) {
-    const n = positiveInt(env?.CUTTLELY_ANALYST_ROW_CAP)
-    if (n == null) return ANALYST_ROW_CAP
-    return Math.min(n, ANALYST_ROW_CAP_MAX)
+    const parsed = hostLimit(env?.CUTTLELY_ANALYST_ROW_CAP)
+    if (parsed.kind === 'unset') return ANALYST_ROW_CAP
+    if (parsed.kind === 'bad' || parsed.n <= 0) {
+        warnAnalystLimit(
+            'row cap',
+            parsed.raw,
+            `Analyst row cap "${parsed.raw}" is not used. The default of ${ANALYST_ROW_CAP} rows applies.`
+        )
+        return ANALYST_ROW_CAP
+    }
+    return Math.min(parsed.n, ANALYST_ROW_CAP_MAX)
 }
 
 export function analystConfiguredTimeoutMs(env = process.env) {
-    const n = positiveInt(env?.CUTTLELY_ANALYST_STATEMENT_TIMEOUT_MS)
-    if (n == null) return ANALYST_STATEMENT_TIMEOUT_MS
-    return Math.min(n, ANALYST_STATEMENT_TIMEOUT_MAX_MS)
+    const parsed = hostLimit(env?.CUTTLELY_ANALYST_STATEMENT_TIMEOUT_MS)
+    if (parsed.kind === 'unset') return ANALYST_STATEMENT_TIMEOUT_MS
+    if (parsed.kind === 'bad' || parsed.n <= 0) {
+        warnAnalystLimit(
+            'query timeout',
+            parsed.raw,
+            `Analyst query timeout "${parsed.raw}" is not used. The default of ${ANALYST_STATEMENT_TIMEOUT_MS} ms applies.`
+        )
+        return ANALYST_STATEMENT_TIMEOUT_MS
+    }
+    if (parsed.n < ANALYST_TIMEOUT_MIN_MS) {
+        warnAnalystLimit(
+            'query timeout floor',
+            parsed.raw,
+            `Analyst query timeout "${parsed.raw}" ms is below 1 second. Using ${ANALYST_TIMEOUT_MIN_MS} ms.`
+        )
+        return ANALYST_TIMEOUT_MIN_MS
+    }
+    return Math.min(parsed.n, ANALYST_STATEMENT_TIMEOUT_MAX_MS)
 }
 
 // A node or a single call may ask for fewer rows. It cannot ask for more than the admin ceiling.
@@ -904,10 +954,12 @@ function shapeResult(result, paging = null) {
     const rows = Array.isArray(result.rows) ? result.rows : []
     const pageSize = pageSizeOf(paging)
     if (rows.length > 0 || result.command === 'SELECT' || result.command === 'SHOW' || result.command === 'EXPLAIN') {
-        if (paging && rows.length > pageSize) {
+        const capped = rows.slice(0, pageSize)
+        const shown = analystShownRows(capped.map((row) => stripPageColumns(row)))
+        if (paging && (rows.length > pageSize || shown.length < capped.length)) {
             return finishPage(
                 rows.slice(0, pageSize + 1),
-                { ...paging, page: 1, total: rows.length, rowCap: pageSize },
+                { ...paging, page: 1, total: rows.length, rowCap: pageSize, offset: 0 },
                 {
                     mode: 'buffer',
                     statement: paging.statement,
@@ -1056,21 +1108,29 @@ async function countPlan(runner, plan) {
     return countResult(runner, plan?.statement)
 }
 
+function pageStartOffset(paging, pageSize) {
+    return Number.isInteger(paging.offset) ? paging.offset : Math.max(0, (paging.page - 1) * pageSize)
+}
+
 function finishPage(rawRows, paging, plan) {
     const pageSize = pageSizeOf(paging)
-    const more = rawRows.length > pageSize
-    const keptRaw = rawRows.slice(0, pageSize)
-    const described = describeAnalystPage(keptRaw.length, {
+    const startOffset = pageStartOffset(paging, pageSize)
+    const capped = rawRows.slice(0, pageSize)
+    const moreInFetch = rawRows.length > pageSize
+    const stripped = capped.map((row) => stripPageColumns(row))
+    const shown = analystShownRows(stripped)
+    const more = moreInFetch || shown.length < stripped.length
+    const described = describeAnalystPage(shown.length, {
         page: paging.page,
         pageSize,
         total: paging.total,
-        more
+        more,
+        startOffset
     })
-    const rows = keptRaw.map((row) => stripPageColumns(row))
-    const shaped = { rows, truncated: described.truncated }
+    const shaped = { rows: shown, truncated: described.truncated }
     if (described.summary) shaped.summary = described.summary
     if (!described.multi) return shaped
-    const last = keptRaw.at(-1)
+    const last = capped[shown.length - 1]
     const lastKey = plan.mode === 'keyset' && last ? plan.keys.map((key) => pageKeyValue(last, key)) : null
     const usableKey = lastKey && lastKey.every((value) => value != null)
     const state = {
@@ -1084,6 +1144,7 @@ function finishPage(rawRows, paging, plan) {
         total: paging.total,
         page: paging.page,
         pageSize,
+        nextOffset: startOffset + shown.length,
         lastKey: usableKey ? lastKey : null,
         expiresAt: paging.now + paging.ttl
     }
@@ -1095,7 +1156,7 @@ function finishPage(rawRows, paging, plan) {
 async function readSelectPage(runner, plan, paging) {
     const pageSize = pageSizeOf(paging)
     const limit = pageSize + 1
-    const offset = (paging.page - 1) * pageSize
+    const offset = pageStartOffset(paging, pageSize)
     if (plan.mode === 'buffer') {
         const raw = (plan.rows || []).slice(offset, offset + limit)
         if (!raw.length && paging.page > 1) throw cursorError(ANALYST_CURSOR_ERRORS.past)
@@ -1631,9 +1692,11 @@ function replayCursor(token, input, pagingBase) {
     const sql = analystSqlText(input)
     if (sql && oneSqlStatement(sql) !== oneSqlStatement(state.statement)) throw cursorError(ANALYST_CURSOR_ERRORS.sql)
     const requested = pageNumber(input.page)
-    const page = requested == null ? state.page + 1 : requested
     const pageSize = positiveInt(state.pageSize) || pageSizeOf(pagingBase)
-    if (Number.isFinite(state.total) && (page - 1) * pageSize >= state.total) throw cursorError(ANALYST_CURSOR_ERRORS.past)
+    const nextOffset = Number.isInteger(state.nextOffset) ? state.nextOffset : state.page * pageSize
+    const page = requested == null ? state.page + 1 : requested
+    const offset = requested == null || page === state.page + 1 ? nextOffset : (page - 1) * pageSize
+    if (Number.isFinite(state.total) && offset >= state.total) throw cursorError(ANALYST_CURSOR_ERRORS.past)
     return {
         plan: {
             mode: state.mode,
@@ -1647,8 +1710,9 @@ function replayCursor(token, input, pagingBase) {
             scope: state.scope,
             total: state.total,
             page,
+            offset,
             rowCap: pageSize,
-            previousOffset: state.page * pageSize,
+            previousOffset: nextOffset,
             lastKey: state.lastKey,
             cursor: token,
             statement: state.statement

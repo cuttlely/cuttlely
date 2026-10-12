@@ -375,14 +375,23 @@ export function pageKeyValue(row, key) {
 
 // `more` is the extra row from LIMIT pageSize+1. A count that is larger than
 // the rows in hand does not invent another page or a cursor.
-export function describeAnalystPage(keptCount, { page, pageSize, total, more }) {
+export function describeAnalystPage(keptCount, { page, pageSize, total, more, startOffset }) {
     if (!keptCount || (!more && page <= 1)) return { summary: '', truncated: false, multi: false }
-    const start = (page - 1) * pageSize + 1
+    const uniformStart = (page - 1) * pageSize
+    const startBase = Number.isInteger(startOffset) ? startOffset : uniformStart
+    const start = startBase + 1
     const end = start + keptCount - 1
     const fetchedThrough = end + (more ? 1 : 0)
     let known = Number.isFinite(total) ? total : null
-    if (known != null && (known < fetchedThrough || (more && known <= pageSize))) known = null
-    const pages = !more ? page : known == null ? null : Math.max(page + 1, Math.ceil(known / pageSize))
+    if (known != null && (known < fetchedThrough || (more && known <= pageSize && startBase === 0))) known = null
+    const fullPage = startBase === uniformStart && keptCount === pageSize
+    const pages = !more
+        ? page
+        : known == null
+        ? null
+        : fullPage
+        ? Math.max(page + 1, Math.ceil(known / pageSize))
+        : page + Math.ceil((known - end) / pageSize)
     return {
         summary: rowPageSummary({
             start,
