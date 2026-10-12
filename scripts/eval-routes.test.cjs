@@ -88,6 +88,7 @@ const { EvaluationRun } = serverRequire('./src/database/entities/EvaluationRun.t
 const { Credential } = serverRequire('./src/database/entities/Credential.ts')
 const { Assistant } = serverRequire('./src/database/entities/Assistant.ts')
 const { ChatFlow } = serverRequire('./src/database/entities/ChatFlow.ts')
+const { WorkspaceShared } = serverRequire('./src/database/entities/identity/WorkspaceShared.ts')
 
 Module._load = originalLoad
 
@@ -102,7 +103,8 @@ const ROUND_TRIP_ENTITIES = [
     EvaluationRun,
     Credential,
     Assistant,
-    ChatFlow
+    ChatFlow,
+    WorkspaceShared
 ]
 
 const USER = '11111111-1111-4111-8111-111111111111'
@@ -683,6 +685,134 @@ describe('evaluation routes', () => {
             const hiddenAgent = await post([agent.id])
             assert.equal(hiddenAgent.status, 404, JSON.stringify(hiddenAgent.body))
             assert.equal(await dataSource.getRepository(Evaluation).count(), 0)
+        } finally {
+            asOwner()
+            await cleanup()
+        }
+    })
+
+    it('decrypts an owned or shared credential and refuses one from an unrelated workspace', async () => {
+        const { dataSource, cleanup } = await openSqlite()
+        const previousKey = process.env.CUTTLELY_SECRETKEY_OVERWRITE
+        const previousAlias = process.env.FLOWISE_SECRETKEY_OVERWRITE
+        process.env.CUTTLELY_SECRETKEY_OVERWRITE = 'cuttlely-test-credential-key'
+        delete process.env.FLOWISE_SECRETKEY_OVERWRITE
+        try {
+            const { AES } = serverRequire('crypto-js')
+            const { getCredentialData } = serverRequire('../components/src/utils.ts')
+            const seal = (secret) =>
+                AES.encrypt(JSON.stringify({ openAIApiKey: secret }), process.env.CUTTLELY_SECRETKEY_OVERWRITE).toString()
+            await dataSource.getRepository(Workspace).save({
+                id: WORKSPACE_B,
+                name: 'Other Team',
+                organizationId: ORG,
+                createdBy: USER,
+                updatedBy: USER
+            })
+            const WORKSPACE_C = '99999999-9999-4999-8999-999999999999'
+            await dataSource.getRepository(Workspace).save({
+                id: WORKSPACE_C,
+                name: 'Unrelated Team',
+                organizationId: ORG,
+                createdBy: USER,
+                updatedBy: USER
+            })
+            const owned = await dataSource.getRepository(Credential).save({
+                name: 'Owned',
+                credentialName: 'openAIApi',
+                encryptedData: seal('owned-secret'),
+                workspaceId: WORKSPACE
+            })
+            const shared = await dataSource.getRepository(Credential).save({
+                name: 'Shared',
+                credentialName: 'openAIApi',
+                encryptedData: seal('shared-secret'),
+                workspaceId: WORKSPACE_B
+            })
+            await dataSource.getRepository(WorkspaceShared).save({
+                workspaceId: WORKSPACE,
+                sharedItemId: shared.id,
+                itemType: 'credential'
+            })
+            const unrelated = await dataSource.getRepository(Credential).save({
+                name: 'Unrelated',
+                credentialName: 'openAIApi',
+                encryptedData: seal('unrelated-secret'),
+                workspaceId: WORKSPACE_C
+            })
+            const options = (workspaceId) => ({
+                appDataSource: dataSource,
+                databaseEntities: { Credential },
+                workspaceId
+            })
+            assert.equal((await getCredentialData(owned.id, options(WORKSPACE))).openAIApiKey, 'owned-secret')
+            assert.equal((await getCredentialData(shared.id, options(WORKSPACE))).openAIApiKey, 'shared-secret')
+            await assert.rejects(() => getCredentialData(unrelated.id, options(WORKSPACE)), /not found/)
+        } finally {
+            if (previousKey === undefined) delete process.env.CUTTLELY_SECRETKEY_OVERWRITE
+            else process.env.CUTTLELY_SECRETKEY_OVERWRITE = previousKey
+            if (previousAlias === undefined) delete process.env.FLOWISE_SECRETKEY_OVERWRITE
+            else process.env.FLOWISE_SECRETKEY_OVERWRITE = previousAlias
+            await cleanup()
+        }
+    })
+
+    it('run again returns 404 and writes no row when the flow is gone or the role cannot view it', async () => {
+        const { dataSource, api, cleanup } = await openSqlite()
+        try {
+            asOwner()
+            const dataset = await api.post('/datasets/set').send({ name: 'Questions', description: 'rows' })
+            assert.equal(dataset.status, 200, JSON.stringify(dataset.body))
+            const chat = await dataSource.getRepository(ChatFlow).save({
+                name: 'Support',
+                flowData: '{}',
+                type: 'CHATFLOW',
+                workspaceId: WORKSPACE
+            })
+            const agent = await dataSource.getRepository(ChatFlow).save({
+                name: 'Orders',
+                flowData: '{}',
+                type: 'AGENTFLOW',
+                workspaceId: WORKSPACE
+            })
+            const created = await api.post('/evaluations').send({
+                name: 'Again',
+                evaluationType: 'benchmarking',
+                datasetId: dataset.body.id,
+                datasetName: 'Questions',
+                chatflowId: JSON.stringify([chat.id]),
+                chatflowName: JSON.stringify(['Support']),
+                chatflowType: JSON.stringify(['Chatflow'])
+            })
+            assert.equal(created.status, 200, JSON.stringify(created.body))
+            const evaluationId = rowsOf(created.body).find((item) => item.name === 'Again').id
+            assert.equal(await dataSource.getRepository(Evaluation).count(), 1)
+            await dataSource.getRepository(ChatFlow).delete({ id: chat.id })
+            const missing = await api.post(`/evaluations/run-again/${evaluationId}`)
+            assert.equal(missing.status, 404, JSON.stringify(missing.body))
+            assert.equal(await dataSource.getRepository(Evaluation).count(), 1)
+
+            const agentRun = await api.post('/evaluations').send({
+                name: 'Agent again',
+                evaluationType: 'benchmarking',
+                datasetId: dataset.body.id,
+                datasetName: 'Questions',
+                chatflowId: JSON.stringify([agent.id]),
+                chatflowName: JSON.stringify(['Orders']),
+                chatflowType: JSON.stringify(['Agentflow v2'])
+            })
+            assert.equal(agentRun.status, 200, JSON.stringify(agentRun.body))
+            const agentEvalId = rowsOf(agentRun.body).find((item) => item.name === 'Agent again').id
+            const before = await dataSource.getRepository(Evaluation).count()
+            setTeamPermissionLookup({
+                async accessFor() {
+                    return { owner: false, permissions: ['evaluations:run', 'chatflows:view'] }
+                }
+            })
+            currentUser = () => ({ id: MEMBER, activeWorkspaceId: WORKSPACE, activeOrganizationId: ORG })
+            const hidden = await api.post(`/evaluations/run-again/${agentEvalId}`)
+            assert.equal(hidden.status, 404, JSON.stringify(hidden.body))
+            assert.equal(await dataSource.getRepository(Evaluation).count(), before)
         } finally {
             asOwner()
             await cleanup()

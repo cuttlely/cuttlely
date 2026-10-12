@@ -83,6 +83,7 @@ const runAgain = async (id: string, baseURL: string, orgId: string, workspaceId:
         data.version = true
         return await createEvaluation(data, baseURL, orgId, workspaceId, req)
     } catch (error) {
+        if (error instanceof AppError) throw error
         throw new AppError(StatusCodes.INTERNAL_SERVER_ERROR, `Error: EvalsService.runAgain - ${getErrorMessage(error)}`)
     }
 }

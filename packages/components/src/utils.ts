@@ -20,7 +20,7 @@ import { z } from 'zod/v3'
 import { customGet } from './customGet'
 import { DOCUMENT_UPLOAD_TYPES } from './documentUploadCapabilities'
 import { checkDenyList, secureAxiosRequest, secureFetch } from './httpSecurity'
-import { refreshStoredOAuth2Credential } from './oauthRefresh'
+import { credentialReadableInWorkspace, refreshStoredOAuth2Credential } from './oauthRefresh'
 import { ICommonObject, IDatabaseEntity, IFileUpload, IMessage, INodeData, IVariable, MessageContentImageUrl } from './Interface'
 import { getFileFromStorage } from './storageUtils'
 
@@ -666,17 +666,19 @@ export const getCredentialData = async (selectedCredentialId: string, options: I
             return {}
         }
 
-        const where: { id: string; workspaceId?: string } = { id: selectedCredentialId }
-        // Callers that pass a workspace, such as evaluation grading, must not decrypt another workspace's key.
-        if (typeof options.workspaceId === 'string' && options.workspaceId.length > 0) {
-            where.workspaceId = options.workspaceId
-        }
-
-        const credential = await appDataSource.getRepository(databaseEntities['Credential']).findOneBy(where)
+        const workspaceId = typeof options.workspaceId === 'string' ? options.workspaceId : ''
+        const credential = await appDataSource.getRepository(databaseEntities['Credential']).findOneBy({
+            id: selectedCredentialId
+        })
 
         if (!credential) {
-            if (where.workspaceId) throw new Error(`Credential ${selectedCredentialId} not found`)
+            if (workspaceId) throw new Error(`Credential ${selectedCredentialId} not found`)
             return {}
+        }
+        // A flow passes its workspace. A key owned by that workspace or shared into it can be decrypted.
+        // A key that belongs only to some other workspace cannot.
+        if (workspaceId && !(await credentialReadableInWorkspace(appDataSource as any, credential, workspaceId))) {
+            throw new Error(`Credential ${selectedCredentialId} not found`)
         }
 
         // Decrypt credentialData
