@@ -5,7 +5,7 @@ import { tool, Tool } from '@langchain/core/tools'
 import { ICommonObject, INode, INodeData, INodeOptionsValue, INodeParams } from '../../../../src/Interface'
 import { getCredentialData, getCredentialParam } from '../../../../src/utils'
 
-// tsc rewrites import() into require(), which cannot load scripts/*.mjs.
+// tsc rewrites import() into require(), which cannot load the ESM analyst modules.
 type AnalystConnection = { kind: 'url'; postgresUrl: string } | { kind: 'auto' }
 
 type AnalystPostgresModule = {
@@ -81,6 +81,8 @@ async function analystToolsAreMissing() {
 async function findModule<T>(fileName: string, missing: string) {
     let dir = __dirname
     for (let i = 0; i < 10; i += 1) {
+        const runtime = path.join(dir, 'harness', 'runtime', fileName)
+        if (fs.existsSync(runtime)) return importEsm<T>(pathToFileURL(runtime).href)
         const candidate = path.join(dir, 'scripts', fileName)
         if (fs.existsSync(candidate)) return importEsm<T>(pathToFileURL(candidate).href)
         dir = path.dirname(dir)

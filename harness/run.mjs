@@ -25,9 +25,9 @@ import { CHIEF_MODEL_REQUIRED, HarnessError, STALE_RECORD } from './errors.mjs'
 import { createRun, hermesBaseUrl, stopRun, waitForRun } from './client.mjs'
 import { analystCallsFor, beginAnalystCalls, endAnalystCalls, latestAnalystCursor, takeAnalystResults } from './analyst-capture.mjs'
 import { abortGatewayProfile, setGatewayContext } from './gateway.mjs'
-import { analystToolsMissing } from '../scripts/analyst-mcp-status.mjs'
-import { ANALYST_CURSOR_ERRORS, analystPageRequest, analystPageTask } from '../scripts/analyst-page.mjs'
-import { analystScopeKey, endAnalystRun, withAnalystScope } from '../scripts/analyst-store.mjs'
+import { analystToolsMissing } from './runtime/analyst-mcp-status.mjs'
+import { ANALYST_CURSOR_ERRORS, analystPageRequest, analystPageTask } from './runtime/analyst-page.mjs'
+import { analystScopeKey, endAnalystRun, withAnalystScope } from './runtime/analyst-store.mjs'
 import { cachedPromptTokens, invokeChat, resolveModel } from './model.mjs'
 import {
     compileProfileCached,
