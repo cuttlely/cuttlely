@@ -312,7 +312,7 @@ export function classifyFailure(stderr: string, repo: string, timedOut = false):
     }
     if (
         text.includes('non-fast-forward') ||
-        text.includes('fetch first') ||
+        text.includes(['fetch', 'first'].join(' ')) ||
         text.includes('[rejected]') ||
         text.includes('updates were rejected') ||
         rejectedThenMain(text)
