@@ -234,13 +234,12 @@ export async function runCheck(options, io = {}) {
         }
 
         while (check.status === 'running') {
-            if (now() >= deadline) return giveUp()
-            await sleep(POLL_MS)
-            if (now() >= deadline) return giveUp()
+            // Read before sleeping, and once more at the deadline, so a check that
+            // finishes in the last poll interval is not reported from a stale body.
             const polled = await callApi(fetchImpl, `${base}/${encodeURIComponent(check.id)}`, {
                 method: 'GET',
                 headers,
-                signal: deadlineSignal(deadline, now)
+                signal: deadlineSignal(deadline + POLL_MS, now)
             })
             if (polled.timeout) return giveUp()
             if (polled.network) return failRunning(`Could not reach ${server}. ${polled.message}`)
@@ -252,6 +251,10 @@ export async function runCheck(options, io = {}) {
             if (check.status === 'running' && check.completed !== previous && check.completed != null) {
                 out(`Asked ${check.completed} of ${check.total}.`)
             }
+            if (check.status !== 'running') break
+            const remaining = deadline - now()
+            if (remaining <= 0) return giveUp()
+            await sleep(Math.min(POLL_MS, remaining))
         }
 
         try {

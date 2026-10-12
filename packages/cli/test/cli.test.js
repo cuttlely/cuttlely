@@ -15,6 +15,7 @@ import {
     UsageError,
     VERSION,
     VOLUME_NAME,
+    commandFailureCode,
     containerRunArgs,
     main,
     parseArgs,
@@ -471,23 +472,62 @@ test('check exits 2 on timeout and asks the server to stop', async () => {
     const io = checkIo()
     let clock = 0
     const running = checkBody({ status: 'running', completed: 0, summary: null, cases: [] })
-    const { fetch, calls } = scriptedFetch([httpResult(202, running), httpResult(200, running), httpResult(200, running)])
+    const { fetch, calls } = scriptedFetch([
+        httpResult(202, running),
+        httpResult(200, running),
+        httpResult(200, running),
+        httpResult(200, running),
+        httpResult(200, { id: 'check-1', status: 'stopped' })
+    ])
+    const slept = []
     const code = await main(['check', '--flow', 'flow-1', '--timeout', '2', '--json', 'partial.json'], {
         ...io,
         fetch,
         now: () => clock,
-        sleep: async () => {
-            clock += 1000
+        sleep: async (ms) => {
+            slept.push(ms)
+            clock += ms
         },
         writeFile: (file, text) => io.out(`wrote ${file} ${text.length}`)
     })
     assert.equal(code, 2)
     assert.match(io.errors(), /Timed out after 2s waiting for check check-1/)
+    assert.deepEqual(slept, [1000, 1000])
     assert.deepEqual(
         calls.map((call) => call.init.method),
-        ['POST', 'GET', 'DELETE']
+        ['POST', 'GET', 'GET', 'GET', 'DELETE']
     )
     assert.match(io.text(), /wrote partial.json/)
+})
+
+test('check reads a result that finishes within --timeout 1', async () => {
+    const io = checkIo()
+    let clock = 0
+    const running = checkBody({ status: 'running', completed: 0 })
+    const done = checkBody()
+    const files = new Map()
+    const slept = []
+    const { fetch, calls } = scriptedFetch([httpResult(202, running), httpResult(200, running), httpResult(200, done)])
+    const code = await main(['check', '--flow', 'flow-1', '--timeout', '1', '--fail-on-changed', '--json', 'done.json'], {
+        ...io,
+        fetch,
+        now: () => clock,
+        sleep: async (ms) => {
+            slept.push(ms)
+            clock += ms
+        },
+        writeFile: (file, text) => files.set(file, text)
+    })
+    assert.equal(code, 0)
+    assert.deepEqual(slept, [1000])
+    assert.equal(clock, 1000)
+    assert.doesNotMatch(io.errors(), /Timed out/)
+    assert.deepEqual(
+        calls.map((call) => call.init.method),
+        ['POST', 'GET', 'GET']
+    )
+    assert.equal(JSON.parse(files.get('done.json')).status, 'done')
+    assert.equal(JSON.parse(files.get('done.json')).summary.changed, 0)
 })
 
 test('check exits 2 on 403 from the poll, stops the check, and does not print the key', async () => {
@@ -631,6 +671,30 @@ test('check usage failures exit 2 and other commands reject check flags', async 
     const port = capture()
     assert.equal(await main(['check', '--flow', 'flow-1', '--port', '8080'], port), 2)
     assert.match(port.errors(), /--port is not a check option/)
+})
+
+test('check usage errors exit 2 and other commands keep exit 1', async () => {
+    const cases = [
+        ['check', '--flow', ''],
+        ['check', '--flow', '--fail-on-changed'],
+        ['check', '--flow='],
+        ['check', '--flow', 'flow-1', '--server', ''],
+        ['check', '--flow', 'flow-1', '--server='],
+        ['check', '--flow', 'flow-1', '--timeout', ''],
+        ['check', '--flow', 'flow-1', '--timeout='],
+        ['check', '--port', '0'],
+        ['check', '--tag', 'bad tag']
+    ]
+    for (const args of cases) {
+        const io = capture()
+        assert.equal(await main(args, io), 2, args.join(' '))
+        assert.equal(commandFailureCode(args), 2)
+    }
+    const start = capture()
+    assert.equal(await main(['start', '--port', '0'], start), 1)
+    assert.match(start.errors(), /Port must be a number/)
+    assert.equal(commandFailureCode(['start', '--port', '0']), 1)
+    assert.equal(commandFailureCode(['--tag', '1.0.0', 'start']), 1)
 })
 
 test('check talks to a local server', async () => {

@@ -60,11 +60,11 @@ npx cuttlely check --flow <flow id> --server http://127.0.0.1:43117 --timeout 30
 
 `pnpm dev` serves the API on port 3000. `scripts/start-cuttlely.sh` and `npx cuttlely start` listen on port 43117.
 
-| Code | When                                                                                                         |
-| ---- | ------------------------------------------------------------------------------------------------------------ |
-| 0    | The check finished. No answer was Changed, or `--fail-on-changed` was off.                                   |
-| 1    | `--fail-on-changed` was set and at least one answer was Changed.                                             |
-| 2    | The check timed out, the server returned an error, `CUTTLELY_API_KEY` was missing, or the flow has no draft. |
+| Code | When                                                                                                                                     |
+| ---- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| 0    | The check finished. No answer was Changed, or `--fail-on-changed` was off.                                                               |
+| 1    | `--fail-on-changed` was set and at least one answer was Changed.                                                                         |
+| 2    | The check timed out, the server returned an error, `CUTTLELY_API_KEY` was missing, the flow has no draft, or the command was used wrong. |
 
 A check the server marks stopped or failed also exits 2. If the draft is saved, published, or discarded while the check runs, the command exits 2, because the answers may be for a draft that is already gone. After the check has started, a timeout, a 403, or any other failure asks the server to stop it. That stop is best effort: if it fails, the exit code is still 2.
 

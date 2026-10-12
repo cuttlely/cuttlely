@@ -58,25 +58,35 @@ export function helpText() {
         'Exit codes for check:',
         '  0  The check finished. No answer was Changed, or --fail-on-changed was off.',
         '  1  --fail-on-changed was set and at least one answer was Changed.',
-        '  2  The check timed out, the server returned an error, CUTTLELY_API_KEY was missing, or the flow has no draft.',
+        '  2  The check timed out, the server returned an error, CUTTLELY_API_KEY was missing, the flow has no draft, or the command was used wrong.',
         'A check the server marks stopped or failed also exits 2. If the draft is saved, published, or discarded while the check runs, the command exits 2, because the answers may be for a draft that is already gone. After the check has started, a timeout, a 403, or any other failure asks the server to stop it. That stop is best effort: if it fails, the exit code is still 2.',
         '',
         `Install guide: ${INSTALL_DOCS}`
     ].join('\n')
 }
 
-function parsePort(value) {
+function parsePort(value, exitCode = 1) {
     if (!value || !/^[1-9]\d{0,4}$/.test(value) || Number(value) > 65535) {
-        throw new UsageError(`Port must be a number from 1 to 65535, got ${value || '(missing)'}.`)
+        throw new UsageError(`Port must be a number from 1 to 65535, got ${value || '(missing)'}.`, exitCode)
     }
     return Number(value)
 }
 
-function parseTag(value) {
+function parseTag(value, exitCode = 1) {
     if (!value || !TAG_RE.test(value)) {
-        throw new UsageError(`Not a valid image tag: ${value || '(missing)'}. Example: 1.0.0 or latest.`)
+        throw new UsageError(`Not a valid image tag: ${value || '(missing)'}. Example: 1.0.0 or latest.`, exitCode)
     }
     return value
+}
+
+// `check` as a flag value (`--flow check`) is not the command.
+export function isCheckCommand(argv) {
+    return argv.some((item, index) => item === 'check' && (index === 0 || !String(argv[index - 1]).startsWith('--')))
+}
+
+// An unexpected failure while running check is not a Changed answer.
+export function commandFailureCode(argv) {
+    return isCheckCommand(argv) ? 2 : 1
 }
 
 const FLOW_ID_RE = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/
@@ -123,7 +133,7 @@ function takeValue(argv, index, flag) {
     const inline = argv[index].indexOf('=')
     if (inline !== -1) return { value: argv[index].slice(inline + 1), next: index }
     const value = argv[index + 1]
-    if (!value || value.startsWith('-')) throw new UsageError(`${flag} needs a value. Run cuttlely --help.`)
+    if (!value || value.startsWith('-')) throw new UsageError(`${flag} needs a value. Run cuttlely --help.`, commandFailureCode(argv))
     return { value, next: index + 1 }
 }
 
@@ -158,12 +168,12 @@ export function parseArgs(argv) {
             dockerFlags.push(arg === '-f' ? '-f' : '--follow')
         } else if (arg === '--port' || arg === '-p' || arg.startsWith('--port=')) {
             const taken = takeValue(argv, i, '--port')
-            opts.port = parsePort(taken.value)
+            opts.port = parsePort(taken.value, commandFailureCode(argv))
             i = taken.next
             dockerFlags.push('--port')
         } else if (arg === '--tag' || arg.startsWith('--tag=')) {
             const taken = takeValue(argv, i, '--tag')
-            opts.tag = parseTag(taken.value)
+            opts.tag = parseTag(taken.value, commandFailureCode(argv))
             i = taken.next
             dockerFlags.push('--tag')
         } else if (arg === '--env-file' || arg.startsWith('--env-file=')) {
@@ -214,8 +224,16 @@ export function parseArgs(argv) {
         if (!opts.help && !opts.version) {
             if (!opts.flow) throw new UsageError('check needs --flow <id>. Run cuttlely check --help.', checkExit)
             opts.flow = parseFlow(opts.flow)
-            if (opts.server) opts.server = parseServer(opts.server)
-            if (opts.timeoutSeconds != null) opts.timeoutSeconds = parseTimeout(opts.timeoutSeconds)
+            if (checkFlags.includes('--server')) {
+                if (!opts.server)
+                    throw new UsageError('--server needs an http or https URL, for example http://127.0.0.1:43117.', checkExit)
+                opts.server = parseServer(opts.server)
+            }
+            if (checkFlags.includes('--timeout')) {
+                if (!opts.timeoutSeconds)
+                    throw new UsageError('Timeout must be a whole number of seconds from 1 to 3600, got (missing).', checkExit)
+                opts.timeoutSeconds = parseTimeout(opts.timeoutSeconds)
+            }
             if (opts.jsonPath) opts.jsonPath = parseJsonPath(opts.jsonPath)
         }
     } else if (checkFlags.length) {
