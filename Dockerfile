@@ -78,6 +78,13 @@ RUN mkdir -p /opt/uv-python \
     && pnpm -r rebuild sqlite3 faiss-node \
     && node scripts/check-sqlite-driver.mjs
 
+# Opt-in slim build. false (the default) keeps the IP geolocation database.
+ARG CUTTLELY_OMIT_GEOIP=false
+RUN if [ "$CUTTLELY_OMIT_GEOIP" = "true" ]; then \
+        echo "Cuttlely image: leaving out the IP geolocation database" \
+        && node scripts/omit-geoip-database.mjs; \
+    fi
+
 FROM node:24-trixie-slim
 
 ARG TARGETARCH
