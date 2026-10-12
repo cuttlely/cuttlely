@@ -74,7 +74,7 @@ On a chatflow, agentflow, or harness with drafts on, which is the default, the b
 
 ![The Open this version as your draft? dialog over the version page of Bakery helper. Open As Draft is the button at the top right of the page. The dialog reads: This opens on the canvas as your draft. Live is unchanged until you publish. Nothing in history is erased. The buttons are Cancel and Open As Draft.](../images/versioning/open-as-draft-confirm.png)
 
-The canvas opens with that version as your draft, and the header says **Draft, not live yet**. Try it in the test chat, then select **Publish** to put it Live, or **Discard draft** to go back to Live. History records it when you publish, as `Published: <what changed>`.
+The canvas opens with that version as your draft, and the header says **Draft, not live yet**. On a chatflow or agentflow the test chat runs that draft. On a harness the canvas chat still runs Live until you publish. Select **Publish** to put it Live, or **Discard draft** to go back to Live. History records it when you publish, as `Published: <what changed>`.
 
 ![The Bakery helper canvas after Open as draft. The header shows the yellow label Draft, not live yet, Saved just now, and a Publish button. A green message at the bottom reads Opened this version as your draft. Live is unchanged until you publish.](../images/versioning/after-open-as-draft.png)
 
