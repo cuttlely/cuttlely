@@ -1,5 +1,4 @@
 import assert from 'node:assert/strict'
-import { createRequire } from 'node:module'
 import { mkdtempSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
 import { createServer } from 'node:http'
 import { tmpdir } from 'node:os'
@@ -598,22 +597,114 @@ test('check talks to a local server', async () => {
     }
 })
 
+// Enough of YAML to parse the example workflow: maps, lists, and literal blocks.
+// The CLI package cannot import a YAML library from outside itself.
+function parseYaml(text) {
+    const lines = String(text).replace(/\r\n/g, '\n').split('\n')
+    if (lines.some((line) => line.includes('\t'))) throw new Error('YAML tabs are not allowed')
+    let i = 0
+    const indentOf = (line) => line.match(/^ */)[0].length
+    const unquote = (value) => {
+        if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) return value.slice(1, -1)
+        if (value.startsWith('{') || value.startsWith('[')) throw new Error('flow collections are not supported')
+        return value
+    }
+    const readLiteral = (parentIndent) => {
+        const collected = []
+        let contentIndent = null
+        while (i < lines.length) {
+            const line = lines[i]
+            if (line.trim() === '') {
+                collected.push('')
+                i += 1
+                continue
+            }
+            const indent = indentOf(line)
+            if (contentIndent === null) {
+                if (indent <= parentIndent) break
+                contentIndent = indent
+            }
+            if (indent < contentIndent) break
+            collected.push(line.slice(contentIndent))
+            i += 1
+        }
+        while (collected.length && collected[collected.length - 1] === '') collected.pop()
+        return collected.join('\n')
+    }
+    const parseBlock = (parentIndent) => {
+        let level = null
+        let mode = null
+        const map = {}
+        const seq = []
+        while (i < lines.length) {
+            while (i < lines.length && (lines[i].trim() === '' || /^\s*#/.test(lines[i]))) i += 1
+            if (i >= lines.length) break
+            const indent = indentOf(lines[i])
+            if (indent <= parentIndent) break
+            if (level === null) level = indent
+            if (indent < level) break
+            if (indent > level) throw new Error(`line ${i + 1}: unexpected indent`)
+            const trimmed = lines[i].slice(indent)
+            if (trimmed.startsWith('- ')) {
+                if (mode === 'map') throw new Error(`line ${i + 1}: mixed list and map`)
+                mode = 'seq'
+                const rest = trimmed.slice(2).trim()
+                i += 1
+                if (!rest) {
+                    seq.push(parseBlock(level))
+                    continue
+                }
+                const colon = rest.indexOf(':')
+                if (colon === -1) {
+                    seq.push(unquote(rest))
+                    continue
+                }
+                const key = rest.slice(0, colon).trim()
+                const value = rest.slice(colon + 1).trim()
+                const item = {}
+                if (value === '|' || value === '|-' || value === '|+') item[key] = readLiteral(level)
+                else if (value === '') item[key] = parseBlock(level)
+                else item[key] = unquote(value)
+                const more = parseBlock(level)
+                if (more && typeof more === 'object' && !Array.isArray(more)) Object.assign(item, more)
+                seq.push(item)
+                continue
+            }
+            if (mode === 'seq') break
+            mode = 'map'
+            const colon = trimmed.indexOf(':')
+            if (colon <= 0) throw new Error(`line ${i + 1}: expected a key`)
+            const key = trimmed.slice(0, colon).trim()
+            const value = trimmed.slice(colon + 1).trim()
+            i += 1
+            if (value === '|' || value === '|-' || value === '|+') map[key] = readLiteral(level)
+            else if (value === '') map[key] = parseBlock(level)
+            else map[key] = unquote(value)
+        }
+        if (mode === 'seq') return seq
+        return map
+    }
+    return parseBlock(-1)
+}
+
 test('the example workflow is valid YAML and runs cuttlely check', () => {
     const file = join(REPO, 'examples', 'ci', 'cuttlely-check.yml')
     const text = readFileSync(file, 'utf8')
-    const require = createRequire(join(REPO, 'package.json'))
-    const yaml = require('js-yaml')
-    const doc = yaml.load(text)
-    assert.equal(typeof doc.name, 'string')
-    assert.ok(doc.jobs)
-    const rendered = JSON.stringify(doc)
-    assert.match(rendered, /cuttlely check/)
-    assert.match(rendered, /--fail-on-changed/)
-    assert.match(rendered, /CUTTLELY_API_KEY/)
+    const doc = parseYaml(text)
+    assert.equal(doc.name, 'Cuttlely draft check')
+    assert.deepEqual(doc.on, { pull_request: {} })
+    const step = doc.jobs.check.steps[0]
+    assert.equal(step.name, 'Check the draft')
+    assert.match(step.run, /npx --yes cuttlely check/)
+    assert.match(step.run, /--fail-on-changed/)
+    assert.match(step.run, /--json check\.json/)
+    assert.equal(step.env.CUTTLELY_API_KEY, '${{ secrets.CUTTLELY_API_KEY }}')
     assert.doesNotMatch(text, /sk-|ghp_|Bearer [A-Za-z0-9]/)
+    assert.throws(() => parseYaml('jobs: [\n'), /flow collections/)
+    assert.throws(() => parseYaml('not a mapping\n'), /expected a key/)
     const guide = readFileSync(join(REPO, 'docs', 'how-to', 'ci-gate.md'), 'utf8')
     assert.match(guide, /examples\/ci\/cuttlely-check\.yml/)
-    assert.match(guide, /exit 1|Exit codes/)
+    assert.match(guide, /Exit codes/)
     const index = readFileSync(join(REPO, 'docs', 'README.md'), 'utf8')
     assert.match(index, /how-to\/ci-gate\.md/)
     const api = readFileSync(join(REPO, 'docs', 'reference', 'drafts-api.md'), 'utf8')
