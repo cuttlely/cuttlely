@@ -16,6 +16,8 @@ function main() {
     run(['--emitDeclarationOnly', '-p', 'packages/components/tsconfig.json'])
     console.log('typecheck @cuttlely/node-pack-vector-stores')
     run(['--noEmit', '-p', 'packages/node-pack-vector-stores/tsconfig.json'])
+    console.log('typecheck @cuttlely/node-pack-tools-mcp')
+    run(['--noEmit', '-p', 'packages/node-pack-tools-mcp/tsconfig.json'])
     console.log('typecheck @cuttlely/node-pack-legacy-chains')
     run(['--noEmit', '-p', 'packages/node-pack-legacy-chains/tsconfig.json'])
     // The server imports this package. Emit it before the server check so the types resolve.

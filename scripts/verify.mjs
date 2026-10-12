@@ -46,6 +46,7 @@ const STEPS = [
             '--filter=@cuttlely/chat',
             '--filter=@cuttlely/components',
             '--filter=@cuttlely/node-pack-vector-stores',
+            '--filter=@cuttlely/node-pack-tools-mcp',
             '--filter=@cuttlely/node-pack-legacy-chains',
             '--filter=@cuttlely/server',
             '--filter=@cuttlely/ui'

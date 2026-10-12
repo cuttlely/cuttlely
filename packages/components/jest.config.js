@@ -1,7 +1,7 @@
 module.exports = {
     preset: 'ts-jest',
     testEnvironment: 'node',
-    roots: ['<rootDir>/nodes', '<rootDir>/src', '<rootDir>/../node-pack-legacy-chains'],
+    roots: ['<rootDir>/nodes', '<rootDir>/src', '<rootDir>/../node-pack-tools-mcp', '<rootDir>/../node-pack-legacy-chains'],
     transform: {
         '^.+\\.tsx?$': 'ts-jest'
     },
@@ -17,12 +17,14 @@ module.exports = {
         '^@cuttlely/components/validator$': '<rootDir>/src/validator.ts',
         '^@cuttlely/components/sanitizeDataSourceOptions$': '<rootDir>/src/sanitizeDataSourceOptions.ts',
         '^@cuttlely/components/awsToolsUtils$': '<rootDir>/src/awsToolsUtils.ts',
+        '^@cuttlely/components/agents$': '<rootDir>/src/agents.ts',
+        '^@cuttlely/components/storageUtils$': '<rootDir>/src/storageUtils.ts',
+        '^@cuttlely/components/nodes$': '<rootDir>/nodes/index.ts',
         '^@cuttlely/components/modelLoader$': '<rootDir>/src/modelLoader.ts',
         '^@cuttlely/components/etl-engine$': '<rootDir>/nodes/etl/engine.ts',
         '^@cuttlely/components/handler$': '<rootDir>/src/handler.ts',
         '^@cuttlely/components/google-utils$': '<rootDir>/src/google-utils.ts',
         '^@cuttlely/components/openApiSpec$': '<rootDir>/src/openApiSpec.ts',
-        '^@cuttlely/components/storageUtils$': '<rootDir>/src/storageUtils.ts',
         '^@cuttlely/components/httpSecurity$': '<rootDir>/src/httpSecurity.ts',
         '^@cuttlely/components/moderation$': '<rootDir>/nodes/moderation/Moderation.ts',
         '^@cuttlely/components/outputParserHelpers$': '<rootDir>/nodes/outputparsers/OutputParserHelpers.ts',

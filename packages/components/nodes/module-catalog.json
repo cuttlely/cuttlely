@@ -2005,16 +2005,6 @@
             "tier": "supported"
         },
         {
-            "name": "arxiv",
-            "label": "Arxiv",
-            "category": "Tools",
-            "folder": "tools",
-            "file": "packages/components/nodes/tools/Arxiv/Arxiv.ts",
-            "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run.",
-            "tier": "core"
-        },
-        {
             "name": "awsDynamoDBKVStorage",
             "label": "AWS DynamoDB KV Storage",
             "category": "Tools",
@@ -2023,26 +2013,6 @@
             "disposition": "native",
             "reason": "Runs on the current node interface. A harness binds it through init and run.",
             "tier": "supported"
-        },
-        {
-            "name": "awsSNS",
-            "label": "AWS SNS",
-            "category": "Tools",
-            "folder": "tools",
-            "file": "packages/components/nodes/tools/AWSSNS/AWSSNS.ts",
-            "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run.",
-            "tier": "supported"
-        },
-        {
-            "name": "braveSearchAPI",
-            "label": "BraveSearch API",
-            "category": "Tools",
-            "folder": "tools",
-            "file": "packages/components/nodes/tools/BraveSearchAPI/BraveSearchAPI.ts",
-            "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run.",
-            "tier": "core"
         },
         {
             "name": "calculator",
@@ -2070,26 +2040,6 @@
             "category": "Tools",
             "folder": "tools",
             "file": "packages/components/nodes/tools/ChatflowTool/ChatflowTool.ts",
-            "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run.",
-            "tier": "supported"
-        },
-        {
-            "name": "codeInterpreterE2B",
-            "label": "Code Interpreter by E2B",
-            "category": "Tools",
-            "folder": "tools",
-            "file": "packages/components/nodes/tools/CodeInterpreterE2B/CodeInterpreterE2B.ts",
-            "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run.",
-            "tier": "supported"
-        },
-        {
-            "name": "composio",
-            "label": "Composio",
-            "category": "Tools",
-            "folder": "tools",
-            "file": "packages/components/nodes/tools/Composio/Composio.ts",
             "disposition": "native",
             "reason": "Runs on the current node interface. A harness binds it through init and run.",
             "tier": "supported"
@@ -2125,111 +2075,11 @@
             "tier": "supported"
         },
         {
-            "name": "exaSearch",
-            "label": "Exa Search",
-            "category": "Tools",
-            "folder": "tools",
-            "file": "packages/components/nodes/tools/ExaSearch/ExaSearch.ts",
-            "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run.",
-            "tier": "supported"
-        },
-        {
-            "name": "gmail",
-            "label": "Gmail",
-            "category": "Tools",
-            "folder": "tools",
-            "file": "packages/components/nodes/tools/Gmail/Gmail.ts",
-            "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run.",
-            "tier": "core"
-        },
-        {
-            "name": "googleCalendarTool",
-            "label": "Google Calendar",
-            "category": "Tools",
-            "folder": "tools",
-            "file": "packages/components/nodes/tools/GoogleCalendar/GoogleCalendar.ts",
-            "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run.",
-            "tier": "supported"
-        },
-        {
-            "name": "googleDocsTool",
-            "label": "Google Docs",
-            "category": "Tools",
-            "folder": "tools",
-            "file": "packages/components/nodes/tools/GoogleDocs/GoogleDocs.ts",
-            "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run.",
-            "tier": "supported"
-        },
-        {
-            "name": "googleDriveTool",
-            "label": "Google Drive",
-            "category": "Tools",
-            "folder": "tools",
-            "file": "packages/components/nodes/tools/GoogleDrive/GoogleDrive.ts",
-            "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run.",
-            "tier": "supported"
-        },
-        {
-            "name": "googleCustomSearch",
-            "label": "Google Custom Search",
-            "category": "Tools",
-            "folder": "tools",
-            "file": "packages/components/nodes/tools/GoogleSearchAPI/GoogleSearchAPI.ts",
-            "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run.",
-            "tier": "core"
-        },
-        {
-            "name": "googleSheetsTool",
-            "label": "Google Sheets",
-            "category": "Tools",
-            "folder": "tools",
-            "file": "packages/components/nodes/tools/GoogleSheets/GoogleSheets.ts",
-            "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run.",
-            "tier": "supported"
-        },
-        {
-            "name": "jiraTool",
-            "label": "Jira",
-            "category": "Tools",
-            "folder": "tools",
-            "file": "packages/components/nodes/tools/Jira/Jira.ts",
-            "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run.",
-            "tier": "supported"
-        },
-        {
             "name": "jsonPathExtractor",
             "label": "JSON Path Extractor",
             "category": "Tools",
             "folder": "tools",
             "file": "packages/components/nodes/tools/JSONPathExtractor/JSONPathExtractor.ts",
-            "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run.",
-            "tier": "supported"
-        },
-        {
-            "name": "braveSearchMCP",
-            "label": "Brave Search MCP",
-            "category": "Tools (MCP)",
-            "folder": "tools",
-            "file": "packages/components/nodes/tools/MCP/BraveSearch/BraveSearchMCP.ts",
-            "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run.",
-            "tier": "supported"
-        },
-        {
-            "name": "browserlessMCP",
-            "label": "Browserless MCP",
-            "category": "Tools (MCP)",
-            "folder": "tools",
-            "file": "packages/components/nodes/tools/MCP/Browserless/BrowserlessMCP.ts",
             "disposition": "native",
             "reason": "Runs on the current node interface. A harness binds it through init and run.",
             "tier": "supported"
@@ -2255,91 +2105,11 @@
             "tier": "supported"
         },
         {
-            "name": "githubMCP",
-            "label": "Github MCP",
-            "category": "Tools (MCP)",
-            "folder": "tools",
-            "file": "packages/components/nodes/tools/MCP/Github/GithubMCP.ts",
-            "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run.",
-            "tier": "supported"
-        },
-        {
-            "name": "pipedreamMCP",
-            "label": "Pipedream MCP",
-            "category": "Tools (MCP)",
-            "folder": "tools",
-            "file": "packages/components/nodes/tools/MCP/Pipedream/PipedreamMCP.ts",
-            "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run.",
-            "tier": "supported"
-        },
-        {
             "name": "postgreSQLMCP",
             "label": "PostgreSQL MCP",
             "category": "Tools (MCP)",
             "folder": "tools",
             "file": "packages/components/nodes/tools/MCP/PostgreSQL/PostgreSQLMCP.ts",
-            "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run.",
-            "tier": "core"
-        },
-        {
-            "name": "sequentialThinkingMCP",
-            "label": "Sequential Thinking MCP",
-            "category": "Tools (MCP)",
-            "folder": "tools",
-            "file": "packages/components/nodes/tools/MCP/SequentialThinking/SequentialThinkingMCP.ts",
-            "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run.",
-            "tier": "supported"
-        },
-        {
-            "name": "slackMCP",
-            "label": "Slack MCP",
-            "category": "Tools (MCP)",
-            "folder": "tools",
-            "file": "packages/components/nodes/tools/MCP/Slack/SlackMCP.ts",
-            "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run.",
-            "tier": "core"
-        },
-        {
-            "name": "supergatewayMCP",
-            "label": "Supergateway MCP",
-            "category": "Tools (MCP)",
-            "folder": "tools",
-            "file": "packages/components/nodes/tools/MCP/Supergateway/SupergatewayMCP.ts",
-            "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run.",
-            "tier": "supported"
-        },
-        {
-            "name": "teradataMCP",
-            "label": "Teradata MCP",
-            "category": "Tools (MCP)",
-            "folder": "tools",
-            "file": "packages/components/nodes/tools/MCP/Teradata/TeradataMCP.ts",
-            "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run.",
-            "tier": "supported"
-        },
-        {
-            "name": "microsoftOutlook",
-            "label": "Microsoft Outlook",
-            "category": "Tools",
-            "folder": "tools",
-            "file": "packages/components/nodes/tools/MicrosoftOutlook/MicrosoftOutlook.ts",
-            "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run.",
-            "tier": "supported"
-        },
-        {
-            "name": "microsoftTeams",
-            "label": "Microsoft Teams",
-            "category": "Tools",
-            "folder": "tools",
-            "file": "packages/components/nodes/tools/MicrosoftTeams/MicrosoftTeams.ts",
             "disposition": "native",
             "reason": "Runs on the current node interface. A harness binds it through init and run.",
             "tier": "core"
@@ -2405,66 +2175,6 @@
             "tier": "core"
         },
         {
-            "name": "searchAPI",
-            "label": "SearchApi",
-            "category": "Tools",
-            "folder": "tools",
-            "file": "packages/components/nodes/tools/SearchApi/SearchAPI.ts",
-            "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run.",
-            "tier": "supported"
-        },
-        {
-            "name": "searXNG",
-            "label": "SearXNG",
-            "category": "Tools",
-            "folder": "tools",
-            "file": "packages/components/nodes/tools/Searxng/Searxng.ts",
-            "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run.",
-            "tier": "supported"
-        },
-        {
-            "name": "serpAPI",
-            "label": "Serp API",
-            "category": "Tools",
-            "folder": "tools",
-            "file": "packages/components/nodes/tools/SerpAPI/SerpAPI.ts",
-            "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run.",
-            "tier": "core"
-        },
-        {
-            "name": "serper",
-            "label": "Serper",
-            "category": "Tools",
-            "folder": "tools",
-            "file": "packages/components/nodes/tools/Serper/Serper.ts",
-            "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run.",
-            "tier": "core"
-        },
-        {
-            "name": "stripeAgentTool",
-            "label": "StripeAgentTool",
-            "category": "Tools",
-            "folder": "tools",
-            "file": "packages/components/nodes/tools/StripeTool/StripeTool.ts",
-            "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run.",
-            "tier": "supported"
-        },
-        {
-            "name": "tavilyAPI",
-            "label": "Tavily API",
-            "category": "Tools",
-            "folder": "tools",
-            "file": "packages/components/nodes/tools/TavilyAPI/TavilyAPI.ts",
-            "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run.",
-            "tier": "supported"
-        },
-        {
             "name": "webBrowser",
             "label": "Web Browser",
             "category": "Tools",
@@ -2483,16 +2193,6 @@
             "disposition": "native",
             "reason": "Runs on the current node interface. A harness binds it through init and run.",
             "tier": "core"
-        },
-        {
-            "name": "wolframAlpha",
-            "label": "WolframAlpha",
-            "category": "Tools",
-            "folder": "tools",
-            "file": "packages/components/nodes/tools/WolframAlpha/WolframAlpha.ts",
-            "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run.",
-            "tier": "supported"
         },
         {
             "name": "customFunction",
@@ -2733,6 +2433,306 @@
             "disposition": "replaced",
             "reason": "Marked deprecated in place. Not deleted. Use TogetherAI Chat Models instead",
             "tier": "legacy"
+        },
+        {
+            "name": "arxiv",
+            "label": "Arxiv",
+            "category": "Tools",
+            "folder": "tools",
+            "file": "packages/node-pack-tools-mcp/nodes/tools/Arxiv/Arxiv.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "core"
+        },
+        {
+            "name": "awsSNS",
+            "label": "AWS SNS",
+            "category": "Tools",
+            "folder": "tools",
+            "file": "packages/node-pack-tools-mcp/nodes/tools/AWSSNS/AWSSNS.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
+        },
+        {
+            "name": "braveSearchAPI",
+            "label": "BraveSearch API",
+            "category": "Tools",
+            "folder": "tools",
+            "file": "packages/node-pack-tools-mcp/nodes/tools/BraveSearchAPI/BraveSearchAPI.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "core"
+        },
+        {
+            "name": "codeInterpreterE2B",
+            "label": "Code Interpreter by E2B",
+            "category": "Tools",
+            "folder": "tools",
+            "file": "packages/node-pack-tools-mcp/nodes/tools/CodeInterpreterE2B/CodeInterpreterE2B.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
+        },
+        {
+            "name": "composio",
+            "label": "Composio",
+            "category": "Tools",
+            "folder": "tools",
+            "file": "packages/node-pack-tools-mcp/nodes/tools/Composio/Composio.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
+        },
+        {
+            "name": "exaSearch",
+            "label": "Exa Search",
+            "category": "Tools",
+            "folder": "tools",
+            "file": "packages/node-pack-tools-mcp/nodes/tools/ExaSearch/ExaSearch.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
+        },
+        {
+            "name": "gmail",
+            "label": "Gmail",
+            "category": "Tools",
+            "folder": "tools",
+            "file": "packages/node-pack-tools-mcp/nodes/tools/Gmail/Gmail.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "core"
+        },
+        {
+            "name": "googleCalendarTool",
+            "label": "Google Calendar",
+            "category": "Tools",
+            "folder": "tools",
+            "file": "packages/node-pack-tools-mcp/nodes/tools/GoogleCalendar/GoogleCalendar.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
+        },
+        {
+            "name": "googleDocsTool",
+            "label": "Google Docs",
+            "category": "Tools",
+            "folder": "tools",
+            "file": "packages/node-pack-tools-mcp/nodes/tools/GoogleDocs/GoogleDocs.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
+        },
+        {
+            "name": "googleDriveTool",
+            "label": "Google Drive",
+            "category": "Tools",
+            "folder": "tools",
+            "file": "packages/node-pack-tools-mcp/nodes/tools/GoogleDrive/GoogleDrive.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
+        },
+        {
+            "name": "googleCustomSearch",
+            "label": "Google Custom Search",
+            "category": "Tools",
+            "folder": "tools",
+            "file": "packages/node-pack-tools-mcp/nodes/tools/GoogleSearchAPI/GoogleSearchAPI.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "core"
+        },
+        {
+            "name": "googleSheetsTool",
+            "label": "Google Sheets",
+            "category": "Tools",
+            "folder": "tools",
+            "file": "packages/node-pack-tools-mcp/nodes/tools/GoogleSheets/GoogleSheets.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
+        },
+        {
+            "name": "jiraTool",
+            "label": "Jira",
+            "category": "Tools",
+            "folder": "tools",
+            "file": "packages/node-pack-tools-mcp/nodes/tools/Jira/Jira.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
+        },
+        {
+            "name": "braveSearchMCP",
+            "label": "Brave Search MCP",
+            "category": "Tools (MCP)",
+            "folder": "tools",
+            "file": "packages/node-pack-tools-mcp/nodes/tools/MCP/BraveSearch/BraveSearchMCP.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
+        },
+        {
+            "name": "browserlessMCP",
+            "label": "Browserless MCP",
+            "category": "Tools (MCP)",
+            "folder": "tools",
+            "file": "packages/node-pack-tools-mcp/nodes/tools/MCP/Browserless/BrowserlessMCP.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
+        },
+        {
+            "name": "githubMCP",
+            "label": "Github MCP",
+            "category": "Tools (MCP)",
+            "folder": "tools",
+            "file": "packages/node-pack-tools-mcp/nodes/tools/MCP/Github/GithubMCP.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
+        },
+        {
+            "name": "pipedreamMCP",
+            "label": "Pipedream MCP",
+            "category": "Tools (MCP)",
+            "folder": "tools",
+            "file": "packages/node-pack-tools-mcp/nodes/tools/MCP/Pipedream/PipedreamMCP.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
+        },
+        {
+            "name": "sequentialThinkingMCP",
+            "label": "Sequential Thinking MCP",
+            "category": "Tools (MCP)",
+            "folder": "tools",
+            "file": "packages/node-pack-tools-mcp/nodes/tools/MCP/SequentialThinking/SequentialThinkingMCP.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
+        },
+        {
+            "name": "slackMCP",
+            "label": "Slack MCP",
+            "category": "Tools (MCP)",
+            "folder": "tools",
+            "file": "packages/node-pack-tools-mcp/nodes/tools/MCP/Slack/SlackMCP.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "core"
+        },
+        {
+            "name": "supergatewayMCP",
+            "label": "Supergateway MCP",
+            "category": "Tools (MCP)",
+            "folder": "tools",
+            "file": "packages/node-pack-tools-mcp/nodes/tools/MCP/Supergateway/SupergatewayMCP.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
+        },
+        {
+            "name": "teradataMCP",
+            "label": "Teradata MCP",
+            "category": "Tools (MCP)",
+            "folder": "tools",
+            "file": "packages/node-pack-tools-mcp/nodes/tools/MCP/Teradata/TeradataMCP.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
+        },
+        {
+            "name": "microsoftOutlook",
+            "label": "Microsoft Outlook",
+            "category": "Tools",
+            "folder": "tools",
+            "file": "packages/node-pack-tools-mcp/nodes/tools/MicrosoftOutlook/MicrosoftOutlook.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
+        },
+        {
+            "name": "microsoftTeams",
+            "label": "Microsoft Teams",
+            "category": "Tools",
+            "folder": "tools",
+            "file": "packages/node-pack-tools-mcp/nodes/tools/MicrosoftTeams/MicrosoftTeams.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "core"
+        },
+        {
+            "name": "searchAPI",
+            "label": "SearchApi",
+            "category": "Tools",
+            "folder": "tools",
+            "file": "packages/node-pack-tools-mcp/nodes/tools/SearchApi/SearchAPI.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
+        },
+        {
+            "name": "searXNG",
+            "label": "SearXNG",
+            "category": "Tools",
+            "folder": "tools",
+            "file": "packages/node-pack-tools-mcp/nodes/tools/Searxng/Searxng.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
+        },
+        {
+            "name": "serpAPI",
+            "label": "Serp API",
+            "category": "Tools",
+            "folder": "tools",
+            "file": "packages/node-pack-tools-mcp/nodes/tools/SerpAPI/SerpAPI.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "core"
+        },
+        {
+            "name": "serper",
+            "label": "Serper",
+            "category": "Tools",
+            "folder": "tools",
+            "file": "packages/node-pack-tools-mcp/nodes/tools/Serper/Serper.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "core"
+        },
+        {
+            "name": "stripeAgentTool",
+            "label": "StripeAgentTool",
+            "category": "Tools",
+            "folder": "tools",
+            "file": "packages/node-pack-tools-mcp/nodes/tools/StripeTool/StripeTool.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
+        },
+        {
+            "name": "tavilyAPI",
+            "label": "Tavily API",
+            "category": "Tools",
+            "folder": "tools",
+            "file": "packages/node-pack-tools-mcp/nodes/tools/TavilyAPI/TavilyAPI.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
+        },
+        {
+            "name": "wolframAlpha",
+            "label": "WolframAlpha",
+            "category": "Tools",
+            "folder": "tools",
+            "file": "packages/node-pack-tools-mcp/nodes/tools/WolframAlpha/WolframAlpha.ts",
+            "disposition": "native",
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
         },
         {
             "name": "Astra",
