@@ -8,7 +8,7 @@ Use it when a harness should look at business data you are willing to create for
 
 Install first. A laptop install is [Docker](./docker.md) and stays on SQLite. Changing Cuttlely is [From source](./from-source.md). A public host is [Render](./render.md#analyst-database). The account is [Sign in](./sign-in.md). What a harness is: [Harnesses](./harnesses.md).
 
-<!-- TODO: re-shoot still. The process environment with CUTTLELY_ANALYST=auto and DATABASE_TYPE unset. -->
+![The server process environment. CUTTLELY_ANALYST is auto, and a check for DATABASE_TYPE prints DATABASE_TYPE is unset.](../images/analyst/process-env-auto.png)
 
 ## Quick start
 
@@ -60,7 +60,7 @@ A harness saved before the handle-id repair still has the old edge ids in stored
 
 Each specialist **Chat Model** input can stay empty. The specialist uses Harness Prime's model. An orange triangle on the card is the outdated-node notice when the saved version is behind the current Harness Specialist or Harness Prime. It is not a missing chat model. A harness made from the template today shows no triangle. One saved from an older template or an older Cuttlely shows it until you select **Sync Nodes** and then save. Saving without **Sync Nodes** leaves it.
 
-<!-- TODO: re-shoot still. PostgreSQL MCP node with QUERY selected under Available Actions. -->
+![The chief-of-staff harness with PostgreSQL MCP settings open. Available Actions has QUERY selected, and the line under it starts with Run one SQL statement in the isolated analyst store (SQLite). Connect Credential reads Auto mode: isolated analyst store, no credential needed.](../images/analyst/postgres-mcp-query.png)
 
 **Try it** is on `/harnesses/chief-of-staff`. The chat on the harness canvas (`/harnesscanvas/<id>`) sends to the same runs API, `POST /api/v1/harnesses/chief-of-staff/runs`. It does not build the canvas as a chatflow. The trace on that page shows who ran, the model, and tool names with done, retried, or failed chips. It does not show the tool rows. The answer shows the rows and, when the tool stopped at the cap, a page line such as `rows 1-100 of 150 (page 1 of 2, say "show more" for the next page)`. The raw tool text is also in the agent runtime profile database, `state.db`, under that specialist. The panel is described in [Harnesses](./harnesses.md).
 
@@ -82,7 +82,7 @@ SQLite has the same 100-row cap and the same 15-second statement timeout as Post
 
 An id column has to be `INTEGER PRIMARY KEY`. `SERIAL` is not a SQLite type. A column declared that way comes back null. The analyst tool says which dialect it is on. On SQLite it says to use `INTEGER PRIMARY KEY`.
 
-<!-- TODO: re-shoot still. analyst.db beside database.sqlite, with sales and tickets only in analyst.db. -->
+![analyst.db beside database.sqlite. database.sqlite has no table named sales or tickets. analyst.db has sales (west 10, east 20, west 5) and tickets (Ticket 1, Ticket 2, Ticket 3).](../images/analyst/sqlite-analyst-db.png)
 
 ## Postgres
 
@@ -94,7 +94,7 @@ The first time the analyst tool starts, Cuttlely creates schema `analyst` and lo
 
 The role password is random. It is stored in `analyst-role.enc` under `SECRETKEY_PATH`, mode `600`, encrypted with the credential key. When `SECRETKEY_PATH` is unset, that directory is `~/.cuttlely`. Docker and Render set the directory. [Docker](./docker.md). It is not an environment variable and it is not written to the server log. A restart reuses that file. It does not create a second role, and rows already in `analyst` stay.
 
-<!-- TODO: re-shoot still. psql showing schema analyst, role analyst_reader, search_path, and statement_timeout. -->
+![psql on the cuttlely database. Schema analyst is owned by the cuttlely login. Role analyst_reader is not a superuser and cannot create roles, with statement_timeout=15s and search_path=analyst.](../images/analyst/postgres-analyst-role.png)
 
 Ask: `Show the analyst login and search_path.`
 
@@ -271,7 +271,7 @@ Refresh **Available Actions** on the PostgreSQL MCP node. The list says **No Ava
 
 The fix is a separate database. Set `CUTTLELY_POSTGRES_URL` to it, or select a Postgres URL credential. Do not paste the application database. On Render, the Blueprint does not set that variable. [Analyst database](./render.md#analyst-database). If that host requires TLS, put `sslmode` on the URL yourself. Cuttlely does not add it.
 
-<!-- TODO: re-shoot still. Available Actions showing the create-roles refusal. -->
+![Available Actions on PostgreSQL MCP set to No Available Actions. The description says Analyst mode needs the application database user to create roles, and that this database refused that.](../images/analyst/available-actions-create-roles.png)
 
 Two other stops use the same fallback, a separate URL, and do not use the application login:
 
