@@ -4,7 +4,7 @@ import fs from 'fs'
 import { Dirent } from 'fs'
 import { getNodeModulesPackagePath } from './utils'
 import { promises } from 'fs'
-import { ICommonObject, INode } from 'flowise-components'
+import { ICommonObject, INode } from '@cuttlely/components'
 import logger from './utils/logger'
 import { appConfig } from './AppConfig'
 import { cloneDeep } from 'lodash'
@@ -53,7 +53,7 @@ export class NodesPool {
      * Initialize to get all nodes & credentials
      */
     async initialize() {
-        const packagePath = getNodeModulesPackagePath('flowise-components')
+        const packagePath = getNodeModulesPackagePath('@cuttlely/components')
         const manifestPath = path.join(packagePath, 'dist', 'nodes-manifest.json')
         const eager = process.env.CUTTLELY_EAGER_NODES === 'true'
         const previous = eager ? null : readManifest(manifestPath)

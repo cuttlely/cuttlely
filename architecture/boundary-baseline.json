@@ -1278,6 +1278,11 @@
         {
             "from": "packages/ui/src/views/versionsettings/index.jsx",
             "to": "packages/ui/src/ui-component/cards/MainCard.jsx"
+        },
+        {
+            "from": "scripts/components-package-alias.test.mjs",
+            "to": "packages/components/src/index.ts",
+            "reason": "compatibility test for the earlier components package specifier"
         }
     ],
     "r4Edges": [],

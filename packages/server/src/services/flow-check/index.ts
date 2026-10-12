@@ -10,7 +10,7 @@
 import crypto from 'crypto'
 import { StatusCodes } from 'http-status-codes'
 import { v4 as uuidv4 } from 'uuid'
-import { EvaluationRunner } from 'flowise-components'
+import { EvaluationRunner } from '@cuttlely/components'
 import { ChatMessage } from '../../database/entities/ChatMessage'
 import { Organization, Workspace } from '../../database/entities/identity'
 import { InternalFlowiseError } from '../../errors/internalFlowiseError'

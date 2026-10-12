@@ -39,7 +39,7 @@ jest.mock('../../utils/getRunningExpressApp', () => ({
 }))
 jest.mock('../../database/entities/ChatMessage', () => ({ ChatMessage: class ChatMessage {} }))
 jest.mock('../../database/entities/identity', () => ({ Workspace: class Workspace {}, Organization: class Organization {} }))
-jest.mock('flowise-components', () => ({ EvaluationRunner: { metrics: new Map() } }))
+jest.mock('@cuttlely/components', () => ({ EvaluationRunner: { metrics: new Map() } }))
 jest.mock('../../utils/logger', () => ({ __esModule: true, default: { error: jest.fn(), debug: jest.fn() } }))
 
 import { checks, getCheck, getCheckSetup, replayHooks, startCheck, stopCheck } from './index'

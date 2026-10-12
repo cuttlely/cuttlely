@@ -10,7 +10,7 @@ import { executeAgentFlow } from './buildAgentflow'
 import { stepTokens } from '../services/flow-check/compare'
 
 jest.mock('./logger', () => ({ __esModule: true, default: { warn: jest.fn(), info: jest.fn(), debug: jest.fn(), error: jest.fn() } }))
-jest.mock('flowise-components', () => ({ ...jest.requireActual('flowise-components'), tracingEnvEnabled: () => false }))
+jest.mock('@cuttlely/components', () => ({ ...jest.requireActual('@cuttlely/components'), tracingEnvEnabled: () => false }))
 
 let dir: string
 let componentNodes: Record<string, { filePath: string }>

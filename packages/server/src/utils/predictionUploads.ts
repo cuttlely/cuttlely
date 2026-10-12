@@ -15,7 +15,7 @@ import {
     normalizeDocumentMime,
     pdfOptionsFromChatbotConfig,
     resolveFileInputField
-} from 'flowise-components'
+} from '@cuttlely/components'
 import { InternalFlowiseError } from '../errors/internalFlowiseError'
 import { getErrorMessage } from '../errors/utils'
 import logger from './logger'
