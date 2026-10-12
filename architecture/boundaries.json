@@ -6,6 +6,7 @@
             "packages/server/src/utils/chatWidget.test.ts",
             "packages/cli/**",
             "harness/**",
+            "harness/runtime/**",
             "scripts/analyst-*.mjs",
             "scripts/hermes-stream.mjs",
             "packages/server/src/services/harnesses/**",
@@ -311,6 +312,7 @@
             "name": "Harnesses and the Analyst",
             "paths": [
                 "harness/**",
+                "harness/runtime/**",
                 "scripts/analyst-*.mjs",
                 "scripts/hermes-stream.mjs",
                 "packages/server/src/services/harnesses/**",

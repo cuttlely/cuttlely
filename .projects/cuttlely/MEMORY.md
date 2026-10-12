@@ -4,7 +4,7 @@ Conventions, do and don't, and lessons a newcomer would otherwise relearn. Add a
 
 ## Conventions
 
--   Harness runtime code is plain Node ESM in `harness/*.mjs`; ETL runtime code is plain Node ESM in `etl/*.mjs`, loaded from the CommonJS server with a real dynamic import. Canvas nodes are TypeScript under `packages/components/nodes/`. Bump a node's `version` when its inputs change.
+-   Harness runtime code is plain Node ESM in `harness/*.mjs`. Analyst storage, paging, the analyst database check, the SQLite worker, tool status, and the stream lease live in `harness/runtime/`. The old `scripts/` paths re-export those modules until the release after 1.0.2. ETL runtime code is plain Node ESM in `etl/*.mjs`, loaded from the CommonJS server with a real dynamic import. Canvas nodes are TypeScript under `packages/components/nodes/`. Bump a node's `version` when its inputs change.
 -   The canvas label is Harness Prime; the saved node name stays `harnessChief`, type `HarnessChief`. Template card titles are Title Case, but harness record names and a chatflow's `harnessName` stay the runtime id (`upload`, `field-team`, `calculator`).
 -   Runtime profile names: harness `<harness>`, agent-loop specialist `<harness>--<specialist>`. Session key `{harness}:{chatId}`. A specialist's runtime toolset for an MCP server is the server name (`analyst`), not `mcp-<name>`.
 -   Every harness behaviour change gets a case in `harness/check.mjs` with mocked runtime and model calls, runnable without a build, a key or the network. The same goes for ETL and `etl/check.mjs`.
@@ -20,6 +20,7 @@ Conventions, do and don't, and lessons a newcomer would otherwise relearn. Add a
 -   Formatting follows the root Prettier config (4 spaces, single quotes, no semicolons, print width 140). Do not reformat `hermes/`.
 -   The website home closing section uses the laptop mascot (`website/src/assets/cuttlely-mascot-laptop-512.webp`). The 404 page keeps the neutral pose.
 -   The published npm package named `cuttlely` is `packages/cli`. The root `package.json` name is `cuttlely-workspace` and stays private. pnpm rejects two workspace projects with the same name.
+-   The components package name is `@cuttlely/components`. New code imports that name. Saved custom functions and custom tools that require the earlier specifier keep working through the compatibility alias on the workspace root.
 -   Workspace packages that are not published set `"private": true`: `packages/components`, `packages/server`, `packages/ui`, and `packages/api-documentation`. `packages/chat-widget` (`@cuttlely/chat`) sets `"private": false`. The root `workspaces` field is `["packages/*"]`, the same directories as `pnpm-workspace.yaml`. pnpm reads `pnpm-workspace.yaml`. npm reads the root `workspaces` field, so that field stays and matches.
 -   npm publishes only from the release tag.
 

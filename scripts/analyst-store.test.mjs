@@ -33,6 +33,8 @@ import {
     rowPageSummary
 } from './analyst-store.mjs'
 import { analystPageRequest, parseSimpleSelect } from './analyst-page.mjs'
+import { queryAnalyst as runtimeQueryAnalyst } from '../harness/runtime/analyst-store.mjs'
+import { analystPageRequest as runtimePageRequest } from '../harness/runtime/analyst-page.mjs'
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const require = createRequire(path.join(ROOT, 'packages/components/package.json'))
@@ -56,6 +58,13 @@ function sqliteEnv(dir) {
         FLOWISE_SECRETKEY_OVERWRITE: 'analyst-test-key'
     }
 }
+
+describe('analyst module path', () => {
+    it('keeps one store and one page module for the old scripts paths', () => {
+        assert.equal(queryAnalyst, runtimeQueryAnalyst)
+        assert.equal(analystPageRequest, runtimePageRequest)
+    })
+})
 
 describe('analyst tool input', () => {
     it('accepts statement and query as sql, and names the dialect', () => {

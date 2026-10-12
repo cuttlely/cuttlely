@@ -3,7 +3,7 @@ import { createHmac } from 'crypto'
 const mockSecureAxiosRequest = jest.fn()
 const mockLoggerError = jest.fn()
 
-jest.mock('flowise-components', () => ({ secureAxiosRequest: mockSecureAxiosRequest }))
+jest.mock('@cuttlely/components', () => ({ secureAxiosRequest: mockSecureAxiosRequest }))
 jest.mock('./logger', () => ({ error: mockLoggerError }))
 
 import { dispatchCallback } from './callbackDispatcher'

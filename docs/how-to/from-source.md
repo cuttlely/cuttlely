@@ -207,9 +207,9 @@ The dev server uses the same database as `scripts/start-cuttlely.sh` (`~/.cuttle
 | -------------------------------------------- | ------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | The UI, `packages/ui/src`                    | The page updates in place within a second. No reload, and you stay signed in   | Nothing                                                                                                                                                                    |
 | The server, `packages/server/src`            | The server restarts, but it runs the last build, so your change isn't live yet | Run `pnpm --filter flowise build` in a second terminal (about 10 seconds), then save your server file once more. The server restarts on the new build within a few seconds |
-| Nodes and credentials, `packages/components` | Nothing                                                                        | Run `pnpm --filter flowise-components build`, then stop `pnpm dev` with Ctrl+C and start it again                                                                          |
+| Nodes and credentials, `packages/components` | Nothing                                                                        | Run `pnpm --filter @cuttlely/components build`, then stop `pnpm dev` with Ctrl+C and start it again                                                                        |
 
-The package names in those commands are the names in each folder's `package.json`: `flowise` is the server and `flowise-components` is the nodes package.
+The package names in those commands are the names in each folder's `package.json`: `flowise` is the server and `@cuttlely/components` is the nodes package.
 
 ### Harness specialists while you work on the UI
 
@@ -242,7 +242,7 @@ Tests sit next to the code they test: a test for `Foo.ts` is `Foo.test.ts` in th
 
 ```bash
 pnpm --filter flowise test -- src/controllers/ping
-pnpm --filter flowise-components test -- src/headerValidation.test.ts
+pnpm --filter @cuttlely/components test -- src/headerValidation.test.ts
 ```
 
 The first took about 5 seconds and the second about 10. Drop the file path to run a whole package, and `pnpm test` runs every package. On a small machine, run one package at a time. [CONTRIBUTING.md](../../CONTRIBUTING.md#testing) has more.
@@ -258,7 +258,7 @@ pnpm verify
 A change that only touches docs or markdown can use the short run, which takes about 2 to 3 minutes:
 
 ```bash
-pnpm --filter flowise-components build
+pnpm --filter @cuttlely/components build
 pnpm verify --fast
 ```
 
@@ -338,7 +338,7 @@ Run `bash scripts/setup-hermes.sh` again when `hermes/` changed. Database migrat
 | Many `npm warn Unknown env config` or `Unknown cli config "--email"` lines                 | Harmless. Wait for `Cuttlely Server is listening` or `Super User created`.                                                         |
 | A server change doesn't show up under `pnpm dev`                                           | Run `pnpm --filter flowise build`, then save the server file again. See [What updates when you save](#what-updates-when-you-save). |
 | `listen EADDRINUSE` on `3000` or `8080` when `pnpm dev` starts                             | Another server holds the port. Stop it, or change the ports. See [Change the dev server ports](#change-the-dev-server-ports).      |
-| `pnpm verify --fast` fails on a fresh checkout with missing `dist` files                   | Run `pnpm --filter flowise-components build` (or `pnpm build`) first.                                                              |
+| `pnpm verify --fast` fails on a fresh checkout with missing `dist` files                   | Run `pnpm --filter @cuttlely/components build` (or `pnpm build`) first.                                                            |
 | `pnpm verify` fails only with Jest timeouts or killed workers                              | The machine was busy. Close other heavy jobs and run it again before you debug.                                                    |
 | `Cuttlely is not ready to start. Missing:` and a list                                      | Run `pnpm install && pnpm build` from the repository root, then start again.                                                       |
 | `Hermes Python not found` or `Hermes Python ... cannot import the vendored Hermes runtime` | Run `bash scripts/setup-hermes.sh`, or set `HERMES_PYTHON` to a Python that can import Hermes.                                     |

@@ -1,4 +1,4 @@
-import { ClientType, INode, INodeOptionsValue } from 'flowise-components'
+import { ClientType, INode, INodeOptionsValue } from '@cuttlely/components'
 import { StatusCodes } from 'http-status-codes'
 import { omit } from 'lodash'
 import { InternalFlowiseError } from '../../errors/internalFlowiseError'

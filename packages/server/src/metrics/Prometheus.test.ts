@@ -1,4 +1,4 @@
-jest.mock('flowise-components', () => ({
+jest.mock('@cuttlely/components', () => ({
     getVersion: async () => ({ version: '1.0.2' })
 }))
 

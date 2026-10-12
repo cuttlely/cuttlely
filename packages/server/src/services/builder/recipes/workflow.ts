@@ -1,7 +1,7 @@
 import fs from 'fs'
 import path from 'path'
 import { cloneDeep } from 'lodash'
-import { initAgentflowNode } from 'flowise-components'
+import { initAgentflowNode } from '@cuttlely/components'
 import { pickCredential, missing } from '../credentials'
 import { layerLayout } from '../layout'
 import { Plan, PlanEdge, PlanNode } from '../plan'

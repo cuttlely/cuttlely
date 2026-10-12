@@ -58,7 +58,7 @@ bash scripts/setup-hermes.sh
 CUTTLELY_LOCAL_ADMIN=true pnpm dev                # open http://localhost:8080
 ```
 
-`pnpm dev` serves the UI on `8080` with live reload and the server on `3000`. Server changes need `pnpm --filter flowise build`, and node changes need `pnpm --filter flowise-components build`. [What updates when you save](./docs/how-to/from-source.md#what-updates-when-you-save) has the details.
+`pnpm dev` serves the UI on `8080` with live reload and the server on `3000`. Server changes need `pnpm --filter flowise build`, and node changes need `pnpm --filter @cuttlely/components build`. [What updates when you save](./docs/how-to/from-source.md#what-updates-when-you-save) has the details.
 
 #### Step by step
 
@@ -116,7 +116,7 @@ If in doubt, use `type: 'password'`. The only cost is that the field must be re-
     Or from the repo root using `--filter`:
 
     ```bash
-    pnpm --filter flowise-components test
+    pnpm --filter @cuttlely/components test
     pnpm --filter flowise test # the server package. The root package is named Cuttlely.
     ```
 

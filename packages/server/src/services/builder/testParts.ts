@@ -54,7 +54,7 @@ export function partsFromSamples(): Record<string, PartDefinition> {
     return parts
 }
 
-// A light stand-in for the card setup in flowise-components: default inputs, one output plug per output.
+// A light stand-in for the card setup in @cuttlely/components: default inputs, one output plug per output.
 // Like the real one, it rewrites the object it is given (inputs become values, the credential is emptied).
 export const fakeInitNode = (definition: Record<string, any>, id: string) => {
     const inputs: Record<string, any> = {}

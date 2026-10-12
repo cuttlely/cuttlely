@@ -74,7 +74,7 @@ export interface TestDrivers {
     azure: (values: Values) => BucketProbe
     fetchText: (url: string, timeoutMs: number, maxBytes: number) => Promise<string>
     isModelList: (data: unknown) => boolean
-    /** The analyst rule that refuses the application database (scripts/analyst-postgres.mjs). */
+    /** The analyst rule that refuses the application database (harness/runtime/analyst-postgres.mjs). */
     checkAnalystUrl: (url: string, env: Values) => Promise<void>
     home: () => string
 }
@@ -563,9 +563,11 @@ export async function testConnection(deps: ServiceDeps, input: unknown, drivers:
 
 const importEsm = new Function('specifier', 'return import(specifier)') as (specifier: string) => Promise<any>
 
-function findScript(file: string): string {
+export function findScript(file: string): string {
     let dir = __dirname
     for (let i = 0; i < 8; i += 1) {
+        const runtime = path.join(dir, 'harness', 'runtime', file)
+        if (fs.existsSync(runtime)) return runtime
         const candidate = path.join(dir, 'scripts', file)
         if (fs.existsSync(candidate)) return candidate
         dir = path.dirname(dir)
@@ -657,7 +659,7 @@ export function defaultDrivers(): TestDrivers {
                 clearTimeout(timer)
             }
         },
-        isModelList: (data) => require('flowise-components').isModelList(data),
+        isModelList: (data) => require('@cuttlely/components').isModelList(data),
         checkAnalystUrl: async (url, env) => {
             const module = await importEsm(require('url').pathToFileURL(findScript('analyst-postgres.mjs')).href)
             module.resolveAnalystPostgresUrl({ analystUrl: url, env })

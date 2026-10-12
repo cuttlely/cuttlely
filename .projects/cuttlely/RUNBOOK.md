@@ -10,11 +10,11 @@ New to the code? [Build from source and run the dev server](../../docs/how-to/fr
 git fetch origin
 git switch -c <short-topic> origin/main     # or a separate worktree per change: git worktree add -b <topic> ../cuttlely-<topic> origin/main
 pnpm install --frozen-lockfile
-pnpm --filter flowise-components build      # a fresh checkout needs it before `pnpm verify --fast` and the pre-push hook pass
+pnpm --filter @cuttlely/components build   # a fresh checkout needs it before `pnpm verify --fast` and the pre-push hook pass
 ```
 
 -   One concern per pull request, against `main`. Commit messages are one plain sentence describing the user-visible change, then a short body.
--   **Gate (D27).** A docs-only change runs `pnpm --filter flowise-components build && pnpm verify --fast`. Anything else runs the full `pnpm verify` on the exact head you will merge. If the head moves, run it again.
+-   **Gate (D27).** A docs-only change runs `pnpm --filter @cuttlely/components build && pnpm verify --fast`. Anything else runs the full `pnpm verify` on the exact head you will merge. If the head moves, run it again.
 -   **Keep up with `main`.** If `main` moved while your pull request was open, merge `origin/main` into your branch and re-run the gate. Do not rewrite a pushed branch and do not force-push.
 -   **Merge.** Squash-merge, pinned to the head you verified: `gh pr merge <n> --squash --match-head-commit <sha>`.
 -   **Hooks stay on.** Do not use `git push --no-verify`. `CUTTLELY_SKIP_VERIFY=1` and `CUTTLELY_SKIP_HANDOFF_CHECK=1` exist for emergencies and never replace the gate.
@@ -51,6 +51,7 @@ node etl/check.mjs --stress   # adds a generated 1,000,000-row CSV and a 401-fil
 pnpm verify                   # the full gate; `pnpm verify --help` lists the 23 steps
 pnpm verify --fast            # lint, boundaries, typecheck, verify-test, website-docs, chat-widget, hermes-vendor, unit, server-settings-ui, handoff-test, render-blueprint, identity-migration
 node scripts/check-boundaries.mjs   # zone crossings; --update only shrinks the baseline
+node scripts/health-report.mjs       # health table; exits 0. --image <ref> adds the image size
 pnpm verify --skip smoke      # skip one step locally; repeat --skip for more. Not for the merge gate
 pnpm verify:comment           # prints the summary for a pull request comment
 CUTTLELY_VERIFY_JEST_WORKERS=4 pnpm verify   # unit Jest workers; default 50%

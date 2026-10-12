@@ -15,8 +15,8 @@ const mockFlows = new Map<string, any>()
 
 jest.mock('./logger', () => ({ __esModule: true, default: { info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() } }))
 
-jest.mock('flowise-components', () => {
-    const actual = jest.requireActual('flowise-components')
+jest.mock('@cuttlely/components', () => {
+    const actual = jest.requireActual('@cuttlely/components')
     return {
         ...actual,
         streamStorageFile: async (chatflowId: string, chatId: string, fileName: string) => {
