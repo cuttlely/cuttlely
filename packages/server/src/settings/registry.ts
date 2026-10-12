@@ -1223,6 +1223,7 @@ export const KEPT_OUT: KeptOutGroup[] = [
             'CUTTLELY_HARNESS_GATEWAY_PORT',
             'NODE_OPTIONS',
             'CUTTLELY_IMAGE',
+            'INCLUDE_BROWSER',
             'CUTTLELY_INSTALL'
         ],
         why: 'The settings file lives in the data folder, and the host or volume decides these.'
