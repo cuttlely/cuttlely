@@ -7,6 +7,7 @@
 #   Update starts the check. View is required to read the result.
 # Repository variables: CUTTLELY_URL, CUTTLELY_FLOW_ID
 #   The server origin, and the flow id from the canvas address bar.
+#   pnpm dev serves the API on port 3000. scripts/start-cuttlely.sh and npx cuttlely start listen on port 43117.
 # The flow needs a draft and at least one past question. See docs/how-to/ci-gate.md.
 
 name: Cuttlely draft check

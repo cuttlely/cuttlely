@@ -411,6 +411,8 @@ test('check help documents the command and the exit codes', async () => {
     assert.match(help.text(), /0 {2}The check finished/)
     assert.match(help.text(), /1 {2}--fail-on-changed was set/)
     assert.match(help.text(), /2 {2}The check timed out/)
+    assert.match(help.text(), /A check the server marks stopped or failed also exits 2/)
+    assert.match(help.text(), /If the draft is saved, published, or discarded while the check runs, the command exits 2/)
     assert.equal(DEFAULT_SERVER, `http://127.0.0.1:${DEFAULT_PORT}`)
     assert.equal(parseArgs(['check', '--flow', 'flow-1']).server, null)
     assert.equal(parseArgs(['check', '--flow', 'flow-1']).timeoutSeconds, null)
