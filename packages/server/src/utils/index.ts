@@ -42,6 +42,7 @@ import {
     StorageProviderFactory,
     applyModelRetryBudget
 } from '@cuttlely/components'
+import { withNodeSpan } from '../metrics/tracing'
 import { randomBytes } from 'crypto'
 import { AES, enc } from 'crypto-js'
 import { encryptionKeyOverwrite } from '../settings/settingAlias'
@@ -651,27 +652,31 @@ export const buildFlow = async ({
             } else {
                 logger.debug(`[server]: [${orgId}]: Initializing ${reactFlowNode.data.label} (${reactFlowNode.data.id})`)
                 const finalQuestion = uploadedFilesContent ? `${uploadedFilesContent}\n\n${question}` : question
-                let outputResult = await newNodeInstance.init(reactFlowNodeData, finalQuestion, {
-                    orgId,
-                    workspaceId,
-                    subscriptionId,
-                    chatId,
-                    sessionId,
-                    chatflowid,
-                    chatHistory,
-                    logger,
-                    appDataSource,
-                    databaseEntities,
-                    cachePool,
-                    usageCacheManager,
-                    isUpsert,
-                    dynamicVariables,
-                    uploads,
-                    baseURL,
-                    componentNodes,
-                    updateStorageUsage,
-                    checkStorage
-                })
+                const initNode = () =>
+                    newNodeInstance.init(reactFlowNodeData, finalQuestion, {
+                        orgId,
+                        workspaceId,
+                        subscriptionId,
+                        chatId,
+                        sessionId,
+                        chatflowid,
+                        chatHistory,
+                        logger,
+                        appDataSource,
+                        databaseEntities,
+                        cachePool,
+                        usageCacheManager,
+                        isUpsert,
+                        dynamicVariables,
+                        uploads,
+                        baseURL,
+                        componentNodes,
+                        updateStorageUsage,
+                        checkStorage
+                    })
+                let outputResult = isUpsert
+                    ? await initNode()
+                    : await withNodeSpan(reactFlowNode.data.id, reactFlowNode.data.name, initNode)
 
                 // Chat models and LLMs give up on a provider that keeps refusing within a bounded time (no 95-second waits).
                 if (reactFlowNode.data.category === 'Chat Models' || reactFlowNode.data.category === 'LLMs')

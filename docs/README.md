@@ -38,6 +38,7 @@ New here? Start with [Your first 10 minutes](../README.md#your-first-10-minutes)
 -   [Override configuration](./reference/override-config.md). What a prediction request may change with `overrideConfig`, and what it never can.
 -   [Upgrading Cuttlely](./upgrading.md). Back up, upgrade, check and roll back, for Docker, Render and source installs.
 -   [Changelog](../CHANGELOG.md) and [Releases and support](./releases.md). What changed in each release, what counts as a breaking change, and which versions get fixes.
+-   [Run traces](./how-to/observability.md). Optional OpenTelemetry traces for chatflow predictions and agentflow runs, off unless you turn them on.
 -   [What Cuttlely connects to](../SECURITY.md#what-cuttlely-connects-to). Every outbound connection, when it happens, and how to turn it off.
 -   [Credits](../CREDITS.md). The open-source projects Cuttlely builds on, with their licenses and links.
 -   [Updating the model list](./reference/model-list.md). For maintainers: the model dropdowns and prices come from `packages/components/models.json`, kept by hand in this repository.

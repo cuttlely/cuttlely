@@ -14,6 +14,7 @@ import {
     generateFollowUpPrompts,
     tracingEnvEnabled
 } from '@cuttlely/components'
+import { flowTraceOpen, noteFlowOutcome, traceFlow, tracedNode } from '../metrics/tracing'
 import {
     IncomingAgentflowInput,
     INodeData,
@@ -1271,8 +1272,10 @@ const executeNode = async ({
             replay
         }
 
-        // Execute node
-        let results = await newNodeInstance.run(reactFlowNodeData, finalInput, runParams)
+        // Execute node. tracedNode is a no-op check when run traces are off.
+        let results = await tracedNode<any>(nodeId, reactFlowNode.data.name, reactFlowNode.data.inputs, () =>
+            newNodeInstance.run(reactFlowNodeData, finalInput, runParams)
+        )
 
         // Handle iteration node with recursive execution
         if (
@@ -1555,7 +1558,19 @@ const parseFormStringToJson = (formString: string): Record<string, string> => {
 /*
  * Function to traverse the flow graph and execute the nodes
  */
-export const executeAgentFlow = async ({
+export const executeAgentFlow = async (params: IExecuteAgentFlowParams): Promise<any> => {
+    // When traces are off this is one environment check and the body runs once.
+    if (!params.isRecursive && !params.replay && process.env.CUTTLELY_OTEL_TRACES === 'true' && !flowTraceOpen()) {
+        return traceFlow('agentflow', params.chatflow.id, async () => {
+            const result = await executeAgentFlow(params)
+            noteFlowOutcome(params.incomingInput?.question ?? params.incomingInput?.form, result?.text, result?.status)
+            return result
+        })
+    }
+    return runAgentFlow(params)
+}
+
+const runAgentFlow = async ({
     componentNodes,
     incomingInput,
     chatflow,
