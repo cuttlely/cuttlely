@@ -113,6 +113,7 @@
             "@elastic/transport": ">=8.9.3",
             "@modelcontextprotocol/sdk": "^1.32.1",
             "multer": "2.4.0",
+            "@qdrant/js-client-rest": "1.18.0",
             "undici@6": "6.29.0",
             "undici@7": "7.30.0",
             "handlebars": "4.7.10",
