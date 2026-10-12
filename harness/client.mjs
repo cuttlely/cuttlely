@@ -2,7 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { HarnessError } from './errors.mjs'
 import { readProfileEnv } from './profile.mjs'
-import { beginHermesStream } from '../scripts/hermes-stream.mjs'
+import { beginHermesStream } from './runtime/hermes-stream.mjs'
 
 const LOOPBACK = new Set(['127.0.0.1', 'localhost', '::1'])
 // Several specialists poll one Hermes gateway at once; back off so status reads do not crowd its event loop.

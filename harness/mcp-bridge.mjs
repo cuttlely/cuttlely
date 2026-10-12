@@ -1,7 +1,7 @@
 import fs from 'node:fs'
 import http from 'node:http'
 import { dataRoot } from './paths.mjs'
-import { writeAnalystMcpStatus } from '../scripts/analyst-mcp-status.mjs'
+import { writeAnalystMcpStatus } from './runtime/analyst-mcp-status.mjs'
 
 const analystBridge = process.env.CUTTLELY_ANALYST_BRIDGE === '1'
 

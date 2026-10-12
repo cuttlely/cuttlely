@@ -4,7 +4,7 @@ Conventions, do and don't, and lessons a newcomer would otherwise relearn. Add a
 
 ## Conventions
 
--   Harness runtime code is plain Node ESM in `harness/*.mjs`; ETL runtime code is plain Node ESM in `etl/*.mjs`, loaded from the CommonJS server with a real dynamic import. Canvas nodes are TypeScript under `packages/components/nodes/`. Bump a node's `version` when its inputs change.
+-   Harness runtime code is plain Node ESM in `harness/*.mjs`. Analyst storage, paging, the analyst database check, the SQLite worker, tool status, and the stream lease live in `harness/runtime/`. The old `scripts/` paths re-export those modules until the release after 1.0.2. ETL runtime code is plain Node ESM in `etl/*.mjs`, loaded from the CommonJS server with a real dynamic import. Canvas nodes are TypeScript under `packages/components/nodes/`. Bump a node's `version` when its inputs change.
 -   The canvas label is Harness Prime; the saved node name stays `harnessChief`, type `HarnessChief`. Template card titles are Title Case, but harness record names and a chatflow's `harnessName` stay the runtime id (`upload`, `field-team`, `calculator`).
 -   Runtime profile names: harness `<harness>`, agent-loop specialist `<harness>--<specialist>`. Session key `{harness}:{chatId}`. A specialist's runtime toolset for an MCP server is the server name (`analyst`), not `mcp-<name>`.
 -   Every harness behaviour change gets a case in `harness/check.mjs` with mocked runtime and model calls, runnable without a build, a key or the network. The same goes for ETL and `etl/check.mjs`.

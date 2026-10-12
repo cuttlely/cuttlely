@@ -13,6 +13,10 @@
             "name": "dotenv"
         },
         {
+            "name": "pg",
+            "reason": "analyst storage in harness/runtime loads the Postgres client"
+        },
+        {
             "name": "xlsx"
         },
         {
