@@ -18,6 +18,7 @@ const { appendMessage, readMessages, readPromptContext, sessionKey } = await imp
 const { chiefContextTokens, estimateTokens, specialistContextTokens, DEFAULT_CHIEF_CONTEXT_TOKENS, DEFAULT_SPECIALIST_CONTEXT_TOKENS } =
     await import('./context.mjs')
 const {
+    harnessForTurn,
     runHarness: runHarnessRaw,
     warmHarnessProfiles,
     ROUTE_WHOLE_TASK,
@@ -156,6 +157,24 @@ function check(name, ok, detail) {
     failures.push(name)
     console.error(`FAIL ${name}${detail ? `: ${detail}` : ''}`)
 }
+
+saveHarness(
+    {
+        name: 'draft-probe',
+        chief: { instructions: 'live', model: { nodeName: 'demoChat', nodeId: 'm', inputs: {} } },
+        specialists: [{ name: 'math', instructions: 'live specialist' }]
+    },
+    { overwrite: true }
+)
+const draftProbe = {
+    ...getHarness('draft-probe'),
+    chief: { ...getHarness('draft-probe').chief, instructions: 'draft' }
+}
+check(
+    'a draft run uses the record it was given and leaves the saved harness',
+    harnessForTurn('draft-probe', draftProbe).chief.instructions === 'draft' && getHarness('draft-probe').chief.instructions === 'live'
+)
+check('a run without a record reads the saved harness', harnessForTurn('draft-probe').chief.instructions === 'live')
 
 function readJson(file) {
     return JSON.parse(fs.readFileSync(path.join(root, file), 'utf8'))

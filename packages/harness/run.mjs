@@ -125,6 +125,21 @@ function rememberRun(args, started, pending, result, error) {
     }
 }
 
+// The canvas and Try it pass the draft roster in memory. The saved harness is what external runs read.
+export function harnessForTurn(name, record) {
+    if (record) {
+        if (!record.name || record.name !== name) {
+            throw new HarnessError('bad_name', `Harness run record "${record.name || ''}" does not match "${name}".`)
+        }
+        return record
+    }
+    const harness = getHarness(name)
+    if (!harness) {
+        throw new HarnessError('not_found', `Harness "${name}" was not found.`)
+    }
+    return harness
+}
+
 export async function runHarness(args = {}) {
     const started = Date.now()
     let pending = null
@@ -169,12 +184,10 @@ async function runHarnessTurn({
     onEvent,
     signal,
     budgetMs,
-    images
+    images,
+    record
 } = {}) {
-    const harness = getHarness(name)
-    if (!harness) {
-        throw new HarnessError('not_found', `Harness "${name}" was not found.`)
-    }
+    const harness = harnessForTurn(name, record)
     if (!chatId) {
         throw new HarnessError('bad_session', 'Harness cannot run: chatId is required.')
     }

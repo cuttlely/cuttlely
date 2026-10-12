@@ -107,6 +107,30 @@ function restoreEnv(name: string, value: string | undefined) {
 }
 
 // What Publish and a chatflow PUT do after they write Live: sync the roster runs read.
+function rosterInstructions(flowData: string) {
+    const syncUrl = pathToFileURL(path.join(ROOT, 'packages/harness/sync-from-flow.mjs')).href
+    const script = [
+        `import { rosterFromFlow } from ${JSON.stringify(syncUrl)};`,
+        `const roster = rosterFromFlow({ name: ${JSON.stringify(
+            NAME
+        )}, chatflowId: 'flow-1', workspaceId: 'team-a', flowData: process.env.CANVAS });`,
+        `process.stdout.write(roster.chief.instructions);`
+    ].join('\n')
+    const result = spawnSync(process.execPath, ['--input-type=module', '-e', script], {
+        env: {
+            PATH: process.env.PATH,
+            HOME: process.env.HOME,
+            CUTTLELY_DATA_DIR: dataDir,
+            CUTTLELY_HERMES_HOME: path.join(dataDir, 'hermes'),
+            CUTTLELY_WARM_HERMES: 'false',
+            CANVAS: flowData
+        },
+        encoding: 'utf8'
+    })
+    if (result.status !== 0) throw new Error(result.stderr || result.stdout || `roster exited ${result.status}`)
+    return result.stdout
+}
+
 function syncLive(flowData: string) {
     const syncUrl = pathToFileURL(path.join(ROOT, 'packages/harness/sync-from-flow.mjs')).href
     const storeUrl = pathToFileURL(path.join(ROOT, 'packages/harness/store.mjs')).href
@@ -177,6 +201,19 @@ describe('harness Live and drafts', () => {
         expect(syncLive(API)).toBe('API instructions')
         expect(rows[0].draftFlowData).toBe(DRAFT)
         expect((await getDraftStatus(flow())).draft?.flowData).toBe(DRAFT)
+    })
+
+    test('the canvas roster follows the draft while the saved harness stays Live, and they match after publish', () => {
+        syncLive(LIVE)
+        expect(rosterInstructions(DRAFT)).toBe('Draft instructions')
+        expect(JSON.parse(fs.readFileSync(path.join(dataDir, 'harnesses', `${NAME}.json`), 'utf8')).chief.instructions).toBe(
+            'Live instructions'
+        )
+        expect(syncLive(DRAFT)).toBe('Draft instructions')
+        expect(rosterInstructions(DRAFT)).toBe('Draft instructions')
+        expect(JSON.parse(fs.readFileSync(path.join(dataDir, 'harnesses', `${NAME}.json`), 'utf8')).chief.instructions).toBe(
+            'Draft instructions'
+        )
     })
 
     test('discarding a draft leaves the roster alone', async () => {

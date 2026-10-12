@@ -124,7 +124,7 @@ The name is the harness id. Chatflows and the API call the harness by it. It is 
 
 ![The Save New Harness dialog with chief-of-staff typed in the name field, and Cancel and Save buttons.](../images/harnesses/save-dialog-name.png)
 
-The first save of a new harness is Live, so a chatflow and the API can call it. After that, **Save Harness** writes a **Draft**. The header says **Draft, not live yet**, or **Live** when nothing is waiting. **Publish** puts the draft Live. **Discard draft**, in the Publish dialog, throws the draft away. `POST /api/v1/harnesses/:name/runs`, **Try it**, and the canvas chat keep serving the published harness until you publish. [Drafts and Publish](./versioning.md#drafts-and-publish) is the same flow chatflows use, including **Roll back Live**. The check that replays recent questions is not on a harness yet.
+The first save of a new harness is Live, so a chatflow and the API can call it. After that, **Save Harness** writes a **Draft**. The header says **Draft, not live yet**, or **Live** when nothing is waiting. **Publish** puts the draft Live. **Discard draft**, in the Publish dialog, throws the draft away. The canvas chat and **Try it** run the draft when one exists, and Live otherwise. `POST /api/v1/harnesses/:name/runs` stays on Live until you publish. [Drafts and Publish](./versioning.md#drafts-and-publish) is the same flow chatflows use, including **Roll back Live**. The check that replays recent questions is not on a harness yet.
 
 A harness that was saved before drafts is already Live. The next edit on the canvas starts a draft. The saved canvas and the roster runs serve do not change until you publish.
 
@@ -138,7 +138,7 @@ An orange triangle on a card means that node was saved with an older version of 
 
 ## Test it in the canvas chat
 
-The chat button at the top right of a saved harness canvas sends your message to the published harness, the same request as `POST /api/v1/harnesses/<name>/runs`. A draft is not used until you **Publish**. Unsaved changes are not used either.
+The chat button at the top right of a saved harness canvas runs the draft when one exists, and Live otherwise. Save the draft before you chat. Unsaved changes are not used. `POST /api/v1/harnesses/<name>/runs` is the external route and stays on Live until you **Publish**.
 
 1. Select the chat button (**Chat**).
 2. Ask a document question, for example: `What does the sample note say the researcher reads, and how were its vectors built?`
@@ -224,7 +224,7 @@ While it runs, the button reads **Running** and **Stop** cancels the run. The ru
 
 ![Try it after the run. The Run card says Finished, 3.3 s, and the answer says There are 2 open tasks and lists draft agenda and send invites.](../images/harnesses/harness-try-it-done.png)
 
-**Try it** is the same request as `POST /api/v1/harnesses/chief-of-staff/runs`. It uses your signed-in session, and it runs the published harness. A draft on the canvas is not used until you publish.
+**Try it** uses your signed-in session. It runs the draft when the canvas has one, and Live otherwise. `POST /api/v1/harnesses/chief-of-staff/runs` is what an external caller uses, and that route stays on Live until you publish.
 
 ## Look at earlier runs
 

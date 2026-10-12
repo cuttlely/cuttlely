@@ -74,7 +74,7 @@ On a chatflow, agentflow, or harness with drafts on, which is the default, the b
 
 ![The Open this version as your draft? dialog over the version page of Bakery helper. Open As Draft is the button at the top right of the page. The dialog reads: This opens on the canvas as your draft. Live is unchanged until you publish. Nothing in history is erased. The buttons are Cancel and Open As Draft.](../images/versioning/open-as-draft-confirm.png)
 
-The canvas opens with that version as your draft, and the header says **Draft, not live yet**. On a chatflow or agentflow the test chat runs that draft. On a harness the canvas chat still runs Live until you publish. Select **Publish** to put it Live, or **Discard draft** to go back to Live. History records it when you publish, as `Published: <what changed>`.
+The canvas opens with that version as your draft, and the header says **Draft, not live yet**. The test chat runs that draft, including the harness canvas chat and **Try it**. Select **Publish** to put it Live, or **Discard draft** to go back to Live. History records it when you publish, as `Published: <what changed>`.
 
 ![The Bakery helper canvas after Open as draft. The header shows the yellow label Draft, not live yet, Saved just now, and a Publish button. A green message at the bottom reads Opened this version as your draft. Live is unchanged until you publish.](../images/versioning/after-open-as-draft.png)
 
@@ -187,7 +187,7 @@ Chat history, uploaded files, runs, and the app database are not in version hist
 
 ## Drafts and Publish
 
-Drafts are on by default. A chatflow, agentflow, or harness canvas saves to a **Draft**. The prediction API, embeds, shared links, schedules, webhooks, and `POST /api/v1/harnesses/:name/runs` keep running **Live** until you **Publish**. The canvas test chat on a chatflow or agentflow runs the draft, so you try the version you are editing. A harness canvas chat and **Try it** call that runs route, so they keep serving the published harness until you publish. Pipeline canvases still save straight to Live.
+Drafts are on by default. A chatflow, agentflow, or harness canvas saves to a **Draft**. The prediction API, embeds, shared links, schedules, webhooks, and `POST /api/v1/harnesses/:name/runs` keep running **Live** until you **Publish**. The canvas test chat runs the draft, so you try the version you are editing. On a harness that is the canvas chat and **Try it**. They use the same internal route as a chatflow test chat. External callers of `POST /api/v1/harnesses/:name/runs` stay on Live. Pipeline canvases still save straight to Live.
 
 The canvas says **Draft, not live yet** and when that draft was saved, or **Live** when there is nothing waiting. **Publish** opens one dialog that lists what changed, in the same words as version history. **Keep editing** closes it. **Discard draft** throws the draft away and puts Live back on the canvas.
 

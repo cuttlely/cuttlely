@@ -226,6 +226,27 @@ export function compareNames(kind, expected, actualNames) {
     return expected.filter((name) => !have.has(name)).map((name) => `${kind} ${name} is gone`)
 }
 
+// An older harness has a canvas, a saved roster, and version history, and no draft row.
+// It stays Live (that version is the one people are served). The first canvas edit is a draft.
+export function harnessMigrationProblems({ status, history, liveBefore, liveAfter, rosterBefore, rosterAfter, draft }) {
+    const problems = []
+    if (!status || status.mode !== 'draft' || status.draft) problems.push('an existing harness is not Live with no draft')
+    const versions = Array.isArray(history?.versions) ? history.versions : []
+    const only = versions.length === 1 ? versions[0].sha : null
+    if (!only || history.liveSha !== only) problems.push('the harness saved before drafts is not Live version 1')
+    if (liveAfter !== liveBefore) problems.push('the first edit changed the Live canvas')
+    const names = (roster) => (roster?.specialists || []).map((item) => item.name).join(',')
+    if (
+        !rosterBefore ||
+        names(rosterAfter) !== names(rosterBefore) ||
+        rosterAfter?.chief?.instructions !== rosterBefore?.chief?.instructions
+    ) {
+        problems.push('the first edit changed the roster runs serve')
+    }
+    if (!draft?.draft?.flowData || draft.draft.flowData === liveBefore) problems.push('the first edit did not create a draft')
+    return problems
+}
+
 export function versionList(response) {
     const body = response?.json
     if (Array.isArray(body)) return body
@@ -297,6 +318,44 @@ async function checkData(base, cookie, meta, say) {
     return problems
 }
 
+async function checkHarnessUpgrade(base, cookie, meta, say) {
+    const flow = (meta.expected.flows || []).find((item) => item.type === 'HARNESS')
+    const harness = (meta.expected.harnesses || []).find((item) => item.chatflowId === flow?.id)
+    if (!flow || !harness) return ['the upgrade fixture has no harness to check']
+    const live = await request(`${base}/api/v1/chatflows/${flow.id}`, { cookie })
+    const status = await request(`${base}/api/v1/flow-drafts/${flow.id}`, { cookie })
+    const history = await request(`${base}/api/v1/flow-versions/${flow.id}`, { cookie })
+    const roster = await request(`${base}/api/v1/harnesses/${encodeURIComponent(harness.name)}`, { cookie })
+    if (live.status !== 200 || !live.json?.flowData) return [`reading harness ${flow.name} failed (${live.status})`]
+    let draftFlow
+    try {
+        draftFlow = JSON.parse(live.json.flowData)
+        const chief = (draftFlow.nodes || []).find((node) => node?.data?.name === 'harnessChief')
+        if (!chief?.data?.inputs) return [`harness ${flow.name} has no Harness Prime to edit`]
+        chief.data.inputs.instructions = `${chief.data.inputs.instructions || ''} draft edit`
+    } catch {
+        return [`harness ${flow.name} canvas is not JSON`]
+    }
+    const saved = await request(`${base}/api/v1/flow-drafts/${flow.id}`, {
+        method: 'PUT',
+        cookie,
+        body: { flowData: JSON.stringify(draftFlow) }
+    })
+    const liveAfter = await request(`${base}/api/v1/chatflows/${flow.id}`, { cookie })
+    const rosterAfter = await request(`${base}/api/v1/harnesses/${encodeURIComponent(harness.name)}`, { cookie })
+    const problems = harnessMigrationProblems({
+        status: status.json,
+        history: history.json,
+        liveBefore: live.json.flowData,
+        liveAfter: liveAfter.json?.flowData,
+        rosterBefore: roster.json,
+        rosterAfter: rosterAfter.json,
+        draft: saved.json
+    })
+    if (!problems.length) say(`  harness "${harness.name}" stayed Live version 1, and the first edit is a draft`)
+    return problems
+}
+
 export async function runUpgradeCheck({ fixture = DEFAULT_FIXTURE, serverRoot = ROOT, say = console.log, keyAlias = 'file' } = {}) {
     if (!fs.existsSync(path.join(serverRoot, 'packages', 'server', 'dist', 'commands'))) {
         throw new Error('packages/server/dist is missing. Build first (pnpm build, or the verify build step).')
@@ -336,6 +395,7 @@ export async function runUpgradeCheck({ fixture = DEFAULT_FIXTURE, serverRoot = 
             say('first start on the old data: ping ok')
             const cookie = await login(base, meta.account)
             problems = await checkData(base, cookie, meta, say)
+            problems.push(...(await checkHarnessUpgrade(base, cookie, meta, say)))
 
             const chat = meta.expected.flows.find((f) => f.predict)
             if (chat) {

@@ -1,8 +1,8 @@
 // Draft and Live for one flow. ChatFlow.flowData is Live: prediction, embeds, shared links, MCP,
-// schedules and webhooks read it, unchanged. A harness run reads the roster synced from that Live canvas,
-// so POST /api/v1/harnesses/:name/runs stays on Live until Publish. The canvas saves to a draft in
-// flow_version_state, and a chatflow or agentflow test chat runs that draft. Publish copies the draft to
-// Live (and syncs the harness roster); Roll back sets Live to an earlier version.
+// schedules and webhooks read it, unchanged. POST /api/v1/harnesses/:name/runs reads the roster synced from
+// that Live canvas. The canvas chat and Try it use the internal prediction route, which runs the draft when
+// one exists. The canvas saves to a draft in flow_version_state. Publish copies the draft to Live (and syncs
+// the harness roster); Roll back sets Live to an earlier version.
 //
 // No data migration: a flow with no state row has no draft. An existing harness stays the Live canvas it
 // already has, and the first edit after drafts include harnesses creates a draft.
