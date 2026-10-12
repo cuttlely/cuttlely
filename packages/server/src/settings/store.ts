@@ -6,6 +6,7 @@ import os from 'os'
 import path from 'path'
 import { AES, enc } from 'crypto-js'
 import { isKeptOut, settingFor } from './registry'
+import { encryptionKeyOverwrite } from './settingAlias'
 import { isBlank } from './resolve'
 
 export const SETTINGS_FILE = 'server.json'
@@ -46,7 +47,9 @@ export function settingsDir(env: Env = process.env): string {
 
 /** The credential encryption key, read without waiting: the override value, or the key file. AWS-held keys are not readable here. */
 export function encryptionKeySync(env: Env = process.env): string | null {
-    const override = env.FLOWISE_SECRETKEY_OVERWRITE
+    // Differing overwrite names throw. Guessing either value would decrypt stored credentials with the wrong key.
+    // A blank overwrite, including spaces, still falls through to the key file, as it does today.
+    const override = encryptionKeyOverwrite(env)
     if (!isBlank(override)) return String(override)
     const candidates = [
         env.SECRETKEY_PATH ? path.join(env.SECRETKEY_PATH, 'encryption.key') : '',

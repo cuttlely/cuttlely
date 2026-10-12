@@ -7,10 +7,24 @@ import {
     compareNames,
     compareVersions,
     fixtureProblems,
+    keyAliasEnv,
     nodeCount,
     readFixture,
     versionList
 } from './upgrade-check.mjs'
+
+test('key alias modes set the existing name, the product name, both, or a mismatch', () => {
+    const key = 'fixture-key'
+    assert.deepEqual(keyAliasEnv('file', key), {})
+    assert.deepEqual(keyAliasEnv('existing', key), { FLOWISE_SECRETKEY_OVERWRITE: key })
+    assert.deepEqual(keyAliasEnv('new', key), { CUTTLELY_SECRETKEY_OVERWRITE: key })
+    const both = keyAliasEnv('both', key)
+    assert.equal(both.FLOWISE_SECRETKEY_OVERWRITE, key)
+    assert.equal(both.CUTTLELY_SECRETKEY_OVERWRITE, key)
+    const conflict = keyAliasEnv('conflict', key)
+    assert.notEqual(conflict.FLOWISE_SECRETKEY_OVERWRITE, conflict.CUTTLELY_SECRETKEY_OVERWRITE)
+    assert.equal(conflict.FLOWISE_SECRETKEY_OVERWRITE, key)
+})
 
 test('the bundled fixture is complete and laid out like the Docker volume', () => {
     const { meta, archive } = readFixture(DEFAULT_FIXTURE)
