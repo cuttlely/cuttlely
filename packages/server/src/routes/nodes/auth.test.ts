@@ -50,7 +50,7 @@ function dataSource() {
 
 function app(overrides?: {
     attachIdentitySession?: (req: Request, res: Response) => Promise<object | null>
-    validateAPIKey?: typeof validateAPIKey
+    validateAPIKey?: (req: Request) => Promise<{ isValid: boolean; apiKey?: { workspaceId?: string; permissions: string[] } }>
 }) {
     const server = express()
     server.use(
@@ -100,7 +100,7 @@ describe('node list and pack index sign-in', () => {
                 if (req.headers.authorization === 'Bearer good-key') {
                     return {
                         isValid: true,
-                        apiKey: { id: 'key-1', workspaceId: 'ws-1', permissions: ['chatflows:view'] }
+                        apiKey: { workspaceId: 'ws-1', permissions: ['chatflows:view'] }
                     }
                 }
                 return { isValid: false }
