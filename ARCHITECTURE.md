@@ -75,6 +75,6 @@ Do not edit files under `hermes/` by hand. Rebuild that tree with `pnpm hermes:v
 The separation work after this map:
 
 -   Enforced boundaries, so a subsystem cannot grow a new import into inherited code without a review.
--   Own package names for the packages that still use the engine's package name.
+-   Own package names for the packages that still use the engine's package name. `packages/components` is `@cuttlely/components`. A compatibility alias keeps saved custom functions and custom tools working. Path, environment variable, and data names stay stable.
 -   Optional integration packs, so a deploy can omit node families it does not run.
 -   A smaller image.

@@ -8,7 +8,7 @@ import {
     parseDataUri,
     removeSpecificFileFromUpload,
     resolveFileInputField
-} from 'flowise-components'
+} from '@cuttlely/components'
 import { ChatFlow } from '../database/entities/ChatFlow'
 import { InternalFlowiseError } from '../errors/internalFlowiseError'
 import { INodeOverrides } from '../Interface'

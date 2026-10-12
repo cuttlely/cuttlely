@@ -36,7 +36,7 @@ const STEPS = [
             'run',
             'build',
             '--filter=@cuttlely/chat',
-            '--filter=flowise-components',
+            '--filter=@cuttlely/components',
             '--filter=flowise',
             '--filter=flowise-ui'
         ],
@@ -50,6 +50,7 @@ const STEPS = [
             '--test',
             path.join(ROOT, 'scripts', 'verify.test.mjs'),
             path.join(ROOT, 'scripts', 'architecture-map.test.mjs'),
+            path.join(ROOT, 'scripts', 'components-package-alias.test.mjs'),
             path.join(ROOT, 'scripts', 'proprietary-paths.test.mjs'),
             path.join(ROOT, 'scripts', 'etl-list-sqlite.test.mjs'),
             path.join(ROOT, 'scripts', 'start-local-admin.test.mjs'),

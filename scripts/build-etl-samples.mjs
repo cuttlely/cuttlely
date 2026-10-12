@@ -1,5 +1,5 @@
 // Regenerates samples/etl/*.pipeline.json from the built node definitions, the same way the canvas
-// initializes a dropped node. Run after `pnpm --filter flowise-components build`.
+// initializes a dropped node. Run after `pnpm --filter @cuttlely/components build`.
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
