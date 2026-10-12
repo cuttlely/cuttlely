@@ -5,9 +5,9 @@ const assertRunRequest = jest.fn(async () => ({}))
 jest.mock('../../services/harnesses', () => ({
     __esModule: true,
     default: {
-        assertRunRequest: (...args: unknown[]) => assertRunRequest(...args),
-        startRun: (...args: unknown[]) => startRun(...args),
-        startCanvasRun: (...args: unknown[]) => startCanvasRun(...args)
+        assertRunRequest: (...args: any[]) => assertRunRequest(...args),
+        startRun: (...args: any[]) => startRun(...args),
+        startCanvasRun: (...args: any[]) => startCanvasRun(...args)
     }
 }))
 jest.mock('../../services/harnesses/chatImages', () => ({ chatImages: () => [] }))
@@ -20,7 +20,7 @@ test('POST /api/v1/harnesses/:name/runs does not receive a draft roster', async 
     const res: any = { json: jest.fn() }
     await controller.createRun({ params: { name: 'bakery-team' }, body: { question: 'hi' }, get: () => undefined } as any, res, jest.fn())
     expect(startRun).toHaveBeenCalledWith('bakery-team', { question: 'hi' }, { source: 'api' })
-    expect(startRun.mock.calls[0][2]).not.toHaveProperty('record')
+    expect((startRun.mock.calls[0] as any[])[2]).not.toHaveProperty('record')
     expect(startCanvasRun).not.toHaveBeenCalled()
     expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ text: 'live' }))
 })
