@@ -33,10 +33,10 @@ An evaluation runs one dataset against one or more chatflows or agentflows and s
 
 1. Select **Evaluations**.
 2. Select **Add** and name the run.
-3. Choose the dataset and the flows.
+3. Choose the dataset and the chatflows or agentflows. Custom assistants are not listed: a run calls the prediction route, which only runs chatflows and agentflows.
 4. Optionally choose evaluators. A model evaluator also needs a credential.
 5. Start the run. The list shows it as pending, then completed or error. Open a row to see each example.
 
 **Run again** stores another version under the same name. Delete removes a run, or every version of that name.
 
-A run calls each selected flow on this server, the same way a prediction does. You do not set a separate address for that call. A flow that requires an API key cannot be replayed from this page, because the key is stored as a hash and the run cannot recover it. A flow with no key can be run. A model evaluator uses a credential saved in the same team.
+A run calls each selected chatflow or agentflow on this server, the same way a prediction does. Sending a custom assistant is rejected. You do not set a separate address for that call. A flow that requires an API key cannot be replayed from this page, because the key is stored as a hash and the run cannot recover it. A flow with no key can be run. A model evaluator uses a credential saved in the same team.

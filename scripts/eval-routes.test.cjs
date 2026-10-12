@@ -86,10 +86,22 @@ const { Evaluator } = serverRequire('./src/database/entities/Evaluator.ts')
 const { Evaluation } = serverRequire('./src/database/entities/Evaluation.ts')
 const { EvaluationRun } = serverRequire('./src/database/entities/EvaluationRun.ts')
 const { Credential } = serverRequire('./src/database/entities/Credential.ts')
+const { Assistant } = serverRequire('./src/database/entities/Assistant.ts')
 
 Module._load = originalLoad
 
-const ROUND_TRIP_ENTITIES = [User, Organization, Workspace, Dataset, DatasetRow, Evaluator, Evaluation, EvaluationRun, Credential]
+const ROUND_TRIP_ENTITIES = [
+    User,
+    Organization,
+    Workspace,
+    Dataset,
+    DatasetRow,
+    Evaluator,
+    Evaluation,
+    EvaluationRun,
+    Credential,
+    Assistant
+]
 
 const USER = '11111111-1111-4111-8111-111111111111'
 const ORG = '22222222-2222-4222-8222-222222222222'
@@ -536,6 +548,68 @@ describe('evaluation routes', () => {
             if (previousPort === undefined) delete process.env.PORT
             else process.env.PORT = previousPort
             await new Promise((resolve) => server.close(resolve))
+            await cleanup()
+        }
+    })
+
+    it('rejects a missing name, a missing dataset, a bad flow list, and a custom assistant before saving', async () => {
+        const { dataSource, api, cleanup } = await openSqlite()
+        try {
+            asOwner()
+            const emptyDataset = await api.post('/datasets/set').send({})
+            assert.equal(emptyDataset.status, 400, JSON.stringify(emptyDataset.body))
+            assert.match(emptyDataset.body.message, /name/i)
+            assert.equal(await dataSource.getRepository(Dataset).count(), 0)
+
+            const emptyEvaluator = await api.post('/evaluators').send({})
+            assert.equal(emptyEvaluator.status, 400, JSON.stringify(emptyEvaluator.body))
+            assert.match(emptyEvaluator.body.message, /name/i)
+            assert.equal(await dataSource.getRepository(Evaluator).count(), 0)
+
+            const missingDataset = await api.post('/evaluations').send({
+                name: 'Missing dataset',
+                evaluationType: 'benchmarking',
+                datasetId: 'does-not-exist',
+                datasetName: 'Missing',
+                chatflowId: '[]',
+                chatflowName: '[]',
+                chatflowType: '[]'
+            })
+            assert.equal(missingDataset.status, 404, JSON.stringify(missingDataset.body))
+            assert.equal(await dataSource.getRepository(Evaluation).count(), 0)
+
+            const dataset = await api.post('/datasets/set').send({ name: 'Questions', description: 'rows' })
+            assert.equal(dataset.status, 200, JSON.stringify(dataset.body))
+            const malformed = await api.post('/evaluations').send({
+                name: 'Bad flow list',
+                evaluationType: 'benchmarking',
+                datasetId: dataset.body.id,
+                datasetName: 'Questions',
+                chatflowId: '{',
+                chatflowName: '[]',
+                chatflowType: '[]'
+            })
+            assert.equal(malformed.status, 400, JSON.stringify(malformed.body))
+            assert.equal(await dataSource.getRepository(Evaluation).count(), 0)
+
+            const assistant = await dataSource.getRepository(Assistant).save({
+                details: JSON.stringify({ name: 'Helper' }),
+                credential: '88888888-8888-4888-8888-888888888888',
+                workspaceId: WORKSPACE
+            })
+            const custom = await api.post('/evaluations').send({
+                name: 'Assistant run',
+                evaluationType: 'benchmarking',
+                datasetId: dataset.body.id,
+                datasetName: 'Questions',
+                chatflowId: JSON.stringify([assistant.id]),
+                chatflowName: JSON.stringify(['Helper']),
+                chatflowType: JSON.stringify(['Custom Assistant'])
+            })
+            assert.equal(custom.status, 400, JSON.stringify(custom.body))
+            assert.match(custom.body.message, /Custom assistants/i)
+            assert.equal(await dataSource.getRepository(Evaluation).count(), 0)
+        } finally {
             await cleanup()
         }
     })

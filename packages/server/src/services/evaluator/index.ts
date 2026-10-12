@@ -45,6 +45,12 @@ const getEvaluator = async (id: string, workspaceId: string) => {
 // Create new Evaluator
 const createEvaluator = async (body: any) => {
     try {
+        if (typeof body?.name !== 'string' || body.name.trim().length === 0) {
+            throw new AppError(StatusCodes.BAD_REQUEST, 'Evaluator name is required')
+        }
+        if (typeof body?.type !== 'string' || body.type.trim().length === 0) {
+            throw new AppError(StatusCodes.BAD_REQUEST, 'Evaluator type is required')
+        }
         const appServer = getRunningExpressApp()
         const newDs = EvaluatorDTO.toEntity(body)
         newDs.workspaceId = body.workspaceId
@@ -53,6 +59,7 @@ const createEvaluator = async (body: any) => {
         const result = await appServer.AppDataSource.getRepository(Evaluator).save(evaluator)
         return EvaluatorDTO.fromEntity(result)
     } catch (error) {
+        if (error instanceof AppError) throw error
         throw new AppError(StatusCodes.INTERNAL_SERVER_ERROR, `Error: evaluatorService.createEvaluator - ${getErrorMessage(error)}`)
     }
 }

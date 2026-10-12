@@ -153,7 +153,8 @@ const STEPS = [
             '--watchAll=false',
             'src/views/serversettings',
             'src/views/serversetup',
-            'src/layout/MainLayout/Sidebar/MenuList/activeRoute.test.js'
+            'src/layout/MainLayout/Sidebar/MenuList/activeRoute.test.js',
+            'src/views/evaluations/evaluationFlows.test.js'
         ],
         env: { CI: 'true' }
     },

@@ -213,6 +213,9 @@ const _csvToDatasetRows = async (datasetId: string, csvString: string, firstRowH
 // Create new dataset
 const createDataset = async (body: any, workspaceId: string) => {
     try {
+        if (typeof body?.name !== 'string' || body.name.trim().length === 0) {
+            throw new AppError(StatusCodes.BAD_REQUEST, 'Dataset name is required')
+        }
         const appServer = getRunningExpressApp()
         const newDs = new Dataset()
         newDs.name = body.name
@@ -225,6 +228,7 @@ const createDataset = async (body: any, workspaceId: string) => {
         }
         return result
     } catch (error) {
+        if (error instanceof AppError) throw error
         throw new AppError(StatusCodes.INTERNAL_SERVER_ERROR, `Error: datasetService.createDataset - ${getErrorMessage(error)}`)
     }
 }

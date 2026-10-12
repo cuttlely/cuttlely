@@ -21,6 +21,22 @@ import { calculateCost, formatCost } from './CostCalculator'
 import { runAdditionalEvaluators } from './EvaluatorRunner'
 import { LLMEvaluationRunner } from './LLMEvaluationRunner'
 
+function jsonArray(value: unknown, label: string): unknown[] {
+    if (typeof value !== 'string') {
+        throw new AppError(StatusCodes.BAD_REQUEST, `${label} must be a JSON array`)
+    }
+    let parsed: unknown
+    try {
+        parsed = JSON.parse(value)
+    } catch {
+        throw new AppError(StatusCodes.BAD_REQUEST, `${label} must be a JSON array`)
+    }
+    if (!Array.isArray(parsed)) {
+        throw new AppError(StatusCodes.BAD_REQUEST, `${label} must be a JSON array`)
+    }
+    return parsed
+}
+
 const runAgain = async (id: string, baseURL: string, orgId: string, workspaceId: string) => {
     try {
         const appServer = getRunningExpressApp()
@@ -84,9 +100,29 @@ const createEvaluation = async (body: ICommonObject, baseURL: string, orgId: str
         const row = appServer.AppDataSource.getRepository(Evaluation).create(newEval)
         row.average_metrics = JSON.stringify({})
 
-        const chatflowTypes = body.chatflowType ? JSON.parse(body.chatflowType) : []
-        if (!Array.isArray(chatflowTypes)) {
-            throw new Error('chatflowType must be a valid array')
+        const chatflowTypes = body.chatflowType ? jsonArray(body.chatflowType, 'chatflowType') : []
+        if (chatflowTypes.some((type) => type === 'Custom Assistant')) {
+            throw new AppError(StatusCodes.BAD_REQUEST, 'Custom assistants cannot be evaluated')
+        }
+        const chatflowIds = jsonArray(body.chatflowId, 'chatflowId')
+        if (chatflowIds.some((id) => typeof id !== 'string' || id.length === 0)) {
+            throw new AppError(StatusCodes.BAD_REQUEST, 'chatflowId must be an array of flow ids')
+        }
+        if (typeof body.datasetId !== 'string' || body.datasetId.length === 0) {
+            throw new AppError(StatusCodes.BAD_REQUEST, 'Dataset is required')
+        }
+        const dataset = await appServer.AppDataSource.getRepository(Dataset).findOneBy({
+            id: body.datasetId,
+            workspaceId: workspaceId
+        })
+        if (!dataset) throw new AppError(StatusCodes.NOT_FOUND, `Dataset ${body.datasetId} not found`)
+        if (chatflowIds.length > 0) {
+            const assistants = await appServer.AppDataSource.getRepository(Assistant).find({
+                where: { id: In(chatflowIds as string[]), workspaceId }
+            })
+            if (assistants.length > 0) {
+                throw new AppError(StatusCodes.BAD_REQUEST, 'Custom assistants cannot be evaluated')
+            }
         }
 
         const simpleEvaluators =
@@ -128,12 +164,6 @@ const createEvaluation = async (body: ICommonObject, baseURL: string, orgId: str
             orgId
         )
 
-        const dataset = await appServer.AppDataSource.getRepository(Dataset).findOneBy({
-            id: body.datasetId,
-            workspaceId: workspaceId
-        })
-        if (!dataset) throw new Error(`Dataset ${body.datasetId} not found`)
-
         const items = await appServer.AppDataSource.getRepository(DatasetRow).find({
             where: { datasetId: dataset.id },
             order: { sequenceNo: 'ASC' }
@@ -153,12 +183,6 @@ const createEvaluation = async (body: ICommonObject, baseURL: string, orgId: str
 
         // Chatflow API keys are stored as a hash. The evaluation runner calls the
         // public prediction route and cannot recover the bearer token.
-        const chatflowIds = JSON.parse(body.chatflowId)
-        if (!Array.isArray(chatflowIds)) {
-            throw new Error('chatflowId must be a valid array')
-        }
-
-        // save the evaluation with status as pending
         const evalRunner = new EvaluationRunner(baseURL)
 
         let evalMetrics = { passCount: 0, failCount: 0, errorCount: 0 }
