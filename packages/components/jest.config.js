@@ -11,6 +11,15 @@ module.exports = {
     testPathIgnorePatterns: ['/node_modules/', '/dist/'],
     moduleNameMapper: {
         '^../../../src/(.*)$': '<rootDir>/src/$1',
+        '^@cuttlely/components/interface$': '<rootDir>/src/Interface.ts',
+        '^@cuttlely/components/utils$': '<rootDir>/src/utils.ts',
+        '^@cuttlely/components/indexing$': '<rootDir>/src/indexing.ts',
+        '^@cuttlely/components/validator$': '<rootDir>/src/validator.ts',
+        '^@cuttlely/components/sanitizeDataSourceOptions$': '<rootDir>/src/sanitizeDataSourceOptions.ts',
+        '^@cuttlely/components/awsToolsUtils$': '<rootDir>/src/awsToolsUtils.ts',
+        '^@cuttlely/components/modelLoader$': '<rootDir>/src/modelLoader.ts',
+        '^@cuttlely/components/etl-engine$': '<rootDir>/nodes/etl/engine.ts',
+        '^@cuttlely/components$': '<rootDir>/src/index.ts',
         // @modelcontextprotocol/sdk is ESM-only (type:module, no exports map, no CJS builds).
         // It cannot be require()'d in Jest's CJS environment and crashes the worker.
         // The MCP core tests only exercise pure validation functions that don't

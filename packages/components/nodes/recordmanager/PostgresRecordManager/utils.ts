@@ -19,3 +19,13 @@ export function getSSL(nodeData?: INodeData) {
 export function getTableName(nodeData?: INodeData) {
     return defaultChain(nodeData?.inputs?.tableName, process.env.POSTGRES_RECORDMANAGER_TABLE_NAME, 'upsertion_records')
 }
+
+// The vector store node reads these names. The record manager card uses the same
+// host and ssl fields, so the placeholders stay on the vector store variables.
+export function getVectorStoreHost(nodeData?: INodeData) {
+    return defaultChain(nodeData?.inputs?.host, process.env.POSTGRES_VECTORSTORE_HOST)
+}
+
+export function getVectorStoreSSL(nodeData?: INodeData) {
+    return defaultChain(nodeData?.inputs?.ssl, process.env.POSTGRES_VECTORSTORE_SSL, false)
+}

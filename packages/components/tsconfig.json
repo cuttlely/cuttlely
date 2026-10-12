@@ -5,6 +5,18 @@
         "emitDecoratorMetadata": true /* Emit design-type metadata for decorated declarations in source files. */,
         "target": "ES2020", // or higher
         "outDir": "./dist/",
+        "baseUrl": ".",
+        "paths": {
+            "@cuttlely/components": ["src/index.ts"],
+            "@cuttlely/components/interface": ["src/Interface.ts"],
+            "@cuttlely/components/utils": ["src/utils.ts"],
+            "@cuttlely/components/indexing": ["src/indexing.ts"],
+            "@cuttlely/components/validator": ["src/validator.ts"],
+            "@cuttlely/components/sanitizeDataSourceOptions": ["src/sanitizeDataSourceOptions.ts"],
+            "@cuttlely/components/awsToolsUtils": ["src/awsToolsUtils.ts"],
+            "@cuttlely/components/modelLoader": ["src/modelLoader.ts"],
+            "@cuttlely/components/etl-engine": ["nodes/etl/engine.ts"]
+        },
         "resolveJsonModule": true,
         "esModuleInterop": true /* Emit additional JavaScript to ease support for importing CommonJS modules. This enables `allowSyntheticDefaultImports` for type compatibility. */,
         "forceConsistentCasingInFileNames": true /* Ensure that casing is correct in imports. */,

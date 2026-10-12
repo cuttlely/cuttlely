@@ -19,7 +19,8 @@ const SHIPPED = [
     'packages/server/marketplaces',
     'packages/components/src',
     'packages/components/nodes',
-    'packages/components/credentials'
+    'packages/components/credentials',
+    'packages/node-pack-vector-stores'
 ]
 
 const RULES = [

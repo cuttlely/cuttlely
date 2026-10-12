@@ -57,7 +57,13 @@ describe('sampleTemplates', () => {
 
     it('loads every marketplace flow with nodes and edges, and only registered node names', () => {
         const nodeNames = new Set<string>()
-        const nodesDir = path.join(marketplaceRoot(), '..', 'components', 'nodes')
+        const packagesDir = path.join(marketplaceRoot(), '..')
+        const nodeDirs = [path.join(packagesDir, 'components', 'nodes')]
+        for (const name of fs.readdirSync(packagesDir)) {
+            if (!name.startsWith('node-pack-')) continue
+            const nodes = path.join(packagesDir, name, 'nodes')
+            if (fs.existsSync(nodes)) nodeDirs.push(nodes)
+        }
         const walk = (dir: string) => {
             for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
                 const full = path.join(dir, entry.name)
@@ -70,7 +76,7 @@ describe('sampleTemplates', () => {
                 }
             }
         }
-        walk(nodesDir)
+        for (const dir of nodeDirs) walk(dir)
         const spec = (name: string) => ({
             name,
             type: 'Node',

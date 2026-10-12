@@ -112,14 +112,6 @@
             "to": "packages/components/src/utils.ts"
         },
         {
-            "from": "packages/components/nodes/vectorstores/EtlLocal/EtlLocalVectorStore.ts",
-            "to": "packages/components/src/Interface.ts"
-        },
-        {
-            "from": "packages/components/nodes/vectorstores/EtlLocal/EtlLocalVectorStore.ts",
-            "to": "packages/components/src/utils.ts"
-        },
-        {
             "from": "packages/components/src/anthropicUtils.test.ts",
             "to": "packages/components/src/anthropicUtils.ts"
         },
@@ -174,6 +166,21 @@
         {
             "from": "packages/components/src/storage/multerLimits.test.ts",
             "to": "packages/components/src/storage/LocalStorageProvider.ts"
+        },
+        {
+            "from": "packages/node-pack-vector-stores/nodes/vectorstores/EtlLocal/EtlLocalVectorStore.ts",
+            "to": "packages/components/package.json",
+            "reason": "Vector store nodes live in the vector store pack. The local vector store stays with knowledge pipelines."
+        },
+        {
+            "from": "packages/node-pack-vector-stores/nodes/vectorstores/EtlLocal/EtlLocalVectorStore.ts",
+            "to": "packages/components/src/Interface.ts",
+            "reason": "Vector store nodes live in the vector store pack. The local vector store stays with knowledge pipelines."
+        },
+        {
+            "from": "packages/node-pack-vector-stores/nodes/vectorstores/EtlLocal/EtlLocalVectorStore.ts",
+            "to": "packages/components/src/utils.ts",
+            "reason": "Vector store nodes live in the vector store pack. The local vector store stays with knowledge pipelines."
         },
         {
             "from": "packages/server/src/commands/base.test.ts",
@@ -870,10 +877,6 @@
         },
         {
             "from": "packages/server/src/utils/replaceInputsWithConfig.test.ts",
-            "to": "packages/components/src/index.ts"
-        },
-        {
-            "from": "packages/server/src/utils/replaceInputsWithConfig.test.ts",
             "to": "packages/server/src/utils/index.ts"
         },
         {
@@ -1335,6 +1338,310 @@
         }
     ],
     "r6Additions": [
+        {
+            "path": "packages/node-pack-vector-stores/credentials/AstraApi.credential.ts",
+            "reason": "Vector store nodes live in the vector store pack. The local vector store stays with knowledge pipelines."
+        },
+        {
+            "path": "packages/node-pack-vector-stores/credentials/ChromaApi.credential.ts",
+            "reason": "Vector store nodes live in the vector store pack. The local vector store stays with knowledge pipelines."
+        },
+        {
+            "path": "packages/node-pack-vector-stores/credentials/CouchbaseApi.credential.ts",
+            "reason": "Vector store nodes live in the vector store pack. The local vector store stays with knowledge pipelines."
+        },
+        {
+            "path": "packages/node-pack-vector-stores/credentials/ElasticsearchAPI.credential.ts",
+            "reason": "Vector store nodes live in the vector store pack. The local vector store stays with knowledge pipelines."
+        },
+        {
+            "path": "packages/node-pack-vector-stores/credentials/ElectricsearchUserPassword.credential.ts",
+            "reason": "Vector store nodes live in the vector store pack. The local vector store stays with knowledge pipelines."
+        },
+        {
+            "path": "packages/node-pack-vector-stores/credentials/MeilisearchApi.credential.ts",
+            "reason": "Vector store nodes live in the vector store pack. The local vector store stays with knowledge pipelines."
+        },
+        {
+            "path": "packages/node-pack-vector-stores/credentials/MilvusAuth.credential.ts",
+            "reason": "Vector store nodes live in the vector store pack. The local vector store stays with knowledge pipelines."
+        },
+        {
+            "path": "packages/node-pack-vector-stores/credentials/OpenSearchUrl.credential.ts",
+            "reason": "Vector store nodes live in the vector store pack. The local vector store stays with knowledge pipelines."
+        },
+        {
+            "path": "packages/node-pack-vector-stores/credentials/PineconeApi.credential.ts",
+            "reason": "Vector store nodes live in the vector store pack. The local vector store stays with knowledge pipelines."
+        },
+        {
+            "path": "packages/node-pack-vector-stores/credentials/QdrantApi.credential.ts",
+            "reason": "Vector store nodes live in the vector store pack. The local vector store stays with knowledge pipelines."
+        },
+        {
+            "path": "packages/node-pack-vector-stores/credentials/SingleStoreApi.credential.ts",
+            "reason": "Vector store nodes live in the vector store pack. The local vector store stays with knowledge pipelines."
+        },
+        {
+            "path": "packages/node-pack-vector-stores/credentials/SupabaseApi.credential.ts",
+            "reason": "Vector store nodes live in the vector store pack. The local vector store stays with knowledge pipelines."
+        },
+        {
+            "path": "packages/node-pack-vector-stores/credentials/UpstashVectorApi.credential.ts",
+            "reason": "Vector store nodes live in the vector store pack. The local vector store stays with knowledge pipelines."
+        },
+        {
+            "path": "packages/node-pack-vector-stores/credentials/VectaraApi.credential.ts",
+            "reason": "Vector store nodes live in the vector store pack. The local vector store stays with knowledge pipelines."
+        },
+        {
+            "path": "packages/node-pack-vector-stores/credentials/WeaviateApi.credential.ts",
+            "reason": "Vector store nodes live in the vector store pack. The local vector store stays with knowledge pipelines."
+        },
+        {
+            "path": "packages/node-pack-vector-stores/gulpfile.ts",
+            "reason": "Pack manifest files ship with the vector store pack."
+        },
+        {
+            "path": "packages/node-pack-vector-stores/nodes/vectorstores/Astra/astra.svg",
+            "reason": "Vector store nodes live in the vector store pack. The local vector store stays with knowledge pipelines."
+        },
+        {
+            "path": "packages/node-pack-vector-stores/nodes/vectorstores/Astra/Astra.ts",
+            "reason": "Vector store nodes live in the vector store pack. The local vector store stays with knowledge pipelines."
+        },
+        {
+            "path": "packages/node-pack-vector-stores/nodes/vectorstores/Chroma/chroma.svg",
+            "reason": "Vector store nodes live in the vector store pack. The local vector store stays with knowledge pipelines."
+        },
+        {
+            "path": "packages/node-pack-vector-stores/nodes/vectorstores/Chroma/Chroma.ts",
+            "reason": "Vector store nodes live in the vector store pack. The local vector store stays with knowledge pipelines."
+        },
+        {
+            "path": "packages/node-pack-vector-stores/nodes/vectorstores/Chroma/core.ts",
+            "reason": "Vector store nodes live in the vector store pack. The local vector store stays with knowledge pipelines."
+        },
+        {
+            "path": "packages/node-pack-vector-stores/nodes/vectorstores/Couchbase/couchbase.svg",
+            "reason": "Vector store nodes live in the vector store pack. The local vector store stays with knowledge pipelines."
+        },
+        {
+            "path": "packages/node-pack-vector-stores/nodes/vectorstores/Couchbase/Couchbase.ts",
+            "reason": "Vector store nodes live in the vector store pack. The local vector store stays with knowledge pipelines."
+        },
+        {
+            "path": "packages/node-pack-vector-stores/nodes/vectorstores/DocumentStoreVS/DocStoreVector.ts",
+            "reason": "Vector store nodes live in the vector store pack. The local vector store stays with knowledge pipelines."
+        },
+        {
+            "path": "packages/node-pack-vector-stores/nodes/vectorstores/DocumentStoreVS/dstore.svg",
+            "reason": "Vector store nodes live in the vector store pack. The local vector store stays with knowledge pipelines."
+        },
+        {
+            "path": "packages/node-pack-vector-stores/nodes/vectorstores/Elasticsearch/elasticsearch.png",
+            "reason": "Vector store nodes live in the vector store pack. The local vector store stays with knowledge pipelines."
+        },
+        {
+            "path": "packages/node-pack-vector-stores/nodes/vectorstores/Elasticsearch/Elasticsearch.ts",
+            "reason": "Vector store nodes live in the vector store pack. The local vector store stays with knowledge pipelines."
+        },
+        {
+            "path": "packages/node-pack-vector-stores/nodes/vectorstores/Faiss/faiss.svg",
+            "reason": "Vector store nodes live in the vector store pack. The local vector store stays with knowledge pipelines."
+        },
+        {
+            "path": "packages/node-pack-vector-stores/nodes/vectorstores/Faiss/Faiss.ts",
+            "reason": "Vector store nodes live in the vector store pack. The local vector store stays with knowledge pipelines."
+        },
+        {
+            "path": "packages/node-pack-vector-stores/nodes/vectorstores/InMemory/InMemoryVectorStore.ts",
+            "reason": "Vector store nodes live in the vector store pack. The local vector store stays with knowledge pipelines."
+        },
+        {
+            "path": "packages/node-pack-vector-stores/nodes/vectorstores/InMemory/memory.svg",
+            "reason": "Vector store nodes live in the vector store pack. The local vector store stays with knowledge pipelines."
+        },
+        {
+            "path": "packages/node-pack-vector-stores/nodes/vectorstores/Kendra/kendra.svg",
+            "reason": "Vector store nodes live in the vector store pack. The local vector store stays with knowledge pipelines."
+        },
+        {
+            "path": "packages/node-pack-vector-stores/nodes/vectorstores/Kendra/Kendra.ts",
+            "reason": "Vector store nodes live in the vector store pack. The local vector store stays with knowledge pipelines."
+        },
+        {
+            "path": "packages/node-pack-vector-stores/nodes/vectorstores/Meilisearch/core.ts",
+            "reason": "Vector store nodes live in the vector store pack. The local vector store stays with knowledge pipelines."
+        },
+        {
+            "path": "packages/node-pack-vector-stores/nodes/vectorstores/Meilisearch/Meilisearch.png",
+            "reason": "Vector store nodes live in the vector store pack. The local vector store stays with knowledge pipelines."
+        },
+        {
+            "path": "packages/node-pack-vector-stores/nodes/vectorstores/Meilisearch/Meilisearch.ts",
+            "reason": "Vector store nodes live in the vector store pack. The local vector store stays with knowledge pipelines."
+        },
+        {
+            "path": "packages/node-pack-vector-stores/nodes/vectorstores/Milvus/milvus.svg",
+            "reason": "Vector store nodes live in the vector store pack. The local vector store stays with knowledge pipelines."
+        },
+        {
+            "path": "packages/node-pack-vector-stores/nodes/vectorstores/Milvus/Milvus.ts",
+            "reason": "Vector store nodes live in the vector store pack. The local vector store stays with knowledge pipelines."
+        },
+        {
+            "path": "packages/node-pack-vector-stores/nodes/vectorstores/MongoDBAtlas/core.ts",
+            "reason": "Vector store nodes live in the vector store pack. The local vector store stays with knowledge pipelines."
+        },
+        {
+            "path": "packages/node-pack-vector-stores/nodes/vectorstores/MongoDBAtlas/mongodb.svg",
+            "reason": "Vector store nodes live in the vector store pack. The local vector store stays with knowledge pipelines."
+        },
+        {
+            "path": "packages/node-pack-vector-stores/nodes/vectorstores/MongoDBAtlas/MongoDBAtlas.ts",
+            "reason": "Vector store nodes live in the vector store pack. The local vector store stays with knowledge pipelines."
+        },
+        {
+            "path": "packages/node-pack-vector-stores/nodes/vectorstores/OpenSearch/opensearch.svg",
+            "reason": "Vector store nodes live in the vector store pack. The local vector store stays with knowledge pipelines."
+        },
+        {
+            "path": "packages/node-pack-vector-stores/nodes/vectorstores/OpenSearch/OpenSearch.ts",
+            "reason": "Vector store nodes live in the vector store pack. The local vector store stays with knowledge pipelines."
+        },
+        {
+            "path": "packages/node-pack-vector-stores/nodes/vectorstores/Pinecone/pinecone.svg",
+            "reason": "Vector store nodes live in the vector store pack. The local vector store stays with knowledge pipelines."
+        },
+        {
+            "path": "packages/node-pack-vector-stores/nodes/vectorstores/Pinecone/Pinecone.ts",
+            "reason": "Vector store nodes live in the vector store pack. The local vector store stays with knowledge pipelines."
+        },
+        {
+            "path": "packages/node-pack-vector-stores/nodes/vectorstores/Postgres/driver/Base.ts",
+            "reason": "Vector store nodes live in the vector store pack. The local vector store stays with knowledge pipelines."
+        },
+        {
+            "path": "packages/node-pack-vector-stores/nodes/vectorstores/Postgres/driver/PGVector.ts",
+            "reason": "Vector store nodes live in the vector store pack. The local vector store stays with knowledge pipelines."
+        },
+        {
+            "path": "packages/node-pack-vector-stores/nodes/vectorstores/Postgres/driver/TypeORM.ts",
+            "reason": "Vector store nodes live in the vector store pack. The local vector store stays with knowledge pipelines."
+        },
+        {
+            "path": "packages/node-pack-vector-stores/nodes/vectorstores/Postgres/postgres.svg",
+            "reason": "Vector store nodes live in the vector store pack. The local vector store stays with knowledge pipelines."
+        },
+        {
+            "path": "packages/node-pack-vector-stores/nodes/vectorstores/Postgres/Postgres.ts",
+            "reason": "Vector store nodes live in the vector store pack. The local vector store stays with knowledge pipelines."
+        },
+        {
+            "path": "packages/node-pack-vector-stores/nodes/vectorstores/Postgres/README.md",
+            "reason": "Vector store nodes live in the vector store pack. The local vector store stays with knowledge pipelines."
+        },
+        {
+            "path": "packages/node-pack-vector-stores/nodes/vectorstores/Postgres/utils.ts",
+            "reason": "Vector store nodes live in the vector store pack. The local vector store stays with knowledge pipelines."
+        },
+        {
+            "path": "packages/node-pack-vector-stores/nodes/vectorstores/Qdrant/qdrant.png",
+            "reason": "Vector store nodes live in the vector store pack. The local vector store stays with knowledge pipelines."
+        },
+        {
+            "path": "packages/node-pack-vector-stores/nodes/vectorstores/Qdrant/Qdrant.ts",
+            "reason": "Vector store nodes live in the vector store pack. The local vector store stays with knowledge pipelines."
+        },
+        {
+            "path": "packages/node-pack-vector-stores/nodes/vectorstores/Redis/redis.svg",
+            "reason": "Vector store nodes live in the vector store pack. The local vector store stays with knowledge pipelines."
+        },
+        {
+            "path": "packages/node-pack-vector-stores/nodes/vectorstores/Redis/Redis.ts",
+            "reason": "Vector store nodes live in the vector store pack. The local vector store stays with knowledge pipelines."
+        },
+        {
+            "path": "packages/node-pack-vector-stores/nodes/vectorstores/Redis/utils.ts",
+            "reason": "Vector store nodes live in the vector store pack. The local vector store stays with knowledge pipelines."
+        },
+        {
+            "path": "packages/node-pack-vector-stores/nodes/vectorstores/Singlestore/singlestore.svg",
+            "reason": "Vector store nodes live in the vector store pack. The local vector store stays with knowledge pipelines."
+        },
+        {
+            "path": "packages/node-pack-vector-stores/nodes/vectorstores/Singlestore/Singlestore.ts",
+            "reason": "Vector store nodes live in the vector store pack. The local vector store stays with knowledge pipelines."
+        },
+        {
+            "path": "packages/node-pack-vector-stores/nodes/vectorstores/Supabase/filterParser.ts",
+            "reason": "Vector store nodes live in the vector store pack. The local vector store stays with knowledge pipelines."
+        },
+        {
+            "path": "packages/node-pack-vector-stores/nodes/vectorstores/Supabase/supabase.svg",
+            "reason": "Vector store nodes live in the vector store pack. The local vector store stays with knowledge pipelines."
+        },
+        {
+            "path": "packages/node-pack-vector-stores/nodes/vectorstores/Supabase/Supabase.ts",
+            "reason": "Vector store nodes live in the vector store pack. The local vector store stays with knowledge pipelines."
+        },
+        {
+            "path": "packages/node-pack-vector-stores/nodes/vectorstores/Upstash/upstash.svg",
+            "reason": "Vector store nodes live in the vector store pack. The local vector store stays with knowledge pipelines."
+        },
+        {
+            "path": "packages/node-pack-vector-stores/nodes/vectorstores/Upstash/Upstash.ts",
+            "reason": "Vector store nodes live in the vector store pack. The local vector store stays with knowledge pipelines."
+        },
+        {
+            "path": "packages/node-pack-vector-stores/nodes/vectorstores/Vectara/Vectara_Upload.ts",
+            "reason": "Vector store nodes live in the vector store pack. The local vector store stays with knowledge pipelines."
+        },
+        {
+            "path": "packages/node-pack-vector-stores/nodes/vectorstores/Vectara/vectara.png",
+            "reason": "Vector store nodes live in the vector store pack. The local vector store stays with knowledge pipelines."
+        },
+        {
+            "path": "packages/node-pack-vector-stores/nodes/vectorstores/Vectara/Vectara.ts",
+            "reason": "Vector store nodes live in the vector store pack. The local vector store stays with knowledge pipelines."
+        },
+        {
+            "path": "packages/node-pack-vector-stores/nodes/vectorstores/VectorStoreUtils.ts",
+            "reason": "Vector store nodes live in the vector store pack. The local vector store stays with knowledge pipelines."
+        },
+        {
+            "path": "packages/node-pack-vector-stores/nodes/vectorstores/Weaviate/weaviate.png",
+            "reason": "Vector store nodes live in the vector store pack. The local vector store stays with knowledge pipelines."
+        },
+        {
+            "path": "packages/node-pack-vector-stores/nodes/vectorstores/Weaviate/Weaviate.ts",
+            "reason": "Vector store nodes live in the vector store pack. The local vector store stays with knowledge pipelines."
+        },
+        {
+            "path": "packages/node-pack-vector-stores/nodes/vectorstores/Zep/zep.svg",
+            "reason": "Vector store nodes live in the vector store pack. The local vector store stays with knowledge pipelines."
+        },
+        {
+            "path": "packages/node-pack-vector-stores/nodes/vectorstores/Zep/Zep.ts",
+            "reason": "Vector store nodes live in the vector store pack. The local vector store stays with knowledge pipelines."
+        },
+        {
+            "path": "packages/node-pack-vector-stores/nodes/vectorstores/ZepCloud/zep.svg",
+            "reason": "Vector store nodes live in the vector store pack. The local vector store stays with knowledge pipelines."
+        },
+        {
+            "path": "packages/node-pack-vector-stores/nodes/vectorstores/ZepCloud/ZepCloud.ts",
+            "reason": "Vector store nodes live in the vector store pack. The local vector store stays with knowledge pipelines."
+        },
+        {
+            "path": "packages/node-pack-vector-stores/package.json",
+            "reason": "Pack manifest files ship with the vector store pack."
+        },
+        {
+            "path": "packages/node-pack-vector-stores/tsconfig.json",
+            "reason": "Pack manifest files ship with the vector store pack."
+        },
         {
             "path": "packages/server/src/errors/appError/index.test.ts",
             "reason": "Shared server error class has its own module. Core callers import that module."

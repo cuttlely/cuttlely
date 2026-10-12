@@ -65,6 +65,18 @@ test('the geolocation database stays unless the slim build argument is set', () 
     }
 })
 
+test('the image keeps node packs unless INCLUDE_NODE_PACKS=0', () => {
+    const dockerfile = fs.readFileSync(path.join(ROOT, 'Dockerfile'), 'utf8')
+    assert.match(dockerfile, /^ARG INCLUDE_NODE_PACKS=1$/m)
+    assert.match(dockerfile, /node scripts\/omit-node-packs\.mjs/)
+    assert.match(dockerfile, /\/etc\/cuttlely\/no-node-packs/)
+    assert.doesNotMatch(dockerfile, /ARG INCLUDE_NODE_PACKS=0/)
+    for (const file of ['docker-compose.yml', 'docker/docker-compose.yml']) {
+        const doc = yaml.load(fs.readFileSync(path.join(ROOT, file), 'utf8'))
+        assert.equal(doc.services.cuttlely.build.args.INCLUDE_NODE_PACKS, '${INCLUDE_NODE_PACKS:-1}')
+    }
+})
+
 test('the production image checks that the built UI is present and the UI libraries are not', () => {
     const dockerfile = fs.readFileSync(path.join(ROOT, 'Dockerfile'), 'utf8')
     assert.match(dockerfile, /node scripts\/check-static-ui-image\.mjs/)

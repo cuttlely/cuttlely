@@ -259,7 +259,7 @@ import { api, check, chunkId, embed, flowFor, ignore, LocalVectorStore, readers,
 {
     const { SHAPES, adaptStore, createFake, shapeFor } = await import('../store-adapter.mjs')
     const here = path.dirname(new URL(import.meta.url).pathname)
-    const nodesDir = path.join(here, '..', '..', '..', 'packages', 'components', 'nodes', 'vectorstores')
+    const nodesDir = path.join(here, '..', '..', '..', 'packages', 'node-pack-vector-stores', 'nodes', 'vectorstores')
     const names = []
     for (const entry of fs.readdirSync(nodesDir, { withFileTypes: true })) {
         if (!entry.isDirectory()) continue

@@ -1,0 +1,35 @@
+{
+    "compilerOptions": {
+        "lib": ["ES2020", "ES2021.String", "ES2022.Array"],
+        "experimentalDecorators": true,
+        "emitDecoratorMetadata": true,
+        "target": "ES2020",
+        "outDir": "./dist/",
+        "rootDir": ".",
+        "baseUrl": ".",
+        "paths": {
+            "@cuttlely/components": ["../components/dist/src/index.d.ts"],
+            "@cuttlely/components/interface": ["../components/dist/src/Interface.d.ts"],
+            "@cuttlely/components/utils": ["../components/dist/src/utils.d.ts"],
+            "@cuttlely/components/indexing": ["../components/dist/src/indexing.d.ts"],
+            "@cuttlely/components/validator": ["../components/dist/src/validator.d.ts"],
+            "@cuttlely/components/sanitizeDataSourceOptions": ["../components/dist/src/sanitizeDataSourceOptions.d.ts"],
+            "@cuttlely/components/awsToolsUtils": ["../components/dist/src/awsToolsUtils.d.ts"],
+            "@cuttlely/components/modelLoader": ["../components/dist/src/modelLoader.d.ts"],
+            "@cuttlely/components/etl-engine": ["../components/dist/nodes/etl/engine.d.ts"]
+        },
+        "module": "commonjs",
+        "moduleResolution": "node",
+        "resolveJsonModule": true,
+        "esModuleInterop": true,
+        "forceConsistentCasingInFileNames": true,
+        "strict": true,
+        "skipLibCheck": true,
+        "sourceMap": true,
+        "strictPropertyInitialization": false,
+        "useUnknownInCatchVariables": false,
+        "declaration": false
+    },
+    "include": ["nodes", "credentials"],
+    "exclude": ["node_modules", "dist", "**/*.test.ts", "**/*.test.js"]
+}

@@ -14,6 +14,8 @@ function main() {
     // emitDeclarationOnly typechecks components and writes the .d.ts files that check needs.
     console.log('typecheck @cuttlely/components')
     run(['--emitDeclarationOnly', '-p', 'packages/components/tsconfig.json'])
+    console.log('typecheck @cuttlely/node-pack-vector-stores')
+    run(['--noEmit', '-p', 'packages/node-pack-vector-stores/tsconfig.json'])
     // The server imports this package. Emit it before the server check so the types resolve.
     console.log('typecheck @cuttlely/versioning')
     run(['--noEmit', '-p', 'packages/versioning/tsconfig.typecheck.json'])

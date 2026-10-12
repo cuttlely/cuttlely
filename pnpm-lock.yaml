@@ -238,9 +238,6 @@ importers:
       '@aws-sdk/client-dynamodb':
         specifier: ^3.1014.0
         version: 3.1065.0
-      '@aws-sdk/client-kendra':
-        specifier: ^3.1014.0
-        version: 3.1065.0
       '@aws-sdk/client-s3':
         specifier: ^3.1014.0
         version: 3.1065.0
@@ -259,18 +256,12 @@ importers:
       '@brave/brave-search-mcp-server':
         specifier: 2.0.80
         version: 2.0.80
-      '@datastax/astra-db-ts':
-        specifier: 1.5.0
-        version: 1.5.0
       '@dqbd/tiktoken':
         specifier: ^1.0.21
         version: 1.0.21
       '@e2b/code-interpreter':
         specifier: ^1.5.1
         version: 1.5.1
-      '@elastic/elasticsearch':
-        specifier: ^8.16.0
-        version: 8.19.1
       '@elevenlabs/elevenlabs-js':
         specifier: ^2.8.0
         version: 2.17.0(encoding@0.1.13)
@@ -349,33 +340,18 @@ importers:
       '@langchain/mistralai':
         specifier: 1.0.4
         version: 1.0.4(@langchain/core@1.1.20(@opentelemetry/api@1.9.0)(@opentelemetry/exporter-trace-otlp-proto@0.54.0(@opentelemetry/api@1.9.0))(@opentelemetry/sdk-trace-base@1.27.0(@opentelemetry/api@1.9.0))(openai@6.19.0(ws@8.22.0(bufferutil@4.0.8)(utf-8-validate@6.0.4))(zod@4.3.6))(ws@8.22.0(bufferutil@4.0.8)(utf-8-validate@6.0.4)))(bufferutil@4.0.8)(utf-8-validate@6.0.4)
-      '@langchain/mongodb':
-        specifier: 1.3.1
-        version: 1.3.1(@aws-sdk/credential-providers@3.1002.0)(@langchain/core@1.1.20(@opentelemetry/api@1.9.0)(@opentelemetry/exporter-trace-otlp-proto@0.54.0(@opentelemetry/api@1.9.0))(@opentelemetry/sdk-trace-base@1.27.0(@opentelemetry/api@1.9.0))(openai@6.19.0(ws@8.22.0(bufferutil@4.0.8)(utf-8-validate@6.0.4))(zod@4.3.6))(ws@8.22.0(bufferutil@4.0.8)(utf-8-validate@6.0.4)))(socks@2.8.10)
       '@langchain/ollama':
         specifier: 1.2.2
         version: 1.2.2(@langchain/core@1.1.20(@opentelemetry/api@1.9.0)(@opentelemetry/exporter-trace-otlp-proto@0.54.0(@opentelemetry/api@1.9.0))(@opentelemetry/sdk-trace-base@1.27.0(@opentelemetry/api@1.9.0))(openai@6.19.0(ws@8.22.0(bufferutil@4.0.8)(utf-8-validate@6.0.4))(zod@4.3.6))(ws@8.22.0(bufferutil@4.0.8)(utf-8-validate@6.0.4)))
       '@langchain/openai':
         specifier: 1.2.5
         version: 1.2.5(@langchain/core@1.1.20(@opentelemetry/api@1.9.0)(@opentelemetry/exporter-trace-otlp-proto@0.54.0(@opentelemetry/api@1.9.0))(@opentelemetry/sdk-trace-base@1.27.0(@opentelemetry/api@1.9.0))(openai@6.19.0(ws@8.22.0(bufferutil@4.0.8)(utf-8-validate@6.0.4))(zod@4.3.6))(ws@8.22.0(bufferutil@4.0.8)(utf-8-validate@6.0.4)))(ws@8.22.0(bufferutil@4.0.8)(utf-8-validate@6.0.4))
-      '@langchain/pinecone':
-        specifier: 1.0.1
-        version: 1.0.1(@langchain/core@1.1.20(@opentelemetry/api@1.9.0)(@opentelemetry/exporter-trace-otlp-proto@0.54.0(@opentelemetry/api@1.9.0))(@opentelemetry/sdk-trace-base@1.27.0(@opentelemetry/api@1.9.0))(openai@6.19.0(ws@8.22.0(bufferutil@4.0.8)(utf-8-validate@6.0.4))(zod@4.3.6))(ws@8.22.0(bufferutil@4.0.8)(utf-8-validate@6.0.4)))(@pinecone-database/pinecone@4.0.0)
-      '@langchain/qdrant':
-        specifier: 1.0.1
-        version: 1.0.1(@langchain/core@1.1.20(@opentelemetry/api@1.9.0)(@opentelemetry/exporter-trace-otlp-proto@0.54.0(@opentelemetry/api@1.9.0))(@opentelemetry/sdk-trace-base@1.27.0(@opentelemetry/api@1.9.0))(openai@6.19.0(ws@8.22.0(bufferutil@4.0.8)(utf-8-validate@6.0.4))(zod@4.3.6))(ws@8.22.0(bufferutil@4.0.8)(utf-8-validate@6.0.4)))(typescript@5.5.2)
-      '@langchain/redis':
-        specifier: 1.1.1
-        version: 1.1.1(@langchain/core@1.1.20(@opentelemetry/api@1.9.0)(@opentelemetry/exporter-trace-otlp-proto@0.54.0(@opentelemetry/api@1.9.0))(@opentelemetry/sdk-trace-base@1.27.0(@opentelemetry/api@1.9.0))(openai@6.19.0(ws@8.22.0(bufferutil@4.0.8)(utf-8-validate@6.0.4))(zod@4.3.6))(ws@8.22.0(bufferutil@4.0.8)(utf-8-validate@6.0.4)))
       '@langchain/tavily':
         specifier: 1.2.0
         version: 1.2.0(@langchain/core@1.1.20(@opentelemetry/api@1.9.0)(@opentelemetry/exporter-trace-otlp-proto@0.54.0(@opentelemetry/api@1.9.0))(@opentelemetry/sdk-trace-base@1.27.0(@opentelemetry/api@1.9.0))(openai@6.19.0(ws@8.22.0(bufferutil@4.0.8)(utf-8-validate@6.0.4))(zod@4.3.6))(ws@8.22.0(bufferutil@4.0.8)(utf-8-validate@6.0.4)))
       '@langchain/textsplitters':
         specifier: 1.0.1
         version: 1.0.1(@langchain/core@1.1.20(@opentelemetry/api@1.9.0)(@opentelemetry/exporter-trace-otlp-proto@0.54.0(@opentelemetry/api@1.9.0))(@opentelemetry/sdk-trace-base@1.27.0(@opentelemetry/api@1.9.0))(openai@6.19.0(ws@8.22.0(bufferutil@4.0.8)(utf-8-validate@6.0.4))(zod@4.3.6))(ws@8.22.0(bufferutil@4.0.8)(utf-8-validate@6.0.4)))
-      '@langchain/weaviate':
-        specifier: 1.0.1
-        version: 1.0.1(@langchain/core@1.1.20(@opentelemetry/api@1.9.0)(@opentelemetry/exporter-trace-otlp-proto@0.54.0(@opentelemetry/api@1.9.0))(@opentelemetry/sdk-trace-base@1.27.0(@opentelemetry/api@1.9.0))(openai@6.19.0(ws@8.22.0(bufferutil@4.0.8)(utf-8-validate@6.0.4))(zod@4.3.6))(ws@8.22.0(bufferutil@4.0.8)(utf-8-validate@6.0.4)))(encoding@0.1.13)
       '@langchain/xai':
         specifier: 1.3.1
         version: 1.3.1(@langchain/core@1.1.20(@opentelemetry/api@1.9.0)(@opentelemetry/exporter-trace-otlp-proto@0.54.0(@opentelemetry/api@1.9.0))(@opentelemetry/sdk-trace-base@1.27.0(@opentelemetry/api@1.9.0))(openai@6.19.0(ws@8.22.0(bufferutil@4.0.8)(utf-8-validate@6.0.4))(zod@4.3.6))(ws@8.22.0(bufferutil@4.0.8)(utf-8-validate@6.0.4)))(ws@8.22.0(bufferutil@4.0.8)(utf-8-validate@6.0.4))
@@ -403,9 +379,6 @@ importers:
       '@notionhq/client':
         specifier: ^2.2.8
         version: 2.2.14(encoding@0.1.13)
-      '@opensearch-project/opensearch':
-        specifier: ^1.2.0
-        version: 1.2.0
       '@opentelemetry/api':
         specifier: 1.9.0
         version: 1.9.0
@@ -448,18 +421,9 @@ importers:
       '@opentelemetry/semantic-conventions':
         specifier: 1.27.0
         version: 1.27.0
-      '@pinecone-database/pinecone':
-        specifier: 4.0.0
-        version: 4.0.0
-      '@qdrant/js-client-rest':
-        specifier: ^1.18.0
-        version: 1.18.0(typescript@5.5.2)
       '@stripe/agent-toolkit':
         specifier: ^0.1.20
         version: 0.1.21(@langchain/core@1.1.20(@opentelemetry/api@1.9.0)(@opentelemetry/exporter-trace-otlp-proto@0.54.0(@opentelemetry/api@1.9.0))(@opentelemetry/sdk-trace-base@1.27.0(@opentelemetry/api@1.9.0))(openai@6.19.0(ws@8.22.0(bufferutil@4.0.8)(utf-8-validate@6.0.4))(zod@4.3.6))(ws@8.22.0(bufferutil@4.0.8)(utf-8-validate@6.0.4)))(ai@4.3.19(react@18.2.0)(zod@4.3.6))
-      '@supabase/supabase-js':
-        specifier: ^2.29.0
-        version: 2.39.8(bufferutil@4.0.8)(utf-8-validate@6.0.4)
       '@types/js-yaml':
         specifier: ^4.0.5
         version: 4.0.9
@@ -469,12 +433,6 @@ importers:
       '@upstash/redis':
         specifier: 1.22.1
         version: 1.22.1(encoding@0.1.13)
-      '@upstash/vector':
-        specifier: 1.1.5
-        version: 1.1.5
-      '@zilliz/milvus2-sdk-node':
-        specifier: ^2.2.24
-        version: 2.3.5
       apify-client:
         specifier: ^2.7.1
         version: 2.9.3
@@ -487,18 +445,12 @@ importers:
       cheerio:
         specifier: ^1.0.0-rc.12
         version: 1.0.0-rc.12
-      chromadb:
-        specifier: 3.1.6
-        version: 3.1.6
       cohere-ai:
         specifier: ^7.7.5
         version: 7.10.0(encoding@0.1.13)
       composio-core:
         specifier: ^0.5.39
         version: 0.5.39(c76805bdc3c5f8925f9bcd111f134d4d)
-      couchbase:
-        specifier: 4.4.1
-        version: 4.4.1
       crypto-js:
         specifier: ^4.1.1
         version: 4.2.0
@@ -520,9 +472,6 @@ importers:
       express:
         specifier: ^4.22.3
         version: 4.22.3
-      faiss-node:
-        specifier: ^0.5.1
-        version: 0.5.1
       fast-json-patch:
         specifier: ^3.1.1
         version: 3.1.1
@@ -589,9 +538,6 @@ importers:
       mammoth:
         specifier: ^1.11.0
         version: 1.13.0
-      meilisearch:
-        specifier: ^0.41.0
-        version: 0.41.0(encoding@0.1.13)
       moment:
         specifier: ^2.31.0
         version: 2.31.0
@@ -670,9 +616,6 @@ importers:
       vm2:
         specifier: 3.12.2
         version: 3.12.2
-      weaviate-client:
-        specifier: 3.12.0
-        version: 3.12.0(encoding@0.1.13)
       winston:
         specifier: ^3.9.0
         version: 3.12.0
@@ -753,6 +696,123 @@ importers:
         specifier: 1.1.20
         version: 1.1.20(@opentelemetry/api@1.9.0)(@opentelemetry/exporter-trace-otlp-proto@0.54.0(@opentelemetry/api@1.9.0))(@opentelemetry/sdk-trace-base@1.30.1(@opentelemetry/api@1.9.0))(openai@6.19.0(ws@8.22.0(bufferutil@4.0.8)(utf-8-validate@6.0.4))(zod@4.3.6))(ws@8.22.0(bufferutil@4.0.8)(utf-8-validate@6.0.4))
 
+  packages/node-pack-vector-stores:
+    dependencies:
+      '@aws-sdk/client-kendra':
+        specifier: ^3.1014.0
+        version: 3.1065.0
+      '@cuttlely/components':
+        specifier: workspace:*
+        version: link:../components
+      '@datastax/astra-db-ts':
+        specifier: 1.5.0
+        version: 1.5.0
+      '@elastic/elasticsearch':
+        specifier: ^8.16.0
+        version: 8.19.1
+      '@getzep/zep-cloud':
+        specifier: ~1.0.7
+        version: 1.0.7(3f3dba9fca59fa56d8c0d098f7afe226)
+      '@getzep/zep-js':
+        specifier: ^0.9.0
+        version: 0.9.0
+      '@langchain/aws':
+        specifier: 1.2.2
+        version: 1.2.2(@langchain/core@1.1.20(@opentelemetry/api@1.9.0)(@opentelemetry/exporter-trace-otlp-proto@0.54.0(@opentelemetry/api@1.9.0))(@opentelemetry/sdk-trace-base@1.27.0(@opentelemetry/api@1.9.0))(openai@6.19.0(ws@8.22.0(bufferutil@4.0.8)(utf-8-validate@6.0.4))(zod@4.3.6))(ws@8.22.0(bufferutil@4.0.8)(utf-8-validate@6.0.4)))
+      '@langchain/classic':
+        specifier: 1.0.15
+        version: 1.0.15(@langchain/core@1.1.20(@opentelemetry/api@1.9.0)(@opentelemetry/exporter-trace-otlp-proto@0.54.0(@opentelemetry/api@1.9.0))(@opentelemetry/sdk-trace-base@1.27.0(@opentelemetry/api@1.9.0))(openai@6.19.0(ws@8.22.0(bufferutil@4.0.8)(utf-8-validate@6.0.4))(zod@4.3.6))(ws@8.22.0(bufferutil@4.0.8)(utf-8-validate@6.0.4)))(@opentelemetry/api@1.9.0)(@opentelemetry/exporter-trace-otlp-proto@0.54.0(@opentelemetry/api@1.9.0))(@opentelemetry/sdk-trace-base@1.27.0(@opentelemetry/api@1.9.0))(cheerio@1.0.0-rc.12)(openai@6.19.0(ws@8.22.0(bufferutil@4.0.8)(utf-8-validate@6.0.4))(zod@4.3.6))(typeorm@0.3.31(babel-plugin-macros@3.1.0)(ioredis@5.3.2)(mongodb@6.3.0(@aws-sdk/credential-providers@3.1002.0)(socks@2.8.10))(mysql2@3.24.5(@types/node@24.13.2))(pg@8.11.3)(redis@4.6.13)(sqlite3@6.0.1)(ts-node@10.9.2(@swc/core@1.4.6(@swc/helpers@0.5.23))(@types/node@24.13.2)(typescript@5.5.2)))(ws@8.22.0(bufferutil@4.0.8)(utf-8-validate@6.0.4))
+      '@langchain/community':
+        specifier: 1.1.12
+        version: 1.1.12(6bc908b6c4a843da72460b9048f7c7ba)
+      '@langchain/core':
+        specifier: 1.1.20
+        version: 1.1.20(@opentelemetry/api@1.9.0)(@opentelemetry/exporter-trace-otlp-proto@0.54.0(@opentelemetry/api@1.9.0))(@opentelemetry/sdk-trace-base@1.27.0(@opentelemetry/api@1.9.0))(openai@6.19.0(ws@8.22.0(bufferutil@4.0.8)(utf-8-validate@6.0.4))(zod@4.3.6))(ws@8.22.0(bufferutil@4.0.8)(utf-8-validate@6.0.4))
+      '@langchain/mongodb':
+        specifier: 1.3.1
+        version: 1.3.1(@aws-sdk/credential-providers@3.1002.0)(@langchain/core@1.1.20(@opentelemetry/api@1.9.0)(@opentelemetry/exporter-trace-otlp-proto@0.54.0(@opentelemetry/api@1.9.0))(@opentelemetry/sdk-trace-base@1.27.0(@opentelemetry/api@1.9.0))(openai@6.19.0(ws@8.22.0(bufferutil@4.0.8)(utf-8-validate@6.0.4))(zod@4.3.6))(ws@8.22.0(bufferutil@4.0.8)(utf-8-validate@6.0.4)))(socks@2.8.10)
+      '@langchain/pinecone':
+        specifier: 1.0.1
+        version: 1.0.1(@langchain/core@1.1.20(@opentelemetry/api@1.9.0)(@opentelemetry/exporter-trace-otlp-proto@0.54.0(@opentelemetry/api@1.9.0))(@opentelemetry/sdk-trace-base@1.27.0(@opentelemetry/api@1.9.0))(openai@6.19.0(ws@8.22.0(bufferutil@4.0.8)(utf-8-validate@6.0.4))(zod@4.3.6))(ws@8.22.0(bufferutil@4.0.8)(utf-8-validate@6.0.4)))(@pinecone-database/pinecone@4.0.0)
+      '@langchain/qdrant':
+        specifier: 1.0.1
+        version: 1.0.1(@langchain/core@1.1.20(@opentelemetry/api@1.9.0)(@opentelemetry/exporter-trace-otlp-proto@0.54.0(@opentelemetry/api@1.9.0))(@opentelemetry/sdk-trace-base@1.27.0(@opentelemetry/api@1.9.0))(openai@6.19.0(ws@8.22.0(bufferutil@4.0.8)(utf-8-validate@6.0.4))(zod@4.3.6))(ws@8.22.0(bufferutil@4.0.8)(utf-8-validate@6.0.4)))(typescript@5.5.2)
+      '@langchain/redis':
+        specifier: 1.1.1
+        version: 1.1.1(@langchain/core@1.1.20(@opentelemetry/api@1.9.0)(@opentelemetry/exporter-trace-otlp-proto@0.54.0(@opentelemetry/api@1.9.0))(@opentelemetry/sdk-trace-base@1.27.0(@opentelemetry/api@1.9.0))(openai@6.19.0(ws@8.22.0(bufferutil@4.0.8)(utf-8-validate@6.0.4))(zod@4.3.6))(ws@8.22.0(bufferutil@4.0.8)(utf-8-validate@6.0.4)))
+      '@langchain/weaviate':
+        specifier: 1.0.1
+        version: 1.0.1(@langchain/core@1.1.20(@opentelemetry/api@1.9.0)(@opentelemetry/exporter-trace-otlp-proto@0.54.0(@opentelemetry/api@1.9.0))(@opentelemetry/sdk-trace-base@1.27.0(@opentelemetry/api@1.9.0))(openai@6.19.0(ws@8.22.0(bufferutil@4.0.8)(utf-8-validate@6.0.4))(zod@4.3.6))(ws@8.22.0(bufferutil@4.0.8)(utf-8-validate@6.0.4)))(encoding@0.1.13)
+      '@opensearch-project/opensearch':
+        specifier: ^1.2.0
+        version: 1.2.0
+      '@pinecone-database/pinecone':
+        specifier: 4.0.0
+        version: 4.0.0
+      '@qdrant/js-client-rest':
+        specifier: ^1.18.0
+        version: 1.18.0(typescript@5.5.2)
+      '@supabase/supabase-js':
+        specifier: ^2.29.0
+        version: 2.39.8(bufferutil@4.0.8)(utf-8-validate@6.0.4)
+      '@upstash/vector':
+        specifier: 1.1.5
+        version: 1.1.5
+      '@zilliz/milvus2-sdk-node':
+        specifier: ^2.2.24
+        version: 2.3.5
+      chromadb:
+        specifier: 3.1.6
+        version: 3.1.6
+      couchbase:
+        specifier: 4.4.1
+        version: 4.4.1
+      faiss-node:
+        specifier: ^0.5.1
+        version: 0.5.1
+      lodash:
+        specifier: ^4.18.1
+        version: 4.18.1
+      meilisearch:
+        specifier: ^0.41.0
+        version: 0.41.0(encoding@0.1.13)
+      mongodb:
+        specifier: 6.3.0
+        version: 6.3.0(@aws-sdk/credential-providers@3.1002.0)(socks@2.8.10)
+      pg:
+        specifier: ^8.11.2
+        version: 8.11.3
+      redis:
+        specifier: ^4.6.7
+        version: 4.6.13
+      typeorm:
+        specifier: ^0.3.31
+        version: 0.3.31(babel-plugin-macros@3.1.0)(ioredis@5.3.2)(mongodb@6.3.0(@aws-sdk/credential-providers@3.1002.0)(socks@2.8.10))(mysql2@3.24.5(@types/node@24.13.2))(pg@8.11.3)(redis@4.6.13)(sqlite3@6.0.1)(ts-node@10.9.2(@swc/core@1.4.6(@swc/helpers@0.5.23))(@types/node@24.13.2)(typescript@5.5.2))
+      uuid:
+        specifier: ^11.1.1
+        version: 11.1.1
+      weaviate-client:
+        specifier: 3.12.0
+        version: 3.12.0(encoding@0.1.13)
+    devDependencies:
+      '@types/gulp':
+        specifier: 4.0.9
+        version: 4.0.9
+      '@types/lodash':
+        specifier: ^4.17.20
+        version: 4.17.20
+      '@types/pg':
+        specifier: ^8.10.2
+        version: 8.11.2
+      gulp:
+        specifier: ^4.0.2
+        version: 4.0.2
+      rimraf:
+        specifier: ^5.0.5
+        version: 5.0.5
+      typescript:
+        specifier: ^5.4.5
+        version: 5.5.2
   packages/server:
     dependencies:
       '@aws-sdk/client-s3':
@@ -776,6 +836,9 @@ importers:
       '@cuttlely/components':
         specifier: workspace:^
         version: link:../components
+      '@cuttlely/node-pack-vector-stores':
+        specifier: workspace:*
+        version: link:../node-pack-vector-stores
       '@cuttlely/versioning':
         specifier: workspace:*
         version: link:../versioning

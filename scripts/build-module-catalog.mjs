@@ -4,6 +4,19 @@ import { fileURLToPath } from 'node:url'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const nodesRoot = path.join(root, 'packages/components/nodes')
+
+// Built-in nodes, plus every packages/node-pack-*/nodes directory. A new pack is picked up here.
+function nodeRoots() {
+    const roots = [nodesRoot]
+    const packagesDir = path.join(root, 'packages')
+    if (!fs.existsSync(packagesDir)) return roots
+    for (const name of fs.readdirSync(packagesDir)) {
+        if (!name.startsWith('node-pack-')) continue
+        const nodes = path.join(packagesDir, name, 'nodes')
+        if (fs.existsSync(nodes)) roots.push(nodes)
+    }
+    return roots
+}
 const TIERS = ['core', 'supported', 'legacy', 'hidden']
 
 // The same canvases the template open check reads: marketplace templates and the stock samples.
@@ -133,9 +146,8 @@ function tierFor(node, skip, coreNames) {
     return 'supported'
 }
 
-export function buildModuleCatalog() {
-    const nodes = []
-    for (const file of walk(nodesRoot)) {
+function collectNodes(dir, nodes) {
+    for (const file of walk(dir)) {
         const source = fs.readFileSync(file, 'utf8')
         if (!source.includes('nodeClass')) continue
         const name = quotedField(source, 'name')
@@ -159,6 +171,11 @@ export function buildModuleCatalog() {
         }
         nodes.push({ name, label, category, folder, file: relative, disposition, reason, badge })
     }
+}
+
+export function buildModuleCatalog() {
+    const nodes = []
+    for (const dir of nodeRoots()) collectNodes(dir, nodes)
 
     nodes.sort((a, b) => a.file.localeCompare(b.file) || a.name.localeCompare(b.name))
     const known = new Set(nodes.map((node) => node.name))
@@ -176,9 +193,9 @@ export function buildModuleCatalog() {
     }
 
     return {
-        generatedFrom: 'packages/components/nodes',
+        generatedFrom: 'packages/components/nodes and packages/node-pack-*/nodes',
         registration:
-            'NodesPool loads every nodeClass under packages/components/nodes. packages/components/nodes/index.ts re-exports this catalog. tier is core (a bundled template, a sample canvas, or a Build with AI recipe), supported, legacy (DEPRECATING badge), or hidden (a category the server skips at load).',
+            'NodesPool loads every nodeClass under packages/components/nodes, then the packs in CUTTLELY_NODE_PACKS. Unset loads the packs that ship with the install. packages/components/nodes/index.ts re-exports this catalog. tier is core (a bundled template, a sample canvas, or a Build with AI recipe), supported, legacy (DEPRECATING badge), or hidden (a category the server skips at load).',
         langgraphUpgradeBlocked: false,
         counts,
         tiers,
