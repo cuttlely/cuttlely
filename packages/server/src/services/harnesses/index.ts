@@ -3,7 +3,7 @@ import fs from 'fs'
 import path from 'path'
 import { pathToFileURL } from 'url'
 import { StatusCodes } from 'http-status-codes'
-import { InternalFlowiseError } from '../../errors/internalFlowiseError'
+import { AppError } from '../../errors/appError'
 import { getErrorMessage } from '../../errors/utils'
 import { databaseEntities } from '../../utils'
 import { getRunningExpressApp } from '../../utils/getRunningExpressApp'
@@ -22,7 +22,7 @@ export async function loadHarness(file: string) {
         if (candidate) return importEsm(pathToFileURL(candidate).href)
         dir = path.dirname(dir)
     }
-    throw new InternalFlowiseError(StatusCodes.INTERNAL_SERVER_ERROR, `Harness module ${file} was not found.`)
+    throw new AppError(StatusCodes.INTERNAL_SERVER_ERROR, `Harness module ${file} was not found.`)
 }
 
 const listHarnesses = async () => {
@@ -34,7 +34,7 @@ const getHarness = async (name: string) => {
     const store = await loadHarness('store.mjs')
     const harness = store.getHarness(name)
     if (!harness) {
-        throw new InternalFlowiseError(StatusCodes.NOT_FOUND, `Harness ${name} was not found.`)
+        throw new AppError(StatusCodes.NOT_FOUND, `Harness ${name} was not found.`)
     }
     return harness
 }
@@ -50,7 +50,7 @@ const saveHarness = async (body: Record<string, unknown>) => {
         warmHarnesses([saved.name])
         return saved
     } catch (error) {
-        throw new InternalFlowiseError(StatusCodes.BAD_REQUEST, getErrorMessage(error))
+        throw new AppError(StatusCodes.BAD_REQUEST, getErrorMessage(error))
     }
 }
 
@@ -124,11 +124,11 @@ function questionOf(body: Record<string, unknown>) {
 function httpHarnessError(error: unknown) {
     const code = (error as { code?: string })?.code
     const message = getErrorMessage(error)
-    if (code === 'not_found') return new InternalFlowiseError(StatusCodes.NOT_FOUND, message)
-    if (code === 'bad_name' || code === 'bad_session') return new InternalFlowiseError(StatusCodes.BAD_REQUEST, message)
-    if (code === 'busy') return new InternalFlowiseError(StatusCodes.CONFLICT, message)
-    if ((error as { harnessError?: boolean })?.harnessError) return new InternalFlowiseError(StatusCodes.UNPROCESSABLE_ENTITY, message)
-    return new InternalFlowiseError(StatusCodes.INTERNAL_SERVER_ERROR, message)
+    if (code === 'not_found') return new AppError(StatusCodes.NOT_FOUND, message)
+    if (code === 'bad_name' || code === 'bad_session') return new AppError(StatusCodes.BAD_REQUEST, message)
+    if (code === 'busy') return new AppError(StatusCodes.CONFLICT, message)
+    if ((error as { harnessError?: boolean })?.harnessError) return new AppError(StatusCodes.UNPROCESSABLE_ENTITY, message)
+    return new AppError(StatusCodes.INTERNAL_SERVER_ERROR, message)
 }
 
 const requireHarness = async (name: string) => {
@@ -140,7 +140,7 @@ const requireHarness = async (name: string) => {
         throw httpHarnessError(error)
     }
     if (!harness) {
-        throw new InternalFlowiseError(StatusCodes.NOT_FOUND, `Harness ${name} was not found.`)
+        throw new AppError(StatusCodes.NOT_FOUND, `Harness ${name} was not found.`)
     }
     return harness
 }
@@ -156,7 +156,7 @@ const getRun = async (name: string, runId: string) => {
     const history = await loadHarness('history.mjs')
     const run = history.getRun(name, runId)
     if (!run) {
-        throw new InternalFlowiseError(StatusCodes.NOT_FOUND, `Run ${runId} was not found.`)
+        throw new AppError(StatusCodes.NOT_FOUND, `Run ${runId} was not found.`)
     }
     return run
 }
@@ -165,18 +165,15 @@ const assertRunRequest = async (name: string, body: Record<string, unknown>) => 
     const harness = await requireHarness(name)
     const question = questionOf(body || {})
     if (!question.trim()) {
-        throw new InternalFlowiseError(StatusCodes.BAD_REQUEST, 'A harness run needs a question.')
+        throw new AppError(StatusCodes.BAD_REQUEST, 'A harness run needs a question.')
     }
     if (question.length > QUESTION_LIMIT) {
-        throw new InternalFlowiseError(StatusCodes.BAD_REQUEST, `That question is longer than ${QUESTION_LIMIT} characters.`)
+        throw new AppError(StatusCodes.BAD_REQUEST, `That question is longer than ${QUESTION_LIMIT} characters.`)
     }
     const rawChatId = body?.chatId
     if (rawChatId != null && rawChatId !== '') {
         if (typeof rawChatId !== 'string' || !CHAT_ID.test(rawChatId)) {
-            throw new InternalFlowiseError(
-                StatusCodes.BAD_REQUEST,
-                'chatId must be 1–128 characters of letters, numbers, "_", ".", ":", or "-".'
-            )
+            throw new AppError(StatusCodes.BAD_REQUEST, 'chatId must be 1–128 characters of letters, numbers, "_", ".", ":", or "-".')
         }
     }
     return { harness, question, chatId: typeof rawChatId === 'string' && rawChatId ? rawChatId : `playground-${randomUUID()}` }
@@ -194,7 +191,7 @@ const startRun = async (
         runtime = await contextFor(prepared.harness)
     } catch (error) {
         logger.warn(`[harness] ${name} playground context unavailable: ${getErrorMessage(error)}`)
-        throw new InternalFlowiseError(StatusCodes.INTERNAL_SERVER_ERROR, 'Harness runtime context is not available.')
+        throw new AppError(StatusCodes.INTERNAL_SERVER_ERROR, 'Harness runtime context is not available.')
     }
     const engine = await loadHarness('run.mjs')
     const queued = engine.runQueuedHarness
@@ -220,7 +217,7 @@ const startRun = async (
         }
         return { payload, run: recorded, chatId: prepared.chatId }
     } catch (error) {
-        const wrapped = httpHarnessError(error) as InternalFlowiseError & { harnessRun?: unknown }
+        const wrapped = httpHarnessError(error) as AppError & { harnessRun?: unknown }
         wrapped.harnessRun = recorded
         throw wrapped
     }

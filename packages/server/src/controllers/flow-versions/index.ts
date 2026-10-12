@@ -1,6 +1,6 @@
 import { NextFunction, Request, Response } from 'express'
 import { StatusCodes } from 'http-status-codes'
-import { InternalFlowiseError } from '../../errors/internalFlowiseError'
+import { AppError } from '../../errors/appError'
 import { ChatFlow } from '../../database/entities/ChatFlow'
 import chatflowsService from '../../services/chatflows'
 import { actorFromUser } from '../../services/flow-versions/author'
@@ -17,13 +17,13 @@ const SHA = /^[0-9a-f]{7,40}$/
 // The flow must be in the caller's active workspace. History for any other flow is a 404.
 async function flowFor(req: Request) {
     const workspaceId = req.user?.activeWorkspaceId
-    if (!workspaceId) throw new InternalFlowiseError(StatusCodes.NOT_FOUND, 'Workspace not found.')
+    if (!workspaceId) throw new AppError(StatusCodes.NOT_FOUND, 'Workspace not found.')
     return chatflowsService.getChatflowByIdForWorkspace(req.params.chatflowId, workspaceId)
 }
 
 function shaParam(req: Request): string {
     const sha = String(req.params.sha || '')
-    if (!SHA.test(sha)) throw new InternalFlowiseError(StatusCodes.BAD_REQUEST, 'A version id is 7 to 40 lowercase hex characters.')
+    if (!SHA.test(sha)) throw new AppError(StatusCodes.BAD_REQUEST, 'A version id is 7 to 40 lowercase hex characters.')
     return sha
 }
 
@@ -54,7 +54,7 @@ const getVersion = async (req: Request, res: Response, next: NextFunction) => {
         const sha = shaParam(req)
         const flow = await flowFor(req)
         const version = await flowVersionsService.getVersion(flow, sha)
-        if (!version) throw new InternalFlowiseError(StatusCodes.NOT_FOUND, `Version ${sha} was not found for this flow.`)
+        if (!version) throw new AppError(StatusCodes.NOT_FOUND, `Version ${sha} was not found for this flow.`)
         return res.json(version)
     } catch (error) {
         next(error)
@@ -66,11 +66,11 @@ const diffVersion = async (req: Request, res: Response, next: NextFunction) => {
         const sha = shaParam(req)
         const against = typeof req.query.against === 'string' && req.query.against ? req.query.against : 'previous'
         if (against !== 'previous' && against !== 'current' && !SHA.test(against)) {
-            throw new InternalFlowiseError(StatusCodes.BAD_REQUEST, 'against is previous, current, or a version id.')
+            throw new AppError(StatusCodes.BAD_REQUEST, 'against is previous, current, or a version id.')
         }
         const flow = await flowFor(req)
         const diff = await flowVersionsService.diffVersion(flow, sha, against)
-        if (!diff) throw new InternalFlowiseError(StatusCodes.NOT_FOUND, `Version ${sha} was not found for this flow.`)
+        if (!diff) throw new AppError(StatusCodes.NOT_FOUND, `Version ${sha} was not found for this flow.`)
         return res.json(diff)
     } catch (error) {
         next(error)
@@ -107,15 +107,15 @@ export interface LiveResult {
 // for the flow's type, and for the version's type when it differs.
 async function versionFor(req: Request, flow: ChatFlow, sha: string) {
     if (!flowVersionsService.isVersioningEnabled()) {
-        throw new InternalFlowiseError(StatusCodes.CONFLICT, 'Version history is off on this server.')
+        throw new AppError(StatusCodes.CONFLICT, 'Version history is off on this server.')
     }
     const version = await flowVersionsService.getVersion(flow, sha)
-    if (!version) throw new InternalFlowiseError(StatusCodes.NOT_FOUND, `Version ${sha} was not found for this flow.`)
+    if (!version) throw new AppError(StatusCodes.NOT_FOUND, `Version ${sha} was not found for this flow.`)
     const allowed =
         (await hasAnyPermission(req, updatePermissionFor(flow.type))) &&
         (!version.type || (await hasAnyPermission(req, updatePermissionFor(version.type))))
     if (!allowed) {
-        throw new InternalFlowiseError(StatusCodes.FORBIDDEN, 'You do not have permission to change this type of flow.')
+        throw new AppError(StatusCodes.FORBIDDEN, 'You do not have permission to change this type of flow.')
     }
     return version
 }
@@ -134,11 +134,11 @@ function credentialNotes(version: any) {
 export async function putVersionLive(req: Request, flow: ChatFlow, sha: string, record: LiveRecord): Promise<LiveResult> {
     const workspaceId = req.user?.activeWorkspaceId
     const orgId = req.user?.activeOrganizationId
-    if (!workspaceId || !orgId) throw new InternalFlowiseError(StatusCodes.NOT_FOUND, 'Workspace not found.')
+    if (!workspaceId || !orgId) throw new AppError(StatusCodes.NOT_FOUND, 'Workspace not found.')
     const version = await versionFor(req, flow, sha)
     // Promote never puts a version Live without every credential it uses: it would fail for real users.
     if (record.kind === 'promote' && version.missingCredentials.length) {
-        throw new InternalFlowiseError(StatusCodes.CONFLICT, missingCredentialsMessage(version.missingCredentials))
+        throw new AppError(StatusCodes.CONFLICT, missingCredentialsMessage(version.missingCredentials))
     }
 
     // Unchanged is decided from the content, before anything is saved: same canvas, same name, same type,
@@ -217,7 +217,7 @@ const restoreVersion = async (req: Request, res: Response, next: NextFunction) =
         const sha = shaParam(req)
         const workspaceId = req.user?.activeWorkspaceId
         const orgId = req.user?.activeOrganizationId
-        if (!workspaceId || !orgId) throw new InternalFlowiseError(StatusCodes.NOT_FOUND, 'Workspace not found.')
+        if (!workspaceId || !orgId) throw new AppError(StatusCodes.NOT_FOUND, 'Workspace not found.')
         const flow = await flowFor(req)
         const drafts = await flowDraftsService.getDraftStatus(flow)
         if (drafts.mode !== 'draft') {
@@ -226,7 +226,7 @@ const restoreVersion = async (req: Request, res: Response, next: NextFunction) =
         const version = await versionFor(req, flow, sha)
         // A draft holds the canvas only, so a version of another kind of flow cannot become the draft.
         if (version.type && version.type !== flow.type) {
-            throw new InternalFlowiseError(
+            throw new AppError(
                 StatusCodes.CONFLICT,
                 'This version is a different kind of flow, so it cannot become the draft. Use Roll back Live instead.'
             )
@@ -255,7 +255,7 @@ const restoreVersion = async (req: Request, res: Response, next: NextFunction) =
 
 // The GitHub copy is server-wide. Its errors carry a plain sentence and a status, never the token.
 function githubError(error: unknown): unknown {
-    if (error instanceof GithubError) return new InternalFlowiseError(error.status, error.message)
+    if (error instanceof GithubError) return new AppError(error.status, error.message)
     return error
 }
 

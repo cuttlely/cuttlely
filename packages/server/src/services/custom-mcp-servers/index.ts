@@ -1,7 +1,7 @@
 import { StatusCodes } from 'http-status-codes'
 import { CustomMcpServer } from '../../database/entities/CustomMcpServer'
 import { CustomMcpServerAuthType, CustomMcpServerStatus, ICustomMcpServerResponse } from '../../Interface'
-import { InternalFlowiseError } from '../../errors/internalFlowiseError'
+import { AppError } from '../../errors/appError'
 import { getErrorMessage } from '../../errors/utils'
 import { getRunningExpressApp } from '../../utils/getRunningExpressApp'
 import { encryptCredentialData, decryptCredentialData } from '../../utils'
@@ -43,17 +43,17 @@ const toBadRequest = async (fn: () => Promise<void> | void, fallbackMessage: str
     try {
         await fn()
     } catch (err) {
-        throw new InternalFlowiseError(StatusCodes.BAD_REQUEST, fallbackMessage)
+        throw new AppError(StatusCodes.BAD_REQUEST, fallbackMessage)
     }
 }
 
 const assertSafeServerUrl = async (url: string): Promise<void> => {
     if (!isValidURL(url)) {
-        throw new InternalFlowiseError(StatusCodes.BAD_REQUEST, `Invalid Server URL: "${url}" is not a valid URL`)
+        throw new AppError(StatusCodes.BAD_REQUEST, `Invalid Server URL: "${url}" is not a valid URL`)
     }
     const parsed = new URL(url)
     if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-        throw new InternalFlowiseError(
+        throw new AppError(
             StatusCodes.BAD_REQUEST,
             `Invalid Server URL: only http and https are allowed, got "${parsed.protocol.replace(':', '')}"`
         )
@@ -68,7 +68,7 @@ const assertValidHeaders = (headers: unknown): void => {
     try {
         validateCustomHeaders(headers as Record<string, string>)
     } catch (err) {
-        throw new InternalFlowiseError(StatusCodes.BAD_REQUEST, getErrorMessage(err))
+        throw new AppError(StatusCodes.BAD_REQUEST, getErrorMessage(err))
     }
 }
 
@@ -126,8 +126,8 @@ const createCustomMcpServer = async (requestBody: any, orgId: string): Promise<a
         })
         return sanitizeCustomMcpServer(dbResponse)
     } catch (error) {
-        if (error instanceof InternalFlowiseError) throw error
-        throw new InternalFlowiseError(
+        if (error instanceof AppError) throw error
+        throw new AppError(
             StatusCodes.INTERNAL_SERVER_ERROR,
             `Error: customMcpServersService.createCustomMcpServer - ${getErrorMessage(error)}`
         )
@@ -157,7 +157,7 @@ const getAllCustomMcpServers = async (workspaceId: string, page: number = -1, li
             return sanitized
         }
     } catch (error) {
-        throw new InternalFlowiseError(
+        throw new AppError(
             StatusCodes.INTERNAL_SERVER_ERROR,
             `Error: customMcpServersService.getAllCustomMcpServers - ${getErrorMessage(error)}`
         )
@@ -175,7 +175,7 @@ const getCustomMcpServerById = async (id: string, workspaceId: string): Promise<
             .andWhere('custom_mcp_server.workspaceId = :workspaceId', { workspaceId })
             .getOne()
         if (!dbResponse) {
-            throw new InternalFlowiseError(StatusCodes.NOT_FOUND, `Custom MCP server ${id} not found`)
+            throw new AppError(StatusCodes.NOT_FOUND, `Custom MCP server ${id} not found`)
         }
         const result: ICustomMcpServerResponse = { ...dbResponse, authConfig: undefined, serverUrl: maskServerUrl(dbResponse.serverUrl) }
         if (dbResponse.authConfig) {
@@ -201,8 +201,8 @@ const getCustomMcpServerById = async (id: string, workspaceId: string): Promise<
         }
         return result
     } catch (error) {
-        if (error instanceof InternalFlowiseError) throw error
-        throw new InternalFlowiseError(
+        if (error instanceof AppError) throw error
+        throw new AppError(
             StatusCodes.INTERNAL_SERVER_ERROR,
             `Error: customMcpServersService.getCustomMcpServerById - ${getErrorMessage(error)}`
         )
@@ -217,13 +217,13 @@ const updateCustomMcpServer = async (id: string, requestBody: any, workspaceId: 
             workspaceId
         })
         if (!record) {
-            throw new InternalFlowiseError(StatusCodes.NOT_FOUND, `Custom MCP server ${id} not found`)
+            throw new AppError(StatusCodes.NOT_FOUND, `Custom MCP server ${id} not found`)
         }
 
         if (requestBody.serverUrl === maskServerUrl(record.serverUrl)) {
             requestBody.serverUrl = record.serverUrl
         } else if (requestBody.serverUrl && requestBody.serverUrl.includes(REDACTED_VALUE)) {
-            throw new InternalFlowiseError(
+            throw new AppError(
                 StatusCodes.BAD_REQUEST,
                 'Server URL still contains the masked placeholder. Send the full URL, or omit serverUrl from the request to keep the existing value.'
             )
@@ -246,7 +246,7 @@ const updateCustomMcpServer = async (id: string, requestBody: any, workspaceId: 
                             if (value === REDACTED_VALUE && key in (existingDecrypted.headers as Record<string, string>)) {
                                 mergedHeaders[key] = (existingDecrypted.headers as Record<string, string>)[key]
                             } else if (typeof value === 'string' && value !== REDACTED_VALUE && value.includes(REDACTED_VALUE)) {
-                                throw new InternalFlowiseError(
+                                throw new AppError(
                                     StatusCodes.BAD_REQUEST,
                                     `Header "${key}" value still contains the masked placeholder. Send the full value, or pass "${REDACTED_VALUE}" to keep the existing value.`
                                 )
@@ -257,7 +257,7 @@ const updateCustomMcpServer = async (id: string, requestBody: any, workspaceId: 
                         requestBody.authConfig = { ...requestBody.authConfig, headers: mergedHeaders }
                     }
                 } catch (err) {
-                    if (err instanceof InternalFlowiseError) throw err
+                    if (err instanceof AppError) throw err
                 }
             }
             if (requestBody.authType === CustomMcpServerAuthType.CUSTOM_HEADERS) {
@@ -273,8 +273,8 @@ const updateCustomMcpServer = async (id: string, requestBody: any, workspaceId: 
         const dbResponse = await appServer.AppDataSource.getRepository(CustomMcpServer).save(record)
         return sanitizeCustomMcpServer(dbResponse)
     } catch (error) {
-        if (error instanceof InternalFlowiseError) throw error
-        throw new InternalFlowiseError(
+        if (error instanceof AppError) throw error
+        throw new AppError(
             StatusCodes.INTERNAL_SERVER_ERROR,
             `Error: customMcpServersService.updateCustomMcpServer - ${getErrorMessage(error)}`
         )
@@ -290,7 +290,7 @@ const deleteCustomMcpServer = async (id: string, workspaceId: string): Promise<a
         })
         return dbResponse
     } catch (error) {
-        throw new InternalFlowiseError(
+        throw new AppError(
             StatusCodes.INTERNAL_SERVER_ERROR,
             `Error: customMcpServersService.deleteCustomMcpServer - ${getErrorMessage(error)}`
         )
@@ -303,7 +303,7 @@ const authorizeCustomMcpServer = async (id: string, workspaceId: string): Promis
         const repo = appServer.AppDataSource.getRepository(CustomMcpServer)
         const record = await repo.findOneBy({ id, workspaceId })
         if (!record) {
-            throw new InternalFlowiseError(StatusCodes.NOT_FOUND, `Custom MCP server ${id} not found`)
+            throw new AppError(StatusCodes.NOT_FOUND, `Custom MCP server ${id} not found`)
         }
 
         // Build headers from decrypted authConfig — only when authType explicitly requires them
@@ -340,7 +340,7 @@ const authorizeCustomMcpServer = async (id: string, workspaceId: string): Promis
             if (maxBytes > 0 && Buffer.byteLength(toolsJson, 'utf8') > maxBytes) {
                 record.status = CustomMcpServerStatus.ERROR
                 await repo.save(record)
-                throw new InternalFlowiseError(
+                throw new AppError(
                     StatusCodes.BAD_REQUEST,
                     `MCP server returned a tools payload larger than the allowed limit (${maxBytes} bytes). Set CUSTOM_MCP_TOOLS_MAX_BYTES to override.`
                 )
@@ -357,14 +357,11 @@ const authorizeCustomMcpServer = async (id: string, workspaceId: string): Promis
             // Ensure tools is present in the response even if `select:false` stripped it from the saved entity.
             return { ...sanitizeCustomMcpServer(record), tools: toolsJson }
         } catch (connectError) {
-            // InternalFlowiseError (e.g. oversized tools payload) was already persisted — rethrow as-is
-            if (connectError instanceof InternalFlowiseError) throw connectError
+            // AppError (e.g. oversized tools payload) was already persisted — rethrow as-is
+            if (connectError instanceof AppError) throw connectError
             record.status = CustomMcpServerStatus.ERROR
             await repo.save(record)
-            throw new InternalFlowiseError(
-                StatusCodes.BAD_REQUEST,
-                `Failed to connect to Custom MCP server: ${getErrorMessage(connectError)}`
-            )
+            throw new AppError(StatusCodes.BAD_REQUEST, `Failed to connect to Custom MCP server: ${getErrorMessage(connectError)}`)
         } finally {
             if (toolkit?.client) {
                 try {
@@ -375,8 +372,8 @@ const authorizeCustomMcpServer = async (id: string, workspaceId: string): Promis
             }
         }
     } catch (error) {
-        if (error instanceof InternalFlowiseError) throw error
-        throw new InternalFlowiseError(
+        if (error instanceof AppError) throw error
+        throw new AppError(
             StatusCodes.INTERNAL_SERVER_ERROR,
             `Error: customMcpServersService.authorizeCustomMcpServer - ${getErrorMessage(error)}`
         )
@@ -393,7 +390,7 @@ const getDiscoveredTools = async (id: string, workspaceId: string): Promise<Reco
             .andWhere('custom_mcp_server.workspaceId = :workspaceId', { workspaceId })
             .getOne()
         if (!record) {
-            throw new InternalFlowiseError(StatusCodes.NOT_FOUND, `Custom MCP server ${id} not found`)
+            throw new AppError(StatusCodes.NOT_FOUND, `Custom MCP server ${id} not found`)
         }
         if (!record.tools) {
             return []
@@ -405,8 +402,8 @@ const getDiscoveredTools = async (id: string, workspaceId: string): Promise<Reco
             return []
         }
     } catch (error) {
-        if (error instanceof InternalFlowiseError) throw error
-        throw new InternalFlowiseError(
+        if (error instanceof AppError) throw error
+        throw new AppError(
             StatusCodes.INTERNAL_SERVER_ERROR,
             `Error: customMcpServersService.getDiscoveredTools - ${getErrorMessage(error)}`
         )

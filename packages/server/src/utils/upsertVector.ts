@@ -20,7 +20,7 @@ import { Organization } from '../database/entities/identity'
 import { Workspace } from '../database/entities/identity'
 import { OSS_PRODUCT_ID } from '../identity/ossPlatform'
 import { getWorkspaceSearchOptions } from '../identity/workspaceScope'
-import { InternalFlowiseError } from '../errors/internalFlowiseError'
+import { AppError } from '../errors/appError'
 import { getErrorMessage } from '../errors/utils'
 import {
     buildFlow,
@@ -125,21 +125,18 @@ export const executeUpsert = async ({
     const vsNodes = nodes.filter((node) => node.data.category === 'Vector Stores')
     const vsNodesWithFileUpload = vsNodes.filter((node) => node.data.inputs?.fileUpload)
     if (vsNodesWithFileUpload.length > 1) {
-        throw new InternalFlowiseError(StatusCodes.INTERNAL_SERVER_ERROR, 'Multiple vector store nodes with fileUpload enabled')
+        throw new AppError(StatusCodes.INTERNAL_SERVER_ERROR, 'Multiple vector store nodes with fileUpload enabled')
     } else if (vsNodesWithFileUpload.length === 1 && !stopNodeId) {
         stopNodeId = vsNodesWithFileUpload[0].data.id
     }
 
     /*** Check if multiple vector store nodes exist, and if stopNodeId is specified ***/
     if (vsNodes.length > 1 && !stopNodeId) {
-        throw new InternalFlowiseError(
-            StatusCodes.INTERNAL_SERVER_ERROR,
-            'There are multiple vector nodes, please provide stopNodeId in body request'
-        )
+        throw new AppError(StatusCodes.INTERNAL_SERVER_ERROR, 'There are multiple vector nodes, please provide stopNodeId in body request')
     } else if (vsNodes.length === 1 && !stopNodeId) {
         stopNodeId = vsNodes[0].data.id
     } else if (!vsNodes.length && !stopNodeId) {
-        throw new InternalFlowiseError(StatusCodes.NOT_FOUND, 'No vector node found')
+        throw new AppError(StatusCodes.NOT_FOUND, 'No vector node found')
     }
 
     /*** Get Starting Nodes with Reversed Graph ***/
@@ -230,7 +227,7 @@ export const upsertVector = async (req: Request, isInternal: boolean = false) =>
             id: chatflowid
         })
         if (!chatflow) {
-            throw new InternalFlowiseError(StatusCodes.NOT_FOUND, `Chatflow ${chatflowid} not found`)
+            throw new AppError(StatusCodes.NOT_FOUND, `Chatflow ${chatflowid} not found`)
         }
 
         const httpProtocol = req.get('x-forwarded-proto') || req.protocol
@@ -240,7 +237,7 @@ export const upsertVector = async (req: Request, isInternal: boolean = false) =>
         if (!isInternal) {
             const isKeyValidated = await validateFlowAPIKey(req, chatflow)
             if (!isKeyValidated) {
-                throw new InternalFlowiseError(StatusCodes.UNAUTHORIZED, `Unauthorized`)
+                throw new AppError(StatusCodes.UNAUTHORIZED, `Unauthorized`)
             }
         }
 
@@ -249,17 +246,17 @@ export const upsertVector = async (req: Request, isInternal: boolean = false) =>
             id: chatflowWorkspaceId
         })
         if (!workspace) {
-            throw new InternalFlowiseError(StatusCodes.NOT_FOUND, `Workspace ${chatflowWorkspaceId} not found`)
+            throw new AppError(StatusCodes.NOT_FOUND, `Workspace ${chatflowWorkspaceId} not found`)
         }
         const workspaceId = workspace.id
 
-        if (workspaceId !== req.user?.activeWorkspaceId) throw new InternalFlowiseError(StatusCodes.UNAUTHORIZED, 'Unauthorized')
+        if (workspaceId !== req.user?.activeWorkspaceId) throw new AppError(StatusCodes.UNAUTHORIZED, 'Unauthorized')
 
         const org = await appServer.AppDataSource.getRepository(Organization).findOneBy({
             id: workspace.organizationId
         })
         if (!org) {
-            throw new InternalFlowiseError(StatusCodes.NOT_FOUND, `Organization ${workspace.organizationId} not found`)
+            throw new AppError(StatusCodes.NOT_FOUND, `Organization ${workspace.organizationId} not found`)
         }
 
         const orgId = org.id
@@ -321,10 +318,10 @@ export const upsertVector = async (req: Request, isInternal: boolean = false) =>
         logger.error('[server]: Error:', e)
         appServer.metricsProvider?.incrementCounter(FLOWISE_METRIC_COUNTERS.VECTORSTORE_UPSERT, { status: FLOWISE_COUNTER_STATUS.FAILURE })
 
-        if (e instanceof InternalFlowiseError && e.statusCode === StatusCodes.UNAUTHORIZED) {
+        if (e instanceof AppError && e.statusCode === StatusCodes.UNAUTHORIZED) {
             throw e
         } else {
-            throw new InternalFlowiseError(StatusCodes.INTERNAL_SERVER_ERROR, getErrorMessage(e))
+            throw new AppError(StatusCodes.INTERNAL_SERVER_ERROR, getErrorMessage(e))
         }
     }
 }

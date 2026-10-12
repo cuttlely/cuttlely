@@ -1235,6 +1235,8 @@ packages/server/src/database/migrations/sqlite/1767000000000-AddMcpServerConfigT
 packages/server/src/database/migrations/sqlite/1772000000000-AddScheduleEntities.ts
 packages/server/src/database/migrations/sqlite/1776240000000-AddWebhookSecretToChatFlow.ts
 packages/server/src/database/migrations/sqlite/index.ts
+packages/server/src/errors/appError/index.test.ts
+packages/server/src/errors/appError/index.ts
 packages/server/src/errors/internalFlowiseError/index.ts
 packages/server/src/errors/utils.ts
 packages/server/src/index.ts

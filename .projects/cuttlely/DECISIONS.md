@@ -178,6 +178,10 @@ The server is not an npm package: a full install needs the Python agent runtime,
 
 `packages/server` is `@cuttlely/server`. `packages/ui` is `@cuttlely/ui`. `packages/api-documentation` is `@cuttlely/api-docs`. These packages stay private. Commands, repository paths, and the server CLI keep working. The server CLI keeps its existing bin entry and adds `cuttlely-server` on the same script. The CLI config, data, and cache directories stay on the existing directory name, so a theme file or a CLI plugin already on disk is still read. Application code does not read those directories. The server finds the UI build through the UI package name. This supersedes the last sentence of D43.
 
-## D45. The harness and pipeline engines are workspace packages
+## D45. The shared server error class is AppError
+
+The shared server error class is `AppError` in `packages/server/src/errors/appError`. Server code imports that class. The earlier module path and class name stay as a compatibility alias for one release. The alias is the same constructor, so `instanceof` checks work with either name. The class does not set `name`, so HTTP status codes, JSON bodies, headers and the error name on a response or a log line stay as they are. This narrows D1 for this class.
+
+## D46. The harness and pipeline engines are workspace packages
 
 The harness runtime is `@cuttlely/harness` in `packages/harness`. The pipeline runtime is `@cuttlely/etl` in `packages/etl`, and it depends on `@cuttlely/harness`. Both packages are private. `harness/*.mjs` and `etl/*.mjs`, including `harness/runtime/` and `etl/check/`, re-export those modules for one release. `scripts/analyst-*.mjs` and `scripts/hermes-stream.mjs` re-export `packages/harness/runtime/` until the release after 1.0.2. The server and the canvas nodes load the packages by path with a real dynamic import. `packages/harness/client.mjs` is the execution seam into the agent runtime. `packages/harness/worker.mjs` is the external queue worker. This supersedes the paths named in D8 and D15.

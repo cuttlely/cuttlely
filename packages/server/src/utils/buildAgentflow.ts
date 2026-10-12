@@ -67,7 +67,7 @@ import { Telemetry } from './telemetry'
 import { getWorkspaceSearchOptions } from '../identity/workspaceScope'
 import { UsageCacheManager } from '../UsageCacheManager'
 import { generateTTSForResponseStream, shouldAutoPlayTTS } from './buildChatflow'
-import { InternalFlowiseError } from '../errors/internalFlowiseError'
+import { AppError } from '../errors/appError'
 import { StatusCodes } from 'http-status-codes'
 import { pinOwnedMemorySession } from './sessionOwnership'
 import { fileDownloadUrl } from './fileLinkSignature'
@@ -1626,18 +1626,18 @@ export const executeAgentFlow = async ({
 
     // The publish check sends one question as a chat message, so it can only replay a flow that starts with one.
     if (replay && !isRecursive && startInputType !== 'chatInput') {
-        throw new InternalFlowiseError(StatusCodes.CONFLICT, 'The check works on agentflows that start with a chat message.')
+        throw new AppError(StatusCodes.CONFLICT, 'The check works on agentflows that start with a chat message.')
     }
     if (!isRecursive) {
         if (startInputType === 'webhookTrigger' && chatType !== ChatType.WEBHOOK) {
             const configuredMethod = ((startNode?.data?.inputs?.webhookMethod as string) || 'POST').toUpperCase()
-            throw new InternalFlowiseError(
+            throw new AppError(
                 StatusCodes.BAD_REQUEST,
                 `This flow is configured as a Webhook Trigger. Call ${configuredMethod} /api/v1/webhook/${chatflowid} instead of the prediction API.`
             )
         }
         if (startInputType === 'scheduleInput' && chatType !== ChatType.SCHEDULED) {
-            throw new InternalFlowiseError(
+            throw new AppError(
                 StatusCodes.BAD_REQUEST,
                 `This flow is configured as a Scheduled Trigger. It is fired by the scheduler and cannot be invoked via the API. Change the Start node Input Type to Chat or Form to call it from the prediction API.`
             )

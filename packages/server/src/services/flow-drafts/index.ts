@@ -8,7 +8,7 @@ import { StatusCodes } from 'http-status-codes'
 import { type EntityManager } from 'typeorm'
 import { ChatFlow } from '../../database/entities/ChatFlow'
 import { FlowVersionState } from '../../database/entities/FlowVersionState'
-import { InternalFlowiseError } from '../../errors/internalFlowiseError'
+import { AppError } from '../../errors/appError'
 import { containsBase64File, updateFlowDataWithFilePaths } from '../../utils/fileRepository'
 import { getRunningExpressApp } from '../../utils/getRunningExpressApp'
 
@@ -194,23 +194,22 @@ export async function getDraftStatus(flow: DraftFlow): Promise<DraftStatus> {
 
 function refuse(flow: DraftFlow, state: FlowVersionState | null) {
     const { reason } = modeFor(flow, state)
-    if (reason === 'off') throw new InternalFlowiseError(StatusCodes.CONFLICT, 'Drafts are off on this server.')
-    if (reason === 'type') throw new InternalFlowiseError(StatusCodes.CONFLICT, 'This kind of flow saves straight to Live.')
-    if (reason === 'publish-instantly')
-        throw new InternalFlowiseError(StatusCodes.CONFLICT, 'This flow publishes instantly. Save it to Live instead.')
+    if (reason === 'off') throw new AppError(StatusCodes.CONFLICT, 'Drafts are off on this server.')
+    if (reason === 'type') throw new AppError(StatusCodes.CONFLICT, 'This kind of flow saves straight to Live.')
+    if (reason === 'publish-instantly') throw new AppError(StatusCodes.CONFLICT, 'This flow publishes instantly. Save it to Live instead.')
 }
 
 // A canvas the server can store: JSON with a nodes list and an edges list.
 function checkCanvas(flowData: unknown): string {
-    if (typeof flowData !== 'string' || !flowData) throw new InternalFlowiseError(StatusCodes.BAD_REQUEST, 'flowData is required.')
+    if (typeof flowData !== 'string' || !flowData) throw new AppError(StatusCodes.BAD_REQUEST, 'flowData is required.')
     let parsed: any
     try {
         parsed = JSON.parse(flowData)
     } catch {
-        throw new InternalFlowiseError(StatusCodes.BAD_REQUEST, 'flowData is not valid JSON.')
+        throw new AppError(StatusCodes.BAD_REQUEST, 'flowData is not valid JSON.')
     }
     if (!parsed || typeof parsed !== 'object' || !Array.isArray(parsed.nodes) || !Array.isArray(parsed.edges)) {
-        throw new InternalFlowiseError(StatusCodes.BAD_REQUEST, 'flowData needs a nodes list and an edges list.')
+        throw new AppError(StatusCodes.BAD_REQUEST, 'flowData needs a nodes list and an edges list.')
     }
     return flowData
 }
@@ -271,7 +270,7 @@ export async function saveDraft(flow: DraftFlow, flowData: unknown, context: Sav
         if (draftWriteHooks.beforeDraftWrite) await draftWriteHooks.beforeDraftWrite()
         const chat = await manager.getRepository(ChatFlow).findOneBy({ id: flow.id })
         if (!chat || (chat.type || 'CHATFLOW') !== (flow.type || 'CHATFLOW')) {
-            throw new InternalFlowiseError(StatusCodes.CONFLICT, TYPE_CHANGED)
+            throw new AppError(StatusCodes.CONFLICT, TYPE_CHANGED)
         }
         const stateRepo = manager.getRepository(FlowVersionState)
         const state = await stateRepo.findOneBy({ chatflowId: flow.id })
@@ -309,19 +308,19 @@ export async function discardDraft(flow: DraftFlow): Promise<DraftStatus> {
 // changes, so nobody's Live edit is dropped without being asked. A draft left over from before Publish
 // instantly was turned on can still be published, so it is never stranded.
 export async function draftToPublish(flow: DraftFlow, overwriteLiveChanges?: unknown): Promise<string> {
-    if (!isDraftsEnabled()) throw new InternalFlowiseError(StatusCodes.CONFLICT, 'Drafts are off on this server.')
+    if (!isDraftsEnabled()) throw new AppError(StatusCodes.CONFLICT, 'Drafts are off on this server.')
     const state = await getState(flow.id)
     const draft = draftInfo(flow, state)
-    if (!draft) throw new InternalFlowiseError(StatusCodes.CONFLICT, 'There are no unpublished changes to publish.')
+    if (!draft) throw new AppError(StatusCodes.CONFLICT, 'There are no unpublished changes to publish.')
     // Checked here, whatever the timing of a type change: a draft is only ever published as its own kind of flow.
     if (isOtherType(state?.draftBaseHash, flow)) {
-        throw new InternalFlowiseError(
+        throw new AppError(
             StatusCodes.CONFLICT,
             "This flow changed to another kind of flow after these edits started, so they can't be published. Discard them to continue."
         )
     }
     if (draft.stale && overwriteLiveChanges !== true) {
-        throw new InternalFlowiseError(
+        throw new AppError(
             StatusCodes.CONFLICT,
             'Live changed after these edits started, for example through the API. Publishing replaces those changes. Send overwriteLiveChanges: true to publish anyway.'
         )
@@ -375,10 +374,10 @@ export async function afterLiveSet(
 // Publish instantly: every canvas save goes straight to Live, as before drafts. Turning it on while a
 // draft exists is refused, so unpublished work is never dropped or published by surprise.
 export async function setPublishInstantly(flow: DraftFlow, value: unknown): Promise<DraftStatus> {
-    if (typeof value !== 'boolean') throw new InternalFlowiseError(StatusCodes.BAD_REQUEST, 'publishInstantly is true or false.')
+    if (typeof value !== 'boolean') throw new AppError(StatusCodes.BAD_REQUEST, 'publishInstantly is true or false.')
     const state = await getState(flow.id)
     if (value && state?.draftFlowData) {
-        throw new InternalFlowiseError(
+        throw new AppError(
             StatusCodes.CONFLICT,
             'This flow has unpublished changes. Publish or discard them before turning on Publish instantly.'
         )

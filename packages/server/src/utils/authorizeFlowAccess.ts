@@ -3,7 +3,7 @@ import { StatusCodes } from 'http-status-codes'
 import { isPathTraversal, isValidUUID } from '@cuttlely/components'
 import { ChatFlow } from '../database/entities/ChatFlow'
 import { Workspace } from '../database/entities/identity'
-import { InternalFlowiseError } from '../errors/internalFlowiseError'
+import { AppError } from '../errors/appError'
 import { validateFeedbackExists, validateMessageExists } from '../services/feedback/validation'
 import { checkChatflowOrigin } from './domainValidation'
 import { verifyFileLink } from './fileLinkSignature'
@@ -23,7 +23,7 @@ export interface FlowAccessOptions {
      */
     keyOnly?: boolean
     /** The error for a request with no chatflow id. Defaults to 400 (invalid chatflow id). */
-    missingIdError?: () => InternalFlowiseError
+    missingIdError?: () => AppError
     /**
      * When true, after access is granted, the flow's allowed origins (`chatbotConfig.allowedOrigins`) are applied
      * to the Origin header: 403 with the flow's `allowedOriginsError`, as `/prediction` answers. A refused key is
@@ -75,22 +75,22 @@ export const authorizeFlowAccess =
             const chatflowId = await options.getChatflowId(req)
             if (!chatflowId && options.missingIdError) throw options.missingIdError()
             if (!chatflowId || !isValidUUID(chatflowId)) {
-                throw new InternalFlowiseError(StatusCodes.BAD_REQUEST, 'Invalid chatflowId format - must be a valid UUID')
+                throw new AppError(StatusCodes.BAD_REQUEST, 'Invalid chatflowId format - must be a valid UUID')
             }
             const pathValues = (options.getPathValues?.(req) ?? []).filter((value): value is string => !!value)
             if (isPathTraversal(chatflowId) || pathValues.some((value) => isPathTraversal(value))) {
-                throw new InternalFlowiseError(StatusCodes.BAD_REQUEST, 'Invalid path characters detected')
+                throw new AppError(StatusCodes.BAD_REQUEST, 'Invalid path characters detected')
             }
 
             const chatflow = await getRunningExpressApp().AppDataSource.getRepository(ChatFlow).findOneBy({ id: chatflowId })
             if (!chatflow) {
-                throw new InternalFlowiseError(StatusCodes.NOT_FOUND, `Chatflow ${chatflowId} not found`)
+                throw new AppError(StatusCodes.NOT_FOUND, `Chatflow ${chatflowId} not found`)
             }
 
             const signed = options.signedAccess ? (await options.signedAccess(req, chatflow)) === true : false
             res.locals.signedAccess = signed
             if (!signed && !(await hasFlowAccess(req, chatflow, { keyOnly: options.keyOnly }))) {
-                throw new InternalFlowiseError(StatusCodes.UNAUTHORIZED, 'Unauthorized')
+                throw new AppError(StatusCodes.UNAUTHORIZED, 'Unauthorized')
             }
 
             if (options.checkOrigin) {
@@ -98,7 +98,7 @@ export const authorizeFlowAccess =
                 if (!origin.allowed) {
                     // Same answer as the controller: plain text for a (parsed) streaming request, else the JSON error.
                     if (isStreamingRequest(req)) return res.status(StatusCodes.FORBIDDEN).send(origin.error)
-                    throw new InternalFlowiseError(StatusCodes.FORBIDDEN, origin.error)
+                    throw new AppError(StatusCodes.FORBIDDEN, origin.error)
                 }
             }
 
@@ -120,7 +120,7 @@ export const authorizeAttachmentUpload: RequestHandler = authorizeFlowAccess({
 export const bindAttachmentChatId: RequestHandler = (req, res, next) => {
     try {
         const chatflow = res.locals.chatflow as ChatFlow | undefined
-        if (!chatflow) throw new InternalFlowiseError(StatusCodes.UNAUTHORIZED, 'Unauthorized')
+        if (!chatflow) throw new AppError(StatusCodes.UNAUTHORIZED, 'Unauthorized')
         const owned = bindSuppliedChatId(req, {
             chatflow,
             isInternal: callerIsSignedIn(req),
@@ -142,7 +142,7 @@ export const bindAttachmentChatId: RequestHandler = (req, res, next) => {
 export const bindUploadFileChatId: RequestHandler = (req, res, next) => {
     try {
         const chatflow = res.locals.chatflow as ChatFlow | undefined
-        if (!chatflow) throw new InternalFlowiseError(StatusCodes.UNAUTHORIZED, 'Unauthorized')
+        if (!chatflow) throw new AppError(StatusCodes.UNAUTHORIZED, 'Unauthorized')
         if (res.locals.signedAccess === true) return next()
         const owned = bindSuppliedChatId(req, {
             chatflow,
@@ -167,8 +167,7 @@ export const authorizePrediction: RequestHandler = authorizeFlowAccess({
     getChatflowId: (req) => req.params.id,
     keyOnly: true,
     checkOrigin: true,
-    missingIdError: () =>
-        new InternalFlowiseError(StatusCodes.PRECONDITION_FAILED, `Error: predictionsController.createPrediction - id not provided!`)
+    missingIdError: () => new AppError(StatusCodes.PRECONDITION_FAILED, `Error: predictionsController.createPrediction - id not provided!`)
 })
 
 /** A single string value from the query or body; anything else (missing, an array, an object) is undefined. */
@@ -181,7 +180,7 @@ const singleString = (value: unknown): string | undefined => (typeof value === '
 export const authorizeFeedbackRead: RequestHandler = authorizeFlowAccess({
     getChatflowId: (req) => req.params.id,
     missingIdError: () =>
-        new InternalFlowiseError(StatusCodes.PRECONDITION_FAILED, `Error: feedbackController.getAllChatMessageFeedback - id not provided!`)
+        new AppError(StatusCodes.PRECONDITION_FAILED, `Error: feedbackController.getAllChatMessageFeedback - id not provided!`)
 })
 
 /**
@@ -192,7 +191,7 @@ export const authorizeFeedbackRead: RequestHandler = authorizeFlowAccess({
 export const authorizeFeedbackCreate: RequestHandler = authorizeFlowAccess({
     getChatflowId: async (req) => {
         const messageId = singleString(req.body?.messageId)
-        if (!messageId) throw new InternalFlowiseError(StatusCodes.BAD_REQUEST, 'Message ID is required')
+        if (!messageId) throw new AppError(StatusCodes.BAD_REQUEST, 'Message ID is required')
         return (await validateMessageExists(messageId)).chatflowid
     }
 })
@@ -205,10 +204,7 @@ export const authorizeFeedbackCreate: RequestHandler = authorizeFlowAccess({
 export const authorizeFeedbackUpdate: RequestHandler = authorizeFlowAccess({
     getChatflowId: async (req) => (req.params.id ? (await validateFeedbackExists(req.params.id)).chatflowid : undefined),
     missingIdError: () =>
-        new InternalFlowiseError(
-            StatusCodes.PRECONDITION_FAILED,
-            `Error: feedbackController.updateChatMessageFeedbackForChatflow - id not provided!`
-        )
+        new AppError(StatusCodes.PRECONDITION_FAILED, `Error: feedbackController.updateChatMessageFeedbackForChatflow - id not provided!`)
 })
 
 /**
