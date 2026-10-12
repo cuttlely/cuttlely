@@ -316,13 +316,18 @@ export function hermesFiles(p) {
         .sort()
 }
 
-// Every file under hermes/ except the lock and the CUTTLELY_VENDOR.txt notes: path, executable bit and content.
+// Every file under hermes/ except the lock, the CUTTLELY_VENDOR.txt notes, and a stray
+// *.egg-info directory uv sync writes next to the package: path, executable bit and content.
 const UNFINGERPRINTED = ['CUTTLELY_VENDOR.lock', 'CUTTLELY_VENDOR.txt']
+
+function isEggInfo(file) {
+    return file.split('/')[0].endsWith('.egg-info')
+}
 
 export function fingerprint(p) {
     const hash = crypto.createHash('sha256')
     for (const file of hermesFiles(p)) {
-        if (UNFINGERPRINTED.includes(file)) continue
+        if (UNFINGERPRINTED.includes(file) || isEggInfo(file)) continue
         const full = path.join(p.hermes, file)
         const stat = fs.lstatSync(full)
         const body = stat.isSymbolicLink() ? Buffer.from(fs.readlinkSync(full)) : fs.readFileSync(full)

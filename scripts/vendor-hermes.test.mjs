@@ -97,6 +97,18 @@ test('vendoring drops excluded and ignored files, keeps modes, and writes the lo
     assert.equal(git(repo, 'status', '--porcelain'), '', 'vendoring the same commit again changes nothing')
 })
 
+test('a stray egg-info directory does not fail the vendor check', () => {
+    const rootIgnore = fs.readFileSync(new URL('../.gitignore', import.meta.url), 'utf8')
+    assert.match(rootIgnore, /^hermes\/\*\.egg-info\/$/m)
+    const { repo, p } = setup()
+    vendor(p, 'v1', quiet)
+    commitAll(repo, 'vendor v1')
+    const before = read(p, 'CUTTLELY_VENDOR.lock')
+    write(path.join(p.hermes, 'hermes_agent.egg-info/PKG-INFO'), 'Name: hermes-agent\n')
+    assert.deepEqual(check(p), [])
+    assert.equal(read(p, 'CUTTLELY_VENDOR.lock'), before)
+})
+
 test('saved patches survive a re-vendor, and the check catches hand edits and returning excluded folders', () => {
     const { repo, p } = setup()
     vendor(p, 'v1', quiet)
