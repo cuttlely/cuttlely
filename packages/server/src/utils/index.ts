@@ -41,7 +41,7 @@ import {
     IFileUpload,
     StorageProviderFactory,
     applyModelRetryBudget
-} from 'flowise-components'
+} from '@cuttlely/components'
 import { randomBytes } from 'crypto'
 import { AES, enc } from 'crypto-js'
 

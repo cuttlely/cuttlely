@@ -132,7 +132,7 @@ jest.mock('../../schedule/ScheduleBeat', () => ({
         })
     }
 }))
-jest.mock('flowise-components', () => ({ removeFolderFromStorage: jest.fn().mockResolvedValue({ totalSize: 0 }) }), { virtual: true })
+jest.mock('@cuttlely/components', () => ({ removeFolderFromStorage: jest.fn().mockResolvedValue({ totalSize: 0 }) }), { virtual: true })
 jest.mock('uuid', () => ({ validate: jest.fn().mockReturnValue(true) }))
 jest.mock('../flow-versions', () => ({
     __esModule: true,
@@ -157,7 +157,7 @@ import flowVersionsService from '../flow-versions'
 import documentStoreService from '../../services/documentstore'
 
 const mockContainsBase64File = containsBase64File as jest.Mock
-const { removeFolderFromStorage } = jest.requireMock('flowise-components') as { removeFolderFromStorage: jest.Mock }
+const { removeFolderFromStorage } = jest.requireMock('@cuttlely/components') as { removeFolderFromStorage: jest.Mock }
 const mockCreateOrUpdateSchedule = scheduleService.createOrUpdateSchedule as jest.Mock
 const mockDeleteScheduleForTarget = scheduleService.deleteScheduleForTarget as jest.Mock
 const mockResolveScheduleCron = scheduleService.resolveScheduleCron as jest.Mock

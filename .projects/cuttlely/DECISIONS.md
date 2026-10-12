@@ -170,6 +170,10 @@ The server is not an npm package: a full install needs the Python agent runtime,
 
 `pnpm release X.Y.Z --npm` is the publish path for `cuttlely` and `@cuttlely/chat`. It runs after `pnpm release` has tagged the version, the image `ghcr.io/cuttlely/cuttlely:X.Y.Z` is in the registry, and the GitHub release is published. It refuses unless `HEAD` is that annotated tag, the tree is clean, the version files match `X.Y.Z`, an anonymous manifest check sees the image, the GitHub release is not a draft, and `NPM_TOKEN` is set. The token is never printed. This supersedes the publish sentence of D40.
 
-## D43. Vendor the measured agent-runtime subset
+## D43. The components package name is @cuttlely/components
+
+`packages/components` is the package `@cuttlely/components`. Package names follow `ARCHITECTURE.md`. Path names, environment variable names, and data names stay stable. Saved custom functions and custom tools may still require the earlier specifier when an operator has allowed it through `TOOL_FUNCTION_EXTERNAL_DEP`. A compatibility alias on the workspace root keeps that require working. This narrows D1 for this package. Other packages may still use the engine's package name.
+
+## D44. Vendor the measured agent-runtime subset
 
 `hermes/CUTTLELY_LOADED.txt` is the list of agent runtime files a harness run loads. `pnpm hermes:vendor` still applies `hermes/CUTTLELY_EXCLUDE.txt` first, then keeps only the listed files plus package `__init__` files, license and attribution files, data files a kept module names, and files a local patch edits. `node scripts/measure-runtime-loads.mjs` rewrites the list; `--check` fails when a measured module is missing. Re-measure after an upstream bump and vendor that same pin. Why: messaging platforms, the plugin catalog, optional MCP descriptors and unused locale catalogs are not part of a harness run, and a measured list keeps that cut reviewable. This adds to D2; the pin, the patches and the exclude list stay.
