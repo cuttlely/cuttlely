@@ -2,6 +2,8 @@ import client from './client'
 
 const getAllNodes = () => client.get('/nodes', { params: { client: 'agentflowv2' } })
 
+const getNodePackIndex = () => client.get('/nodes/pack-index')
+
 const getSpecificNode = (name) => client.get(`/nodes/${name}`, { params: { client: 'agentflowv2' } })
 const getNodesByCategory = (name) => client.get(`/nodes/category/${name}`, { params: { client: 'agentflowv2' } })
 
@@ -11,6 +13,7 @@ const executeNodeLoadMethod = (name, body) => client.post(`/node-load-method/${n
 
 export default {
     getAllNodes,
+    getNodePackIndex,
     getSpecificNode,
     executeCustomFunctionNode,
     getNodesByCategory,

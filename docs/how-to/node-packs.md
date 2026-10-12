@@ -53,6 +53,7 @@ A shipped pack is a private workspace package at `packages/node-pack-<name>`, na
 -   Add the package name to `SHIPPED_NODE_PACKS` in `packages/server/src/utils/nodePacks.ts`.
 -   Add a dependency on the package in `@cuttlely/server`.
 -   `scripts/build-module-catalog.mjs` and the node load test already read `packages/node-pack-*/nodes` and `packages/node-pack-*/credentials`.
+-   `node scripts/build-node-pack-index.mjs` rewrites `packages/server/src/utils/node-pack-index.json` from every `packages/node-pack-*/nodes` folder. The server build runs that script. A future pack is included without a second list.
 
 `INCLUDE_NODE_PACKS=0` builds an image without those packages. The default is `1`. See [Docker](./docker.md#leave-out-optional-node-packs).
 
@@ -62,7 +63,7 @@ Set `CUTTLELY_NODE_PACKS` in the environment you pass to Compose to add packs. T
 
 ## A missing node
 
-When a flow contains a node that is not loaded, the canvas shows a placeholder card. The card uses the `nodePack` value saved on that node, which is the package name of the pack that provided it. Lines into and out of that card stay attached, including after you change another card and save, or save a draft. The rest of the flow stays on the canvas. Loading the pack later shows the node again, with those lines still connected.
+When a flow contains a node that is not loaded, the canvas shows a placeholder card. The card uses the `nodePack` value saved on that node, which is the package name of the pack that provided it. A flow saved before that field existed, or a bundled template, has no `nodePack`. The card and the prediction error then use the node pack index: each node name and label under `packages/node-pack-*/nodes`, mapped to the pack's package name. The index is `packages/server/src/utils/node-pack-index.json`. The server reads it in every image, including one built with `INCLUDE_NODE_PACKS=0`. `GET /api/v1/nodes/pack-index` returns the same list for the canvas. Saving or importing a flow writes `nodePack` from the index when the field is absent. Lines into and out of that card stay attached, including after you change another card and save, or save a draft. The rest of the flow stays on the canvas. Loading the pack later shows the node again, with those lines still connected.
 
 Export of that flow keeps the missing node's data as saved, including its inputs. Other nodes are exported as they are today.
 

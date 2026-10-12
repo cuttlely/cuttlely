@@ -109,7 +109,7 @@ Vector store nodes ship in `@cuttlely/node-pack-vector-stores`. Tool and MCP ser
 INCLUDE_NODE_PACKS=0 docker compose up -d --build
 ```
 
-`docker build --build-arg INCLUDE_NODE_PACKS=0 -t cuttlely:slim .` is the same build. `INCLUDE_NODE_PACKS` accepts only `0` and `1`. The default is `1`. That build writes `/etc/cuttlely/no-node-packs`, so the shipped packs are skipped. Packs named in `CUTTLELY_NODE_PACKS` still load. In the slim image a saved vector store node, or a tool or MCP node from the tools pack, opens as a placeholder, and a prediction returns 422. [Optional node packs](./node-packs.md) describes the pack layout.
+`docker build --build-arg INCLUDE_NODE_PACKS=0 -t cuttlely:slim .` is the same build. `INCLUDE_NODE_PACKS` accepts only `0` and `1`. The default is `1`. That build writes `/etc/cuttlely/no-node-packs`, so the shipped packs are skipped. Packs named in `CUTTLELY_NODE_PACKS` still load. In the slim image a saved vector store node, or a tool or MCP node from the tools pack, opens as a placeholder that names the pack, including a template that was saved without `nodePack`, and a prediction returns 422. [Optional node packs](./node-packs.md) describes the pack layout.
 
 ### All three
 

@@ -26,7 +26,7 @@
         "commands": "./dist/commands"
     },
     "scripts": {
-        "build": "tsc && rimraf dist/enterprise dist/IdentityManager.js dist/IdentityManager.d.ts dist/IdentityManager.js.map dist/IdentityManager.d.ts.map dist/StripeManager.js dist/StripeManager.d.ts dist/StripeManager.js.map dist/StripeManager.d.ts.map && node ../../scripts/copy-ui-build.mjs",
+        "build": "tsc && rimraf dist/enterprise dist/IdentityManager.js dist/IdentityManager.d.ts dist/IdentityManager.js.map dist/IdentityManager.d.ts.map dist/StripeManager.js dist/StripeManager.d.ts dist/StripeManager.js.map dist/StripeManager.d.ts.map && node ../../scripts/build-node-pack-index.mjs && node ../../scripts/copy-ui-build.mjs",
         "start": "run-script-os",
         "clean": "rimraf dist",
         "nuke": "pnpm clean && rimraf node_modules .turbo",

@@ -1,12 +1,23 @@
 // The same sentence packages/server/src/utils/nodePacks.ts returns for a prediction.
 // The canvas shows it on the placeholder card. Keep the two copies the same.
 
-export function missingNodeInfo(data, componentNodes) {
+export function packFromIndex(packIndex, name, label) {
+    const rows = Array.isArray(packIndex) ? packIndex : Array.isArray(packIndex?.nodes) ? packIndex.nodes : []
+    const byName = rows.find((row) => row && row.name === name && typeof row.pack === 'string' && row.pack.trim())
+    if (byName) return byName.pack.trim()
+    const trimmed = typeof label === 'string' ? label.trim() : ''
+    if (!trimmed) return ''
+    const byLabel = rows.filter((row) => row && row.label === trimmed && typeof row.pack === 'string' && row.pack.trim())
+    return byLabel.length === 1 ? byLabel[0].pack.trim() : ''
+}
+
+export function missingNodeInfo(data, componentNodes, packIndex) {
     if (!Array.isArray(componentNodes) || componentNodes.length === 0) return null
     if (!data || typeof data.name !== 'string' || !data.name) return null
     if (componentNodes.some((node) => node && node.name === data.name)) return null
     const label = typeof data.label === 'string' && data.label.trim() ? data.label : data.name
-    const pack = typeof data.nodePack === 'string' ? data.nodePack.trim() : ''
+    const saved = typeof data.nodePack === 'string' ? data.nodePack.trim() : ''
+    const pack = saved || packFromIndex(packIndex, data.name, label)
     const message = pack ? `${label} is not installed. Install the ${pack} pack.` : `${label} is not installed.`
     return { label, pack, message }
 }

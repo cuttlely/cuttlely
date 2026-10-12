@@ -27,16 +27,20 @@ jest.mock(
             children
 )
 
-jest.mock('react-redux', () => ({
-    useSelector: (selector) =>
-        selector({
-            canvas: {
-                componentNodes: [{ name: 'chatOpenAI', version: 1 }],
-                canvasDialogShow: false
-            },
-            customization: { isDarkMode: false }
-        })
-}))
+jest.mock('react-redux', () => {
+    const state = {
+        canvas: {
+            componentNodes: [{ name: 'chatOpenAI', version: 1 }],
+            canvasDialogShow: false,
+            nodePackIndex: []
+        },
+        customization: { isDarkMode: false }
+    }
+    return {
+        useSelector: (selector) => selector(state),
+        __state: state
+    }
+})
 
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
@@ -73,6 +77,34 @@ describe('canvas node that is not installed', () => {
         expect(html).toContain('data-testid="missing-node-card"')
         expect(html).toContain('Install the sample-pack pack.')
         expect(html).not.toContain('cred-1')
+        expect(html).toContain('data-handle-id="n1-in"')
+        expect(html).toContain('data-handle-id="n1-out"')
+    })
+
+    test('names the pack from the index when the saved node has no nodePack', () => {
+        const redux = require('react-redux')
+        redux.__state.canvas.nodePackIndex = [{ name: 'serpAPI', label: 'Serp API', pack: '@cuttlely/node-pack-tools-mcp' }]
+        const html = renderToStaticMarkup(
+            createElement(
+                ThemeProvider,
+                { theme },
+                createElement(CanvasNode, {
+                    data: {
+                        id: 'n1',
+                        label: 'Serp API',
+                        name: 'serpAPI',
+                        version: 1,
+                        inputParams: [],
+                        inputAnchors: [{ id: 'n1-in' }],
+                        outputAnchors: [{ id: 'n1-out' }],
+                        inputs: {}
+                    }
+                })
+            )
+        )
+        expect(html).toContain('data-testid="missing-node-card"')
+        expect(html).toContain('Serp API')
+        expect(html).toContain('Install the @cuttlely/node-pack-tools-mcp pack.')
         expect(html).toContain('data-handle-id="n1-in"')
         expect(html).toContain('data-handle-id="n1-out"')
     })

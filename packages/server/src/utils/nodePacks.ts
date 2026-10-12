@@ -147,13 +147,79 @@ export function resolveNodePacks(raw: string | undefined, options: ResolveNodePa
     return { packs, skipped }
 }
 
+export interface NodePackIndexNode {
+    name: string
+    label: string
+    pack: string
+}
+
+// Written by scripts/build-node-pack-index.mjs from packages/node-pack-*/nodes.
+// The server build copies it beside the compiled file. The source copy stays in the image
+// after a slim build leaves the pack packages out.
+const indexCandidates = (here = __dirname): string[] => [
+    path.join(here, 'node-pack-index.json'),
+    path.resolve(here, '..', '..', 'src', 'utils', 'node-pack-index.json')
+]
+
+let cachedIndex: NodePackIndexNode[] | undefined
+
+const rowsFromFile = (file: string): NodePackIndexNode[] | null => {
+    try {
+        const parsed = JSON.parse(fs.readFileSync(file, 'utf8')) as { nodes?: unknown }
+        if (!Array.isArray(parsed?.nodes)) return []
+        const rows: NodePackIndexNode[] = []
+        for (const row of parsed.nodes) {
+            if (!row || typeof row !== 'object') continue
+            const record = row as { name?: unknown; label?: unknown; pack?: unknown }
+            const name = typeof record.name === 'string' ? record.name.trim() : ''
+            const pack = typeof record.pack === 'string' ? record.pack.trim() : ''
+            if (!name || !pack) continue
+            const label = typeof record.label === 'string' && record.label.trim() ? record.label.trim() : name
+            rows.push({ name, label, pack })
+        }
+        return rows
+    } catch {
+        return null
+    }
+}
+
+export function loadNodePackIndex(file?: string): NodePackIndexNode[] {
+    if (!file && cachedIndex) return cachedIndex
+    const candidates = file ? [file] : indexCandidates()
+    for (const candidate of candidates) {
+        const rows = rowsFromFile(candidate)
+        if (!rows) continue
+        if (!file) cachedIndex = rows
+        return rows
+    }
+    if (!file) cachedIndex = []
+    return []
+}
+
+// The saved nodePack field wins. Otherwise the name, then a label that belongs to one pack.
+export function packForNode(name: string, label = '', index?: NodePackIndexNode[]): string {
+    const rows = index ?? loadNodePackIndex()
+    const byName = rows.find((row) => row.name === name)
+    if (byName) return byName.pack
+    const trimmed = label.trim()
+    if (!trimmed) return ''
+    const byLabel = rows.filter((row) => row.label === trimmed)
+    return byLabel.length === 1 ? byLabel[0].pack : ''
+}
+
+export function missingNodeMessage(label: string, pack: string): string {
+    return pack ? `${label} is not installed. Install the ${pack} pack.` : `${label} is not installed.`
+}
+
 /**
  * The sentence the canvas shows and the prediction API returns when a saved node is not loaded.
  * statusCode is 422 so the run is refused before a missing class is constructed.
+ * A saved nodePack is used as written. When that field is absent, the pack index supplies it.
  */
 export function missingNodeFailure(
     flowData: string | undefined,
-    componentNodes: { [key: string]: unknown } | undefined
+    componentNodes: { [key: string]: unknown } | undefined,
+    index?: NodePackIndexNode[]
 ): { statusCode: number; message: string } | null {
     if (!flowData) return null
     let flow: { nodes?: unknown }
@@ -171,9 +237,49 @@ export function missingNodeFailure(
         const name = typeof record.name === 'string' ? record.name : ''
         if (!name || Object.prototype.hasOwnProperty.call(loaded, name)) continue
         const label = typeof record.label === 'string' && record.label.trim() ? record.label : name
-        const pack = typeof record.nodePack === 'string' ? record.nodePack.trim() : ''
-        const message = pack ? `${label} is not installed. Install the ${pack} pack.` : `${label} is not installed.`
-        return { statusCode: StatusCodes.UNPROCESSABLE_ENTITY, message }
+        const saved = typeof record.nodePack === 'string' ? record.nodePack.trim() : ''
+        const pack = saved || packForNode(name, label, index)
+        return { statusCode: StatusCodes.UNPROCESSABLE_ENTITY, message: missingNodeMessage(label, pack) }
     }
     return null
+}
+
+// Writes nodePack from the index onto saved nodes that do not already name a pack.
+// The original string is returned when nothing changes, so an unchanged canvas stays byte-identical.
+export function stampNodePack(flowData: string, index?: NodePackIndexNode[]): string {
+    if (!flowData) return flowData
+    let flow: { nodes?: unknown }
+    try {
+        flow = JSON.parse(flowData)
+    } catch {
+        return flowData
+    }
+    if (!flow || typeof flow !== 'object' || !Array.isArray(flow.nodes)) return flowData
+    let changed = false
+    for (const node of flow.nodes) {
+        if (!node || typeof node !== 'object') continue
+        const data = (node as { data?: unknown }).data
+        if (!data || typeof data !== 'object') continue
+        const record = data as { name?: unknown; label?: unknown; nodePack?: unknown }
+        const saved = typeof record.nodePack === 'string' ? record.nodePack.trim() : ''
+        if (saved) continue
+        const name = typeof record.name === 'string' ? record.name : ''
+        if (!name) continue
+        const label = typeof record.label === 'string' ? record.label : ''
+        const pack = packForNode(name, label, index)
+        if (!pack) continue
+        record.nodePack = pack
+        changed = true
+    }
+    return changed ? JSON.stringify(flow) : flowData
+}
+
+export function stampFlowRecords<T extends { flowData?: unknown }>(rows: T[] | undefined, index?: NodePackIndexNode[]): T[] {
+    if (!Array.isArray(rows)) return []
+    for (const row of rows) {
+        if (!row || typeof row.flowData !== 'string') continue
+        const stamped = stampNodePack(row.flowData, index)
+        if (stamped !== row.flowData) (row as { flowData: string }).flowData = stamped
+    }
+    return rows
 }

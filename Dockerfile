@@ -92,6 +92,7 @@ RUN if [ "$INCLUDE_NODE_PACKS" != "0" ] && [ "$INCLUDE_NODE_PACKS" != "1" ]; the
         echo "INCLUDE_NODE_PACKS must be 0 or 1" >&2; \
         exit 1; \
     fi \
+    && node scripts/build-node-pack-index.mjs \
     && if [ "$INCLUDE_NODE_PACKS" = "0" ]; then \
         echo "Cuttlely image: leaving out optional node packs" \
         && INCLUDE_NODE_PACKS=0 node scripts/omit-node-packs.mjs; \
