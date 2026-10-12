@@ -132,7 +132,14 @@ export const CheckResults = ({ check, words = CHECK_WORDS.publish, replayInputs 
                                     ...(replayInputs ? { fontFamily: 'monospace', fontSize: '0.8rem' } : {})
                                 }}
                             >
-                                {replayInputs ? inputPreview(c.question) : c.question}
+                                {replayInputs
+                                    ? c.preview ||
+                                      inputPreview(
+                                          c.question,
+                                          undefined,
+                                          allCases.map((item) => item.question)
+                                      )
+                                    : c.question}
                             </Typography>
                             <Chip
                                 size='small'
@@ -269,7 +276,14 @@ export const PublishCheckView = ({
                                             ...(replayInputs ? { fontFamily: 'monospace', fontSize: '0.8rem' } : {})
                                         }}
                                     >
-                                        {replayInputs ? inputPreview(q.text) : q.text}
+                                        {replayInputs
+                                            ? q.preview ||
+                                              inputPreview(
+                                                  q.text,
+                                                  undefined,
+                                                  past.map((item) => item.text)
+                                              )
+                                            : q.text}
                                     </Typography>
                                 ))}
                             {used > previewShown && (

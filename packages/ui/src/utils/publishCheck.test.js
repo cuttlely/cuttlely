@@ -47,6 +47,16 @@ describe('recorded input preview', () => {
         expect(inputPreview(webhook)).toBe('{"event":"bake","loaf":"rye"}')
         expect(inputPreview(JSON.stringify({ form: { loaf: 'rye' } }))).toBe('{"loaf":"rye"}')
         expect(inputPreview(JSON.stringify({ question: 'Run the daily report' }))).toBe('"Run the daily report"')
+        const shared = (page, event, token) =>
+            JSON.stringify({
+                webhook: { body: { event: 'bake' }, query: { page }, headers: { 'x-github-event': event, authorization: token } }
+            })
+        const first = shared('1', 'push', 'Bearer one')
+        const second = shared('2', 'release', 'Bearer sekret')
+        expect(inputPreview(second, undefined, [first, second])).toContain('query {"page":"2"}')
+        expect(inputPreview(second, undefined, [first, second])).toContain('x-github-event: release')
+        expect(inputPreview(second, undefined, [first, second])).toContain('authorization: [REDACTED]')
+        expect(inputPreview(second, undefined, [first, second])).not.toContain('sekret')
         const long = JSON.stringify({ form: { note: 'x'.repeat(200) } })
         expect(inputPreview(long, 20).endsWith('…')).toBe(true)
         expect(inputPreview(long, 20).length).toBe(21)

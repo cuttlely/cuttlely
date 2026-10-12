@@ -101,6 +101,7 @@ describe('PublishCheckView', () => {
         })
         expect(html).toContain('Run recent inputs again on Live and on your draft')
         expect(html).toContain('{&quot;event&quot;:&quot;bake&quot;,&quot;loaf&quot;:&quot;rye&quot;}')
+        expect(html).not.toContain('sekret')
         expect(html).not.toContain('Add your own question')
         expect(html).toContain('Past runs')
         expect(html).not.toContain('Past questions')
@@ -108,6 +109,32 @@ describe('PublishCheckView', () => {
         expect(html).toContain('MANGO')
         expect(html).toContain('PAPAYA')
         expect(html).toContain('recorded input')
+    })
+
+    test('a shared webhook body shows the supplied preview and not a secret', () => {
+        const html = render({
+            setup: {
+                unavailable: null,
+                replayInputs: true,
+                questions: [
+                    {
+                        text: '{"webhook":{"body":{"event":"bake"},"headers":{"authorization":"[REDACTED]"}}}',
+                        preview: '{"event":"bake"} query {"page":"2"} headers authorization: [REDACTED]',
+                        date: '2026-10-08T11:00:00.000Z'
+                    }
+                ],
+                pastCount: 1,
+                riskySteps: [],
+                limits,
+                check: null
+            },
+            list: []
+        })
+        expect(html).toContain(
+            '{&quot;event&quot;:&quot;bake&quot;} query {&quot;page&quot;:&quot;2&quot;} headers authorization: [REDACTED]'
+        )
+        expect(html).not.toContain('Bearer')
+        expect(html).not.toContain('sekret')
     })
 
     test('no past runs says so, and the chat empty state does not', () => {

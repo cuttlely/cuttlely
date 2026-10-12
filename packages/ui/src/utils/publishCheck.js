@@ -72,17 +72,66 @@ export const capMessage = (choice, available, truncated = false, unit = 'questio
     return `Only ${have} past ${nouns} available. ${comparing}`
 }
 
-// Compact JSON for a recorded input. Webhook rows show the body. A plain schedule question is shown as JSON text.
-export const inputPreview = (text, max = INPUT_PREVIEW_CHARS) => {
-    let value = text
+const SENSITIVE_PARTS = ['authorization', 'cookie', 'token', 'secret', 'key', 'password', 'signature']
+
+const isSensitiveKey = (name) => {
+    const key = String(name || '').toLowerCase()
+    return SENSITIVE_PARTS.some((part) => key.includes(part))
+}
+
+const maskBag = (bag) => {
+    const masked = {}
+    for (const [key, value] of Object.entries(bag || {})) masked[key] = isSensitiveKey(key) ? '[REDACTED]' : value
+    return masked
+}
+
+const parseInput = (text) => {
     try {
-        value = JSON.parse(text)
+        return JSON.parse(text)
     } catch {
-        /* show the stored text */
+        return null
     }
-    const payload = value && typeof value === 'object' ? value.webhook?.body ?? value.form ?? value.question ?? value : value
-    const shown = typeof payload === 'string' ? JSON.stringify(payload) : JSON.stringify(payload)
-    if (!shown) return '(empty input)'
+}
+
+// Compact JSON for a recorded input. Webhook rows show the body. When `siblings` share that body,
+// the line also shows the query or the header names that differ. Sensitive values are masked.
+export const inputPreview = (text, max = INPUT_PREVIEW_CHARS, siblings) => {
+    const value = parseInput(text)
+    if (!value || typeof value !== 'object' || !value.webhook) {
+        const payload = value && typeof value === 'object' ? value.form ?? value.question ?? value : value ?? text
+        const shown = typeof payload === 'string' ? JSON.stringify(payload) : JSON.stringify(payload)
+        if (!shown) return '(empty input)'
+        return shown.length > max ? `${shown.slice(0, max)}…` : shown
+    }
+    const bodyText = JSON.stringify(value.webhook.body === undefined ? {} : value.webhook.body)
+    const group = (Array.isArray(siblings) ? siblings : [])
+        .map(parseInput)
+        .filter((item) => item && item.webhook && JSON.stringify(item.webhook.body === undefined ? {} : item.webhook.body) === bodyText)
+    let shown = bodyText
+    if (group.length > 1) {
+        const queryText = JSON.stringify(maskBag(value.webhook.query))
+        const queryDiffers = group.some((item) => JSON.stringify(maskBag(item.webhook.query)) !== queryText)
+        const names = new Set()
+        for (const item of group) {
+            const keys = new Set([...Object.keys(value.webhook.headers || {}), ...Object.keys(item.webhook.headers || {})])
+            for (const key of keys) {
+                if (JSON.stringify((value.webhook.headers || {})[key]) !== JSON.stringify((item.webhook.headers || {})[key])) names.add(key)
+            }
+        }
+        const parts = [bodyText]
+        if (queryDiffers) parts.push(`query ${queryText}`)
+        if (names.size) {
+            const headers = [...names].sort().map((name) => {
+                const entry = (value.webhook.headers || {})[name]
+                if (entry === undefined) return name
+                return isSensitiveKey(name)
+                    ? `${name}: [REDACTED]`
+                    : `${name}: ${typeof entry === 'string' ? entry : JSON.stringify(entry)}`
+            })
+            parts.push(`headers ${headers.join(', ')}`)
+        }
+        shown = parts.join(' ')
+    }
     return shown.length > max ? `${shown.slice(0, max)}…` : shown
 }
 

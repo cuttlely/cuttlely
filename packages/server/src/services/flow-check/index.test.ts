@@ -426,6 +426,65 @@ describe('form, webhook and schedule starts', () => {
         expect(writes.update).not.toHaveBeenCalled()
     })
 
+    test('volatile webhook headers collapse, and the response masks secrets while showing a real difference', async () => {
+        const body = { event: 'bake' }
+        execution(
+            {
+                webhook: {
+                    body,
+                    query: { page: '1' },
+                    headers: { 'x-github-event': 'push', date: 'Mon', 'x-request-id': 'req-a', authorization: 'Bearer first-secret' }
+                }
+            },
+            '2026-10-08T09:00:00Z',
+            'noisy-old'
+        )
+        execution(
+            {
+                webhook: {
+                    body,
+                    query: { page: '1' },
+                    headers: {
+                        'x-github-event': 'push',
+                        date: 'Tue',
+                        'x-request-id': 'req-b',
+                        'user-agent': 'Hookshot',
+                        authorization: 'Bearer first-secret'
+                    }
+                }
+            },
+            '2026-10-08T10:00:00Z',
+            'noisy-new'
+        )
+        execution(
+            {
+                webhook: {
+                    body,
+                    query: { page: '2', token: 'query-secret' },
+                    headers: { 'x-github-event': 'release', authorization: 'Bearer second-secret' }
+                }
+            },
+            '2026-10-08T11:00:00Z',
+            'other-query'
+        )
+        const setup = await getCheckSetup(webhookFlow())
+        expect(setup.pastCount).toBe(2)
+        const shown = JSON.stringify(setup.questions)
+        for (const secret of ['first-secret', 'second-secret', 'query-secret', 'Hookshot', 'req-a', 'req-b']) {
+            expect(shown).not.toContain(secret)
+        }
+        expect(setup.questions.map((q) => q.preview)).toEqual([
+            expect.stringContaining('query {"page":"2","token":"[REDACTED]"}'),
+            expect.stringContaining('query {"page":"1"}')
+        ])
+        expect(setup.questions[0].preview).toContain('authorization: [REDACTED]')
+        expect(setup.questions[0].preview).toContain('x-github-event: release')
+        const started = await startCheck(webhookFlow() as any, { count: 4 }, 'http://x')
+        expect(JSON.stringify(started.cases)).not.toContain('second-secret')
+        expect(started.cases[0].preview).toContain('x-github-event: release')
+        await settle()
+    })
+
     test('no past executions returns a message instead of a refusal', async () => {
         const setup = await getCheckSetup(webhookFlow())
         expect(setup.unavailable).toBeNull()
@@ -447,10 +506,17 @@ describe('form, webhook and schedule starts', () => {
             publishInstantly: false
         })
         expect((await getCheckSetup(webhookFlow())).riskySteps).toEqual([{ id: 'httpAgentflow_0', label: 'Send the order' }])
+        let ran = false
+        replayHooks.run = async () => {
+            ran = true
+            return { text: 'should-not-run' }
+        }
         await expect(startCheck(webhookFlow() as any, { count: 4 }, 'http://x')).rejects.toMatchObject({
             statusCode: 409,
             message: expect.stringContaining('Send the order')
         })
+        expect(ran).toBe(false)
+        replayHooks.run = async ({ flowData }) => ({ text: wordOf(flowData), metrics: [JSON.stringify({ totalTokens: 50 })] })
         const started = await startCheck(webhookFlow() as any, { count: 4, includeRiskySteps: true }, 'http://x')
         expect(started.includeRiskySteps).toBe(true)
         await settle()

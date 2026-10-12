@@ -5,6 +5,11 @@ import { TriggerStart } from './kinds'
 
 export const NO_PAST_RUNS = 'No past runs to replay yet. Run this flow once, then check again.'
 
+// Shown in place of a secret header or query value. The name stays; the value does not.
+export const REDACTED = '[REDACTED]'
+
+const SENSITIVE_PARTS = ['authorization', 'cookie', 'token', 'secret', 'key', 'password', 'signature']
+
 export interface ReplayCall {
     incoming: {
         question?: string
@@ -41,7 +46,54 @@ function sortKeys(value: unknown): unknown {
 }
 
 export function canonicalJson(value: unknown): string {
-    return JSON.stringify(sortKeys(value))
+    const text = JSON.stringify(sortKeys(value))
+    return text === undefined ? 'null' : text
+}
+
+// Header and query names whose values must not appear in a preview or an API response.
+export function isSensitiveKey(name: string): boolean {
+    const key = name.toLowerCase()
+    return SENSITIVE_PARTS.some((part) => key.includes(part))
+}
+
+// Headers that change on every delivery and do not change what the flow does.
+// Date, request id, trace, user agent, content length, forwarding, and signature or timestamp headers.
+export function isVolatileHeader(name: string): boolean {
+    const key = name.toLowerCase()
+    if (key === 'date' || key === 'user-agent' || key === 'content-length') return true
+    if (key === 'forwarded' || key.startsWith('x-forwarded-') || key.startsWith('forwarded-')) return true
+    if (key.includes('request-id') || key.includes('requestid')) return true
+    if (key.includes('trace')) return true
+    if (key.includes('signature') || key.includes('timestamp')) return true
+    return false
+}
+
+function maskBag(bag: Record<string, unknown>): Record<string, unknown> {
+    const masked: Record<string, unknown> = {}
+    for (const [key, value] of Object.entries(bag)) masked[key] = isSensitiveKey(key) ? REDACTED : value
+    return masked
+}
+
+// Header names are case-insensitive. Volatile ones are left out so they cannot split two deliveries.
+function stableHeaders(value: unknown): Record<string, unknown> {
+    const source = asObject(value) || {}
+    const headers: Record<string, unknown> = {}
+    for (const [key, entry] of Object.entries(source)) {
+        if (isVolatileHeader(key)) continue
+        headers[key.toLowerCase()] = entry
+    }
+    return headers
+}
+
+export interface RecordedRow {
+    key: string
+    text: string
+    preview: string
+    date?: string
+    // Set for webhook rows so two rows that share a body can show what still differs. Not returned on the API.
+    bodyKey: string | null
+    rawQuery: Record<string, unknown>
+    rawHeaders: Record<string, unknown>
 }
 
 function stepsOf(executionData: unknown): any[] | null {
@@ -60,22 +112,102 @@ function startOutput(executionData: unknown): Record<string, unknown> | null {
     return asObject(start?.data?.output)
 }
 
+function plainPreview(text: string): string {
+    try {
+        const value = JSON.parse(text)
+        if (value && typeof value === 'object') {
+            if (value.form !== undefined) return canonicalJson(value.form)
+            if (typeof value.question === 'string') return JSON.stringify(value.question)
+        }
+    } catch {
+        /* the stored text is already the preview */
+    }
+    return text
+}
+
+function differingHeaders(row: RecordedRow, group: RecordedRow[]): string[] {
+    const names = new Set<string>()
+    for (const other of group) {
+        if (other === row) continue
+        const keys = new Set([...Object.keys(row.rawHeaders), ...Object.keys(other.rawHeaders)])
+        for (const key of keys) {
+            if (canonicalJson(row.rawHeaders[key]) !== canonicalJson(other.rawHeaders[key])) names.add(key)
+        }
+    }
+    return [...names].sort()
+}
+
+function formatHeader(name: string, row: RecordedRow): string {
+    if (!Object.prototype.hasOwnProperty.call(row.rawHeaders, name)) return name
+    if (isSensitiveKey(name)) return `${name}: ${REDACTED}`
+    const value = row.rawHeaders[name]
+    return `${name}: ${typeof value === 'string' ? value : canonicalJson(value)}`
+}
+
+// A webhook row whose body also appears on another kept row shows the query or the header names that differ.
+function sharedBodyPreview(row: RecordedRow, group: RecordedRow[]): string {
+    const parts = [row.bodyKey || '{}']
+    const queryDiffers = group.some((other) => other !== row && canonicalJson(other.rawQuery) !== canonicalJson(row.rawQuery))
+    if (queryDiffers) parts.push(`query ${canonicalJson(maskBag(row.rawQuery))}`)
+    const names = differingHeaders(row, group)
+    if (names.length) parts.push(`headers ${names.map((name) => formatHeader(name, row)).join(', ')}`)
+    return parts.join(' ')
+}
+
+// Fill webhook previews once the kept rows are known. Other kinds already have their preview.
+export function applyPreviews(rows: RecordedRow[]): RecordedRow[] {
+    const groups = new Map<string, RecordedRow[]>()
+    for (const row of rows) {
+        if (!row.bodyKey) continue
+        const list = groups.get(row.bodyKey) || []
+        list.push(row)
+        groups.set(row.bodyKey, list)
+    }
+    return rows.map((row) => {
+        if (!row.bodyKey) return row
+        const group = groups.get(row.bodyKey) || []
+        if (group.length < 2) return row
+        return { ...row, preview: sharedBodyPreview(row, group) }
+    })
+}
+
 // The input that started this run, or null when the execution has nothing of that kind to replay.
-export function recordedQuestion(executionData: unknown, kind: TriggerStart): string | null {
+// `key` ignores volatile webhook headers. `text` is what the API returns and what a replay runs:
+// sensitive header and query values are already masked.
+export function recordedDraft(executionData: unknown, kind: TriggerStart): RecordedRow | null {
     const output = startOutput(executionData)
     if (!output) return null
     if (kind === 'formInput') {
         const form = asObject(output.form)
-        return form ? canonicalJson({ form }) : null
+        if (!form) return null
+        const text = canonicalJson({ form })
+        return { key: text, text, preview: plainPreview(text), bodyKey: null, rawQuery: {}, rawHeaders: {} }
     }
     if (kind === 'webhookTrigger') {
         const webhook = asObject(output.webhook)
-        return webhook ? canonicalJson({ webhook }) : null
+        if (!webhook) return null
+        const body = webhook.body === undefined ? {} : webhook.body
+        const rawQuery = asObject(webhook.query) || {}
+        const rawHeaders = stableHeaders(webhook.headers)
+        const bodyKey = canonicalJson(body)
+        const key = canonicalJson({ body, query: rawQuery, headers: rawHeaders })
+        const text = canonicalJson({ webhook: { body, query: maskBag(rawQuery), headers: maskBag(rawHeaders) } })
+        return { key, text, preview: bodyKey, bodyKey, rawQuery, rawHeaders }
     }
     const form = asObject(output.form)
-    if (form && Object.keys(form).length) return canonicalJson({ form })
-    if (typeof output.question === 'string') return canonicalJson({ question: output.question })
+    if (form && Object.keys(form).length) {
+        const text = canonicalJson({ form })
+        return { key: text, text, preview: plainPreview(text), bodyKey: null, rawQuery: {}, rawHeaders: {} }
+    }
+    if (typeof output.question === 'string') {
+        const text = canonicalJson({ question: output.question })
+        return { key: text, text, preview: plainPreview(text), bodyKey: null, rawQuery: {}, rawHeaders: {} }
+    }
     return null
+}
+
+export function recordedQuestion(executionData: unknown, kind: TriggerStart): string | null {
+    return recordedDraft(executionData, kind)?.text ?? null
 }
 
 // Turn a stored question back into the prediction input. Chat questions stay a question.

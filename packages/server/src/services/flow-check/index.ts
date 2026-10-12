@@ -39,7 +39,7 @@ import {
     totalTokens
 } from './compare'
 import { RiskyStep, riskySteps } from './risk'
-import { NO_PAST_RUNS, recordedQuestion, replayFromQuestion } from './inputs'
+import { NO_PAST_RUNS, RecordedRow, applyPreviews, recordedDraft, replayFromQuestion } from './inputs'
 import { TriggerStart, Unavailable, startUnavailable, triggerStart, typeUnavailable } from './kinds'
 
 // A question list sent without `count` stays capped at 10, which is what this route accepted before.
@@ -100,7 +100,7 @@ export interface CheckSelection {
 export interface CheckSetup {
     unavailable: Unavailable | null
     // Recent real questions, newest first, then the starter questions nobody asked yet (marked starter).
-    questions: Array<{ text: string; date: string; starter?: boolean }>
+    questions: Array<{ text: string; date: string; starter?: boolean; preview?: string }>
     // Distinct past questions found, not counting starter questions. At most 100.
     pastCount: number
     pastTruncated: boolean
@@ -226,6 +226,7 @@ function view(record: CheckRecord, currentDraftHash: string | null): CheckView {
         liveEmpty: record.liveEmpty,
         cases: record.cases.map((c) => ({
             question: c.question,
+            ...(c.preview ? { preview: c.preview } : {}),
             live: c.live && { ...c.live, text: clip(c.live.text) },
             draft: c.draft && { ...c.draft, text: clip(c.draft.text) },
             same: c.same
@@ -298,8 +299,8 @@ const EXEC_PAGE = 50
 async function loadInputs(
     flow: { id: string; workspaceId?: string | null },
     kind: TriggerStart
-): Promise<{ questions: Array<{ text: string; date: string }>; truncated: boolean }> {
-    const found: Array<{ text: string; date: string }> = []
+): Promise<{ questions: Array<{ text: string; date: string; preview: string }>; truncated: boolean }> {
+    const found: RecordedRow[] = []
     const seen = new Set<string>()
     let scanned = 0
     let truncated = false
@@ -313,10 +314,10 @@ async function loadInputs(
         if (!data.length) break
         for (const row of data) {
             scanned += 1
-            const text = recordedQuestion(row.executionData, kind)
-            if (text && !seen.has(text)) {
-                seen.add(text)
-                found.push({ text, date: row.createdDate ? new Date(row.createdDate).toISOString() : '' })
+            const recorded = recordedDraft(row.executionData, kind)
+            if (recorded && !seen.has(recorded.key)) {
+                seen.add(recorded.key)
+                found.push({ ...recorded, date: row.createdDate ? new Date(row.createdDate).toISOString() : '' })
                 if (found.length >= COMPARE_COUNT_MAX) break
             }
             if (scanned >= SCAN_CAP) {
@@ -327,7 +328,8 @@ async function loadInputs(
         if (found.length >= COMPARE_COUNT_MAX || scanned >= SCAN_CAP) break
         if (page * EXEC_PAGE >= total) break
     }
-    return { questions: found, truncated: truncated && found.length < COMPARE_COUNT_MAX }
+    const questions = applyPreviews(found).map(({ text, date, preview }) => ({ text, date: date || '', preview }))
+    return { questions, truncated: truncated && questions.length < COMPARE_COUNT_MAX }
 }
 
 function questionsFromRows(rows: RecentRow[], max: number): Array<{ text: string; date: string }> {
@@ -452,15 +454,16 @@ async function inputsToRun(
     flow: { id: string; workspaceId?: string | null },
     kind: TriggerStart,
     body: { questions?: unknown; count?: unknown }
-): Promise<{ questions: string[]; selection: CheckSelection | null }> {
+): Promise<{ questions: string[]; previews: string[]; selection: CheckSelection | null }> {
     const parsed = parseCompareCount(body?.count)
     if (!parsed.ok) throw new AppError(StatusCodes.BAD_REQUEST, parsed.message)
-    if (parsed.count === null) return { questions: cleanQuestions(body?.questions), selection: null }
+    if (parsed.count === null) return { questions: cleanQuestions(body?.questions), previews: [], selection: null }
     const loaded = await loadInputs(flow, kind)
-    const inputs = loaded.questions.slice(0, parsed.count).map((item) => item.text)
+    const inputs = loaded.questions.slice(0, parsed.count)
     if (!inputs.length) throw new AppError(StatusCodes.BAD_REQUEST, NO_PAST_RUNS)
     return {
-        questions: inputs,
+        questions: inputs.map((item) => item.text),
+        previews: inputs.map((item) => item.preview || item.text),
         selection: {
             requested: parsed.count,
             available: loaded.questions.length,
@@ -482,7 +485,19 @@ export async function startCheck(
     const unavailable = unavailableFor(flow as DraftFlow, candidate, Boolean(given))
     if (unavailable) throw new AppError(StatusCodes.CONFLICT, unavailable.message)
     const kind = triggerStart(flow.type, [flow.flowData, draft])
-    const { questions, selection } = kind ? await inputsToRun(flow, kind, body || {}) : await questionsToRun(flow.id, body || {})
+    let questions: string[]
+    let selection: CheckSelection | null
+    let previews: string[] = []
+    if (kind) {
+        const resolved = await inputsToRun(flow, kind, body || {})
+        questions = resolved.questions
+        selection = resolved.selection
+        previews = resolved.previews
+    } else {
+        const resolved = await questionsToRun(flow.id, body || {})
+        questions = resolved.questions
+        selection = resolved.selection
+    }
     if (body?.includeRiskySteps !== undefined && typeof body.includeRiskySteps !== 'boolean')
         throw new AppError(StatusCodes.BAD_REQUEST, 'includeRiskySteps must be true or false.')
     const includeRiskySteps = body?.includeRiskySteps === true
@@ -514,7 +529,13 @@ export async function startCheck(
         includeRiskySteps,
         limits: checkLimits(),
         liveEmpty: liveIsEmpty(flow.flowData),
-        cases: questions.map((question) => ({ question, live: null, draft: null, same: null })),
+        cases: questions.map((question, index) => ({
+            question,
+            ...(previews?.[index] ? { preview: previews[index] } : {}),
+            live: null,
+            draft: null,
+            same: null
+        })),
         selection,
         inflight: new Set<AbortController>(),
         stopRequested: false
