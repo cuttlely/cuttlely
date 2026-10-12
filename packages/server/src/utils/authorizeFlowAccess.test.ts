@@ -42,8 +42,8 @@ jest.mock('./index', () => {
     return { getMulterStorage: () => multer({ storage }) }
 })
 
-jest.mock('flowise-components', () => {
-    const actual = jest.requireActual('flowise-components')
+jest.mock('@cuttlely/components', () => {
+    const actual = jest.requireActual('@cuttlely/components')
     const nodeFs = require('fs')
     return {
         ...actual,
@@ -256,7 +256,7 @@ describe('Attachment access: attachments route checks the flow key before multer
     })
 
     it('refuses a document over 25 MB before parsing or storing it', async () => {
-        const { MAX_DOCUMENT_UPLOAD_BYTES } = jest.requireActual('flowise-components') as { MAX_DOCUMENT_UPLOAD_BYTES: number }
+        const { MAX_DOCUMENT_UPLOAD_BYTES } = jest.requireActual('@cuttlely/components') as { MAX_DOCUMENT_UPLOAD_BYTES: number }
         const res = await request(app)
             .post(`/api/v1/attachments/${K}/${CHAT}`)
             .set('Authorization', `Bearer ${KEY_K}`)

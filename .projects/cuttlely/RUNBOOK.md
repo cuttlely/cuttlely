@@ -10,11 +10,11 @@ New to the code? [Build from source and run the dev server](../../docs/how-to/fr
 git fetch origin
 git switch -c <short-topic> origin/main     # or a separate worktree per change: git worktree add -b <topic> ../cuttlely-<topic> origin/main
 pnpm install --frozen-lockfile
-pnpm --filter flowise-components build      # a fresh checkout needs it before `pnpm verify --fast` and the pre-push hook pass
+pnpm --filter @cuttlely/components build   # a fresh checkout needs it before `pnpm verify --fast` and the pre-push hook pass
 ```
 
 -   One concern per pull request, against `main`. Commit messages are one plain sentence describing the user-visible change, then a short body.
--   **Gate (D27).** A docs-only change runs `pnpm --filter flowise-components build && pnpm verify --fast`. Anything else runs the full `pnpm verify` on the exact head you will merge. If the head moves, run it again.
+-   **Gate (D27).** A docs-only change runs `pnpm --filter @cuttlely/components build && pnpm verify --fast`. Anything else runs the full `pnpm verify` on the exact head you will merge. If the head moves, run it again.
 -   **Keep up with `main`.** If `main` moved while your pull request was open, merge `origin/main` into your branch and re-run the gate. Do not rewrite a pushed branch and do not force-push.
 -   **Merge.** Squash-merge, pinned to the head you verified: `gh pr merge <n> --squash --match-head-commit <sha>`.
 -   **Hooks stay on.** Do not use `git push --no-verify`. `CUTTLELY_SKIP_VERIFY=1` and `CUTTLELY_SKIP_HANDOFF_CHECK=1` exist for emergencies and never replace the gate.
@@ -51,6 +51,7 @@ node etl/check.mjs --stress   # adds a generated 1,000,000-row CSV and a 401-fil
 pnpm verify                   # the full gate; `pnpm verify --help` lists the 23 steps
 pnpm verify --fast            # lint, boundaries, typecheck, verify-test, website-docs, chat-widget, hermes-vendor, unit, server-settings-ui, handoff-test, render-blueprint, identity-migration
 node scripts/check-boundaries.mjs   # zone crossings; --update only shrinks the baseline
+node scripts/health-report.mjs       # health table; exits 0. --image <ref> adds the image size
 pnpm verify --skip smoke      # skip one step locally; repeat --skip for more. Not for the merge gate
 pnpm verify:comment           # prints the summary for a pull request comment
 CUTTLELY_VERIFY_JEST_WORKERS=4 pnpm verify   # unit Jest workers; default 50%
@@ -193,11 +194,13 @@ docker compose up -d --build                                        # build this
 docker compose exec cuttlely curl -fsS http://127.0.0.1:43117/api/v1/ping
 docker compose logs cuttlely                                        # the one-time setup link for the first account is in the log
 bash scripts/docker-smoke.sh                                        # build, start and ping, for image changes
+INCLUDE_BROWSER=0 bash scripts/docker-smoke.sh                     # the same, without Chromium
+CUTTLELY_OMIT_GEOIP=true bash scripts/docker-smoke.sh              # the same, without the geolocation database
 ```
 
 Compose mounts a volume at `/var/cuttlely` (the same layout as the Render disk) and uses SQLite. `CUTTLELY_IMAGE` pins a release or names a local build. Copy `.env.example` to `.env` only to override a default; never commit `.env`. `docker/Dockerfile` refuses to build; use the root `Dockerfile`.
 
-The root `Dockerfile` has two stages. The build stage has the compilers, installs every package, builds, sets up Hermes, then installs `node_modules` again with production packages only. After that install, `CUTTLELY_OMIT_GEOIP=true` (`docker build --build-arg CUTTLELY_OMIT_GEOIP=true`) leaves the IP geolocation database (`geoip-lite`) out of the image. The default is `false`, so a normal build keeps it and audit events still record country and region. See `docs/how-to/docker.md`. The runtime stage copies that tree, Hermes and its Python, and installs only the system packages Cuttlely runs with (git, Chromium, python3, curl, util-linux). A system library a new runtime feature needs goes in the runtime stage's `apt-get` list. A package that has to compile at install time goes in `onlyBuiltDependencies` in the root `package.json` and in the `pnpm -r rebuild` line. `.dockerignore` leaves `.turbo` and other local caches out of that build. `turbo.json` lists `dist/**` and `build/**` as build outputs; the UI writes `build/`. After an image change, build it, start it and check ping (`bash scripts/docker-smoke.sh`).
+The root `Dockerfile` has two stages. The build stage has the compilers, installs every package, builds, sets up Hermes, then installs `node_modules` again with production packages only. After that install, `CUTTLELY_OMIT_GEOIP=true` leaves the IP geolocation database (`geoip-lite`) out of the image. The default is `false`, so a normal build keeps it and audit events still record country and region. The runtime stage copies that tree, Hermes and its Python, and installs only the system packages Cuttlely runs with (git, Chromium, python3, curl, util-linux). `INCLUDE_BROWSER` defaults to `1`. `INCLUDE_BROWSER=0` leaves out Chromium and the `cuttlely-chromium` symlink, and writes `/etc/cuttlely/no-browser`. Puppeteer and Playwright document loaders then fail with `this image has no browser`. The two arguments are independent, and the published image is still the default build. A system library a new runtime feature needs goes in the runtime stage's `apt-get` list. A package that has to compile at install time goes in `onlyBuiltDependencies` in the root `package.json` and in the `pnpm -r rebuild` line. `.dockerignore` leaves `.turbo` and other local caches out of that build. `turbo.json` lists `dist/**` and `build/**` as build outputs; the UI writes `build/`. After an image change, build it, start it and check ping (`bash scripts/docker-smoke.sh`). See `docs/how-to/docker.md`.
 
 ## Website
 

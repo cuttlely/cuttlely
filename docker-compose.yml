@@ -8,6 +8,8 @@
 # pulled, Compose builds the root Dockerfile from this checkout instead (several minutes the first time).
 #
 #   docker compose up -d --build                     build this checkout instead of pulling
+#   INCLUDE_BROWSER=0 docker compose up -d --build   same build, without Chromium
+#   CUTTLELY_OMIT_GEOIP=true docker compose up -d --build   same build, without the geolocation database
 #   CUTTLELY_IMAGE=ghcr.io/cuttlely/cuttlely:1.0.0    in .env: pin a release (see .env.example)
 #   docker compose pull && docker compose up -d      upgrade to the newest published image
 
@@ -18,6 +20,9 @@ services:
         build:
             context: .
             dockerfile: Dockerfile
+            args:
+                INCLUDE_BROWSER: ${INCLUDE_BROWSER:-1}
+                CUTTLELY_OMIT_GEOIP: ${CUTTLELY_OMIT_GEOIP:-false}
         restart: unless-stopped
         init: true
         # On stop, Cuttlely lets running answers finish for up to 25 seconds (CUTTLELY_DRAIN_TIMEOUT_MS). Docker's

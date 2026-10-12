@@ -140,7 +140,7 @@
         "express-mysql-session": "^3.0.3",
         "express-rate-limit": "^6.9.0",
         "express-session": "^1.18.1",
-        "flowise-components": "workspace:^",
+        "@cuttlely/components": "workspace:^",
         "flowise-nim-container-manager": "^1.0.11",
         "flowise-ui": "workspace:^",
         "geoip-lite": "^2.0.3",

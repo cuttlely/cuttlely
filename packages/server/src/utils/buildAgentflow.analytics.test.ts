@@ -10,8 +10,8 @@ import { executeAgentFlow } from './buildAgentflow'
 jest.mock('./logger', () => ({ __esModule: true, default: { warn: jest.fn(), info: jest.fn(), debug: jest.fn(), error: jest.fn() } }))
 
 const mockGetInstance = jest.fn()
-jest.mock('flowise-components', () => {
-    const actual = jest.requireActual('flowise-components')
+jest.mock('@cuttlely/components', () => {
+    const actual = jest.requireActual('@cuttlely/components')
     return {
         ...actual,
         tracingEnvEnabled: () => false,

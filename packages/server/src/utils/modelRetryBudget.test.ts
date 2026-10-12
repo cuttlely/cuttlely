@@ -1,5 +1,5 @@
 import { AsyncCaller } from '@langchain/core/utils/async_caller'
-import { applyModelRetryBudget, MODEL_RETRY_BUDGET } from 'flowise-components'
+import { applyModelRetryBudget, MODEL_RETRY_BUDGET } from '@cuttlely/components'
 import { toPredictionError } from './predictionErrors'
 
 /** A provider that always answers 429, shaped like the OpenAI SDK's error (status, headers). */

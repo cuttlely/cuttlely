@@ -41,6 +41,7 @@ New here? Start with [Your first 10 minutes](../README.md#your-first-10-minutes)
 -   [Credits](../CREDITS.md). The open-source projects Cuttlely builds on, with their licenses and links.
 -   [Updating the model list](./reference/model-list.md). For maintainers: the model dropdowns and prices come from `packages/components/models.json`, kept by hand in this repository.
 -   [Agent runtime upgrades](./reference/hermes-upgrades.md). For maintainers: how the bundled agent runtime is vendored and upgraded.
+-   [Health baseline](./reference/health-baseline.md). For maintainers: the dependency, image and node figures recorded on 2026-10-11. CI prints the current figures and does not fail on them.
 
 ## Bring your existing flows
 

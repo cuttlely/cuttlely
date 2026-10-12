@@ -20,7 +20,7 @@ import {
     EvaluationRunner,
     handleEscapeCharacters,
     IServerSideEventStreamer
-} from 'flowise-components'
+} from '@cuttlely/components'
 import { StatusCodes } from 'http-status-codes'
 import {
     IncomingInput,

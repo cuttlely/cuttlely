@@ -59,6 +59,22 @@ test('the geolocation database stays unless the slim build argument is set', () 
     assert.match(dockerfile, /^ARG CUTTLELY_OMIT_GEOIP=false$/m)
     assert.match(dockerfile, /node scripts\/omit-geoip-database\.mjs/)
     assert.doesNotMatch(dockerfile, /ARG CUTTLELY_OMIT_GEOIP=true/)
+    for (const file of ['docker-compose.yml', 'docker/docker-compose.yml']) {
+        const doc = yaml.load(fs.readFileSync(path.join(ROOT, file), 'utf8'))
+        assert.equal(doc.services.cuttlely.build.args.CUTTLELY_OMIT_GEOIP, '${CUTTLELY_OMIT_GEOIP:-false}')
+    }
+})
+
+test('the image keeps Chromium unless INCLUDE_BROWSER=0', () => {
+    const dockerfile = fs.readFileSync(path.join(ROOT, 'Dockerfile'), 'utf8')
+    assert.match(dockerfile, /^ARG INCLUDE_BROWSER=1$/m)
+    assert.match(dockerfile, /INCLUDE_BROWSER=0 skips Chromium/)
+    assert.match(dockerfile, /\/etc\/cuttlely\/no-browser/)
+    assert.match(dockerfile, /ln -sfn "\$CHROME" \/usr\/local\/bin\/cuttlely-chromium/)
+    for (const file of ['docker-compose.yml', 'docker/docker-compose.yml']) {
+        const doc = yaml.load(fs.readFileSync(path.join(ROOT, file), 'utf8'))
+        assert.equal(doc.services.cuttlely.build.args.INCLUDE_BROWSER, '${INCLUDE_BROWSER:-1}')
+    }
 })
 
 test('.env.example documents CUTTLELY_IMAGE with the published name', () => {
