@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 // Vendors NousResearch/hermes-agent into hermes/: upstream at a tag or commit, minus the paths in
-// hermes/CUTTLELY_EXCLUDE.txt, plus the Cuttlely patches in hermes/patches. See hermes/CUTTLELY_VENDOR.txt.
+// hermes/CUTTLELY_EXCLUDE.txt, and when hermes/CUTTLELY_LOADED.txt is present only the files that
+// list names plus package __init__ files, data files those modules name, license files, the
+// build and lock metadata the image install reads, and the local patches. See hermes/CUTTLELY_VENDOR.txt.
 //
 //   pnpm hermes:vendor <tag-or-commit>   fetch, trim, apply the patches, and swap the result into hermes/
 //   pnpm hermes:vendor --continue        after fixing a patch that did not apply in the staging copy
@@ -8,7 +10,8 @@
 //   pnpm hermes:vendor --save-patches    turn edits made in hermes/ into patch files (--new <name> for new files)
 //   pnpm hermes:vendor --check           offline guard used by pnpm verify
 //
-// hermes/ is only written after every patch applies. Each patch owns its files; no file is in two patches.
+// hermes/ is only written after every patch applies. A later patch may continue a file. The last
+// patch owns further edits; earlier patches keep the diffs they already have.
 import { spawnSync } from 'node:child_process'
 import crypto from 'node:crypto'
 import fs from 'node:fs'
@@ -19,7 +22,11 @@ import { fileURLToPath } from 'node:url'
 const SCRIPT_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 export const DEFAULT_UPSTREAM = 'https://github.com/NousResearch/hermes-agent.git'
 // Files Cuttlely owns inside hermes/. They are not upstream files and are never trimmed or patched.
-export const OWN_FILES = ['CUTTLELY_VENDOR.txt', 'CUTTLELY_EXCLUDE.txt', 'CUTTLELY_VENDOR.lock', 'UPSTREAM_COMMIT']
+export const OWN_FILES = ['CUTTLELY_VENDOR.txt', 'CUTTLELY_EXCLUDE.txt', 'CUTTLELY_LOADED.txt', 'CUTTLELY_VENDOR.lock', 'UPSTREAM_COMMIT']
+// scripts/setup-hermes.sh and the image build read these even when no loaded module names them.
+// .python-version selects the interpreter (3.14 installs from uv.lock). pyproject.toml and uv.lock
+// are that install. pm/lock.json is the checksum source for the uv pin in the Dockerfile.
+export const BUILD_METADATA = ['.python-version', 'pyproject.toml', 'uv.lock', 'pm/lock.json']
 const OWN_DIRS = ['patches/']
 const BOT = { name: 'cuttlely vendor', email: 'vendor@cuttlely.invalid', date: '2000-01-01T00:00:00Z' }
 
@@ -58,6 +65,7 @@ export function paths(root = SCRIPT_ROOT, env = process.env) {
         hermes,
         patches: path.join(hermes, 'patches'),
         exclude: path.join(hermes, 'CUTTLELY_EXCLUDE.txt'),
+        loaded: path.join(hermes, 'CUTTLELY_LOADED.txt'),
         lock: path.join(hermes, 'CUTTLELY_VENDOR.lock'),
         upstreamCommit: path.join(hermes, 'UPSTREAM_COMMIT'),
         cache,
@@ -84,6 +92,156 @@ export function parseExcludes(text) {
             if (!name || (!anchored && name.includes('/'))) throw new VendorError(`CUTTLELY_EXCLUDE.txt: unsupported pattern "${line}"`)
             return { line, anchored, folder, name }
         })
+}
+
+// Measured files the agent runtime loads. Blank lines and # comments are skipped.
+// One repo-relative path per line. An empty list is refused so a bad file cannot wipe the tree.
+export function parseLoaded(text) {
+    const files = []
+    for (const line of String(text).split('\n')) {
+        const trimmed = line.trim()
+        if (!trimmed || trimmed.startsWith('#')) continue
+        if (trimmed.startsWith('/') || trimmed.includes('\\') || trimmed.split('/').includes('..')) {
+            throw new VendorError(`CUTTLELY_LOADED.txt: unsupported path "${trimmed}"`)
+        }
+        files.push(trimmed)
+    }
+    if (!files.length) throw new VendorError('CUTTLELY_LOADED.txt has no paths. Refusing to vendor an empty tree.')
+    return files
+}
+
+const DATA_EXT = new Set([
+    '.yaml',
+    '.yml',
+    '.json',
+    '.toml',
+    '.txt',
+    '.md',
+    '.html',
+    '.jinja',
+    '.j2',
+    '.sql',
+    '.csv',
+    '.xml',
+    '.ini',
+    '.cfg',
+    '.typed'
+])
+
+function isLicenseFile(file) {
+    const base = file.split('/').pop()
+    return /^(LICENSE|NOTICE|COPYING|AUTHORS|COPYRIGHT)(\..*)?$/i.test(base)
+}
+
+function isDataName(name) {
+    if (!name || name.startsWith('/') || name.includes('\\') || name.split('/').includes('..')) return false
+    const ext = name.includes('.') ? name.slice(name.lastIndexOf('.')) : ''
+    return DATA_EXT.has(ext) || name.endsWith('SKILL.md')
+}
+
+function quotedParts(text) {
+    return [...String(text).matchAll(/['"]([^'"\n]+)['"]/g)].map((item) => item[1])
+}
+
+// The argument list of a call, including nested calls, starting at the '(' .
+function callBody(source, openParen) {
+    let depth = 0
+    for (let i = openParen; i < source.length; i++) {
+        if (source[i] === '(') depth++
+        else if (source[i] === ')') {
+            depth--
+            if (depth === 0) return source.slice(openParen, i + 1)
+        }
+    }
+    return ''
+}
+
+// Quoted pieces joined with / , and the string arguments of os.path.join / path.join.
+export function dataPathsInSource(source) {
+    const found = []
+    const text = String(source)
+    for (const match of text.matchAll(/['"][^'"\n]+['"](?:\s*\/\s*['"][^'"\n]+['"])+/g)) {
+        const parts = quotedParts(match[0])
+        if (parts.length > 1 && parts.every((part) => part && !part.includes('..'))) found.push(parts.join('/'))
+    }
+    for (const needle of ['os.path.join', 'path.join', 'Path.joinpath']) {
+        let from = 0
+        while (from < text.length) {
+            const at = text.indexOf(needle, from)
+            if (at < 0) break
+            const open = text.indexOf('(', at + needle.length)
+            if (open < 0 || open - (at + needle.length) > 3) {
+                from = at + needle.length
+                continue
+            }
+            const body = callBody(text, open)
+            const parts = quotedParts(body).filter((part) => part && !part.includes('..') && !part.startsWith('/'))
+            if (parts.length) found.push(parts.join('/'))
+            from = open + Math.max(body.length, 1)
+        }
+    }
+    for (const match of text.matchAll(/['"]([^'"\n]{1,200})['"]/g)) found.push(match[1])
+    return found
+}
+
+// Listed files, plus package __init__ files, license and attribution files, build and lock
+// metadata, files a local patch edits, and data files a kept module names, including
+// Path / "dir" / "file.ext" and os.path.join.
+export function filesToKeep(upstreamFiles, { loaded, patchFiles, readFile }) {
+    const all = new Set(upstreamFiles)
+    const keep = new Set()
+    for (const file of [...loaded, ...patchFiles]) if (all.has(file)) keep.add(file)
+    for (const file of upstreamFiles) if (isLicenseFile(file)) keep.add(file)
+    for (const file of BUILD_METADATA) if (all.has(file)) keep.add(file)
+    const addInits = () => {
+        for (const file of [...keep]) {
+            const parts = file.split('/')
+            for (let i = 1; i < parts.length; i++) {
+                const init = `${parts.slice(0, i).join('/')}/__init__.py`
+                if (all.has(init)) keep.add(init)
+            }
+        }
+    }
+    addInits()
+    if (readFile) {
+        let grew = true
+        while (grew) {
+            grew = false
+            for (const file of [...keep]) {
+                if (!file.endsWith('.py') || !all.has(file)) continue
+                let source = ''
+                try {
+                    source = readFile(file)
+                } catch {
+                    continue
+                }
+                const dir = file.includes('/') ? file.slice(0, file.lastIndexOf('/')) : ''
+                const parents = []
+                let parent = dir
+                for (let i = 0; i < 3 && parent; i++) {
+                    parents.push(parent)
+                    parent = parent.includes('/') ? parent.slice(0, parent.lastIndexOf('/')) : ''
+                }
+                for (const lit of dataPathsInSource(source)) {
+                    if (!isDataName(lit)) continue
+                    const candidates = [lit, ...parents.map((base) => `${base}/${lit}`)]
+                    for (const rel of candidates) {
+                        const normal = rel.replace(/\/+/g, '/').replace(/^\.\//, '')
+                        if (all.has(normal) && !keep.has(normal)) {
+                            keep.add(normal)
+                            grew = true
+                        }
+                    }
+                }
+            }
+            const before = keep.size
+            addInits()
+            if (keep.size !== before) grew = true
+        }
+    } else {
+        addInits()
+    }
+    return keep
 }
 
 export function excludedBy(file, patterns) {
@@ -130,14 +288,12 @@ export function patchFiles(text) {
     return { files, created }
 }
 
+// Last patch that lists a file owns further edits. An earlier patch may still list it; that
+// earlier diff stays, and the later patch continues the file.
 export function patchOwners(patches) {
     const owners = new Map()
     for (const patch of patches) {
-        for (const file of patchFiles(patch.text).files) {
-            if (owners.has(file))
-                throw new VendorError(`${file} is in both ${owners.get(file)} and ${patch.name}. Keep each file in one patch.`)
-            owners.set(file, patch.name)
-        }
+        for (const file of patchFiles(patch.text).files) owners.set(file, patch.name)
     }
     return owners
 }
@@ -160,13 +316,18 @@ export function hermesFiles(p) {
         .sort()
 }
 
-// Every file under hermes/ except the lock and the CUTTLELY_VENDOR.txt notes: path, executable bit and content.
+// Every file under hermes/ except the lock, the CUTTLELY_VENDOR.txt notes, and a stray
+// *.egg-info directory uv sync writes next to the package: path, executable bit and content.
 const UNFINGERPRINTED = ['CUTTLELY_VENDOR.lock', 'CUTTLELY_VENDOR.txt']
+
+function isEggInfo(file) {
+    return file.split('/')[0].endsWith('.egg-info')
+}
 
 export function fingerprint(p) {
     const hash = crypto.createHash('sha256')
     for (const file of hermesFiles(p)) {
-        if (UNFINGERPRINTED.includes(file)) continue
+        if (UNFINGERPRINTED.includes(file) || isEggInfo(file)) continue
         const full = path.join(p.hermes, file)
         const stat = fs.lstatSync(full)
         const body = stat.isSymbolicLink() ? Buffer.from(fs.readlinkSync(full)) : fs.readFileSync(full)
@@ -302,12 +463,25 @@ export function buildBase(p, commit, previous) {
               .filter(Boolean)
               .map((file) => file.slice('hermes/'.length))
         : []
-    const drop = [...excluded, ...ignored]
+    const ignoredSet = new Set(ignored)
+    const notIgnored = rest.filter((file) => !ignoredSet.has(file))
+    let subset = []
+    if (fs.existsSync(p.loaded)) {
+        const loaded = parseLoaded(fs.readFileSync(p.loaded, 'utf8'))
+        const patchTouched = listPatches(p.patches).flatMap((patch) => patchFiles(patch.text).files)
+        const keep = filesToKeep(notIgnored, {
+            loaded,
+            patchFiles: patchTouched,
+            readFile: (file) => fs.readFileSync(path.join(p.staging, file), 'utf8')
+        })
+        subset = notIgnored.filter((file) => !keep.has(file))
+    }
+    const drop = [...excluded, ...ignored, ...subset]
     for (let i = 0; i < drop.length; i += 500) git(p.staging, ['rm', '-q', '--cached', '--', ...drop.slice(i, i + 500)])
     for (const file of drop) fs.rmSync(path.join(p.staging, file), { force: true })
     git(p.staging, ['commit', '-q', '--allow-empty', '-m', `upstream ${commit} minus excluded paths`])
     git(p.staging, ['tag', 'base'])
-    return { excluded: excluded.length, ignored }
+    return { excluded: excluded.length, ignored, subset: subset.length }
 }
 
 function applyPatches(p, patches) {
@@ -421,8 +595,8 @@ export function vendor(p, ref, log = console.log) {
     if (previous) fetchUpstream(p, previous)
     const { commit, date } = fetchUpstream(p, ref)
     log(`Upstream ${ref} is ${commit} (${date}).`)
-    const { excluded, ignored } = buildBase(p, commit, previous)
-    log(`Left out ${excluded} excluded and ${ignored.length} ignored file(s).`)
+    const { excluded, ignored, subset } = buildBase(p, commit, previous)
+    log(`Left out ${excluded} excluded, ${ignored.length} ignored, and ${subset} unlisted file(s).`)
     const state = { ref, commit, date, ignored }
     writeState(p, state)
     const applied = applyPatches(p, listPatches(p.patches))
@@ -479,25 +653,46 @@ export function savePatches(p, { name, message } = {}, log = console.log) {
         clearStaging(p)
         throw new VendorError(`No patch owns ${unowned.join(', ')}. Run again with --new <name> --message "<what and why>".`)
     }
-    const commitFiles = (files, subject, body) => {
-        for (const file of files) {
-            const from = path.join(p.hermes, file)
-            const to = path.join(p.staging, file)
-            if (fs.existsSync(from)) {
-                fs.mkdirSync(path.dirname(to), { recursive: true })
-                fs.copyFileSync(from, to)
-                fs.chmodSync(to, fs.statSync(from).mode & 0o777)
-                git(p.staging, ['add', '-f', '--', file])
-            } else if (fs.existsSync(to)) {
-                git(p.staging, ['rm', '-q', '--', file])
-            }
+    const copyFromHermes = (file) => {
+        const from = path.join(p.hermes, file)
+        const to = path.join(p.staging, file)
+        if (fs.existsSync(from)) {
+            fs.mkdirSync(path.dirname(to), { recursive: true })
+            fs.copyFileSync(from, to)
+            fs.chmodSync(to, fs.statSync(from).mode & 0o777)
+            git(p.staging, ['add', '-f', '--', file])
+        } else if (fs.existsSync(to)) {
+            git(p.staging, ['rm', '-q', '--', file])
         }
+    }
+    const commitFiles = (files, subject, body) => {
+        for (const file of files) copyFromHermes(file)
         git(p.staging, ['commit', '-q', '--allow-empty', '-m', subject, ...(body ? ['-m', body] : [])])
     }
     for (const patch of patches) {
-        const files = [...owners.entries()].filter(([, owner]) => owner === patch.name).map(([file]) => file)
+        const touched = patchFiles(patch.text).files
+        const finalFiles = touched.filter((file) => owners.get(file) === patch.name)
+        const continued = touched.filter((file) => owners.get(file) !== patch.name)
         const { subject, body } = patchMessage(patch.text)
-        commitFiles(files, subject, body)
+        if (continued.length) {
+            // Replay the earlier patch as written. Copying the working tree here would fold a
+            // later patch's edit into this one.
+            const applied = git(p.staging, ['apply', '--index', patch.file], { allowFail: true })
+            if (applied.status !== 0) {
+                clearStaging(p)
+                throw new VendorError(
+                    `${patch.name} no longer applies on its own, so a later patch cannot continue its files.\n${(
+                        applied.stderr ||
+                        applied.stdout ||
+                        ''
+                    ).trim()}`
+                )
+            }
+            for (const file of finalFiles) copyFromHermes(file)
+            git(p.staging, ['commit', '-q', '--allow-empty', '-m', subject, ...(body ? ['-m', body] : [])])
+        } else {
+            commitFiles(finalFiles, subject, body)
+        }
     }
     if (unowned.length) commitFiles(unowned, `cuttlely: ${name}`, message || '')
     const patchDir = exportPatches(p)

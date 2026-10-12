@@ -5,7 +5,21 @@ import os from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
 import { isolateProcessEnv, testGit } from './test-git.mjs'
-import { abort, check, excludedBy, parseExcludes, paths, patchMessage, resume, savePatches, vendor } from './vendor-hermes.mjs'
+import {
+    abort,
+    check,
+    dataPathsInSource,
+    excludedBy,
+    filesToKeep,
+    parseExcludes,
+    parseLoaded,
+    paths,
+    patchMessage,
+    patchOwners,
+    resume,
+    savePatches,
+    vendor
+} from './vendor-hermes.mjs'
 
 const ID = ['-c', 'user.name=test', '-c', 'user.email=test@example.invalid', '-c', 'commit.gpgsign=false']
 isolateProcessEnv()
@@ -83,6 +97,18 @@ test('vendoring drops excluded and ignored files, keeps modes, and writes the lo
     assert.equal(git(repo, 'status', '--porcelain'), '', 'vendoring the same commit again changes nothing')
 })
 
+test('a stray egg-info directory does not fail the vendor check', () => {
+    const rootIgnore = fs.readFileSync(new URL('../.gitignore', import.meta.url), 'utf8')
+    assert.match(rootIgnore, /^hermes\/\*\.egg-info\/$/m)
+    const { repo, p } = setup()
+    vendor(p, 'v1', quiet)
+    commitAll(repo, 'vendor v1')
+    const before = read(p, 'CUTTLELY_VENDOR.lock')
+    write(path.join(p.hermes, 'hermes_agent.egg-info/PKG-INFO'), 'Name: hermes-agent\n')
+    assert.deepEqual(check(p), [])
+    assert.equal(read(p, 'CUTTLELY_VENDOR.lock'), before)
+})
+
 test('saved patches survive a re-vendor, and the check catches hand edits and returning excluded folders', () => {
     const { repo, p } = setup()
     vendor(p, 'v1', quiet)
@@ -151,6 +177,165 @@ test('a patch that conflicts on upgrade stops before hermes/ changes, and --abor
     assert.equal(read(p, 'UPSTREAM_COMMIT').trim(), git(up, 'rev-parse', 'v2').trim())
     assert.match(read(p, 'CUTTLELY_VENDOR.lock'), /ref: v2/)
     assert.deepEqual(check(p), [])
+})
+
+test('a loaded list keeps measured files plus inits, named data, licenses and patch files', () => {
+    assert.deepEqual(parseLoaded('# note\n\ntool.py\n'), ['tool.py'])
+    assert.throws(() => parseLoaded('# only a comment\n'), /no paths/)
+    assert.throws(() => parseLoaded('../secret\n'), /unsupported path/)
+    const readFile = (file) => {
+        if (file === 'agent/core.py') return 'open("notes.yaml")\n'
+        if (file === 'gateway/status_phrases.py') {
+            return 'Path(__file__).resolve().parent / "assets" / "status_phrases.yaml"\nos.path.join(os.path.dirname(__file__), "assets", "other.toml")\n'
+        }
+        return ''
+    }
+    assert.deepEqual(dataPathsInSource('Path(__file__).resolve().parent / "assets" / "status_phrases.yaml"'), [
+        'assets/status_phrases.yaml',
+        'assets',
+        'status_phrases.yaml'
+    ])
+    const keep = filesToKeep(
+        [
+            'README.md',
+            'tool.py',
+            'extra.py',
+            'agent/core.py',
+            'agent/__init__.py',
+            'agent/notes.yaml',
+            'gateway/status_phrases.py',
+            'gateway/assets/status_phrases.yaml',
+            'gateway/assets/other.toml',
+            'LICENSE',
+            'run.sh'
+        ],
+        { loaded: ['tool.py', 'agent/core.py', 'gateway/status_phrases.py'], patchFiles: ['run.sh'], readFile }
+    )
+    for (const file of [
+        'tool.py',
+        'agent/core.py',
+        'agent/__init__.py',
+        'agent/notes.yaml',
+        'gateway/status_phrases.py',
+        'gateway/assets/status_phrases.yaml',
+        'gateway/assets/other.toml',
+        'LICENSE',
+        'run.sh'
+    ]) {
+        assert.equal(keep.has(file), true, file)
+    }
+    assert.equal(keep.has('extra.py'), false)
+    assert.equal(keep.has('README.md'), false)
+
+    const metadata = ['.python-version', 'pyproject.toml', 'uv.lock', 'pm/lock.json']
+    const metaKeep = filesToKeep(['tool.py', 'extra.py', ...metadata], {
+        loaded: ['tool.py'],
+        patchFiles: [],
+        readFile: () => ''
+    })
+    for (const file of metadata) assert.equal(metaKeep.has(file), true, file)
+    assert.equal(metaKeep.has('extra.py'), false)
+    assert.equal(
+        patchOwners([
+            { name: '0001-a.patch', text: 'diff --git a/pyproject.toml b/pyproject.toml\n' },
+            { name: '0002-b.patch', text: 'diff --git a/pyproject.toml b/pyproject.toml\n' }
+        ]).get('pyproject.toml'),
+        '0002-b.patch'
+    )
+
+    const { up, repo, p } = setup()
+    write(path.join(up, 'LICENSE'), 'MIT\n')
+    write(path.join(up, 'extra.py'), 'x = 1\n')
+    write(path.join(up, 'agent/__init__.py'), '')
+    write(path.join(up, 'agent/notes.yaml'), 'k: 1\n')
+    write(path.join(up, 'agent/core.py'), 'def run():\n    return "notes.yaml"\n')
+    git(up, 'add', '-A')
+    git(up, 'commit', '-q', '-m', 'v1 data')
+    git(up, 'tag', '-f', 'v1')
+    write(path.join(p.hermes, 'CUTTLELY_LOADED.txt'), '# measured\ntool.py\nagent/core.py\n')
+    git(repo, 'add', '-A')
+    git(repo, 'commit', '-q', '-m', 'loaded list')
+    vendor(p, 'v1', quiet)
+    assert.ok(exists(p, 'tool.py') && exists(p, 'agent/core.py') && exists(p, 'agent/__init__.py'))
+    assert.ok(exists(p, 'agent/notes.yaml') && exists(p, 'LICENSE'))
+    assert.ok(!exists(p, 'extra.py') && !exists(p, 'README.md') && !exists(p, 'run.sh'))
+    assert.equal(read(p, 'CUTTLELY_LOADED.txt'), '# measured\ntool.py\nagent/core.py\n')
+    assert.deepEqual(check(p), [])
+    commitAll(repo, 'subset')
+    vendor(p, 'v1', quiet)
+    assert.equal(git(repo, 'status', '--porcelain'), '', 'vendoring the same measured list again changes nothing')
+})
+
+test('a loaded list keeps the build and lock metadata the image install reads', () => {
+    const metadata = ['.python-version', 'pyproject.toml', 'uv.lock', 'pm/lock.json']
+    const { up, repo, p } = setup()
+    write(path.join(up, '.python-version'), '3.14\n')
+    write(path.join(up, 'pyproject.toml'), '[project]\nname = "demo"\n')
+    write(path.join(up, 'uv.lock'), 'version = 1\n')
+    write(path.join(up, 'pm/lock.json'), '{}\n')
+    write(path.join(up, 'extra.py'), 'x = 1\n')
+    git(up, 'add', '-A')
+    git(up, 'commit', '-q', '-m', 'metadata')
+    git(up, 'tag', '-f', 'v1')
+    write(path.join(p.hermes, 'CUTTLELY_LOADED.txt'), '# measured\ntool.py\n')
+    git(repo, 'add', '-A')
+    git(repo, 'commit', '-q', '-m', 'loaded list')
+    vendor(p, 'v1', quiet)
+    for (const file of metadata) {
+        assert.equal(exists(p, file), true, file)
+    }
+    assert.equal(read(p, '.python-version'), '3.14\n')
+    assert.ok(!exists(p, 'extra.py'))
+    assert.deepEqual(check(p), [])
+})
+
+test('a later patch continues a file and the earlier patch stays', () => {
+    const { repo, p } = setup()
+    vendor(p, 'v1', quiet)
+    commitAll(repo, 'vendor v1')
+    write(path.join(p.hermes, 'tool.py'), 'LIMIT = 5  # cuttlely\n\ndef tool():\n    return LIMIT\n')
+    savePatches(p, { name: 'raise the tool limit', message: 'What: LIMIT is 5.' }, quiet)
+    const firstName = '0001-cuttlely-raise-the-tool-limit.patch'
+    const first = fs.readFileSync(path.join(p.patches, firstName))
+    const secondName = '0002-cuttlely-raise-the-tool-limit-again.patch'
+    write(
+        path.join(p.patches, secondName),
+        [
+            'From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001',
+            'From: cuttlely vendor <vendor@cuttlely.invalid>',
+            'Date: Sat, 1 Jan 2000 00:00:00 +0000',
+            'Subject: [PATCH] cuttlely: raise the tool limit again',
+            '',
+            'What: LIMIT is 9.',
+            '---',
+            ' tool.py | 2 +-',
+            ' 1 file changed, 1 insertion(+), 1 deletion(-)',
+            '',
+            'diff --git a/tool.py b/tool.py',
+            'index 1111111111111111111111111111111111111111..2222222222222222222222222222222222222222 100644',
+            '--- a/tool.py',
+            '+++ b/tool.py',
+            '@@ -1,4 +1,4 @@',
+            '-LIMIT = 5  # cuttlely',
+            '+LIMIT = 9  # cuttlely',
+            ' ',
+            ' def tool():',
+            '     return LIMIT',
+            ''
+        ].join('\n')
+    )
+    write(path.join(p.hermes, 'tool.py'), 'LIMIT = 9  # cuttlely\n\ndef tool():\n    return LIMIT\n')
+    savePatches(p, {}, quiet)
+    assert.equal(fs.readFileSync(path.join(p.patches, firstName)).equals(first), true)
+    const second = fs.readFileSync(path.join(p.patches, secondName), 'utf8')
+    assert.match(second, /LIMIT = 9/)
+    assert.doesNotMatch(fs.readFileSync(path.join(p.patches, firstName), 'utf8'), /LIMIT = 9/)
+    assert.equal(read(p, 'tool.py'), 'LIMIT = 9  # cuttlely\n\ndef tool():\n    return LIMIT\n')
+    assert.deepEqual(check(p), [])
+    commitAll(repo, 'stacked')
+    vendor(p, 'v1', quiet)
+    assert.equal(fs.readFileSync(path.join(p.patches, firstName)).equals(first), true)
+    assert.equal(git(repo, 'status', '--porcelain'), '')
 })
 
 test('vendoring refuses main, uncommitted hermes/ edits, and a missing ref', () => {

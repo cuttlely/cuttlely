@@ -135,3 +135,4 @@ website/src/generated/
 website/.astro/
 
 __pycache__/
+hermes/*.egg-info/
