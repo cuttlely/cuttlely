@@ -294,15 +294,16 @@ const addDatasetRow = async (body: any) => {
                 },
                 take: 1
             })
+            // A first row is 0. The next row is one past the current max, including when that max is 0.
             let sequenceNo = 0
             if (maxValueEntity && maxValueEntity.length > 0) {
-                sequenceNo = maxValueEntity[0].sequenceNo
+                sequenceNo = maxValueEntity[0].sequenceNo + 1
             }
             const newDs = new DatasetRow()
             newDs.input = body.input
             newDs.output = body.output
             newDs.datasetId = body.datasetId
-            newDs.sequenceNo = sequenceNo === 0 ? sequenceNo : sequenceNo + 1
+            newDs.sequenceNo = sequenceNo
             const row = appServer.AppDataSource.getRepository(DatasetRow).create(newDs)
             const result = await appServer.AppDataSource.getRepository(DatasetRow).save(row)
             await changeUpdateOnDataset(body.datasetId, body.workspaceId)

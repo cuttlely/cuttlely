@@ -303,4 +303,4 @@ Never leave `CUTTLELY_LOCAL_ADMIN=true` on a public deploy. It puts a password f
 -   The password button is **Sign in with password** when WorkOS is on, and **Sign in** when it is the only way in. It appears only when `CUTTLELY_LOCAL_ADMIN=true`.
 -   Add User takes a name and an email. It does not ask for a password.
 -   With AuthKit unset and the local-admin flag off, sign-in answers 404.
--   Other single sign-on providers, Stripe billing, invite mail, datasets, and evaluations are not part of this install. The routes in this guide are the sign-in contract.
+-   Other single sign-on providers, Stripe billing, and invite mail are not part of this install. The routes in this guide are the sign-in contract. Datasets, evaluators, and evaluations are in [Evaluations](../how-to/evaluations.md).

@@ -38,17 +38,8 @@ export function ossIdentity(): OssIdentity {
     }
 }
 
-/** Datasets, evaluations, logs, and the other closed flags stay off (D36, D50). */
-const CLOSED_FEATURES = new Set([
-    'feat:account',
-    'feat:datasets',
-    'feat:evaluations',
-    'feat:evaluators',
-    'feat:files',
-    'feat:login-activity',
-    'feat:logs',
-    'feat:sso-config'
-])
+/** Logs, files, login activity, account, and SSO stay off. Datasets, evaluators, and evaluations are on (D55). */
+const CLOSED_FEATURES = new Set(['feat:account', 'feat:files', 'feat:login-activity', 'feat:logs', 'feat:sso-config'])
 
 export function denyClosedFeature(feature: string): RequestHandler {
     return (_req, res, next) => {
