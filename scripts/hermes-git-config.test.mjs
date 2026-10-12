@@ -1,4 +1,5 @@
 // The vendored agent runtime must not run commands a repository defines in its own git config.
+// Interpreter order matches scripts/start-cuttlely.sh: HERMES_PYTHON when set, then hermes/.venv, then python3.
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
 import fs from 'node:fs'
@@ -62,17 +63,16 @@ function launcherExecutable(file) {
 }
 
 // The directory, not the launcher, decides whether a broken setup must fail closed.
+// HERMES_PYTHON is first when set, matching scripts/start-cuttlely.sh. A failed probe falls through.
 export function runtimeCandidates({ venvDirExists, launcherExecutable: executable, hermesPython, venvPython }) {
     const list = []
+    if (hermesPython) list.push({ label: 'HERMES_PYTHON', command: hermesPython })
     if (venvDirExists) {
         list.push(
             executable
                 ? { label: 'hermes/.venv', command: venvPython }
                 : { label: 'hermes/.venv', command: venvPython, failure: MISSING_LAUNCHER }
         )
-    }
-    if (hermesPython && path.resolve(hermesPython) !== path.resolve(venvPython)) {
-        list.push({ label: 'HERMES_PYTHON', command: hermesPython })
     }
     list.push({ label: 'python3', command: 'python3' })
     return list
@@ -201,28 +201,52 @@ test('a missing launcher in an existing hermes/.venv fails instead of skipping',
     assert.equal(decision.detail, MISSING_LAUNCHER)
 })
 
-test('selectRuntime does not probe candidates after the first success', () => {
+test('HERMES_PYTHON is preferred over a working hermes/.venv and later candidates are not probed', () => {
+    const list = runtimeCandidates({
+        venvDirExists: true,
+        launcherExecutable: true,
+        hermesPython: '/other/python',
+        venvPython: '/venv/python'
+    })
+    assert.deepEqual(
+        list.map((candidate) => candidate.label),
+        ['HERMES_PYTHON', 'hermes/.venv', 'python3']
+    )
+    const calls = []
+    const decision = selectRuntime(list, {
+        venvPresent: true,
+        probe(candidate) {
+            calls.push(candidate.label)
+            return ''
+        }
+    })
+    assert.deepEqual(calls, ['HERMES_PYTHON'])
+    assert.equal(decision.action, 'run')
+    assert.equal(decision.label, 'HERMES_PYTHON')
+})
+
+test('a failing HERMES_PYTHON falls back to hermes/.venv', () => {
     const calls = []
     const decision = selectRuntime(
         [
-            { label: 'hermes/.venv', command: '/venv/python' },
             { label: 'HERMES_PYTHON', command: '/other/python' },
+            { label: 'hermes/.venv', command: '/venv/python' },
             { label: 'python3', command: 'python3' }
         ],
         {
             venvPresent: true,
             probe(candidate) {
                 calls.push(candidate.label)
-                return ''
+                return candidate.label === 'HERMES_PYTHON' ? 'psutil: ModuleNotFoundError: No module named psutil' : ''
             }
         }
     )
-    assert.deepEqual(calls, ['hermes/.venv'])
+    assert.deepEqual(calls, ['HERMES_PYTHON', 'hermes/.venv'])
     assert.equal(decision.action, 'run')
     assert.equal(decision.label, 'hermes/.venv')
 })
 
-test('a probe timeout counts as failure', () => {
+test('a timed-out HERMES_PYTHON falls back to hermes/.venv', () => {
     const hang = path.join(os.tmpdir(), `cuttlely-git-config-hang-${process.pid}.sh`)
     fs.writeFileSync(hang, '#!/bin/sh\nsleep 30\n', { mode: 0o755 })
     try {
@@ -231,20 +255,23 @@ test('a probe timeout counts as failure', () => {
         const calls = []
         const decision = selectRuntime(
             [
-                { label: 'hermes/.venv', command: hang, failure },
+                { label: 'HERMES_PYTHON', command: hang },
+                { label: 'hermes/.venv', command: '/venv/python' },
                 { label: 'python3', command: 'python3' }
             ],
             {
                 venvPresent: true,
                 probe(candidate) {
                     calls.push(candidate.label)
-                    return ''
+                    if (candidate.label === 'HERMES_PYTHON') return failure
+                    if (candidate.label === 'hermes/.venv') return ''
+                    return 'should not run'
                 }
             }
         )
-        assert.deepEqual(calls, ['python3'])
+        assert.deepEqual(calls, ['HERMES_PYTHON', 'hermes/.venv'])
         assert.equal(decision.action, 'run')
-        assert.equal(decision.label, 'python3')
+        assert.equal(decision.label, 'hermes/.venv')
     } finally {
         fs.rmSync(hang, { force: true })
     }
@@ -271,12 +298,12 @@ test('chooseRuntime skips only when hermes/.venv is absent and nothing else can 
     assert.equal(
         chooseRuntime(
             [
-                { label: 'hermes/.venv', command: '/venv/python', failure: '' },
-                { label: 'python3', command: 'python3', failure: 'unused' }
+                { label: 'HERMES_PYTHON', command: '/other/python', failure: '' },
+                { label: 'hermes/.venv', command: '/venv/python', failure: 'unused' }
             ],
             { venvPresent: true }
         ).label,
-        'hermes/.venv'
+        'HERMES_PYTHON'
     )
 })
 
