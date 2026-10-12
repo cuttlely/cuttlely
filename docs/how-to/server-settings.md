@@ -38,6 +38,8 @@ Every change applies at the next restart. Until then the server keeps running wi
 
 A blank value counts as not set. A value set by the host always wins, so the page never overrides it.
 
+`CUTTLELY_FILE_SIZE_LIMIT` is the same limit as the existing upload size variable, and `DISABLE_CUTTLELY_TELEMETRY` is the usage-event switch. When both names of one of those settings are set, the `CUTTLELY_` name is used. The encryption key is not on this page. `CUTTLELY_SECRETKEY_OVERWRITE` is that key's compatibility alias. If it and the existing overwrite variable are both set to different values, Cuttlely refuses to start. `METRICS_PREFIX`, under Metrics, is optional. Empty keeps the metric names this server already publishes.
+
 ![Advanced, where Log detail is set by the host and marked Locked. The save bar at the bottom says 3 saved changes wait for a restart, with Discard and How to restart.](../images/server-settings/server-settings-locked.png)
 
 ## Secrets

@@ -6,7 +6,7 @@ import path from 'path'
 import request from 'supertest'
 import { setTeamPermissionLookup } from '../identity/rbac'
 import { StartState } from './apply'
-import { BucketProbe, PgClient, TestDrivers, cleanMessage, defaultDrivers, explainError, testConnection } from './connection'
+import { BucketProbe, PgClient, TestDrivers, cleanMessage, defaultDrivers, explainError, findScript, testConnection } from './connection'
 import { SETTINGS_FILE, writeSettingsFile } from './store'
 
 jest.mock('./bootstrap', () => ({
@@ -220,6 +220,14 @@ describe('database', () => {
         expect(res).toMatchObject({ ok: true, target: { kind: 'empty' } })
         fs.writeFileSync(path.join(data, '.cuttlely', 'database.sqlite'), '')
         expect((await test({ kind: 'database', values: {} })).body.target.kind).toBe('cuttlely')
+    })
+})
+
+describe('analyst script lookup', () => {
+    it('finds the runtime module before the scripts path', () => {
+        const found = findScript('analyst-postgres.mjs').replace(/\\/g, '/')
+        expect(found.endsWith('harness/runtime/analyst-postgres.mjs')).toBe(true)
+        expect(fs.existsSync(found)).toBe(true)
     })
 })
 

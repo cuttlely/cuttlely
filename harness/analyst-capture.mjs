@@ -1,5 +1,5 @@
 import crypto from 'node:crypto'
-import { ANALYST_PAGE_TTL_MS } from '../scripts/analyst-page.mjs'
+import { ANALYST_PAGE_TTL_MS } from './runtime/analyst-page.mjs'
 
 // Hermes tool events only carry a short preview. The gateway sees the full analyst result.
 // A running specialist takes the rows recorded while it was in flight.

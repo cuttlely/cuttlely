@@ -2,6 +2,7 @@
 # It pulls ghcr.io/cuttlely/cuttlely:latest, or builds the root Dockerfile when the image cannot be pulled.
 #
 # From the repo root, `docker compose up -d` is the command in the README.
+# INCLUDE_BROWSER=0 builds this image without Chromium. The default is 1.
 # The database is SQLite on the volume unless you change it in Admin, Server settings.
 
 name: cuttlely
@@ -11,6 +12,8 @@ services:
         build:
             context: ..
             dockerfile: Dockerfile
+            args:
+                INCLUDE_BROWSER: ${INCLUDE_BROWSER:-1}
         restart: unless-stopped
         init: true
         # On stop, Cuttlely lets running answers finish for up to 25 seconds (CUTTLELY_DRAIN_TIMEOUT_MS). Docker's
@@ -43,6 +46,10 @@ services:
             # Blank is off. auto creates analyst.db beside the app database (docs/how-to/analyst.md).
             CUTTLELY_ANALYST: ${CUTTLELY_ANALYST:-}
             FLOWISE_SECRETKEY_OVERWRITE: ${FLOWISE_SECRETKEY_OVERWRITE:-}
+            CUTTLELY_SECRETKEY_OVERWRITE: ${CUTTLELY_SECRETKEY_OVERWRITE:-}
+            CUTTLELY_FILE_SIZE_LIMIT: ${CUTTLELY_FILE_SIZE_LIMIT:-}
+            DISABLE_CUTTLELY_TELEMETRY: ${DISABLE_CUTTLELY_TELEMETRY:-}
+            METRICS_PREFIX: ${METRICS_PREFIX:-}
             TRUST_PROXY: ${TRUST_PROXY:-}
             WORKOS_API_KEY: ${WORKOS_API_KEY:-}
             WORKOS_CLIENT_ID: ${WORKOS_CLIENT_ID:-}

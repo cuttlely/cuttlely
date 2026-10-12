@@ -7,6 +7,7 @@ import { Runnable, type RunnableConfig } from '@langchain/core/runnables'
 import { TextSplitter } from '@langchain/textsplitters'
 import axios from 'axios'
 import { AES, enc } from 'crypto-js'
+import { encryptionKeyOverwrite } from './settingAlias'
 import * as fs from 'fs'
 import JSON5 from 'json5'
 import { cloneDeep, get, omit } from 'lodash'
@@ -583,9 +584,8 @@ export const getEncryptionKeyPath = (): string => {
  * @returns {Promise<string>}
  */
 const getEncryptionKey = async (): Promise<string> => {
-    if (process.env.FLOWISE_SECRETKEY_OVERWRITE !== undefined && process.env.FLOWISE_SECRETKEY_OVERWRITE !== '') {
-        return process.env.FLOWISE_SECRETKEY_OVERWRITE
-    }
+    const overwrite = encryptionKeyOverwrite(process.env)
+    if (overwrite !== undefined) return overwrite
     try {
         if (USE_AWS_SECRETS_MANAGER && secretsManagerClient) {
             const secretId = process.env.SECRETKEY_AWS_NAME || 'FlowiseEncryptionKey'
@@ -2329,4 +2329,25 @@ export const toolSchemaToJsonSchema = (schema: unknown): ToolJsonSchema => {
         delete jsonSchema.$schema
     }
     return jsonSchema
+}
+
+/** Marker written by the image build when INCLUDE_BROWSER=0. Absent on the default image and on a source install. */
+export const IMAGE_WITHOUT_BROWSER_FILE = '/etc/cuttlely/no-browser'
+
+export const IMAGE_WITHOUT_BROWSER_ERROR = 'this image has no browser'
+
+/**
+ * Browser document loaders call this before they launch Chromium.
+ * An image built with INCLUDE_BROWSER=0 has no browser, so the request fails with a plain error.
+ */
+export function assertImageHasBrowser(markerPath: string = IMAGE_WITHOUT_BROWSER_FILE): void {
+    let leftOut = false
+    try {
+        leftOut = fs.existsSync(markerPath)
+    } catch {
+        leftOut = false
+    }
+    if (leftOut) {
+        throw new Error(IMAGE_WITHOUT_BROWSER_ERROR)
+    }
 }

@@ -46,7 +46,7 @@ const {
     turnImageDirFor
 } = await import('./run.mjs')
 const { HARNESS_EVENT_TYPES } = await import('./events.mjs')
-const { ANALYST_CURSOR_ERRORS, ANALYST_PAGE_TTL_MS, analystPageRequest } = await import('../scripts/analyst-page.mjs')
+const { ANALYST_CURSOR_ERRORS, ANALYST_PAGE_TTL_MS, analystPageRequest } = await import('./runtime/analyst-page.mjs')
 const { latestAnalystCursor } = await import('./analyst-capture.mjs')
 const { executeModule: executeModuleRaw, executeSpecialistTool, loadFlowiseNode } = await import('./bridge.mjs')
 const { syncHarnessFromFlow } = await import('./sync-from-flow.mjs')
@@ -2589,6 +2589,13 @@ const counts = catalog.counts
 check(
     'module catalog classifies every registered node',
     catalog.nodes.length === counts.native + counts.adapt + counts.replaced && catalog.nodes.length > 200
+)
+const tierNames = ['core', 'supported', 'legacy', 'hidden']
+check(
+    'module catalog records a support tier on every node',
+    tierNames.every((name) => Number.isInteger(catalog.tiers?.[name])) &&
+        catalog.nodes.every((node) => tierNames.includes(node.tier)) &&
+        tierNames.reduce((sum, name) => sum + catalog.tiers[name], 0) === catalog.nodes.length
 )
 check(
     'catalog keeps deprecated nodes instead of deleting them',
@@ -8143,7 +8150,7 @@ check(
     !heldText.includes('invented west 999') && passedText.includes('west 20') && !passedText.includes('invented west 999'),
     JSON.stringify({ heldText, passedText })
 )
-const { analystPingHeader, writeAnalystMcpStatus } = await import('../scripts/analyst-mcp-status.mjs')
+const { analystPingHeader, writeAnalystMcpStatus } = await import('./runtime/analyst-mcp-status.mjs')
 const { analystCaptureId, noteAnalystGatewayCall, recordAnalystResult } = await import('./analyst-capture.mjs')
 saveHarness(
     {
@@ -8669,7 +8676,7 @@ check(
         liveOne.text !== ANALYST_CURSOR_ERRORS.expired,
     JSON.stringify({ liveInput, text: liveOne.text, steps: liveOne.trace?.route?.steps })
 )
-const { queryAnalyst, resetAnalystStoreForTests } = await import('../scripts/analyst-store.mjs')
+const { queryAnalyst, resetAnalystStoreForTests } = await import('./runtime/analyst-store.mjs')
 const aggDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cuttlely-agg-page-'))
 const aggEnv = {
     DATABASE_TYPE: 'sqlite',

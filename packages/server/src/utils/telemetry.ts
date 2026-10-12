@@ -5,6 +5,7 @@ import { getAppVersion } from '../utils'
 import { isValidIPAddress } from './ipValidation'
 import logger, { auditLogger } from './logger'
 import { sanitizeAuditMetadata, sanitizeIPAddress } from './sanitize.util'
+import { telemetryDisabled } from '../settings/settingAlias'
 
 export enum TelemetryEventType {
     'USER_CREATED' = 'user_created',
@@ -15,7 +16,7 @@ export class Telemetry {
     postHog?: PostHog
 
     constructor() {
-        if (process.env.POSTHOG_PUBLIC_API_KEY) {
+        if (!telemetryDisabled(process.env) && process.env.POSTHOG_PUBLIC_API_KEY) {
             this.postHog = new PostHog(process.env.POSTHOG_PUBLIC_API_KEY)
         } else {
             this.postHog = undefined

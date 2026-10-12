@@ -660,7 +660,19 @@ export const SETTINGS: SettingDef[] = [
         section: 'storage',
         group: 'Uploads',
         label: 'Largest upload',
-        help: 'The biggest request Cuttlely accepts, for example 50mb.',
+        help: 'The biggest request Cuttlely accepts, for example 50mb. CUTTLELY_FILE_SIZE_LIMIT is the same limit and is used when both are set.',
+        type: 'text',
+        defaultLabel: '50mb',
+        defaultValue: '50mb',
+        placeholder: '50mb',
+        risk: 'low'
+    },
+    {
+        key: 'CUTTLELY_FILE_SIZE_LIMIT',
+        section: 'storage',
+        group: 'Uploads',
+        label: 'Largest upload (compatibility alias)',
+        help: 'Same limit as the existing upload size variable. When both are set, this name is the one Cuttlely uses.',
         type: 'text',
         defaultLabel: '50mb',
         defaultValue: '50mb',
@@ -852,6 +864,18 @@ export const SETTINGS: SettingDef[] = [
         risk: 'medium'
     },
     {
+        key: 'DISABLE_CUTTLELY_TELEMETRY',
+        section: 'integrations',
+        group: 'Usage events',
+        label: 'Turn off usage events',
+        help: 'Set to true to send nothing, even when a PostHog project key is set. The existing disable variable is still supported. When both are set, this name is used.',
+        type: 'switch',
+        ...TRUE_FALSE,
+        defaultLabel: 'Off',
+        defaultValue: 'false',
+        risk: 'low'
+    },
+    {
         key: 'LANGCHAIN_TRACING_V2',
         section: 'integrations',
         group: 'LangSmith tracing',
@@ -945,6 +969,18 @@ export const SETTINGS: SettingDef[] = [
         type: 'text',
         defaultLabel: 'Not set',
         placeholder: 'cuttlely',
+        risk: 'low',
+        showWhen: { key: 'ENABLE_METRICS', equals: ['true'] }
+    },
+    {
+        key: 'METRICS_PREFIX',
+        section: 'integrations',
+        group: 'Metrics',
+        label: 'Metrics prefix',
+        help: 'Optional prefix for published metric names. Empty keeps the names this server already publishes.',
+        type: 'text',
+        defaultLabel: 'Existing names',
+        placeholder: 'cuttlely_',
         risk: 'low',
         showWhen: { key: 'ENABLE_METRICS', equals: ['true'] }
     },
@@ -1194,6 +1230,7 @@ export const KEPT_OUT: KeptOutGroup[] = [
         group: 'Encryption and sign-in secrets',
         keys: [
             'FLOWISE_SECRETKEY_OVERWRITE',
+            'CUTTLELY_SECRETKEY_OVERWRITE',
             'SECRETKEY_PATH',
             'SECRETKEY_STORAGE_TYPE',
             'SECRETKEY_AWS_*',
@@ -1223,6 +1260,7 @@ export const KEPT_OUT: KeptOutGroup[] = [
             'CUTTLELY_HARNESS_GATEWAY_PORT',
             'NODE_OPTIONS',
             'CUTTLELY_IMAGE',
+            'INCLUDE_BROWSER',
             'CUTTLELY_INSTALL'
         ],
         why: 'The settings file lives in the data folder, and the host or volume decides these.'

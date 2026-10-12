@@ -318,7 +318,7 @@ supervise_hermes() {
                             stream_open=1
                         fi
                     elif [[ -n "${NODE_BIN:-}" && -n "${ROOT:-}" && -d "$DATA/hermes-streams" ]]; then
-                        if "$NODE_BIN" "$ROOT/scripts/hermes-stream.mjs" active; then
+                        if "$NODE_BIN" "$ROOT/harness/runtime/hermes-stream.mjs" active; then
                             stream_open=1
                         fi
                     fi

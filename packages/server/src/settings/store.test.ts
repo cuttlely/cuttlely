@@ -85,8 +85,16 @@ describe('server settings file', () => {
     it('reads the encryption key from the override or the key file', () => {
         const data = tempData()
         expect(encryptionKeySync({ FLOWISE_SECRETKEY_OVERWRITE: 'override-value' })).toBe('override-value')
+        expect(encryptionKeySync({ CUTTLELY_SECRETKEY_OVERWRITE: 'alias-value' })).toBe('alias-value')
+        expect(encryptionKeySync({ FLOWISE_SECRETKEY_OVERWRITE: 'same-value', CUTTLELY_SECRETKEY_OVERWRITE: 'same-value' })).toBe(
+            'same-value'
+        )
         fs.writeFileSync(path.join(data, 'encryption.key'), 'from-file')
         expect(encryptionKeySync({ SECRETKEY_PATH: data })).toBe('from-file')
+        expect(encryptionKeySync({ SECRETKEY_PATH: data, FLOWISE_SECRETKEY_OVERWRITE: '   ' })).toBe('from-file')
+        expect(() => encryptionKeySync({ FLOWISE_SECRETKEY_OVERWRITE: 'one-value', CUTTLELY_SECRETKEY_OVERWRITE: 'other-value' })).toThrow(
+            /both set to different values/
+        )
     })
 })
 

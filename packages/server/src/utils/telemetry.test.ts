@@ -64,6 +64,8 @@ describe('utils/telemetry.ts', () => {
 
     describe('Telemetry (PostHog) class', () => {
         it('does not create PostHog when POSTHOG_PUBLIC_API_KEY is unset', async () => {
+            delete process.env.DISABLE_CUTTLELY_TELEMETRY
+            delete process.env.DISABLE_FLOWISE_TELEMETRY
             delete process.env.POSTHOG_PUBLIC_API_KEY
             const t = new Telemetry()
             expect(t.postHog).toBeUndefined()
@@ -71,6 +73,8 @@ describe('utils/telemetry.ts', () => {
         })
 
         it('creates PostHog when POSTHOG_PUBLIC_API_KEY is set and captures', async () => {
+            delete process.env.DISABLE_CUTTLELY_TELEMETRY
+            delete process.env.DISABLE_FLOWISE_TELEMETRY
             process.env.POSTHOG_PUBLIC_API_KEY = 'ph-key'
 
             const capture = jest.fn()
@@ -93,7 +97,25 @@ describe('utils/telemetry.ts', () => {
             expect(shutdownAsync).toHaveBeenCalled()
         })
 
+        it('skips PostHog when either disable variable is true, and the product name wins when both are set', async () => {
+            process.env.POSTHOG_PUBLIC_API_KEY = 'ph-key'
+            process.env.DISABLE_FLOWISE_TELEMETRY = 'true'
+            delete process.env.DISABLE_CUTTLELY_TELEMETRY
+            expect(new Telemetry().postHog).toBeUndefined()
+
+            delete process.env.DISABLE_FLOWISE_TELEMETRY
+            process.env.DISABLE_CUTTLELY_TELEMETRY = 'true'
+            expect(new Telemetry().postHog).toBeUndefined()
+
+            process.env.DISABLE_FLOWISE_TELEMETRY = 'true'
+            process.env.DISABLE_CUTTLELY_TELEMETRY = 'false'
+            posthogNode.PostHog.mockImplementation(() => ({ capture: jest.fn(), shutdownAsync: jest.fn() }))
+            expect(new Telemetry().postHog).toBeDefined()
+        })
+
         it('sendTelemetry: uses default args and uuid distinctId when orgId omitted', async () => {
+            delete process.env.DISABLE_CUTTLELY_TELEMETRY
+            delete process.env.DISABLE_FLOWISE_TELEMETRY
             process.env.POSTHOG_PUBLIC_API_KEY = 'ph-key'
 
             uuid.v4.mockReturnValue('distinct-uuid-777')

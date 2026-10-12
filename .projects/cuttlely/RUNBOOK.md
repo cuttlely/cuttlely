@@ -51,6 +51,7 @@ node etl/check.mjs --stress   # adds a generated 1,000,000-row CSV and a 401-fil
 pnpm verify                   # the full gate; `pnpm verify --help` lists the 23 steps
 pnpm verify --fast            # lint, boundaries, typecheck, verify-test, website-docs, chat-widget, hermes-vendor, unit, server-settings-ui, handoff-test, render-blueprint, identity-migration
 node scripts/check-boundaries.mjs   # zone crossings; --update only shrinks the baseline
+node scripts/health-report.mjs       # health table; exits 0. --image <ref> adds the image size
 pnpm verify --skip smoke      # skip one step locally; repeat --skip for more. Not for the merge gate
 pnpm verify:comment           # prints the summary for a pull request comment
 CUTTLELY_VERIFY_JEST_WORKERS=4 pnpm verify   # unit Jest workers; default 50%
@@ -103,41 +104,45 @@ The start script:
 
 Contributor-relevant variables. The admin panel registry (`packages/server/src/settings/registry.ts`) and `docs/how-to/server-settings.md` cover the rest.
 
-| Variable                                                    | Default                                     | Meaning                                                                                              |
-| ----------------------------------------------------------- | ------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
-| `CUTTLELY_DATA_DIR`                                         | `<repo>/.cuttlely`                          | Harness records, queue, run history, workspaces, the runtime home                                    |
-| `CUTTLELY_HERMES_HOME`                                      | `$CUTTLELY_DATA_DIR/hermes`                 | Agent runtime home and profiles                                                                      |
-| `HERMES_API_PORT`, `HERMES_API_URL`                         | `8642`, `http://127.0.0.1:$HERMES_API_PORT` | Agent runtime API port and URL                                                                       |
-| `HERMES_PYTHON`                                             | unset                                       | Python that runs the agent runtime                                                                   |
-| `PORT`, `HOST`                                              | `43117`, server default                     | Public server address                                                                                |
-| `DATABASE_PATH`, `SECRETKEY_PATH`                           | `~/.cuttlely`                               | Directories (not the sqlite file) for the database and `encryption.key`                              |
-| `CUTTLELY_FLOWISE_DB`                                       | the sqlite file in `DATABASE_PATH`          | The sqlite file the harness credential reader opens. Do not set it with `DATABASE_TYPE=postgres`     |
-| `CUTTLELY_EAGER_NODES`                                      | unset                                       | `true` loads every node at boot (D12)                                                                |
-| `CUTTLELY_WARM_HERMES`, `CUTTLELY_HERMES_KEEP_WARM_MINUTES` | on, off                                     | Warm-up turns at boot and after a save; optional repeat every N minutes (D12)                        |
-| `CUTTLELY_HARNESS_GATEWAY_PORT`                             | `43118`                                     | Loopback model gateway for agent-loop specialists (D9)                                               |
-| `CUTTLELY_HARNESS_TURN_BUDGET_MS`                           | `45000`                                     | Wall clock per harness turn; `0` turns it off (D13)                                                  |
-| `CUTTLELY_HARNESS_MODEL_FALLBACK_MS`                        | `8000`                                      | When a connected fallback model starts; `0` waits for a 502, 503 or 504 (D13)                        |
-| `CUTTLELY_HARNESS_SPECIALIST_CONTEXT_TOKENS`                | `4000`                                      | Specialist prompt cap; `0` turns it off (D14)                                                        |
-| `CUTTLELY_HARNESS_CHIEF_CONTEXT_TOKENS`                     | `6000`                                      | Handoff cap; `0` turns it off (D14)                                                                  |
-| `CUTTLELY_HARNESS_QUEUE`                                    | `inline`                                    | `inline`, `external` (start `harness/worker.mjs`) or `off` (D15)                                     |
-| `CUTTLELY_HARNESS_WORKERS`                                  | `1` in external mode                        | Worker processes the start script launches                                                           |
-| `CUTTLELY_HARNESS_WORKER_CONCURRENCY`                       | `4`                                         | Jobs the inline worker runs at once                                                                  |
-| `CUTTLELY_HARNESS_LOCK_MS`                                  | turn budget plus 5 s                        | How long a dead worker may hold a chat; `0` never expires                                            |
-| `CUTTLELY_BASE_URL`                                         | `http://127.0.0.1:$PORT`                    | `baseURL` passed to nodes in a harness run                                                           |
-| `CUTTLELY_ETL_DIR`                                          | `$CUTTLELY_DATA_DIR/etl`                    | ETL database, uploads, cloned repositories and vectors                                               |
-| `CUTTLELY_ETL_CONCURRENCY`                                  | `1`                                         | ETL runs at once                                                                                     |
-| `CUTTLELY_ETL_ROOTS`                                        | unset                                       | Extra folders ETL sources may read, comma-separated `path` or `label=path`. Unset fails closed (D17) |
-| `CUTTLELY_ETL_DEFAULT_WORKSPACE_ID`                         | unset                                       | Workspace for pipelines that have none                                                               |
-| `CUTTLELY_ETL_SCHEDULE_MS`                                  | `15000`                                     | How often the scheduler looks for a due pipeline                                                     |
-| `CUTTLELY_ANALYST`                                          | unset                                       | `auto` creates isolated analyst storage (D23)                                                        |
-| `CUTTLELY_POSTGRES_URL`                                     | unset                                       | A separate analyst database. Never the application database. Needs `sslmode` for hosted Postgres     |
-| `CUTTLELY_VERSIONS_DIR`, `CUTTLELY_DRAFTS`                  | `$CUTTLELY_DATA_DIR/versions`, on           | Version history location; `off` turns drafts off (D25)                                               |
-| `CUTTLELY_LOCAL_ADMIN`                                      | unset                                       | `true` enables the one local account (D19). Leave it off on a public AuthKit deploy                  |
-| `TRUST_PROXY`                                               | unset (trust none)                          | Proxy hop count in front of the server (D20)                                                         |
-| `MODEL_LIST_CONFIG_JSON`                                    | unset                                       | `bundled` turns off the daily model list fetch (D32)                                                 |
-| `CUTTLELY_STARTING_PAGE`                                    | on                                          | `off` skips the boot progress page (D34)                                                             |
-| `CUTTLELY_DRAIN_TIMEOUT_MS`                                 | `25000`                                     | How long running answers and streams may finish after SIGTERM before they get a `503`                |
-| `CUTTLELY_IGNORE_ADMIN_SETTINGS`                            | unset                                       | `1` starts without the admin settings file (D35)                                                     |
+| Variable                                                    | Default                                     | Meaning                                                                                                     |
+| ----------------------------------------------------------- | ------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| `CUTTLELY_DATA_DIR`                                         | `<repo>/.cuttlely`                          | Harness records, queue, run history, workspaces, the runtime home                                           |
+| `CUTTLELY_HERMES_HOME`                                      | `$CUTTLELY_DATA_DIR/hermes`                 | Agent runtime home and profiles                                                                             |
+| `HERMES_API_PORT`, `HERMES_API_URL`                         | `8642`, `http://127.0.0.1:$HERMES_API_PORT` | Agent runtime API port and URL                                                                              |
+| `HERMES_PYTHON`                                             | unset                                       | Python that runs the agent runtime                                                                          |
+| `PORT`, `HOST`                                              | `43117`, server default                     | Public server address                                                                                       |
+| `DATABASE_PATH`, `SECRETKEY_PATH`                           | `~/.cuttlely`                               | Directories (not the sqlite file) for the database and `encryption.key`                                     |
+| `CUTTLELY_FLOWISE_DB`                                       | the sqlite file in `DATABASE_PATH`          | The sqlite file the harness credential reader opens. Do not set it with `DATABASE_TYPE=postgres`            |
+| `CUTTLELY_EAGER_NODES`                                      | unset                                       | `true` loads every node at boot (D12)                                                                       |
+| `CUTTLELY_WARM_HERMES`, `CUTTLELY_HERMES_KEEP_WARM_MINUTES` | on, off                                     | Warm-up turns at boot and after a save; optional repeat every N minutes (D12)                               |
+| `CUTTLELY_HARNESS_GATEWAY_PORT`                             | `43118`                                     | Loopback model gateway for agent-loop specialists (D9)                                                      |
+| `CUTTLELY_HARNESS_TURN_BUDGET_MS`                           | `45000`                                     | Wall clock per harness turn; `0` turns it off (D13)                                                         |
+| `CUTTLELY_HARNESS_MODEL_FALLBACK_MS`                        | `8000`                                      | When a connected fallback model starts; `0` waits for a 502, 503 or 504 (D13)                               |
+| `CUTTLELY_HARNESS_SPECIALIST_CONTEXT_TOKENS`                | `4000`                                      | Specialist prompt cap; `0` turns it off (D14)                                                               |
+| `CUTTLELY_HARNESS_CHIEF_CONTEXT_TOKENS`                     | `6000`                                      | Handoff cap; `0` turns it off (D14)                                                                         |
+| `CUTTLELY_HARNESS_QUEUE`                                    | `inline`                                    | `inline`, `external` (start `harness/worker.mjs`) or `off` (D15)                                            |
+| `CUTTLELY_HARNESS_WORKERS`                                  | `1` in external mode                        | Worker processes the start script launches                                                                  |
+| `CUTTLELY_HARNESS_WORKER_CONCURRENCY`                       | `4`                                         | Jobs the inline worker runs at once                                                                         |
+| `CUTTLELY_HARNESS_LOCK_MS`                                  | turn budget plus 5 s                        | How long a dead worker may hold a chat; `0` never expires                                                   |
+| `CUTTLELY_BASE_URL`                                         | `http://127.0.0.1:$PORT`                    | `baseURL` passed to nodes in a harness run                                                                  |
+| `CUTTLELY_ETL_DIR`                                          | `$CUTTLELY_DATA_DIR/etl`                    | ETL database, uploads, cloned repositories and vectors                                                      |
+| `CUTTLELY_ETL_CONCURRENCY`                                  | `1`                                         | ETL runs at once                                                                                            |
+| `CUTTLELY_ETL_ROOTS`                                        | unset                                       | Extra folders ETL sources may read, comma-separated `path` or `label=path`. Unset fails closed (D17)        |
+| `CUTTLELY_ETL_DEFAULT_WORKSPACE_ID`                         | unset                                       | Workspace for pipelines that have none                                                                      |
+| `CUTTLELY_ETL_SCHEDULE_MS`                                  | `15000`                                     | How often the scheduler looks for a due pipeline                                                            |
+| `CUTTLELY_ANALYST`                                          | unset                                       | `auto` creates isolated analyst storage (D23)                                                               |
+| `CUTTLELY_POSTGRES_URL`                                     | unset                                       | A separate analyst database. Never the application database. Needs `sslmode` for hosted Postgres            |
+| `CUTTLELY_VERSIONS_DIR`, `CUTTLELY_DRAFTS`                  | `$CUTTLELY_DATA_DIR/versions`, on           | Version history location; `off` turns drafts off (D25)                                                      |
+| `CUTTLELY_LOCAL_ADMIN`                                      | unset                                       | `true` enables the one local account (D19). Leave it off on a public AuthKit deploy                         |
+| `TRUST_PROXY`                                               | unset (trust none)                          | Proxy hop count in front of the server (D20)                                                                |
+| `MODEL_LIST_CONFIG_JSON`                                    | unset                                       | `bundled` turns off the daily model list fetch (D32)                                                        |
+| `CUTTLELY_STARTING_PAGE`                                    | on                                          | `off` skips the boot progress page (D34)                                                                    |
+| `CUTTLELY_DRAIN_TIMEOUT_MS`                                 | `25000`                                     | How long running answers and streams may finish after SIGTERM before they get a `503`                       |
+| `CUTTLELY_IGNORE_ADMIN_SETTINGS`                            | unset                                       | `1` starts without the admin settings file (D35)                                                            |
+| `CUTTLELY_SECRETKEY_OVERWRITE`                              | unset                                       | Compatibility alias for `FLOWISE_SECRETKEY_OVERWRITE`. Same value starts. Different values refuse to start. |
+| `CUTTLELY_FILE_SIZE_LIMIT`                                  | `50mb`                                      | Compatibility alias for the upload size limit. When both are set, this name is used.                        |
+| `DISABLE_CUTTLELY_TELEMETRY`                                | unset                                       | `true` turns usage events off. When both disable variables are set, this name is used.                      |
+| `METRICS_PREFIX`                                            | unset                                       | Optional prefix for published metric names. Unset keeps today's names.                                      |
 
 ## Gotchas
 
@@ -181,7 +186,7 @@ The Blueprint is `render.yaml` (D29). Apply it from the Render Dashboard; this r
 -   The first sync asks for the `sync: false` values (the AuthKit variables and `CUTTLELY_BOOTSTRAP_EMAIL`). Never put their values in git, chat or shell history. Do not add provider API keys; harness models come from in-app credentials.
 -   Confirm the plans before the first sync. The database name, user, region and Postgres major version, and the web runtime, cannot change after create.
 -   Leave `numInstances` at 1. Wait for `GET /api/v1/ping` to return `pong`; the first boot is slow.
--   Losing `FLOWISE_SECRETKEY_OVERWRITE` makes stored credentials unreadable.
+-   Losing `FLOWISE_SECRETKEY_OVERWRITE` or `CUTTLELY_SECRETKEY_OVERWRITE` makes stored credentials unreadable. If both are set to different values, Cuttlely refuses to start.
 -   Analyst mode: set `CUTTLELY_ANALYST=auto` in the Dashboard, or a separate database in `CUTTLELY_POSTGRES_URL` when the database user cannot create roles (D23).
 
 ## Docker
@@ -193,11 +198,12 @@ docker compose up -d --build                                        # build this
 docker compose exec cuttlely curl -fsS http://127.0.0.1:43117/api/v1/ping
 docker compose logs cuttlely                                        # the one-time setup link for the first account is in the log
 bash scripts/docker-smoke.sh                                        # build, start and ping, for image changes
+INCLUDE_BROWSER=0 bash scripts/docker-smoke.sh                     # the same, without Chromium
 ```
 
 Compose mounts a volume at `/var/cuttlely` (the same layout as the Render disk) and uses SQLite. `CUTTLELY_IMAGE` pins a release or names a local build. Copy `.env.example` to `.env` only to override a default; never commit `.env`. `docker/Dockerfile` refuses to build; use the root `Dockerfile`.
 
-The root `Dockerfile` has two stages. The build stage has the compilers, installs every package, builds, sets up Hermes, then installs `node_modules` again with production packages only. The runtime stage copies that tree, Hermes and its Python, and installs only the system packages Cuttlely runs with (git, Chromium, python3, curl, util-linux). A system library a new runtime feature needs goes in the runtime stage's `apt-get` list. A package that has to compile at install time goes in `onlyBuiltDependencies` in the root `package.json` and in the `pnpm -r rebuild` line. `.dockerignore` leaves `.turbo` and other local caches out of that build. `turbo.json` lists `dist/**` and `build/**` as build outputs; the UI writes `build/`. After an image change, build it, start it and check ping (`bash scripts/docker-smoke.sh`).
+The root `Dockerfile` has two stages. The build stage has the compilers, installs every package, builds, sets up Hermes, then installs `node_modules` again with production packages only. The runtime stage copies that tree, Hermes and its Python, and installs only the system packages Cuttlely runs with (git, Chromium, python3, curl, util-linux). `INCLUDE_BROWSER` defaults to `1`. `INCLUDE_BROWSER=0` leaves out Chromium and the `cuttlely-chromium` symlink, and writes `/etc/cuttlely/no-browser`. Puppeteer and Playwright document loaders then fail with `this image has no browser`. The published image is still the default build. A system library a new runtime feature needs goes in the runtime stage's `apt-get` list. A package that has to compile at install time goes in `onlyBuiltDependencies` in the root `package.json` and in the `pnpm -r rebuild` line. `.dockerignore` leaves `.turbo` and other local caches out of that build. `turbo.json` lists `dist/**` and `build/**` as build outputs; the UI writes `build/`. After an image change, build it, start it and check ping (`bash scripts/docker-smoke.sh`). The smaller image is `INCLUDE_BROWSER=0 bash scripts/docker-smoke.sh`.
 
 ## Website
 

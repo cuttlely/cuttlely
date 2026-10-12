@@ -81,23 +81,35 @@ RUN mkdir -p /opt/uv-python \
 FROM node:24-trixie-slim
 
 ARG TARGETARCH
+# 1 (the default) installs Chromium. 0 leaves it out. Browser document loaders then fail with a clear error.
+ARG INCLUDE_BROWSER=1
 
 # Runtime system packages: git for version history and ETL sources, Chromium for browser tools, python3 as the
 # fallback Python, curl for the health check, util-linux for setpriv in the entrypoint.
-RUN apt-get update && apt-get install -y --no-install-recommends \
+# INCLUDE_BROWSER=0 skips Chromium and the cuttlely-chromium symlink, and writes /etc/cuttlely/no-browser.
+RUN if [ "$INCLUDE_BROWSER" != "0" ] && [ "$INCLUDE_BROWSER" != "1" ]; then \
+        echo "INCLUDE_BROWSER must be 0 or 1" >&2; \
+        exit 1; \
+    fi \
+    && apt-get update && apt-get install -y --no-install-recommends \
         bash \
         ca-certificates \
         curl \
         git \
         python3 \
-        chromium \
+        $(if [ "$INCLUDE_BROWSER" = "1" ]; then echo chromium; fi) \
         util-linux \
     && rm -rf /var/lib/apt/lists/* \
     && npm install -g pnpm@10.33.4 \
     && npm cache clean --force \
-    && CHROME="$(command -v chromium || command -v chromium-browser)" \
-    && test -n "$CHROME" \
-    && ln -sfn "$CHROME" /usr/local/bin/cuttlely-chromium
+    && if [ "$INCLUDE_BROWSER" = "1" ]; then \
+        CHROME="$(command -v chromium || command -v chromium-browser)" \
+        && test -n "$CHROME" \
+        && ln -sfn "$CHROME" /usr/local/bin/cuttlely-chromium; \
+    else \
+        mkdir -p /etc/cuttlely \
+        && : > /etc/cuttlely/no-browser; \
+    fi
 
 COPY --from=build /usr/local/bin/uv /usr/local/bin/uvx /usr/local/bin/
 COPY --from=build /opt/uv-python /opt/uv-python

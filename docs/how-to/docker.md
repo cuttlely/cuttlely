@@ -68,6 +68,13 @@ Each release is published as `ghcr.io/cuttlely/cuttlely:X.Y.Z`, and the newest r
 -   **Pin a release.** Set `CUTTLELY_IMAGE=ghcr.io/cuttlely/cuttlely:1.0.0` in `.env`, then run `docker compose up -d`.
 -   **Move to the newest release.** Run `docker compose pull`, then `docker compose up -d`. Back up the volume first and read the release's upgrade notes in the changelog. [Upgrading Cuttlely](../upgrading.md) has the backup, upgrade and roll back steps.
 -   **Build your own checkout.** Run `docker compose up -d --build`. The build is tagged with the `CUTTLELY_IMAGE` name, so set `CUTTLELY_IMAGE=cuttlely:local` in `.env` to keep it apart from the published image.
+-   **Build without Chromium.** The default image includes Chromium for the Puppeteer and Playwright document loaders. To leave it out, set `INCLUDE_BROWSER=0` and build again:
+
+```bash
+INCLUDE_BROWSER=0 docker compose up -d --build
+```
+
+`docker build --build-arg INCLUDE_BROWSER=0 -t cuttlely:no-browser .` is the same build. In that image those two loaders fail with `this image has no browser`. The agent runtime's browser tool also cannot browse there: it returns success: false, and the server keeps running. The published image `ghcr.io/cuttlely/cuttlely` is unchanged and still includes Chromium. `INCLUDE_BROWSER` accepts only `0` and `1`.
 
 The image is built for `linux/amd64`. A release can also carry `linux/arm64` when it was built on a machine that can build both. On Apple silicon, Docker runs the `amd64` image under emulation.
 
@@ -81,25 +88,26 @@ SQLite is `/var/cuttlely/data/database.sqlite` on the named volume `cuttlely-dat
 
 Copy `.env.example` to `.env` only to change a default. `.env` is gitignored.
 
-| Variable                      | Default                            | Notes                                                                                                                                                                           |
-| ----------------------------- | ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `PORT`                        | `43117`                            | Host and container.                                                                                                                                                             |
-| `HOST`                        | `0.0.0.0`                          |                                                                                                                                                                                 |
-| `DATABASE_TYPE`               | unset (SQLite)                     | App database. Compose does not set it. Compose does not start Postgres.                                                                                                         |
-| `DATABASE_PATH`               | `/var/cuttlely/data`               | Directory. The file inside it is `database.sqlite`.                                                                                                                             |
-| `CUTTLELY_ANALYST`            | unset                              | Set `auto` to give each workspace its own analyst store, `analyst-<tag>.db` beside the app file. Auto mode can create and change tables. An explicit Postgres URL is read-only. |
-| `SECRETKEY_PATH`              | `/var/cuttlely/data`               | `encryption.key` and auth-secret files.                                                                                                                                         |
-| `BLOB_STORAGE_PATH`           | `/var/cuttlely/storage`            | Uploads.                                                                                                                                                                        |
-| `CUTTLELY_DATA_DIR`           | `/var/cuttlely`                    | Harness records and `harness-queue.sqlite`.                                                                                                                                     |
-| `CUTTLELY_HERMES_HOME`        | `/var/cuttlely/hermes`             | Agent runtime state. `HERMES_HOME` matches it.                                                                                                                                  |
-| `CUTTLELY_ETL_DIR`            | `/var/cuttlely/etl`                | ETL sqlite and files.                                                                                                                                                           |
-| `CUTTLELY_VERSIONS`           | unset                              | Version history is on. Set `CUTTLELY_VERSIONS=off` in `.env`, then `docker compose up -d`, to turn it off. [History settings](../reference/versioning-settings.md).             |
-| `CUTTLELY_DRAFTS`             | unset                              | Drafts are on. Set `CUTTLELY_DRAFTS=off` in `.env`, then `docker compose up -d`, to save to Live. [History settings](../reference/versioning-settings.md).                      |
-| `LOG_PATH`                    | `/var/cuttlely/logs`               |                                                                                                                                                                                 |
-| `CUTTLELY_LOCAL_ADMIN`        | `true`                             | The local account and its password form. Blank keeps it on. Set `false` when you use WorkOS or publish the port beyond your machine. [Sign in](./sign-in.md).                   |
-| `CUTTLELY_INSTALL`            | `docker`                           | Set by Compose so the start script knows this is Docker and keeps the local account on by default. Leave it as it is.                                                           |
-| `FLOWISE_SECRETKEY_OVERWRITE` | unset                              | Leave unset unless you want your own key. Never commit it.                                                                                                                      |
-| `CUTTLELY_IMAGE`              | `ghcr.io/cuttlely/cuttlely:latest` | The image Compose pulls, and the tag a local build gets. Pin a release with `:X.Y.Z`.                                                                                           |
+| Variable                       | Default                            | Notes                                                                                                                                                                           |
+| ------------------------------ | ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `PORT`                         | `43117`                            | Host and container.                                                                                                                                                             |
+| `HOST`                         | `0.0.0.0`                          |                                                                                                                                                                                 |
+| `DATABASE_TYPE`                | unset (SQLite)                     | App database. Compose does not set it. Compose does not start Postgres.                                                                                                         |
+| `DATABASE_PATH`                | `/var/cuttlely/data`               | Directory. The file inside it is `database.sqlite`.                                                                                                                             |
+| `CUTTLELY_ANALYST`             | unset                              | Set `auto` to give each workspace its own analyst store, `analyst-<tag>.db` beside the app file. Auto mode can create and change tables. An explicit Postgres URL is read-only. |
+| `SECRETKEY_PATH`               | `/var/cuttlely/data`               | `encryption.key` and auth-secret files.                                                                                                                                         |
+| `BLOB_STORAGE_PATH`            | `/var/cuttlely/storage`            | Uploads.                                                                                                                                                                        |
+| `CUTTLELY_DATA_DIR`            | `/var/cuttlely`                    | Harness records and `harness-queue.sqlite`.                                                                                                                                     |
+| `CUTTLELY_HERMES_HOME`         | `/var/cuttlely/hermes`             | Agent runtime state. `HERMES_HOME` matches it.                                                                                                                                  |
+| `CUTTLELY_ETL_DIR`             | `/var/cuttlely/etl`                | ETL sqlite and files.                                                                                                                                                           |
+| `CUTTLELY_VERSIONS`            | unset                              | Version history is on. Set `CUTTLELY_VERSIONS=off` in `.env`, then `docker compose up -d`, to turn it off. [History settings](../reference/versioning-settings.md).             |
+| `CUTTLELY_DRAFTS`              | unset                              | Drafts are on. Set `CUTTLELY_DRAFTS=off` in `.env`, then `docker compose up -d`, to save to Live. [History settings](../reference/versioning-settings.md).                      |
+| `LOG_PATH`                     | `/var/cuttlely/logs`               |                                                                                                                                                                                 |
+| `CUTTLELY_LOCAL_ADMIN`         | `true`                             | The local account and its password form. Blank keeps it on. Set `false` when you use WorkOS or publish the port beyond your machine. [Sign in](./sign-in.md).                   |
+| `CUTTLELY_INSTALL`             | `docker`                           | Set by Compose so the start script knows this is Docker and keeps the local account on by default. Leave it as it is.                                                           |
+| `FLOWISE_SECRETKEY_OVERWRITE`  | unset                              | Leave unset unless you want your own key. Never commit it.                                                                                                                      |
+| `CUTTLELY_SECRETKEY_OVERWRITE` | unset                              | The same key. If both are set and the values differ, Cuttlely refuses to start. Never commit it.                                                                                |
+| `CUTTLELY_IMAGE`               | `ghcr.io/cuttlely/cuttlely:latest` | The image Compose pulls, and the tag a local build gets. Pin a release with `:X.Y.Z`.                                                                                           |
 
 Queue files under `docker/` are not this install. They build this repository and do not pull an image. See [docker/README.md](../../docker/README.md).
 
