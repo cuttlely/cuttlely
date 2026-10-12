@@ -1,0 +1,48 @@
+{
+    "name": "@cuttlely/node-pack-tools-mcp",
+    "version": "1.0.2",
+    "private": true,
+    "description": "Tool and MCP server nodes for Cuttlely.",
+    "license": "Apache-2.0",
+    "cuttlely": {
+        "nodePack": {
+            "nodes": "dist/nodes",
+            "credentials": "dist/credentials"
+        }
+    },
+    "scripts": {
+        "build": "tsc && gulp",
+        "clean": "rimraf dist"
+    },
+    "dependencies": {
+        "@aws-sdk/client-sns": "^3.1014.0",
+        "@brave/brave-search-mcp-server": "2.0.80",
+        "@cuttlely/components": "workspace:*",
+        "@e2b/code-interpreter": "^1.5.1",
+        "@langchain/community": "1.1.12",
+        "@langchain/core": "1.1.20",
+        "@langchain/exa": "1.0.1",
+        "@langchain/tavily": "1.2.0",
+        "@modelcontextprotocol/sdk": "^1.32.1",
+        "@modelcontextprotocol/server-sequential-thinking": "2025.12.18",
+        "@modelcontextprotocol/server-slack": "^2025.1.17",
+        "@stripe/agent-toolkit": "^0.1.20",
+        "axios": "1.20.0",
+        "composio-core": "^0.5.39",
+        "exa-js": "^1.0.12",
+        "node-fetch": "^2.6.11",
+        "object-hash": "^3.0.0",
+        "pdf-parse": "^1.1.1",
+        "pdfjs-dist": "^5.3.93",
+        "supergateway": "3.0.1",
+        "zod": "^3.25.76 || ^4"
+    },
+    "devDependencies": {
+        "@types/gulp": "4.0.9",
+        "@types/node-fetch": "2.6.2",
+        "@types/object-hash": "^3.0.2",
+        "gulp": "^4.0.2",
+        "rimraf": "^5.0.5",
+        "typescript": "^5.4.5"
+    }
+}

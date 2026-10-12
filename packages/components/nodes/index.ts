@@ -12,4 +12,7 @@ export {
     validateMCPServerConfig
 } from './tools/MCP/core'
 
+export { DynamicStructuredTool } from './tools/OpenAPIToolkit/core'
+export type { DynamicStructuredToolInput } from './tools/OpenAPIToolkit/core'
+
 export { default as moduleCatalog } from './module-catalog.json'

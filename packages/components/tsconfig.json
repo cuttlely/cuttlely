@@ -14,6 +14,9 @@
             "@cuttlely/components/validator": ["src/validator.ts"],
             "@cuttlely/components/sanitizeDataSourceOptions": ["src/sanitizeDataSourceOptions.ts"],
             "@cuttlely/components/awsToolsUtils": ["src/awsToolsUtils.ts"],
+            "@cuttlely/components/agents": ["src/agents.ts"],
+            "@cuttlely/components/storageUtils": ["src/storageUtils.ts"],
+            "@cuttlely/components/nodes": ["nodes/index.ts"],
             "@cuttlely/components/modelLoader": ["src/modelLoader.ts"],
             "@cuttlely/components/etl-engine": ["nodes/etl/engine.ts"]
         },
