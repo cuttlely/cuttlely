@@ -1,7 +1,7 @@
 // The canvas chat calls the saved chatflow. An unsaved harness has no id, so that request never starts.
 // A required credential is whatever the chat-model node declares. Optional credentials (Ollama and similar) stay optional.
 // Handles saved before the type suffix, and handles repaired on load, both count as a Chat Model edge.
-// The same match lives in harness/flow-graph.mjs chatModelEdge.
+// The same match lives in packages/harness/flow-graph.mjs chatModelEdge.
 
 function inputNameFromHandle(edge) {
     const handle = String(edge?.targetHandle || '')

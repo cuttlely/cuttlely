@@ -4,12 +4,12 @@ Conventions, do and don't, and lessons a newcomer would otherwise relearn. Add a
 
 ## Conventions
 
--   Harness runtime code is plain Node ESM in `harness/*.mjs`. Analyst storage, paging, the analyst database check, the SQLite worker, tool status, and the stream lease live in `harness/runtime/`. The old `scripts/` paths re-export those modules until the release after 1.0.2. ETL runtime code is plain Node ESM in `etl/*.mjs`, loaded from the CommonJS server with a real dynamic import. Canvas nodes are TypeScript under `packages/components/nodes/`. Bump a node's `version` when its inputs change.
+-   Harness runtime code is plain Node ESM in `packages/harness` (`@cuttlely/harness`). Analyst storage, paging, the analyst database check, the SQLite worker, tool status, and the stream lease live in `packages/harness/runtime/`. `harness/` re-exports the package for one release. `scripts/analyst-*.mjs` and `scripts/hermes-stream.mjs` re-export `packages/harness/runtime/` until the release after 1.0.2. ETL runtime code is plain Node ESM in `packages/etl` (`@cuttlely/etl`), loaded from the CommonJS server with a real dynamic import. `etl/` re-exports that package for one release. Canvas nodes are TypeScript under `packages/components/nodes/`. Bump a node's `version` when its inputs change.
 -   The canvas label is Harness Prime; the saved node name stays `harnessChief`, type `HarnessChief`. Template card titles are Title Case, but harness record names and a chatflow's `harnessName` stay the runtime id (`upload`, `field-team`, `calculator`).
 -   Runtime profile names: harness `<harness>`, agent-loop specialist `<harness>--<specialist>`. Session key `{harness}:{chatId}`. A specialist's runtime toolset for an MCP server is the server name (`analyst`), not `mcp-<name>`.
--   Every harness behaviour change gets a case in `harness/check.mjs` with mocked runtime and model calls, runnable without a build, a key or the network. The same goes for ETL and `etl/check.mjs`.
+-   Every harness behaviour change gets a case in `packages/harness/check.mjs` with mocked runtime and model calls, runnable without a build, a key or the network. The same goes for ETL and `packages/etl/check.mjs`.
 -   A harness card opens `/harnesses/:name` (runs and a prompt box); the canvas is `/harnesscanvas/:id`. The harness canvas chat posts to `POST /api/v1/harnesses/:slug/runs`, not through `internal-prediction`.
--   Run history stores the same `trace` object the chat renders (`harness/trace.mjs`), and every view uses `HarnessRunTrace`. A specialist model label is the node label and model name, never a credential id.
+-   Run history stores the same `trace` object the chat renders (`packages/harness/trace.mjs`), and every view uses `HarnessRunTrace`. A specialist model label is the node label and model name, never a credential id.
 -   Workspace queries use `getWorkspaceSearchOptions` from `packages/server/src/identity/workspaceScope.ts`; a missing workspace id is a 400, never "list everything".
 -   A shipped migration is never edited. New tables go in a later migration whose down drops them. MySQL and MariaDB need unique foreign-key names (`fk_<table>_<column>`) and matching column types and collations.
 -   Code comments explain the reason in words. They do not cite issue or pull request numbers.
@@ -28,7 +28,7 @@ Conventions, do and don't, and lessons a newcomer would otherwise relearn. Add a
 
 ## Do
 
--   Run `pnpm install && node harness/check.mjs` before and after harness changes.
+-   Run `pnpm install && pnpm harness:check` before and after harness changes. `node harness/check.mjs` still runs that check for one release.
 -   Keep the agent runtime on `127.0.0.1`.
 -   Keep model keys in in-app credentials selected on chat-model nodes (D9). When debugging, read key names, never values.
 -   Build a fresh node instance per run and pass the run's real flow options to `init`. Never special-case a chat model by provider.
@@ -81,6 +81,7 @@ Conventions, do and don't, and lessons a newcomer would otherwise relearn. Add a
 -   **`marked` ships ESM only.** The UI Jest config maps it to `marked/lib/marked.umd.js`, because Babel config in `packages/ui/package.json` does not apply to files under `node_modules`.
 -   **Word and PowerPoint uploads must start with a ZIP header.** `parseOfficeDocument` in `packages/components/src/officeDocument.ts` refuses anything else before officeparser 5 runs, because officeparser guesses the type with file-type 16, whose ASF parser can hang. Keep that check if the loaders change; officeparser 6 has a different API.
 -   **One `uuid` major for the whole tree.** The root `pnpm.overrides` and `resolutions` hold every package on `uuid` 11, which ships its own types, so no package needs `@types/uuid`. Raise all of them together, and check the `uuid` path in `packages/server/jest.config.js` (uuid 11 keeps its CommonJS build in `dist/cjs`).
+-   **`@types/node` 24 does not declare `Array.prototype.at`.** The hoisted types follow the language lib. Components and the server keep an older `lib`, so `tsc` reports `at` as missing until `ES2022.Array` is in that list. Node 24 has the method. Do not replace the calls to satisfy an older lib.
 -   **The UI runs on a React Router data router** (`createBrowserRouter` in `packages/ui/src/index.jsx`). The app providers live in its root route because `ErrorProvider` navigates, and the canvas unsaved-changes prompt uses `useBlocker`, which only works under a data router and only sees in-app navigation, so `usePrompt` also adds a `beforeunload` guard for reload, tab close and leaving the app. A component test that renders the canvas needs `createMemoryRouter`, not `MemoryRouter`.
 -   **`.github/dependabot.yml` only holds ignore rules.** Version-update pull requests stay off (`open-pull-requests-limit: 0`); security updates come from the repository setting. It ignores uuid 12+ (ES modules only, which our Jest setups cannot load) and React Router majors. A `versions` ignore also stops security pull requests for that range, while `update-types` only affects version updates.
 -   **`npm publish` treats a bare path as GitHub shorthand.** `packages/cli` is read as owner/repo, and npm runs `git ls-remote` for it. Publish with `./packages/cli` and `./packages/chat-widget`.

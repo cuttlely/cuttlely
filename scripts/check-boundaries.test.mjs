@@ -102,7 +102,7 @@ describe('boundary rules', () => {
         const text = messages(root)
         assert.match(text, /R1: harness\/bad\.mjs imports left-pad/)
         assert.match(text, /R1: harness\/bad\.mjs imports packages\/server\/src\/utils\/logger\.ts/)
-        assert.match(text, /do not import packages/)
+        assert.match(text, /do not import other paths under packages/)
         assert.match(text, /--allow-new/)
     })
 

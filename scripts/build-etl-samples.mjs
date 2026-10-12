@@ -3,7 +3,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { loadFlowiseNode } from '../harness/bridge.mjs'
+import { loadFlowiseNode } from '../packages/harness/bridge.mjs'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const outDir = path.join(root, 'samples', 'etl')

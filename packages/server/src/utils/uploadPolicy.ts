@@ -2,7 +2,7 @@ import fs from 'fs'
 import path from 'path'
 import { pathToFileURL } from 'url'
 
-// tsc rewrites import() into require(), which cannot load harness/*.mjs.
+// tsc rewrites import() into require(), which cannot load the ESM harness package.
 const importEsm = new Function('specifier', 'return import(specifier)') as (specifier: string) => Promise<UploadPolicy>
 
 export interface UploadShape {
@@ -50,8 +50,9 @@ export function loadUploadPolicy(): Promise<UploadPolicy> {
 async function findPolicy(): Promise<UploadPolicy> {
     let dir = __dirname
     for (let i = 0; i < 8; i += 1) {
-        const candidate = path.join(dir, 'harness', 'uploads.mjs')
-        if (fs.existsSync(candidate)) return importEsm(pathToFileURL(candidate).href)
+        const candidates = [path.join(dir, 'packages', 'harness', 'uploads.mjs'), path.join(dir, 'harness', 'uploads.mjs')]
+        const candidate = candidates.find((file) => fs.existsSync(file))
+        if (candidate) return importEsm(pathToFileURL(candidate).href)
         dir = path.dirname(dir)
     }
     throw new Error('Cuttlely upload policy was not found in this checkout.')

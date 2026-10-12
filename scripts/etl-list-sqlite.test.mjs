@@ -18,13 +18,13 @@ describe('ETL list on this Node', () => {
         process.env.CUTTLELY_DATA_DIR = dataDir
         try {
             const importEsm = new Function('specifier', 'return import(specifier)')
-            const api = await importEsm(pathToFileURL(path.join(ROOT, 'etl', 'api.mjs')).href)
+            const api = await importEsm(pathToFileURL(path.join(ROOT, 'packages', 'etl', 'api.mjs')).href)
             const rows = api.listPipelineSummaries({ workspaceId: 'etl-sqlite-probe' })
             assert.ok(Array.isArray(rows))
             const text = JSON.stringify(rows)
             assert.equal(text.includes('node:sqlite'), false)
             assert.equal(text.includes('No such built-in module'), false)
-            const db = await importEsm(pathToFileURL(path.join(ROOT, 'etl', 'db.mjs')).href)
+            const db = await importEsm(pathToFileURL(path.join(ROOT, 'packages', 'etl', 'db.mjs')).href)
             db.closeDb()
         } finally {
             if (previous === undefined) delete process.env.CUTTLELY_DATA_DIR

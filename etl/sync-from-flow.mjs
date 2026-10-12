@@ -1,9 +1,2 @@
-import { recordVersion, validatePipelineName } from './versions.mjs'
-
-export function validatePipelineFlow({ id, name, workspaceId }) {
-    validatePipelineName(id, name, workspaceId)
-}
-
-export function syncPipelineFromFlow({ id, name, workspaceId, flowData }) {
-    return recordVersion({ id, name, workspaceId, flowData })
-}
+// Compatibility path for one release. The module lives in packages/etl/. This file can go in the release after 1.0.2.
+export * from '../packages/etl/sync-from-flow.mjs'
