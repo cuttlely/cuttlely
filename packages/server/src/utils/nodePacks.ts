@@ -7,25 +7,46 @@ import { StatusCodes } from 'http-status-codes'
 // package name. Its package.json points at the built node and credential classes.
 export const NODE_PACKS_ENV = 'CUTTLELY_NODE_PACKS'
 
-// Loaded when CUTTLELY_NODE_PACKS is unset. A later pack adds its package name here.
+// Always loaded, unless the image was built with INCLUDE_NODE_PACKS=0.
+// A later pack adds its package name here.
 export const SHIPPED_NODE_PACKS = ['@cuttlely/node-pack-vector-stores']
 
-// Written by an image build that leaves packs out. The server treats that file as a blank list.
+// Written by an image build that leaves shipped packs out. Extra packs in CUTTLELY_NODE_PACKS still load.
 export const NO_NODE_PACKS_FILE = '/etc/cuttlely/no-node-packs'
 
+function packTokens(raw: string | undefined): string[] {
+    const tokens: string[] = []
+    const seen = new Set<string>()
+    for (const token of (raw ?? '').split(',')) {
+        const trimmed = token.trim()
+        if (!trimmed || seen.has(trimmed)) continue
+        seen.add(trimmed)
+        tokens.push(trimmed)
+    }
+    return tokens
+}
+
 /**
- * Unset loads the packs that ship with this install. A blank value loads none.
- * A set value is that list and does not add the shipped packs on its own.
+ * Shipped packs load first. CUTTLELY_NODE_PACKS adds packs after them.
+ * A blank value adds nothing. A repeated name is kept once.
+ * The slim-image marker skips the shipped packs and still adds the extra list.
  */
 export function nodePackList(env: NodeJS.ProcessEnv = process.env, noPacksFile = NO_NODE_PACKS_FILE): string {
-    const raw = env[NODE_PACKS_ENV]
-    if (raw !== undefined) return raw
+    let skipShipped = false
     try {
-        if (fs.existsSync(noPacksFile)) return ''
+        skipShipped = fs.existsSync(noPacksFile)
     } catch {
-        // A marker the process cannot read does not change the shipped list.
+        // A marker the process cannot read does not skip the shipped packs.
     }
-    return SHIPPED_NODE_PACKS.join(',')
+    const shipped = skipShipped ? [] : SHIPPED_NODE_PACKS
+    const seen = new Set<string>()
+    const names: string[] = []
+    for (const name of [...shipped, ...packTokens(env[NODE_PACKS_ENV])]) {
+        if (seen.has(name)) continue
+        seen.add(name)
+        names.push(name)
+    }
+    return names.join(',')
 }
 
 export interface NodePackLocation {

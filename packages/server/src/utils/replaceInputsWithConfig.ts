@@ -1,7 +1,7 @@
 import fs from 'fs'
 import path from 'path'
 import type { ICommonObject } from '@cuttlely/components'
-import { SHIPPED_NODE_PACKS } from './nodePacks'
+import { nodePackList, resolveNodePacks } from './nodePacks'
 import type { IMessage, INodeData, INodeOverrides, IVariable, IVariableOverride } from '../Interface'
 import logger from './logger'
 
@@ -379,7 +379,7 @@ export const CREDENTIAL_INPUT_NAMES_SNAPSHOT: readonly string[] = [
 
 let credentialInputNames: ReadonlySet<string> | undefined
 
-// Built credential classes: the components package, then each pack that ships with the install.
+// Built credential classes: the components package, then each pack the server actually loads.
 export function credentialDefinitionDirs(): string[] {
     const dirs: string[] = []
     try {
@@ -387,14 +387,11 @@ export function credentialDefinitionDirs(): string[] {
     } catch (e) {
         // the snapshot still applies
     }
-    for (const packageName of SHIPPED_NODE_PACKS) {
-        try {
-            const root = path.dirname(require.resolve(`${packageName}/package.json`))
-            const dir = path.join(root, 'dist', 'credentials')
-            if (fs.existsSync(dir)) dirs.push(dir)
-        } catch (e) {
-            // a pack that is not installed has no credential classes to read
-        }
+    const seen = new Set<string>(dirs)
+    for (const pack of resolveNodePacks(nodePackList()).packs) {
+        if (!pack.credentialsDir || !fs.existsSync(pack.credentialsDir) || seen.has(pack.credentialsDir)) continue
+        seen.add(pack.credentialsDir)
+        dirs.push(pack.credentialsDir)
     }
     return dirs
 }

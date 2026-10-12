@@ -3,6 +3,7 @@ import os from 'os'
 import path from 'path'
 import { StatusCodes } from 'http-status-codes'
 import { NodesPool } from '../NodesPool'
+import { credentialDefinitionDirs } from './replaceInputsWithConfig'
 import { missingNodeFailure, nodePackList, resolveNodePacks } from './nodePacks'
 
 const NODE_SOURCE = `class SampleNode {
@@ -119,16 +120,46 @@ describe('optional node packs', () => {
 })
 
 describe('shipped node packs', () => {
-    test('unset loads the vector store pack and a blank value loads none', () => {
+    const shipped = '@cuttlely/node-pack-vector-stores'
+
+    test('unset, blank, and an extra list keep the shipped packs', () => {
         const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cuttlely-node-pack-list-'))
         const missing = path.join(dir, 'no-marker')
-        expect(nodePackList({}, missing)).toBe('@cuttlely/node-pack-vector-stores')
-        expect(nodePackList({ CUTTLELY_NODE_PACKS: '' }, missing)).toBe('')
-        expect(nodePackList({ CUTTLELY_NODE_PACKS: 'sample-pack' }, missing)).toBe('sample-pack')
+        expect(nodePackList({}, missing)).toBe(shipped)
+        expect(nodePackList({ CUTTLELY_NODE_PACKS: '' }, missing)).toBe(shipped)
+        expect(nodePackList({ CUTTLELY_NODE_PACKS: 'sample-pack' }, missing)).toBe(`${shipped},sample-pack`)
+        expect(nodePackList({ CUTTLELY_NODE_PACKS: shipped }, missing)).toBe(shipped)
+        expect(nodePackList({ CUTTLELY_NODE_PACKS: `sample-pack, ${shipped}, sample-pack` }, missing)).toBe(`${shipped},sample-pack`)
+        fs.rmSync(dir, { recursive: true, force: true })
+    })
+
+    test('the slim-image marker skips shipped packs and still adds extras', () => {
+        const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cuttlely-node-pack-list-'))
         const marker = path.join(dir, 'no-node-packs')
         fs.writeFileSync(marker, '')
+        expect(nodePackList({ CUTTLELY_NODE_PACKS: 'sample-pack' }, marker)).toBe('sample-pack')
+        expect(nodePackList({ CUTTLELY_NODE_PACKS: '' }, marker)).toBe('')
         expect(nodePackList({}, marker)).toBe('')
         fs.rmSync(dir, { recursive: true, force: true })
+    })
+
+    test('credential input names include an extra pack that loads', () => {
+        const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cuttlely-node-pack-creds-'))
+        const credentials = path.join(dir, 'dist', 'credentials')
+        fs.mkdirSync(credentials, { recursive: true })
+        fs.writeFileSync(
+            path.join(dir, 'package.json'),
+            JSON.stringify({ name: 'extra-pack', cuttlely: { nodePack: { nodes: 'dist/nodes', credentials: 'dist/credentials' } } })
+        )
+        const previous = process.env.CUTTLELY_NODE_PACKS
+        process.env.CUTTLELY_NODE_PACKS = dir
+        try {
+            expect(credentialDefinitionDirs()).toContain(credentials)
+        } finally {
+            if (previous === undefined) delete process.env.CUTTLELY_NODE_PACKS
+            else process.env.CUTTLELY_NODE_PACKS = previous
+            fs.rmSync(dir, { recursive: true, force: true })
+        }
     })
 })
 
