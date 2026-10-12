@@ -7,6 +7,27 @@ import { StatusCodes } from 'http-status-codes'
 // package name. Its package.json points at the built node and credential classes.
 export const NODE_PACKS_ENV = 'CUTTLELY_NODE_PACKS'
 
+// Loaded when CUTTLELY_NODE_PACKS is unset. A later pack adds its package name here.
+export const SHIPPED_NODE_PACKS = ['@cuttlely/node-pack-vector-stores']
+
+// Written by an image build that leaves packs out. The server treats that file as a blank list.
+export const NO_NODE_PACKS_FILE = '/etc/cuttlely/no-node-packs'
+
+/**
+ * Unset loads the packs that ship with this install. A blank value loads none.
+ * A set value is that list and does not add the shipped packs on its own.
+ */
+export function nodePackList(env: NodeJS.ProcessEnv = process.env, noPacksFile = NO_NODE_PACKS_FILE): string {
+    const raw = env[NODE_PACKS_ENV]
+    if (raw !== undefined) return raw
+    try {
+        if (fs.existsSync(noPacksFile)) return ''
+    } catch {
+        // A marker the process cannot read does not change the shipped list.
+    }
+    return SHIPPED_NODE_PACKS.join(',')
+}
+
 export interface NodePackLocation {
     name: string
     root: string

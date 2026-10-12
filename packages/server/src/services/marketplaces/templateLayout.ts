@@ -337,9 +337,20 @@ const specFromSource = (source: string): LayoutNodeSpec | undefined => {
     return spec
 }
 
+export function shippedNodeDirs(root: string): string[] {
+    const dirs = [path.join(root, 'packages', 'components', 'nodes')]
+    const packagesDir = path.join(root, 'packages')
+    if (!fs.existsSync(packagesDir)) return dirs
+    for (const name of fs.readdirSync(packagesDir)) {
+        if (!name.startsWith('node-pack-')) continue
+        const nodes = path.join(packagesDir, name, 'nodes')
+        if (fs.existsSync(nodes)) dirs.push(nodes)
+    }
+    return dirs
+}
+
 export const loadTemplateNodeSpecs = (start = __dirname): ((name: string) => LayoutNodeSpec | undefined) => {
     const root = repoRootFrom(start)
-    const nodesDir = root ? path.join(root, 'packages', 'components', 'nodes') : ''
     const byName = new Map<string, LayoutNodeSpec>()
     const walk = (dir: string) => {
         if (!dir || !fs.existsSync(dir)) return
@@ -354,7 +365,7 @@ export const loadTemplateNodeSpecs = (start = __dirname): ((name: string) => Lay
             }
         }
     }
-    walk(nodesDir)
+    if (root) for (const dir of shippedNodeDirs(root)) walk(dir)
     return (name: string) => byName.get(name)
 }
 
@@ -362,7 +373,6 @@ export const loadTemplateNodeSpecs = (start = __dirname): ((name: string) => Lay
 // them out on purpose; the template open check needs them for samples that store inputs only.
 export const loadNodeOutputNames = (start = __dirname): ((name: string) => string[]) => {
     const root = repoRootFrom(start)
-    const nodesDir = root ? path.join(root, 'packages', 'components', 'nodes') : ''
     const byName = new Map<string, string[]>()
     const walk = (dir: string) => {
         if (!dir || !fs.existsSync(dir)) return
@@ -382,7 +392,7 @@ export const loadNodeOutputNames = (start = __dirname): ((name: string) => strin
             }
         }
     }
-    walk(nodesDir)
+    if (root) for (const dir of shippedNodeDirs(root)) walk(dir)
     return (name: string) => byName.get(name) || []
 }
 

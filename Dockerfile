@@ -85,11 +85,24 @@ RUN if [ "$CUTTLELY_OMIT_GEOIP" = "true" ]; then \
         && node scripts/omit-geoip-database.mjs; \
     fi
 
+# Opt-in slim build. 1 (the default) keeps every node pack. 0 leaves them out.
+ARG INCLUDE_NODE_PACKS=1
+RUN if [ "$INCLUDE_NODE_PACKS" != "0" ] && [ "$INCLUDE_NODE_PACKS" != "1" ]; then \
+        echo "INCLUDE_NODE_PACKS must be 0 or 1" >&2; \
+        exit 1; \
+    fi \
+    && if [ "$INCLUDE_NODE_PACKS" = "0" ]; then \
+        echo "Cuttlely image: leaving out optional node packs" \
+        && INCLUDE_NODE_PACKS=0 node scripts/omit-node-packs.mjs; \
+    fi
+
 FROM node:24-trixie-slim
 
 ARG TARGETARCH
 # 1 (the default) installs Chromium. 0 leaves it out. Browser document loaders then fail with a clear error.
 ARG INCLUDE_BROWSER=1
+# 1 (the default) keeps node packs. 0 leaves them out and writes /etc/cuttlely/no-node-packs.
+ARG INCLUDE_NODE_PACKS=1
 
 # Runtime system packages: git for version history and ETL sources, Chromium for browser tools, python3 as the
 # fallback Python, curl for the health check, util-linux for setpriv in the entrypoint.
@@ -116,6 +129,10 @@ RUN if [ "$INCLUDE_BROWSER" != "0" ] && [ "$INCLUDE_BROWSER" != "1" ]; then \
     else \
         mkdir -p /etc/cuttlely \
         && : > /etc/cuttlely/no-browser; \
+    fi \
+    && if [ "$INCLUDE_NODE_PACKS" = "0" ]; then \
+        mkdir -p /etc/cuttlely \
+        && : > /etc/cuttlely/no-node-packs; \
     fi
 
 COPY --from=build /usr/local/bin/uv /usr/local/bin/uvx /usr/local/bin/

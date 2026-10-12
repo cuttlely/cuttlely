@@ -2,8 +2,7 @@ import { ICommonObject, INode, INodeData, INodeParams } from '../../../src/Inter
 import { getBaseClasses, getCredentialData, getCredentialParam } from '../../../src/utils'
 import { ListKeyOptions, RecordManagerInterface, UpdateOptions } from '@langchain/community/indexes/base'
 import { DataSource } from 'typeorm'
-import { getHost, getSSL } from '../../vectorstores/Postgres/utils'
-import { getDatabase, getPort, getTableName } from './utils'
+import { getDatabase, getPort, getTableName, getVectorStoreHost, getVectorStoreSSL } from './utils'
 import { mergeDataSourceOptions, sanitizeDataSourceOptions } from '../../../src/sanitizeDataSourceOptions'
 import { sanitizeRecordManagerNamespace, sanitizeRecordManagerTableName } from '../../../src/recordManagerSecurity'
 
@@ -36,8 +35,8 @@ class PostgresRecordManager_RecordManager implements INode {
                 label: 'Host',
                 name: 'host',
                 type: 'string',
-                placeholder: getHost(),
-                optional: !!getHost()
+                placeholder: getVectorStoreHost(),
+                optional: !!getVectorStoreHost()
             },
             {
                 label: 'Database',
@@ -159,9 +158,9 @@ class PostgresRecordManager_RecordManager implements INode {
         const postgresConnectionOptions = mergeDataSourceOptions(
             {
                 type: 'postgres',
-                host: getHost(nodeData),
+                host: getVectorStoreHost(nodeData),
                 port: getPort(nodeData),
-                ssl: getSSL(nodeData),
+                ssl: getVectorStoreSSL(nodeData),
                 username: user,
                 password: password,
                 database: getDatabase(nodeData)

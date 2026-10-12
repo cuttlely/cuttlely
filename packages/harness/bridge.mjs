@@ -346,12 +346,27 @@ export async function freshNodeInstance(nodeName, ctx = {}) {
     return loadFlowiseNode(nodeName)
 }
 
+function nodeSearchRoots() {
+    const root = repoRoot()
+    const pairs = [[path.join(root, 'packages', 'components', 'dist', 'nodes'), path.join(root, 'packages', 'components', 'nodes')]]
+    const packagesDir = path.join(root, 'packages')
+    if (fs.existsSync(packagesDir)) {
+        for (const name of fs.readdirSync(packagesDir)) {
+            if (!name.startsWith('node-pack-')) continue
+            pairs.push([path.join(packagesDir, name, 'dist', 'nodes'), path.join(packagesDir, name, 'nodes')])
+        }
+    }
+    return pairs
+}
+
 export async function loadFlowiseNode(nodeName) {
-    const nodesRoot = path.join(repoRoot(), 'packages', 'components', 'nodes')
-    const distRoot = path.join(repoRoot(), 'packages', 'components', 'dist', 'nodes')
-    const match = findNodeFile(distRoot, nodeName) || findNodeFile(nodesRoot, nodeName)
+    let match = null
+    for (const [distRoot, nodesRoot] of nodeSearchRoots()) {
+        match = findNodeFile(distRoot, nodeName) || findNodeFile(nodesRoot, nodeName)
+        if (match) break
+    }
     if (!match) {
-        throw new HarnessError('module_unavailable', `Harness module "${nodeName}" is not registered under packages/components/nodes.`)
+        throw new HarnessError('module_unavailable', `Harness module "${nodeName}" is not registered.`)
     }
     if (match.endsWith('.ts')) {
         throw new HarnessError(

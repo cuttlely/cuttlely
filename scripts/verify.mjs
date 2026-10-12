@@ -35,8 +35,8 @@ const STEPS = [
     {
         name: 'build',
         fast: false,
-        // Chat widget, components, server, and UI. The API docs package is typechecked
-        // in scripts/typecheck.mjs, which --fast also runs.
+        // Chat widget, components, the vector store pack, server, and UI. The API docs
+        // package is typechecked in scripts/typecheck.mjs, which --fast also runs.
         command: 'pnpm',
         args: [
             'exec',
@@ -45,6 +45,7 @@ const STEPS = [
             'build',
             '--filter=@cuttlely/chat',
             '--filter=@cuttlely/components',
+            '--filter=@cuttlely/node-pack-vector-stores',
             '--filter=@cuttlely/server',
             '--filter=@cuttlely/ui'
         ],
@@ -82,6 +83,7 @@ const STEPS = [
             path.join(ROOT, 'scripts', 'test-git-isolation.test.mjs'),
             path.join(ROOT, 'scripts', 'compose-image.test.mjs'),
             path.join(ROOT, 'scripts', 'omit-geoip-database.test.mjs'),
+            path.join(ROOT, 'scripts', 'omit-node-packs.test.mjs'),
             path.join(ROOT, 'packages', 'cli', 'test', 'cli.test.js'),
             path.join(ROOT, 'scripts', 'upgrade-check.test.mjs'),
             path.join(ROOT, 'scripts', 'outbound-guard.test.mjs'),

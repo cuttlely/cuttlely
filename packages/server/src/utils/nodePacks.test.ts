@@ -3,7 +3,7 @@ import os from 'os'
 import path from 'path'
 import { StatusCodes } from 'http-status-codes'
 import { NodesPool } from '../NodesPool'
-import { missingNodeFailure, resolveNodePacks } from './nodePacks'
+import { missingNodeFailure, nodePackList, resolveNodePacks } from './nodePacks'
 
 const NODE_SOURCE = `class SampleNode {
     constructor() {
@@ -115,6 +115,20 @@ describe('optional node packs', () => {
         await pool.loadNodePack(packs[0], { optional: true })
         expect(pool.componentNodes.samplePackNode.label).toBe('Core')
         expect(pool.componentNodes.samplePackNode.nodePack).toBeUndefined()
+    })
+})
+
+describe('shipped node packs', () => {
+    test('unset loads the vector store pack and a blank value loads none', () => {
+        const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cuttlely-node-pack-list-'))
+        const missing = path.join(dir, 'no-marker')
+        expect(nodePackList({}, missing)).toBe('@cuttlely/node-pack-vector-stores')
+        expect(nodePackList({ CUTTLELY_NODE_PACKS: '' }, missing)).toBe('')
+        expect(nodePackList({ CUTTLELY_NODE_PACKS: 'sample-pack' }, missing)).toBe('sample-pack')
+        const marker = path.join(dir, 'no-node-packs')
+        fs.writeFileSync(marker, '')
+        expect(nodePackList({}, marker)).toBe('')
+        fs.rmSync(dir, { recursive: true, force: true })
     })
 })
 

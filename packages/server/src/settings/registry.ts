@@ -1261,6 +1261,7 @@ export const KEPT_OUT: KeptOutGroup[] = [
             'NODE_OPTIONS',
             'CUTTLELY_IMAGE',
             'INCLUDE_BROWSER',
+            'INCLUDE_NODE_PACKS',
             'CUTTLELY_OMIT_GEOIP',
             'CUTTLELY_INSTALL',
             'CUTTLELY_NODE_PACKS'

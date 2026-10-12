@@ -3,7 +3,7 @@ import path from 'path'
 import fs from 'fs'
 import { Dirent } from 'fs'
 import { getNodeModulesPackagePath } from './utils'
-import { resolveNodePacks, type NodePackLocation } from './utils/nodePacks'
+import { nodePackList, resolveNodePacks, type NodePackLocation } from './utils/nodePacks'
 import { promises } from 'fs'
 import { ICommonObject, INode } from '@cuttlely/components'
 import logger from './utils/logger'
@@ -67,7 +67,7 @@ export class NodesPool {
             },
             { eager }
         )
-        const { packs, skipped } = resolveNodePacks(process.env.CUTTLELY_NODE_PACKS, {
+        const { packs, skipped } = resolveNodePacks(nodePackList(), {
             resolvePackage: (name) => getNodeModulesPackagePath(name) || ''
         })
         for (const token of skipped) logger.warn(`[server]: Skipped node pack ${token}`)

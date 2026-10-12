@@ -11,7 +11,17 @@ process.env.PUPPETEER_SKIP_CHROMIUM_DOWNLOAD = 'true'
 
 const repoRoot = path.resolve(__dirname, '../../..')
 const nodesRoot = path.join(repoRoot, 'packages/components/nodes')
-const credentialsRoot = path.join(repoRoot, 'packages/components/credentials')
+
+function credentialRoots(): string[] {
+    const roots = [path.join(repoRoot, 'packages/components/credentials')]
+    const packagesDir = path.join(repoRoot, 'packages')
+    for (const name of fs.readdirSync(packagesDir)) {
+        if (!name.startsWith('node-pack-')) continue
+        const credentials = path.join(packagesDir, name, 'credentials')
+        if (fs.existsSync(credentials)) roots.push(credentials)
+    }
+    return roots
+}
 const TIER_NAMES = ['core', 'supported', 'legacy', 'hidden']
 const SCALAR = new Set([
     'asyncOptions',
@@ -273,24 +283,27 @@ describe('node and credential load coverage', () => {
         const inited: string[] = []
         const skips: Array<{ name: string; reason: string }> = []
 
-        for (const file of walk(credentialsRoot, (candidate) => candidate.endsWith('.credential.ts'))) {
-            let instance: Record<string, any>
-            try {
-                const exported = loadCredential(file)
-                if (!exported.credClass) throw new Error('missing credClass')
-                instance = new exported.credClass()
-            } catch (error) {
-                problems.push(`${path.relative(repoRoot, file)} failed to load: ${(error as Error).message}`)
-                continue
+        for (const credentialsRoot of credentialRoots()) {
+            for (const file of walk(credentialsRoot, (candidate) => candidate.endsWith('.credential.ts'))) {
+                let instance: Record<string, any>
+                try {
+                    const exported = loadCredential(file)
+                    if (!exported.credClass) throw new Error('missing credClass')
+                    instance = new exported.credClass()
+                } catch (error) {
+                    problems.push(`${path.relative(repoRoot, file)} failed to load: ${(error as Error).message}`)
+                    continue
+                }
+                const where = path.relative(repoRoot, file)
+                if (typeof instance.name !== 'string' || !instance.name) problems.push(`${where} is missing a name`)
+                if (typeof instance.label !== 'string' || !instance.label) problems.push(`${where} is missing a label`)
+                if (instance.version !== undefined && (typeof instance.version !== 'number' || !Number.isFinite(instance.version)))
+                    problems.push(`${where} version is not a number`)
+                checkInputs(instance.inputs, where, problems)
+                if (instance.name && credentialClasses.has(instance.name))
+                    problems.push(`credential name ${instance.name} is declared twice`)
+                if (instance.name) credentialClasses.set(instance.name, instance)
             }
-            const where = path.relative(repoRoot, file)
-            if (typeof instance.name !== 'string' || !instance.name) problems.push(`${where} is missing a name`)
-            if (typeof instance.label !== 'string' || !instance.label) problems.push(`${where} is missing a label`)
-            if (instance.version !== undefined && (typeof instance.version !== 'number' || !Number.isFinite(instance.version)))
-                problems.push(`${where} version is not a number`)
-            checkInputs(instance.inputs, where, problems)
-            if (instance.name && credentialClasses.has(instance.name)) problems.push(`credential name ${instance.name} is declared twice`)
-            if (instance.name) credentialClasses.set(instance.name, instance)
         }
 
         for (const entry of entries) {

@@ -14,6 +14,8 @@ function main() {
     // emitDeclarationOnly typechecks components and writes the .d.ts files that check needs.
     console.log('typecheck @cuttlely/components')
     run(['--emitDeclarationOnly', '-p', 'packages/components/tsconfig.json'])
+    console.log('typecheck @cuttlely/node-pack-vector-stores')
+    run(['--noEmit', '-p', 'packages/node-pack-vector-stores/tsconfig.json'])
     console.log('typecheck @cuttlely/server')
     run(['--noEmit', '-p', 'packages/server/tsconfig.json'])
     console.log('typecheck @cuttlely/ui: no TypeScript project; the UI build step covers that package')

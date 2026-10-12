@@ -11,6 +11,7 @@ import logger from './logger'
 import {
     buildServerFlowConfig,
     CREDENTIAL_INPUT_NAMES_SNAPSHOT,
+    credentialDefinitionDirs,
     filterStartStateOverride,
     formatLogKeys,
     getAllowedAnalyticsOverride,
@@ -911,13 +912,17 @@ describe('Request overrides hard deny, round 2: code, paths, headers, ports, cre
         expect(run(config, allow({ OpenAI: names, ChatPromptTemplate: names }), [], nodes)).toEqual(unchanged(nodes))
     })
 
-    it('credential inputs (M5): every input name declared in packages/components/credentials is hard-denied (read from the files)', () => {
-        const dir = path.join(path.dirname(require.resolve('@cuttlely/components')), '..', 'credentials')
-        const files = fs.readdirSync(dir).filter((file) => file.endsWith('.credential.js'))
+    it('credential inputs (M5): every input name declared by a shipped credential class is hard-denied (read from the files)', () => {
+        const files = credentialDefinitionDirs().flatMap((dir) =>
+            fs
+                .readdirSync(dir)
+                .filter((file) => file.endsWith('.credential.js'))
+                .map((file) => path.join(dir, file))
+        )
         expect(files.length).toBeGreaterThan(100)
         const missing: string[] = []
         for (const file of files) {
-            const mod = require(path.join(dir, file))
+            const mod = require(file)
             const credential = mod.credClass ? new mod.credClass() : undefined
             for (const input of credential?.inputs ?? []) if (!isHardDeniedOverrideKey(input.name)) missing.push(`${file}:${input.name}`)
         }

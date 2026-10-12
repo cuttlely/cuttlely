@@ -67,7 +67,7 @@ Each release is published as `ghcr.io/cuttlely/cuttlely:X.Y.Z`, and the newest r
 
 -   **Pin a release.** Set `CUTTLELY_IMAGE=ghcr.io/cuttlely/cuttlely:1.0.0` in `.env`, then run `docker compose up -d`.
 -   **Move to the newest release.** Run `docker compose pull`, then `docker compose up -d`. Back up the volume first and read the release's upgrade notes in the changelog. [Upgrading Cuttlely](../upgrading.md) has the backup, upgrade and roll back steps.
--   **Build your own checkout.** Run `docker compose up -d --build`. The build is tagged with the `CUTTLELY_IMAGE` name, so set `CUTTLELY_IMAGE=cuttlely:local` in `.env` to keep it apart from the published image. [Smaller images](#smaller-images) covers leaving Chromium or the geolocation database out of that build.
+-   **Build your own checkout.** Run `docker compose up -d --build`. The build is tagged with the `CUTTLELY_IMAGE` name, so set `CUTTLELY_IMAGE=cuttlely:local` in `.env` to keep it apart from the published image. [Smaller images](#smaller-images) covers leaving Chromium, optional node packs, or the geolocation database out of that build.
 
 The image is built for `linux/amd64`. A release can also carry `linux/arm64` when it was built on a machine that can build both. On Apple silicon, Docker runs the `amd64` image under emulation.
 
@@ -77,7 +77,7 @@ The image is built for `linux/amd64`. A release can also carry `linux/arm64` whe
 
 ## Smaller images
 
-The default image includes Chromium and the IP geolocation database. `docker compose up -d --build` with no extra arguments keeps both, and so does `docker build -t cuttlely:local .`. The two build arguments are independent, so a build can set either one or both. The published image `ghcr.io/cuttlely/cuttlely` is unchanged and still includes both. Each argument applies at build time. Changing one means building the image again. To run the image you just built, set `CUTTLELY_IMAGE=cuttlely:local` in `.env` and run `docker compose up -d`.
+The default image includes Chromium, the IP geolocation database, and every optional node pack. `docker compose up -d --build` with no extra arguments keeps all of them, and so does `docker build -t cuttlely:local .`. The build arguments are independent, so a build can set any of them. The published image `ghcr.io/cuttlely/cuttlely` is unchanged and still includes all of them. Each argument applies at build time. Changing one means building the image again. To run the image you just built, set `CUTTLELY_IMAGE=cuttlely:local` in `.env` and run `docker compose up -d`.
 
 ### Leave out Chromium
 
@@ -101,13 +101,23 @@ CUTTLELY_OMIT_GEOIP=true docker compose up -d --build
 
 `docker build --build-arg CUTTLELY_OMIT_GEOIP=true -t cuttlely:local .` is the same build. `CUTTLELY_OMIT_GEOIP` defaults to `false`. Set it to `true` and the image build leaves `geoip-lite` out after the production install. The server still starts. Audit events then have no country and no region, the same result as an IP the database does not know.
 
-### Both
+### Leave out optional node packs
+
+Vector store nodes ship in `@cuttlely/node-pack-vector-stores`. The default image includes that pack, so the node list matches a from-source install. To leave every optional node pack out:
 
 ```bash
-INCLUDE_BROWSER=0 CUTTLELY_OMIT_GEOIP=true docker compose up -d --build
+INCLUDE_NODE_PACKS=0 docker compose up -d --build
 ```
 
-`docker build --build-arg INCLUDE_BROWSER=0 --build-arg CUTTLELY_OMIT_GEOIP=true -t cuttlely:local .` is the same build.
+`docker build --build-arg INCLUDE_NODE_PACKS=0 -t cuttlely:slim .` is the same build. `INCLUDE_NODE_PACKS` accepts only `0` and `1`. The default is `1`. In the slim image a saved vector store node opens as a placeholder, and a prediction returns 422. [Optional node packs](./node-packs.md) describes the pack layout.
+
+### All three
+
+```bash
+INCLUDE_BROWSER=0 INCLUDE_NODE_PACKS=0 CUTTLELY_OMIT_GEOIP=true docker compose up -d --build
+```
+
+`docker build --build-arg INCLUDE_BROWSER=0 --build-arg INCLUDE_NODE_PACKS=0 --build-arg CUTTLELY_OMIT_GEOIP=true -t cuttlely:local .` is the same build.
 
 ## Data
 

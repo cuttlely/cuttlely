@@ -1,6 +1,7 @@
 import fs from 'fs'
 import path from 'path'
 import type { ICommonObject } from '@cuttlely/components'
+import { SHIPPED_NODE_PACKS } from './nodePacks'
 import type { IMessage, INodeData, INodeOverrides, IVariable, IVariableOverride } from '../Interface'
 import logger from './logger'
 
@@ -378,13 +379,38 @@ export const CREDENTIAL_INPUT_NAMES_SNAPSHOT: readonly string[] = [
 
 let credentialInputNames: ReadonlySet<string> | undefined
 
+// Built credential classes: the components package, then each pack that ships with the install.
+export function credentialDefinitionDirs(): string[] {
+    const dirs: string[] = []
+    try {
+        dirs.push(path.join(path.dirname(require.resolve('@cuttlely/components')), '..', 'credentials'))
+    } catch (e) {
+        // the snapshot still applies
+    }
+    for (const packageName of SHIPPED_NODE_PACKS) {
+        try {
+            const root = path.dirname(require.resolve(`${packageName}/package.json`))
+            const dir = path.join(root, 'dist', 'credentials')
+            if (fs.existsSync(dir)) dirs.push(dir)
+        } catch (e) {
+            // a pack that is not installed has no credential classes to read
+        }
+    }
+    return dirs
+}
+
 /** Lower-case names of every credential-declared input: the snapshot plus the installed credential definitions. */
 export const getCredentialInputNames = (): ReadonlySet<string> => {
     if (credentialInputNames) return credentialInputNames
     const names = new Set(CREDENTIAL_INPUT_NAMES_SNAPSHOT.map((name) => name.toLowerCase()))
-    try {
-        const dir = path.join(path.dirname(require.resolve('@cuttlely/components')), '..', 'credentials')
-        for (const file of fs.readdirSync(dir)) {
+    for (const dir of credentialDefinitionDirs()) {
+        let files: string[] = []
+        try {
+            files = fs.readdirSync(dir)
+        } catch (e) {
+            continue
+        }
+        for (const file of files) {
             if (!file.endsWith('.credential.js')) continue
             try {
                 const mod = require(path.join(dir, file))
@@ -394,8 +420,6 @@ export const getCredentialInputNames = (): ReadonlySet<string> => {
                 // the snapshot still applies
             }
         }
-    } catch (e) {
-        // the snapshot still applies
     }
     credentialInputNames = names
     return names
