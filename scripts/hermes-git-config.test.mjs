@@ -81,31 +81,95 @@ function probe(command, modules) {
     return detail.split('\n').find((line) => line.trim()) || `exit ${result.status}`
 }
 
-function interpreter(modules) {
-    const tried = []
-    for (const candidate of candidates()) {
-        const failure = probe(candidate.command, modules)
-        if (!failure) return { python: candidate.command, label: candidate.label, tried }
-        tried.push(`${candidate.label}: ${failure}`)
+// A present hermes/.venv that cannot import is a broken setup, not a reason to skip.
+// Skip only when that directory is absent and every other interpreter fails too.
+export function chooseRuntime(results, { venvPresent }) {
+    for (const result of results) {
+        if (!result.failure) return { action: 'run', label: result.label, command: result.command, detail: '' }
     }
-    return { python: null, label: '', tried }
+    if (venvPresent) {
+        const venv = results.find((result) => result.label === 'hermes/.venv')
+        return {
+            action: 'fail',
+            label: 'hermes/.venv',
+            command: venv?.command || '',
+            detail: venv?.failure || 'hermes/.venv could not be probed'
+        }
+    }
+    const tried = results.map((result) => `${result.label}: ${result.failure}`).join(' ')
+    return {
+        action: 'skip',
+        label: '',
+        command: '',
+        detail: `no runtime Python can import what scripts/hermes-git-config.py loads, including ruamel and psutil. ${tried} Run bash scripts/setup-hermes.sh.`
+    }
+}
+
+function interpreter(modules) {
+    const venvPresent = fs.existsSync(VENV_PYTHON)
+    return chooseRuntime(
+        candidates().map((candidate) => ({ ...candidate, failure: probe(candidate.command, modules) })),
+        { venvPresent }
+    )
 }
 
 const chosen = interpreter(proofModules(fs.readFileSync(PROOF, 'utf8')))
-const skipReason = chosen.python
-    ? false
-    : `no runtime Python can import what scripts/hermes-git-config.py loads, including ruamel and psutil. ${chosen.tried.join(
-          ' '
-      )} Run bash scripts/setup-hermes.sh.`
 
-test('workspace snapshot and worktree create/cleanup ignore repository git commands', { skip: skipReason }, () => {
-    if (fs.existsSync(VENV_PYTHON)) assert.equal(path.resolve(chosen.python), path.resolve(VENV_PYTHON))
-    console.log(`git-config proof uses ${chosen.label}`)
-    const result = spawnSync(chosen.python, [PROOF], {
-        cwd: ROOT,
-        encoding: 'utf8',
-        env: { ...process.env, PYTHONPATH: HERMES, PYTHONDONTWRITEBYTECODE: '1' }
-    })
-    assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`)
-    assert.match(result.stdout, /hardened snapshot, create, and cleanup did not/)
+test('chooseRuntime fails a broken hermes/.venv when nothing else can import', () => {
+    const broken = 'ruamel.yaml: ModuleNotFoundError: No module named ruamel'
+    const decision = chooseRuntime(
+        [
+            { label: 'hermes/.venv', command: '/venv/python', failure: broken },
+            { label: 'python3', command: 'python3', failure: 'psutil: ModuleNotFoundError: No module named psutil' }
+        ],
+        { venvPresent: true }
+    )
+    assert.equal(decision.action, 'fail')
+    assert.equal(decision.detail, broken)
 })
+
+test('chooseRuntime skips only when hermes/.venv is absent and nothing else can import', () => {
+    const decision = chooseRuntime(
+        [{ label: 'python3', command: 'python3', failure: 'psutil: ModuleNotFoundError: No module named psutil' }],
+        {
+            venvPresent: false
+        }
+    )
+    assert.equal(decision.action, 'skip')
+    assert.match(decision.detail, /No module named psutil/)
+    const fallback = chooseRuntime(
+        [
+            { label: 'hermes/.venv', command: '/venv/python', failure: 'ruamel.yaml: ModuleNotFoundError: No module named ruamel' },
+            { label: 'python3', command: 'python3', failure: '' }
+        ],
+        { venvPresent: true }
+    )
+    assert.equal(fallback.action, 'run')
+    assert.equal(fallback.label, 'python3')
+    assert.equal(
+        chooseRuntime(
+            [
+                { label: 'hermes/.venv', command: '/venv/python', failure: '' },
+                { label: 'python3', command: 'python3', failure: 'unused' }
+            ],
+            { venvPresent: true }
+        ).label,
+        'hermes/.venv'
+    )
+})
+
+test(
+    'workspace snapshot and worktree create/cleanup ignore repository git commands',
+    { skip: chosen.action === 'skip' ? chosen.detail : false },
+    () => {
+        if (chosen.action === 'fail') assert.fail(`hermes/.venv exists but cannot import the git-config proof. ${chosen.detail}`)
+        console.log(`git-config proof uses ${chosen.label}`)
+        const result = spawnSync(chosen.command, [PROOF], {
+            cwd: ROOT,
+            encoding: 'utf8',
+            env: { ...process.env, PYTHONPATH: HERMES, PYTHONDONTWRITEBYTECODE: '1' }
+        })
+        assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`)
+        assert.match(result.stdout, /hardened snapshot, create, and cleanup did not/)
+    }
+)
