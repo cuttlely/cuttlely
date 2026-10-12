@@ -20,7 +20,7 @@ Questions: chatflow "Two country sourdough loaves and three butter croissants. W
 
 Shown on the card: 1.1 s, 1.3 s, 1.3 s.
 
-## Agentflows (canvas test chat, internal prediction stream)
+## Agentflows (equivalent flow, not the recorded canvas)
 
 | Metric                                             | Median s | p90 s | Min s | Max s | Correct  |
 | -------------------------------------------------- | -------- | ----- | ----- | ----- | -------- |
@@ -29,7 +29,7 @@ Shown on the card: 1.1 s, 1.3 s, 1.3 s.
 | Price question (order branch): time to first words | 0.84     | 0.95  | 0.72  | 1.06  | 20 of 20 |
 | Price question (order branch): full answer (extra) | 1.24     | 1.39  | 1.13  | 1.43  | 20 of 20 |
 
-Shown on the card: 0.9 s, 1.2 s, 0.8 s.
+Shown on the card: 0.9 s, 1.2 s, 0.8 s. These medians are from the rebuilt flow below, not from the canvas in the video.
 
 ## Share and embed (public prediction stream, no session)
 
@@ -51,9 +51,9 @@ Shown on the card: 0.4 s, 0.8 s, 0.4 s.
 
 ## Canvases
 
--   Chatflows: the nodes and system prompt of the video's chatflow (gpt-4.1-mini, Tool Agent, Buffer Memory, Calculator).
--   Share and embed: the nodes, prompt and share settings of the video's shared chatflow (gpt-4.1-mini, Conversation Chain, Buffer Memory; title, welcome, starters, allowed origins), made public as the video does.
--   Agentflows: the video's canvas came from Build with AI and was not kept. It was rebuilt through the same route, from the same description and model. The first build gave the video's four cards (Start, Classify Message, Order Agent, Care Agent; two scenarios; no tools). The card prompts are what Build with AI wrote this time, so they may differ in wording from the video's.
+-   Chatflows: the recorded canvas. The nodes and system prompt match the video (gpt-4.1-mini, Tool Agent, Buffer Memory, Calculator).
+-   Share and embed: the recorded canvas. The nodes, prompt and share settings match the video (gpt-4.1-mini, Conversation Chain, Buffer Memory; title, welcome, starters, allowed origins), made public as the video does.
+-   Agentflows: the recorded canvas was not kept. Build with AI generated it for the video and the export was discarded. The medians are from an equivalent flow rebuilt the same way, with the same four cards (Start, Classify Message, Order Agent, Care Agent), the same two branches, and the same questions. The rebuilt prompts were not the video's prompts.
 -   The questions are the videos' exact turns.
 
 ## Notes
