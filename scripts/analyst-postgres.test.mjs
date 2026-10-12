@@ -4,11 +4,11 @@ import path from 'node:path'
 import { describe, it } from 'node:test'
 import { fileURLToPath } from 'node:url'
 import { resolveAnalystConnection, resolveAnalystPostgresUrl } from './analyst-postgres.mjs'
-import { resolveAnalystConnection as runtimeResolveAnalystConnection } from '../harness/runtime/analyst-postgres.mjs'
+import { resolveAnalystConnection as runtimeResolveAnalystConnection } from '../packages/harness/runtime/analyst-postgres.mjs'
 import { beginHermesStream } from './hermes-stream.mjs'
-import { beginHermesStream as runtimeBeginHermesStream } from '../harness/runtime/hermes-stream.mjs'
+import { beginHermesStream as runtimeBeginHermesStream } from '../packages/harness/runtime/hermes-stream.mjs'
 import { analystToolsMissing } from './analyst-mcp-status.mjs'
-import { analystToolsMissing as runtimeAnalystToolsMissing } from '../harness/runtime/analyst-mcp-status.mjs'
+import { analystToolsMissing as runtimeAnalystToolsMissing } from '../packages/harness/runtime/analyst-mcp-status.mjs'
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 
@@ -18,7 +18,7 @@ describe('analyst module path', () => {
         assert.equal(beginHermesStream, runtimeBeginHermesStream)
         assert.equal(analystToolsMissing, runtimeAnalystToolsMissing)
         const worker = fs.readFileSync(path.join(ROOT, 'scripts', 'analyst-sqlite-worker.mjs'), 'utf8')
-        assert.match(worker, /export \* from '\.\.\/harness\/runtime\/analyst-sqlite-worker\.mjs'/)
+        assert.match(worker, /export \* from '\.\.\/packages\/harness\/runtime\/analyst-sqlite-worker\.mjs'/)
     })
 })
 

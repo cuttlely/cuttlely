@@ -11,14 +11,15 @@ import logger from '../../utils/logger'
 import { orgIdForWorkspace } from '../etl'
 
 // The server build targets CommonJS, and tsc rewrites import() into require().
-// require() cannot load the ESM files under harness/, so keep a real dynamic import.
+// require() cannot load the ESM harness package, so keep a real dynamic import.
 const importEsm = new Function('specifier', 'return import(specifier)') as (specifier: string) => Promise<any>
 
 export async function loadHarness(file: string) {
     let dir = __dirname
     for (let i = 0; i < 8; i += 1) {
-        const candidate = path.join(dir, 'harness', file)
-        if (fs.existsSync(candidate)) return importEsm(pathToFileURL(candidate).href)
+        const candidates = [path.join(dir, 'packages', 'harness', file), path.join(dir, 'harness', file)]
+        const candidate = candidates.find((item) => fs.existsSync(item))
+        if (candidate) return importEsm(pathToFileURL(candidate).href)
         dir = path.dirname(dir)
     }
     throw new AppError(StatusCodes.INTERNAL_SERVER_ERROR, `Harness module ${file} was not found.`)

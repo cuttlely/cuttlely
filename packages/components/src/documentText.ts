@@ -7,7 +7,7 @@ export { MAX_DOCUMENT_UPLOAD_BYTES } from './documentUploadCapabilities'
 
 /**
  * Hard cut for extracted document text. The prediction question uses a tighter prepend
- * budget (8k tokens) and stubs a large file instead of pasting it. See harness/uploads.mjs.
+ * budget (8k tokens) and stubs a large file instead of pasting it. See packages/harness/uploads.mjs.
  */
 export const DOCUMENT_TEXT_CHAR_CAP = 400_000
 

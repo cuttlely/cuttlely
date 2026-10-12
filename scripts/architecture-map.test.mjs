@@ -18,7 +18,9 @@ describe('architecture map', () => {
         const expectSubsystem = {
             'packages/chat-widget/package.json': 'Chat widget',
             'packages/cli/package.json': 'CLI',
+            'packages/harness/client.mjs': 'Harnesses and the Analyst',
             'harness/client.mjs': 'Harnesses and the Analyst',
+            'packages/etl/runner.mjs': 'Knowledge pipelines',
             'etl/runner.mjs': 'Knowledge pipelines',
             'packages/server/src/identity/index.ts': 'Identity and RBAC',
             'packages/server/src/settings/registry.ts': 'Admin panel and server settings',

@@ -69,7 +69,7 @@ describe('document upload capabilities', () => {
         expect(isLargeSpreadsheet('book.xlsx', UPLOAD_STUB_BYTES + 1)).toBe(true)
         expect(isLargeSpreadsheet('rows.csv', UPLOAD_STUB_BYTES)).toBe(false)
         expect(isLargeSpreadsheet('notes.pdf', UPLOAD_STUB_BYTES + 1)).toBe(false)
-        const harness = fs.readFileSync(path.join(__dirname, '../../../harness/uploads.mjs'), 'utf8')
+        const harness = fs.readFileSync(path.join(__dirname, '../../../packages/harness/uploads.mjs'), 'utf8')
         expect(harness).toContain('export const UPLOAD_STUB_BYTES = 1024 * 1024')
         expect(UPLOAD_STUB_BYTES).toBe(1024 * 1024)
         expect(MULTER_FILE_SIZE_LIMIT).toBeGreaterThan(MAX_DOCUMENT_UPLOAD_BYTES)

@@ -38,12 +38,12 @@ Commits need a git identity (`user.name` and `user.email`). On a machine without
 
 ```bash
 pnpm install
-node harness/check.mjs        # offline harness checks: no build, no key, no network (pnpm harness:check)
-node etl/check.mjs            # offline ETL checks; the retriever and splitter cases need the components build (pnpm etl:check)
-node etl/check.mjs --stress   # adds a generated 1,000,000-row CSV and a 401-file repository; several minutes
+pnpm harness:check             # node packages/harness/check.mjs — offline, no build, no key, no network
+pnpm etl:check                 # node packages/etl/check.mjs — the retriever and splitter cases need the components build
+node packages/etl/check.mjs --stress   # adds a generated 1,000,000-row CSV and a 401-file repository; several minutes
 ```
 
-`harness/check.mjs` loads `crypto-js` through `packages/server`, so it needs `pnpm install`. It uses mocked agent runtime and model calls and a temporary `CUTTLELY_DATA_DIR`. One case runs the built Calculator node and prints `skip` when components are not built.
+`node harness/check.mjs` and `node etl/check.mjs` still run those checks for one release. `packages/harness/check.mjs` loads `crypto-js` through `packages/server`, so it needs `pnpm install`. It uses mocked agent runtime and model calls and a temporary `CUTTLELY_DATA_DIR`. One case runs the built Calculator node and prints `skip` when components are not built.
 
 ## Local verify
 
@@ -122,7 +122,7 @@ Contributor-relevant variables. The admin panel registry (`packages/server/src/s
 | `CUTTLELY_HARNESS_MODEL_FALLBACK_MS`                        | `8000`                                      | When a connected fallback model starts; `0` waits for a 502, 503 or 504 (D13)                               |
 | `CUTTLELY_HARNESS_SPECIALIST_CONTEXT_TOKENS`                | `4000`                                      | Specialist prompt cap; `0` turns it off (D14)                                                               |
 | `CUTTLELY_HARNESS_CHIEF_CONTEXT_TOKENS`                     | `6000`                                      | Handoff cap; `0` turns it off (D14)                                                                         |
-| `CUTTLELY_HARNESS_QUEUE`                                    | `inline`                                    | `inline`, `external` (start `harness/worker.mjs`) or `off` (D15)                                            |
+| `CUTTLELY_HARNESS_QUEUE`                                    | `inline`                                    | `inline`, `external` (start `packages/harness/worker.mjs`) or `off` (D15)                                   |
 | `CUTTLELY_HARNESS_WORKERS`                                  | `1` in external mode                        | Worker processes the start script launches                                                                  |
 | `CUTTLELY_HARNESS_WORKER_CONCURRENCY`                       | `4`                                         | Jobs the inline worker runs at once                                                                         |
 | `CUTTLELY_HARNESS_LOCK_MS`                                  | turn budget plus 5 s                        | How long a dead worker may hold a chat; `0` never expires                                                   |
@@ -150,7 +150,7 @@ Contributor-relevant variables. The admin panel registry (`packages/server/src/s
 
 -   **`DATABASE_PATH` and `SECRETKEY_PATH` are directories,** not `.../database.sqlite`. A file path there shows up as a disk I/O error when a harness reads credentials.
 -   **Postgres is not `DATABASE_URL`.** The app reads `DATABASE_TYPE=postgres` plus `DATABASE_HOST`, `DATABASE_PORT`, `DATABASE_NAME`, `DATABASE_USER` and `DATABASE_PASSWORD` (`packages/server/src/DataSource.ts`).
--   **Restart after runtime code changes.** The server loads `harness/*.mjs` and `etl/*.mjs` once. Rebuild `packages/server` or `packages/components` after TypeScript changes.
+-   **Restart after runtime code changes.** The server loads `packages/harness/*.mjs` and `packages/etl/*.mjs` once. Rebuild `packages/server` or `packages/components` after TypeScript changes.
 -   **`pnpm dev` runs the last server build.** nodemon restarts the server when a file under `packages/server/src` changes, but it starts the compiled `dist`, so a server change needs `pnpm --filter @cuttlely/server build` and then one more save (OPEN 15). The UI dev server listens on `localhost` only, so use `http://localhost:8080`, not `127.0.0.1`.
 -   **The verify build step compiles the chat widget, components, the server, and the UI.** `packages/api-documentation` is covered by `tsc --noEmit` in the typecheck step, which `pnpm verify` and `pnpm verify --fast` both run. The UI has no TypeScript project.
 -   **Stale node definitions.** A node file whose mtime or size changed is reloaded at boot. If the canvas still shows an old definition, delete `packages/components/dist/nodes-manifest.json` and restart.
@@ -174,7 +174,7 @@ bash scripts/start-cuttlely.sh                                                  
 CUTTLELY_HARNESS_QUEUE=external CUTTLELY_HARNESS_WORKERS=1 bash scripts/start-cuttlely.sh
 ```
 
-`harness/check.mjs` covers the queue offline: an inline job, a `busy` second turn for the same chat, two chats in parallel, abort, and a spawned worker. Do not commit the queue file.
+`packages/harness/check.mjs` covers the queue offline: an inline job, a `busy` second turn for the same chat, two chats in parallel, abort, and a spawned worker. Do not commit the queue file.
 
 ## Live pressure tests
 
