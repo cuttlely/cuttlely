@@ -666,11 +666,18 @@ export const getCredentialData = async (selectedCredentialId: string, options: I
             return {}
         }
 
-        const credential = await appDataSource.getRepository(databaseEntities['Credential']).findOneBy({
-            id: selectedCredentialId
-        })
+        const where: { id: string; workspaceId?: string } = { id: selectedCredentialId }
+        // Callers that pass a workspace, such as evaluation grading, must not decrypt another workspace's key.
+        if (typeof options.workspaceId === 'string' && options.workspaceId.length > 0) {
+            where.workspaceId = options.workspaceId
+        }
 
-        if (!credential) return {}
+        const credential = await appDataSource.getRepository(databaseEntities['Credential']).findOneBy(where)
+
+        if (!credential) {
+            if (where.workspaceId) throw new Error(`Credential ${selectedCredentialId} not found`)
+            return {}
+        }
 
         // Decrypt credentialData
         const decryptedCredentialData = await decryptCredentialData(credential.encryptedData)

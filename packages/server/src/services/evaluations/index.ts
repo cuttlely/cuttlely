@@ -65,6 +65,17 @@ const runAgain = async (id: string, baseURL: string, orgId: string, workspaceId:
 const createEvaluation = async (body: ICommonObject, baseURL: string, orgId: string, workspaceId: string) => {
     try {
         const appServer = getRunningExpressApp()
+        // A grading credential has to belong to this workspace before any row is saved or any run starts.
+        if (body.evaluationType === 'llm') {
+            if (typeof body.credentialId !== 'string' || body.credentialId.length === 0) {
+                throw new AppError(StatusCodes.BAD_REQUEST, 'Credential is required')
+            }
+            const ownedCredential = await appServer.AppDataSource.getRepository(Credential).findOneBy({
+                id: body.credentialId,
+                workspaceId
+            })
+            if (!ownedCredential) throw new AppError(StatusCodes.NOT_FOUND, `Credential ${body.credentialId} not found`)
+        }
         const newEval = new Evaluation()
         Object.assign(newEval, stripProtectedFields(body))
         newEval.workspaceId = workspaceId
@@ -102,7 +113,8 @@ const createEvaluation = async (body: ICommonObject, baseURL: string, orgId: str
             additionalConfig.llmConfig = {
                 credentialId: body.credentialId,
                 llm: body.llm,
-                model: body.model
+                model: body.model,
+                workspaceId
             }
         }
         row.additionalConfig = JSON.stringify(additionalConfig)
@@ -148,13 +160,6 @@ const createEvaluation = async (body: ICommonObject, baseURL: string, orgId: str
 
         // save the evaluation with status as pending
         const evalRunner = new EvaluationRunner(baseURL)
-        if (body.evaluationType === 'llm') {
-            const credential = await appServer.AppDataSource.getRepository(Credential).findOneBy({
-                id: body.credentialId
-            })
-
-            if (!credential) throw new Error(`Credential ${body.credentialId} not found`)
-        }
 
         let evalMetrics = { passCount: 0, failCount: 0, errorCount: 0 }
         evalRunner
@@ -336,6 +341,7 @@ const createEvaluation = async (body: ICommonObject, baseURL: string, orgId: str
 
         return getAllEvaluations(body.workspaceId)
     } catch (error) {
+        if (error instanceof AppError) throw error
         throw new AppError(StatusCodes.INTERNAL_SERVER_ERROR, `Error: EvalsService.createEvaluation - ${getErrorMessage(error)}`)
     }
 }

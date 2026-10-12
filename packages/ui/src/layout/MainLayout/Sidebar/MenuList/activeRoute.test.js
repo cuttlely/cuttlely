@@ -1,5 +1,5 @@
 import dashboard from '@/menu-items/dashboard'
-import { isGroupActive, isItemActive } from './activeRoute'
+import { isGroupActive, isItemActive, menuItemAllowed } from './activeRoute'
 
 const items = (group) => (group.children || []).flatMap((child) => (child.children ? items(child) : [child]))
 const allItems = items(dashboard).filter((item) => item.type === 'item' && item.url)
@@ -36,6 +36,16 @@ describe('Sidebar active item', () => {
     it('does not match an address that only starts with the same letters', () => {
         expect(isItemActive({ url: '/tools' }, '/toolsets')).toBe(false)
         expect(isItemActive({ url: '/users' }, '/users-old')).toBe(false)
+    })
+
+    it('hides Datasets, Evaluators, and Evaluations when the role lacks those view permissions', () => {
+        const shown = (permissions) => allItems.filter((item) => menuItemAllowed(item, permissions, false)).map((item) => item.id)
+        expect(shown(['chatflows:view'])).not.toEqual(expect.arrayContaining(['datasets', 'evaluators', 'evaluations']))
+        expect(shown(['datasets:view'])).toContain('datasets')
+        expect(shown(['datasets:view'])).not.toContain('evaluators')
+        expect(shown(['datasets:view'])).not.toContain('evaluations')
+        expect(shown([])).not.toEqual(expect.arrayContaining(['datasets', 'evaluators', 'evaluations']))
+        expect(menuItemAllowed({ permission: 'datasets:view' }, [], true)).toBe(true)
     })
 
     it('marks nothing on a page with no sidebar item, and never matches the root address', () => {

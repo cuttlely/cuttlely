@@ -1,6 +1,7 @@
 // Datasets, evaluators, and evaluations: create, list, read, update, and delete
 // on the migrated schema. Jest mocks typeorm, so this file uses node:test.
 const assert = require('node:assert/strict')
+const http = require('node:http')
 const { mkdtemp, rm } = require('node:fs/promises')
 const { createRequire, Module } = require('node:module')
 const { tmpdir } = require('node:os')
@@ -37,7 +38,8 @@ const appHandle = {
 const componentsStub = {
     EvaluationRunner: class EvaluationRunner {
         async runEvaluations() {
-            return { rows: [] }
+            // Stay pending so a test can close the database without a late write.
+            return new Promise(() => {})
         }
     },
     convertSchemaToZod() {
@@ -70,6 +72,7 @@ const { sqliteMigrations } = serverRequire('./src/database/migrations/sqlite/ind
 const { postgresMigrations } = serverRequire('./src/database/migrations/postgres/index.ts')
 const { denyClosedFeature } = serverRequire('./src/identity/ossPlatform.ts')
 const { setTeamPermissionLookup } = serverRequire('./src/identity/rbac.ts')
+const { teamAccess } = serverRequire('./src/identity/sqlStore.ts')
 const datasetRouter = serverRequire('./src/routes/dataset/index.ts').default
 const evaluatorRouter = serverRequire('./src/routes/evaluator/index.ts').default
 const evaluationsRouter = serverRequire('./src/routes/evaluations/index.ts').default
@@ -82,25 +85,33 @@ const { DatasetRow } = serverRequire('./src/database/entities/DatasetRow.ts')
 const { Evaluator } = serverRequire('./src/database/entities/Evaluator.ts')
 const { Evaluation } = serverRequire('./src/database/entities/Evaluation.ts')
 const { EvaluationRun } = serverRequire('./src/database/entities/EvaluationRun.ts')
+const { Credential } = serverRequire('./src/database/entities/Credential.ts')
 
 Module._load = originalLoad
 
-const ROUND_TRIP_ENTITIES = [User, Organization, Workspace, Dataset, DatasetRow, Evaluator, Evaluation, EvaluationRun]
+const ROUND_TRIP_ENTITIES = [User, Organization, Workspace, Dataset, DatasetRow, Evaluator, Evaluation, EvaluationRun, Credential]
 
 const USER = '11111111-1111-4111-8111-111111111111'
 const ORG = '22222222-2222-4222-8222-222222222222'
 const WORKSPACE = '33333333-3333-4333-8333-333333333333'
+const WORKSPACE_B = '44444444-4444-4444-8444-444444444444'
+const MEMBER = '55555555-5555-4555-8555-555555555555'
+const ROLE_ORG = '66666666-6666-4666-8666-666666666666'
+const ROLE_TEAM = '77777777-7777-4777-8777-777777777777'
 const PG_PASSWORD = process.env.PGPASSWORD || process.env.CUTTLELY_TEST_PG_PASSWORD || ''
+
+const ownerUser = () => ({
+    id: USER,
+    activeWorkspaceId: WORKSPACE,
+    activeOrganizationId: ORG
+})
+let currentUser = ownerUser
 
 function httpApp() {
     const app = express()
     app.use(express.json())
     app.use((req, _res, next) => {
-        req.user = {
-            id: USER,
-            activeWorkspaceId: WORKSPACE,
-            activeOrganizationId: ORG
-        }
+        req.user = currentUser()
         next()
     })
     app.use('/datasets', denyClosedFeature('feat:datasets'), datasetRouter)
@@ -153,13 +164,41 @@ async function assertColumns(dataSource, dialect) {
     assert.ok((await names('evaluation_run')).includes('errors'))
 }
 
-async function roundTrip(dataSource) {
-    appHandle.AppDataSource = dataSource
+function asOwner() {
+    currentUser = ownerUser
     setTeamPermissionLookup({
         async accessFor() {
             return { owner: true, permissions: null }
         }
     })
+}
+
+async function openSqlite() {
+    const dir = await mkdtemp(path.join(tmpdir(), 'cuttlely-eval-'))
+    const dataSource = new DataSource({
+        type: 'sqlite',
+        database: path.join(dir, 'database.sqlite'),
+        synchronize: false,
+        entities: ROUND_TRIP_ENTITIES,
+        migrations: sqliteMigrations
+    })
+    await dataSource.initialize()
+    await dataSource.runMigrations()
+    appHandle.AppDataSource = dataSource
+    await seed(dataSource)
+    return {
+        dataSource,
+        api: request(httpApp()),
+        async cleanup() {
+            if (dataSource.isInitialized) await dataSource.destroy()
+            await rm(dir, { recursive: true, force: true })
+        }
+    }
+}
+
+async function roundTrip(dataSource) {
+    appHandle.AppDataSource = dataSource
+    asOwner()
     await seed(dataSource)
     const api = request(httpApp())
 
@@ -286,6 +325,14 @@ describe('evaluation pages', () => {
             assert.ok(at > -1, url)
             assert.ok(menu.slice(at, at + 400).includes(`permission: '${permission}'`), `${url} ${permission}`)
         }
+        const redirect = require('node:fs').readFileSync(path.join(__dirname, '../packages/ui/src/routes/DefaultRedirect.jsx'), 'utf8')
+        const block = redirect.slice(redirect.indexOf('routesToCheck'), redirect.indexOf('if (!isAuthenticated)'))
+        const datasetsAt = block.indexOf("permission: 'datasets:view'")
+        const evaluatorsAt = block.indexOf("permission: 'evaluators:view'")
+        const evaluationsAt = block.indexOf("permission: 'evaluations:view'")
+        assert.ok(datasetsAt > block.indexOf("permission: 'documentStores:view'"))
+        assert.ok(evaluatorsAt > datasetsAt)
+        assert.ok(evaluationsAt > evaluatorsAt)
     })
 })
 
@@ -312,6 +359,277 @@ describe('evaluation routes', () => {
         } finally {
             if (dataSource.isInitialized) await dataSource.destroy()
             await rm(dir, { recursive: true, force: true })
+        }
+    })
+
+    it('refuses a bulk row delete that includes another workspace, and deletes nothing', async () => {
+        const { dataSource, api, cleanup } = await openSqlite()
+        try {
+            asOwner()
+            const created = await api.post('/datasets/set').send({ name: 'Ours', description: 'rows' })
+            assert.equal(created.status, 200, JSON.stringify(created.body))
+            const own = await api.post('/datasets/rows').send({ datasetId: created.body.id, input: 'ours', output: 'ours' })
+            assert.equal(own.status, 200, JSON.stringify(own.body))
+            await dataSource.getRepository(Workspace).save({
+                id: WORKSPACE_B,
+                name: 'Other Team',
+                organizationId: ORG,
+                createdBy: USER,
+                updatedBy: USER
+            })
+            const foreignDataset = await dataSource.getRepository(Dataset).save({
+                name: 'Theirs',
+                description: 'rows',
+                workspaceId: WORKSPACE_B
+            })
+            const foreign = await dataSource.getRepository(DatasetRow).save({
+                datasetId: foreignDataset.id,
+                input: 'theirs',
+                output: 'theirs',
+                sequenceNo: 0
+            })
+            const mixed = await api.patch('/datasets/rows').send({ ids: [own.body.id, foreign.id] })
+            assert.ok(mixed.status >= 400, JSON.stringify(mixed.body))
+            assert.equal(await dataSource.getRepository(DatasetRow).count({ where: { id: own.body.id } }), 1)
+            assert.equal(await dataSource.getRepository(DatasetRow).count({ where: { id: foreign.id } }), 1)
+            const onlyForeign = await api.patch('/datasets/rows').send({ ids: [foreign.id] })
+            assert.ok(onlyForeign.status >= 400, JSON.stringify(onlyForeign.body))
+            assert.equal(await dataSource.getRepository(DatasetRow).count({ where: { id: foreign.id } }), 1)
+            const ownOnly = await api.patch('/datasets/rows').send({ ids: [own.body.id] })
+            assert.equal(ownOnly.status, 200, JSON.stringify(ownOnly.body))
+            assert.equal(await dataSource.getRepository(DatasetRow).count({ where: { id: own.body.id } }), 0)
+            assert.equal(await dataSource.getRepository(DatasetRow).count({ where: { id: foreign.id } }), 1)
+        } finally {
+            await cleanup()
+        }
+    })
+
+    it('rejects another workspace credential before an evaluation run starts', async () => {
+        const { dataSource, api, cleanup } = await openSqlite()
+        const Previous = componentsStub.EvaluationRunner
+        let runs = 0
+        componentsStub.EvaluationRunner = class extends Previous {
+            async runEvaluations(...args) {
+                runs += 1
+                return super.runEvaluations(...args)
+            }
+        }
+        try {
+            asOwner()
+            const dataset = await api.post('/datasets/set').send({ name: 'Grade', description: 'rows' })
+            assert.equal(dataset.status, 200, JSON.stringify(dataset.body))
+            await dataSource.getRepository(Workspace).save({
+                id: WORKSPACE_B,
+                name: 'Other Team',
+                organizationId: ORG,
+                createdBy: USER,
+                updatedBy: USER
+            })
+            const foreign = await dataSource.getRepository(Credential).save({
+                name: 'Foreign key',
+                credentialName: 'openAIApi',
+                encryptedData: 'do-not-decrypt',
+                workspaceId: WORKSPACE_B
+            })
+            const owned = await dataSource.getRepository(Credential).save({
+                name: 'Own key',
+                credentialName: 'openAIApi',
+                encryptedData: 'own-cipher',
+                workspaceId: WORKSPACE
+            })
+            const rejected = await api.post('/evaluations').send({
+                name: 'Foreign grade',
+                evaluationType: 'llm',
+                credentialId: foreign.id,
+                datasetId: dataset.body.id,
+                datasetName: 'Grade',
+                chatflowId: '[]',
+                chatflowName: '[]',
+                chatflowType: '[]'
+            })
+            assert.equal(rejected.status, 404, JSON.stringify(rejected.body))
+            assert.equal(runs, 0)
+            assert.equal(await dataSource.getRepository(Evaluation).count(), 0)
+            const accepted = await api.post('/evaluations').send({
+                name: 'Own grade',
+                evaluationType: 'llm',
+                credentialId: owned.id,
+                datasetId: dataset.body.id,
+                datasetName: 'Grade',
+                chatflowId: '[]',
+                chatflowName: '[]',
+                chatflowType: '[]',
+                llm: 'openAI',
+                model: 'gpt-4o-mini'
+            })
+            assert.equal(accepted.status, 200, JSON.stringify(accepted.body))
+            assert.equal(runs, 1)
+        } finally {
+            componentsStub.EvaluationRunner = Previous
+            await cleanup()
+        }
+    })
+
+    it('posts a real evaluation to the prediction route when APP_URL is unset', async () => {
+        const { dataSource, api, cleanup } = await openSqlite()
+        const hits = []
+        const server = http.createServer((req, res) => {
+            if (req.method === 'POST' && req.url.startsWith('/api/v1/prediction/')) {
+                const chunks = []
+                req.on('data', (chunk) => chunks.push(chunk))
+                req.on('end', () => {
+                    hits.push({ url: req.url, body: JSON.parse(Buffer.concat(chunks).toString() || '{}') })
+                    res.writeHead(200, { 'content-type': 'application/json' })
+                    res.end(JSON.stringify({ text: 'On the truck' }))
+                })
+                return
+            }
+            res.writeHead(404)
+            res.end()
+        })
+        const Previous = componentsStub.EvaluationRunner
+        const previousApp = process.env.APP_URL
+        const previousPort = process.env.PORT
+        try {
+            await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve))
+            const { EvaluationRunner } = serverRequire('../components/evaluation/EvaluationRunner.ts')
+            componentsStub.EvaluationRunner = EvaluationRunner
+            delete process.env.APP_URL
+            process.env.PORT = String(server.address().port)
+            asOwner()
+            const dataset = await api.post('/datasets/set').send({ name: 'Live', description: 'one row' })
+            assert.equal(dataset.status, 200, JSON.stringify(dataset.body))
+            const row = await api.post('/datasets/rows').send({
+                datasetId: dataset.body.id,
+                input: 'Where is order 1001?',
+                output: 'On the truck'
+            })
+            assert.equal(row.status, 200, JSON.stringify(row.body))
+            const evaluation = await api.post('/evaluations').send({
+                name: 'Local run',
+                evaluationType: 'benchmarking',
+                datasetId: dataset.body.id,
+                datasetName: 'Live',
+                chatflowId: JSON.stringify(['flow-local']),
+                chatflowName: JSON.stringify(['Local flow']),
+                chatflowType: '[]',
+                selectedSimpleEvaluators: []
+            })
+            assert.equal(evaluation.status, 200, JSON.stringify(evaluation.body))
+            const started = Date.now()
+            while (hits.length === 0 && Date.now() - started < 5000) {
+                await new Promise((resolve) => setTimeout(resolve, 25))
+            }
+            assert.equal(hits.length, 1)
+            assert.equal(hits[0].url, '/api/v1/prediction/flow-local')
+            assert.equal(hits[0].body.question, 'Where is order 1001?')
+            const settled = Date.now()
+            while (Date.now() - settled < 5000) {
+                const pending = await dataSource.getRepository(Evaluation).count({ where: { status: 'pending' } })
+                if (pending === 0) break
+                await new Promise((resolve) => setTimeout(resolve, 20))
+            }
+        } finally {
+            componentsStub.EvaluationRunner = Previous
+            if (previousApp === undefined) delete process.env.APP_URL
+            else process.env.APP_URL = previousApp
+            if (previousPort === undefined) delete process.env.PORT
+            else process.env.PORT = previousPort
+            await new Promise((resolve) => server.close(resolve))
+            await cleanup()
+        }
+    })
+
+    it('passes the caller workspace into the grading credential load', async () => {
+        const fs = require('node:fs')
+        const dir = await mkdtemp(path.join(tmpdir(), 'cuttlely-eval-node-'))
+        const file = path.join(dir, 'stub-llm.mjs')
+        fs.writeFileSync(
+            file,
+            [
+                'export class nodeClass {',
+                '    async init(nodeData, _input, options) {',
+                '        globalThis.__evalNode = { credential: nodeData.credential, workspaceId: options.workspaceId }',
+                '        return {}',
+                '    }',
+                '}',
+                ''
+            ].join('\n')
+        )
+        try {
+            const { LLMEvaluationRunner } = serverRequire('./src/services/evaluations/LLMEvaluationRunner.ts')
+            appHandle.nodesPool = { componentNodes: { StubLLM: { filePath: file } } }
+            const runner = new LLMEvaluationRunner()
+            await runner.createLLM({
+                llmConfig: { llm: 'StubLLM', model: 'stub', credentialId: 'cred-foreign', workspaceId: WORKSPACE }
+            })
+            assert.equal(globalThis.__evalNode.credential, 'cred-foreign')
+            assert.equal(globalThis.__evalNode.workspaceId, WORKSPACE)
+        } finally {
+            delete globalThis.__evalNode
+            await rm(dir, { recursive: true, force: true })
+        }
+    })
+
+    it('enforces list permissions for an invited team role and for a scoped API key', async () => {
+        const { dataSource, api, cleanup } = await openSqlite()
+        try {
+            await dataSource.query(
+                `INSERT INTO "user" ("id", "name", "email", "status", "createdBy", "updatedBy") VALUES (?, 'Bea Member', 'bea@example.com', 'active', ?, ?)`,
+                [MEMBER, USER, USER]
+            )
+            await dataSource.query(
+                `INSERT INTO "role" ("id", "organizationId", "name", "permissions", "createdBy", "updatedBy") VALUES (?, ?, 'member', '[]', ?, ?)`,
+                [ROLE_ORG, ORG, USER, USER]
+            )
+            await dataSource.query(
+                `INSERT INTO "role" ("id", "organizationId", "name", "permissions", "createdBy", "updatedBy") VALUES (?, ?, 'limited', ?, ?, ?)`,
+                [ROLE_TEAM, ORG, JSON.stringify(['tools:view']), USER, USER]
+            )
+            await dataSource.query(
+                `INSERT INTO "organization_user" ("organizationId", "userId", "roleId", "status", "createdBy", "updatedBy") VALUES (?, ?, ?, 'active', ?, ?)`,
+                [ORG, MEMBER, ROLE_ORG, USER, USER]
+            )
+            // Team membership stays invited. The user row is active, which is what a local session requires.
+            await dataSource.query(
+                `INSERT INTO "workspace_user" ("workspaceId", "userId", "roleId", "status", "createdBy", "updatedBy") VALUES (?, ?, ?, 'invited', ?, ?)`,
+                [WORKSPACE, MEMBER, ROLE_TEAM, USER, USER]
+            )
+            setTeamPermissionLookup({
+                accessFor: (userId, workspaceId) => teamAccess(dataSource, userId, workspaceId)
+            })
+            currentUser = () => ({ id: MEMBER, activeWorkspaceId: WORKSPACE, activeOrganizationId: ORG })
+            assert.equal((await api.get('/datasets')).status, 403)
+            assert.equal((await api.get('/evaluators')).status, 403)
+            assert.equal((await api.get('/evaluations')).status, 403)
+            // The same write PUT /api/v1/role persists: the team role's permissions JSON.
+            await dataSource.query(`UPDATE "role" SET "permissions" = ? WHERE "id" = ?`, [JSON.stringify(['datasets:view']), ROLE_TEAM])
+            assert.equal((await api.get('/datasets')).status, 200)
+            assert.equal((await api.get('/evaluators')).status, 403)
+            assert.equal((await api.get('/evaluations')).status, 403)
+
+            setTeamPermissionLookup(null)
+            currentUser = () => ({
+                permissions: ['tools:view'],
+                activeWorkspaceId: WORKSPACE,
+                activeOrganizationId: ORG,
+                isOrganizationAdmin: false
+            })
+            assert.equal((await api.get('/datasets')).status, 403)
+            assert.equal((await api.get('/evaluators')).status, 403)
+            assert.equal((await api.get('/evaluations')).status, 403)
+            currentUser = () => ({
+                permissions: ['datasets:view'],
+                activeWorkspaceId: WORKSPACE,
+                activeOrganizationId: ORG,
+                isOrganizationAdmin: false
+            })
+            assert.equal((await api.get('/datasets')).status, 200)
+            assert.equal((await api.get('/evaluators')).status, 403)
+            assert.equal((await api.get('/evaluations')).status, 403)
+        } finally {
+            asOwner()
+            await cleanup()
         }
     })
 

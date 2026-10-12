@@ -39,4 +39,4 @@ An evaluation runs one dataset against one or more chatflows or agentflows and s
 
 **Run again** stores another version under the same name. Delete removes a run, or every version of that name.
 
-A run calls each selected flow the same way a prediction does. A flow that requires an API key cannot be replayed from this page, because the key is stored as a hash and the run cannot recover it. A flow with no key can be run.
+A run calls each selected flow on this server, the same way a prediction does. You do not set a separate address for that call. A flow that requires an API key cannot be replayed from this page, because the key is stored as a hash and the run cannot recover it. A flow with no key can be run. A model evaluator uses a credential saved in the same team.
