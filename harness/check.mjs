@@ -2590,6 +2590,13 @@ check(
     'module catalog classifies every registered node',
     catalog.nodes.length === counts.native + counts.adapt + counts.replaced && catalog.nodes.length > 200
 )
+const tierNames = ['core', 'supported', 'legacy', 'hidden']
+check(
+    'module catalog records a support tier on every node',
+    tierNames.every((name) => Number.isInteger(catalog.tiers?.[name])) &&
+        catalog.nodes.every((node) => tierNames.includes(node.tier)) &&
+        tierNames.reduce((sum, name) => sum + catalog.tiers[name], 0) === catalog.nodes.length
+)
 check(
     'catalog keeps deprecated nodes instead of deleting them',
     counts.replaced > 0 && fs.existsSync(path.join(root, catalog.nodes.find((node) => node.disposition === 'replaced').file))

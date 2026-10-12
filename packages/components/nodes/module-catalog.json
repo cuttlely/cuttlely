@@ -1,11 +1,17 @@
 {
     "generatedFrom": "packages/components/nodes",
-    "registration": "NodesPool loads every nodeClass under packages/components/nodes. packages/components/nodes/index.ts re-exports this catalog.",
+    "registration": "NodesPool loads every nodeClass under packages/components/nodes. packages/components/nodes/index.ts re-exports this catalog. tier is core (a bundled template, a sample canvas, or a Build with AI recipe), supported, legacy (DEPRECATING badge), or hidden (a category the server skips at load).",
     "langgraphUpgradeBlocked": false,
     "counts": {
         "native": 265,
         "adapt": 17,
         "replaced": 15
+    },
+    "tiers": {
+        "core": 88,
+        "supported": 177,
+        "legacy": 24,
+        "hidden": 8
     },
     "nodes": [
         {
@@ -15,7 +21,8 @@
             "folder": "agentflow",
             "file": "packages/components/nodes/agentflow/Agent/Agent.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "core"
         },
         {
             "name": "conditionAgentflow",
@@ -24,7 +31,8 @@
             "folder": "agentflow",
             "file": "packages/components/nodes/agentflow/Condition/Condition.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "core"
         },
         {
             "name": "conditionAgentAgentflow",
@@ -33,7 +41,8 @@
             "folder": "agentflow",
             "file": "packages/components/nodes/agentflow/ConditionAgent/ConditionAgent.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "core"
         },
         {
             "name": "customFunctionAgentflow",
@@ -42,7 +51,8 @@
             "folder": "agentflow",
             "file": "packages/components/nodes/agentflow/CustomFunction/CustomFunction.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "core"
         },
         {
             "name": "directReplyAgentflow",
@@ -51,7 +61,8 @@
             "folder": "agentflow",
             "file": "packages/components/nodes/agentflow/DirectReply/DirectReply.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "core"
         },
         {
             "name": "executeFlowAgentflow",
@@ -60,7 +71,8 @@
             "folder": "agentflow",
             "file": "packages/components/nodes/agentflow/ExecuteFlow/ExecuteFlow.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
         },
         {
             "name": "httpAgentflow",
@@ -69,7 +81,8 @@
             "folder": "agentflow",
             "file": "packages/components/nodes/agentflow/HTTP/HTTP.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "core"
         },
         {
             "name": "humanInputAgentflow",
@@ -78,7 +91,8 @@
             "folder": "agentflow",
             "file": "packages/components/nodes/agentflow/HumanInput/HumanInput.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "core"
         },
         {
             "name": "iterationAgentflow",
@@ -87,7 +101,8 @@
             "folder": "agentflow",
             "file": "packages/components/nodes/agentflow/Iteration/Iteration.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "core"
         },
         {
             "name": "llmAgentflow",
@@ -96,7 +111,8 @@
             "folder": "agentflow",
             "file": "packages/components/nodes/agentflow/LLM/LLM.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "core"
         },
         {
             "name": "loopAgentflow",
@@ -105,7 +121,8 @@
             "folder": "agentflow",
             "file": "packages/components/nodes/agentflow/Loop/Loop.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "core"
         },
         {
             "name": "retrieverAgentflow",
@@ -114,7 +131,8 @@
             "folder": "agentflow",
             "file": "packages/components/nodes/agentflow/Retriever/Retriever.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "core"
         },
         {
             "name": "startAgentflow",
@@ -123,7 +141,8 @@
             "folder": "agentflow",
             "file": "packages/components/nodes/agentflow/Start/Start.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "core"
         },
         {
             "name": "stickyNoteAgentflow",
@@ -132,7 +151,8 @@
             "folder": "agentflow",
             "file": "packages/components/nodes/agentflow/StickyNote/StickyNote.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "core"
         },
         {
             "name": "toolAgentflow",
@@ -141,7 +161,8 @@
             "folder": "agentflow",
             "file": "packages/components/nodes/agentflow/Tool/Tool.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "core"
         },
         {
             "name": "conversationalAgent",
@@ -150,7 +171,8 @@
             "folder": "agents",
             "file": "packages/components/nodes/agents/ConversationalAgent/ConversationalAgent.ts",
             "disposition": "replaced",
-            "reason": "Marked deprecated in place. Not deleted. Conversational agent is deprecated and will be removed in a future release. Use Agent from AgentFlow instead."
+            "reason": "Marked deprecated in place. Not deleted. Conversational agent is deprecated and will be removed in a future release. Use Agent from AgentFlow instead.",
+            "tier": "legacy"
         },
         {
             "name": "conversationalRetrievalToolAgent",
@@ -159,7 +181,8 @@
             "folder": "agents",
             "file": "packages/components/nodes/agents/ConversationalRetrievalToolAgent/ConversationalRetrievalToolAgent.ts",
             "disposition": "adapt",
-            "reason": "Older agent or LangGraph 0.0.22 runtime. Convert only when a harness binding cannot load it."
+            "reason": "Older agent or LangGraph 0.0.22 runtime. Convert only when a harness binding cannot load it.",
+            "tier": "supported"
         },
         {
             "name": "openAIAssistant",
@@ -168,7 +191,8 @@
             "folder": "agents",
             "file": "packages/components/nodes/agents/OpenAIAssistant/OpenAIAssistant.ts",
             "disposition": "replaced",
-            "reason": "Marked deprecated in place. Not deleted. OpenAI Assistant is deprecated and will be removed in a future release. Use Custom Assistant instead."
+            "reason": "Marked deprecated in place. Not deleted. OpenAI Assistant is deprecated and will be removed in a future release. Use Custom Assistant instead.",
+            "tier": "legacy"
         },
         {
             "name": "reactAgentChat",
@@ -177,7 +201,8 @@
             "folder": "agents",
             "file": "packages/components/nodes/agents/ReActAgentChat/ReActAgentChat.ts",
             "disposition": "replaced",
-            "reason": "Marked deprecated in place. Not deleted. ReAct Agent for Chat Models is deprecated and will be removed in a future release. Use Agent from AgentFlow instead."
+            "reason": "Marked deprecated in place. Not deleted. ReAct Agent for Chat Models is deprecated and will be removed in a future release. Use Agent from AgentFlow instead.",
+            "tier": "legacy"
         },
         {
             "name": "reactAgentLLM",
@@ -186,7 +211,8 @@
             "folder": "agents",
             "file": "packages/components/nodes/agents/ReActAgentLLM/ReActAgentLLM.ts",
             "disposition": "replaced",
-            "reason": "Marked deprecated in place. Not deleted. ReAct Agent for LLMs is deprecated and will be removed in a future release. Use Agent from AgentFlow instead."
+            "reason": "Marked deprecated in place. Not deleted. ReAct Agent for LLMs is deprecated and will be removed in a future release. Use Agent from AgentFlow instead.",
+            "tier": "legacy"
         },
         {
             "name": "toolAgent",
@@ -195,7 +221,8 @@
             "folder": "agents",
             "file": "packages/components/nodes/agents/ToolAgent/ToolAgent.ts",
             "disposition": "adapt",
-            "reason": "Older agent or LangGraph 0.0.22 runtime. Convert only when a harness binding cannot load it."
+            "reason": "Older agent or LangGraph 0.0.22 runtime. Convert only when a harness binding cannot load it.",
+            "tier": "core"
         },
         {
             "name": "xmlAgent",
@@ -204,7 +231,8 @@
             "folder": "agents",
             "file": "packages/components/nodes/agents/XMLAgent/XMLAgent.ts",
             "disposition": "adapt",
-            "reason": "Older agent or LangGraph 0.0.22 runtime. Convert only when a harness binding cannot load it."
+            "reason": "Older agent or LangGraph 0.0.22 runtime. Convert only when a harness binding cannot load it.",
+            "tier": "supported"
         },
         {
             "name": "arize",
@@ -213,7 +241,8 @@
             "folder": "analytic",
             "file": "packages/components/nodes/analytic/Arize/Arize.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "hidden"
         },
         {
             "name": "langFuse",
@@ -222,7 +251,8 @@
             "folder": "analytic",
             "file": "packages/components/nodes/analytic/LangFuse/LangFuse.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "hidden"
         },
         {
             "name": "langSmith",
@@ -231,7 +261,8 @@
             "folder": "analytic",
             "file": "packages/components/nodes/analytic/LangSmith/LangSmith.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "hidden"
         },
         {
             "name": "LangWatch",
@@ -240,7 +271,8 @@
             "folder": "analytic",
             "file": "packages/components/nodes/analytic/LangWatch/LangWatch.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "hidden"
         },
         {
             "name": "lunary",
@@ -249,7 +281,8 @@
             "folder": "analytic",
             "file": "packages/components/nodes/analytic/Lunary/Lunary.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "hidden"
         },
         {
             "name": "opik",
@@ -258,7 +291,8 @@
             "folder": "analytic",
             "file": "packages/components/nodes/analytic/Opik/Opik.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "hidden"
         },
         {
             "name": "phoenix",
@@ -267,7 +301,8 @@
             "folder": "analytic",
             "file": "packages/components/nodes/analytic/Phoenix/Phoenix.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "hidden"
         },
         {
             "name": "inMemoryCache",
@@ -276,7 +311,8 @@
             "folder": "cache",
             "file": "packages/components/nodes/cache/InMemoryCache/InMemoryCache.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
         },
         {
             "name": "inMemoryEmbeddingCache",
@@ -285,7 +321,8 @@
             "folder": "cache",
             "file": "packages/components/nodes/cache/InMemoryCache/InMemoryEmbeddingCache.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
         },
         {
             "name": "momentoCache",
@@ -294,7 +331,8 @@
             "folder": "cache",
             "file": "packages/components/nodes/cache/MomentoCache/MomentoCache.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
         },
         {
             "name": "redisCache",
@@ -303,7 +341,8 @@
             "folder": "cache",
             "file": "packages/components/nodes/cache/RedisCache/RedisCache.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
         },
         {
             "name": "redisEmbeddingsCache",
@@ -312,7 +351,8 @@
             "folder": "cache",
             "file": "packages/components/nodes/cache/RedisCache/RedisEmbeddingsCache.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
         },
         {
             "name": "upstashRedisCache",
@@ -321,7 +361,8 @@
             "folder": "cache",
             "file": "packages/components/nodes/cache/UpstashRedisCache/UpstashRedisCache.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
         },
         {
             "name": "getApiChain",
@@ -330,7 +371,8 @@
             "folder": "chains",
             "file": "packages/components/nodes/chains/ApiChain/GETApiChain.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "legacy"
         },
         {
             "name": "openApiChain",
@@ -339,7 +381,8 @@
             "folder": "chains",
             "file": "packages/components/nodes/chains/ApiChain/OpenAPIChain.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "legacy"
         },
         {
             "name": "postApiChain",
@@ -348,7 +391,8 @@
             "folder": "chains",
             "file": "packages/components/nodes/chains/ApiChain/POSTApiChain.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "legacy"
         },
         {
             "name": "conversationalRetrievalQAChain",
@@ -357,7 +401,8 @@
             "folder": "chains",
             "file": "packages/components/nodes/chains/ConversationalRetrievalQAChain/ConversationalRetrievalQAChain.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "core"
         },
         {
             "name": "conversationChain",
@@ -366,7 +411,8 @@
             "folder": "chains",
             "file": "packages/components/nodes/chains/ConversationChain/ConversationChain.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "core"
         },
         {
             "name": "graphCypherQAChain",
@@ -375,7 +421,8 @@
             "folder": "chains",
             "file": "packages/components/nodes/chains/GraphCypherQAChain/GraphCypherQAChain.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
         },
         {
             "name": "llmChain",
@@ -384,7 +431,8 @@
             "folder": "chains",
             "file": "packages/components/nodes/chains/LLMChain/LLMChain.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "core"
         },
         {
             "name": "multiPromptChain",
@@ -393,7 +441,8 @@
             "folder": "chains",
             "file": "packages/components/nodes/chains/MultiPromptChain/MultiPromptChain.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "legacy"
         },
         {
             "name": "multiRetrievalQAChain",
@@ -402,7 +451,8 @@
             "folder": "chains",
             "file": "packages/components/nodes/chains/MultiRetrievalQAChain/MultiRetrievalQAChain.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "legacy"
         },
         {
             "name": "retrievalQAChain",
@@ -411,7 +461,8 @@
             "folder": "chains",
             "file": "packages/components/nodes/chains/RetrievalQAChain/RetrievalQAChain.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "legacy"
         },
         {
             "name": "sqlDatabaseChain",
@@ -420,7 +471,8 @@
             "folder": "chains",
             "file": "packages/components/nodes/chains/SqlDatabaseChain/SqlDatabaseChain.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "core"
         },
         {
             "name": "vectaraQAChain",
@@ -429,7 +481,8 @@
             "folder": "chains",
             "file": "packages/components/nodes/chains/VectaraChain/VectaraChain.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
         },
         {
             "name": "vectorDBQAChain",
@@ -438,7 +491,8 @@
             "folder": "chains",
             "file": "packages/components/nodes/chains/VectorDBQAChain/VectorDBQAChain.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "legacy"
         },
         {
             "name": "awsChatBedrock",
@@ -447,7 +501,8 @@
             "folder": "chatmodels",
             "file": "packages/components/nodes/chatmodels/AWSBedrock/AWSChatBedrock.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
         },
         {
             "name": "azureChatOpenAI",
@@ -456,7 +511,8 @@
             "folder": "chatmodels",
             "file": "packages/components/nodes/chatmodels/AzureChatOpenAI/AzureChatOpenAI.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "core"
         },
         {
             "name": "chatAlibabaTongyi",
@@ -465,7 +521,8 @@
             "folder": "chatmodels",
             "file": "packages/components/nodes/chatmodels/ChatAlibabaTongyi/ChatAlibabaTongyi.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
         },
         {
             "name": "chatAnthropic",
@@ -474,7 +531,8 @@
             "folder": "chatmodels",
             "file": "packages/components/nodes/chatmodels/ChatAnthropic/ChatAnthropic.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "core"
         },
         {
             "name": "chatBaiduWenxin",
@@ -483,7 +541,8 @@
             "folder": "chatmodels",
             "file": "packages/components/nodes/chatmodels/ChatBaiduWenxin/ChatBaiduWenxin.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
         },
         {
             "name": "chatCerebras",
@@ -492,7 +551,8 @@
             "folder": "chatmodels",
             "file": "packages/components/nodes/chatmodels/ChatCerebras/ChatCerebras.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
         },
         {
             "name": "chatCloudflareWorkersAI",
@@ -501,7 +561,8 @@
             "folder": "chatmodels",
             "file": "packages/components/nodes/chatmodels/ChatCloudflareWorkersAI/ChatCloudflareWorkersAI.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
         },
         {
             "name": "chatCohere",
@@ -510,7 +571,8 @@
             "folder": "chatmodels",
             "file": "packages/components/nodes/chatmodels/ChatCohere/ChatCohere.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
         },
         {
             "name": "chatCometAPI",
@@ -519,7 +581,8 @@
             "folder": "chatmodels",
             "file": "packages/components/nodes/chatmodels/ChatCometAPI/ChatCometAPI.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
         },
         {
             "name": "chatFireworks",
@@ -528,7 +591,8 @@
             "folder": "chatmodels",
             "file": "packages/components/nodes/chatmodels/ChatFireworks/ChatFireworks.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
         },
         {
             "name": "chatGoogleGenerativeAI",
@@ -537,7 +601,8 @@
             "folder": "chatmodels",
             "file": "packages/components/nodes/chatmodels/ChatGoogleGenerativeAI/ChatGoogleGenerativeAI.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
         },
         {
             "name": "chatGoogleVertexAI",
@@ -546,7 +611,8 @@
             "folder": "chatmodels",
             "file": "packages/components/nodes/chatmodels/ChatGoogleVertexAI/ChatGoogleVertexAI.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
         },
         {
             "name": "chatHuggingFace",
@@ -555,7 +621,8 @@
             "folder": "chatmodels",
             "file": "packages/components/nodes/chatmodels/ChatHuggingFace/ChatHuggingFace.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
         },
         {
             "name": "chatIBMWatsonx",
@@ -564,7 +631,8 @@
             "folder": "chatmodels",
             "file": "packages/components/nodes/chatmodels/ChatIBMWatsonx/ChatIBMWatsonx.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
         },
         {
             "name": "chatLitellm",
@@ -573,7 +641,8 @@
             "folder": "chatmodels",
             "file": "packages/components/nodes/chatmodels/ChatLitellm/ChatLitellm.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
         },
         {
             "name": "chatLocalAI",
@@ -582,7 +651,8 @@
             "folder": "chatmodels",
             "file": "packages/components/nodes/chatmodels/ChatLocalAI/ChatLocalAI.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
         },
         {
             "name": "chatMistralAI",
@@ -591,7 +661,8 @@
             "folder": "chatmodels",
             "file": "packages/components/nodes/chatmodels/ChatMistral/ChatMistral.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "core"
         },
         {
             "name": "chatNemoGuardrails",
@@ -600,7 +671,8 @@
             "folder": "chatmodels",
             "file": "packages/components/nodes/chatmodels/ChatNemoGuardrails/ChatNemoGuardrails.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
         },
         {
             "name": "chatNvidiaNIM",
@@ -609,7 +681,8 @@
             "folder": "chatmodels",
             "file": "packages/components/nodes/chatmodels/ChatNvdiaNIM/ChatNvdiaNIM.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
         },
         {
             "name": "chatOllama",
@@ -618,7 +691,8 @@
             "folder": "chatmodels",
             "file": "packages/components/nodes/chatmodels/ChatOllama/ChatOllama.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "core"
         },
         {
             "name": "chatOpenAI",
@@ -627,7 +701,8 @@
             "folder": "chatmodels",
             "file": "packages/components/nodes/chatmodels/ChatOpenAI/ChatOpenAI.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "core"
         },
         {
             "name": "chatOpenAICustom",
@@ -636,7 +711,8 @@
             "folder": "chatmodels",
             "file": "packages/components/nodes/chatmodels/ChatOpenAICustom/ChatOpenAICustom.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
         },
         {
             "name": "chatOpenRouter",
@@ -645,7 +721,8 @@
             "folder": "chatmodels",
             "file": "packages/components/nodes/chatmodels/ChatOpenRouter/ChatOpenRouter.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
         },
         {
             "name": "chatPerplexity",
@@ -654,7 +731,8 @@
             "folder": "chatmodels",
             "file": "packages/components/nodes/chatmodels/ChatPerplexity/ChatPerplexity.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
         },
         {
             "name": "chatSambanova",
@@ -663,7 +741,8 @@
             "folder": "chatmodels",
             "file": "packages/components/nodes/chatmodels/ChatSambanova/ChatSambanova.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
         },
         {
             "name": "chatTogetherAI",
@@ -672,7 +751,8 @@
             "folder": "chatmodels",
             "file": "packages/components/nodes/chatmodels/ChatTogetherAI/ChatTogetherAI.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
         },
         {
             "name": "chatXAI",
@@ -681,7 +761,8 @@
             "folder": "chatmodels",
             "file": "packages/components/nodes/chatmodels/ChatXAI/ChatXAI.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "core"
         },
         {
             "name": "chatDeepseek",
@@ -690,7 +771,8 @@
             "folder": "chatmodels",
             "file": "packages/components/nodes/chatmodels/Deepseek/Deepseek.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
         },
         {
             "name": "groqChat",
@@ -699,7 +781,8 @@
             "folder": "chatmodels",
             "file": "packages/components/nodes/chatmodels/Groq/Groq.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
         },
         {
             "name": "airtable",
@@ -708,7 +791,8 @@
             "folder": "documentloaders",
             "file": "packages/components/nodes/documentloaders/Airtable/Airtable.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
         },
         {
             "name": "apiLoader",
@@ -717,7 +801,8 @@
             "folder": "documentloaders",
             "file": "packages/components/nodes/documentloaders/API/APILoader.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
         },
         {
             "name": "apifyWebsiteContentCrawler",
@@ -726,7 +811,8 @@
             "folder": "documentloaders",
             "file": "packages/components/nodes/documentloaders/ApifyWebsiteContentCrawler/ApifyWebsiteContentCrawler.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
         },
         {
             "name": "braveSearchApiLoader",
@@ -735,7 +821,8 @@
             "folder": "documentloaders",
             "file": "packages/components/nodes/documentloaders/BraveSearchAPI/BraveSearchAPI.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
         },
         {
             "name": "cheerioWebScraper",
@@ -744,7 +831,8 @@
             "folder": "documentloaders",
             "file": "packages/components/nodes/documentloaders/Cheerio/Cheerio.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
         },
         {
             "name": "confluence",
@@ -753,7 +841,8 @@
             "folder": "documentloaders",
             "file": "packages/components/nodes/documentloaders/Confluence/Confluence.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
         },
         {
             "name": "csvFile",
@@ -762,7 +851,8 @@
             "folder": "documentloaders",
             "file": "packages/components/nodes/documentloaders/Csv/Csv.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
         },
         {
             "name": "customDocumentLoader",
@@ -771,7 +861,8 @@
             "folder": "documentloaders",
             "file": "packages/components/nodes/documentloaders/CustomDocumentLoader/CustomDocumentLoader.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
         },
         {
             "name": "documentStore",
@@ -780,7 +871,8 @@
             "folder": "documentloaders",
             "file": "packages/components/nodes/documentloaders/DocumentStore/DocStoreLoader.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "core"
         },
         {
             "name": "docxFile",
@@ -789,7 +881,8 @@
             "folder": "documentloaders",
             "file": "packages/components/nodes/documentloaders/Docx/Docx.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
         },
         {
             "name": "epubFile",
@@ -798,7 +891,8 @@
             "folder": "documentloaders",
             "file": "packages/components/nodes/documentloaders/Epub/Epub.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
         },
         {
             "name": "figma",
@@ -807,7 +901,8 @@
             "folder": "documentloaders",
             "file": "packages/components/nodes/documentloaders/Figma/Figma.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
         },
         {
             "name": "fileLoader",
@@ -816,7 +911,8 @@
             "folder": "documentloaders",
             "file": "packages/components/nodes/documentloaders/File/File.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
         },
         {
             "name": "fireCrawl",
@@ -825,7 +921,8 @@
             "folder": "documentloaders",
             "file": "packages/components/nodes/documentloaders/FireCrawl/FireCrawl.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
         },
         {
             "name": "folderFiles",
@@ -834,7 +931,8 @@
             "folder": "documentloaders",
             "file": "packages/components/nodes/documentloaders/Folder/Folder.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
         },
         {
             "name": "gitbook",
@@ -843,7 +941,8 @@
             "folder": "documentloaders",
             "file": "packages/components/nodes/documentloaders/Gitbook/Gitbook.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
         },
         {
             "name": "github",
@@ -852,7 +951,8 @@
             "folder": "documentloaders",
             "file": "packages/components/nodes/documentloaders/Github/Github.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "core"
         },
         {
             "name": "googleDrive",
@@ -861,7 +961,8 @@
             "folder": "documentloaders",
             "file": "packages/components/nodes/documentloaders/GoogleDrive/GoogleDrive.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
         },
         {
             "name": "googleSheets",
@@ -870,7 +971,8 @@
             "folder": "documentloaders",
             "file": "packages/components/nodes/documentloaders/GoogleSheets/GoogleSheets.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
         },
         {
             "name": "jira",
@@ -879,7 +981,8 @@
             "folder": "documentloaders",
             "file": "packages/components/nodes/documentloaders/Jira/Jira.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
         },
         {
             "name": "jsonFile",
@@ -888,7 +991,8 @@
             "folder": "documentloaders",
             "file": "packages/components/nodes/documentloaders/Json/Json.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
         },
         {
             "name": "jsonlinesFile",
@@ -897,7 +1001,8 @@
             "folder": "documentloaders",
             "file": "packages/components/nodes/documentloaders/Jsonlines/Jsonlines.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
         },
         {
             "name": "microsoftExcel",
@@ -906,7 +1011,8 @@
             "folder": "documentloaders",
             "file": "packages/components/nodes/documentloaders/MicrosoftExcel/MicrosoftExcel.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
         },
         {
             "name": "microsoftPowerpoint",
@@ -915,7 +1021,8 @@
             "folder": "documentloaders",
             "file": "packages/components/nodes/documentloaders/MicrosoftPowerpoint/MicrosoftPowerpoint.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
         },
         {
             "name": "microsoftWord",
@@ -924,7 +1031,8 @@
             "folder": "documentloaders",
             "file": "packages/components/nodes/documentloaders/MicrosoftWord/MicrosoftWord.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
         },
         {
             "name": "notionDB",
@@ -933,7 +1041,8 @@
             "folder": "documentloaders",
             "file": "packages/components/nodes/documentloaders/Notion/NotionDB.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
         },
         {
             "name": "notionFolder",
@@ -942,7 +1051,8 @@
             "folder": "documentloaders",
             "file": "packages/components/nodes/documentloaders/Notion/NotionFolder.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
         },
         {
             "name": "notionPage",
@@ -951,7 +1061,8 @@
             "folder": "documentloaders",
             "file": "packages/components/nodes/documentloaders/Notion/NotionPage.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
         },
         {
             "name": "oxylabs",
@@ -960,7 +1071,8 @@
             "folder": "documentloaders",
             "file": "packages/components/nodes/documentloaders/Oxylabs/Oxylabs.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
         },
         {
             "name": "pdfFile",
@@ -969,7 +1081,8 @@
             "folder": "documentloaders",
             "file": "packages/components/nodes/documentloaders/Pdf/Pdf.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
         },
         {
             "name": "plainText",
@@ -978,7 +1091,8 @@
             "folder": "documentloaders",
             "file": "packages/components/nodes/documentloaders/PlainText/PlainText.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "core"
         },
         {
             "name": "playwrightWebScraper",
@@ -987,7 +1101,8 @@
             "folder": "documentloaders",
             "file": "packages/components/nodes/documentloaders/Playwright/Playwright.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
         },
         {
             "name": "puppeteerWebScraper",
@@ -996,7 +1111,8 @@
             "folder": "documentloaders",
             "file": "packages/components/nodes/documentloaders/Puppeteer/Puppeteer.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
         },
         {
             "name": "s3Directory",
@@ -1005,7 +1121,8 @@
             "folder": "documentloaders",
             "file": "packages/components/nodes/documentloaders/S3Directory/S3Directory.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
         },
         {
             "name": "S3",
@@ -1014,7 +1131,8 @@
             "folder": "documentloaders",
             "file": "packages/components/nodes/documentloaders/S3File/S3File.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
         },
         {
             "name": "searchApi",
@@ -1023,7 +1141,8 @@
             "folder": "documentloaders",
             "file": "packages/components/nodes/documentloaders/SearchApi/SearchAPI.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
         },
         {
             "name": "serpApi",
@@ -1032,7 +1151,8 @@
             "folder": "documentloaders",
             "file": "packages/components/nodes/documentloaders/SerpApi/SerpAPI.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
         },
         {
             "name": "spiderDocumentLoaders",
@@ -1041,7 +1161,8 @@
             "folder": "documentloaders",
             "file": "packages/components/nodes/documentloaders/Spider/Spider.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
         },
         {
             "name": "textFile",
@@ -1050,7 +1171,8 @@
             "folder": "documentloaders",
             "file": "packages/components/nodes/documentloaders/Text/Text.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "core"
         },
         {
             "name": "unstructuredFileLoader",
@@ -1059,7 +1181,8 @@
             "folder": "documentloaders",
             "file": "packages/components/nodes/documentloaders/Unstructured/UnstructuredFile.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
         },
         {
             "name": "vectorStoreToDocument",
@@ -1068,7 +1191,8 @@
             "folder": "documentloaders",
             "file": "packages/components/nodes/documentloaders/VectorStoreToDocument/VectorStoreToDocument.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
         },
         {
             "name": "AWSBedrockEmbeddings",
@@ -1077,7 +1201,8 @@
             "folder": "embeddings",
             "file": "packages/components/nodes/embeddings/AWSBedrockEmbedding/AWSBedrockEmbedding.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
         },
         {
             "name": "azureOpenAIEmbeddings",
@@ -1086,7 +1211,8 @@
             "folder": "embeddings",
             "file": "packages/components/nodes/embeddings/AzureOpenAIEmbedding/AzureOpenAIEmbedding.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
         },
         {
             "name": "baiduQianfanEmbeddings",
@@ -1095,7 +1221,8 @@
             "folder": "embeddings",
             "file": "packages/components/nodes/embeddings/BaiduQianfanEmbedding/BaiduQianfanEmbedding.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
         },
         {
             "name": "cohereEmbeddings",
@@ -1104,7 +1231,8 @@
             "folder": "embeddings",
             "file": "packages/components/nodes/embeddings/CohereEmbedding/CohereEmbedding.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
         },
         {
             "name": "googleGenerativeAiEmbeddings",
@@ -1113,7 +1241,8 @@
             "folder": "embeddings",
             "file": "packages/components/nodes/embeddings/GoogleGenerativeAIEmbedding/GoogleGenerativeAIEmbedding.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
         },
         {
             "name": "googlevertexaiEmbeddings",
@@ -1122,7 +1251,8 @@
             "folder": "embeddings",
             "file": "packages/components/nodes/embeddings/GoogleVertexAIEmbedding/GoogleVertexAIEmbedding.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
         },
         {
             "name": "huggingFaceInferenceEmbeddings",
@@ -1131,7 +1261,8 @@
             "folder": "embeddings",
             "file": "packages/components/nodes/embeddings/HuggingFaceInferenceEmbedding/HuggingFaceInferenceEmbedding.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
         },
         {
             "name": "ibmEmbedding",
@@ -1140,7 +1271,8 @@
             "folder": "embeddings",
             "file": "packages/components/nodes/embeddings/IBMWatsonxEmbedding/IBMWatsonxEmbedding.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
         },
         {
             "name": "jinaEmbeddings",
@@ -1149,7 +1281,8 @@
             "folder": "embeddings",
             "file": "packages/components/nodes/embeddings/JinaAIEmbedding/JinaAIEmbedding.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
         },
         {
             "name": "localAIEmbeddings",
@@ -1158,7 +1291,8 @@
             "folder": "embeddings",
             "file": "packages/components/nodes/embeddings/LocalAIEmbedding/LocalAIEmbedding.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "core"
         },
         {
             "name": "localHashEmbeddings",
@@ -1167,7 +1301,8 @@
             "folder": "embeddings",
             "file": "packages/components/nodes/embeddings/LocalHashEmbedding/LocalHashEmbedding.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "core"
         },
         {
             "name": "mistralAIEmbeddings",
@@ -1176,7 +1311,8 @@
             "folder": "embeddings",
             "file": "packages/components/nodes/embeddings/MistralEmbedding/MistralEmbedding.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
         },
         {
             "name": "ollamaEmbedding",
@@ -1185,7 +1321,8 @@
             "folder": "embeddings",
             "file": "packages/components/nodes/embeddings/OllamaEmbedding/OllamaEmbedding.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
         },
         {
             "name": "openAIEmbeddings",
@@ -1194,7 +1331,8 @@
             "folder": "embeddings",
             "file": "packages/components/nodes/embeddings/OpenAIEmbedding/OpenAIEmbedding.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "core"
         },
         {
             "name": "openAIEmbeddingsCustom",
@@ -1203,7 +1341,8 @@
             "folder": "embeddings",
             "file": "packages/components/nodes/embeddings/OpenAIEmbeddingCustom/OpenAIEmbeddingCustom.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
         },
         {
             "name": "togetherAIEmbedding",
@@ -1212,7 +1351,8 @@
             "folder": "embeddings",
             "file": "packages/components/nodes/embeddings/TogetherAIEmbedding/TogetherAIEmbedding.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
         },
         {
             "name": "voyageAIEmbeddings",
@@ -1221,7 +1361,8 @@
             "folder": "embeddings",
             "file": "packages/components/nodes/embeddings/VoyageAIEmbedding/VoyageAIEmbedding.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
         },
         {
             "name": "etlFileSource",
@@ -1230,7 +1371,8 @@
             "folder": "etl",
             "file": "packages/components/nodes/etl/EtlFileSource/EtlFileSource.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "core"
         },
         {
             "name": "etlRepoSource",
@@ -1239,7 +1381,8 @@
             "folder": "etl",
             "file": "packages/components/nodes/etl/EtlRepoSource/EtlRepoSource.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "core"
         },
         {
             "name": "etlTransform",
@@ -1248,7 +1391,8 @@
             "folder": "etl",
             "file": "packages/components/nodes/etl/EtlTransform/EtlTransform.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "core"
         },
         {
             "name": "Neo4j",
@@ -1257,7 +1401,8 @@
             "folder": "graphs",
             "file": "packages/components/nodes/graphs/Neo4j/Neo4j.ts",
             "disposition": "adapt",
-            "reason": "Older agent or LangGraph 0.0.22 runtime. Convert only when a harness binding cannot load it."
+            "reason": "Older agent or LangGraph 0.0.22 runtime. Convert only when a harness binding cannot load it.",
+            "tier": "supported"
         },
         {
             "name": "harness",
@@ -1266,7 +1411,8 @@
             "folder": "harness",
             "file": "packages/components/nodes/harness/Harness/Harness.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "core"
         },
         {
             "name": "harnessChief",
@@ -1275,7 +1421,8 @@
             "folder": "harness",
             "file": "packages/components/nodes/harness/HarnessChief/HarnessChief.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "core"
         },
         {
             "name": "harnessSpecialist",
@@ -1284,7 +1431,8 @@
             "folder": "harness",
             "file": "packages/components/nodes/harness/HarnessSpecialist/HarnessSpecialist.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "core"
         },
         {
             "name": "awsBedrock",
@@ -1293,7 +1441,8 @@
             "folder": "llms",
             "file": "packages/components/nodes/llms/AWSBedrock/AWSBedrock.ts",
             "disposition": "replaced",
-            "reason": "Marked deprecated in place. Not deleted. Use AWS Bedrock Chat Models instead"
+            "reason": "Marked deprecated in place. Not deleted. Use AWS Bedrock Chat Models instead",
+            "tier": "legacy"
         },
         {
             "name": "azureOpenAI",
@@ -1302,7 +1451,8 @@
             "folder": "llms",
             "file": "packages/components/nodes/llms/Azure OpenAI/AzureOpenAI.ts",
             "disposition": "replaced",
-            "reason": "Marked deprecated in place. Not deleted. Use Azure OpenAI Chat Models instead"
+            "reason": "Marked deprecated in place. Not deleted. Use Azure OpenAI Chat Models instead",
+            "tier": "legacy"
         },
         {
             "name": "cohere",
@@ -1311,7 +1461,8 @@
             "folder": "llms",
             "file": "packages/components/nodes/llms/Cohere/Cohere.ts",
             "disposition": "replaced",
-            "reason": "Marked deprecated in place. Not deleted. Use Cohere Chat Models instead"
+            "reason": "Marked deprecated in place. Not deleted. Use Cohere Chat Models instead",
+            "tier": "legacy"
         },
         {
             "name": "fireworks",
@@ -1320,7 +1471,8 @@
             "folder": "llms",
             "file": "packages/components/nodes/llms/Fireworks/Fireworks.ts",
             "disposition": "replaced",
-            "reason": "Marked deprecated in place. Not deleted. Use Fireworks Chat Models instead"
+            "reason": "Marked deprecated in place. Not deleted. Use Fireworks Chat Models instead",
+            "tier": "legacy"
         },
         {
             "name": "googlevertexai",
@@ -1329,7 +1481,8 @@
             "folder": "llms",
             "file": "packages/components/nodes/llms/GoogleVertexAI/GoogleVertexAI.ts",
             "disposition": "replaced",
-            "reason": "Marked deprecated in place. Not deleted. Use GoogleVertexAI Chat Models instead"
+            "reason": "Marked deprecated in place. Not deleted. Use GoogleVertexAI Chat Models instead",
+            "tier": "legacy"
         },
         {
             "name": "huggingFaceInference_LLMs",
@@ -1338,7 +1491,8 @@
             "folder": "llms",
             "file": "packages/components/nodes/llms/HuggingFaceInference/HuggingFaceInference.ts",
             "disposition": "replaced",
-            "reason": "Marked deprecated in place. Not deleted. Use HuggingFace Inference Chat Models instead"
+            "reason": "Marked deprecated in place. Not deleted. Use HuggingFace Inference Chat Models instead",
+            "tier": "legacy"
         },
         {
             "name": "ibmWatsonx",
@@ -1347,7 +1501,8 @@
             "folder": "llms",
             "file": "packages/components/nodes/llms/IBMWatsonx/IBMWatsonx.ts",
             "disposition": "replaced",
-            "reason": "Marked deprecated in place. Not deleted. Use IBM Watsonx Chat Models instead"
+            "reason": "Marked deprecated in place. Not deleted. Use IBM Watsonx Chat Models instead",
+            "tier": "legacy"
         },
         {
             "name": "ollama",
@@ -1356,7 +1511,8 @@
             "folder": "llms",
             "file": "packages/components/nodes/llms/Ollama/Ollama.ts",
             "disposition": "replaced",
-            "reason": "Marked deprecated in place. Not deleted. Use Ollama Chat Models instead"
+            "reason": "Marked deprecated in place. Not deleted. Use Ollama Chat Models instead",
+            "tier": "legacy"
         },
         {
             "name": "openAI",
@@ -1365,7 +1521,8 @@
             "folder": "llms",
             "file": "packages/components/nodes/llms/OpenAI/OpenAI.ts",
             "disposition": "replaced",
-            "reason": "Marked deprecated in place. Not deleted. Use OpenAI Chat Models instead"
+            "reason": "Marked deprecated in place. Not deleted. Use OpenAI Chat Models instead",
+            "tier": "legacy"
         },
         {
             "name": "replicate",
@@ -1374,7 +1531,8 @@
             "folder": "llms",
             "file": "packages/components/nodes/llms/Replicate/Replicate.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "core"
         },
         {
             "name": "sambanova",
@@ -1383,7 +1541,8 @@
             "folder": "llms",
             "file": "packages/components/nodes/llms/SambaNova/Sambanova.ts",
             "disposition": "replaced",
-            "reason": "Marked deprecated in place. Not deleted. Use Sambanova Chat Models instead"
+            "reason": "Marked deprecated in place. Not deleted. Use Sambanova Chat Models instead",
+            "tier": "legacy"
         },
         {
             "name": "togetherAI",
@@ -1392,7 +1551,8 @@
             "folder": "llms",
             "file": "packages/components/nodes/llms/TogetherAI/TogetherAI.ts",
             "disposition": "replaced",
-            "reason": "Marked deprecated in place. Not deleted. Use TogetherAI Chat Models instead"
+            "reason": "Marked deprecated in place. Not deleted. Use TogetherAI Chat Models instead",
+            "tier": "legacy"
         },
         {
             "name": "agentMemory",
@@ -1401,7 +1561,8 @@
             "folder": "memory",
             "file": "packages/components/nodes/memory/AgentMemory/AgentMemory.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "legacy"
         },
         {
             "name": "mySQLAgentMemory",
@@ -1410,7 +1571,8 @@
             "folder": "memory",
             "file": "packages/components/nodes/memory/AgentMemory/MySQLAgentMemory/MySQLAgentMemory.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
         },
         {
             "name": "postgresAgentMemory",
@@ -1419,7 +1581,8 @@
             "folder": "memory",
             "file": "packages/components/nodes/memory/AgentMemory/PostgresAgentMemory/PostgresAgentMemory.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
         },
         {
             "name": "sqliteAgentMemory",
@@ -1428,7 +1591,8 @@
             "folder": "memory",
             "file": "packages/components/nodes/memory/AgentMemory/SQLiteAgentMemory/SQLiteAgentMemory.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
         },
         {
             "name": "bufferMemory",
@@ -1437,7 +1601,8 @@
             "folder": "memory",
             "file": "packages/components/nodes/memory/BufferMemory/BufferMemory.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "core"
         },
         {
             "name": "bufferWindowMemory",
@@ -1446,7 +1611,8 @@
             "folder": "memory",
             "file": "packages/components/nodes/memory/BufferWindowMemory/BufferWindowMemory.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
         },
         {
             "name": "conversationSummaryBufferMemory",
@@ -1455,7 +1621,8 @@
             "folder": "memory",
             "file": "packages/components/nodes/memory/ConversationSummaryBufferMemory/ConversationSummaryBufferMemory.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
         },
         {
             "name": "conversationSummaryMemory",
@@ -1464,7 +1631,8 @@
             "folder": "memory",
             "file": "packages/components/nodes/memory/ConversationSummaryMemory/ConversationSummaryMemory.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
         },
         {
             "name": "DynamoDBChatMemory",
@@ -1473,7 +1641,8 @@
             "folder": "memory",
             "file": "packages/components/nodes/memory/DynamoDb/DynamoDb.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
         },
         {
             "name": "mem0",
@@ -1482,7 +1651,8 @@
             "folder": "memory",
             "file": "packages/components/nodes/memory/Mem0/Mem0.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
         },
         {
             "name": "MongoDBAtlasChatMemory",
@@ -1491,7 +1661,8 @@
             "folder": "memory",
             "file": "packages/components/nodes/memory/MongoDBMemory/MongoDBMemory.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
         },
         {
             "name": "RedisBackedChatMemory",
@@ -1500,7 +1671,8 @@
             "folder": "memory",
             "file": "packages/components/nodes/memory/RedisBackedChatMemory/RedisBackedChatMemory.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
         },
         {
             "name": "upstashRedisBackedChatMemory",
@@ -1509,7 +1681,8 @@
             "folder": "memory",
             "file": "packages/components/nodes/memory/UpstashRedisBackedChatMemory/UpstashRedisBackedChatMemory.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
         },
         {
             "name": "ZepMemory",
@@ -1518,7 +1691,8 @@
             "folder": "memory",
             "file": "packages/components/nodes/memory/ZepMemory/ZepMemory.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
         },
         {
             "name": "ZepMemoryCloud",
@@ -1527,7 +1701,8 @@
             "folder": "memory",
             "file": "packages/components/nodes/memory/ZepMemoryCloud/ZepMemoryCloud.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
         },
         {
             "name": "inputModerationOpenAI",
@@ -1536,7 +1711,8 @@
             "folder": "moderation",
             "file": "packages/components/nodes/moderation/OpenAIModeration/OpenAIModeration.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
         },
         {
             "name": "inputModerationSimple",
@@ -1545,7 +1721,8 @@
             "folder": "moderation",
             "file": "packages/components/nodes/moderation/SimplePromptModeration/SimplePromptModeration.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "core"
         },
         {
             "name": "supervisor",
@@ -1554,7 +1731,8 @@
             "folder": "multiagents",
             "file": "packages/components/nodes/multiagents/Supervisor/Supervisor.ts",
             "disposition": "adapt",
-            "reason": "Older agent or LangGraph 0.0.22 runtime. Convert only when a harness binding cannot load it."
+            "reason": "Older agent or LangGraph 0.0.22 runtime. Convert only when a harness binding cannot load it.",
+            "tier": "core"
         },
         {
             "name": "worker",
@@ -1563,43 +1741,48 @@
             "folder": "multiagents",
             "file": "packages/components/nodes/multiagents/Worker/Worker.ts",
             "disposition": "adapt",
-            "reason": "Older agent or LangGraph 0.0.22 runtime. Convert only when a harness binding cannot load it."
+            "reason": "Older agent or LangGraph 0.0.22 runtime. Convert only when a harness binding cannot load it.",
+            "tier": "core"
         },
         {
             "name": "csvOutputParser",
             "label": "CSV Output Parser",
-            "category": "",
+            "category": "Output Parsers",
             "folder": "outputparsers",
             "file": "packages/components/nodes/outputparsers/CSVListOutputParser/CSVListOutputParser.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "core"
         },
         {
             "name": "customListOutputParser",
             "label": "Custom List Output Parser",
-            "category": "",
+            "category": "Output Parsers",
             "folder": "outputparsers",
             "file": "packages/components/nodes/outputparsers/CustomListOutputParser/CustomListOutputParser.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
         },
         {
             "name": "structuredOutputParser",
             "label": "Structured Output Parser",
-            "category": "",
+            "category": "Output Parsers",
             "folder": "outputparsers",
             "file": "packages/components/nodes/outputparsers/StructuredOutputParser/StructuredOutputParser.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
         },
         {
             "name": "advancedStructuredOutputParser",
             "label": "Advanced Structured Output Parser",
-            "category": "",
+            "category": "Output Parsers",
             "folder": "outputparsers",
             "file": "packages/components/nodes/outputparsers/StructuredOutputParserAdvanced/StructuredOutputParserAdvanced.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "core"
         },
         {
             "name": "chatPromptTemplate",
@@ -1608,7 +1791,8 @@
             "folder": "prompts",
             "file": "packages/components/nodes/prompts/ChatPromptTemplate/ChatPromptTemplate.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "core"
         },
         {
             "name": "fewShotPromptTemplate",
@@ -1617,7 +1801,8 @@
             "folder": "prompts",
             "file": "packages/components/nodes/prompts/FewShotPromptTemplate/FewShotPromptTemplate.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
         },
         {
             "name": "promptLangFuse",
@@ -1626,7 +1811,8 @@
             "folder": "prompts",
             "file": "packages/components/nodes/prompts/PromptLangfuse/PromptLangfuse.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
         },
         {
             "name": "promptTemplate",
@@ -1635,7 +1821,8 @@
             "folder": "prompts",
             "file": "packages/components/nodes/prompts/PromptTemplate/PromptTemplate.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "core"
         },
         {
             "name": "MySQLRecordManager",
@@ -1644,7 +1831,8 @@
             "folder": "recordmanager",
             "file": "packages/components/nodes/recordmanager/MySQLRecordManager/MySQLrecordManager.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
         },
         {
             "name": "postgresRecordManager",
@@ -1653,7 +1841,8 @@
             "folder": "recordmanager",
             "file": "packages/components/nodes/recordmanager/PostgresRecordManager/PostgresRecordManager.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
         },
         {
             "name": "SQLiteRecordManager",
@@ -1662,7 +1851,8 @@
             "folder": "recordmanager",
             "file": "packages/components/nodes/recordmanager/SQLiteRecordManager/SQLiteRecordManager.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
         },
         {
             "name": "awsBedrockKBRetriever",
@@ -1671,7 +1861,8 @@
             "folder": "retrievers",
             "file": "packages/components/nodes/retrievers/AWSBedrockKBRetriever/AWSBedrockKBRetriever.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
         },
         {
             "name": "AzureRerankRetriever",
@@ -1680,7 +1871,8 @@
             "folder": "retrievers",
             "file": "packages/components/nodes/retrievers/AzureRerankRetriever/AzureRerankRetriever.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
         },
         {
             "name": "cohereRerankRetriever",
@@ -1689,7 +1881,8 @@
             "folder": "retrievers",
             "file": "packages/components/nodes/retrievers/CohereRerankRetriever/CohereRerankRetriever.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
         },
         {
             "name": "customRetriever",
@@ -1698,7 +1891,8 @@
             "folder": "retrievers",
             "file": "packages/components/nodes/retrievers/CustomRetriever/CustomRetriever.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "core"
         },
         {
             "name": "embeddingsFilterRetriever",
@@ -1707,7 +1901,8 @@
             "folder": "retrievers",
             "file": "packages/components/nodes/retrievers/EmbeddingsFilterRetriever/EmbeddingsFilterRetriever.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
         },
         {
             "name": "extractMetadataRetriever",
@@ -1716,7 +1911,8 @@
             "folder": "retrievers",
             "file": "packages/components/nodes/retrievers/ExtractMetadataRetriever/ExtractMetadataRetriever.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
         },
         {
             "name": "HydeRetriever",
@@ -1725,7 +1921,8 @@
             "folder": "retrievers",
             "file": "packages/components/nodes/retrievers/HydeRetriever/HydeRetriever.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
         },
         {
             "name": "JinaRerankRetriever",
@@ -1734,7 +1931,8 @@
             "folder": "retrievers",
             "file": "packages/components/nodes/retrievers/JinaRerankRetriever/JinaRerankRetriever.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
         },
         {
             "name": "llmFilterRetriever",
@@ -1743,7 +1941,8 @@
             "folder": "retrievers",
             "file": "packages/components/nodes/retrievers/LLMFilterRetriever/LLMFilterCompressionRetriever.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
         },
         {
             "name": "multiQueryRetriever",
@@ -1752,7 +1951,8 @@
             "folder": "retrievers",
             "file": "packages/components/nodes/retrievers/MultiQueryRetriever/MultiQueryRetriever.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
         },
         {
             "name": "promptRetriever",
@@ -1761,7 +1961,8 @@
             "folder": "retrievers",
             "file": "packages/components/nodes/retrievers/PromptRetriever/PromptRetriever.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
         },
         {
             "name": "RRFRetriever",
@@ -1770,7 +1971,8 @@
             "folder": "retrievers",
             "file": "packages/components/nodes/retrievers/RRFRetriever/RRFRetriever.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
         },
         {
             "name": "similarityThresholdRetriever",
@@ -1779,7 +1981,8 @@
             "folder": "retrievers",
             "file": "packages/components/nodes/retrievers/SimilarityThresholdRetriever/SimilarityThresholdRetriever.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
         },
         {
             "name": "vectorStoreRetriever",
@@ -1788,7 +1991,8 @@
             "folder": "retrievers",
             "file": "packages/components/nodes/retrievers/VectorStoreRetriever/VectorStoreRetriever.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "core"
         },
         {
             "name": "voyageAIRerankRetriever",
@@ -1797,7 +2001,8 @@
             "folder": "retrievers",
             "file": "packages/components/nodes/retrievers/VoyageAIRetriever/VoyageAIRerankRetriever.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
         },
         {
             "name": "seqAgent",
@@ -1806,7 +2011,8 @@
             "folder": "sequentialagents",
             "file": "packages/components/nodes/sequentialagents/Agent/Agent.ts",
             "disposition": "adapt",
-            "reason": "Older agent or LangGraph 0.0.22 runtime. Convert only when a harness binding cannot load it."
+            "reason": "Older agent or LangGraph 0.0.22 runtime. Convert only when a harness binding cannot load it.",
+            "tier": "core"
         },
         {
             "name": "seqCondition",
@@ -1815,7 +2021,8 @@
             "folder": "sequentialagents",
             "file": "packages/components/nodes/sequentialagents/Condition/Condition.ts",
             "disposition": "adapt",
-            "reason": "Older agent or LangGraph 0.0.22 runtime. Convert only when a harness binding cannot load it."
+            "reason": "Older agent or LangGraph 0.0.22 runtime. Convert only when a harness binding cannot load it.",
+            "tier": "core"
         },
         {
             "name": "seqConditionAgent",
@@ -1824,7 +2031,8 @@
             "folder": "sequentialagents",
             "file": "packages/components/nodes/sequentialagents/ConditionAgent/ConditionAgent.ts",
             "disposition": "adapt",
-            "reason": "Older agent or LangGraph 0.0.22 runtime. Convert only when a harness binding cannot load it."
+            "reason": "Older agent or LangGraph 0.0.22 runtime. Convert only when a harness binding cannot load it.",
+            "tier": "core"
         },
         {
             "name": "seqCustomFunction",
@@ -1833,7 +2041,8 @@
             "folder": "sequentialagents",
             "file": "packages/components/nodes/sequentialagents/CustomFunction/CustomFunction.ts",
             "disposition": "adapt",
-            "reason": "Older agent or LangGraph 0.0.22 runtime. Convert only when a harness binding cannot load it."
+            "reason": "Older agent or LangGraph 0.0.22 runtime. Convert only when a harness binding cannot load it.",
+            "tier": "supported"
         },
         {
             "name": "seqEnd",
@@ -1842,7 +2051,8 @@
             "folder": "sequentialagents",
             "file": "packages/components/nodes/sequentialagents/End/End.ts",
             "disposition": "adapt",
-            "reason": "Older agent or LangGraph 0.0.22 runtime. Convert only when a harness binding cannot load it."
+            "reason": "Older agent or LangGraph 0.0.22 runtime. Convert only when a harness binding cannot load it.",
+            "tier": "core"
         },
         {
             "name": "seqExecuteFlow",
@@ -1851,7 +2061,8 @@
             "folder": "sequentialagents",
             "file": "packages/components/nodes/sequentialagents/ExecuteFlow/ExecuteFlow.ts",
             "disposition": "adapt",
-            "reason": "Older agent or LangGraph 0.0.22 runtime. Convert only when a harness binding cannot load it."
+            "reason": "Older agent or LangGraph 0.0.22 runtime. Convert only when a harness binding cannot load it.",
+            "tier": "supported"
         },
         {
             "name": "seqLLMNode",
@@ -1860,7 +2071,8 @@
             "folder": "sequentialagents",
             "file": "packages/components/nodes/sequentialagents/LLMNode/LLMNode.ts",
             "disposition": "adapt",
-            "reason": "Older agent or LangGraph 0.0.22 runtime. Convert only when a harness binding cannot load it."
+            "reason": "Older agent or LangGraph 0.0.22 runtime. Convert only when a harness binding cannot load it.",
+            "tier": "core"
         },
         {
             "name": "seqLoop",
@@ -1869,7 +2081,8 @@
             "folder": "sequentialagents",
             "file": "packages/components/nodes/sequentialagents/Loop/Loop.ts",
             "disposition": "adapt",
-            "reason": "Older agent or LangGraph 0.0.22 runtime. Convert only when a harness binding cannot load it."
+            "reason": "Older agent or LangGraph 0.0.22 runtime. Convert only when a harness binding cannot load it.",
+            "tier": "core"
         },
         {
             "name": "seqStart",
@@ -1878,7 +2091,8 @@
             "folder": "sequentialagents",
             "file": "packages/components/nodes/sequentialagents/Start/Start.ts",
             "disposition": "adapt",
-            "reason": "Older agent or LangGraph 0.0.22 runtime. Convert only when a harness binding cannot load it."
+            "reason": "Older agent or LangGraph 0.0.22 runtime. Convert only when a harness binding cannot load it.",
+            "tier": "core"
         },
         {
             "name": "seqState",
@@ -1887,7 +2101,8 @@
             "folder": "sequentialagents",
             "file": "packages/components/nodes/sequentialagents/State/State.ts",
             "disposition": "adapt",
-            "reason": "Older agent or LangGraph 0.0.22 runtime. Convert only when a harness binding cannot load it."
+            "reason": "Older agent or LangGraph 0.0.22 runtime. Convert only when a harness binding cannot load it.",
+            "tier": "core"
         },
         {
             "name": "seqToolNode",
@@ -1896,7 +2111,8 @@
             "folder": "sequentialagents",
             "file": "packages/components/nodes/sequentialagents/ToolNode/ToolNode.ts",
             "disposition": "adapt",
-            "reason": "Older agent or LangGraph 0.0.22 runtime. Convert only when a harness binding cannot load it."
+            "reason": "Older agent or LangGraph 0.0.22 runtime. Convert only when a harness binding cannot load it.",
+            "tier": "core"
         },
         {
             "name": "assemblyAI",
@@ -1905,7 +2121,8 @@
             "folder": "speechtotext",
             "file": "packages/components/nodes/speechtotext/assemblyai/AssemblyAI.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "hidden"
         },
         {
             "name": "characterTextSplitter",
@@ -1914,7 +2131,8 @@
             "folder": "textsplitters",
             "file": "packages/components/nodes/textsplitters/CharacterTextSplitter/CharacterTextSplitter.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
         },
         {
             "name": "codeTextSplitter",
@@ -1923,7 +2141,8 @@
             "folder": "textsplitters",
             "file": "packages/components/nodes/textsplitters/CodeTextSplitter/CodeTextSplitter.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
         },
         {
             "name": "htmlToMarkdownTextSplitter",
@@ -1932,7 +2151,8 @@
             "folder": "textsplitters",
             "file": "packages/components/nodes/textsplitters/HtmlToMarkdownTextSplitter/HtmlToMarkdownTextSplitter.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
         },
         {
             "name": "markdownTextSplitter",
@@ -1941,7 +2161,8 @@
             "folder": "textsplitters",
             "file": "packages/components/nodes/textsplitters/MarkdownTextSplitter/MarkdownTextSplitter.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "core"
         },
         {
             "name": "recursiveCharacterTextSplitter",
@@ -1950,7 +2171,8 @@
             "folder": "textsplitters",
             "file": "packages/components/nodes/textsplitters/RecursiveCharacterTextSplitter/RecursiveCharacterTextSplitter.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "core"
         },
         {
             "name": "tokenTextSplitter",
@@ -1959,7 +2181,8 @@
             "folder": "textsplitters",
             "file": "packages/components/nodes/textsplitters/TokenTextSplitter/TokenTextSplitter.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
         },
         {
             "name": "agentAsTool",
@@ -1968,7 +2191,8 @@
             "folder": "tools",
             "file": "packages/components/nodes/tools/AgentAsTool/AgentAsTool.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
         },
         {
             "name": "arxiv",
@@ -1977,7 +2201,8 @@
             "folder": "tools",
             "file": "packages/components/nodes/tools/Arxiv/Arxiv.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "core"
         },
         {
             "name": "awsDynamoDBKVStorage",
@@ -1986,7 +2211,8 @@
             "folder": "tools",
             "file": "packages/components/nodes/tools/AWSDynamoDBKVStorage/AWSDynamoDBKVStorage.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
         },
         {
             "name": "awsSNS",
@@ -1995,7 +2221,8 @@
             "folder": "tools",
             "file": "packages/components/nodes/tools/AWSSNS/AWSSNS.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
         },
         {
             "name": "braveSearchAPI",
@@ -2004,7 +2231,8 @@
             "folder": "tools",
             "file": "packages/components/nodes/tools/BraveSearchAPI/BraveSearchAPI.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "core"
         },
         {
             "name": "calculator",
@@ -2013,7 +2241,8 @@
             "folder": "tools",
             "file": "packages/components/nodes/tools/Calculator/Calculator.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "core"
         },
         {
             "name": "chainTool",
@@ -2022,7 +2251,8 @@
             "folder": "tools",
             "file": "packages/components/nodes/tools/ChainTool/ChainTool.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "core"
         },
         {
             "name": "ChatflowTool",
@@ -2031,7 +2261,8 @@
             "folder": "tools",
             "file": "packages/components/nodes/tools/ChatflowTool/ChatflowTool.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
         },
         {
             "name": "codeInterpreterE2B",
@@ -2040,7 +2271,8 @@
             "folder": "tools",
             "file": "packages/components/nodes/tools/CodeInterpreterE2B/CodeInterpreterE2B.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
         },
         {
             "name": "composio",
@@ -2049,7 +2281,8 @@
             "folder": "tools",
             "file": "packages/components/nodes/tools/Composio/Composio.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
         },
         {
             "name": "currentDateTime",
@@ -2058,7 +2291,8 @@
             "folder": "tools",
             "file": "packages/components/nodes/tools/CurrentDateTime/CurrentDateTime.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "core"
         },
         {
             "name": "customTool",
@@ -2067,7 +2301,8 @@
             "folder": "tools",
             "file": "packages/components/nodes/tools/CustomTool/CustomTool.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "core"
         },
         {
             "name": "etlRetriever",
@@ -2076,7 +2311,8 @@
             "folder": "tools",
             "file": "packages/components/nodes/tools/EtlRetriever/EtlRetriever.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
         },
         {
             "name": "exaSearch",
@@ -2085,7 +2321,8 @@
             "folder": "tools",
             "file": "packages/components/nodes/tools/ExaSearch/ExaSearch.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
         },
         {
             "name": "gmail",
@@ -2094,7 +2331,8 @@
             "folder": "tools",
             "file": "packages/components/nodes/tools/Gmail/Gmail.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "core"
         },
         {
             "name": "googleCalendarTool",
@@ -2103,7 +2341,8 @@
             "folder": "tools",
             "file": "packages/components/nodes/tools/GoogleCalendar/GoogleCalendar.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
         },
         {
             "name": "googleDocsTool",
@@ -2112,7 +2351,8 @@
             "folder": "tools",
             "file": "packages/components/nodes/tools/GoogleDocs/GoogleDocs.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
         },
         {
             "name": "googleDriveTool",
@@ -2121,7 +2361,8 @@
             "folder": "tools",
             "file": "packages/components/nodes/tools/GoogleDrive/GoogleDrive.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
         },
         {
             "name": "googleCustomSearch",
@@ -2130,7 +2371,8 @@
             "folder": "tools",
             "file": "packages/components/nodes/tools/GoogleSearchAPI/GoogleSearchAPI.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "core"
         },
         {
             "name": "googleSheetsTool",
@@ -2139,7 +2381,8 @@
             "folder": "tools",
             "file": "packages/components/nodes/tools/GoogleSheets/GoogleSheets.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
         },
         {
             "name": "jiraTool",
@@ -2148,7 +2391,8 @@
             "folder": "tools",
             "file": "packages/components/nodes/tools/Jira/Jira.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
         },
         {
             "name": "jsonPathExtractor",
@@ -2157,7 +2401,8 @@
             "folder": "tools",
             "file": "packages/components/nodes/tools/JSONPathExtractor/JSONPathExtractor.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
         },
         {
             "name": "braveSearchMCP",
@@ -2166,7 +2411,8 @@
             "folder": "tools",
             "file": "packages/components/nodes/tools/MCP/BraveSearch/BraveSearchMCP.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
         },
         {
             "name": "browserlessMCP",
@@ -2175,7 +2421,8 @@
             "folder": "tools",
             "file": "packages/components/nodes/tools/MCP/Browserless/BrowserlessMCP.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
         },
         {
             "name": "customMCP",
@@ -2184,7 +2431,8 @@
             "folder": "tools",
             "file": "packages/components/nodes/tools/MCP/CustomMCP/CustomMCP.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "core"
         },
         {
             "name": "customMcpServerTool",
@@ -2193,7 +2441,8 @@
             "folder": "tools",
             "file": "packages/components/nodes/tools/MCP/CustomMcpServerTool/CustomMcpServerTool.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
         },
         {
             "name": "githubMCP",
@@ -2202,7 +2451,8 @@
             "folder": "tools",
             "file": "packages/components/nodes/tools/MCP/Github/GithubMCP.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
         },
         {
             "name": "pipedreamMCP",
@@ -2211,7 +2461,8 @@
             "folder": "tools",
             "file": "packages/components/nodes/tools/MCP/Pipedream/PipedreamMCP.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
         },
         {
             "name": "postgreSQLMCP",
@@ -2220,7 +2471,8 @@
             "folder": "tools",
             "file": "packages/components/nodes/tools/MCP/PostgreSQL/PostgreSQLMCP.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "core"
         },
         {
             "name": "sequentialThinkingMCP",
@@ -2229,7 +2481,8 @@
             "folder": "tools",
             "file": "packages/components/nodes/tools/MCP/SequentialThinking/SequentialThinkingMCP.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
         },
         {
             "name": "slackMCP",
@@ -2238,7 +2491,8 @@
             "folder": "tools",
             "file": "packages/components/nodes/tools/MCP/Slack/SlackMCP.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "core"
         },
         {
             "name": "supergatewayMCP",
@@ -2247,7 +2501,8 @@
             "folder": "tools",
             "file": "packages/components/nodes/tools/MCP/Supergateway/SupergatewayMCP.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
         },
         {
             "name": "teradataMCP",
@@ -2256,7 +2511,8 @@
             "folder": "tools",
             "file": "packages/components/nodes/tools/MCP/Teradata/TeradataMCP.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
         },
         {
             "name": "microsoftOutlook",
@@ -2265,7 +2521,8 @@
             "folder": "tools",
             "file": "packages/components/nodes/tools/MicrosoftOutlook/MicrosoftOutlook.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
         },
         {
             "name": "microsoftTeams",
@@ -2274,7 +2531,8 @@
             "folder": "tools",
             "file": "packages/components/nodes/tools/MicrosoftTeams/MicrosoftTeams.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "core"
         },
         {
             "name": "openAPIToolkit",
@@ -2283,7 +2541,8 @@
             "folder": "tools",
             "file": "packages/components/nodes/tools/OpenAPIToolkit/OpenAPIToolkit.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "core"
         },
         {
             "name": "requestsDelete",
@@ -2292,7 +2551,8 @@
             "folder": "tools",
             "file": "packages/components/nodes/tools/RequestsDelete/RequestsDelete.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "core"
         },
         {
             "name": "requestsGet",
@@ -2301,7 +2561,8 @@
             "folder": "tools",
             "file": "packages/components/nodes/tools/RequestsGet/RequestsGet.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "core"
         },
         {
             "name": "requestsPost",
@@ -2310,7 +2571,8 @@
             "folder": "tools",
             "file": "packages/components/nodes/tools/RequestsPost/RequestsPost.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "core"
         },
         {
             "name": "requestsPut",
@@ -2319,7 +2581,8 @@
             "folder": "tools",
             "file": "packages/components/nodes/tools/RequestsPut/RequestsPut.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "core"
         },
         {
             "name": "retrieverTool",
@@ -2328,7 +2591,8 @@
             "folder": "tools",
             "file": "packages/components/nodes/tools/RetrieverTool/RetrieverTool.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "core"
         },
         {
             "name": "searchAPI",
@@ -2337,7 +2601,8 @@
             "folder": "tools",
             "file": "packages/components/nodes/tools/SearchApi/SearchAPI.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
         },
         {
             "name": "searXNG",
@@ -2346,7 +2611,8 @@
             "folder": "tools",
             "file": "packages/components/nodes/tools/Searxng/Searxng.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
         },
         {
             "name": "serpAPI",
@@ -2355,7 +2621,8 @@
             "folder": "tools",
             "file": "packages/components/nodes/tools/SerpAPI/SerpAPI.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "core"
         },
         {
             "name": "serper",
@@ -2364,7 +2631,8 @@
             "folder": "tools",
             "file": "packages/components/nodes/tools/Serper/Serper.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "core"
         },
         {
             "name": "stripeAgentTool",
@@ -2373,7 +2641,8 @@
             "folder": "tools",
             "file": "packages/components/nodes/tools/StripeTool/StripeTool.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
         },
         {
             "name": "tavilyAPI",
@@ -2382,7 +2651,8 @@
             "folder": "tools",
             "file": "packages/components/nodes/tools/TavilyAPI/TavilyAPI.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
         },
         {
             "name": "webBrowser",
@@ -2391,7 +2661,8 @@
             "folder": "tools",
             "file": "packages/components/nodes/tools/WebBrowser/WebBrowser.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "core"
         },
         {
             "name": "webScraperTool",
@@ -2400,7 +2671,8 @@
             "folder": "tools",
             "file": "packages/components/nodes/tools/WebScraperTool/WebScraperTool.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "core"
         },
         {
             "name": "wolframAlpha",
@@ -2409,7 +2681,8 @@
             "folder": "tools",
             "file": "packages/components/nodes/tools/WolframAlpha/WolframAlpha.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
         },
         {
             "name": "customFunction",
@@ -2418,7 +2691,8 @@
             "folder": "utilities",
             "file": "packages/components/nodes/utilities/CustomFunction/CustomFunction.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "core"
         },
         {
             "name": "getVariable",
@@ -2427,7 +2701,8 @@
             "folder": "utilities",
             "file": "packages/components/nodes/utilities/GetVariable/GetVariable.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
         },
         {
             "name": "ifElseFunction",
@@ -2436,7 +2711,8 @@
             "folder": "utilities",
             "file": "packages/components/nodes/utilities/IfElseFunction/IfElseFunction.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
         },
         {
             "name": "setVariable",
@@ -2445,7 +2721,8 @@
             "folder": "utilities",
             "file": "packages/components/nodes/utilities/SetVariable/SetVariable.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
         },
         {
             "name": "stickyNote",
@@ -2454,7 +2731,8 @@
             "folder": "utilities",
             "file": "packages/components/nodes/utilities/StickyNote/StickyNote.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "core"
         },
         {
             "name": "Astra",
@@ -2463,7 +2741,8 @@
             "folder": "vectorstores",
             "file": "packages/components/nodes/vectorstores/Astra/Astra.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
         },
         {
             "name": "chroma",
@@ -2472,7 +2751,8 @@
             "folder": "vectorstores",
             "file": "packages/components/nodes/vectorstores/Chroma/Chroma.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
         },
         {
             "name": "couchbase",
@@ -2481,7 +2761,8 @@
             "folder": "vectorstores",
             "file": "packages/components/nodes/vectorstores/Couchbase/Couchbase.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
         },
         {
             "name": "documentStoreVS",
@@ -2490,7 +2771,8 @@
             "folder": "vectorstores",
             "file": "packages/components/nodes/vectorstores/DocumentStoreVS/DocStoreVector.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
         },
         {
             "name": "elasticsearch",
@@ -2499,7 +2781,8 @@
             "folder": "vectorstores",
             "file": "packages/components/nodes/vectorstores/Elasticsearch/Elasticsearch.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
         },
         {
             "name": "etlLocalVectorStore",
@@ -2508,7 +2791,8 @@
             "folder": "vectorstores",
             "file": "packages/components/nodes/vectorstores/EtlLocal/EtlLocalVectorStore.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "core"
         },
         {
             "name": "faiss",
@@ -2517,7 +2801,8 @@
             "folder": "vectorstores",
             "file": "packages/components/nodes/vectorstores/Faiss/Faiss.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "core"
         },
         {
             "name": "memoryVectorStore",
@@ -2526,7 +2811,8 @@
             "folder": "vectorstores",
             "file": "packages/components/nodes/vectorstores/InMemory/InMemoryVectorStore.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "core"
         },
         {
             "name": "kendra",
@@ -2535,7 +2821,8 @@
             "folder": "vectorstores",
             "file": "packages/components/nodes/vectorstores/Kendra/Kendra.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
         },
         {
             "name": "meilisearch",
@@ -2544,7 +2831,8 @@
             "folder": "vectorstores",
             "file": "packages/components/nodes/vectorstores/Meilisearch/Meilisearch.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
         },
         {
             "name": "milvus",
@@ -2553,7 +2841,8 @@
             "folder": "vectorstores",
             "file": "packages/components/nodes/vectorstores/Milvus/Milvus.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
         },
         {
             "name": "mongoDBAtlas",
@@ -2562,7 +2851,8 @@
             "folder": "vectorstores",
             "file": "packages/components/nodes/vectorstores/MongoDBAtlas/MongoDBAtlas.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
         },
         {
             "name": "openSearch",
@@ -2571,7 +2861,8 @@
             "folder": "vectorstores",
             "file": "packages/components/nodes/vectorstores/OpenSearch/OpenSearch.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
         },
         {
             "name": "pinecone",
@@ -2580,7 +2871,8 @@
             "folder": "vectorstores",
             "file": "packages/components/nodes/vectorstores/Pinecone/Pinecone.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "core"
         },
         {
             "name": "postgres",
@@ -2589,7 +2881,8 @@
             "folder": "vectorstores",
             "file": "packages/components/nodes/vectorstores/Postgres/Postgres.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
         },
         {
             "name": "qdrant",
@@ -2598,7 +2891,8 @@
             "folder": "vectorstores",
             "file": "packages/components/nodes/vectorstores/Qdrant/Qdrant.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
         },
         {
             "name": "redis",
@@ -2607,7 +2901,8 @@
             "folder": "vectorstores",
             "file": "packages/components/nodes/vectorstores/Redis/Redis.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
         },
         {
             "name": "singlestore",
@@ -2616,7 +2911,8 @@
             "folder": "vectorstores",
             "file": "packages/components/nodes/vectorstores/Singlestore/Singlestore.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
         },
         {
             "name": "supabase",
@@ -2625,7 +2921,8 @@
             "folder": "vectorstores",
             "file": "packages/components/nodes/vectorstores/Supabase/Supabase.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
         },
         {
             "name": "upstash",
@@ -2634,7 +2931,8 @@
             "folder": "vectorstores",
             "file": "packages/components/nodes/vectorstores/Upstash/Upstash.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
         },
         {
             "name": "vectaraUpload",
@@ -2643,7 +2941,8 @@
             "folder": "vectorstores",
             "file": "packages/components/nodes/vectorstores/Vectara/Vectara_Upload.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "legacy"
         },
         {
             "name": "vectara",
@@ -2652,7 +2951,8 @@
             "folder": "vectorstores",
             "file": "packages/components/nodes/vectorstores/Vectara/Vectara.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
         },
         {
             "name": "weaviate",
@@ -2661,7 +2961,8 @@
             "folder": "vectorstores",
             "file": "packages/components/nodes/vectorstores/Weaviate/Weaviate.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
         },
         {
             "name": "zep",
@@ -2670,7 +2971,8 @@
             "folder": "vectorstores",
             "file": "packages/components/nodes/vectorstores/Zep/Zep.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
         },
         {
             "name": "zepCloud",
@@ -2679,7 +2981,8 @@
             "folder": "vectorstores",
             "file": "packages/components/nodes/vectorstores/ZepCloud/ZepCloud.ts",
             "disposition": "native",
-            "reason": "Runs on the current node interface. A harness binds it through init and run."
+            "reason": "Runs on the current node interface. A harness binds it through init and run.",
+            "tier": "supported"
         }
     ]
 }
