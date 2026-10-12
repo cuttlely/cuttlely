@@ -206,6 +206,30 @@ describe('masking and caps', () => {
         expect(Buffer.byteLength(shown)).toBeLessThanOrEqual(limits.fileBytes)
     })
 
+    it('does not join an older segment after a capped tail', async () => {
+        const dir = process.env.LOG_PATH as string
+        const limits = { fileBytes: 48, maxBytes: 200 }
+        writeLog(dir, `server.log.${STAMP}`, overCap('OLD-HEAD', 'OLD-TAIL'))
+        writeLog(dir, `server.log.${STAMP}.1`, overCap('NEW-HEAD', 'NEW-TAIL'))
+        const result = await logService.getLogs({ startDate: STAMP, endDate: STAMP, level: 'debug', limits })
+        const shown = result.lines.join('\n')
+        expect(result.truncated).toBe(true)
+        expect(shown).toContain('NEW-TAIL')
+        expect(shown).not.toContain('OLD-TAIL')
+    })
+
+    it('keeps an older file when the newest file was read whole', async () => {
+        const dir = process.env.LOG_PATH as string
+        const limits = { fileBytes: 80, maxBytes: 200 }
+        writeLog(dir, `server.log.${STAMP}`, 'OLD-WHOLE\n')
+        writeLog(dir, `server.log.${STAMP}.1`, 'NEW-WHOLE\n')
+        const result = await logService.getLogs({ startDate: STAMP, endDate: STAMP, level: 'debug', limits })
+        const shown = result.lines.join('\n')
+        expect(shown).toContain('OLD-WHOLE')
+        expect(shown).toContain('NEW-WHOLE')
+        expect(shown.indexOf('OLD-WHOLE')).toBeLessThan(shown.indexOf('NEW-WHOLE'))
+    })
+
     it('a tail cut inside a private key does not leak the body', async () => {
         const bodyLine = 'QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVo'
         const begin = '-----BEGIN ' + 'RSA PRIVATE KEY-----'
@@ -227,6 +251,38 @@ describe('masking and caps', () => {
         expect(shown).not.toContain('PRIVATE KEY')
         expect(shown).toContain('[secret hidden]')
         expect(shown).toContain('after the cut')
+    })
+
+    it('a capped tail with no private-key footer does not return the body', async () => {
+        const bodyLine = 'QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVo'
+        const begin = '-----BEGIN ' + 'RSA PRIVATE KEY-----'
+        const pem = [begin, bodyLine, bodyLine, bodyLine, bodyLine].join('\n')
+        const file = `${'p'.repeat(400)}\n${pem}\n`
+        const limits = { fileBytes: 120, maxBytes: 120 }
+        const rawTail = file.slice(-limits.fileBytes)
+        expect(rawTail).not.toContain('BEGIN')
+        expect(rawTail).toContain(bodyLine)
+        expect(rawTail).not.toContain('END')
+        writeLog(process.env.LOG_PATH as string, `server.log.${STAMP}`, file)
+        const result = await logService.getLogs({ startDate: STAMP, endDate: STAMP, level: 'debug', limits })
+        const shown = result.lines.join('\n')
+        expect(shown).not.toContain(bodyLine)
+        expect(shown).toContain('[secret hidden]')
+    })
+
+    it('shows a base64-ish log line that is not the start of a capped tail', async () => {
+        const bodyLine = 'QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVo'
+        const note = '2026-10-12 15:00:03 [INFO]: kept note'
+        const file = `${'p'.repeat(300)}\n${note}\n${bodyLine}\n`
+        const limits = { fileBytes: Buffer.byteLength(`${note}\n${bodyLine}\n`) + 12, maxBytes: 400 }
+        const rawTail = file.slice(-limits.fileBytes)
+        expect(rawTail.startsWith(note)).toBe(false)
+        expect(rawTail).toContain(note)
+        writeLog(process.env.LOG_PATH as string, `server.log.${STAMP}`, file)
+        const result = await logService.getLogs({ startDate: STAMP, endDate: STAMP, level: 'debug', limits })
+        const shown = result.lines.join('\n')
+        expect(shown).toContain(note)
+        expect(shown).toContain(bodyLine)
     })
 })
 
@@ -252,6 +308,33 @@ describe('server clock for Last hour', () => {
         const later = stampsForRange('1h', new Date(2026, 9, 12, 16, 5, 0))
         expect(first).toEqual({ start: '2026-10-12-14', end: '2026-10-12-15' })
         expect(later).toEqual({ start: '2026-10-12-15', end: '2026-10-12-16' })
+    })
+
+    it('month presets clamp the 31st instead of spilling into the next month', () => {
+        expect(stampsForRange('1m', new Date(2026, 4, 31, 15, 40, 0))).toEqual({
+            start: '2026-04-30-15',
+            end: '2026-05-31-15'
+        })
+        expect(stampsForRange('1m', new Date(2026, 11, 31, 8, 0, 0))).toEqual({
+            start: '2026-11-30-08',
+            end: '2026-12-31-08'
+        })
+        expect(stampsForRange('1m', new Date(2026, 2, 31, 15, 0, 0))).toEqual({
+            start: '2026-02-28-15',
+            end: '2026-03-31-15'
+        })
+        expect(stampsForRange('1m', new Date(2024, 2, 31, 15, 0, 0))).toEqual({
+            start: '2024-02-29-15',
+            end: '2024-03-31-15'
+        })
+        expect(stampsForRange('1m', new Date(2026, 0, 31, 9, 15, 0))).toEqual({
+            start: '2025-12-31-09',
+            end: '2026-01-31-09'
+        })
+        expect(stampsForRange('1m', new Date(2024, 0, 31, 9, 15, 0))).toEqual({
+            start: '2023-12-31-09',
+            end: '2024-01-31-09'
+        })
     })
 })
 

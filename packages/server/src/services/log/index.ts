@@ -30,11 +30,23 @@ export const RELATIVE_RANGES: Record<string, { hours?: number; days?: number; mo
     '3m': { months: 3 }
 }
 
+/** Last day of the month after moving, so the 31st does not spill into the next month. */
+function subtractMonths(from: Date, months: number): Date {
+    const day = from.getDate()
+    const start = new Date(from.getTime())
+    start.setDate(1)
+    start.setMonth(start.getMonth() - months)
+    const lastDay = new Date(start.getFullYear(), start.getMonth() + 1, 0).getDate()
+    start.setDate(Math.min(day, lastDay))
+    start.setHours(from.getHours(), from.getMinutes(), from.getSeconds(), from.getMilliseconds())
+    return start
+}
+
 export function stampsForRange(range: string, now = new Date()): { start: string; end: string } {
     const spec = RELATIVE_RANGES[range]
     if (!spec) throw badRequest('Error: logService.getLogs - range must be 1h, 4h, 24h, 2d, 7d, 14d, 1m, 2m, or 3m')
-    const start = new Date(now.getTime())
-    if (spec.months) start.setMonth(start.getMonth() - spec.months)
+    let start = new Date(now.getTime())
+    if (spec.months) start = subtractMonths(start, spec.months)
     if (spec.days) start.setDate(start.getDate() - spec.days)
     if (spec.hours) start.setHours(start.getHours() - spec.hours)
     return { start: formatStamp(start), end: formatStamp(now) }
@@ -215,24 +227,30 @@ function trimToBytes(text: string, maxBytes: number): string {
     return newline >= 0 ? sliced.slice(newline + 1) : sliced
 }
 
-const PEM_BEGIN = /-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----/
-const PEM_END = /-----END [A-Z0-9 ]*PRIVATE KEY-----/
+function armoredLine(line: string): boolean {
+    const value = line.trim()
+    if (!value) return false
+    if (/^-----BEGIN [A-Z0-9 ]+-----$/.test(value)) return true
+    if (/^-----END [A-Z0-9 ]+-----$/.test(value)) return true
+    return /^[A-Za-z0-9+/]+=*$/.test(value) && value.length >= 16
+}
 
 /**
- * A tail cut can start after BEGIN. The body and footer would then have no header for
- * the redactor to match. Drop that leading partial block through the footer.
+ * A capped tail can start after BEGIN. Those leading armored lines have no header for
+ * the redactor to match, with or without a footer. A base64 line later in the text stays.
  */
-function hideCutPem(text: string): string {
-    let rest = text
-    while (rest) {
-        const end = PEM_END.exec(rest)
-        if (!end) return rest
-        const begin = PEM_BEGIN.exec(rest)
-        if (begin && begin.index < end.index) return rest
-        const after = rest.slice(end.index + end[0].length).replace(/^\r?\n/, '')
-        rest = after ? `${SECRET_PLACEHOLDER}\n${after}` : SECRET_PLACEHOLDER
+function hideCutPem(text: string, capped: boolean): string {
+    if (!capped || !text) return text
+    const lines = text.split('\n')
+    let index = 0
+    while (index < lines.length && lines[index].trim() === '') index += 1
+    const start = index
+    while (index < lines.length && armoredLine(lines[index]) && !lines[index].trim().startsWith('-----BEGIN ')) {
+        index += 1
     }
-    return rest
+    if (index === start) return text
+    const rest = lines.slice(index).join('\n')
+    return rest ? `${SECRET_PLACEHOLDER}\n${rest}` : SECRET_PLACEHOLDER
 }
 
 function lineLevel(line: string): string | null {
@@ -320,15 +338,20 @@ const getLogs = async (query: LogQuery = {}): Promise<LogRead> => {
     const parts: string[] = []
     let used = 0
     let truncated = false
+    let readWhole = true
     for (const file of files) {
-        if (used >= maxBytes) {
+        // A capped tail is the end of that file. An older segment is not contiguous with it.
+        if (!readWhole || used >= maxBytes) {
             truncated = true
             break
         }
         const allowance = Math.min(fileBytes, maxBytes - used)
         const tail = await readTail(file.fullPath, allowance)
-        if (tail.capped) truncated = true
-        const cleaned = hideCutPem(tail.text)
+        if (tail.capped) {
+            truncated = true
+            readWhole = false
+        }
+        const cleaned = hideCutPem(tail.text, tail.capped)
         if (!cleaned) continue
         parts.push(cleaned)
         used += Buffer.byteLength(cleaned)
