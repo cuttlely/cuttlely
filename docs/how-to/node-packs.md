@@ -46,7 +46,7 @@ A shipped pack is a private workspace package at `packages/node-pack-<name>`, na
 -   `credentials/` holds credential classes used only by those nodes.
 -   `package.json` sets `cuttlely.nodePack` to `dist/nodes` and `dist/credentials`.
 -   `tsconfig.json` compiles `nodes` and `credentials` into `dist` as CommonJS. It resolves `@cuttlely/components` and the subpaths in that package's `exports` (`interface`, `utils`, `indexing`, `validator`, `sanitizeDataSourceOptions`, `awsToolsUtils`, `modelLoader`, `etl-engine`) to the built declarations, so the components package builds first. The workspace build already does that.
--   Dependencies that only these nodes import are listed on this package and taken off `@cuttlely/components`. Dependencies other nodes still import stay on `@cuttlely/components`. The pack also lists the shared packages it imports.
+-   Dependencies that only these nodes import are listed on this package and taken off `@cuttlely/components`. Dependencies other nodes still import stay on `@cuttlely/components`. The Zep client libraries stay there: the Zep memory nodes are not in this pack, and they import those libraries. The pack also lists the shared packages it imports.
 -   The build script is `tsc` followed by a copy of the icons into `dist/nodes`.
 -   Add the package name to `SHIPPED_NODE_PACKS` in `packages/server/src/utils/nodePacks.ts`.
 -   Add a dependency on the package in `@cuttlely/server`.
