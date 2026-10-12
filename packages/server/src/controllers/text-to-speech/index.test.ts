@@ -1,6 +1,6 @@
 import { Request, Response } from 'express'
 import { StatusCodes } from 'http-status-codes'
-import { convertTextToSpeechStream } from 'flowise-components'
+import { convertTextToSpeechStream } from '@cuttlely/components'
 import { InternalFlowiseError } from '../../errors/internalFlowiseError'
 import chatflowsService from '../../services/chatflows'
 import credentialsService from '../../services/credentials'
@@ -11,7 +11,7 @@ const mockCredentialsService = credentialsService as jest.Mocked<typeof credenti
 const mockChatflowsService = chatflowsService as jest.Mocked<typeof chatflowsService>
 const mockGetRunningExpressApp = getRunningExpressApp as jest.Mock
 
-jest.mock('flowise-components', () => ({
+jest.mock('@cuttlely/components', () => ({
     __esModule: true,
     convertTextToSpeechStream: jest.fn()
 }))

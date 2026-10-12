@@ -9,7 +9,7 @@ import {
     removeSpecificFileFromStorage,
     isValidUUID,
     isPathTraversal
-} from 'flowise-components'
+} from '@cuttlely/components'
 import { getRunningExpressApp } from './getRunningExpressApp'
 import { validateFileMimeTypeAndExtensionMatch } from './fileValidation'
 import { assertDocumentUploadSize } from './predictionUploads'

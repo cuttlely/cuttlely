@@ -1,7 +1,7 @@
 import { FLOWISE_METRIC_COUNTERS, IMetricsProvider } from '../Interface.Metrics'
 import express from 'express'
 import promClient, { Counter, Histogram, Registry } from 'prom-client'
-import { getVersion } from 'flowise-components'
+import { getVersion } from '@cuttlely/components'
 
 export class Prometheus implements IMetricsProvider {
     private app: express.Application

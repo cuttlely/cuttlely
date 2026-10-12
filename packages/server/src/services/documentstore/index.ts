@@ -12,7 +12,7 @@ import {
     removeFilesFromStorage,
     removeSpecificFileFromStorage,
     removeSpecificFileFromUpload
-} from 'flowise-components'
+} from '@cuttlely/components'
 import { StatusCodes } from 'http-status-codes'
 import { cloneDeep, omit } from 'lodash'
 import { DataSource, In } from 'typeorm'

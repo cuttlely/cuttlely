@@ -7,7 +7,7 @@ import {
     normalizeDocumentMime,
     removeSpecificFileFromUpload,
     resolveFileInputField
-} from 'flowise-components'
+} from '@cuttlely/components'
 import { StatusCodes } from 'http-status-codes'
 import { cloneDeep, omit } from 'lodash'
 import { v4 as uuidv4 } from 'uuid'

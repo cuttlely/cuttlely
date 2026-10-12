@@ -227,7 +227,7 @@ describe('Request overrides replaceInputsWithConfig: deny by default', () => {
         const config: Record<string, any> = { vars: { allowed: 'yes', secret: 'no', unknown: 'x' } }
         const out = run(config, EMPTY, variableOverrides)
         expect(config.vars).toEqual({ allowed: 'yes' })
-        // getVars (flowise-components) reads inputs.vars, so the enabled variables are written there and nothing else.
+        // getVars (@cuttlely/components) reads inputs.vars, so the enabled variables are written there and nothing else.
         for (const id of Object.keys(out)) expect(out[id].vars).toEqual({ allowed: 'yes' })
         const none: Record<string, any> = { vars: { secret: 'no' } }
         expect(run(none, EMPTY, variableOverrides)).toEqual(baseline())
@@ -912,7 +912,7 @@ describe('Request overrides hard deny, round 2: code, paths, headers, ports, cre
     })
 
     it('credential inputs (M5): every input name declared in packages/components/credentials is hard-denied (read from the files)', () => {
-        const dir = path.join(path.dirname(require.resolve('flowise-components')), '..', 'credentials')
+        const dir = path.join(path.dirname(require.resolve('@cuttlely/components')), '..', 'credentials')
         const files = fs.readdirSync(dir).filter((file) => file.endsWith('.credential.js'))
         expect(files.length).toBeGreaterThan(100)
         const missing: string[] = []

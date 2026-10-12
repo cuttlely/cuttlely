@@ -8,7 +8,7 @@ const STORAGE = fs.mkdtempSync(path.join(os.tmpdir(), 'chat-upload-storage-'))
 process.env.BLOB_STORAGE_PATH = STORAGE
 process.env.STORAGE_TYPE = 'local'
 
-import { IFileUpload, addArrayFilesToStorage, addSingleFileToStorage, chatScopedUploadName, getFileFromStorage } from 'flowise-components'
+import { IFileUpload, addArrayFilesToStorage, addSingleFileToStorage, chatScopedUploadName, getFileFromStorage } from '@cuttlely/components'
 import { storeChatFolderUpload } from './predictionUploads'
 import { removeChatUploads } from './removeChatUploads'
 

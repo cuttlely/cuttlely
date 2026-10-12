@@ -1,4 +1,4 @@
-jest.mock('flowise-components', () => ({
+jest.mock('@cuttlely/components', () => ({
     initAgentflowNode: (d: any, id: string) => jest.requireActual('../testParts').fakeInitNode(d, id)
 }))
 
