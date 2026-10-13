@@ -2,6 +2,7 @@
  * Multi Agents and Sequential Agents span trees. Traces are off unless CUTTLELY_OTEL_TRACES=true.
  */
 import fs from 'fs'
+import { createRequire } from 'module'
 import os from 'os'
 import path from 'path'
 import { executeFlow } from '../utils/buildChatflow'
@@ -1094,4 +1095,504 @@ describe('graph run traces', () => {
         await runMulti(false, 'c0ffee00-0000-4000-8000-000000000066')
         expect(memory.spans()).toEqual([])
     })
+
+    it('records one chat event from a nested chain and restores both callback lists', async () => {
+        process.env.CUTTLELY_OTEL_TRACES = 'true'
+        const seen = await runNestedChain(false)
+        expect(seen.model).toEqual([{ step: 1, otel: 0 }])
+        expect(seen.otel.chats).toBe(0)
+        expect(seen.otel.tools).toBe(0)
+        expect(handlerNames(seen.step.handlers)).toEqual(['cuttlely_otel'])
+        expect(handlerNames(seen.step.inheritableHandlers)).toEqual(['cuttlely_otel'])
+        expect(handlerNames(seen.parent.handlers)).toEqual(['cuttlely_otel'])
+        expect(handlerNames(seen.parent.inheritableHandlers)).toEqual(['cuttlely_otel'])
+        const models = memory.spans().filter((span) => span.name === 'model')
+        expect(models).toHaveLength(1)
+        expect(models[0].attributes['model.name']).toBe('gpt-4o-mini')
+        expect(models[0].attributes['tokens.input']).toBe(7)
+        expect(models[0].attributes['tokens.output']).toBe(3)
+        expect(models[0].attributes['node.id']).toBe('worker_0')
+    })
+
+    it('restores both callback lists when the graph node throws', async () => {
+        process.env.CUTTLELY_OTEL_TRACES = 'true'
+        const seen = await runNestedChain(true)
+        expect(seen.model).toEqual([{ step: 1, otel: 0 }])
+        expect(seen.otel.chats).toBe(0)
+        expect(handlerNames(seen.step.handlers)).toEqual(['cuttlely_otel'])
+        expect(handlerNames(seen.step.inheritableHandlers)).toEqual(['cuttlely_otel'])
+        expect(memory.spans().filter((span) => span.name === 'model')).toHaveLength(1)
+    })
+
+    it('records one tool event from an AgentExecutor call inside a graph node', async () => {
+        process.env.CUTTLELY_OTEL_TRACES = 'true'
+        const lc = loadLangChain()
+        const otel = countingOtel(lc.BaseCallbackHandler)
+        const parent = new lc.CallbackManager()
+        parent.addHandler(otel, true)
+        const toolSeen: Array<{ step: number; otel: number }> = []
+        let step: { handlers: Array<{ name?: string }>; inheritableHandlers: Array<{ name?: string }> } | undefined
+        const tool = new lc.DynamicTool({
+            name: 'oven',
+            description: 'Heat the oven',
+            func: async (_input: string, runManager: { handlers?: Array<{ name?: string }> }) => {
+                toolSeen.push(countTraceHandlers(runManager?.handlers))
+                return '350F'
+            }
+        })
+        const executor = lc.AgentExecutor.fromAgentAndTools({
+            agent: {
+                inputKeys: ['input'],
+                returnValues: ['output'],
+                prepareForOutput: async () => ({}),
+                plan: async (steps: unknown[]) =>
+                    steps.length ? { returnValues: { output: 'ready' }, log: '' } : { tool: 'oven', toolInput: '350', log: 'heat' }
+            },
+            tools: [tool],
+            maxIterations: 2
+        })
+        const node = traceGraphNode('worker_0', 'worker', async (_state: unknown, config: { callbacks?: unknown }) => {
+            step = config.callbacks as typeof step
+            await executor.invoke({ input: 'heat the oven' }, config)
+            return 'ok'
+        })
+        await compileGraph(lc, node).invoke({ question: 'heat' }, { callbacks: parent })
+        expect(toolSeen).toEqual([{ step: 1, otel: 0 }])
+        expect(otel.tools).toBe(0)
+        expect(otel.chats).toBe(0)
+        expect(handlerNames(step!.handlers)).toEqual(['cuttlely_otel'])
+        expect(handlerNames(step!.inheritableHandlers)).toEqual(['cuttlely_otel'])
+        const tools = memory.spans().filter((span) => span.name === 'tool')
+        expect(tools).toHaveLength(1)
+        expect(tools[0].attributes['tool.name']).toBe('oven')
+        expect(tools[0].attributes['node.id']).toBe('worker_0')
+        expect(tools[0].attributes['status']).toBe('ok')
+    })
+
+    it('does not attach the collector twice when the callback lists are one array', async () => {
+        process.env.CUTTLELY_OTEL_TRACES = 'true'
+        const lc = loadLangChain()
+        const otel = countingOtel(lc.BaseCallbackHandler)
+        const shared: object[] = [otel]
+        const parent = new lc.CallbackManager(undefined, { handlers: shared, inheritableHandlers: shared })
+        const modelSeen: Array<{ step: number; otel: number }> = []
+        const model = fakeChat(lc, { text: 'Yes', input: 7, output: 3, model: 'gpt-4o-mini', seen: modelSeen })
+        const chain = lc.ChatPromptTemplate.fromMessages([['human', '{question}']]).pipe(model)
+        const node = traceGraphNode('seqConditionAgent_0', 'seqConditionAgent', async (_state: unknown, config: unknown) => {
+            await chain.invoke({ question: 'Which way?' }, config)
+            return 'Yes'
+        }) as (state: unknown, config: unknown) => Promise<unknown>
+        await node({}, { callbacks: parent })
+        expect(modelSeen).toEqual([{ step: 1, otel: 0 }])
+        expect(otel.chats).toBe(0)
+        expect(parent.handlers).toBe(parent.inheritableHandlers)
+        expect(handlerNames(parent.handlers)).toEqual(['cuttlely_otel'])
+        expect(memory.spans().filter((span) => span.name === 'model')).toHaveLength(1)
+    })
+
+    it('exports a Condition Agent model span from the route chain', async () => {
+        process.env.CUTTLELY_OTEL_TRACES = 'true'
+        const chainFile = path.join(dir, 'chain-gate.js')
+        fs.writeFileSync(chainFile, chainNodeSource())
+        ;(global as { __chainModelSeen?: unknown[] }).__chainModelSeen = []
+        const flowData = JSON.stringify({
+            nodes: [
+                canvasNode('seqStart_0', 'seqStart', 'Sequential Agents'),
+                canvasNode('seqLLM_0', 'seqLLMNode', 'Sequential Agents'),
+                {
+                    ...canvasNode('seqConditionAgent_0', 'seqConditionAgent', 'Sequential Agents'),
+                    data: {
+                        ...canvasNode('seqConditionAgent_0', 'seqConditionAgent', 'Sequential Agents').data,
+                        outputAnchors: [{ options: [{ id: 'yes-handle', label: 'Yes' }] }]
+                    }
+                },
+                canvasNode('seqEnd_0', 'seqEnd', 'Sequential Agents')
+            ],
+            edges: [
+                { id: 'e1', source: 'seqStart_0', target: 'seqLLM_0', targetHandle: 'seqLLM_0-input-sequentialNode' },
+                { id: 'e2', source: 'seqLLM_0', target: 'seqConditionAgent_0', targetHandle: 'seqConditionAgent_0-input-sequentialNode' },
+                {
+                    id: 'e3',
+                    source: 'seqConditionAgent_0',
+                    target: 'seqEnd_0',
+                    sourceHandle: 'yes-handle',
+                    targetHandle: 'seqEnd_0-input-sequentialNode'
+                }
+            ]
+        })
+        await executeFlow({
+            componentNodes: {
+                seqStart: { filePath: chainFile },
+                seqLLMNode: { filePath: chainFile },
+                seqConditionAgent: { filePath: chainFile },
+                seqEnd: { filePath: chainFile }
+            },
+            incomingInput: { question: 'Which way?', history: [] },
+            chatflow: {
+                id: 'c8d2b7a3-5555-4555-8555-555555555581',
+                name: 'Gate',
+                type: 'MULTIAGENT',
+                flowData,
+                workspaceId: 'ws-1'
+            },
+            chatId: 'c0ffee00-0000-4000-8000-000000000081',
+            appDataSource: dataSource(),
+            telemetry: { sendTelemetry: jest.fn() },
+            cachePool: {},
+            usageCacheManager: {},
+            sseStreamer: new Proxy({}, { get: () => () => undefined }),
+            baseURL: 'http://127.0.0.1',
+            isInternal: true,
+            orgId: 'org-1',
+            workspaceId: 'ws-1',
+            subscriptionId: 'sub-1',
+            productId: 'prod-1',
+            replay: false
+        } as any)
+        const seen = (global as { __chainModelSeen?: Array<{ step: number; otel: number; node: string }> }).__chainModelSeen ?? []
+        expect(seen.filter((row) => row.node === 'seqConditionAgent')).toEqual([{ step: 1, otel: 0, node: 'seqConditionAgent' }])
+        expect(seen.filter((row) => row.node === 'seqLLMNode')).toEqual([{ step: 1, otel: 0, node: 'seqLLMNode' }])
+        const spans = memory.spans()
+        const condition = spans.filter((span) => span.name === 'model' && span.attributes['node.id'] === 'seqConditionAgent_0')
+        expect(condition).toHaveLength(1)
+        expect(condition[0].attributes['tokens.input']).toBe(7)
+        expect(condition[0].attributes['tokens.output']).toBe(3)
+        const step = spans.filter((span) => span.name === 'model' && span.attributes['node.id'] === 'seqLLM_0')
+        expect(step).toHaveLength(1)
+        expect(step[0].attributes['tokens.input']).toBe(4)
+        expect(step[0].attributes['tokens.output']).toBe(1)
+    })
+
+    it('exports Multi Agents model spans from the supervisor chain and the worker tool', async () => {
+        process.env.CUTTLELY_OTEL_TRACES = 'true'
+        const chainFile = path.join(dir, 'chain-multi.js')
+        fs.writeFileSync(chainFile, multiChainSource())
+        ;(global as { __chainModelSeen?: unknown[]; __chainToolSeen?: unknown[]; __leadRound?: number }).__chainModelSeen = []
+        ;(global as { __chainToolSeen?: unknown[] }).__chainToolSeen = []
+        ;(global as { __leadRound?: number }).__leadRound = 0
+        await executeFlow({
+            componentNodes: { worker: { filePath: chainFile }, supervisor: { filePath: chainFile } },
+            incomingInput: { question: 'When is the loaf ready?', history: [] },
+            chatflow: {
+                id: 'a1b2c3d4-1111-4111-8111-111111111181',
+                name: 'Bakery team',
+                type: 'MULTIAGENT',
+                flowData: multiFlowData(),
+                workspaceId: 'ws-1'
+            },
+            chatId: 'c0ffee00-0000-4000-8000-000000000082',
+            appDataSource: dataSource(),
+            telemetry: { sendTelemetry: jest.fn() },
+            cachePool: {},
+            usageCacheManager: {},
+            sseStreamer: new Proxy({}, { get: () => () => undefined }),
+            baseURL: 'http://127.0.0.1',
+            isInternal: true,
+            orgId: 'org-1',
+            workspaceId: 'ws-1',
+            subscriptionId: 'sub-1',
+            productId: 'prod-1',
+            replay: false
+        } as any)
+        const modelsSeen = (global as { __chainModelSeen?: Array<{ step: number; otel: number; node: string }> }).__chainModelSeen ?? []
+        const toolsSeen = (global as { __chainToolSeen?: Array<{ step: number; otel: number }> }).__chainToolSeen ?? []
+        expect(modelsSeen).toEqual([
+            { step: 1, otel: 0, node: 'supervisor' },
+            { step: 1, otel: 0, node: 'worker' }
+        ])
+        expect(toolsSeen).toEqual([{ step: 1, otel: 0 }])
+        const spans = memory.spans()
+        const lead = spans.filter((span) => span.name === 'model' && span.attributes['node.id'] === 'supervisor_0')
+        expect(lead).toHaveLength(1)
+        expect(lead[0].attributes['tokens.input']).toBe(5)
+        expect(lead[0].attributes['tokens.output']).toBe(2)
+        const worker = spans.filter((span) => span.name === 'model' && span.attributes['node.id'] === 'worker_0')
+        expect(worker).toHaveLength(1)
+        expect(worker[0].attributes['tokens.input']).toBe(11)
+        expect(worker[0].attributes['tokens.output']).toBe(4)
+        const tool = spans.filter((span) => span.name === 'tool' && span.attributes['node.id'] === 'worker_0')
+        expect(tool).toHaveLength(1)
+        expect(tool[0].attributes['tool.name']).toBe('oven')
+        expect(tool[0].attributes['status']).toBe('ok')
+    })
 })
+
+const requireHere = createRequire(__filename)
+
+function loadLangChain() {
+    return {
+        Graph: requireHere('@langchain/langgraph').Graph,
+        START: requireHere('@langchain/langgraph').START,
+        END: requireHere('@langchain/langgraph').END,
+        CallbackManager: requireHere('@langchain/core/callbacks/manager').CallbackManager,
+        BaseCallbackHandler: requireHere('@langchain/core/callbacks/base').BaseCallbackHandler,
+        ChatPromptTemplate: requireHere('@langchain/core/prompts').ChatPromptTemplate,
+        BaseChatModel: requireHere('@langchain/core/language_models/chat_models').BaseChatModel,
+        AIMessage: requireHere('@langchain/core/messages').AIMessage,
+        DynamicTool: requireHere('@langchain/core/tools').DynamicTool,
+        AgentExecutor: requireHere(path.join(__dirname, '../../../components/dist/src/agents.js')).AgentExecutor
+    }
+}
+
+function handlerNames(list: Array<{ name?: string }> | undefined): string[] {
+    return (list ?? []).map((handler) => handler?.name ?? '')
+}
+
+function countTraceHandlers(list: Array<{ name?: string }> | undefined): { step: number; otel: number } {
+    const names = handlerNames(list)
+    return {
+        step: names.filter((name) => name === 'cuttlely_graph_step').length,
+        otel: names.filter((name) => name === 'cuttlely_otel').length
+    }
+}
+
+function countingOtel(
+    BaseCallbackHandler: new () => {
+        name: string
+        chats: number
+        tools: number
+        handleChatModelStart: () => void
+        handleLLMStart: () => void
+        handleToolStart: () => void
+    }
+) {
+    return new (class extends BaseCallbackHandler {
+        name = 'cuttlely_otel'
+        chats = 0
+        tools = 0
+        async handleChatModelStart() {
+            this.chats += 1
+        }
+        async handleLLMStart() {
+            this.chats += 1
+        }
+        async handleToolStart() {
+            this.tools += 1
+        }
+    })()
+}
+
+function fakeChat(
+    lc: ReturnType<typeof loadLangChain>,
+    fields: { text: string; input: number; output: number; model: string; seen: Array<{ step: number; otel: number }> }
+) {
+    const Model = class extends lc.BaseChatModel {
+        constructor() {
+            super({})
+        }
+        _llmType() {
+            return 'fake-chat'
+        }
+        async _generate(_messages: unknown, _options: unknown, runManager?: { handlers?: Array<{ name?: string }> }) {
+            fields.seen.push(countTraceHandlers(runManager?.handlers))
+            return {
+                llmOutput: { tokenUsage: { promptTokens: fields.input, completionTokens: fields.output } },
+                generations: [
+                    {
+                        text: fields.text,
+                        message: new lc.AIMessage({
+                            content: fields.text,
+                            usage_metadata: {
+                                input_tokens: fields.input,
+                                output_tokens: fields.output,
+                                total_tokens: fields.input + fields.output
+                            },
+                            response_metadata: { model_name: fields.model }
+                        })
+                    }
+                ]
+            }
+        }
+    }
+    return new Model()
+}
+
+function compileGraph(lc: ReturnType<typeof loadLangChain>, node: unknown) {
+    return new lc.Graph().addNode('step', node).addEdge(lc.START, 'step').addEdge('step', lc.END).compile()
+}
+
+async function runNestedChain(throwAfter: boolean) {
+    const lc = loadLangChain()
+    const otel = countingOtel(lc.BaseCallbackHandler)
+    const parent = new lc.CallbackManager()
+    parent.addHandler(otel, true)
+    const modelSeen: Array<{ step: number; otel: number }> = []
+    const model = fakeChat(lc, { text: 'Yes', input: 7, output: 3, model: 'gpt-4o-mini', seen: modelSeen })
+    const chain = lc.ChatPromptTemplate.fromMessages([['human', '{question}']]).pipe(model)
+    let step: { handlers: Array<{ name?: string }>; inheritableHandlers: Array<{ name?: string }> } | undefined
+    const node = traceGraphNode('worker_0', 'worker', async (_state: unknown, config: { callbacks?: typeof step }) => {
+        step = config.callbacks
+        await chain.invoke({ question: 'When is the loaf ready?' }, config)
+        if (throwAfter) throw new Error('step failed')
+        return 'ok'
+    })
+    const graph = compileGraph(lc, node)
+    if (throwAfter)
+        await expect(graph.invoke({ question: 'When is the loaf ready?' }, { callbacks: parent })).rejects.toThrow('step failed')
+    else await graph.invoke({ question: 'When is the loaf ready?' }, { callbacks: parent })
+    return { model: modelSeen, otel, step: step!, parent }
+}
+
+function chainNodeSource(): string {
+    const anchor = JSON.stringify(path.join(__dirname, 'graphTraces.test.ts'))
+    return `const { createRequire } = require('module')
+const req = createRequire(${anchor})
+const { START, END } = req('@langchain/langgraph')
+const { AIMessage } = req('@langchain/core/messages')
+const { ChatPromptTemplate } = req('@langchain/core/prompts')
+const { BaseChatModel } = req('@langchain/core/language_models/chat_models')
+function fake(nodeName, text, input, output) {
+    return new (class extends BaseChatModel {
+        constructor() { super({}) }
+        _llmType() { return 'fake-chat' }
+        async _generate(_messages, _options, runManager) {
+            const names = (runManager && runManager.handlers ? runManager.handlers : []).map((handler) => handler && handler.name)
+            global.__chainModelSeen.push({
+                step: names.filter((name) => name === 'cuttlely_graph_step').length,
+                otel: names.filter((name) => name === 'cuttlely_otel').length,
+                node: nodeName
+            })
+            return {
+                llmOutput: { tokenUsage: { promptTokens: input, completionTokens: output } },
+                generations: [{
+                    text,
+                    message: new AIMessage({
+                        content: text,
+                        usage_metadata: { input_tokens: input, output_tokens: output, total_tokens: input + output },
+                        response_metadata: { model_name: 'gpt-4o-mini' }
+                    })
+                }]
+            }
+        }
+    })()
+}
+exports.nodeClass = class {
+    async init(nodeData) {
+        if (nodeData.name === 'seqStart') return { name: 'start', label: 'Start' }
+        if (nodeData.name === 'seqEnd') {
+            return { id: nodeData.id, node: END, name: END, label: 'End', type: 'end', predecessorAgents: [{ name: 'gate', type: 'condition' }] }
+        }
+        if (nodeData.name === 'seqConditionAgent') {
+            return {
+                id: nodeData.id,
+                name: 'gate',
+                label: 'Gate',
+                type: 'condition',
+                predecessorAgents: [{ name: 'baker' }],
+                node: async (_state, config) => {
+                    await ChatPromptTemplate.fromMessages([['human', '{question}']]).pipe(fake('seqConditionAgent', 'Yes', 7, 3)).invoke({ question: 'Which way?' }, config)
+                    return 'Yes'
+                }
+            }
+        }
+        return {
+            id: nodeData.id,
+            name: 'baker',
+            label: 'Baker',
+            type: 'llm',
+            predecessorAgents: [{ name: START }],
+            node: async (_state, config) => {
+                await ChatPromptTemplate.fromMessages([['human', '{question}']]).pipe(fake('seqLLMNode', 'ask', 4, 1)).invoke({ question: 'Ask' }, config)
+                return { messages: [new AIMessage({ content: 'ask', additional_kwargs: { nodeId: nodeData.id } })] }
+            }
+        }
+    }
+}
+`
+}
+
+function multiChainSource(): string {
+    const anchor = JSON.stringify(path.join(__dirname, 'graphTraces.test.ts'))
+    const agents = JSON.stringify(path.join(__dirname, '../../../components/dist/src/agents.js'))
+    return `const { createRequire } = require('module')
+const req = createRequire(${anchor})
+const { HumanMessage, AIMessage } = req('@langchain/core/messages')
+const { ChatPromptTemplate } = req('@langchain/core/prompts')
+const { BaseChatModel } = req('@langchain/core/language_models/chat_models')
+const { DynamicTool } = req('@langchain/core/tools')
+const { AgentExecutor } = req(${agents})
+function fake(nodeName, text, input, output) {
+    return new (class extends BaseChatModel {
+        constructor() { super({}) }
+        _llmType() { return 'fake-chat' }
+        async _generate(_messages, _options, runManager) {
+            const names = (runManager && runManager.handlers ? runManager.handlers : []).map((handler) => handler && handler.name)
+            global.__chainModelSeen.push({
+                step: names.filter((name) => name === 'cuttlely_graph_step').length,
+                otel: names.filter((name) => name === 'cuttlely_otel').length,
+                node: nodeName
+            })
+            return {
+                llmOutput: { tokenUsage: { promptTokens: input, completionTokens: output } },
+                generations: [{
+                    text,
+                    message: new AIMessage({
+                        content: text,
+                        usage_metadata: { input_tokens: input, output_tokens: output, total_tokens: input + output },
+                        response_metadata: { model_name: 'gpt-4o-mini' }
+                    })
+                }]
+            }
+        }
+    })()
+}
+exports.nodeClass = class {
+    async init(nodeData) {
+        if (nodeData.name === 'worker') {
+            return {
+                name: 'baker',
+                label: 'Baker',
+                type: 'worker',
+                parentSupervisorName: 'lead',
+                node: async (_state, config) => {
+                    const tool = new DynamicTool({
+                        name: 'oven',
+                        description: 'Heat the oven',
+                        func: async (_input, runManager) => {
+                            const names = (runManager && runManager.handlers ? runManager.handlers : []).map((handler) => handler && handler.name)
+                            global.__chainToolSeen.push({
+                                step: names.filter((name) => name === 'cuttlely_graph_step').length,
+                                otel: names.filter((name) => name === 'cuttlely_otel').length
+                            })
+                            return '350F'
+                        }
+                    })
+                    const executor = AgentExecutor.fromAgentAndTools({
+                        agent: {
+                            inputKeys: ['input'],
+                            returnValues: ['output'],
+                            prepareForOutput: async () => ({}),
+                            plan: async (steps) => steps.length ? { returnValues: { output: 'ready' }, log: '' } : { tool: 'oven', toolInput: '350', log: 'heat' }
+                        },
+                        tools: [tool],
+                        maxIterations: 2
+                    })
+                    await executor.invoke({ input: 'heat the oven' }, config)
+                    await ChatPromptTemplate.fromMessages([['human', '{question}']]).pipe(fake('worker', 'Loaf is ready.', 11, 4)).invoke({ question: 'When?' }, config)
+                    return {
+                        messages: [new HumanMessage({
+                            content: 'Loaf is ready.',
+                            additional_kwargs: { nodeId: nodeData.id, type: 'worker' }
+                        })]
+                    }
+                }
+            }
+        }
+        return {
+            name: 'lead',
+            label: 'Lead',
+            workers: ['baker'],
+            recursionLimit: 5,
+            node: async (_state, config) => {
+                const round = (global.__leadRound = (global.__leadRound || 0) + 1)
+                if (round === 1) {
+                    await ChatPromptTemplate.fromMessages([['human', '{question}']]).pipe(fake('supervisor', 'baker', 5, 2)).invoke({ question: 'Ask the baker' }, config)
+                    return { next: 'baker', messages: [] }
+                }
+                return { next: 'FINISH', messages: [] }
+            }
+        }
+    }
+}
+`
+}

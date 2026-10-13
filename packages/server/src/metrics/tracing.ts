@@ -609,6 +609,8 @@ function stepCollector(bucket: { models: GraphModelCall[]; tools: GraphToolCall[
     }
     return {
         name: 'cuttlely_graph_step',
+        // LangChain queues handlers that do not set this, so a nested model end can land after the step span is emitted.
+        awaitHandlers: true,
         handleLLMStart(llm: unknown, prompts: unknown, runId: string) {
             if (!runId || models.has(runId)) return
             models.set(runId, {
@@ -652,16 +654,21 @@ function stepCollector(bucket: { models: GraphModelCall[]; tools: GraphToolCall[
             sync()
         },
         async handleToolStart(
-            tool: { name?: string; id?: string[] },
+            tool: { name?: string; id?: string[]; kwargs?: { name?: string } },
             input: unknown,
             runId: string,
             _parent?: string,
             _tags?: string[],
-            metadata?: Record<string, unknown>
+            metadata?: Record<string, unknown>,
+            runName?: string
         ) {
             if (!runId || tools.has(runId)) return
             const metaId = metadata?.tool_call_id ?? metadata?.toolCallId
-            const name = tool?.name || (Array.isArray(tool?.id) ? String(tool.id[tool.id.length - 1]) : '') || 'tool'
+            // A real tool callback receives the serialized class, which often has no name. The run name is the tool name.
+            const named = tool?.kwargs?.name || tool?.name
+            const fromRun = typeof runName === 'string' ? runName : ''
+            const fromId = Array.isArray(tool?.id) ? String(tool.id[tool.id.length - 1]) : ''
+            const name = named || fromRun || fromId || 'tool'
             tools.set(runId, {
                 runId,
                 name: String(name),
@@ -801,11 +808,26 @@ function isSharedRunTraceHandler(callback: unknown): boolean {
     return (callback as { name?: string } | undefined)?.name === 'cuttlely_otel'
 }
 
+/**
+ * handlers and inheritableHandlers are separate arrays after CallbackManager.setHandlers.
+ * getChild() copies only inheritableHandlers, which is how a nested chain and a worker
+ * tool call receive callbacks. A shared array must be updated once.
+ */
+function callbackHandlerLists(callbacks: unknown): object[][] {
+    if (!callbacks || typeof callbacks !== 'object' || Array.isArray(callbacks)) return []
+    const record = callbacks as { handlers?: unknown; inheritableHandlers?: unknown }
+    if (!Array.isArray(record.handlers)) return []
+    const handlers = record.handlers as object[]
+    if (!Array.isArray(record.inheritableHandlers) || record.inheritableHandlers === handlers) return [handlers]
+    return [handlers, record.inheritableHandlers]
+}
+
 function attachCollector(config: unknown, collector: object): unknown {
     const record = config && typeof config === 'object' ? (config as { callbacks?: unknown }) : undefined
     const callbacks = record?.callbacks
-    if (callbacks && typeof callbacks === 'object' && Array.isArray((callbacks as { handlers?: unknown }).handlers)) {
-        ;(callbacks as { handlers: object[] }).handlers.push(collector)
+    const lists = callbackHandlerLists(callbacks)
+    if (lists.length) {
+        for (const list of lists) list.push(collector)
         return config
     }
     if (Array.isArray(callbacks)) {
@@ -817,25 +839,26 @@ function attachCollector(config: unknown, collector: object): unknown {
 
 /** Hide the stream's run-trace handler while this step records its own spans, then put it back. */
 function hideSharedRunTraceHandler(config: unknown): () => void {
-    const handlers = (config as { callbacks?: { handlers?: object[] } } | undefined)?.callbacks?.handlers
-    if (!Array.isArray(handlers)) return () => undefined
-    const hidden: Array<{ index: number; handler: object }> = []
-    for (let index = handlers.length - 1; index >= 0; index -= 1) {
-        if (!isSharedRunTraceHandler(handlers[index])) continue
-        hidden.push({ index, handler: handlers[index] })
-        handlers.splice(index, 1)
+    const lists = callbackHandlerLists((config as { callbacks?: unknown } | undefined)?.callbacks)
+    if (!lists.length) return () => undefined
+    const hidden: Array<{ list: object[]; index: number; handler: object }> = []
+    for (const list of lists) {
+        for (let index = list.length - 1; index >= 0; index -= 1) {
+            if (!isSharedRunTraceHandler(list[index])) continue
+            hidden.push({ list, index, handler: list[index] })
+            list.splice(index, 1)
+        }
     }
     return () => {
-        for (const item of hidden.reverse()) handlers.splice(Math.min(item.index, handlers.length), 0, item.handler)
+        for (const item of [...hidden].reverse()) item.list.splice(Math.min(item.index, item.list.length), 0, item.handler)
     }
 }
 
 function detachCollector(config: unknown, collector: object): void {
-    const callbacks = (config as { callbacks?: { handlers?: object[] } } | undefined)?.callbacks
-    const handlers = callbacks?.handlers
-    if (!Array.isArray(handlers)) return
-    const index = handlers.lastIndexOf(collector)
-    if (index >= 0) handlers.splice(index, 1)
+    for (const list of callbackHandlerLists((config as { callbacks?: unknown } | undefined)?.callbacks)) {
+        const index = list.lastIndexOf(collector)
+        if (index >= 0) list.splice(index, 1)
+    }
 }
 
 async function traceNodeBody(
