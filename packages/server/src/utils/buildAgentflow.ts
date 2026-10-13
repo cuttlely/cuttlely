@@ -80,6 +80,7 @@ import { AppError } from '../errors/appError'
 import { StatusCodes } from 'http-status-codes'
 import { pinOwnedMemorySession } from './sessionOwnership'
 import { fileDownloadUrl } from './fileLinkSignature'
+import { recordCompletedRun } from '../services/usage'
 
 interface IWaitingNode {
     nodeId: string
@@ -1208,14 +1209,67 @@ const executeNode = async ({
 
         if (agentFlowExecutedData.length) {
             const lastNodeOutput = agentFlowExecutedData[agentFlowExecutedData.length - 1]?.data?.output as ICommonObject | undefined
-            humanInputAction = lastNodeOutput?.humanInputAction
+            const action = lastNodeOutput?.humanInputAction
+            const usage = lastNodeOutput?.usageMetadata as
+                | { input_tokens?: number; output_tokens?: number; tool_call_tokens?: number }
+                | undefined
+            const priorInput = Number(usage?.input_tokens) || 0
+            const priorOutput = Number(usage?.output_tokens) || 0
+            const priorTool = Number(usage?.tool_call_tokens) || 0
+            // The resume deletes this stopped step. Keep its summed tokens on the action the agent reads,
+            // so the finished step still includes the model calls from before the approval.
+            humanInputAction =
+                action && (priorInput || priorOutput || priorTool)
+                    ? {
+                          ...action,
+                          data: {
+                              ...(action.data || {}),
+                              priorUsage: {
+                                  input_tokens: priorInput,
+                                  output_tokens: priorOutput,
+                                  tool_call_tokens: priorTool || priorInput + priorOutput
+                              }
+                          }
+                      }
+                    : action
         }
 
         // This is when human in the loop is resumed
         if (humanInput && nodeId === humanInput.startNodeId) {
             reactFlowNodeData.inputs = { ...reactFlowNodeData.inputs, humanInput }
-            // Remove the stopped humanInput from execution data
-            agentFlowExecutedData = agentFlowExecutedData.filter((execData) => execData.nodeId !== nodeId)
+            // A loop can finish this node, then run it again and stop. Delete only that stopped row.
+            // Earlier FINISHED rows stay, so the final total counts each pass once.
+            let stoppedAt = -1
+            for (let i = agentFlowExecutedData.length - 1; i >= 0; i--) {
+                if (agentFlowExecutedData[i].nodeId === nodeId && agentFlowExecutedData[i].status === 'STOPPED') {
+                    stoppedAt = i
+                    break
+                }
+            }
+            if (stoppedAt >= 0) {
+                const stoppedOutput = agentFlowExecutedData[stoppedAt].data?.output as ICommonObject | undefined
+                const action = stoppedOutput?.humanInputAction
+                const usage = stoppedOutput?.usageMetadata as
+                    | { input_tokens?: number; output_tokens?: number; tool_call_tokens?: number }
+                    | undefined
+                const priorInput = Number(usage?.input_tokens) || 0
+                const priorOutput = Number(usage?.output_tokens) || 0
+                const priorTool = Number(usage?.tool_call_tokens) || 0
+                if (action && (priorInput || priorOutput || priorTool)) {
+                    humanInputAction = {
+                        ...action,
+                        data: {
+                            ...(action.data || {}),
+                            priorUsage: {
+                                input_tokens: priorInput,
+                                output_tokens: priorOutput,
+                                tool_call_tokens: priorTool || priorInput + priorOutput
+                            }
+                        }
+                    }
+                }
+                agentFlowExecutedData = agentFlowExecutedData.filter((_, index) => index !== stoppedAt)
+            }
 
             // Clear humanInput after it's been consumed to prevent subsequent humanInputAgentflow nodes from proceeding
             logger.debug(`🧹 Clearing humanInput after consumption by node: ${nodeId}`)
@@ -1276,7 +1330,9 @@ const executeNode = async ({
             humanInputAction,
             iterationContext,
             evaluationRunId,
-            replay
+            replay,
+            // A harness tool on this canvas records against the agentflow. The tool closes over these params.
+            recordTokenUsage: recordCompletedRun
         }
 
         // Execute node. tracedNode is a no-op check when run traces are off.
@@ -2520,6 +2576,11 @@ const runAgentFlow = async ({
 
     if (parentTraceIds && analyticHandlers) {
         await analyticHandlers.onChainEnd(parentTraceIds, content, true)
+    }
+
+    // A recursive iteration records nothing here. The parent appends those steps and records them once.
+    if (status === 'FINISHED' && !isRecursive) {
+        void recordCompletedRun(appDataSource, { workspaceId, flowId: chatflowid, result: { agentFlowExecutedData } })
     }
 
     if (isRecursive) {

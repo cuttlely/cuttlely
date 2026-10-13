@@ -77,6 +77,7 @@ import { validateFlowAPIKey } from './validateKey'
 import { bindRequestSession } from './sessionOwnership'
 import logger from './logger'
 import { utilAddChatMessage } from './addChatMesage'
+import { ChatflowTokenUsage, recordCompletedRun, waitingForApproval } from '../services/usage'
 import { checkPredictions, checkStorage, updatePredictionsUsage, updateStorageUsage } from './quotaUsage'
 import { buildAgentGraph } from './buildAgentGraph'
 import { getErrorMessage } from '../errors/utils'
@@ -783,7 +784,12 @@ export const executeFlow = async ({
                             apiMessage.followUpPrompts = JSON.stringify(generatedFollowUpPrompts.questions)
                         }
                     }
-                    const chatMessage = await utilAddChatMessage(apiMessage, appDataSource)
+                    const messageRepo = appDataSource.getRepository(ChatMessage)
+                    const existingMessage =
+                        typeof messageRepo.findOneBy === 'function' ? await messageRepo.findOneBy({ id: apiMessageId }) : null
+                    const chatMessage = existingMessage
+                        ? await messageRepo.save(Object.assign(existingMessage, apiMessage))
+                        : await utilAddChatMessage(apiMessage, appDataSource)
 
                     await telemetry.sendTelemetry(
                         'agentflow_prediction_sent',
@@ -840,6 +846,15 @@ export const executeFlow = async ({
                     if (Object.keys(setVariableNodesOutput).length) result.flowVariables = setVariableNodesOutput
                     result.followUpPrompts = JSON.stringify(apiMessage.followUpPrompts)
                     if (sessionToken) result.sessionToken = sessionToken
+                    // Multi Agents and Sequential Agents return here. The graph already collected model usage on tokenUsage.
+                    // A tool interrupt still has finalAction. Those tokens ride on the action until the resume finishes.
+                    if (streamResults.tokenUsage && !waitingForApproval(finalAction)) {
+                        void recordCompletedRun(appDataSource, {
+                            workspaceId,
+                            flowId: agentflow.id,
+                            result: chatflowUsageResult({ text: finalResult }, streamResults.tokenUsage)
+                        })
+                    }
                     return result
                 }
                 return undefined
@@ -876,6 +891,7 @@ export const executeFlow = async ({
                 const finalQuestion = uploadedFilesContent ? `${uploadedFilesContent}\n\n${incomingInput.question}` : incomingInput.question
 
                 /*** Prepare run params ***/
+                const chatflowTokenUsage = new ChatflowTokenUsage()
                 const runParams = {
                     orgId,
                     workspaceId,
@@ -898,7 +914,8 @@ export const executeFlow = async ({
                     cachePool,
                     baseURL,
                     // Read by additionalCallbacks: a replay is not sent to tracing providers set in the environment.
-                    ...(replay && { cuttlelyReplay: true })
+                    ...(replay && { cuttlelyReplay: true }),
+                    tokenUsageCallback: chatflowTokenUsage
                 }
 
                 /*** Run the ending node ***/
@@ -1018,6 +1035,12 @@ export const executeFlow = async ({
                 if (result?.action) apiMessage.action = typeof result.action === 'string' ? result.action : JSON.stringify(result.action)
                 if (replay) {
                     // Only the answer: no saved message, follow-up prompts, telemetry or speech.
+                    // The check still spent tokens, so the daily total includes them.
+                    void recordCompletedRun(appDataSource, {
+                        workspaceId,
+                        flowId: chatflowid,
+                        result: chatflowUsageResult(result, chatflowTokenUsage)
+                    })
                     return { text: resultText, sourceDocuments: result?.sourceDocuments, usedTools: result?.usedTools }
                 }
                 if (chatflow.followUpPrompts) {
@@ -1040,6 +1063,11 @@ export const executeFlow = async ({
                     const metrics = await EvaluationRunner.getAndDeleteMetrics(evaluationRunId)
                     result.metrics = metrics
                 }
+                void recordCompletedRun(appDataSource, {
+                    workspaceId,
+                    flowId: chatflowid,
+                    result: chatflowUsageResult(result, chatflowTokenUsage)
+                })
                 await telemetry.sendTelemetry(
                     'prediction_sent',
                     {
@@ -1092,6 +1120,24 @@ export const executeFlow = async ({
     )
     if (continuedFrom && typeof actionId === 'string') finishTraceContinuation(chatflow.id, chatId, actionId)
     return result
+}
+
+// Ordinary chatflows do not put token counts on the result. The copy is only for the usage write,
+// so the prediction response stays the same shape.
+function chatflowUsageResult(result: any, usage: ChatflowTokenUsage) {
+    if (!result || typeof result !== 'object') return result
+    if (result.harness || result.harnessPayload) return result
+    if (Array.isArray(result.agentFlowExecutedData) && result.agentFlowExecutedData.length) return result
+    if (Array.isArray(result.metrics) && result.metrics.length) return result
+    if (!usage.sink.length) return result
+    return {
+        ...result,
+        metrics: usage.sink.map((row) => ({
+            model: row.model,
+            promptTokens: row.promptTokens,
+            completionTokens: row.completionTokens
+        }))
+    }
 }
 
 /**

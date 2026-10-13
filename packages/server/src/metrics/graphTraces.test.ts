@@ -8,6 +8,7 @@ import path from 'path'
 import { executeFlow } from '../utils/buildChatflow'
 import { executeAgentFlow } from '../utils/buildAgentflow'
 import { PredictionQueue } from '../queue/PredictionQueue'
+import { ChatflowTokenUsage } from '../services/usage'
 import {
     installInMemoryTraces,
     rememberTraceContinuation,
@@ -566,21 +567,34 @@ describe('graph run traces', () => {
         const source = dataSource()
         const streamed: Array<Record<string, unknown>> = []
         const waiting = await runSeq('When is the loaf ready?', chatId, undefined, source, streamed)
-        const action = waiting.action as { id?: string; traceId?: string; spanId?: string; mapping?: { approve?: string } }
+        const action = waiting.action as {
+            id?: string
+            traceId?: string
+            spanId?: string
+            mapping?: { approve?: string }
+            priorUsage?: Array<{ model: string; promptTokens: number; completionTokens: number }>
+        }
         const waitingRoot = memory.spans().find((span) => span.name === 'chatflow.prediction' && !span.parentSpanId)
         expect(action.id).toBeTruthy()
         expect(action.traceId).toBeUndefined()
         expect(action.spanId).toBeUndefined()
         expect(action.mapping?.approve).toBe('Yes')
+        expect(action.priorUsage).toEqual([{ model: 'gpt-4o-mini', promptTokens: 50, completionTokens: 20 }])
         expect(streamed[0]?.traceId).toBeUndefined()
         expect(streamed[0]?.spanId).toBeUndefined()
         const savedActions = source.messages.map((message) => message.action).filter((value) => typeof value === 'string')
         expect(savedActions.length).toBeGreaterThan(0)
         for (const saved of savedActions) {
-            const parsed = JSON.parse(saved) as { traceId?: string; spanId?: string }
+            const parsed = JSON.parse(saved) as {
+                traceId?: string
+                spanId?: string
+                priorUsage?: Array<{ model: string; promptTokens: number; completionTokens: number }>
+            }
             expect(parsed.traceId).toBeUndefined()
             expect(parsed.spanId).toBeUndefined()
+            if (parsed.priorUsage) expect(parsed.priorUsage).toEqual([{ model: 'gpt-4o-mini', promptTokens: 50, completionTokens: 20 }])
         }
+        expect(savedActions.some((saved) => JSON.parse(saved).priorUsage)).toBe(true)
         const pending = memory.spans().find((span) => span.name === 'tool' && span.attributes['tool.name'] === 'lookup')
         expect(pending?.attributes['status']).toBe('pending')
         expect(pending?.attributes['node.id']).toBe('seqLLM_0')
@@ -1094,6 +1108,35 @@ describe('graph run traces', () => {
         expect(traceGraphNode('worker_0', 'worker', node)).toBe(node)
         await runMulti(false, 'c0ffee00-0000-4000-8000-000000000066')
         expect(memory.spans()).toEqual([])
+    })
+
+    it('records one usage line and one model span from the same nested chain', async () => {
+        process.env.CUTTLELY_OTEL_TRACES = 'true'
+        const lc = loadLangChain()
+        const otel = countingOtel(lc.BaseCallbackHandler)
+        const usage = new ChatflowTokenUsage()
+        const parent = new lc.CallbackManager()
+        parent.addHandler(otel, true)
+        parent.addHandler(usage, true)
+        const modelSeen: Array<{ step: number; otel: number }> = []
+        const model = fakeChat(lc, { text: 'Yes', input: 7, output: 3, model: 'gpt-4o-mini', seen: modelSeen })
+        const chain = lc.ChatPromptTemplate.fromMessages([['human', '{question}']]).pipe(model)
+        let step: { handlers: Array<{ name?: string }>; inheritableHandlers: Array<{ name?: string }> } | undefined
+        const node = traceGraphNode('worker_0', 'worker', async (_state: unknown, config: { callbacks?: typeof step }) => {
+            step = config.callbacks
+            await chain.invoke({ question: 'When is the loaf ready?' }, config)
+            return 'ok'
+        })
+        await compileGraph(lc, node).invoke({ question: 'When is the loaf ready?' }, { callbacks: parent })
+        expect(modelSeen).toEqual([{ step: 1, otel: 0 }])
+        expect(otel.chats).toBe(0)
+        expect(usage.sink).toEqual([{ model: 'gpt-4o-mini', promptTokens: 7, completionTokens: 3 }])
+        const models = memory.spans().filter((span) => span.name === 'model')
+        expect(models).toHaveLength(1)
+        expect(models[0].attributes['tokens.input']).toBe(7)
+        expect(models[0].attributes['tokens.output']).toBe(3)
+        expect(handlerNames(step!.handlers)).toEqual(['cuttlely_otel', 'CuttlelyChatflowTokenUsage'])
+        expect(handlerNames(step!.inheritableHandlers)).toEqual(['cuttlely_otel', 'CuttlelyChatflowTokenUsage'])
     })
 
     it('records one chat event from a nested chain and restores both callback lists', async () => {
