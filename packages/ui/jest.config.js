@@ -10,7 +10,9 @@ module.exports = {
         '^marked$': '<rootDir>/node_modules/marked/lib/marked.umd.js'
     },
     transform: {
-        '^.+\\.jsx?$': 'babel-jest'
+        '^.+\\.jsx?$': 'babel-jest',
+        // HarnessRunTrace imports the harness trace module, which is ESM. The UI babel preset leaves import syntax alone.
+        '^.+\\.mjs$': ['babel-jest', { presets: [['@babel/preset-env', { targets: { node: 'current' } }]] }]
     },
     transformIgnorePatterns: ['/node_modules/']
 }
