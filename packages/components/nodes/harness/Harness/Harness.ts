@@ -75,6 +75,8 @@ class Harness_Harness implements INode {
             returnDirect: nodeData.inputs?.returnDirect !== false && nodeData.inputs?.returnDirect !== 'false',
             func: async (task: string, runManager?: { handlers?: unknown[] }) => {
                 const payload = await runNamedHarness(harnessName, task, options, true, runManager, streamed)
+                // The tool returns answer text only. The ending-node path records Harness.run; this closure records the tool.
+                recordHarnessToolUsage(options, payload)
                 return harnessToolOutput(payload, options)
             }
         })
@@ -206,6 +208,18 @@ function streamStoredImages(options: ICommonObject, artifacts: Array<{ type: str
 
 // Connected to an agent as a tool, the images go after ARTIFACTS_PREFIX, where the agent reads tool artifacts (as the
 // E2B code tool does), so they still show in the chat.
+// A Tool Agent only sees the answer text, which has no token counts. Record the payload the tool already has.
+// Harness.run does not call this: the chatflow records that payload once, when the harness is the ending node.
+function recordHarnessToolUsage(options: ICommonObject, payload: unknown) {
+    const record = options?.recordTokenUsage
+    if (typeof record !== 'function') return
+    void record(options.appDataSource, {
+        workspaceId: options.workspaceId,
+        flowId: options.chatflowid,
+        result: payload
+    })
+}
+
 async function harnessToolOutput(payload: { text?: string; artifacts?: unknown }, options: ICommonObject): Promise<string> {
     const text = payloadText(payload)
     const artifacts = await storeHarnessImages(payload?.artifacts, options)
@@ -348,4 +362,12 @@ function harnessFailure(message: string, code?: string) {
     return error
 }
 
-module.exports = { nodeClass: Harness_Harness, harnessOnEvent, storeHarnessImages, harnessToolOutput, streamStoredImages, uploadedImages }
+module.exports = {
+    nodeClass: Harness_Harness,
+    harnessOnEvent,
+    storeHarnessImages,
+    harnessToolOutput,
+    streamStoredImages,
+    uploadedImages,
+    recordHarnessToolUsage
+}

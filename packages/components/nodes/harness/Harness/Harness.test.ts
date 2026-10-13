@@ -1,3 +1,13 @@
+const mockHarnessRuns: { current: Record<string, unknown> | null } = { current: null }
+
+jest.mock('../engine', () => ({
+    loadHarnessEngine: async () => ({
+        listHarnesses: () => [],
+        runHarness: async () => mockHarnessRuns.current,
+        runQueuedHarness: async () => mockHarnessRuns.current
+    })
+}))
+
 jest.mock('../../../src/storageUtils', () => ({
     addSingleFileToStorage: jest.fn(async (_mime: string, _buffer: Buffer, fileName: string) => ({
         path: `FILE-STORAGE::${fileName}`,
@@ -10,7 +20,14 @@ jest.mock('../../../src/storageUtils', () => ({
     })
 }))
 
-const { harnessOnEvent, storeHarnessImages, harnessToolOutput, streamStoredImages, uploadedImages } = require('./Harness')
+const {
+    nodeClass: HarnessNode,
+    harnessOnEvent,
+    storeHarnessImages,
+    harnessToolOutput,
+    streamStoredImages,
+    uploadedImages
+} = require('./Harness')
 const { addSingleFileToStorage, getFileFromStorage } = require('../../../src/storageUtils')
 
 type Sent = { kind: string; name?: string; data: unknown }
@@ -166,5 +183,69 @@ describe('uploadedImages', () => {
         expect(await uploadedImages(options)).toEqual([])
         expect(quiet).toHaveBeenCalledTimes(1)
         quiet.mockRestore()
+    })
+})
+
+describe('Harness token recording', () => {
+    const payload = {
+        text: 'Loaf is ready.',
+        harness: 'bakery',
+        agents: [],
+        sources: [],
+        artifacts: [],
+        timings: { routeMs: 1, specialistsMs: 2, handoffMs: 1 },
+        report: {
+            tokens: { prompt: 4, completion: 3 },
+            timings: { routeMs: 1, specialistsMs: 2, handoffMs: 1, profileMs: 0 },
+            truncated: []
+        },
+        trace: {
+            route: { model: 'gpt-4.1-mini', tokens: { input_tokens: 4, output_tokens: 2 } },
+            specialists: [],
+            handoff: { status: 'skipped', tokens: null }
+        }
+    }
+
+    beforeEach(() => {
+        mockHarnessRuns.current = payload
+    })
+
+    it('records the tool payload on the chatflow, because the returned text has no token counts', async () => {
+        const recorded: Array<Record<string, unknown>> = []
+        const node = new HarnessNode()
+        const tool = await node.init({ inputs: { harnessName: 'bakery', returnDirect: true } }, '', {
+            workspaceId: 'ws-1',
+            chatflowid: 'flow-1',
+            chatId: 'chat-1',
+            appDataSource: { id: 'db' },
+            recordTokenUsage: (_dataSource: unknown, input: Record<string, unknown>) => {
+                recorded.push(input)
+            }
+        })
+        const answer = typeof tool.func === 'function' ? await tool.func('bake') : await tool.invoke('bake')
+        expect(answer).toBe('Loaf is ready.')
+        expect(recorded).toEqual([
+            {
+                workspaceId: 'ws-1',
+                flowId: 'flow-1',
+                result: payload
+            }
+        ])
+    })
+
+    it('does not record Harness.run, so the ending node is the only writer for that shape', async () => {
+        const recorded: unknown[] = []
+        const node = new HarnessNode()
+        const result = await node.run({ id: 'harness_0', inputs: { harnessName: 'bakery' } }, 'bake', {
+            workspaceId: 'ws-1',
+            chatflowid: 'flow-1',
+            chatId: 'chat-1',
+            appDataSource: { id: 'db' },
+            recordTokenUsage: () => recorded.push('run')
+        })
+        expect(recorded).toEqual([])
+        expect(result.text).toBe('Loaf is ready.')
+        expect(result.harness).toBe('bakery')
+        expect(result.harnessPayload).toEqual(payload)
     })
 })
