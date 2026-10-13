@@ -1,38 +1,59 @@
 import PropTypes from 'prop-types'
-import { useContext, useState } from 'react'
+import { useContext, useLayoutEffect, useRef, useState } from 'react'
 
 import { Box, IconButton } from '@mui/material'
 import { IconCopy, IconInfoCircle, IconTrash } from '@tabler/icons-react'
 
 import { flowContext } from '@/store/context/ReactFlowContext'
 import { CanvasPanelContext } from '@/store/context/CanvasPanelContext'
-import { cardActionNames, showCardActions } from './cardActions'
+import { actionBarSide, cardActionNames, showCardActions } from './cardActions'
 
 // The bar sits on the card, above it, on hover and while the card is selected. It is not a tooltip, so it
 // stays put when the settings panel is open and it is not turned off by the dialog flag that blocks canvas shortcuts.
 const NodeActionBar = ({ data, hovered = false, selected = false, includeInfo = true, onInfo }) => {
     const { deleteNode, duplicateNode, readOnly } = useContext(flowContext)
     const { onDuplicated } = useContext(CanvasPanelContext)
-    if (!showCardActions({ hovered, selected, readOnly })) return null
+    const barRef = useRef(null)
+    const [side, setSide] = useState('above')
     const names = cardActionNames({ nodeName: data?.name, readOnly, includeInfo })
-    if (names.length === 0) return null
+    const show = showCardActions({ hovered, selected, readOnly }) && names.length > 0
 
     const copy = () => {
         const created = duplicateNode(data.id)
         if (created?.id) onDuplicated(created)
     }
 
+    // Measure after every render. Dragging the card moves it, and that move is not a listed dependency.
+    useLayoutEffect(() => {
+        const bar = barRef.current
+        const card = bar?.parentElement
+        const canvas = bar?.closest('.react-flow')
+        if (!bar || !card || !canvas) return
+        const overlays = [...canvas.querySelectorAll('.react-flow__controls, .MuiFab-root')].map((el) => el.getBoundingClientRect())
+        const next = actionBarSide({
+            card: card.getBoundingClientRect(),
+            bar: bar.getBoundingClientRect(),
+            canvas: canvas.getBoundingClientRect(),
+            overlays
+        })
+        setSide((current) => (current === next ? current : next))
+    })
+
+    if (!show) return null
+
     return (
         <Box
+            ref={barRef}
             className='nodrag nopan'
             data-testid='card-actions'
+            data-placement={side}
             onClick={(event) => event.stopPropagation()}
             sx={{
                 position: 'absolute',
-                zIndex: 5,
-                top: 0,
+                zIndex: 20,
                 left: '50%',
-                transform: 'translate(-50%, -110%)',
+                top: side === 'below' ? '100%' : 0,
+                transform: side === 'below' ? 'translate(-50%, 4px)' : 'translate(-50%, calc(-100% - 4px))',
                 display: 'flex',
                 gap: 0.25,
                 p: 0.25,

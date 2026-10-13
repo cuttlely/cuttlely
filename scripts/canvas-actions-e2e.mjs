@@ -190,6 +190,57 @@ async function exercise(page, base, { route, nodeId }) {
     await page.keyboard.press('Escape')
     await page.waitForTimeout(300)
     if ((await panel.count()) !== 0) throw new Error(`${nodeId} Escape left the panel open`)
+
+    await checkTopEdge(page, card, nodeId)
+}
+
+// A card at the top of the view used to lose its buttons above the canvas, under the floating buttons.
+async function checkTopEdge(page, card, nodeId) {
+    const pane = page.locator('.react-flow').first()
+    const paneBox = await pane.boundingBox()
+    const cardBox = await card.boundingBox()
+    if (!paneBox || !cardBox) throw new Error(`${nodeId} could not be measured for the top-edge check`)
+    const handleX = cardBox.x + Math.min(28, cardBox.width / 2)
+    const handleY = cardBox.y + Math.min(18, cardBox.height / 2)
+    await page.mouse.move(handleX, handleY)
+    await page.mouse.down()
+    await page.mouse.move(handleX, paneBox.y + (handleY - cardBox.y), { steps: 12 })
+    await page.mouse.up()
+    await page.waitForTimeout(400)
+    const before = await page.locator('.react-flow__node').count()
+    for (const testId of ['card-duplicate', 'card-delete']) {
+        const button = card.locator(`[data-testid="${testId}"]`)
+        await button.waitFor({ timeout: 5000 })
+        const box = await button.boundingBox()
+        if (!box) throw new Error(`${nodeId} ${testId} has no box at the top edge`)
+        const fullyInside =
+            box.y >= paneBox.y - 1 &&
+            box.y + box.height <= paneBox.y + paneBox.height + 1 &&
+            box.x >= paneBox.x - 1 &&
+            box.x + box.width <= paneBox.x + paneBox.width + 1
+        if (!fullyInside) throw new Error(`${nodeId} ${testId} is not fully inside the canvas`)
+        const topmost = await page.evaluate(
+            ({ x, y, testId }) => {
+                const hit = document.elementFromPoint(x, y)
+                const button = hit?.closest?.(`[data-testid="${testId}"]`)
+                return Boolean(button)
+            },
+            { x: box.x + box.width / 2, y: box.y + box.height / 2, testId }
+        )
+        if (!topmost) throw new Error(`${nodeId} ${testId} is covered at its center`)
+    }
+    await card.locator('[data-testid="card-duplicate"]').click()
+    await page.waitForTimeout(400)
+    const copied = await page.locator('.react-flow__node').count()
+    if (copied !== before + 1) throw new Error(`${nodeId} top-edge duplicate left ${copied} cards, expected ${before + 1}`)
+    const copyBar = page.locator('.react-flow__node.selected [data-testid="card-delete"]')
+    await copyBar.click()
+    await page.waitForTimeout(400)
+    const after = await page.locator('.react-flow__node').count()
+    if (after !== before) throw new Error(`${nodeId} top-edge delete left ${after} cards, expected ${before}`)
+    if ((await page.locator(`.react-flow__node[data-id="${nodeId}"]`).count()) !== 1) {
+        throw new Error(`${nodeId} top-edge delete removed the original card`)
+    }
 }
 
 async function prepareFlows(base, cookie) {

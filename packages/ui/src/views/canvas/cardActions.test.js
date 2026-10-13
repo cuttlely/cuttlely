@@ -4,7 +4,7 @@ import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { ThemeProvider, createTheme } from '@mui/material/styles'
 
-import { cardActionNames, panelHeaderActions, showCardActions } from './cardActions'
+import { actionBarSide, cardActionNames, panelHeaderActions, showCardActions } from './cardActions'
 import NodePanelHeader from './NodePanelHeader'
 
 const theme = createTheme({
@@ -38,6 +38,26 @@ describe('card action visibility', () => {
             delete: false,
             close: true
         })
+    })
+})
+
+describe('action bar side', () => {
+    const card = { left: 400, top: 200, width: 200, right: 600, bottom: 280 }
+    const bar = { width: 96, height: 32 }
+    const canvas = { left: 0, top: 70, right: 1440, bottom: 900 }
+
+    test('stays above the card when that place is on the canvas and clear of floating buttons', () => {
+        expect(actionBarSide({ card, bar, canvas, overlays: [{ left: 1200, top: 90, right: 1280, bottom: 130 }] })).toBe('above')
+    })
+
+    test('moves below the card when the top of the canvas would clip it', () => {
+        expect(actionBarSide({ card: { ...card, top: 74, bottom: 150 }, bar, canvas })).toBe('below')
+    })
+
+    test('moves below the card when a floating button would cover it', () => {
+        const lower = { left: 500, top: 140, width: 180, right: 680, bottom: 220 }
+        const button = { left: 540, top: 100, right: 620, bottom: 140 }
+        expect(actionBarSide({ card: lower, bar, canvas, overlays: [button] })).toBe('below')
     })
 })
 

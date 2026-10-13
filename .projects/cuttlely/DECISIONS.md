@@ -233,3 +233,7 @@ The analyst still returns at most 100 rows and stops a statement after 15 second
 ## D60. Card actions stay available while a card's settings panel is open
 
 Duplicate and Delete sit on the card while the pointer is over it and while the card is selected, including while its settings panel is open. The panel header has the same two actions and a Close button that uses the theme text color. The start card cannot be duplicated. A read-only canvas, a template preview or a saved version, has neither action. Deleting the card from the panel closes the panel. Duplicating while the panel is open selects the copy and moves the panel onto it. Escape and a click on empty canvas still close the panel. Keyboard Delete still removes the selected card when focus is on the canvas, and still does not remove a card while a panel field has focus. Why: the actions were easy to miss, and the close icon used a color that disappeared on a dark panel.
+
+## D61. The card action bar moves below the card when the top of the canvas would cover it
+
+The Duplicate and Delete bar stays above the card until that place would leave it above the visible canvas or under a floating canvas button. It then sits below the card, so the buttons stay fully visible and clickable. This adds to D60.

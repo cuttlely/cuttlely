@@ -18,6 +18,23 @@ export function cardActionNames({ nodeName, readOnly = false, includeInfo = true
     return names
 }
 
+export function rectsOverlap(a, b) {
+    if (!a || !b) return false
+    return a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top
+}
+
+// Above the card, unless that place is past the top of the visible canvas or under a floating button.
+// bar is the measured button row; it is centered on the card either way.
+export function actionBarSide({ card, bar, canvas, overlays = [], gap = 4 } = {}) {
+    if (!card || !bar || !canvas || !(bar.height > 0)) return 'above'
+    const left = card.left + (card.width - bar.width) / 2
+    const above = { left, right: left + bar.width, top: card.top - gap - bar.height, bottom: card.top - gap }
+    const topClipped = above.top < canvas.top
+    const covered = overlays.some((box) => rectsOverlap(above, box))
+    if (topClipped || covered) return 'below'
+    return 'above'
+}
+
 // The panel always has a close control. Duplicate and Delete match the card, and stay off when the canvas is read-only.
 export function panelHeaderActions({ nodeName, readOnly = false } = {}) {
     return {
