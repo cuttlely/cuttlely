@@ -50,6 +50,13 @@ import { Variable } from '../database/entities/Variable'
 import { getWorkspaceSearchOptions } from '../identity/workspaceScope'
 import { DataSource } from 'typeorm'
 import { CachePool } from '../CachePool'
+import {
+    denyHeldTools,
+    keepPendingToolsForApproval,
+    releaseHeldToolsPending,
+    rememberTraceContinuation,
+    traceGraphNode
+} from '../metrics/tracing'
 import { utilAddChatMessage } from './addChatMesage'
 import { applyCarriedUsage, ChatflowTokenUsage, recordCompletedRun, withCarriedUsage } from '../services/usage'
 
@@ -94,7 +101,6 @@ async function storedPriorUsage(
     }
     return { found: false }
 }
-
 /**
  * Build Agent Graph
  */
@@ -438,9 +444,10 @@ export const buildAgentGraph = async ({
                                 approveButtonText = node.data.inputs?.approveButtonText || 'Yes'
                                 rejectButtonText = node.data.inputs?.rejectButtonText || 'No'
                             }
+                            const actionId = uuidv4()
                             finalAction = withCarriedUsage(
                                 {
-                                    id: uuidv4(),
+                                    id: actionId,
                                     mapping: {
                                         approve: approveButtonText,
                                         reject: rejectButtonText,
@@ -457,19 +464,29 @@ export const buildAgentGraph = async ({
                             if (!flowConfig.apiMessageId) {
                                 throw new Error('Cannot save this approval because the chat message id is missing.')
                             }
-                            await utilAddChatMessage(
-                                {
-                                    id: flowConfig.apiMessageId,
-                                    role: 'apiMessage',
-                                    content: finalResult || ' ',
-                                    chatflowid,
-                                    chatId,
-                                    sessionId,
-                                    chatType: 'INTERNAL',
-                                    action: JSON.stringify(finalAction)
-                                },
-                                appDataSource
-                            )
+                            // The action the client sees has no trace ids. The server keeps the parent for this action.
+                            rememberTraceContinuation(chatflowid, chatId, actionId)
+                            try {
+                                await utilAddChatMessage(
+                                    {
+                                        id: flowConfig.apiMessageId,
+                                        role: 'apiMessage',
+                                        content: finalResult || ' ',
+                                        chatflowid,
+                                        chatId,
+                                        sessionId,
+                                        chatType: 'INTERNAL',
+                                        action: JSON.stringify(finalAction)
+                                    },
+                                    appDataSource
+                                )
+                            } catch (error) {
+                                // The span was held while the node ran. Without a saved approval it cannot be resumed.
+                                releaseHeldToolsPending()
+                                throw error
+                            }
+                            // The waiting tool span stays open only after the approval is stored.
+                            keepPendingToolsForApproval()
                             if (shouldStreamResponse && sseStreamer) {
                                 sseStreamer.streamTokenEvent(chatId, finalResult)
                                 sseStreamer.streamActionEvent(chatId, finalAction)
@@ -661,6 +678,8 @@ const compileMultiAgentsGraph = async (params: MultiAgentsGraphParams) => {
         //@ts-ignore
         channels
     })
+    const graphNodeNames = new Map<string, { id: string; type: string }>()
+    traceAddedGraphNodes(workflowGraph, (name) => graphNodeNames.get(name) ?? { id: name, type: name })
 
     const workerNodes = reactFlowNodes.filter((node) => workerNodeIds.includes(node.data.id))
 
@@ -695,6 +714,7 @@ const compileMultiAgentsGraph = async (params: MultiAgentsGraphParams) => {
                 supervisorWorkers[parentSupervisor] = [workerResult]
             }
 
+            graphNodeNames.set(workerResult.name, { id: workerNode.data.id, type: workerNode.data.name })
             workflowGraph.addNode(workerResult.name, workerResult.node)
         } catch (e) {
             throw new AppError(StatusCodes.INTERNAL_SERVER_ERROR, `Error initialize worker nodes - ${getErrorMessage(e)}`)
@@ -729,6 +749,7 @@ const compileMultiAgentsGraph = async (params: MultiAgentsGraphParams) => {
                 }
             }
 
+            graphNodeNames.set(supervisorResult.name, { id: supervisorNode.data.id, type: supervisorNode.data.name })
             workflowGraph.addNode(supervisorResult.name, supervisorResult.node)
 
             for (const worker of supervisorResult.workers) {
@@ -816,6 +837,45 @@ type SeqAgentsGraphParams = {
     uploadedFilesContent?: string
 }
 
+function routeText(value: unknown): string {
+    return typeof value === 'string' && value.trim() ? value : ''
+}
+
+/**
+ * The path-map key is the option label stored on the canvas, which is what the condition returns.
+ * A generated handle is not inverted into a label: `yes`, `YES`, and `OK` would not round-trip,
+ * and `foo_bar` or `well-known` do not decode. An edge without that stored label is skipped.
+ */
+function conditionRouteLabel(outputAnchors: unknown, sourceHandle: string | null | undefined, onUnrecoverable?: () => void): string {
+    const handle = typeof sourceHandle === 'string' ? sourceHandle : ''
+    if (!handle) return ''
+    const anchors = Array.isArray(outputAnchors) ? outputAnchors : []
+    for (const anchor of anchors) {
+        if (!anchor || typeof anchor !== 'object') continue
+        const options = (anchor as { options?: unknown }).options
+        if (!Array.isArray(options)) continue
+        for (const option of options) {
+            if (!option || typeof option !== 'object') continue
+            const record = option as { id?: unknown; name?: unknown; label?: unknown }
+            const label = routeText(record.label)
+            if (!label) continue
+            if (record.id === handle) return label
+            if (typeof record.name === 'string' && record.name && handle.endsWith(`-output-${record.name}-Condition`)) return label
+        }
+    }
+    for (const anchor of anchors) {
+        if (!anchor || typeof anchor !== 'object') continue
+        const record = anchor as { id?: unknown; label?: unknown; options?: unknown }
+        if (Array.isArray(record.options)) continue
+        if (record.id === handle) {
+            const label = routeText(record.label)
+            if (label && label !== 'Output') return label
+        }
+    }
+    onUnrecoverable?.()
+    return ''
+}
+
 const compileSeqAgentsGraph = async (params: SeqAgentsGraphParams) => {
     const {
         depthQueue,
@@ -855,6 +915,14 @@ const compileSeqAgentsGraph = async (params: SeqAgentsGraphParams) => {
     let seqGraph = new StateGraph<any>({
         //@ts-ignore
         channels
+    })
+    const seqNodeNames = new Map<string, { id: string; type: string }>()
+    traceAddedGraphNodes(seqGraph, (name) => {
+        const known = seqNodeNames.get(name)
+        if (known) return known
+        // The graph names an approval tool tool_<canvas id>. The run card uses that canvas id.
+        if (name.startsWith('tool_')) return { id: name.slice('tool_'.length), type: 'seqToolNode' }
+        return { id: name, type: name }
     })
 
     /*** Validate Graph ***/
@@ -898,6 +966,13 @@ const compileSeqAgentsGraph = async (params: SeqAgentsGraphParams) => {
         return seqAgentNode
     }
 
+    let loggedSkippedConditionRoute = false
+    const noteSkippedConditionRoute = () => {
+        if (loggedSkippedConditionRoute) return
+        loggedSkippedConditionRoute = true
+        logger.warn('Skipped a condition route because its label is not stored on the canvas.')
+    }
+
     /*
      *  Two objectives we want to achieve here:
      *  1.) Prepare the mapping of conditional outputs to next nodes. This mapping will ONLY be used to add conditional edges to the Interrupted Agent connected next to Condition/ConditionAgent Node.
@@ -920,11 +995,11 @@ const compileSeqAgentsGraph = async (params: SeqAgentsGraphParams) => {
             const conditionNode = reactFlowNodes.find((node) => node.id === conditionNodeId)
             if (!conditionNode) continue
 
-            const outputAnchors = conditionNode?.data.outputAnchors
-            if (!outputAnchors || !outputAnchors.length || !outputAnchors[0].options) continue
-
-            const conditionOutputAnchorLabel =
-                outputAnchors[0].options.find((option: any) => option.id === conditionNodeOutputAnchorId)?.label ?? ''
+            const conditionOutputAnchorLabel = conditionRouteLabel(
+                conditionNode?.data.outputAnchors,
+                conditionNodeOutputAnchorId,
+                noteSkippedConditionRoute
+            )
             if (!conditionOutputAnchorLabel) continue
 
             if (Object.prototype.hasOwnProperty.call(interruptedRouteMapping, conditionNodeId)) {
@@ -955,12 +1030,12 @@ const compileSeqAgentsGraph = async (params: SeqAgentsGraphParams) => {
             const conditionNodeOutputAnchorId = conditionEdge.sourceHandle
 
             const conditionNode = reactFlowNodes.find((node) => node.id === conditionNodeId)
-            const outputAnchors = conditionNode?.data.outputAnchors
-
-            if (!outputAnchors || !outputAnchors.length || !outputAnchors[0].options) continue
-
-            const conditionOutputAnchorLabel =
-                outputAnchors[0].options.find((option: any) => option.id === conditionNodeOutputAnchorId)?.label ?? ''
+            if (!conditionNode) continue
+            const conditionOutputAnchorLabel = conditionRouteLabel(
+                conditionNode.data.outputAnchors,
+                conditionNodeOutputAnchorId,
+                noteSkippedConditionRoute
+            )
 
             if (!conditionOutputAnchorLabel) continue
 
@@ -975,7 +1050,8 @@ const compileSeqAgentsGraph = async (params: SeqAgentsGraphParams) => {
             } else {
                 conditionalEdges[conditionNodeId] = {
                     nodes: { [conditionOutputAnchorLabel]: nodeInstance.name },
-                    func: conditionNode.data.instance.node
+                    // The route calls the model outside addNode. Wrap it so that call is still a step span.
+                    func: traceGraphNode(conditionNode.data.id, conditionNode.data.name, conditionNode.data.instance.node)
                 }
             }
         }
@@ -1023,6 +1099,7 @@ const compileSeqAgentsGraph = async (params: SeqAgentsGraphParams) => {
 
                 if (nodesToAdd.includes(agentNode.data.name)) {
                     // Add node to graph
+                    seqNodeNames.set(agentInstance.name, { id: agentNode.data.id, type: agentNode.data.name })
                     seqGraph.addNode(agentInstance.name, agentInstance.node)
 
                     /*
@@ -1047,7 +1124,7 @@ const compileSeqAgentsGraph = async (params: SeqAgentsGraphParams) => {
                                 seqGraph = await agentInstance.agentInterruptToolFunc(
                                     seqGraph,
                                     undefined,
-                                    nextNode.data.instance.node,
+                                    traceGraphNode(nextNode.data.id, nextNode.data.name, nextNode.data.instance.node),
                                     interruptedRouteMapping[conditionNode]
                                 )
                             } else {
@@ -1214,6 +1291,8 @@ const compileSeqAgentsGraph = async (params: SeqAgentsGraphParams) => {
         if (action && action.mapping && question === action.mapping.approve) {
             humanMsg = null
         } else if (action && action.mapping && question === action.mapping.reject) {
+            // The denial message replaces the interrupted tool task, so that task never finishes the span.
+            denyHeldTools()
             humanMsg = {
                 messages: action.mapping.toolCalls.map((toolCall) => {
                     return new ToolMessage({
@@ -1232,6 +1311,17 @@ const compileSeqAgentsGraph = async (params: SeqAgentsGraphParams) => {
     } catch (e) {
         logger.error(`[${options.orgId}]: Error compile graph`, e)
         throw new AppError(StatusCodes.INTERNAL_SERVER_ERROR, `Error compile graph - ${getErrorMessage(e)}`)
+    }
+}
+
+/** When traces are off the graph keeps the original node functions. */
+function traceAddedGraphNodes(graph: { addNode: (...args: any[]) => any }, resolve: (name: string) => { id: string; type: string }): void {
+    if (process.env.CUTTLELY_OTEL_TRACES !== 'true') return
+    const original = graph.addNode.bind(graph)
+    graph.addNode = (key: unknown, action: unknown, options?: unknown) => {
+        const name = typeof key === 'string' ? key : String(key ?? '')
+        const meta = resolve(name)
+        return original(key, traceGraphNode(meta.id, meta.type, action), options)
     }
 }
 
