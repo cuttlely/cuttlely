@@ -1244,4 +1244,45 @@ describe('grading limits', () => {
         expect(done.cases[0].draft?.scores?.[1].message).toBe('The grading model could not be started.')
         expect(done.status).toBe('done')
     })
+
+    test('a per-grade abort keeps the first evaluator usage and the cap stops the next question', async () => {
+        process.env.CUTTLELY_CHECK_MAX_TOKENS = '1000'
+        process.env.CUTTLELY_CHECK_CONCURRENCY = '1'
+        saveEvaluator('llm-2', 'llm', { prompt: 'Grade {actualOutput}', outputSchema: [] }, 'team-a', 'Second')
+        const asked: string[] = []
+        const startedEvaluators: string[] = []
+        replayHooks.run = async ({ question }) => {
+            asked.push(question)
+            return { text: 'ok', metrics: [JSON.stringify({ totalTokens: 600 })] }
+        }
+        scoreHooks.gradeLlm = async (_data, _actual, _errors, map, run) => {
+            for (const item of map) {
+                if (run.signal.aborted) break
+                startedEvaluators.push(item.evaluatorId)
+                if (startedEvaluators.length === 1) {
+                    run.addTokens?.(500)
+                    continue
+                }
+                await new Promise((_resolve, reject) => {
+                    if (run.signal.aborted) {
+                        reject(new Error('aborted'))
+                        return
+                    }
+                    run.signal.addEventListener('abort', () => reject(new Error('aborted')), { once: true })
+                })
+            }
+            return { grades: [], tokens: null }
+        }
+        const started = await startCheck(
+            flow({ flowData: gradedCanvas('MANGO') }) as any,
+            { questions: ['Q1', 'Q2'], evaluatorIds: ['llm-1', 'llm-2'] },
+            'http://x'
+        )
+        for (let i = 0; i < 80 && checks.get('flow-1')?.status === 'running'; i++) await new Promise((resolve) => setTimeout(resolve, 1000))
+        const done = await getCheck(flow({ flowData: gradedCanvas('MANGO') }), started.id)
+        expect(startedEvaluators).toEqual(['llm-1', 'llm-2'])
+        expect(done.status).toBe('stopped')
+        expect(done.stopReason).toBe('tokens')
+        expect(asked).toEqual(['Q1'])
+    }, 90000)
 })

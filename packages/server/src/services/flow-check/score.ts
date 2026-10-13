@@ -33,6 +33,8 @@ export interface GradingModel {
 export interface GradeRun {
     signal: AbortSignal
     timeoutMs: number
+    // Tokens a model evaluator already reported. The per-grade abort still counts these.
+    addTokens?: (tokens: number) => void
 }
 
 export type GradeReturn = unknown[] | { grades: unknown[]; tokens?: number | null }
@@ -258,25 +260,31 @@ async function gradeWithLlm(
         llmConfig: { ...model, workspaceId: input.workspaceId }
     }
     const map = evaluators.map((evaluator) => ({ evaluatorId: evaluator.id, evaluator }))
-    const run: GradeRun = { signal: input.signal || new AbortController().signal, timeoutMs: input.timeoutMs ?? 0 }
     let graderTokens = 0
+    const run: GradeRun = {
+        signal: input.signal || new AbortController().signal,
+        timeoutMs: input.timeoutMs ?? 0,
+        addTokens: (tokens) => {
+            graderTokens += tokens
+        }
+    }
+    const counted = () => (graderTokens > 0 ? graderTokens : null)
     const work = scoreHooks.gradeLlm
         ? scoreHooks.gradeLlm(data, [input.text ?? ''], [''], map, run)
         : new LLMEvaluationRunner().runLLMEvaluators(data, [input.text ?? ''], [''], map, {
               signal: run.signal,
-              addTokens: (tokens) => {
-                  graderTokens += tokens
-              }
+              addTokens: run.addTokens
           })
     try {
         const returned = asGrades(await untilAbort(Promise.resolve(work), input.signal))
         return {
             results: evaluators.map((_, index) => llmGradeResult(returned.grades[index])),
-            tokens: returned.tokens ?? (graderTokens > 0 ? graderTokens : null)
+            tokens: returned.tokens ?? counted()
         }
     } catch (error) {
         // Text, JSON and numeric scores are already stored. Only these model scores become Error.
-        return failed(gradingFailureMessage(error))
+        // A per-grade abort rejects this wait, but tokens the finished evaluators already reported still count.
+        return { ...failed(gradingFailureMessage(error)), tokens: counted() }
     }
 }
 

@@ -21,8 +21,11 @@ export class LLMEvaluationRunner {
         }
 
         for (let j = 0; j < actualOutputArray.length; j++) {
+            if (run?.signal?.aborted) break
             const actualOutput = actualOutputArray[j]
             for (let i = 0; i < llmEvaluatorMap.length; i++) {
+                // A per-grade abort stops the rest. Tokens already reported stay with the caller.
+                if (run?.signal?.aborted) break
                 if (errorArray[j] !== '') {
                     evaluationResults.push({
                         error: 'Not Graded!'
@@ -64,8 +67,10 @@ export class LLMEvaluationRunner {
                     evaluationResults.push({
                         error: 'error'
                     })
+                    if (run?.signal?.aborted) break
                 }
             }
+            if (run?.signal?.aborted) break
         }
         return evaluationResults
     }

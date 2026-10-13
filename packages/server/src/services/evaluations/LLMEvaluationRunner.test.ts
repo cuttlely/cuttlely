@@ -10,6 +10,7 @@ jest.mock('../../utils/getRunningExpressApp', () => ({
 jest.mock('@cuttlely/components', () => ({ convertSchemaToZod: () => ({}) }))
 
 import path from 'path'
+import { RunnableLambda } from '@langchain/core/runnables'
 import { LLMEvaluationRunner, graderNodeInputs, graderTokenTotal, noteGraderTokens } from './LLMEvaluationRunner'
 
 const fixture = path.join(__dirname, 'grader-node-fixture.js')
@@ -72,6 +73,81 @@ test('estimatedTokenUsage counts when tokenUsage is empty, then usage_metadata',
         noted += count
     })
     expect(noted).toBe(500)
+})
+
+function reportUsage(config: { callbacks?: any }, totalTokens: number) {
+    const callbacks = config?.callbacks
+    const handlers = Array.isArray(callbacks) ? callbacks : callbacks?.handlers || []
+    for (const callback of handlers) {
+        const handler = callback as { handleLLMEnd?: (output: unknown) => void }
+        handler.handleLLMEnd?.({ llmOutput: { tokenUsage: { totalTokens } } })
+    }
+}
+
+test('an aborted grade does not start another evaluator, and earlier usage is kept', async () => {
+    const started: string[] = []
+    let tokens = 0
+    const controller = new AbortController()
+    const runner = new LLMEvaluationRunner() as any
+    runner.llm = {
+        withStructuredOutput() {
+            return RunnableLambda.from(async (_input: unknown, config: { callbacks?: unknown }) => {
+                const id = ['first', 'second', 'third'][started.length]
+                started.push(id)
+                if (id === 'first') {
+                    reportUsage(config, 400)
+                    controller.abort()
+                    return { pass: true }
+                }
+                throw new Error('aborted')
+            })
+        }
+    }
+    const evaluators = ['first', 'second', 'third'].map((id) => ({
+        evaluatorId: id,
+        evaluator: { prompt: 'Grade {actualOutput}', outputSchema: [] }
+    }))
+    const results = await runner.runLLMEvaluators({ input: 'q', expectedOutput: 'e' }, ['answer'], [''], evaluators, {
+        signal: controller.signal,
+        addTokens: (count) => {
+            tokens += count
+        }
+    })
+    expect(started).toEqual(['first'])
+    expect(tokens).toBe(400)
+    expect(results).toHaveLength(1)
+})
+
+test('a thrown abort does not start the evaluator after it', async () => {
+    const started: number[] = []
+    let tokens = 0
+    const controller = new AbortController()
+    const runner = new LLMEvaluationRunner() as any
+    runner.llm = {
+        withStructuredOutput() {
+            return RunnableLambda.from(async (_input: unknown, config: { callbacks?: unknown }) => {
+                started.push(started.length + 1)
+                if (started.length === 1) {
+                    reportUsage(config, 250)
+                    return { pass: true }
+                }
+                controller.abort()
+                throw new Error('aborted')
+            })
+        }
+    }
+    const evaluators = ['first', 'second', 'third'].map((id) => ({
+        evaluatorId: id,
+        evaluator: { prompt: 'Grade {actualOutput}', outputSchema: [] }
+    }))
+    await runner.runLLMEvaluators({ input: 'q', expectedOutput: 'e' }, ['answer'], [''], evaluators, {
+        signal: controller.signal,
+        addTokens: (count) => {
+            tokens += count
+        }
+    })
+    expect(started).toEqual([1, 2])
+    expect(tokens).toBe(250)
 })
 
 test('a node that fails to start says the grading model could not be started', async () => {

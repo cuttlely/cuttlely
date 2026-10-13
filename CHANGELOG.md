@@ -10,7 +10,7 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ### Fixed
 
--   A model grade keeps text, JSON and numeric scores when the grading model cannot be started. Each model score is Error. Grading tokens count when a provider reports them only as an estimate. A provider that reports usage nowhere leaves the check bounded by the time limit.
+-   A model grade keeps text, JSON and numeric scores when the grading model cannot be started. Each model score is Error. Grading tokens count when a provider reports them only as an estimate. A provider that reports usage nowhere leaves the check bounded by the time limit. A model grade that is aborted still counts tokens already reported, and does not start another model evaluator.
 
 ### Security
 
