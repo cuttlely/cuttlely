@@ -138,7 +138,7 @@ Use WorkOS when several people sign in. Cuttlely sends the browser to WorkOS Aut
 
 With the local flag also on, the page shows both the WorkOS button and the password form.
 
-To add people, open **Admin**, then **Users**, and select **Add User**. Give each person a name and an email. Cuttlely doesn't send an invitation, so send them the sign-in link yourself. If AuthKit public sign-up is off, also create them in the WorkOS Users directory.
+To add people, open **Admin**, then **Users**, and select **Add User**. Give each person a name and an email. Cuttlely doesn't send an invitation, so send them the sign-in link yourself. If AuthKit public sign-up is off, also create them in the WorkOS Users directory. Roles, teams, and the permission each page checks are in [Roles and permissions](./roles-and-permissions.md).
 
 The owner can also do steps 1 and 2 in the browser: open **Admin**, then **Server Settings**, then **Sign-in**, and select **Set up AuthKit**. It fills in the redirect addresses, makes the session seal, and runs a real test sign-in with the new values before anything is saved. Password sign-in can be turned off only after that test passes. The values apply when Cuttlely restarts.
 

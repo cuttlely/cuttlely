@@ -134,6 +134,7 @@ const MarketplaceCanvas = () => {
                             flowName={name}
                             flowData={parsedFlow}
                             legacy={legacy}
+                            templateType={type}
                             onChatflowCopy={(nextFlow) => onChatflowCopy(nextFlow)}
                         />
                     </Toolbar>
