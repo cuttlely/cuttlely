@@ -164,7 +164,41 @@ const getCheckSetup = async (req: Request, res: Response, next: NextFunction) =>
     }
 }
 
+// Do not use req.destroyed. express.json() ends the request stream after it reads the body,
+// and that sets destroyed while the socket is still open and the client is still waiting.
+const clientGone = (req: Request) => {
+    const incoming = req as Request & { aborted?: boolean }
+    return Boolean(incoming.aborted || req.socket?.destroyed)
+}
+
+// A reset while the 202 is being written does not set req.aborted. It arrives on the next
+// turn as a socket error, after writableFinished is already true. A clean close is different:
+// a client that read the 202 and sent Connection: close drops the socket without an error.
+const RESET_CODES = new Set(['ECONNRESET', 'EPIPE', 'ECONNABORTED'])
+
+type Listenable = {
+    on?: (event: string, handler: (...args: any[]) => void) => void
+    off?: (event: string, handler: (...args: any[]) => void) => void
+    removeListener?: (event: string, handler: (...args: any[]) => void) => void
+} | null
+
+const listen = (emitter: Listenable, event: string, handler: (...args: any[]) => void) => {
+    if (emitter && typeof emitter.on === 'function') emitter.on(event, handler)
+}
+
+const unlisten = (emitter: Listenable, event: string, handler: (...args: any[]) => void) => {
+    if (!emitter) return
+    if (typeof emitter.off === 'function') emitter.off(event, handler)
+    else if (typeof emitter.removeListener === 'function') emitter.removeListener(event, handler)
+}
+
 const startCheck = async (req: Request, res: Response, next: NextFunction) => {
+    // ownedId is set only after this request has stored its own record. A close before that
+    // must not stop a check this request did not create.
+    let ownedId: string | null = null
+    let gone = false
+    let stopped = false
+    let detach: () => void = () => undefined
     try {
         const flow = await flowFor(req, 'update')
         const body = req.body || {}
@@ -175,9 +209,61 @@ const startCheck = async (req: Request, res: Response, next: NextFunction) => {
         if (Array.isArray(body.evaluatorIds) && body.evaluatorIds.length > 0 && !(await hasAnyPermission(req, 'evaluators:view'))) {
             throw new AppError(StatusCodes.FORBIDDEN, 'You do not have permission to view evaluators.')
         }
+        const socket = req.socket
+        const stopOwned = (force = false) => {
+            if (stopped || !ownedId) return
+            if (!force && res.writableFinished) return
+            const id = ownedId
+            ownedId = null
+            stopped = true
+            detach()
+            void flowCheckService.stopCheck(flow, id).catch(() => undefined)
+        }
+        const mark = () => {
+            // A clean close after the 202 was written is the client hanging up, not a cancel.
+            if (res.writableFinished) return
+            gone = true
+            stopOwned()
+        }
+        const onSocketError = (error: { code?: string }) => {
+            if (!error?.code || !RESET_CODES.has(error.code)) return
+            gone = true
+            stopOwned(true)
+        }
+        const onDelivered = () => {
+            // The reset error is delivered before the next immediate. Once that turn passes with
+            // no error, the 202 was handed off and this listener must not stay on a reused socket.
+            setImmediate(() => {
+                if (!gone) detach()
+            })
+        }
+        detach = () => {
+            unlisten(req, 'aborted', mark)
+            unlisten(socket, 'close', mark)
+            unlisten(socket, 'error', onSocketError)
+            unlisten(res, 'close', mark)
+            unlisten(res, 'finish', onDelivered)
+        }
+        listen(req, 'aborted', mark)
+        listen(socket, 'close', mark)
+        listen(socket, 'error', onSocketError)
+        listen(res, 'close', mark)
+        listen(res, 'finish', onDelivered)
         const baseURL = `${req.get('x-forwarded-proto') || req.protocol}://${req.get('host')}`
-        return res.status(StatusCodes.ACCEPTED).json(await flowCheckService.startCheck(flow, body, baseURL))
+        const closed = () => gone || clientGone(req)
+        const view = await flowCheckService.startCheck(flow, body, baseURL, undefined, { closed })
+        ownedId = view.id
+        if (closed()) {
+            const id = ownedId
+            ownedId = null
+            stopped = true
+            detach()
+            await flowCheckService.stopCheck(flow, id).catch(() => undefined)
+            return
+        }
+        return res.status(StatusCodes.ACCEPTED).json(view)
     } catch (error) {
+        detach()
         next(error)
     }
 }

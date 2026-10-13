@@ -13,6 +13,7 @@ const messages: any[] = []
 const datasets = new Map<string, any>()
 const datasetRows: any[] = []
 const evaluatorRows = new Map<string, any>()
+const datasetHooks: { onLoad: null | (() => void) } = { onLoad: null }
 const queryState = { take: undefined as number | undefined, skip: 0 }
 const queryBuilder: any = {
     select: () => queryBuilder,
@@ -41,6 +42,7 @@ function repository(entity: { name?: string }) {
         return {
             ...writes,
             findOneBy: async (where: { id?: string; workspaceId?: string }) => {
+                datasetHooks.onLoad?.()
                 const row = where?.id ? datasets.get(where.id) : null
                 if (!row || row.workspaceId !== where.workspaceId) return null
                 return row
@@ -116,6 +118,7 @@ beforeEach(() => {
     datasets.clear()
     datasetRows.length = 0
     evaluatorRows.clear()
+    datasetHooks.onLoad = null
     scoreHooks.gradeLlm = null
     queryState.take = undefined
     queryState.skip = 0
@@ -701,6 +704,51 @@ describe('a dataset and evaluators', () => {
         expect(checks.size).toBe(0)
     })
 
+    test('an abort during dataset loading leaves no check running', async () => {
+        let dropped = false
+        datasetHooks.onLoad = () => {
+            dropped = true
+        }
+        await expect(
+            startCheck(flow() as any, { datasetId: 'ds-1' }, 'http://x', undefined, { closed: () => dropped })
+        ).rejects.toMatchObject({
+            statusCode: 400,
+            message: 'The check was cancelled before it started.'
+        })
+        expect(checks.get('flow-1')).toBeUndefined()
+        datasetHooks.onLoad = null
+        const again = await startCheck(flow() as any, { questions: ['Q'] }, 'http://x')
+        expect(again.status).toBe('running')
+        expect(checks.get('flow-1')?.status).toBe('running')
+    })
+
+    test('an aborted dataset load does not stop a check already running on this flow', async () => {
+        replayHooks.run = () => new Promise(() => {})
+        const dialog = await startCheck(flow() as any, { questions: ['Keep this'] }, 'http://x')
+        let dropped = false
+        datasetHooks.onLoad = () => {
+            dropped = true
+        }
+        await expect(
+            startCheck(flow() as any, { datasetId: 'ds-1' }, 'http://x', undefined, { closed: () => dropped })
+        ).rejects.toMatchObject({
+            statusCode: 400
+        })
+        expect(checks.get('flow-1')?.id).toBe(dialog.id)
+        expect(checks.get('flow-1')?.status).toBe('running')
+        expect(checks.get('flow-1')?.stopRequested).toBe(false)
+    })
+
+    test('a disconnect after a dataset record is stored stops that record', async () => {
+        const started = await startCheck(flow() as any, { datasetId: 'ds-1' }, 'http://x', undefined, {
+            closed: () => Boolean(checks.get('flow-1'))
+        })
+        expect(started.status).toBe('stopped')
+        expect(checks.get('flow-1')?.status).toBe('stopped')
+        const again = await startCheck(flow() as any, { questions: ['Q'] }, 'http://x')
+        expect(again.status).toBe('running')
+    })
+
     test('a count request is unchanged: no expected answer and no scores', async () => {
         asked('From history', '2026-10-08T10:00:00Z', '1')
         const started = await startCheck(flow() as any, { count: 4 }, 'http://x')
@@ -711,5 +759,69 @@ describe('a dataset and evaluators', () => {
         expect(done.cases[0].live?.scores).toBeUndefined()
         expect(done.summary.scores).toBeUndefined()
         expect(done.summary).toMatchObject({ ran: 1, same: 0, changed: 1 })
+    })
+})
+
+describe('a start the client abandons', () => {
+    const originalGetMany = queryBuilder.getMany
+    const page = () => {
+        const start = queryState.skip || 0
+        const end = queryState.take == null ? undefined : start + queryState.take
+        return messages.slice(start, end)
+    }
+    afterEach(() => {
+        queryBuilder.getMany = originalGetMany
+    })
+
+    test('an abort during the question scan leaves no check running', async () => {
+        messages.push({ content: 'What time do you open?', createdDate: new Date('2026-10-08T10:00:00Z'), fileUploads: null })
+        let dropped = false
+        queryBuilder.getMany = async () => {
+            dropped = true
+            return page()
+        }
+        await expect(startCheck(flow() as any, { count: 4 }, 'http://x', undefined, { closed: () => dropped })).rejects.toMatchObject({
+            statusCode: 400
+        })
+        expect(checks.get('flow-1')).toBeUndefined()
+        queryBuilder.getMany = originalGetMany
+        const again = await startCheck(flow() as any, { questions: ['Q'] }, 'http://x')
+        expect(again.status).toBe('running')
+        expect(checks.get('flow-1')?.status).toBe('running')
+    })
+
+    test('an aborted start does not stop a check the dialog already started on this flow', async () => {
+        replayHooks.run = () => new Promise(() => {})
+        const dialog = await startCheck(flow() as any, { questions: ['Keep this'] }, 'http://x')
+        messages.push({ content: 'What time do you open?', createdDate: new Date('2026-10-08T10:00:00Z'), fileUploads: null })
+        let dropped = false
+        queryBuilder.getMany = async () => {
+            dropped = true
+            return page()
+        }
+        await expect(startCheck(flow() as any, { count: 4 }, 'http://x', undefined, { closed: () => dropped })).rejects.toMatchObject({
+            statusCode: 400
+        })
+        expect(checks.get('flow-1')?.id).toBe(dialog.id)
+        expect(checks.get('flow-1')?.status).toBe('running')
+        expect(checks.get('flow-1')?.stopRequested).toBe(false)
+    })
+
+    test('a disconnect after the record is stored stops that record and leaves another flow running', async () => {
+        states.set('flow-2', { chatflowId: 'flow-2', draftFlowData: DRAFT, publishInstantly: false })
+        replayHooks.run = () => new Promise(() => {})
+        const other = await startCheck(flow({ id: 'flow-2' }) as any, { questions: ['Stay'] }, 'http://x')
+        messages.push({ content: 'What time do you open?', createdDate: new Date('2026-10-08T10:00:00Z'), fileUploads: null })
+        queryBuilder.getMany = async () => page()
+        const started = await startCheck(flow() as any, { count: 4 }, 'http://x', undefined, {
+            closed: () => Boolean(checks.get('flow-1'))
+        })
+        expect(started.id).not.toBe(other.id)
+        expect(checks.get('flow-1')?.status).toBe('stopped')
+        expect(checks.get('flow-2')?.id).toBe(other.id)
+        expect(checks.get('flow-2')?.status).toBe('running')
+        expect(checks.get('flow-2')?.stopRequested).toBe(false)
+        const again = await startCheck(flow() as any, { questions: ['Q'] }, 'http://x')
+        expect(again.status).toBe('running')
     })
 })

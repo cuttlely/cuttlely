@@ -4,6 +4,7 @@ import { readFileSync, statSync } from 'node:fs'
 import { spawn } from 'node:child_process'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { runCheck } from './check.js'
 import { spawnDocker } from './docker.js'
 
 const PKG = join(dirname(fileURLToPath(import.meta.url)), '..', 'package.json')
@@ -20,7 +21,12 @@ export const HEALTH_TIMEOUT_MS = 6 * 60 * 1000
 const TAG_RE = /^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$/
 const INSPECT_FORMAT = '{{.State.Status}}|{{.Config.Image}}|{{.Image}}|{{range $p, $b := .HostConfig.PortBindings}}{{$p}} {{end}}'
 
-export class UsageError extends Error {}
+export class UsageError extends Error {
+    constructor(message, exitCode = 1) {
+        super(message)
+        this.exitCode = exitCode
+    }
+}
 
 export function helpText() {
     return [
@@ -32,6 +38,7 @@ export function helpText() {
         '  cuttlely status',
         '  cuttlely logs [--follow]',
         '  cuttlely upgrade [--port <n>] [--tag <tag>] [--env-file <path>] [--no-open]',
+        '  cuttlely check --flow <id> [--server <url>] [--timeout <seconds>] [--json <path>] [--fail-on-changed]',
         '  cuttlely --help',
         '  cuttlely --version',
         '',
@@ -45,22 +52,88 @@ export function helpText() {
         '  status    Show whether Cuttlely is running.',
         '  logs      Show container logs. --follow keeps streaming.',
         '  upgrade   Pull the image and start it again.',
+        '  check     Run the Publish check on a flow draft. Reads CUTTLELY_API_KEY.',
+        '            The key needs chatflows:view and chatflows:update, or agentflows:view and agentflows:update.',
+        '',
+        'Exit codes for check:',
+        '  0  The check finished. No answer was Changed, or --fail-on-changed was off.',
+        '  1  --fail-on-changed was set and at least one answer was Changed.',
+        '  2  The check timed out, the server returned an error, CUTTLELY_API_KEY was missing, the flow has no draft, or the command was used wrong.',
+        'A check the server marks stopped or failed also exits 2. If the draft is saved, published, or discarded while the check runs, the command exits 2, because the answers may be for a draft that is already gone. After the check has started, a timeout, a 403, or any other failure asks the server to stop it. That stop is best effort: if it fails, the exit code is still 2.',
+        'Cancelling the command stops the server-side check.',
         '',
         `Install guide: ${INSTALL_DOCS}`
     ].join('\n')
 }
 
-function parsePort(value) {
+function parsePort(value, exitCode = 1) {
     if (!value || !/^[1-9]\d{0,4}$/.test(value) || Number(value) > 65535) {
-        throw new UsageError(`Port must be a number from 1 to 65535, got ${value || '(missing)'}.`)
+        throw new UsageError(`Port must be a number from 1 to 65535, got ${value || '(missing)'}.`, exitCode)
     }
     return Number(value)
 }
 
-function parseTag(value) {
+function parseTag(value, exitCode = 1) {
     if (!value || !TAG_RE.test(value)) {
-        throw new UsageError(`Not a valid image tag: ${value || '(missing)'}. Example: 1.0.0 or latest.`)
+        throw new UsageError(`Not a valid image tag: ${value || '(missing)'}. Example: 1.0.0 or latest.`, exitCode)
     }
+    return value
+}
+
+// These options take the next argv token as their value. A following `check` is that value, not the command.
+// Any other previous token, including an unknown flag, leaves `check` as the command.
+const VALUE_OPTIONS = new Set(['--flow', '--server', '--timeout', '--json', '--port', '-p', '--tag', '--env-file'])
+
+export function isCheckCommand(argv) {
+    return argv.some((item, index) => {
+        if (item !== 'check') return false
+        if (index === 0) return true
+        return !VALUE_OPTIONS.has(argv[index - 1])
+    })
+}
+
+// An unexpected failure while running check is not a Changed answer.
+export function commandFailureCode(argv) {
+    return isCheckCommand(argv) ? 2 : 1
+}
+
+const FLOW_ID_RE = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/
+
+function parseFlow(value) {
+    if (!value || !FLOW_ID_RE.test(value)) {
+        throw new UsageError('--flow needs the flow id from the canvas address bar.', 2)
+    }
+    return value
+}
+
+function parseServer(value) {
+    let url
+    try {
+        url = new URL(value)
+    } catch {
+        throw new UsageError('--server needs an http or https URL, for example http://127.0.0.1:43117.', 2)
+    }
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+        throw new UsageError('--server needs an http or https URL, for example http://127.0.0.1:43117.', 2)
+    }
+    if (url.username || url.password) {
+        throw new UsageError(`Put the API key in CUTTLELY_API_KEY, not in the server URL.`, 2)
+    }
+    if (url.pathname !== '/' && url.pathname !== '') {
+        throw new UsageError('--server is the server origin, for example http://127.0.0.1:43117.', 2)
+    }
+    return url.origin
+}
+
+function parseTimeout(value) {
+    if (!value || !/^[1-9]\d{0,4}$/.test(value) || Number(value) > 3600) {
+        throw new UsageError(`Timeout must be a whole number of seconds from 1 to 3600, got ${value || '(missing)'}.`, 2)
+    }
+    return Number(value)
+}
+
+function parseJsonPath(value) {
+    if (!value || value.includes('\0')) throw new UsageError('--json needs a file path.', 2)
     return value
 }
 
@@ -68,7 +141,7 @@ function takeValue(argv, index, flag) {
     const inline = argv[index].indexOf('=')
     if (inline !== -1) return { value: argv[index].slice(inline + 1), next: index }
     const value = argv[index + 1]
-    if (!value || value.startsWith('-')) throw new UsageError(`${flag} needs a value. Run cuttlely --help.`)
+    if (!value || value.startsWith('-')) throw new UsageError(`${flag} needs a value. Run cuttlely --help.`, commandFailureCode(argv))
     return { value, next: index + 1 }
 }
 
@@ -81,36 +154,98 @@ export function parseArgs(argv) {
         tag: VERSION,
         envFile: null,
         open: true,
-        follow: false
+        follow: false,
+        flow: null,
+        server: null,
+        timeoutSeconds: null,
+        jsonPath: null,
+        failOnChanged: false
     }
     const words = []
+    const dockerFlags = []
+    const checkFlags = []
     for (let i = 0; i < argv.length; i++) {
         const arg = argv[i]
         if (arg === '--help' || arg === '-h') opts.help = true
         else if (arg === '--version' || arg === '-V') opts.version = true
-        else if (arg === '--no-open') opts.open = false
-        else if (arg === '--follow' || arg === '-f') opts.follow = true
-        else if (arg === '--port' || arg === '-p' || arg.startsWith('--port=')) {
+        else if (arg === '--no-open') {
+            opts.open = false
+            dockerFlags.push('--no-open')
+        } else if (arg === '--follow' || arg === '-f') {
+            opts.follow = true
+            dockerFlags.push(arg === '-f' ? '-f' : '--follow')
+        } else if (arg === '--port' || arg === '-p' || arg.startsWith('--port=')) {
             const taken = takeValue(argv, i, '--port')
-            opts.port = parsePort(taken.value)
+            opts.port = parsePort(taken.value, commandFailureCode(argv))
             i = taken.next
+            dockerFlags.push('--port')
         } else if (arg === '--tag' || arg.startsWith('--tag=')) {
             const taken = takeValue(argv, i, '--tag')
-            opts.tag = parseTag(taken.value)
+            opts.tag = parseTag(taken.value, commandFailureCode(argv))
             i = taken.next
+            dockerFlags.push('--tag')
         } else if (arg === '--env-file' || arg.startsWith('--env-file=')) {
             const taken = takeValue(argv, i, '--env-file')
             opts.envFile = taken.value
             i = taken.next
-        } else if (arg.startsWith('-')) throw new UsageError(`Unknown option ${arg}. Run cuttlely --help.`)
-        else words.push(arg)
+            dockerFlags.push('--env-file')
+        } else if (arg === '--flow' || arg.startsWith('--flow=')) {
+            const taken = takeValue(argv, i, '--flow')
+            opts.flow = taken.value
+            i = taken.next
+            checkFlags.push('--flow')
+        } else if (arg === '--server' || arg.startsWith('--server=')) {
+            const taken = takeValue(argv, i, '--server')
+            opts.server = taken.value
+            i = taken.next
+            checkFlags.push('--server')
+        } else if (arg === '--timeout' || arg.startsWith('--timeout=')) {
+            const taken = takeValue(argv, i, '--timeout')
+            opts.timeoutSeconds = taken.value
+            i = taken.next
+            checkFlags.push('--timeout')
+        } else if (arg === '--json' || arg.startsWith('--json=')) {
+            const taken = takeValue(argv, i, '--json')
+            opts.jsonPath = taken.value
+            i = taken.next
+            checkFlags.push('--json')
+        } else if (arg === '--fail-on-changed') {
+            opts.failOnChanged = true
+            checkFlags.push('--fail-on-changed')
+        } else if (arg.startsWith('-')) {
+            throw new UsageError(`Unknown option ${arg}. Run cuttlely --help.`, commandFailureCode(argv))
+        } else words.push(arg)
     }
-    if (words.length > 1) throw new UsageError(`Unknown argument ${words[1]}. Run cuttlely --help.`)
+    if (words.length > 1) throw new UsageError(`Unknown argument ${words[1]}. Run cuttlely --help.`, words[0] === 'check' ? 2 : 1)
     if (words.length === 1) {
-        if (!['start', 'stop', 'status', 'logs', 'upgrade', 'help'].includes(words[0])) {
+        if (!['start', 'stop', 'status', 'logs', 'upgrade', 'help', 'check'].includes(words[0])) {
             throw new UsageError(`Unknown command ${words[0]}. Run cuttlely --help.`)
         }
         opts.command = words[0]
+    }
+    if (opts.command === 'check') {
+        const checkExit = 2
+        if (dockerFlags.length) {
+            throw new UsageError(`${dockerFlags[0]} is not a check option. Run cuttlely check --help.`, checkExit)
+        }
+        if (!opts.help && !opts.version) {
+            if (!opts.flow) throw new UsageError('check needs --flow <id>. Run cuttlely check --help.', checkExit)
+            opts.flow = parseFlow(opts.flow)
+            if (checkFlags.includes('--server')) {
+                if (!opts.server)
+                    throw new UsageError('--server needs an http or https URL, for example http://127.0.0.1:43117.', checkExit)
+                opts.server = parseServer(opts.server)
+            }
+            if (checkFlags.includes('--timeout')) {
+                if (!opts.timeoutSeconds)
+                    throw new UsageError('Timeout must be a whole number of seconds from 1 to 3600, got (missing).', checkExit)
+                opts.timeoutSeconds = parseTimeout(opts.timeoutSeconds)
+            }
+            // An empty --json= is still the flag. Skipping it would run the check and write nothing.
+            if (checkFlags.includes('--json')) opts.jsonPath = parseJsonPath(opts.jsonPath)
+        }
+    } else if (checkFlags.length) {
+        throw new UsageError(`Unknown option ${checkFlags[0]}. Run cuttlely --help.`)
     }
     return opts
 }
@@ -407,7 +542,7 @@ export async function main(argv, io = {}) {
     } catch (error) {
         if (error instanceof UsageError) {
             err(error.message)
-            return 1
+            return error.exitCode
         }
         throw error
     }
@@ -424,6 +559,9 @@ export async function main(argv, io = {}) {
         out,
         err,
         docker: io.docker || spawnDocker,
+        env: io.env || process.env,
+        fetch: io.fetch || globalThis.fetch.bind(globalThis),
+        writeFile: io.writeFile,
         fetchImpl: io.fetch || globalThis.fetch.bind(globalThis),
         sleep: io.sleep || ((ms) => new Promise((resolve) => setTimeout(resolve, ms))),
         open: io.open || openBrowser,
@@ -431,6 +569,18 @@ export async function main(argv, io = {}) {
         timeoutMs: io.healthTimeoutMs ?? HEALTH_TIMEOUT_MS
     }
     try {
+        if (opts.command === 'check') {
+            return await runCheck(
+                {
+                    flow: opts.flow,
+                    server: opts.server,
+                    timeoutSeconds: opts.timeoutSeconds,
+                    jsonPath: opts.jsonPath,
+                    failOnChanged: opts.failOnChanged
+                },
+                ctx
+            )
+        }
         if (opts.command === 'start') return await launch(ctx, { restart: false })
         if (opts.command === 'upgrade') return await launch(ctx, { restart: true })
         if (opts.command === 'stop') return await stop(ctx)
@@ -439,7 +589,7 @@ export async function main(argv, io = {}) {
     } catch (error) {
         if (error instanceof UsageError) {
             err(error.message)
-            return 1
+            return error.exitCode
         }
         throw error
     }
