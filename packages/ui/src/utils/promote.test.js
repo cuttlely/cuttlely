@@ -10,10 +10,18 @@ import {
     incomingLabel,
     incomingSummary,
     missingIntro,
+    placementLine,
+    previousEnvironmentTitle,
+    promoteLoadError,
+    promotePageDescription,
+    promotePageTitle,
     promotePath,
     promotedMessage,
+    readIntro,
     readLine,
-    rollbackTarget
+    rollbackTarget,
+    showEnvironmentChain,
+    sourceTitleOf
 } from './promote'
 
 describe('promote helpers', () => {
@@ -24,6 +32,32 @@ describe('promote helpers', () => {
         expect(incomingLabel({ status: 'update' })).toBe('New version available from Dev')
         expect(incomingLabel({ status: 'new' })).toBe('New flow from Dev')
         expect(promotePath()).toBe('/promote')
+        const unreadable = {
+            environments: [],
+            environment: null,
+            state: 'stopped',
+            message: 'The environment list could not be read. Save it again.'
+        }
+        expect(previousEnvironmentTitle(unreadable)).toBe('')
+        expect(promotePageTitle(unreadable, null)).toBe('New versions')
+        expect(promotePageTitle(unreadable, null)).not.toBe('From Dev')
+        expect(promotePageDescription(unreadable, null)).toBe('New versions could not be loaded.')
+        expect(promoteLoadError(unreadable)).toBe('New versions could not be loaded.')
+        const connection = {
+            environments: [
+                { name: 'Dev', server: 'dev' },
+                { name: 'Staging', server: 'staging' },
+                { name: 'Prod', server: 'prod' }
+            ],
+            environment: 'prod',
+            state: 'stopped',
+            code: 'CONNECTION_UNREADABLE',
+            message: 'The saved GitHub connection could not be read. Disconnect and connect again.'
+        }
+        expect(previousEnvironmentTitle(connection)).toBe('Staging')
+        expect(promotePageTitle(connection, null)).toBe('From Staging')
+        expect(promotePageDescription(connection, null)).toBe('Review what Staging published and promote it to Live on this server')
+        expect(promoteLoadError(connection)).toBe('New versions from Staging could not be loaded.')
         expect(promotePath('a b')).toBe('/promote/a%20b')
     })
 
@@ -61,6 +95,39 @@ describe('promote helpers', () => {
         expect(rollbackTarget([{ sha: 'p' }], 'p')).toBeNull()
     })
 
+    test('a longer chain names the previous environment, and the saved pair stays Dev', () => {
+        const pair = {
+            environments: [
+                { name: 'dev', server: 'dev' },
+                { name: 'prod', server: 'prod' }
+            ],
+            source: 'dev',
+            target: 'prod'
+        }
+        const chain = {
+            environments: [
+                { name: 'Dev', server: 'dev' },
+                { name: 'Staging', server: 'staging' },
+                { name: 'Prod', server: 'prod' }
+            ],
+            source: 'staging',
+            target: 'prod'
+        }
+        expect(showEnvironmentChain(pair)).toBe(false)
+        expect(sourceTitleOf(pair)).toBe('Dev')
+        expect(showEnvironmentChain(chain)).toBe(true)
+        expect(sourceTitleOf(chain)).toBe('Staging')
+        expect(placementLine({ state: 'seen', version: { title: 'Published: Answer', shortSha: 'aaaaaaa' } })).toBe(
+            'Published: Answer · Version aaaaaaa'
+        )
+        expect(placementLine({ state: 'none', place: 'here' })).toBe('Not on this server yet')
+        expect(placementLine({ state: 'none', place: 'earlier' })).toBe('Not there yet')
+        expect(placementLine({ state: 'local-only', place: 'later' })).toBe('Only on that server')
+        expect(placementLine({ state: 'unseen', place: 'earlier' })).toBe('Could not be read from here')
+        expect(incomingSummary([{}], 'Staging')).toBe('1 flow has a new version from Staging')
+        expect(incomingLabel({ status: 'update' }, 'Staging')).toBe('New version available from Staging')
+    })
+
     test('the card line on Prod', () => {
         const ago = () => '2 minutes ago'
         expect(readLine({ connected: true, role: 'read', state: 'up-to-date', lastCheckedAt: 'x' }, ago)).toBe(
@@ -69,6 +136,22 @@ describe('promote helpers', () => {
         expect(readLine({ connected: true, role: 'read', state: 'waiting' }, ago)).toBe('Looking for new versions from Dev')
         expect(readLine({ connected: true, role: 'read', state: 'retrying' }, ago)).toBe('')
         expect(readLine({ connected: true, role: 'copy' }, ago)).toBe('')
+        const prod = {
+            connected: true,
+            role: 'read',
+            state: 'up-to-date',
+            lastCheckedAt: 'x',
+            environment: 'prod',
+            environments: [
+                { name: 'Dev', server: 'dev' },
+                { name: 'Staging', server: 'staging' },
+                { name: 'Prod', server: 'prod' }
+            ]
+        }
+        expect(previousEnvironmentTitle(prod)).toBe('Staging')
+        expect(readLine(prod, ago)).toBe('Looked for new versions from Staging 2 minutes ago')
+        expect(readIntro(prod)).toBe('Get new versions from your Staging server through your GitHub repository.')
+        expect(readIntro({ environment: 'prod' })).toBe('Get new versions from your Dev server through your GitHub repository.')
     })
 })
 

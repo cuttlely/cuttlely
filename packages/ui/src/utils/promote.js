@@ -9,22 +9,49 @@ export const promotePath = (flowId) => (flowId ? `${PROMOTE_PATH}/${encodeURICom
 const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`
 
 // "2 flows have a new version from Dev", for the card and the flows list.
-export const incomingSummary = (flows = []) => {
+export const incomingSummary = (flows = [], sourceTitle = 'Dev') => {
     const n = flows.length
     if (!n) return ''
-    return n === 1 ? '1 flow has a new version from Dev' : `${n} flows have a new version from Dev`
+    return n === 1 ? `1 flow has a new version from ${sourceTitle}` : `${n} flows have a new version from ${sourceTitle}`
 }
 
 // The line on each flow.
-export const incomingLabel = (flow) => (flow?.status === 'new' ? 'New flow from Dev' : 'New version available from Dev')
+export const incomingLabel = (flow, sourceTitle = 'Dev') =>
+    flow?.status === 'new' ? `New flow from ${sourceTitle}` : `New version available from ${sourceTitle}`
 
 // "3 changes on Dev since the last promote", or for a new flow how many versions Dev has published.
-export const changesLine = (flow) => {
+export const changesLine = (flow, sourceTitle = 'Dev') => {
     const n = (flow?.changes || []).length
     const more = flow?.moreChanges ? '+' : ''
     if (!n) return ''
-    if (flow?.status === 'new' || !flow?.lastPromoted) return `${plural(n, 'version', 'versions')}${more} published on Dev`
-    return `${plural(n, 'change', 'changes')}${more} on Dev since the last promote`
+    if (flow?.status === 'new' || !flow?.lastPromoted) return `${plural(n, 'version', 'versions')}${more} published on ${sourceTitle}`
+    return `${plural(n, 'change', 'changes')}${more} on ${sourceTitle} since the last promote`
+}
+
+// The previous environment, as the screen names it. "Dev" when the list is the saved pair or the name is dev.
+export const sourceTitleOf = (record) => {
+    const chain = record?.environments || []
+    const source = chain.find((item) => item.server === record?.source)
+    if (!source || String(source.name).toLowerCase() === 'dev') return 'Dev'
+    if (String(source.name).toLowerCase() === 'prod') return 'Prod'
+    return source.name
+}
+
+export const showEnvironmentChain = (record) => (record?.environments || []).length > 2
+
+// The Dev and Prod buttons. Any other list, including two entries with other server identities, uses its own names.
+export const isSavedDevProdPair = (environments) => {
+    if (!environments || environments.length !== 2) return false
+    const [dev, prod] = environments
+    const named = (item, server) =>
+        item?.server === server && String(item?.name || '').toLowerCase() === server && (item.branch == null || item.branch === 'main')
+    return named(dev, 'dev') && named(prod, 'prod')
+}
+
+export const howItWorks = (record) => {
+    if (!showEnvironmentChain(record)) return HOW_IT_WORKS
+    const from = sourceTitleOf(record)
+    return `${from} publishes versions, and this server promotes them to Live. Promotion moves only to the next environment. Nothing goes Live here until you promote it.`
 }
 
 // "OpenAI key (OpenAI)" style names for the missing-credentials list. The type is shown as Dev wrote it.
@@ -51,10 +78,12 @@ export const promotedMessage = (result) => {
     return 'Promoted. This version is now Live on this server.'
 }
 
-export const historyNote = (result) =>
+export const historyNote = (result, sourceTitle = 'Dev') =>
     result?.recorded === false
         ? 'It is Live, but it could not be added to version history here.'
-        : 'History shows it as promoted from Dev. Roll back from version history any time.'
+        : sourceTitle === 'Dev'
+        ? 'History shows it as promoted from Dev. Roll back from version history any time.'
+        : `History shows it as promoted from ${sourceTitle}. Roll back from version history any time.`
 
 // Promote can run when nothing is missing and nothing is in flight.
 export const canPromote = ({ detail, promoting = false, done = false }) =>
@@ -68,10 +97,74 @@ export const rollbackTarget = (versions = [], promotedSha) => {
     return target ? target.sha : null
 }
 
-// The card's line on Prod.
+const UNREADABLE_LIST = 'The environment list could not be read. Save it again.'
+const LIST_UNREADABLE_CODE = 'LIST_UNREADABLE'
+
+// The environment file only. A connection file that cannot be read uses a different sentence and a different code.
+export const listUnreadable = (status) => status?.code === LIST_UNREADABLE_CODE || status?.message === UNREADABLE_LIST
+
+// The environment this server reads from. "Dev" for the saved pair. Empty when the list file cannot be read.
+export const previousEnvironmentTitle = (status) => {
+    if (listUnreadable(status)) return ''
+    const chain = status?.environments || []
+    const index = chain.findIndex((item) => item.server === status?.environment)
+    const previous = index > 0 ? chain[index - 1] : null
+    if (!previous || String(previous.name).toLowerCase() === 'dev') return 'Dev'
+    if (String(previous.name).toLowerCase() === 'prod') return 'Prod'
+    return previous.name
+}
+
+export const promoteLoadError = (status) => {
+    const from = previousEnvironmentTitle(status)
+    if (!from) return 'New versions could not be loaded.'
+    return from === 'Dev' ? 'New versions from Dev could not be loaded.' : `New versions from ${from} could not be loaded.`
+}
+
+export const promotePageTitle = (status, list) => {
+    if (listUnreadable(status)) return 'New versions'
+    const from = list ? sourceTitleOf(list) : previousEnvironmentTitle(status)
+    if (!from) return 'New versions'
+    return from === 'Dev' ? 'From Dev' : `From ${from}`
+}
+
+export const promotePageDescription = (status, list) => {
+    if (listUnreadable(status)) return 'New versions could not be loaded.'
+    const from = list ? sourceTitleOf(list) : previousEnvironmentTitle(status)
+    if (!from) return 'New versions could not be loaded.'
+    return from === 'Dev'
+        ? 'Review what Dev published and promote it to Live on this server'
+        : `Review what ${from} published and promote it to Live on this server`
+}
+
+// The card's line on a server that only reads. Names the previous environment.
 export const readLine = (status, timeAgo) => {
     if (!status?.connected || status.role !== 'read') return ''
     if (status.state === 'retrying' || status.state === 'stopped') return ''
-    if (status.lastCheckedAt) return `Looked for new versions from Dev ${timeAgo(status.lastCheckedAt)}`
-    return 'Looking for new versions from Dev'
+    const from = previousEnvironmentTitle(status)
+    if (status.lastCheckedAt) {
+        return from === 'Dev'
+            ? `Looked for new versions from Dev ${timeAgo(status.lastCheckedAt)}`
+            : `Looked for new versions from ${from} ${timeAgo(status.lastCheckedAt)}`
+    }
+    return from === 'Dev' ? 'Looking for new versions from Dev' : `Looking for new versions from ${from}`
+}
+
+// The card's subtitle on a server that only reads.
+// One line under an environment name on the review page.
+export const placementLine = (item) => {
+    if (item?.state === 'seen' && item.version) {
+        const title = item.version.title || 'Untitled version'
+        return item.version.shortSha ? `${title} · Version ${item.version.shortSha}` : title
+    }
+    if (item?.state === 'local-only') return 'Only on that server'
+    if (item?.state === 'unseen') return 'Could not be read from here'
+    if (item?.place === 'here') return 'Not on this server yet'
+    return 'Not there yet'
+}
+
+export const readIntro = (status) => {
+    const from = previousEnvironmentTitle(status)
+    return from === 'Dev'
+        ? 'Get new versions from your Dev server through your GitHub repository.'
+        : `Get new versions from your ${from} server through your GitHub repository.`
 }

@@ -7,6 +7,7 @@ import { MemoryRouter } from 'react-router-dom'
 import { ThemeProvider, createTheme } from '@mui/material/styles'
 
 import { PromoteDetailView, PromoteListView } from './PromoteViews'
+import { promoteLoadError } from '@/utils/promote'
 import { FromDevBannerView } from '@/ui-component/flow/FromDevBanner'
 
 const wrap = (element) =>
@@ -31,11 +32,130 @@ describe('PromoteListView', () => {
         expect(html).toContain('Look now')
     })
 
+    test('shows the chain and promotes to the next environment', () => {
+        const html = render({
+            list: list([], {
+                environments: [
+                    { name: 'Dev', server: 'dev' },
+                    { name: 'Staging', server: 'staging' },
+                    { name: 'Prod', server: 'prod' }
+                ],
+                source: 'staging',
+                target: 'prod'
+            })
+        })
+        expect(html).toContain('environment-chain')
+        expect(html).toContain('Staging')
+        expect(html).toContain('Promote moves a version to the next environment.')
+        expect(html).toContain('Everything from Staging is Live here')
+        expect(render({ list: list([]) })).not.toContain('environment-chain')
+    })
+
     test('says when everything is Live, and when the server is not set up as Prod', () => {
         expect(render({ list: list([]) })).toContain('Everything from Dev is Live here')
-        expect(render({ list: list([], { enabled: false }) })).toContain('server labeled Prod')
-        expect(render({ list: list([], { connected: false }) })).toContain('Connect this server to the repository')
+        expect(render({ list: list([], { enabled: false }) })).toContain('previous environment')
+        expect(render({ list: list([], { enabled: false }) })).not.toContain('labeled Prod')
+        const first = render({
+            list: list([], {
+                enabled: false,
+                environments: [
+                    { name: 'Dev', server: 'dev' },
+                    { name: 'Staging', server: 'staging' },
+                    { name: 'Prod', server: 'prod' }
+                ],
+                target: 'dev',
+                source: null
+            })
+        })
+        expect(first).toContain('first in the list, so it does not promote')
+        expect(first).not.toContain('labeled Prod')
+        expect(render({ list: list([], { connected: false }) })).toContain(
+            'Connect this server to the repository your Dev server copies to'
+        )
+        const named = render({
+            list: list([], {
+                connected: false,
+                environments: [
+                    { name: 'Dev', server: 'dev' },
+                    { name: 'Staging', server: 'staging' },
+                    { name: 'Prod', server: 'prod' }
+                ],
+                source: 'staging',
+                target: 'prod'
+            })
+        })
+        expect(named).toContain('your Staging server copies to')
+        expect(named).toContain('New versions from Staging show up here')
+        expect(named).not.toContain('from Dev')
         expect(render({ list: list([]), status: { lastCheckedAt: at } })).toContain('Looked 2 minutes ago')
+    })
+
+    test('the first look names the previous environment from the saved list', () => {
+        const html = render({
+            loading: true,
+            status: {
+                environment: 'prod',
+                environments: [
+                    { name: 'Dev', server: 'dev' },
+                    { name: 'Staging', server: 'staging' },
+                    { name: 'Prod', server: 'prod' }
+                ]
+            }
+        })
+        expect(html).toContain('Looking for new versions from Staging')
+        expect(html).not.toContain('from Dev')
+    })
+
+    test('a failed load on a three-environment Prod server names Staging', () => {
+        const prod = {
+            environment: 'prod',
+            environments: [
+                { name: 'Dev', server: 'dev' },
+                { name: 'Staging', server: 'staging' },
+                { name: 'Prod', server: 'prod' }
+            ]
+        }
+        expect(promoteLoadError(prod)).toBe('New versions from Staging could not be loaded.')
+        expect(promoteLoadError(null)).toBe('New versions from Dev could not be loaded.')
+    })
+
+    test('an unreadable environment list asks to save it again on Version History', () => {
+        const html = render({
+            list: { enabled: false, connected: false, flows: [], environments: [], source: null, target: null },
+            status: {
+                environments: [],
+                environment: null,
+                state: 'stopped',
+                message: 'The environment list could not be read. Save it again.'
+            }
+        })
+        expect(html).toContain('The environment list could not be read. Save it again')
+        expect(html).toContain('href="/version-history"')
+        expect(html).toContain('Version History')
+        expect(html).not.toContain('Promoting works on a server that has a previous environment')
+    })
+
+    test('a corrupt GitHub connection keeps the list and the disconnect guidance', () => {
+        const chain = [
+            { name: 'Dev', server: 'dev' },
+            { name: 'Staging', server: 'staging' },
+            { name: 'Prod', server: 'prod' }
+        ]
+        const html = render({
+            list: list([], { environments: chain, source: 'staging', target: 'prod' }),
+            status: {
+                environments: chain,
+                environment: 'prod',
+                state: 'stopped',
+                code: 'CONNECTION_UNREADABLE',
+                message: 'The saved GitHub connection could not be read. Disconnect and connect again.'
+            }
+        })
+        expect(html).toContain('The saved GitHub connection could not be read. Disconnect and connect again.')
+        expect(html).toContain('Staging')
+        expect(html).toContain('data-testid="environment-chain"')
+        expect(html).not.toContain('The environment list could not be read')
+        expect(html).not.toContain('Save it again')
     })
 })
 
@@ -82,6 +202,34 @@ describe('PromoteDetailView', () => {
         const html = render({ detail: detail({ status: 'new' }) })
         expect(html).toContain('New flow from Dev')
         expect(html).toContain('What it adds here')
+    })
+
+    test('names the version of the selected flow on each environment', () => {
+        const html = render({
+            detail: detail({
+                environments: [
+                    { name: 'Dev', server: 'dev' },
+                    { name: 'Staging', server: 'staging' },
+                    { name: 'Prod', server: 'prod' }
+                ],
+                source: 'dev',
+                target: 'staging',
+                placements: [
+                    { server: 'dev', name: 'Dev', place: 'previous', state: 'seen', version },
+                    { server: 'staging', name: 'Staging', place: 'here', state: 'none', version: null },
+                    { server: 'prod', name: 'Prod', place: 'later', state: 'local-only', version: null }
+                ]
+            }),
+            sourceTitle: 'Dev'
+        })
+        expect(html).toContain('Where this version is')
+        expect(html).toContain('Answer with the code word PAPAYA')
+        expect(html).toContain('Version aaaaaaa')
+        expect(html).toContain('Not on this server yet')
+        expect(html).toContain('This server')
+        expect(html).toContain('Only on that server')
+        expect(html).toContain('data-server="prod"')
+        expect(render()).not.toContain('Where this version is')
     })
 
     test('shows why the check cannot run instead of the check', () => {

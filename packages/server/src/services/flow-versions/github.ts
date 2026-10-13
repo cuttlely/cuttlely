@@ -18,5 +18,6 @@ export type {
     GithubRepoList,
     GithubState,
     GithubStatus,
-    ServerRole
+    ServerRole,
+    NamedEnvironment
 } from '@cuttlely/versioning'
