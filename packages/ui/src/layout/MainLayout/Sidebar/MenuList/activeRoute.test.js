@@ -25,6 +25,8 @@ describe('Sidebar active item', () => {
         expect(activeOn('/harnesses/support-team')).toEqual(['harnesses'])
         expect(activeOn('/workspace-users/team-1')).toEqual(['workspaces'])
         expect(activeOn('/users')).toEqual(['users'])
+        expect(activeOn('/logs')).toEqual(['serverLogs'])
+        expect(isGroupActive(admin, '/logs')).toBe(true)
         expect(isGroupActive(admin, '/agentflows')).toBe(false)
     })
 
