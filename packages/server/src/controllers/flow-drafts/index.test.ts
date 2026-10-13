@@ -330,4 +330,34 @@ describe('the publish check', () => {
         expect(checkService.startCheck).not.toHaveBeenCalled()
         expect(checkService.stopCheck).not.toHaveBeenCalled()
     })
+
+    it('a dataset needs datasets:view, and evaluators need evaluators:view', async () => {
+        granted.add('chatflows:update')
+        const next = jest.fn()
+        await controller.startCheck(checkRequest({ datasetId: 'ds-1', evaluatorIds: ['ev-1'] }), accepted(), next)
+        expect(next.mock.calls[0][0]).toMatchObject({ statusCode: 403, message: 'You do not have permission to view datasets.' })
+        expect(checkService.startCheck).not.toHaveBeenCalled()
+
+        granted.add('datasets:view')
+        const nextEval = jest.fn()
+        await controller.startCheck(checkRequest({ datasetId: 'ds-1', evaluatorIds: ['ev-1'] }), accepted(), nextEval)
+        expect(nextEval.mock.calls[0][0]).toMatchObject({ statusCode: 403, message: 'You do not have permission to view evaluators.' })
+        expect(checkService.startCheck).not.toHaveBeenCalled()
+
+        granted.add('evaluators:view')
+        const res = accepted()
+        await controller.startCheck(checkRequest({ datasetId: 'ds-1', evaluatorIds: ['ev-1'] }), res, jest.fn())
+        expect(checkService.startCheck).toHaveBeenCalledWith(
+            expect.objectContaining({ id: FLOW.id }),
+            { datasetId: 'ds-1', evaluatorIds: ['ev-1'] },
+            'http://cuttlely.test:3000'
+        )
+        expect(res.status).toHaveBeenCalledWith(202)
+    })
+
+    it('a recent-question check does not ask for dataset or evaluator permission', async () => {
+        granted.add('chatflows:update')
+        await controller.startCheck(checkRequest({ count: 4 }), accepted(), jest.fn())
+        expect(checkService.startCheck).toHaveBeenCalledWith(expect.anything(), { count: 4 }, 'http://cuttlely.test:3000')
+    })
 })

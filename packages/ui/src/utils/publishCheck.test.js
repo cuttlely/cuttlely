@@ -15,6 +15,7 @@ import {
     progressText,
     riskyWarning,
     sideCaption,
+    passRateText,
     stopReasonText,
     summaryText,
     togglePick,
@@ -179,6 +180,23 @@ describe('results', () => {
         expect(caseBadge({ live: null, draft: { error: 'boom' } }, true)).toEqual({ label: 'Error', color: 'error' })
         expect(caseBadge({ live: null, draft: null }, true)).toEqual({ label: 'Waiting', color: 'default' })
         expect(summaryText({ status: 'done', liveEmpty: true, summary: { ran: 0 } })).toBe('No question was answered on your draft.')
+    })
+
+    test('a pass rate line is shown per side when evaluators ran', () => {
+        const scores = {
+            live: { passed: 1, failed: 1, errored: 0, passRate: 50 },
+            draft: { passed: 2, failed: 0, errored: 0, passRate: 100 }
+        }
+        expect(passRateText({ summary: { scores } })).toEqual([
+            'Live pass rate: 50% (1 passed, 1 failed, 0 errored).',
+            'Draft pass rate: 100% (2 passed, 0 failed, 0 errored).'
+        ])
+        expect(passRateText({ liveEmpty: true, summary: { scores } }, CHECK_WORDS.publish)).toEqual([
+            'Draft pass rate: 100% (2 passed, 0 failed, 0 errored).'
+        ])
+        expect(passRateText({ summary: { ran: 1 } })).toEqual([])
+        expect(canRunCheck({ source: 'dataset', datasetId: '', picked: 0 })).toBe(false)
+        expect(canRunCheck({ source: 'dataset', datasetId: 'ds-1', picked: 0 })).toBe(true)
     })
 
     test('copy is plain words, with no section mark and no engineering terms', () => {

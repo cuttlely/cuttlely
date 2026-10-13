@@ -10,6 +10,9 @@ jest.mock('../flow-drafts', () => ({
     canvasHash: (flowData: string) => `hash:${flowData}`
 }))
 const messages: any[] = []
+const datasets = new Map<string, any>()
+const datasetRows: any[] = []
+const evaluatorRows = new Map<string, any>()
 const queryState = { take: undefined as number | undefined, skip: 0 }
 const queryBuilder: any = {
     select: () => queryBuilder,
@@ -32,9 +35,43 @@ const queryBuilder: any = {
     }
 }
 const writes = { save: jest.fn(), insert: jest.fn(), update: jest.fn() }
+function repository(entity: { name?: string }) {
+    const name = entity?.name
+    if (name === 'Dataset') {
+        return {
+            ...writes,
+            findOneBy: async (where: { id?: string; workspaceId?: string }) => {
+                const row = where?.id ? datasets.get(where.id) : null
+                if (!row || row.workspaceId !== where.workspaceId) return null
+                return row
+            }
+        }
+    }
+    if (name === 'DatasetRow') {
+        return {
+            ...writes,
+            find: async (opts: { where?: { datasetId?: string } }) =>
+                datasetRows
+                    .filter((row) => row.datasetId === opts?.where?.datasetId)
+                    .slice()
+                    .sort((a, b) => Number(a.sequenceNo) - Number(b.sequenceNo) || String(a.id).localeCompare(String(b.id)))
+        }
+    }
+    if (name === 'Evaluator') {
+        return {
+            ...writes,
+            findOneBy: async (where: { id?: string; workspaceId?: string }) => {
+                const row = where?.id ? evaluatorRows.get(where.id) : null
+                if (!row || row.workspaceId !== where.workspaceId) return null
+                return row
+            }
+        }
+    }
+    return { createQueryBuilder: () => queryBuilder, ...writes }
+}
 jest.mock('../../utils/getRunningExpressApp', () => ({
     getRunningExpressApp: () => ({
-        AppDataSource: { getRepository: () => ({ createQueryBuilder: () => queryBuilder, ...writes }) }
+        AppDataSource: { getRepository: (entity: { name?: string }) => repository(entity) }
     })
 }))
 jest.mock('../../database/entities/ChatMessage', () => ({ ChatMessage: class ChatMessage {} }))
@@ -43,6 +80,7 @@ jest.mock('@cuttlely/components', () => ({ EvaluationRunner: { metrics: new Map(
 jest.mock('../../utils/logger', () => ({ __esModule: true, default: { error: jest.fn(), debug: jest.fn() } }))
 
 import { checks, getCheck, getCheckSetup, replayHooks, startCheck, stopCheck } from './index'
+import { scoreHooks } from './score'
 
 const canvas = (word: string, extra: any[] = []) =>
     JSON.stringify({
@@ -75,6 +113,10 @@ beforeEach(() => {
     checks.clear()
     states.clear()
     messages.length = 0
+    datasets.clear()
+    datasetRows.length = 0
+    evaluatorRows.clear()
+    scoreHooks.gradeLlm = null
     queryState.take = undefined
     queryState.skip = 0
     draftsOn = true
@@ -490,5 +532,184 @@ describe('count', () => {
         expect(done.cases[0]).toMatchObject({ question: 'q1', live: { text: 'done' }, draft: { text: 'done' } })
         expect(done.completed).toBe(1)
         expect(done.cases.filter((c) => c.question !== 'q1').every((c) => c.live === null && c.draft === null)).toBe(true)
+    })
+})
+
+const saveEvaluator = (id: string, type: string, config: object, workspaceId = 'team-a', name = id) => {
+    evaluatorRows.set(id, {
+        id,
+        name,
+        type,
+        config: JSON.stringify(config),
+        workspaceId,
+        createdDate: new Date('2026-10-01T00:00:00Z'),
+        updatedDate: new Date('2026-10-01T00:00:00Z')
+    })
+}
+
+describe('a dataset and evaluators', () => {
+    const modelCanvas = (word: string) =>
+        JSON.stringify({
+            nodes: [
+                {
+                    id: 'chatOpenAI_0',
+                    data: {
+                        name: 'chatOpenAI',
+                        category: 'Chat Models',
+                        label: word,
+                        credential: 'cred-team-a',
+                        inputs: { modelName: 'gpt-test' }
+                    }
+                }
+            ],
+            edges: []
+        })
+
+    beforeEach(() => {
+        datasets.set('ds-1', { id: 'ds-1', name: 'Bakery questions', workspaceId: 'team-a' })
+        datasetRows.push(
+            { id: 'r2', datasetId: 'ds-1', input: 'Second?', output: 'two', sequenceNo: 2 },
+            { id: 'r1', datasetId: 'ds-1', input: 'First?', output: 'one', sequenceNo: 1 },
+            { id: 'r3', datasetId: 'ds-1', input: 'First?', output: 'one again', sequenceNo: 3 },
+            { id: 'r4', datasetId: 'ds-1', input: '   ', output: 'blank', sequenceNo: 0 }
+        )
+    })
+
+    test('replays dataset rows in sequence order, and keeps the expected answer', async () => {
+        const started = await startCheck(flow() as any, { datasetId: 'ds-1' }, 'http://x')
+        expect(started.selection).toBeNull()
+        expect(started.cases.map((c) => [c.question, c.expected])).toEqual([
+            ['First?', 'one'],
+            ['Second?', 'two'],
+            ['First?', 'one again']
+        ])
+        await settle()
+        const done = await getCheck(flow(), started.id)
+        expect(done.cases.map((c) => c.live?.text)).toEqual(['MANGO', 'MANGO', 'MANGO'])
+        expect(done.cases[0].live?.scores).toBeUndefined()
+        expect(done.summary.scores).toBeUndefined()
+        expect(writes.save).not.toHaveBeenCalled()
+        expect(writes.insert).not.toHaveBeenCalled()
+        expect(writes.update).not.toHaveBeenCalled()
+    })
+
+    test('scores text, json, numeric and llm evaluators, and an errored answer is Error', async () => {
+        saveEvaluator('text-1', 'text', { operator: 'ContainsAny', value: 'mango' }, 'team-a', 'Mentions mango')
+        saveEvaluator('json-1', 'json', { operator: 'IsValidJSON' }, 'team-a', 'Valid JSON')
+        saveEvaluator('num-1', 'numeric', { operator: 'greaterThan', measure: 'totalTokens', value: '10' }, 'team-a', 'Enough tokens')
+        saveEvaluator('llm-1', 'llm', { prompt: 'Grade {actualOutput} against {expectedOutput}', outputSchema: [] }, 'team-a', 'Graded')
+        const graded: any[] = []
+        scoreHooks.gradeLlm = async (data, actual) => {
+            graded.push({
+                workspaceId: data.workspaceId,
+                credentialId: data.llmConfig.credentialId,
+                question: data.input,
+                expected: data.expectedOutput,
+                actual: actual[0]
+            })
+            return [{ pass: String(actual[0]).startsWith('{') }]
+        }
+        states.set('flow-1', { chatflowId: 'flow-1', draftFlowData: modelCanvas('PAPAYA'), publishInstantly: false })
+        replayHooks.run = async ({ flowData }) => ({
+            text: flowData.includes('MANGO') ? 'mango {"ok":true}' : '{"ok":true}',
+            metrics: [JSON.stringify({ totalTokens: 50 })]
+        })
+        const started = await startCheck(
+            flow({ flowData: modelCanvas('MANGO') }) as any,
+            { datasetId: 'ds-1', evaluatorIds: ['llm-1', 'text-1', 'json-1', 'num-1', 'text-1'] },
+            'http://x'
+        )
+        await settle()
+        const done = await getCheck(flow({ flowData: modelCanvas('MANGO') }), started.id)
+        const live = done.cases[0].live?.scores || []
+        const draft = done.cases[0].draft?.scores || []
+        expect(live.map((score) => score.name)).toEqual(['Graded', 'Mentions mango', 'Valid JSON', 'Enough tokens'])
+        expect(live.map((score) => score.result)).toEqual(['Fail', 'Pass', 'Fail', 'Pass'])
+        expect(draft.map((score) => score.result)).toEqual(['Pass', 'Fail', 'Pass', 'Pass'])
+        expect(done.summary.scores?.live).toEqual({ passed: 6, failed: 6, errored: 0, passRate: 50 })
+        expect(done.summary.scores?.draft).toEqual({ passed: 9, failed: 3, errored: 0, passRate: 75 })
+        expect(graded[0]).toMatchObject({ workspaceId: 'team-a', credentialId: 'cred-team-a', question: 'First?', expected: 'one' })
+        expect(writes.save).not.toHaveBeenCalled()
+
+        checks.clear()
+        replayHooks.run = async () => {
+            throw new Error('Model said no')
+        }
+        const failed = await startCheck(
+            flow({ flowData: modelCanvas('MANGO') }) as any,
+            { datasetId: 'ds-1', evaluatorIds: ['text-1'] },
+            'http://x'
+        )
+        await settle()
+        const errored = await getCheck(flow({ flowData: modelCanvas('MANGO') }), failed.id)
+        expect(errored.cases[0].draft?.error).toBe('Model said no')
+        expect(errored.cases[0].draft?.scores).toEqual([{ id: 'text-1', name: 'Mentions mango', result: 'Error' }])
+        expect(errored.summary.scores?.draft?.errored).toBe(3)
+        expect(errored.summary.scores?.draft?.failed).toBe(0)
+    })
+
+    test('a dataset or evaluator from another workspace is 404 and starts nothing', async () => {
+        datasets.set('ds-b', { id: 'ds-b', workspaceId: 'team-b' })
+        saveEvaluator('ev-b', 'text', { operator: 'ContainsAny', value: 'x' }, 'team-b')
+        await expect(startCheck(flow() as any, { datasetId: 'ds-b' }, 'http://x')).rejects.toMatchObject({
+            statusCode: 404,
+            message: 'Dataset ds-b not found'
+        })
+        await expect(startCheck(flow() as any, { datasetId: 'missing' }, 'http://x')).rejects.toMatchObject({ statusCode: 404 })
+        await expect(startCheck(flow() as any, { questions: ['Hi'], evaluatorIds: ['ev-b'] }, 'http://x')).rejects.toMatchObject({
+            statusCode: 404,
+            message: 'Evaluator ev-b not found'
+        })
+        await expect(startCheck(flow() as any, { questions: ['Hi'], evaluatorIds: ['missing'] }, 'http://x')).rejects.toMatchObject({
+            statusCode: 404
+        })
+        expect(checks.size).toBe(0)
+        expect(writes.save).not.toHaveBeenCalled()
+    })
+
+    test('mixing a dataset with questions or count is 400, and so is a non-chat start', async () => {
+        await expect(startCheck(flow() as any, { datasetId: 'ds-1', questions: ['Hi'] }, 'http://x')).rejects.toMatchObject({
+            statusCode: 400
+        })
+        await expect(startCheck(flow() as any, { datasetId: 'ds-1', count: 4 }, 'http://x')).rejects.toMatchObject({ statusCode: 400 })
+        datasets.set('empty', { id: 'empty', workspaceId: 'team-a' })
+        datasetRows.push({ id: 'long', datasetId: 'empty', input: 'x'.repeat(2001), output: 'no', sequenceNo: 1 })
+        await expect(startCheck(flow() as any, { datasetId: 'empty' }, 'http://x')).rejects.toMatchObject({
+            statusCode: 400,
+            message: 'This dataset has no questions the check can ask.'
+        })
+        await expect(startCheck(flow() as any, { datasetId: '' }, 'http://x')).rejects.toMatchObject({ statusCode: 400 })
+        await expect(startCheck(flow() as any, { questions: ['Hi'], evaluatorIds: 'text-1' }, 'http://x')).rejects.toMatchObject({
+            statusCode: 400
+        })
+        states.set('flow-1', { chatflowId: 'flow-1', draftFlowData: agentCanvas('PAPAYA', 'formInput'), publishInstantly: false })
+        await expect(
+            startCheck(
+                flow({ type: 'AGENTFLOW', flowData: agentCanvas('MANGO', 'webhookTrigger') }) as any,
+                { datasetId: 'ds-1' },
+                'http://x'
+            )
+        ).rejects.toMatchObject({ statusCode: 400, message: expect.stringContaining('webhook') })
+        states.set('flow-1', { chatflowId: 'flow-1', draftFlowData: agentCanvas('PAPAYA', 'scheduleInput'), publishInstantly: false })
+        await expect(
+            startCheck(
+                flow({ type: 'AGENTFLOW', flowData: agentCanvas('MANGO', 'scheduleInput') }) as any,
+                { datasetId: 'ds-1' },
+                'http://x'
+            )
+        ).rejects.toMatchObject({ statusCode: 400, message: expect.stringContaining('schedule') })
+        expect(checks.size).toBe(0)
+    })
+
+    test('a count request is unchanged: no expected answer and no scores', async () => {
+        asked('From history', '2026-10-08T10:00:00Z', '1')
+        const started = await startCheck(flow() as any, { count: 4 }, 'http://x')
+        expect(started.cases.map((c) => c.question)).toEqual(['From history'])
+        expect(started.cases[0].expected).toBeNull()
+        await settle()
+        const done = await getCheck(flow(), started.id)
+        expect(done.cases[0].live?.scores).toBeUndefined()
+        expect(done.summary.scores).toBeUndefined()
+        expect(done.summary).toMatchObject({ ran: 1, same: 0, changed: 1 })
     })
 })

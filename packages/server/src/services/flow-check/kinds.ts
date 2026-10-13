@@ -35,3 +35,20 @@ export function startUnavailable(type: string | null | undefined, canvases: Arra
     if (starts.every((start) => start === 'chatInput')) return null
     return { code: 'start', message: 'The check asks questions, so it works on agentflows that start with a chat message.' }
 }
+
+const START_NAMES: Record<string, string> = {
+    formInput: 'a form',
+    webhookTrigger: 'a webhook',
+    scheduleInput: 'a schedule'
+}
+
+// A dataset check is refused on its own, with a 400, because the rows are chat questions.
+// A recent-question check on the same flow stays the 409 from startUnavailable.
+export function datasetStartRefusal(type: string | null | undefined, canvases: Array<string | null | undefined>): string | null {
+    if (type !== 'AGENTFLOW') return null
+    const starts = canvases.filter((canvas): canvas is string => Boolean(canvas)).map(startInputType)
+    if (starts.length && starts.every((start) => start === 'chatInput')) return null
+    const named = starts.map((start) => START_NAMES[start || '']).find(Boolean)
+    const which = named || 'something other than a chat message'
+    return `A dataset check asks each row as a chat message. This flow starts with ${which}, so it cannot use a dataset.`
+}

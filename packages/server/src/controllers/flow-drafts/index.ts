@@ -167,8 +167,16 @@ const getCheckSetup = async (req: Request, res: Response, next: NextFunction) =>
 const startCheck = async (req: Request, res: Response, next: NextFunction) => {
     try {
         const flow = await flowFor(req, 'update')
+        const body = req.body || {}
+        // On top of the flow permission: a dataset needs datasets:view, and evaluators need evaluators:view.
+        if (body.datasetId !== undefined && body.datasetId !== null && !(await hasAnyPermission(req, 'datasets:view'))) {
+            throw new AppError(StatusCodes.FORBIDDEN, 'You do not have permission to view datasets.')
+        }
+        if (Array.isArray(body.evaluatorIds) && body.evaluatorIds.length > 0 && !(await hasAnyPermission(req, 'evaluators:view'))) {
+            throw new AppError(StatusCodes.FORBIDDEN, 'You do not have permission to view evaluators.')
+        }
         const baseURL = `${req.get('x-forwarded-proto') || req.protocol}://${req.get('host')}`
-        return res.status(StatusCodes.ACCEPTED).json(await flowCheckService.startCheck(flow, req.body || {}, baseURL))
+        return res.status(StatusCodes.ACCEPTED).json(await flowCheckService.startCheck(flow, body, baseURL))
     } catch (error) {
         next(error)
     }

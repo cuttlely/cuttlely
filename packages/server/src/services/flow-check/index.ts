@@ -33,7 +33,8 @@ import {
     totalTokens
 } from './compare'
 import { RiskyStep, riskySteps } from './risk'
-import { Unavailable, startUnavailable, typeUnavailable } from './kinds'
+import { Unavailable, datasetStartRefusal, startUnavailable, typeUnavailable } from './kinds'
+import { casesFromDataset, CheckEvaluator, loadEvaluators, readDatasetId, readEvaluatorIds, scoreAnswer } from './score'
 
 // A question list sent without `count` stays capped at 10, which is what this route accepted before.
 export const MAX_QUESTIONS = 10
@@ -138,6 +139,7 @@ interface CheckRecord {
     liveEmpty: boolean
     cases: CheckCase[]
     selection: CheckSelection | null
+    evaluators: CheckEvaluator[]
     inflight: Set<AbortController>
     stopRequested: boolean
 }
@@ -167,6 +169,13 @@ function purge(now = Date.now()) {
 function clip(text: string | null): string | null {
     if (text == null) return null
     return text.length > MAX_ANSWER_CHARS ? `${text.slice(0, MAX_ANSWER_CHARS)}…` : text
+}
+
+function shownSide(side: SideResult | null): SideResult | null {
+    if (!side) return null
+    const shown: SideResult = { text: clip(side.text), error: side.error, tokens: side.tokens, ms: side.ms }
+    if (side.scores) shown.scores = side.scores
+    return shown
 }
 
 async function draftCanvas(flow: DraftFlow): Promise<string | null> {
@@ -216,8 +225,9 @@ function view(record: CheckRecord, currentDraftHash: string | null): CheckView {
         liveEmpty: record.liveEmpty,
         cases: record.cases.map((c) => ({
             question: c.question,
-            live: c.live && { ...c.live, text: clip(c.live.text) },
-            draft: c.draft && { ...c.draft, text: clip(c.draft.text) },
+            expected: c.expected ?? null,
+            live: shownSide(c.live),
+            draft: shownSide(c.draft),
             same: c.same
         })),
         summary: summarize(record.cases, record.liveEmpty),
@@ -389,16 +399,32 @@ async function questionsToRun(
 
 export async function startCheck(
     flow: IChatFlow,
-    body: { questions?: unknown; includeRiskySteps?: unknown; count?: unknown },
+    body: { questions?: unknown; includeRiskySteps?: unknown; count?: unknown; datasetId?: unknown; evaluatorIds?: unknown },
     baseURL: string,
     given?: Candidate
 ): Promise<CheckView> {
     purge()
     const candidate = await candidateFor(flow as DraftFlow, given)
     const draft = candidate.canvas
+    const request = body || {}
+    const datasetId = readDatasetId(request)
+    const evaluatorIds = readEvaluatorIds(request)
+    if (datasetId && (request.questions !== undefined || request.count !== undefined)) {
+        throw new AppError(StatusCodes.BAD_REQUEST, 'Send a datasetId on its own. Do not send questions or count with it.')
+    }
+    // Resolve the dataset and the evaluators before any other refusal, so a missing one is 404 and starts nothing.
+    const workspaceId = String(flow.workspaceId || '')
+    const fromDataset = datasetId ? await casesFromDataset(datasetId, workspaceId) : null
+    if (fromDataset) {
+        const refusal = datasetStartRefusal(flow.type, [flow.flowData, draft])
+        if (refusal) throw new AppError(StatusCodes.BAD_REQUEST, refusal)
+    }
+    const evaluators = await loadEvaluators(evaluatorIds, workspaceId)
     const unavailable = unavailableFor(flow as DraftFlow, candidate, Boolean(given))
     if (unavailable) throw new AppError(StatusCodes.CONFLICT, unavailable.message)
-    const { questions, selection } = await questionsToRun(flow.id, body || {})
+    const { questions, selection } = fromDataset
+        ? { questions: fromDataset.map((row) => row.question), selection: null }
+        : await questionsToRun(flow.id, request)
     if (body?.includeRiskySteps !== undefined && typeof body.includeRiskySteps !== 'boolean')
         throw new AppError(StatusCodes.BAD_REQUEST, 'includeRiskySteps must be true or false.')
     const includeRiskySteps = body?.includeRiskySteps === true
@@ -430,8 +456,15 @@ export async function startCheck(
         includeRiskySteps,
         limits: checkLimits(),
         liveEmpty: liveIsEmpty(flow.flowData),
-        cases: questions.map((question) => ({ question, live: null, draft: null, same: null })),
+        cases: questions.map((question, index) => ({
+            question,
+            expected: fromDataset ? fromDataset[index].expected : null,
+            live: null,
+            draft: null,
+            same: null
+        })),
         selection,
+        evaluators,
         inflight: new Set<AbortController>(),
         stopRequested: false
     }
@@ -477,8 +510,30 @@ function budgetLeft(record: CheckRecord): CheckView['stopReason'] {
 
 // One question: Live, then the draft, so the two sides see the data as close together as they can.
 // A failure is stored on that question. It does not stop the others.
+async function attachScores(record: CheckRecord, side: SideResult | null, question: string, expected: string | null, flowData: string) {
+    if (!side || !record.evaluators.length) return
+    try {
+        side.scores = await scoreAnswer({
+            evaluators: record.evaluators,
+            question,
+            expected,
+            text: side.text,
+            error: side.error,
+            tokens: side.tokens,
+            ms: side.ms,
+            workspaceId: record.workspaceId,
+            flowData
+        })
+    } catch {
+        side.scores = record.evaluators.map((evaluator) => ({ id: evaluator.id, name: evaluator.name, result: 'Error' as const }))
+    }
+}
+
 async function runCase(record: CheckRecord, c: CheckCase, flow: IChatFlow, draft: string, baseURL: string) {
-    if (!record.liveEmpty) c.live = await runOne(record, flow, flow.flowData, c.question, baseURL)
+    if (!record.liveEmpty) {
+        c.live = await runOne(record, flow, flow.flowData, c.question, baseURL)
+        await attachScores(record, c.live, c.question, c.expected ?? null, flow.flowData)
+    }
     if (record.stopRequested) {
         c.live = null
         c.draft = null
@@ -492,6 +547,7 @@ async function runCase(record: CheckRecord, c: CheckCase, flow: IChatFlow, draft
         return
     }
     c.draft = await runOne(record, flow, draft, c.question, baseURL)
+    await attachScores(record, c.draft, c.question, c.expected ?? null, draft)
     if (record.stopRequested) {
         c.live = null
         c.draft = null

@@ -499,6 +499,46 @@
             "to": "packages/server/src/utils/logger.ts"
         },
         {
+            "from": "packages/server/src/services/flow-check/score.ts",
+            "to": "packages/server/src/database/entities/Dataset.ts",
+            "reason": "The publish check reads a saved dataset and scores answers with the existing evaluator runners."
+        },
+        {
+            "from": "packages/server/src/services/flow-check/score.ts",
+            "to": "packages/server/src/database/entities/DatasetRow.ts",
+            "reason": "The publish check reads a saved dataset and scores answers with the existing evaluator runners."
+        },
+        {
+            "from": "packages/server/src/services/flow-check/score.ts",
+            "to": "packages/server/src/database/entities/Evaluator.ts",
+            "reason": "The publish check reads a saved dataset and scores answers with the existing evaluator runners."
+        },
+        {
+            "from": "packages/server/src/services/flow-check/score.ts",
+            "to": "packages/server/src/errors/appError/index.ts",
+            "reason": "The publish check reads a saved dataset and scores answers with the existing evaluator runners."
+        },
+        {
+            "from": "packages/server/src/services/flow-check/score.ts",
+            "to": "packages/server/src/Interface.Evaluation.ts",
+            "reason": "The publish check reads a saved dataset and scores answers with the existing evaluator runners."
+        },
+        {
+            "from": "packages/server/src/services/flow-check/score.ts",
+            "to": "packages/server/src/services/evaluations/EvaluatorRunner.ts",
+            "reason": "The publish check reads a saved dataset and scores answers with the existing evaluator runners."
+        },
+        {
+            "from": "packages/server/src/services/flow-check/score.ts",
+            "to": "packages/server/src/services/evaluations/LLMEvaluationRunner.ts",
+            "reason": "The publish check reads a saved dataset and scores answers with the existing evaluator runners."
+        },
+        {
+            "from": "packages/server/src/services/flow-check/score.ts",
+            "to": "packages/server/src/utils/getRunningExpressApp.ts",
+            "reason": "The publish check reads a saved dataset and scores answers with the existing evaluator runners."
+        },
+        {
             "from": "packages/server/src/services/flow-drafts/index.ts",
             "to": "packages/server/src/database/entities/ChatFlow.ts"
         },
@@ -1134,6 +1174,21 @@
         {
             "from": "packages/ui/src/views/canvas/NodeSidePanel.jsx",
             "to": "packages/ui/src/views/canvas/NodeInputHandler.jsx"
+        },
+        {
+            "from": "packages/ui/src/views/canvas/PublishCheck.jsx",
+            "to": "packages/ui/src/api/dataset.js",
+            "reason": "The publish check reads a saved dataset and scores answers with the existing evaluator runners."
+        },
+        {
+            "from": "packages/ui/src/views/canvas/PublishCheck.jsx",
+            "to": "packages/ui/src/api/evaluators.js",
+            "reason": "The publish check reads a saved dataset and scores answers with the existing evaluator runners."
+        },
+        {
+            "from": "packages/ui/src/views/canvas/PublishCheck.jsx",
+            "to": "packages/ui/src/hooks/useAuth.jsx",
+            "reason": "The publish check reads a saved dataset and scores answers with the existing evaluator runners."
         },
         {
             "from": "packages/ui/src/views/canvas/PublishDialog.jsx",

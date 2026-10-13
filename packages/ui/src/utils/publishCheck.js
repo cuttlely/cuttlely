@@ -122,8 +122,15 @@ export const riskyWarning = (steps = []) =>
               .join(', ')}. The check would repeat them, so it skips this flow unless you choose to run it anyway.`
         : ''
 
-export const canRunCheck = ({ picked = 0, riskySteps = [], runAnyway = false, running = false, unavailable = null }) =>
-    !unavailable && !running && picked > 0 && (riskySteps.length === 0 || runAnyway)
+export const canRunCheck = ({
+    picked = 0,
+    riskySteps = [],
+    runAnyway = false,
+    running = false,
+    unavailable = null,
+    source = 'recent',
+    datasetId = ''
+}) => !unavailable && !running && (source === 'dataset' ? Boolean(datasetId) : picked > 0) && (riskySteps.length === 0 || runAnyway)
 
 export const formatMs = (ms) => {
     if (ms == null) return ''
@@ -191,6 +198,25 @@ export const summaryText = (check, words = CHECK_WORDS.publish) => {
     if (s.same) parts.push(`${s.same} of ${s.ran} answered the same`)
     if (s.errors) parts.push(`${s.errors} had an error`)
     return `${parts.join(', ')}.`
+}
+
+// One line per side. Absent when the check did not use evaluators.
+export const passRateText = (check, words = CHECK_WORDS.publish) => {
+    const scores = check?.summary?.scores
+    if (!scores) return []
+    const line = (label, side) => {
+        if (!side) return ''
+        const rate = side.passRate == null ? 'no scored answers' : `${side.passRate}%`
+        return `${label} pass rate: ${rate} (${side.passed} passed, ${side.failed} failed, ${side.errored} errored).`
+    }
+    const lines = []
+    if (!check.liveEmpty) {
+        const live = line('Live', scores.live)
+        if (live) lines.push(live)
+    }
+    const draft = line(words.side, scores.draft)
+    if (draft) lines.push(draft)
+    return lines
 }
 
 export const usageText = (check, words = CHECK_WORDS.publish) => {

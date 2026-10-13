@@ -2,7 +2,7 @@
 
 Datasets, evaluators, and evaluations are how you check a chatflow or an agentflow against example questions. Open them from the sidebar: **Datasets**, **Evaluators**, and **Evaluations**.
 
-These pages do not run the check that happens before Publish. Publishing a flow and running an evaluation are separate.
+Publishing a flow and running an evaluation are separate. The evaluation pages do not start the check in the Publish dialog. A saved dataset can, and the evaluators you tick there score both answers. See [Check a dataset before you publish](#check-a-dataset-before-you-publish).
 
 The organization owner can open all three. Anyone else needs the matching permission on their role: `datasets:view`, `evaluators:view`, or `evaluations:view`, and the create, update, delete, or run permission for the button they use.
 
@@ -38,5 +38,19 @@ An evaluation runs one dataset against one or more chatflows or agentflows and s
 5. Start the run. The list shows it as pending, then completed or error. Open a row to see each example.
 
 **Run again** stores another version under the same name. It uses the same checks as a new run: a deleted flow, a flow from another team, or a flow this role cannot view is rejected and no new version is saved. A missing evaluation, or one from another team, is rejected the same way. Delete removes a run, or every version of that name.
+
+## Check a dataset before you publish
+
+On a chatflow or an agentflow, the Publish dialog can ask a dataset instead of recent questions, and score each answer with the evaluators you select.
+
+1. Select **Publish**. Under **Check recent questions**, set **Questions from** to **A dataset** and choose the dataset. **Questions from** is hidden when your role cannot view datasets.
+2. Tick the evaluators to score with. That list is hidden when your role cannot view evaluators.
+3. Select **Run check**.
+
+Each row runs in the order saved on the dataset. The row input is the question and the row output is the expected answer, shown under the question. At most 100 rows are asked, and a row with an empty question or a question longer than 2,000 characters is skipped. Each side shows Pass, Fail or Error for every evaluator, and a pass rate. An answer that failed to run scores Error. A model grade that is only a number stays Error, because this check does not turn that number into Pass or Fail. A yes or no in the grade is Pass or Fail. A numeric evaluator uses the tokens and the time the check already records. A model evaluator uses the model credential saved on the flow, and only a credential this workspace can use. The pass rate does not block Publish. A check with no evaluators still shows the expected answer and compares the two answers as before.
+
+The same rules as the recent-question check apply: nothing is written down, results stay in memory for 30 minutes, and a flow that starts with a form, a webhook or a schedule cannot use a dataset. The steps are in [Check recent questions before you publish](./versioning.md#check-recent-questions-before-you-publish). The request fields are in [Start a check](../reference/drafts-api.md#start-a-check).
+
+## What a run calls
 
 A run calls each selected chatflow or agentflow on this server, the same way a prediction does. The flow has to be one this team can view. An unknown flow, a flow from another team, a custom assistant, or a run with no chatflow or agentflow is rejected and no evaluation is saved. You do not set a separate address for that call. A flow that requires an API key cannot be replayed from this page, because the key is stored as a hash and the run cannot recover it. A flow with no key can be run. A chatflow or agentflow can use a model credential this team owns or one shared into the team. Loading earlier messages and clearing a session follow that same rule. A model evaluator uses a credential saved in the same team.
