@@ -32,8 +32,11 @@ function fakes({ reduced = false, small = false, saveData = false, videos = 1, h
                 video.beginFetch()
                 if (!video.finishRestart) return
                 // The restarted resource reaches metadata, then can play through. The test does not fire that.
+                if (!video.seekable || !video.seekable.length) video.seekable = { length: 1, end: () => Number.POSITIVE_INFINITY }
                 video.readyState = 1
                 video.emit('loadedmetadata')
+                video.readyState = 3
+                video.emit('canplay')
                 video.readyState = 4
                 video.networkState = 1
                 open.delete(video)
@@ -378,8 +381,6 @@ test('a seek ignored at loadedmetadata is applied once that time is seekable', a
     list[0].networkState = 2
     list[1].readyState = 3
     list[1].networkState = 2
-    playing.arm()
-    paused.arm()
     const playsBefore = calls.filter((call) => call === 'play 0').length
     dispatch('doc', 'resume')
     await Promise.resolve()
@@ -479,6 +480,62 @@ test('a second resume keeps the original playhead while the first restore is sti
     assert.ok(calls.includes('play 0'))
 })
 
+test('a visitor seek during a restore keeps their time', async () => {
+    const orders = [
+        ['canplay', 'seeking', 0],
+        ['seeking', 'canplay', 0],
+        ['seeking', 'canplay', 1.2],
+        ['canplay', 'seeking', 1.2]
+    ]
+    for (const [first, second, visitorTime] of orders) {
+        const { doc, win, list, approach, dispatch } = fakes({ videos: 1 })
+        initDemoVideo(doc, win)
+        approach([0])
+        const held = holdTime(list[0], 2.5)
+        list[0].readyState = 3
+        list[0].networkState = 2
+        list[0].seeking = false
+        dispatch('doc', 'resume')
+        await Promise.resolve()
+        held.setSeekable(12)
+        held.jump(visitorTime)
+        if (first === 'seeking') {
+            list[0].seeking = true
+            list[0].emit('seeking')
+            list[0].seeking = false
+            list[0].emit('canplay')
+        } else {
+            // Chrome reports canplay while seeking is still true and currentTime is the scrub target.
+            list[0].seeking = true
+            list[0].emit('canplay')
+            list[0].emit('seeking')
+            list[0].seeking = false
+        }
+        assert.equal(list[0].currentTime, visitorTime, `${first} then ${second} at ${visitorTime}`)
+    }
+})
+
+test('two resumes at the start leave one loadedmetadata listener', async () => {
+    const { doc, win, calls, list, approach, show, dispatch } = fakes({ videos: 1 })
+    initDemoVideo(doc, win)
+    approach([0])
+    show(0, true)
+    list[0].currentTime = 0
+    list[0].readyState = 2
+    list[0].networkState = 2
+    const playsBefore = calls.filter((call) => call === 'play 0').length
+    dispatch('doc', 'resume')
+    await Promise.resolve()
+    assert.equal(list[0].events.loadedmetadata.length, 1)
+    list[0].readyState = 2
+    list[0].networkState = 2
+    dispatch('doc', 'resume')
+    await Promise.resolve()
+    assert.equal(list[0].events.loadedmetadata.length, 1)
+    list[0].emit('loadedmetadata')
+    assert.equal(calls.filter((call) => call === 'play 0').length, playsBefore + 1)
+})
+
 test('a fully buffered held loop is not loaded again on resume', async () => {
     const { doc, win, calls, list, approach, dispatch } = fakes({ videos: 1 })
     initDemoVideo(doc, win)
@@ -503,7 +560,6 @@ test('a playhead the visitor moved after the reload is not seeked back', async (
     const held = holdTime(list[0], 0.576)
     list[0].readyState = 3
     list[0].networkState = 2
-    held.arm()
     dispatch('doc', 'resume')
     await Promise.resolve()
     list[0].emit('loadedmetadata')

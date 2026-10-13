@@ -29,8 +29,10 @@ export function canAutoplay(win = window) {
  * load()ed once, playing or paused. The playhead is put back on loadedmetadata, and again on
  * loadeddata, canplay, and progress once that time is seekable, until the element is actually there.
  * A second freeze before that seek has landed keeps the same saved time and replaces the
- * listeners, instead of reading the playhead load() just set to 0. A playhead the visitor has
- * moved since the reload is left alone. It plays again only if it should still be on screen.
+ * listeners, instead of reading the playhead load() just set to 0. The same replacement
+ * happens when the saved time is 0, so a second metadata listener cannot call play() again.
+ * Any seek this code did not start ends the restore and keeps the visitor's time, including
+ * a scrub back to the start. It plays again only if it should still be on screen.
  * That restart is what lets the listeners above free the slot. A fully buffered loop is not loaded again.
  * Safari and Firefox do not fire resume. A socket aborted while the page is hidden, and not
  * restored from the back-forward cache, is started again only if resume was already seen
@@ -183,36 +185,55 @@ function watchLoops(videos, win, doc) {
                 return !!range && range.length > 0 && range.end(0) >= saved
             }
             const assign = () => {
+                if (!seekableCovers() || settled) return
+                // Stay set until the seeking event. Clearing it in finally runs before Chrome fires seeking.
                 assigning = true
                 try {
                     video.currentTime = saved
-                } finally {
+                } catch (error) {
                     assigning = false
+                    throw error
                 }
-                if (nearSaved(video.currentTime)) stop()
+                if (assigning && !video.seeking && nearSaved(video.currentTime)) {
+                    assigning = false
+                    stop()
+                }
             }
-            // A seeking event we did not cause, landing somewhere else, is the visitor.
+            // Any seek this code did not start ends the restore, including a scrub back to 0.
+            // load() does not fire seeking, so this is the visitor.
             const onSeeking = () => {
-                if (assigning || settled) return
-                const now = video.currentTime || 0
-                if (now <= PLAYHEAD_TOLERANCE || nearSaved(now)) return
+                if (settled) return
+                if (assigning) {
+                    assigning = false
+                    if (nearSaved(video.currentTime)) stop()
+                    return
+                }
                 stop()
             }
             const onMeta = () => {
                 video.removeEventListener('loadedmetadata', onMeta)
-                if (!settled && saved > 0) assign()
+                if (!settled) {
+                    if (video.seeking && !nearSaved(video.currentTime)) stop()
+                    else if (saved > 0 && seekableCovers()) assign()
+                }
                 if (wantsPlay.has(video)) video.play().catch(() => {})
             }
             const onBuffered = () => {
                 if (settled || !(saved > 0)) return
+                // canplay can arrive while a scrub is in progress and currentTime is still 0.
+                if (video.seeking && !nearSaved(video.currentTime)) {
+                    stop()
+                    return
+                }
                 if (nearSaved(video.currentTime)) {
                     stop()
                     return
                 }
                 if (seekableCovers()) assign()
             }
+            // Register a time of 0 too, so the next reload detaches this loadedmetadata listener.
+            restores.set(video, entry)
             if (saved > 0) {
-                restores.set(video, entry)
                 video.addEventListener('loadeddata', onBuffered)
                 video.addEventListener('canplay', onBuffered)
                 video.addEventListener('progress', onBuffered)
