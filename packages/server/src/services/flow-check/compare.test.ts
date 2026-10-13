@@ -65,6 +65,24 @@ test('estimated cost is summed per side, and a missing price stays missing', () 
     expect(summary.draftEstimatedCostUsd).toBe(0.0004)
     expect(summary.draftPrice).toBe('partial')
     expect(summary.draftTokens).toBe(160)
+    expect(summary.scores).toBeUndefined()
+})
+
+test('evaluators add a pass rate per side, and a check without them does not', () => {
+    const score = (result: 'Pass' | 'Fail' | 'Error') => ({ id: result, name: result, result })
+    const summary = summarize([
+        {
+            question: 'a',
+            expected: 'yes',
+            live: side('x', { scores: [score('Pass'), score('Fail')] }),
+            draft: side('y', { scores: [score('Pass'), score('Error')] }),
+            same: false
+        }
+    ])
+    expect(summary.scores).toEqual({
+        live: { passed: 1, failed: 1, errored: 0, passRate: 50 },
+        draft: { passed: 1, failed: 0, errored: 1, passRate: 50 }
+    })
 })
 
 test('token totals come from the tracer metrics, and nothing counted is null', () => {

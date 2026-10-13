@@ -1,4 +1,4 @@
-import { startUnavailable, triggerStart, typeUnavailable } from './kinds'
+import { datasetStartRefusal, startUnavailable, triggerStart, typeUnavailable } from './kinds'
 
 const agentflow = (startInputType?: string) =>
     JSON.stringify({ nodes: [{ id: 'startAgentflow_0', data: { name: 'startAgentflow', inputs: { startInputType } } }], edges: [] })
@@ -54,5 +54,18 @@ describe('startUnavailable', () => {
             'The check asks questions, so it works on agentflows that start with a chat message.'
         )
         expect(startUnavailable('AGENTFLOW', ['not json'])?.code).toBe('start')
+    })
+})
+
+describe('datasetStartRefusal', () => {
+    test('a chatflow, and an agentflow that starts with a chat message, can use a dataset', () => {
+        expect(datasetStartRefusal('CHATFLOW', [agentflow('formInput')])).toBeNull()
+        expect(datasetStartRefusal('AGENTFLOW', [agentflow('chatInput'), agentflow('chatInput')])).toBeNull()
+    })
+
+    test('a form, webhook or schedule start is named in the refusal', () => {
+        expect(datasetStartRefusal('AGENTFLOW', [agentflow('formInput')])).toContain('starts with a form')
+        expect(datasetStartRefusal('AGENTFLOW', [agentflow('chatInput'), agentflow('webhookTrigger')])).toContain('starts with a webhook')
+        expect(datasetStartRefusal('AGENTFLOW', [agentflow('scheduleInput')])).toContain('starts with a schedule')
     })
 })

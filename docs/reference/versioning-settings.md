@@ -58,7 +58,7 @@ The [publish check](./drafts-api.md#publish-check) replays recent questions agai
 
 -   `CUTTLELY_CHECK_MAX_TOKENS`: the most tokens one check may use, counting Live and the draft together. Default 100,000. Values below 1,000 count as 1,000, and above 2,000,000 as 2,000,000.
 -   `CUTTLELY_CHECK_MAX_SECONDS`: the most seconds one check may run. Default 180. Values below 10 count as 10, and above 1,800 as 1,800.
--   `CUTTLELY_CHECK_CONCURRENCY`: how many questions run at the same time. Default 2, from 1 to 8. Above 8 counts as 8. Each question still asks Live and then the draft, one after the other. Questions already started finish when a token or time limit is reached, so a check can go a little past the token cap.
+-   `CUTTLELY_CHECK_CONCURRENCY`: how many questions run at the same time. Default 2, from 1 to 8. Above 8 counts as 8. Each question still asks Live and then the draft, one after the other. Questions already started finish when a token or time limit is reached, so a check can go a little past the token cap. A model evaluator's tokens count toward the same cap, including usage a provider reports only as an estimate. A provider that reports usage nowhere does not move this cap. That check is bounded only by the time limit.
 
 A value that is not a positive number uses the default. When a limit is reached, the check stops starting new questions and shows the answers it has. How to run a check: [Check recent questions before you publish](../how-to/versioning.md#check-recent-questions-before-you-publish). Set them the same way as `CUTTLELY_DRAFTS` above.
 
