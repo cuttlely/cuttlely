@@ -11,7 +11,8 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { ThemeProvider, createTheme } from '@mui/material/styles'
 
 import { PublishCheckView } from './PublishCheck'
-import { CHECK_WORDS, initialPicks } from '@/utils/publishCheck'
+import { formatListDateTime } from '@/utils/formatDate'
+import { CHECK_WORDS, initialPicks, noPastRunsMessage } from '@/utils/publishCheck'
 
 const limits = { maxQuestions: 10, maxQuestionChars: 2000, maxTokens: 100000, maxSeconds: 180 }
 const noop = () => {}
@@ -69,7 +70,7 @@ describe('PublishCheckView', () => {
     test('no history yet asks for a question', () => {
         const html = render({})
         expect(html).toContain('No one has asked this flow anything yet. Add a question to check.')
-        expect(html).not.toContain('No past runs to replay yet')
+        expect(html).not.toContain('No past runs exist yet')
         expect(html).toContain('Add your own question')
         expect(html).toContain('Past questions')
     })
@@ -82,7 +83,8 @@ describe('PublishCheckView', () => {
             setup: {
                 unavailable: null,
                 replayInputs: true,
-                questions: [{ text: question, date: '2026-10-08T10:00:00.000Z' }],
+                replaySource: 'webhook',
+                questions: [{ text: question, date: '2026-10-08T10:00:00.000Z', source: 'webhook' }],
                 pastCount: 1,
                 pastTruncated: false,
                 riskySteps: [],
@@ -99,20 +101,78 @@ describe('PublishCheckView', () => {
                 stopReason: null,
                 draftChanged: false,
                 liveEmpty: false,
-                cases: [{ question, live, draft, same: false }],
+                cases: [{ question, source: 'webhook', date: '2026-10-08T10:00:00.000Z', live, draft, same: false }],
                 summary: { ran: 1, same: 0, changed: 1, errors: 0, liveTokens: 44, draftTokens: 45, liveMedianMs: 657, draftMedianMs: 525 }
             }
         })
+        expect(html).toContain('Check recent runs')
+        expect(html).not.toContain('Check recent questions')
+        expect(html).toContain('Runs to compare')
+        expect(html).not.toContain('Questions to compare')
         expect(html).toContain('Run recent inputs again on Live and on your draft')
+        expect(html).toContain('Requested runs')
+        expect(html).toContain('Only 1 past run available. Comparing that run.')
+        expect(html).toContain(`Webhook · ${formatListDateTime('2026-10-08T10:00:00.000Z')}`)
         expect(html).toContain('{&quot;event&quot;:&quot;bake&quot;,&quot;loaf&quot;:&quot;rye&quot;}')
         expect(html).not.toContain('sekret')
         expect(html).not.toContain('Add your own question')
-        expect(html).toContain('Past runs')
+        expect(html).not.toContain('Past runs')
         expect(html).not.toContain('Past questions')
         expect(html).toContain('Changed')
         expect(html).toContain('MANGO')
         expect(html).toContain('PAPAYA')
         expect(html).toContain('recorded input')
+    })
+
+    test('a form input shows Form and when it was recorded', () => {
+        const recorded = '2026-10-08T08:30:00.000Z'
+        const html = render({
+            setup: {
+                unavailable: null,
+                replayInputs: true,
+                replaySource: 'form',
+                questions: [{ text: '{"form":{"loaf":"rye"}}', preview: '{"loaf":"rye"}', date: recorded, source: 'form' }],
+                pastCount: 1,
+                riskySteps: [],
+                limits,
+                check: null
+            },
+            list: []
+        })
+        expect(html).toContain('Check recent runs')
+        expect(html).toContain(`Form · ${formatListDateTime(recorded)}`)
+        expect(html).toContain('{&quot;loaf&quot;:&quot;rye&quot;}')
+        expect(html).toContain('Requested runs')
+    })
+
+    test('on promote, recorded inputs are described as this server’s and still show source and time', () => {
+        const recorded = '2026-10-08T11:04:00.000Z'
+        const html = render({
+            words: CHECK_WORDS.promote,
+            setup: {
+                unavailable: null,
+                replayInputs: true,
+                replaySource: 'webhook',
+                questions: [
+                    {
+                        text: '{"webhook":{"body":{"event":"order"}}}',
+                        preview: '{"event":"order"} headers authorization: [REDACTED]',
+                        date: recorded,
+                        source: 'webhook'
+                    }
+                ],
+                pastCount: 1,
+                riskySteps: [],
+                limits,
+                check: null
+            },
+            list: []
+        })
+        expect(html).toContain('from this server')
+        expect(html).toContain(`Webhook · ${formatListDateTime(recorded)}`)
+        expect(html).toContain('authorization: [REDACTED]')
+        expect(html).toContain('Promote works with or without a check.')
+        expect(html).not.toContain('Publish works with or without a check.')
     })
 
     test('a shared webhook body shows the supplied preview and not a secret', () => {
@@ -124,6 +184,7 @@ describe('PublishCheckView', () => {
                     {
                         text: '{"webhook":{"body":{"event":"bake"},"headers":{"authorization":"[REDACTED]"}}}',
                         preview: '{"event":"bake"} query {"page":"2"} headers authorization: [REDACTED]',
+                        source: 'webhook',
                         date: '2026-10-08T11:00:00.000Z'
                     }
                 ],
@@ -137,26 +198,62 @@ describe('PublishCheckView', () => {
         expect(html).toContain(
             '{&quot;event&quot;:&quot;bake&quot;} query {&quot;page&quot;:&quot;2&quot;} headers authorization: [REDACTED]'
         )
+        expect(html).toContain(`Webhook · ${formatListDateTime('2026-10-08T11:00:00.000Z')}`)
         expect(html).not.toContain('Bearer')
         expect(html).not.toContain('sekret')
     })
 
-    test('no past runs says so, and the chat empty state does not', () => {
+    test('no past runs says how to create one, and the risky-step gate still shows', () => {
+        const empty = (source) =>
+            render({
+                setup: {
+                    unavailable: null,
+                    replayInputs: true,
+                    replaySource: source,
+                    questions: [],
+                    pastCount: 0,
+                    riskySteps: [{ id: 'http', label: 'Send the order' }],
+                    limits,
+                    check: null
+                }
+            })
+        for (const source of ['form', 'webhook', 'schedule']) {
+            const html = empty(source)
+            expect(html).toContain(noPastRunsMessage(source))
+            expect(html).toContain('Send the order')
+            expect(html).toContain('Run it anyway, including those steps')
+            expect(html).not.toContain('Add your own question')
+            expect(html).not.toContain('No one has asked this flow anything yet.')
+            expect(html).not.toContain('The check asks questions')
+        }
+    })
+
+    test('the past-run picker offers the same counts as past questions', () => {
+        const recorded = new Date('2026-10-08T09:15:00.000Z').toISOString()
         const html = render({
+            count: 10,
             setup: {
                 unavailable: null,
                 replayInputs: true,
-                questions: [],
-                pastCount: 0,
-                riskySteps: [{ id: 'http', label: 'Send the order' }],
+                replaySource: 'schedule',
+                questions: [{ text: '{"question":"daily"}', preview: '"daily"', date: recorded, source: 'schedule' }],
+                pastCount: 1,
+                riskySteps: [],
                 limits,
                 check: null
-            }
+            },
+            list: []
         })
-        expect(html).toContain('No past runs to replay yet. Run this flow once, then check again.')
-        expect(html).toContain('Send the order')
-        expect(html).not.toContain('Add your own question')
-        expect(html).not.toContain('No one has asked this flow anything yet.')
+        expect(html).toContain('Check recent runs')
+        expect(html).toContain('data-testid="compare-count"')
+        expect(html).toContain('Requested runs')
+        expect(html).not.toContain('Past runs')
+        expect(html).not.toContain('Past questions')
+        for (const n of [4, 10, 25, 50, 100]) expect(html).toContain(`value="${n}"`)
+        expect(html).toContain('value="10"')
+        expect(html).toContain('Only 1 past run available. Comparing that run.')
+        expect(html).toContain(`Schedule · ${formatListDateTime(recorded)}`)
+        expect(html).toContain('&quot;daily&quot;')
     })
 
     test('risky steps show the warning and the run anyway choice', () => {
@@ -220,6 +317,69 @@ describe('PublishCheckView', () => {
         expect(html).toContain('Changed')
         expect(html).toContain('Run check again')
         expect(html).not.toContain('Unasked')
+        expect(html).toContain('Stopped at the token limit. These are the questions answered so far.')
+    })
+
+    test('a runs check uses runs and recorded-input wording for progress, stop, and an empty summary', () => {
+        const running = render({
+            setup: { unavailable: null, replayInputs: true, replaySource: 'webhook', questions: [], pastCount: 0, riskySteps: [], limits },
+            check: {
+                id: 'c1',
+                status: 'running',
+                total: 2,
+                completed: 1,
+                stopReason: null,
+                draftChanged: false,
+                liveEmpty: false,
+                cases: [{ question: '{"webhook":{"body":{}}}', live, draft, same: false }],
+                summary: { ran: 0 }
+            }
+        })
+        expect(running).toContain('Ran 1 of 2…')
+        expect(running).not.toContain('Asked 1 of 2…')
+        const stopped = render({
+            setup: { unavailable: null, replayInputs: true, replaySource: 'form', questions: [], pastCount: 0, riskySteps: [], limits },
+            check: {
+                id: 'c2',
+                status: 'stopped',
+                stopReason: 'stopped',
+                total: 2,
+                completed: 0,
+                draftChanged: false,
+                liveEmpty: false,
+                cases: [],
+                summary: { ran: 0 }
+            }
+        })
+        expect(stopped).toContain('You stopped the check. These are the runs answered so far.')
+        expect(stopped).toContain('No recorded input was answered by both versions.')
+        expect(stopped).not.toContain('questions answered so far')
+        expect(stopped).not.toContain('No question was answered')
+        const emptyLive = render({
+            setup: {
+                unavailable: null,
+                replayInputs: true,
+                replaySource: 'schedule',
+                questions: [],
+                pastCount: 0,
+                riskySteps: [],
+                limits,
+                liveEmpty: true
+            },
+            check: {
+                id: 'c3',
+                status: 'done',
+                stopReason: 'time',
+                total: 1,
+                completed: 0,
+                draftChanged: false,
+                liveEmpty: true,
+                cases: [],
+                summary: { ran: 0 }
+            }
+        })
+        expect(emptyLive).toContain('Stopped at the time limit. These are the runs answered so far.')
+        expect(emptyLive).toContain('No recorded input was answered on your draft.')
     })
 
     test('unavailable flows say why; drafts off shows nothing', () => {
@@ -232,12 +392,47 @@ describe('PublishCheckView', () => {
             }
         })
         expect(type).toContain('The check works on chatflows and agentflows.')
+        expect(type).toContain('>Check<')
+        expect(type).not.toContain('Check recent questions')
         expect(type).not.toContain('data-testid="check-run"')
+        const settled = render({
+            loading: false,
+            checkKind: null,
+            setup: {
+                unavailable: {
+                    code: 'start',
+                    message: 'The check asks questions, so it works on agentflows that start with a chat message.'
+                },
+                replayInputs: false,
+                questions: [],
+                riskySteps: [],
+                limits,
+                check: null
+            }
+        })
+        expect(settled).toContain('The check asks questions, so it works on agentflows that start with a chat message.')
+        expect(settled).toContain('>Check<')
+        expect(settled).not.toContain('Check recent questions')
+        expect(settled).not.toContain('Check recent runs')
         expect(render({ setup: { unavailable: { code: 'off', message: 'Drafts are off on this server.' }, limits } })).toBe('')
     })
 
-    test('loading and load errors never block publishing', () => {
-        expect(render({ loading: true, setup: null })).toContain('Loading recent questions…')
+    test('loading uses the canvas hint, and an unknown start does not say questions or runs', () => {
+        const unknown = render({ loading: true, setup: null })
+        expect(unknown).toContain('Loading the check…')
+        expect(unknown).toContain('data-testid="check-title"')
+        expect(unknown).not.toContain('Check recent questions')
+        expect(unknown).not.toContain('Check recent runs')
+        expect(unknown).not.toContain('Loading recent questions…')
+        expect(unknown).not.toContain('Loading recent runs…')
+        const runs = render({ loading: true, setup: null, checkKind: 'runs' })
+        expect(runs).toContain('Check recent runs')
+        expect(runs).toContain('Loading recent runs…')
+        expect(runs).not.toContain('Check recent questions')
+        const questions = render({ loading: true, setup: null, checkKind: 'questions' })
+        expect(questions).toContain('Check recent questions')
+        expect(questions).toContain('Loading recent questions…')
+        expect(questions).not.toContain('Check recent runs')
         expect(render({ loadError: 'Recent questions could not be loaded.', setup: null })).toContain(
             'Recent questions could not be loaded. You can still publish.'
         )
@@ -258,7 +453,10 @@ describe('PublishCheckView', () => {
             list: []
         })
         expect(html).toContain('data-testid="compare-count"')
-        expect(html).toContain('Past questions')
+        expect(html).toContain('Questions to compare')
+        expect(html).not.toContain('Runs to compare')
+        expect(html).toContain('Requested questions')
+        expect(html).not.toContain('Past questions')
         for (const n of [4, 10, 25, 50, 100]) expect(html).toContain(`value="${n}"`)
         expect(html).toContain('Only 37 past questions available. Comparing all 37.')
         expect(html).toContain('That is 74 runs for 37 questions.')

@@ -1,6 +1,10 @@
 import {
     TOKEN_GUIDE_URL,
     checkRepoName,
+    environmentHint,
+    environmentSwitchNote,
+    repairListBody,
+    SAVED_REPAIR_ROWS,
     filterRepos,
     ownCredentials,
     pollMs,
@@ -102,9 +106,43 @@ describe('githubSync helpers', () => {
         expect(text).toContain('Metadata: Read-only')
         expect(text).toContain('Expiration')
         expect(JSON.stringify(tokenHelp(true))).toContain('Contents: Read-only')
+        expect(tokenHelp(true, 'Staging').note).toContain('your Staging server copies to')
+        expect(tokenHelp(true, 'Staging').note).not.toContain('your Dev server')
+        expect(tokenHelp(false, 'Dev').note).toContain('your Dev server copies to')
+        expect(tokenHelp(false, 'Dev').note).not.toContain('empty private repository')
         expect(tokenHint()).toContain('Contents set to Read and write')
         expect(tokenHint(true)).toContain('Read-only')
         expect(TOKEN_GUIDE_URL).toMatch(/docs\/how-to\/versioning\.md#which-github-token-to-use$/)
+        const pair = [
+            { name: 'dev', branch: 'main', server: 'dev' },
+            { name: 'prod', branch: 'main', server: 'prod' }
+        ]
+        const chain = [
+            { name: 'Dev', branch: 'main', server: 'dev' },
+            { name: 'Staging', branch: 'staging', server: 'staging' },
+            { name: 'Prod', branch: 'prod', server: 'prod' }
+        ]
+        expect(environmentHint([])).toBe('')
+        expect(environmentHint([])).not.toContain('Dev copies')
+        expect(environmentHint(pair)).toContain('Dev copies')
+        expect(environmentHint(pair)).toContain('Prod reads')
+        expect(environmentHint(chain)).toContain('Staging reads Dev and copies what it publishes')
+        expect(environmentHint(chain)).toContain('Prod reads Staging')
+        expect(environmentSwitchNote({ environment: 'prod', environments: pair })).toContain('Prod reads Dev')
+        expect(environmentSwitchNote({ environment: 'dev', environments: pair })).toContain(
+            'Disconnect GitHub before changing what this server reads or copies'
+        )
+        expect(environmentSwitchNote({ environment: 'staging', environments: chain })).toContain('Staging reads Dev')
+        expect(environmentSwitchNote({ environment: 'staging', environments: chain })).toContain('Prod reads Staging')
+        expect(environmentSwitchNote({ environment: 'dev', environments: chain })).toContain('Staging reads Dev')
+        expect(repairListBody(SAVED_REPAIR_ROWS, null)).toEqual({ error: 'Pick which row is this server.' })
+        expect(repairListBody(SAVED_REPAIR_ROWS, 'prod')).toEqual({
+            environment: 'prod',
+            environments: [
+                { name: 'dev', branch: 'main', server: 'dev' },
+                { name: 'prod', branch: 'main', server: 'prod' }
+            ]
+        })
         // No Git words on screen.
         for (const word of ['push', 'commit', 'branch', 'clone', 'scope']) expect(text.toLowerCase()).not.toContain(word)
     })

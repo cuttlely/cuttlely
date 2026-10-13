@@ -1,6 +1,6 @@
 # History API
 
-These routes read a flow's version history, restore a version, keep a [copy in GitHub](#copy-to-github), and [promote a flow from Dev to Prod](#promote-from-dev-to-prod). The app uses them for **Version history**, the version page, the **Version History** settings page and the **From Dev** page. Drafts, Publish, Roll back and the behavior check before Publish are in the [Drafts API](./drafts-api.md). How to use all of it from the app: [Version history](../how-to/versioning.md), starting with [the lifecycle at a glance](../how-to/versioning.md#the-lifecycle-at-a-glance).
+These routes read a flow's version history, restore a version, keep a [copy in GitHub](#copy-to-github), and [promote a flow from Dev to Prod](#promote-from-dev-to-prod). The app uses them for **Version history**, the version page, the **Version History** settings page and the promote page (From Dev on the saved Dev and Prod pair). Drafts, Publish, Roll back and the behavior check before Publish are in the [Drafts API](./drafts-api.md). How to use all of it from the app: [Version history](../how-to/versioning.md), starting with [the lifecycle at a glance](../how-to/versioning.md#the-lifecycle-at-a-glance).
 
 All routes are under `/api/v1/flow-versions`. A signed-in session works, and so does an API key with the permissions below. With an API key, the workspace is the key's workspace.
 
@@ -57,20 +57,20 @@ Returns the flow's newest 200 versions, newest first.
 }
 ```
 
-| Field           | Meaning                                                                                                                                           |
-| --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `sha`           | Full commit id. Use it, or its first 7 characters, as `:sha`.                                                                                     |
-| `date`          | When it was saved, ISO 8601 with the server's UTC offset.                                                                                         |
-| `author`        | Display name of the person who saved it, or `cuttlely` for an API key or system save.                                                             |
-| `authorId`      | That person's user id. `null` for an API key or system save.                                                                                      |
-| `authorKind`    | `user` or `system`.                                                                                                                               |
-| `title`         | The version name Cuttlely wrote from the change.                                                                                                  |
-| `details`       | More lines about the change. Can be empty.                                                                                                        |
-| `kind`          | `create`, `save`, `restore`, `publish`, `rollback`, `promote`, or `delete`. `unknown` for a commit Cuttlely did not write.                        |
-| `promotedFrom`  | For a `promote` version, the full id of the version from Dev it copies. Otherwise `null`.                                                         |
-| `name`          | The flow's name in that version.                                                                                                                  |
-| `hiddenSecrets` | How many secret-looking values this version holds as `[secret hidden]`. `0` when none.                                                            |
-| `published`     | `true` for a version put Live by Publish, Roll back Live or Promote (kind `publish`, `rollback` or `promote`). See [Drafts API](./drafts-api.md). |
+| Field           | Meaning                                                                                                                                             |
+| --------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `sha`           | Full commit id. Use it, or its first 7 characters, as `:sha`.                                                                                       |
+| `date`          | When it was saved, ISO 8601 with the server's UTC offset.                                                                                           |
+| `author`        | Display name of the person who saved it, or `cuttlely` for an API key or system save.                                                               |
+| `authorId`      | That person's user id. `null` for an API key or system save.                                                                                        |
+| `authorKind`    | `user` or `system`.                                                                                                                                 |
+| `title`         | The version name Cuttlely wrote from the change.                                                                                                    |
+| `details`       | More lines about the change. Can be empty.                                                                                                          |
+| `kind`          | `create`, `save`, `restore`, `publish`, `rollback`, `promote`, or `delete`. `unknown` for a commit Cuttlely did not write.                          |
+| `promotedFrom`  | For a `promote` version, the full id of the previous environment's version. Otherwise `null`. On the saved Dev and Prod pair that version is Dev's. |
+| `name`          | The flow's name in that version.                                                                                                                    |
+| `hiddenSecrets` | How many secret-looking values this version holds as `[secret hidden]`. `0` when none.                                                              |
+| `published`     | `true` for a version put Live by Publish, Roll back Live or Promote (kind `publish`, `rollback` or `promote`). See [Drafts API](./drafts-api.md).   |
 
 `lastError` is the reason a save of this flow could not be added to history, when the server's most recent history failure since it started was for this flow. Otherwise it is `null`. A later successful save does not clear it, so a version list can have both a recorded latest version and a `lastError`. It clears when the server restarts or a save of another flow fails.
 
@@ -232,41 +232,51 @@ The connect, disconnect, copy and label routes answer with the status. It never 
     "url": "https://github.com/acme/cuttlely-flows",
     "state": "up-to-date",
     "message": "Up to date. Every version on this server is on GitHub.",
+    "code": null,
     "waiting": 0,
     "lastCopiedAt": "2026-10-08T23:41:05.000Z",
     "lastCopiedVersion": "3413dc1",
     "nextTryAt": null,
     "connectedAt": "2026-10-08T23:40:58.000Z",
     "environment": "dev",
+    "environments": [
+        { "name": "dev", "branch": "main", "server": "dev" },
+        { "name": "prod", "branch": "main", "server": "prod" }
+    ],
+    "promotes": false,
     "role": "copy",
     "lastCheckedAt": null,
     "incomingVersion": null
 }
 ```
 
-| Field               | Meaning                                                                               |
-| ------------------- | ------------------------------------------------------------------------------------- |
-| `enabled`           | `false` when history is off. Then `state` is `off` and nothing is copied.             |
-| `credential`        | The **Github API** credential that holds the token: its id and name, never the token. |
-| `state`             | One of the states below.                                                              |
-| `message`           | One plain sentence for the screen.                                                    |
-| `waiting`           | Versions on this server that are not on GitHub yet. `null` when it cannot be counted. |
-| `lastCopiedAt`      | When the last copy finished, since the server started. `null` before the first copy.  |
-| `lastCopiedVersion` | The short id of the newest version on GitHub after that copy.                         |
-| `nextTryAt`         | When Cuttlely tries again after a failure, while `state` is `retrying`.               |
-| `role`              | `copy` on Dev or an unlabeled server. `read` on Prod: it only reads the repository.   |
-| `lastCheckedAt`     | Prod: when it last looked for new versions from Dev. `null` on Dev.                   |
-| `incomingVersion`   | Prod: the short id of the newest version it found there. `null` on Dev or when empty. |
+| Field               | Meaning                                                                                                                                                  |
+| ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `enabled`           | `false` when history is off. Then `state` is `off` and nothing is copied.                                                                                |
+| `credential`        | The **Github API** credential that holds the token: its id and name, never the token.                                                                    |
+| `state`             | One of the states below.                                                                                                                                 |
+| `message`           | One plain sentence for the screen.                                                                                                                       |
+| `code`              | `LIST_UNREADABLE` when the environment file cannot be read, `CONNECTION_UNREADABLE` when the connection file cannot be read, or `null`.                  |
+| `waiting`           | Versions on this server that are not on GitHub yet. `null` when it cannot be counted.                                                                    |
+| `lastCopiedAt`      | When the last copy finished, since the server started. `null` before the first copy.                                                                     |
+| `lastCopiedVersion` | The short id of the newest version on GitHub after that copy.                                                                                            |
+| `nextTryAt`         | When Cuttlely tries again after a failure, while `state` is `retrying`.                                                                                  |
+| `environment`       | This server's identity in `environments`: `dev`, `prod`, another server identity, or `null`.                                                             |
+| `environments`      | Promotion order. A saved Dev or Prod label with no list is dev, then prod.                                                                               |
+| `promotes`          | `true` when this server promotes from the previous environment.                                                                                          |
+| `role`              | `copy` when this server publishes versions. `read` on the last environment: it only reads the repository.                                                |
+| `lastCheckedAt`     | When this server last looked for new versions from the previous environment. `null` on the first environment. On the saved pair that environment is Dev. |
+| `incomingVersion`   | The short id of the newest version it found there. `null` on the first environment or when empty.                                                        |
 
-| `state`         | Meaning                                                                                                                                                                                                                                    |
-| --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `not-connected` | No repository. History stays on the server.                                                                                                                                                                                                |
-| `up-to-date`    | Every version is on GitHub.                                                                                                                                                                                                                |
-| `waiting`       | New versions are queued and are copied in a few seconds.                                                                                                                                                                                   |
-| `copying`       | A copy is running.                                                                                                                                                                                                                         |
-| `retrying`      | GitHub could not be reached, refused the token, or the copy failed for another reason. Cuttlely tries again on its own, waiting longer each time, up to 15 minutes.                                                                        |
-| `stopped`       | Copying needs you. GitHub's `main` has commits this server does not have, a branch rule or ruleset on GitHub refuses the copy, a version holds secret-shaped text, or the GitHub credential was deleted or is empty. `message` says which. |
-| `off`           | History is off on this server.                                                                                                                                                                                                             |
+| `state`         | Meaning                                                                                                                                                                                                                                                        |
+| --------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `not-connected` | No repository. History stays on the server.                                                                                                                                                                                                                    |
+| `up-to-date`    | Every version is on GitHub.                                                                                                                                                                                                                                    |
+| `waiting`       | New versions are queued and are copied in a few seconds.                                                                                                                                                                                                       |
+| `copying`       | A copy is running.                                                                                                                                                                                                                                             |
+| `retrying`      | GitHub could not be reached, refused the token, or the copy failed for another reason. Cuttlely tries again on its own, waiting longer each time, up to 15 minutes.                                                                                            |
+| `stopped`       | Copying needs you. The branch this server publishes to has commits this server does not have, a branch rule or ruleset on GitHub refuses the copy, a version holds secret-shaped text, or the GitHub credential was deleted or is empty. `message` says which. |
+| `off`           | History is off on this server.                                                                                                                                                                                                                                 |
 
 ### Connect
 
@@ -284,12 +294,12 @@ Or use a **Github API** credential already in the caller's workspace instead of 
 { "repo": "acme/cuttlely-flows", "credentialId": "<credential id>" }
 ```
 
-`repo` is `owner/name` or the repository's `https://github.com/owner/name` address. Cuttlely first asks GitHub for the repository's branches and tags with that token. Nothing is saved unless that works. The repository must be empty (no branches or tags at all), or have a `main` that is already part of this server's history (for example, one this server copied to before). A repository with a `master` or any other branch, or a tag, but no `main` is refused. Then a pasted token is saved as a new **Github API** credential in the caller's workspace, named `credentialName` or `GitHub: <owner/name>`, and Cuttlely saves the connection and copies every version. A token that fails the check is never saved.
+`repo` is `owner/name` or the repository's `https://github.com/owner/name` address. Cuttlely first asks GitHub for the repository's branches and tags with that token. Nothing is saved unless that works. With the saved Dev and Prod pair, the repository must be empty (no branches or tags at all), or have a `main` that is already part of this server's history (for example, one this server copied to before). A repository with a `master` or any other branch, or a tag, but no `main` is refused. With a named list, the check is this server's own publish branch: that branch must be absent, or already part of this server's history. Other environments' branches may already be in the repository. The list is read again after that listing and again immediately before the connection is saved, and the first copy uses that same list. A server that is not first needs the previous environment's branch in the listing, and the recorded list on that branch's tip has to be this server's list. A branch by itself (including one created with only a README), a note on another commit, or a different list is refused, and nothing is saved. That read checks the same tip again, so a missing record does not install it and does not copy. A read-only server (the last in the list) does not need `main` and does not need its own publish branch. Then a pasted token is saved as a new **Github API** credential in the caller's workspace, named `credentialName` or `GitHub: <owner/name>`, and Cuttlely saves the connection and copies every version. A token that fails the check is never saved.
 
-| Status | When                                                                                                                                                                          |
-| ------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 400    | The repository or token is not valid, GitHub did not accept the token, the repository is not there, or GitHub could not be reached. The message says which. Nothing is saved. |
-| 409    | History is off, or the repository already has other content (a `main` this server did not write, or other branches or tags and no `main`).                                    |
+| Status | When                                                                                                                                                                                                                                                                                    |
+| ------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 400    | The repository or token is not valid, GitHub did not accept the token, the repository is not there, GitHub could not be reached, or a named list's previous environment has no versions in that repository yet. The message says which. Nothing is saved.                               |
+| 409    | History is off, or the repository already has other content. For the saved pair that is a `main` this server did not write, or other branches or tags and no `main`. For a named list it is this server's publish branch when that branch is not already part of this server's history. |
 
 ### Disconnect
 
@@ -320,7 +330,7 @@ or `{ "credentialId": "<credential id>" }`. Asks GitHub which repositories the t
 }
 ```
 
-`empty` is `true` when GitHub reports no content. Only an empty repository, or one this server copied to before, can be connected. A token GitHub refuses, or GitHub out of reach, is 400 with a plain message.
+`empty` is `true` when GitHub reports no content. What can be connected is the rule in [Connect](#connect): with the saved Dev and Prod pair, an empty repository or one whose `main` is already part of this server's history; with a named list, this server's own publish branch, and a server that is not first also needs the previous environment's branch in the listing and this server's list recorded on that branch's tip. A note on another commit, a different list, or no recorded list is refused. A read-only server does not need `main`. A token GitHub refuses, or GitHub out of reach, is 400 with a plain message.
 
 ### Create a repository
 
@@ -334,7 +344,7 @@ or `{ "credentialId": "<credential id>" }`. Asks GitHub which repositories the t
 
 Creates a private, empty repository with that name in the token's account and answers with it, in the list format. Connect it next. A fine-grained token can create repositories only with **Administration** set to **Read and write** for all repositories, so most fine-grained tokens get 400 `This token cannot create repositories…`; create the repository on GitHub instead. A name that is taken is 409.
 
-### Label this server Dev or Prod
+### Label this server
 
 `PUT /api/v1/flow-versions/environment`
 
@@ -342,39 +352,61 @@ Creates a private, empty repository with that name in the token's account and an
 { "environment": "prod" }
 ```
 
-`dev`, `prod`, or `null` to clear it. It is kept in the history repo's `.git` folder, not in a version.
+`dev`, `prod`, or `null` to clear it. That is the saved pair: dev, then prod. It is kept in the history repo's `.git` folder, not in a version, and an existing file with only `environment` still loads as that pair.
 
-The label decides what the server does with a connected repository. Dev (or no label) copies its versions there. Prod only reads it: it never copies its own versions, so its saves never reach GitHub. Switching between Dev and Prod while a repository is connected is 409; disconnect first. Nothing on GitHub changes either way.
+To put another environment between them, send the ordered list. Each entry has a `name` (shown in the app), a `branch` (where that environment publishes), and a `server` (the identity `environment` matches). Names, server identities and branches have to be different. The saved pair is the one exception: both branches stay `main`.
+
+```json
+{
+    "environment": "staging",
+    "environments": [
+        { "name": "Dev", "branch": "main", "server": "dev" },
+        { "name": "Staging", "branch": "staging", "server": "staging" },
+        { "name": "Prod", "branch": "prod", "server": "prod" }
+    ]
+}
+```
+
+`environment` has to be one of the `server` values, or `null`. Sending `environment` alone later picks another server in the list that is already saved. If that file cannot be read, sending `environment` alone, including `null`, is 409 `The environment list could not be read. Save it again.` and nothing is written. Send the list again to repair it. `GET /github` then sets `code` to `LIST_UNREADABLE` and `environments` to an empty list. A connection file that cannot be read is a different failure: `code` is `CONNECTION_UNREADABLE`, the sentence is `The saved GitHub connection could not be read. Disconnect and connect again.`, and the saved list is still returned. Saving the saved Dev and Prod pair in place of a named list that still parses, when that save would not change what this server reads or copies, is 409 `The environment list on this server is still valid, so it was not replaced.` and the file is left as it is. A server that is not in the list is 400. On a named list, connect is refused until `environment` is one of those servers. Saving a longer list while this server still publishes the same branch rewrites the fingerprint on the versions already copied, so the next environment can read them without a new version.
+
+The first environment copies its versions to its branch. Each later one reads the previous environment's branch and can promote from it. The last environment only reads. One in the middle reads the previous branch and copies its own published versions, including promotions, to its own branch, so the next environment can read them. Promotion does not skip: Dev to Prod is refused while Staging is between them. On every hop the behavior check and the credential-name check still run.
+
+Switching this server, or saving a list that changes what it reads or copies, while a repository is connected is 409; disconnect first. A saved Dev or Prod label with no list behaves as before: Dev copies to `main`, and Prod reads `main`. A list change that keeps the same read and the same copy rewrites the fingerprint on the versions already copied.
 
 ### How copying works
 
 -   A new version, from a save, Publish, Roll back, restore or delete, is copied a few seconds after it is recorded. Drafts are not versions, so they are not copied.
 -   Copying runs in the background. It never slows down or fails a save, Publish or Roll back.
--   Cuttlely pushes this server's `main` to the repository's `main`. It never force-pushes. When GitHub's `main` has changes this server does not have, copying stops with `state: "stopped"` and GitHub keeps its changes.
+-   Cuttlely pushes this server's `main` to the repository branch for this environment. With the saved Dev and Prod pair, that branch is `main`. With a longer list, each environment that publishes uses its own branch. It never force-pushes. When that branch on GitHub has changes this server does not have, copying stops with `state: "stopped"` and GitHub keeps its changes. After that stop, later reads do not push. Try again pushes once. A process restart tries once and stops again if the branch is still diverged.
 -   Before each copy, the versions being copied, their files and their titles, are checked again for key-shaped text, with the same patterns as a commit (see [Version files](./version-files.md#markers)). A hit stops the copy and names the version and pattern, never the text.
 -   The token is a **Github API** credential, encrypted like every credential. Change it on the Credentials page and the next copy uses the new one. The connection itself (repository, its address, credential id and name) is a file in the history repo's `.git` folder, outside the files Git tracks, so it is never in a version. The token reaches Git only in the environment of the copy, as an HTTP header for that repository. It is not written into the repo's settings, a remote address, a command line, or the logs.
 -   Flow credentials are never copied. Each version names the credentials a flow uses by name and type, as in [Version files](./version-files.md), so another server can match them to its own Credentials by name.
 -   Cuttlely does not add a remote to the history repo. It keeps the last copied version in the ref `refs/versions/github`.
+-   With that copy, the publishing server records a fingerprint of its environment list. The copy is not finished until that fingerprint is on the repository. The publisher brings in any fingerprint already recorded and retries when another server records one at the same time. If the fingerprint cannot be recorded, the copy stays unfinished. A reading server offers new versions only when it read a fingerprint and that fingerprint matches its own list. When a fingerprint record already exists and this version has none, or the record cannot be read, nothing new is offered. The only read that still accepts versions with no fingerprint is the saved Dev and Prod pair, when the repository has no fingerprint record at all. A named list installs a tip only when the note on it matches. A named Prod whose record is missing keeps the versions already offered and offers nothing new.
 
 ### How Prod reads
 
--   Prod connects to the repository Dev copies to, with the same `PUT /github`. An empty repository is fine (Dev has not copied yet). A repository with other content and no `main` is refused. The token needs **Contents: Read** only.
--   Every two minutes, and on `POST /github/push` (**Try again**), Prod reads the repository's `main` into the ref `refs/versions/incoming`. It changes nothing else: not its own history, not a flow, not a draft, not Live. A failed read retries like a failed copy and never affects Live flows.
+-   Prod connects to the repository the previous environment copies to, with the same `PUT /github`. With the saved Dev and Prod pair, an empty repository is fine (Dev has not copied yet), and a repository with other content and no `main` is refused. With a named list, connect checks this server's own publish branch, and a server that is not first also needs the previous environment's branch in the listing and this server's list recorded on that branch's tip. A note on another commit, a different list, or no recorded list is refused, and nothing is saved. A read-only server does not need `main`. The token needs **Contents: Read** only.
+-   Every two minutes, and on `POST /github/push` (**Try again**), Prod reads the previous environment's branch into the ref `refs/versions/incoming`. With the saved Dev and Prod pair, that branch is `main`. It changes nothing else: not its own history, not a flow, not a draft, not Live. A failed read retries like a failed copy and never affects Live flows. New versions are installed only when the fingerprint on that version matches this server's list. A different list, a missing fingerprint while some fingerprint is already recorded, or a failure to read the record leaves the previous versions in place and offers nothing new. With the saved Dev and Prod pair, a repository with no fingerprint record at all is the one case that still installs the versions. A named list installs a tip only when the note on it matches. A named Prod whose record is missing keeps the versions already offered and offers nothing new.
 -   Disconnecting forgets `refs/versions/incoming` too.
 
 ## Promote from Dev to Prod
 
-On a server labeled Prod, these routes list the flows with a new version from Dev, show one with what it changes and the credentials it needs, run the behavior check against Live, and promote it. How to use it from the app: [Move a flow from Dev to Prod](../how-to/versioning.md#move-a-flow-from-dev-to-prod). They need a signed-in organization owner, like the GitHub routes. On any other server the list is empty and Promote is 409.
+On a server that has a previous environment (Prod, in the saved pair), these routes list the flows with a new version from that environment, show one with what it changes and the credentials it needs, run the behavior check against Live, and promote it. Promotion moves only to the next environment. How to use it from the app: [Move a flow from Dev to Prod](../how-to/versioning.md#move-a-flow-from-dev-to-prod). They need a signed-in organization owner, like the GitHub routes. On the first environment the list is empty and Promote is 409. Staging, and any environment that is not first, may promote from the previous one.
 
-| Method   | Route                                  | What it does                                                   |
-| -------- | -------------------------------------- | -------------------------------------------------------------- |
-| `GET`    | `/incoming`                            | Flows in this workspace with a new version from Dev            |
-| `GET`    | `/incoming/:chatflowId`                | That flow's new version: changes, credentials, check readiness |
-| `POST`   | `/incoming/:chatflowId/promote`        | Put that version Live here                                     |
-| `GET`    | `/incoming/:chatflowId/check`          | Behavior check setup: recent questions, risky steps, last run  |
-| `POST`   | `/incoming/:chatflowId/check`          | Start the behavior check                                       |
-| `GET`    | `/incoming/:chatflowId/check/:checkId` | Check progress and answers                                     |
-| `DELETE` | `/incoming/:chatflowId/check/:checkId` | Stop the check                                                 |
+The list also returns `environments` (the order), `source` (the previous server identity) and `target` (this server). A saved Dev and Prod label returns dev, then prod, with `source` `dev`.
+
+`POST /incoming/:chatflowId/promote` accepts an optional `from`, the previous server identity. A `from` that is not the previous environment is 409 `Promotion only moves to the next environment.` Omitting `from` promotes from the previous environment, as the app does.
+
+| Method   | Route                                  | What it does                                                             |
+| -------- | -------------------------------------- | ------------------------------------------------------------------------ |
+| `GET`    | `/incoming`                            | Flows in this workspace with a new version from the previous environment |
+| `GET`    | `/incoming/:chatflowId`                | That flow's new version: changes, credentials, check readiness           |
+| `POST`   | `/incoming/:chatflowId/promote`        | Put that version Live here                                               |
+| `GET`    | `/incoming/:chatflowId/check`          | Behavior check setup: recent questions, risky steps, last run            |
+| `POST`   | `/incoming/:chatflowId/check`          | Start the behavior check                                                 |
+| `GET`    | `/incoming/:chatflowId/check/:checkId` | Check progress and answers                                               |
+| `DELETE` | `/incoming/:chatflowId/check/:checkId` | Stop the check                                                           |
 
 ### List
 
@@ -418,15 +450,15 @@ On a server labeled Prod, these routes list the flows with a new version from De
 
 `GET /api/v1/flow-versions/incoming/:chatflowId` answers with the list entry plus:
 
-| Field                  | Meaning                                                                                                                                                                                                                                                                                                                                                                                                             |
-| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `diff`                 | What Promote changes compared with Live here, as in [Compare](#compare). For a new flow every node is added.                                                                                                                                                                                                                                                                                                        |
-| `missingCredentials`   | Credentials the version uses, by name and type, that this workspace does not have. Promote is refused until they are added on the Credentials page.                                                                                                                                                                                                                                                                 |
-| `ambiguousCredentials` | Names that match more than one credential here, and which one is used, as in [Read one version](#read-one-version).                                                                                                                                                                                                                                                                                                 |
-| `hiddenSecrets`        | How many inputs hold a hidden-secret placeholder. Values Live has here for the same inputs are kept.                                                                                                                                                                                                                                                                                                                |
-| `checkUnavailable`     | `null` when the behavior check can run. Otherwise `code` is `new-flow` (no Live to compare with), `type` (not a chatflow or an agentflow, or Live and the version from Dev are different kinds), `start` (the two versions do not start the same way, or there is no Start input to replay) or `credentials`, with a `message`. A form, webhook or schedule start can be checked when both versions use that start. |
+| Field                  | Meaning                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `diff`                 | What Promote changes compared with Live here, as in [Compare](#compare). For a new flow every node is added.                                                                                                                                                                                                                                                                                                                             |
+| `missingCredentials`   | Credentials the version uses, by name and type, that this workspace does not have. Promote is refused until they are added on the Credentials page.                                                                                                                                                                                                                                                                                      |
+| `ambiguousCredentials` | Names that match more than one credential here, and which one is used, as in [Read one version](#read-one-version).                                                                                                                                                                                                                                                                                                                      |
+| `hiddenSecrets`        | How many inputs hold a hidden-secret placeholder. Values Live has here for the same inputs are kept.                                                                                                                                                                                                                                                                                                                                     |
+| `checkUnavailable`     | `null` when the behavior check can run. Otherwise `code` is `new-flow` (no Live to compare with), `type` (not a chatflow or an agentflow, or Live and the version from the previous environment are different kinds), `start` (the two versions do not start the same way, or there is no Start input to replay) or `credentials`, with a `message`. A form, webhook or schedule start can be checked when both versions use that start. |
 
-404 when the flow has no new version from Dev.
+404 when the flow has no new version from the previous environment.
 
 ### Promote
 
@@ -436,19 +468,19 @@ On a server labeled Prod, these routes list the flows with a new version from De
 { "sha": "<40 hex>" }
 ```
 
-`sha` is the full id of the version from the list. Cuttlely checks again that it is still the newest version from Dev for this flow and that every credential it uses is here, then puts it Live through the normal update path, as Roll back does. The answer has the shape of [Restore](#restore), plus `created` and `hasDraft`.
+`sha` is the full id of the version from the list. Cuttlely checks again that it is still the newest version from the previous environment for this flow and that every credential it uses is here, then puts it Live through the normal update path, as Roll back does. The answer has the shape of [Restore](#restore), plus `created` and `hasDraft`. On the saved Dev and Prod pair that environment is Dev.
 
--   History gets a version titled `Promoted from Dev: <title on Dev> (<short id>)`, of kind `promote`, published, with the trailer `Version-From: <full id>` (see [Version files](./version-files.md#commits)). **Roll back** undoes it like any Publish.
--   A flow this server does not have is created with the id it has on Dev, in the caller's workspace, so the next versions from Dev find it.
+-   History gets a version titled `Promoted from <previous environment>: <title on that environment> (<short id>)`, of kind `promote`, published, with the trailer `Version-From` set to that previous environment's version id (see [Version files](./version-files.md#commits)). On the saved Dev and Prod pair the name is Dev. **Roll back** undoes it like any Publish.
+-   A flow this server does not have is created with the id it has on the previous environment, in the caller's workspace, so the next versions from that environment find it.
 -   Credentials are matched by name and type in the caller's workspace. Values never travel: Dev's files hold names only.
 -   A draft here is kept, unchanged, and stays marked as started from the old Live, so **Publish** asks before replacing what was promoted.
 -   Nothing is ever promoted on its own.
 
-| Status | When                                                                                                                                                  |
-| ------ | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 400    | `sha` is not 40 lowercase hex characters.                                                                                                             |
-| 409    | A newer version arrived from Dev, the version is no longer offered, a credential is missing (the message lists each one), or this server is not Prod. |
+| Status | When                                                                                                                                                                                                                                                                                                                                                             |
+| ------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 400    | `sha` is not 40 lowercase hex characters.                                                                                                                                                                                                                                                                                                                        |
+| 409    | A newer version arrived, the version is no longer offered, a credential is missing (the message lists each one), this server is the first environment (it publishes and does not promote), or `from` is not the previous environment. Staging may promote. With the saved pair, the first environment is Dev and the message still says this server is not Prod. |
 
 ### Behavior check
 
-The check routes work like the publish check in the [Drafts API](./drafts-api.md), with the version from Dev in place of the draft: recent questions from this server's chats are replayed against Live and the version from Dev, mapped to this server's credentials. The same `count` chooses how many, from 1 to 100. It writes nothing. It is a separate check from a draft check of the same flow.
+The check routes work like the publish check in the [Drafts API](./drafts-api.md), with the version from the previous environment in place of the draft. A chatflow or a chat-started agentflow replays recent questions from this server's chats against Live and that version, mapped to this server's credentials. A form, webhook or schedule agentflow replays recorded inputs from this server's executions, not from the previous environment. When this server has none, setup stays available and starting with `count` answers 400 with how to create a run here. On the saved Dev and Prod pair that version is Dev's. The same `count` chooses how many, from 1 to 100. It writes nothing. It is a separate check from a draft check of the same flow.

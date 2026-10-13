@@ -10,7 +10,15 @@ const KIND_LABELS = {
     promote: 'Promoted from Dev'
 }
 
-export const kindLabel = (kind) => KIND_LABELS[kind] || 'Saved'
+// The history title is "Promoted from Staging: …". The secondary line uses that name, not always Dev.
+export const kindLabel = (kind, title) => {
+    if (kind === 'promote' && typeof title === 'string') {
+        const match = /^Promoted from ([^:]+)/.exec(title.trim())
+        const name = match && match[1].trim()
+        if (name) return `Promoted from ${name}`
+    }
+    return KIND_LABELS[kind] || 'Saved'
+}
 
 // "just now", "5 minutes ago", "yesterday", or a date for anything older than a week.
 export const relativeTime = (iso, now = Date.now()) => {
