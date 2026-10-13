@@ -1,3 +1,5 @@
+import fs from 'fs'
+import path from 'path'
 import {
     UNREPLAYABLE_FORM,
     applyPreviews,
@@ -242,4 +244,23 @@ describe('replayFromQuestion', () => {
         expect(() => replayFromQuestion('not json', 'webhookTrigger')).toThrow(/could not be read/)
         expect(() => replayFromQuestion(canonicalJson({ question: 'hi' }), 'formInput')).toThrow(/could not be read/)
     })
+})
+
+// The dialog and the check service each hold the three empty-state sentences. This reads both files so a
+// change on one side cannot drift from the other, and so a fourth sentence cannot appear.
+test('the empty-state sentences are the same in the dialog and the check service', () => {
+    const root = path.resolve(__dirname, '../../../../..')
+    const pull = (file: string) => {
+        const text = fs.readFileSync(path.join(root, file), 'utf8')
+        return [...text.matchAll(/'No past runs exist yet\.[^']*'/g)].map((match) => match[0].slice(1, -1)).sort()
+    }
+    const expected = [
+        'No past runs exist yet. Call the webhook once, then check again.',
+        'No past runs exist yet. Submit the form once, then check again.',
+        'No past runs exist yet. Wait for the schedule, or trigger it once, then check again.'
+    ]
+    const fromServer = pull('packages/server/src/services/flow-check/inputs.ts')
+    const fromDialog = pull('packages/ui/src/utils/publishCheck.js')
+    expect(fromServer).toEqual(expected)
+    expect(fromDialog).toEqual(fromServer)
 })
