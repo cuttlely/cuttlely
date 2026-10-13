@@ -59,7 +59,6 @@
             "packages/server/src/database/entities/TokenUsageDay.ts",
             "packages/server/src/database/migrations/*/1791900000000-AddTokenUsageDay.ts",
             "packages/ui/src/ui-component/extended/PublishInstantly.jsx",
-            "packages/ui/src/ui-component/extended/PublishGate.jsx",
             "packages/server/src/services/flow-promote/**",
             "packages/server/src/controllers/flow-promote/**",
             "packages/ui/src/views/promote/**",
@@ -418,8 +417,7 @@
                 "packages/server/src/database/entities/FlowVersionState.ts",
                 "packages/server/src/database/migrations/*/1784000000000-AddFlowVersionState.ts",
                 "packages/server/src/database/migrations/*/1792000000000-AddPublishGate.ts",
-                "packages/ui/src/ui-component/extended/PublishInstantly.jsx",
-                "packages/ui/src/ui-component/extended/PublishGate.jsx"
+                "packages/ui/src/ui-component/extended/PublishInstantly.jsx"
             ],
             "entryPoints": [
                 "packages/server/src/database/entities/FlowVersionState.ts",
@@ -441,9 +439,9 @@
                 "packages/ui/src/api/flowDrafts.js",
                 "packages/ui/src/api/flowVersions.js",
                 "packages/ui/src/ui-component/extended/PublishInstantly.jsx",
-                "packages/ui/src/ui-component/extended/PublishGate.jsx",
                 "packages/ui/src/utils/flowDrafts.js",
                 "packages/ui/src/utils/versionHistory.js",
+                "packages/ui/src/views/canvas/PublishCheck.jsx",
                 "packages/ui/src/views/canvas/PublishDialog.jsx",
                 "packages/ui/src/views/canvas/VersionHistoryDrawer.jsx",
                 "packages/ui/src/views/versions/VersionCanvas.jsx"

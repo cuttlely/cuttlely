@@ -1,6 +1,10 @@
 // The optional rule that Publish waits for a passing dataset check. Pure: no database and no answers.
-import { StatusCodes } from 'http-status-codes'
-import { AppError } from '../../errors/appError'
+
+function refuse(message: string): never {
+    const error = new Error(message) as Error & { statusCode: number }
+    error.statusCode = 400
+    throw error
+}
 
 export const PUBLISH_GATE_TYPES = new Set(['CHATFLOW', 'AGENTFLOW'])
 
@@ -40,7 +44,7 @@ export function emptyGateStatus(): GateStatus {
 
 export function normalizeEvaluatorIds(value: unknown): string[] {
     if (!Array.isArray(value) || value.length === 0 || value.some((id) => typeof id !== 'string' || !id.trim())) {
-        throw new AppError(StatusCodes.BAD_REQUEST, 'Choose at least one evaluator before requiring a passing test set.')
+        refuse('Choose at least one evaluator before requiring a passing test set.')
     }
     const ids = [...new Set(value.map((id) => String(id).trim()))].sort()
     return ids
@@ -53,15 +57,15 @@ export function parseGateInput(value: unknown): {
     threshold: number | null
 } {
     if (!value || typeof value !== 'object' || Array.isArray(value)) {
-        throw new AppError(StatusCodes.BAD_REQUEST, 'publishGate is an object with enabled true or false.')
+        refuse('publishGate is an object with enabled true or false.')
     }
     const body = value as Record<string, unknown>
     if (typeof body.enabled !== 'boolean') {
-        throw new AppError(StatusCodes.BAD_REQUEST, 'publishGate.enabled is true or false.')
+        refuse('publishGate.enabled is true or false.')
     }
     if (!body.enabled) return { enabled: false, datasetId: null, evaluatorIds: [], threshold: null }
     if (typeof body.datasetId !== 'string' || !body.datasetId.trim()) {
-        throw new AppError(StatusCodes.BAD_REQUEST, 'Choose a dataset before requiring a passing test set.')
+        refuse('Choose a dataset before requiring a passing test set.')
     }
     const evaluatorIds = normalizeEvaluatorIds(body.evaluatorIds)
     const threshold = parseStoredThreshold(body.threshold)
@@ -71,7 +75,7 @@ export function parseGateInput(value: unknown): {
 function parseStoredThreshold(value: unknown): number {
     if (value === undefined || value === null) return 100
     if (typeof value !== 'number' || !Number.isInteger(value) || value < 0 || value > 100) {
-        throw new AppError(StatusCodes.BAD_REQUEST, 'threshold is a whole number from 0 to 100.')
+        refuse('threshold is a whole number from 0 to 100.')
     }
     return value
 }

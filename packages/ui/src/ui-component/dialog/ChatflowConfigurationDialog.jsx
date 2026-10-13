@@ -39,7 +39,7 @@ import FileUpload from '@/ui-component/extended/FileUpload'
 import PostProcessing from '@/ui-component/extended/PostProcessing'
 import McpServer from '@/ui-component/extended/McpServer'
 import PublishInstantly from '@/ui-component/extended/PublishInstantly'
-import PublishGate from '@/ui-component/extended/PublishGate'
+import { PublishGateSettings } from '@/views/canvas/PublishCheck'
 import { showPublishGate, showPublishInstantly } from '@/utils/flowDrafts'
 
 const CONFIGURATION_GROUPS = [
@@ -275,7 +275,7 @@ const ChatflowConfigurationDialog = ({ show, isAgentCanvas, dialogProps, onCance
             case 'publishInstantly':
                 return <PublishInstantly {...props} />
             case 'publishGate':
-                return <PublishGate {...props} />
+                return <PublishGateSettings {...props} />
             case 'rateLimit':
                 return <RateLimit {...props} hideTitle />
             case 'allowedDomains':
