@@ -160,12 +160,15 @@ async function signIn(page, base) {
     await page.evaluate(() => window.localStorage.setItem('cuttlely.canvasLook', 'panel'))
 }
 
-async function exercise(page, base, { route, nodeId, connectedId, flowName }) {
+async function exercise(page, base, { route, nodeId, connectedId, buttonId, multiIds, removedIds, flowName, flowId, cookie, saveTitle }) {
     await page.goto(`${base}${route}`, { waitUntil: 'domcontentloaded' })
     const card = page.locator(`.react-flow__node[data-id="${nodeId}"]`)
     await card.waitFor({ timeout: 20000 })
     await page.waitForTimeout(500)
     if (connectedId) await checkConnectedBackspace(page, connectedId, flowName)
+    if (buttonId) await deleteFromToolbar(page, buttonId)
+    if (multiIds?.length) await deleteSelectedCards(page, multiIds)
+    if (removedIds?.length) await assertSavedFlow(page, base, cookie, flowId, saveTitle, removedIds)
     const before = await page.locator('.react-flow__node').count()
     const box = await card.boundingBox()
     if (!box) throw new Error(`${nodeId} has no box`)
@@ -352,6 +355,77 @@ async function checkConnectedBackspace(page, nodeId, flowName) {
     if (!(await canvasUnsaved(page, flowName))) throw new Error(`${nodeId} Backspace did not mark the canvas unsaved`)
 }
 
+async function deleteFromToolbar(page, nodeId) {
+    const card = page.locator(`.react-flow__node[data-id="${nodeId}"]`)
+    const box = await card.boundingBox()
+    if (!box) throw new Error(`${nodeId} has no box for the Delete button`)
+    await card.click({ position: { x: Math.min(30, box.width / 2), y: Math.min(16, box.height / 2) } })
+    await page.getByTestId('node-side-panel').waitFor({ timeout: 10000 })
+    const before = await page.locator('.react-flow__node').count()
+    await card.locator('[data-testid="card-delete"]').click()
+    await page.waitForTimeout(400)
+    if ((await page.locator('.react-flow__node').count()) !== before - 1) throw new Error(`${nodeId} toolbar Delete did not drop the count`)
+    if ((await page.locator(`.react-flow__node[data-id="${nodeId}"]`).count()) !== 0)
+        throw new Error(`${nodeId} toolbar Delete left the card`)
+}
+
+async function deleteSelectedCards(page, ids) {
+    const first = page.locator(`.react-flow__node[data-id="${ids[0]}"]`)
+    const firstBox = await first.boundingBox()
+    await first.click({ position: { x: Math.min(30, firstBox.width / 2), y: Math.min(16, firstBox.height / 2) } })
+    const panel = page.getByTestId('node-side-panel')
+    await panel.waitFor({ timeout: 10000 })
+    await panel.getByTestId('close-settings').click()
+    await page.waitForTimeout(200)
+    for (const id of ids.slice(1)) {
+        const card = page.locator(`.react-flow__node[data-id="${id}"]`)
+        const box = await card.boundingBox()
+        await card.click({
+            modifiers: ['Control'],
+            position: { x: Math.min(30, box.width / 2), y: Math.min(16, box.height / 2) }
+        })
+        if ((await panel.count()) !== 0) await panel.getByTestId('close-settings').click()
+    }
+    const selected = await page.locator('.react-flow__node.selected').count()
+    if (selected < ids.length) throw new Error(`selected ${selected} cards, expected ${ids.length}`)
+    const before = await page.locator('.react-flow__node').count()
+    await page.keyboard.press('Delete')
+    await page.waitForTimeout(400)
+    if ((await page.locator('.react-flow__node').count()) !== before - ids.length) {
+        throw new Error(
+            `multi-select Delete left ${await page.locator('.react-flow__node').count()} cards, expected ${before - ids.length}`
+        )
+    }
+    for (const id of ids) {
+        if ((await page.locator(`.react-flow__node[data-id="${id}"]`).count()) !== 0) throw new Error(`multi-select Delete left ${id}`)
+    }
+}
+
+async function assertSavedFlow(page, base, cookie, flowId, saveTitle, ids) {
+    const responsePromise = page.waitForResponse(
+        (response) => response.url().includes(`/api/v1/flow-drafts/${flowId}`) && response.request().method() === 'PUT',
+        { timeout: 15000 }
+    )
+    await page.locator(`[title="${saveTitle}"]`).click()
+    const response = await responsePromise
+    const body = await response.json()
+    let flowData = body?.draft?.flowData
+    if (!flowData) {
+        const got = await request(`${base}/api/v1/flow-drafts/${flowId}`, { cookie })
+        flowData = JSON.parse(got.text || '{}')?.draft?.flowData
+    }
+    if (!flowData) throw new Error('save did not return the flow')
+    const parsed = JSON.parse(flowData)
+    const text = JSON.stringify(parsed)
+    for (const id of ids) {
+        if (text.includes(`{{${id}.data.instance}}`)) throw new Error(`saved flow still references ${id}`)
+        if ((parsed.nodes || []).some((node) => node.id === id)) throw new Error(`saved flow still has card ${id}`)
+        if ((parsed.edges || []).some((edge) => edge.source === id || edge.target === id)) {
+            throw new Error(`saved flow still has a line for ${id}`)
+        }
+    }
+}
+
 async function checkCanvasBackspace(page, card, nodeId) {
     const panel = page.getByTestId('node-side-panel')
     if ((await panel.count()) !== 0) throw new Error(`${nodeId} panel was open for canvas Backspace`)
@@ -433,16 +507,27 @@ async function prepareFlows(base, cookie) {
         label: 'Daily bread prompt',
         position: { x: 160, y: 140 }
     })
-    const extraPrompt = await buildNode(base, cookie, 'promptTemplate', 'promptTemplate_1', {
-        label: 'Connected prompt',
-        position: { x: 520, y: 140 }
-    })
-    const chatEdge = connectNodes(extraPrompt, prompt, 'template', 'buttonedge')
+    const chatSources = []
+    for (const [index, label, x] of [
+        [1, 'Connected prompt', 480],
+        [2, 'Button prompt', 760],
+        [3, 'Multi prompt A', 160],
+        [4, 'Multi prompt B', 480]
+    ]) {
+        chatSources.push(
+            await buildNode(base, cookie, 'promptTemplate', `promptTemplate_${index}`, {
+                label,
+                position: { x, y: index < 3 ? 360 : 560 }
+            })
+        )
+    }
+    const chatEdges = chatSources.map((node) => connectNodes(node, prompt, 'promptValues', 'buttonedge'))
+    prompt.data.inputs.promptValues = chatSources.map((node) => `{{${node.id}.data.instance}}`).join(' ')
     const chat = await createFlow(base, cookie, {
         name: 'canvas actions chat',
         type: 'CHATFLOW',
-        nodes: [prompt, extraPrompt],
-        edges: [chatEdge]
+        nodes: [prompt, ...chatSources],
+        edges: chatEdges
     })
     const start = await buildNode(base, cookie, 'startAgentflow', 'startAgentflow_0', {
         label: 'Start',
@@ -454,18 +539,28 @@ async function prepareFlows(base, cookie) {
         position: { x: 420, y: 160 }
     })
     reply.type = 'agentFlow'
-    const extraReply = await buildNode(base, cookie, 'directReplyAgentflow', 'directReplyAgentflow_1', {
-        label: 'Connected reply',
-        position: { x: 760, y: 160 }
-    })
-    extraReply.type = 'agentFlow'
     const replyInput = (reply.data.inputParams || []).find((item) => item.acceptVariable) || reply.data.inputParams?.[0]
-    const flowEdge = connectNodes(extraReply, reply, replyInput?.name || 'message', 'agentFlow')
+    const flowSources = []
+    for (const [index, label, x, y] of [
+        [1, 'Connected reply', 760, 160],
+        [2, 'Button reply', 80, 420],
+        [3, 'Multi reply A', 420, 420],
+        [4, 'Multi reply B', 760, 420]
+    ]) {
+        const node = await buildNode(base, cookie, 'directReplyAgentflow', `directReplyAgentflow_${index}`, {
+            label,
+            position: { x, y }
+        })
+        node.type = 'agentFlow'
+        flowSources.push(node)
+    }
+    const flowEdges = flowSources.map((node) => connectNodes(node, reply, replyInput?.name || 'directReplyMessage', 'agentFlow'))
+    reply.data.inputs[replyInput?.name || 'directReplyMessage'] = flowSources.map((node) => `{{${node.id}.data.instance}}`).join(' ')
     const flow = await createFlow(base, cookie, {
         name: 'canvas actions workflow',
         type: 'AGENTFLOW',
-        nodes: [start, reply, extraReply],
-        edges: [flowEdge]
+        nodes: [start, reply, ...flowSources],
+        edges: flowEdges
     })
     return { chat, flow }
 }
@@ -493,14 +588,26 @@ export async function runCanvasActions(base) {
             route: `/canvas/${flows.chat.id}`,
             nodeId: 'promptTemplate_0',
             connectedId: 'promptTemplate_1',
-            flowName: 'canvas actions chat'
+            buttonId: 'promptTemplate_2',
+            multiIds: ['promptTemplate_3', 'promptTemplate_4'],
+            removedIds: ['promptTemplate_1', 'promptTemplate_2', 'promptTemplate_3', 'promptTemplate_4'],
+            flowName: 'canvas actions chat',
+            flowId: flows.chat.id,
+            cookie: loggedIn.cookie,
+            saveTitle: 'Save Chatflow'
         })
         console.log('chatflow canvas actions ok')
         await exercise(page, base, {
             route: `/v2/agentcanvas/${flows.flow.id}`,
             nodeId: 'directReplyAgentflow_0',
             connectedId: 'directReplyAgentflow_1',
-            flowName: 'canvas actions workflow'
+            buttonId: 'directReplyAgentflow_2',
+            multiIds: ['directReplyAgentflow_3', 'directReplyAgentflow_4'],
+            removedIds: ['directReplyAgentflow_1', 'directReplyAgentflow_2', 'directReplyAgentflow_3', 'directReplyAgentflow_4'],
+            flowName: 'canvas actions workflow',
+            flowId: flows.flow.id,
+            cookie: loggedIn.cookie,
+            saveTitle: 'Save Agents'
         })
         console.log('workflow canvas actions ok')
     } finally {

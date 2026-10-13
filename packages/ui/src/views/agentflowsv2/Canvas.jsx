@@ -46,7 +46,7 @@ import useApi from '@/hooks/useApi'
 import useConfirm from '@/hooks/useConfirm'
 import useCanvasLook from '@/hooks/useCanvasLook'
 import { isNewLook, panelNode } from '@/utils/canvasLook'
-import { dispatchCanvasChanges, panelStateWhenNodesChange } from '@/views/canvas/cardActions'
+import { createCanvasDeleteQueue, panelStateWhenNodesChange } from '@/views/canvas/cardActions'
 
 // icons
 import {
@@ -109,7 +109,7 @@ const AgentflowCanvas = () => {
         draftStatusRef.current = status
         setDraftStatusState(status)
     }
-    const { reactFlowInstance, setReactFlowInstance, deleteNode, deleteEdge } = useContext(flowContext)
+    const { reactFlowInstance, setReactFlowInstance, deleteSelection, applyingDelete } = useContext(flowContext)
     // Build with AI: starter questions wait here until the first save puts them in the chat settings.
     const builderStartersRef = useRef([])
     const [builtResult, setBuiltResult] = useState(null)
@@ -131,14 +131,22 @@ const AgentflowCanvas = () => {
     const [panelNodeId, setPanelNodeId] = useState(null)
     const [panelProps, setPanelProps] = useState({})
     const [edges, setEdges, onEdgesChange] = useEdgesState()
-    const applyingDelete = useRef(false)
+    const deleteSelectionRef = useRef(deleteSelection)
+    deleteSelectionRef.current = deleteSelection
+    const deleteQueue = useMemo(() => createCanvasDeleteQueue((batch) => deleteSelectionRef.current?.(batch)), [])
     const handleNodesChange = useCallback(
-        (changes) => dispatchCanvasChanges(changes, { applying: applyingDelete, remove: deleteNode, apply: onNodesChange }),
-        [deleteNode, onNodesChange]
+        (changes) => {
+            if (applyingDelete?.current) onNodesChange(changes)
+            else deleteQueue.nodes(changes, onNodesChange)
+        },
+        [applyingDelete, deleteQueue, onNodesChange]
     )
     const handleEdgesChange = useCallback(
-        (changes) => dispatchCanvasChanges(changes, { applying: applyingDelete, remove: deleteEdge, apply: onEdgesChange }),
-        [deleteEdge, onEdgesChange]
+        (changes) => {
+            if (applyingDelete?.current) onEdgesChange(changes)
+            else deleteQueue.edges(changes, onEdgesChange)
+        },
+        [applyingDelete, deleteQueue, onEdgesChange]
     )
 
     const isScheduleFlow = useMemo(() => {

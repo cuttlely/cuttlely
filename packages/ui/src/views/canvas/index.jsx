@@ -76,7 +76,7 @@ import { CHATFLOW_NEEDS_ENDING_NODE, chatflowCanChat } from '@/utils/chatflowRea
 import { harnessChatBlock, reservedHarnessNameMessage } from '@/utils/harnessChatReady'
 import { nodeMoved } from '@/utils/canvasDirty'
 import { panelNode, panToKeepInView } from '@/utils/canvasLook'
-import { dispatchCanvasChanges, panelStateWhenNodesChange } from '@/views/canvas/cardActions'
+import { createCanvasDeleteQueue, panelStateWhenNodesChange } from '@/views/canvas/cardActions'
 import { flowiseCanvasJson } from '@/utils/flowiseImport'
 import { hydrateLangflowFlow, isLangflowExport, langflowToFlowise } from '@/utils/langflowImport'
 import { hydrateRawCanvasNodes, normalizeCanvasFlow, repairFlowEdges, specsByName, stripRawCanvasMarker } from '@/utils/normalizeCanvasFlow'
@@ -167,7 +167,7 @@ const Canvas = () => {
     const pendingLangflow = useRef(null)
     const dragOrigin = useRef(new Map())
     chatflowRef.current = chatflow
-    const { reactFlowInstance, setReactFlowInstance, deleteNode, deleteEdge, duplicateNode } = useContext(flowContext)
+    const { reactFlowInstance, setReactFlowInstance, deleteNode, deleteSelection, applyingDelete, duplicateNode } = useContext(flowContext)
 
     // ==============================|| Snackbar ||============================== //
 
@@ -179,16 +179,24 @@ const Canvas = () => {
 
     const [nodes, setNodes, onNodesChange] = useNodesState()
     const [edges, setEdges, onEdgesChange] = useEdgesState()
-    // Keyboard Delete and Backspace emit remove changes. Those go through deleteNode and deleteEdge, which mark the
-    // canvas unsaved and clear downstream references. The other change types stay on the React Flow path.
-    const applyingDelete = useRef(false)
+    // Keyboard Delete and Backspace emit remove changes for every selected card and its lines. One pass deletes
+    // that whole set. Drag and select still go through the React Flow handler. The pipeline canvas uses this too.
+    const deleteSelectionRef = useRef(deleteSelection)
+    deleteSelectionRef.current = deleteSelection
+    const deleteQueue = useMemo(() => createCanvasDeleteQueue((batch) => deleteSelectionRef.current?.(batch)), [])
     const handleNodesChange = useCallback(
-        (changes) => dispatchCanvasChanges(changes, { applying: applyingDelete, remove: deleteNode, apply: onNodesChange }),
-        [deleteNode, onNodesChange]
+        (changes) => {
+            if (applyingDelete?.current) onNodesChange(changes)
+            else deleteQueue.nodes(changes, onNodesChange)
+        },
+        [applyingDelete, deleteQueue, onNodesChange]
     )
     const handleEdgesChange = useCallback(
-        (changes) => dispatchCanvasChanges(changes, { applying: applyingDelete, remove: deleteEdge, apply: onEdgesChange }),
-        [deleteEdge, onEdgesChange]
+        (changes) => {
+            if (applyingDelete?.current) onEdgesChange(changes)
+            else deleteQueue.edges(changes, onEdgesChange)
+        },
+        [applyingDelete, deleteQueue, onEdgesChange]
     )
 
     const [selectedNode, setSelectedNode] = useState(null)

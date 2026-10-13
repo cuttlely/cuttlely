@@ -35,37 +35,98 @@ export function actionBarSide({ card, bar, canvas, overlays = [], gap = 4 } = {}
     return 'above'
 }
 
-// A keyboard Delete or Backspace arrives as React Flow remove changes. Those must go through deleteNode and
-// deleteEdge. Applying the remove change itself only updates the canvas list.
-export function applyCanvasChanges(changes, { remove, apply } = {}) {
+// Split a React Flow change list. Remove ids are deleted together. Every other change still goes through as itself.
+export function partitionCanvasChanges(changes) {
+    const removeIds = []
     const rest = []
     for (const change of changes || []) {
         if (change && change.type === 'remove') {
-            if (change.id != null) remove?.(change.id)
+            if (change.id != null) removeIds.push(change.id)
         } else if (change) rest.push(change)
     }
-    if (rest.length) apply?.(rest)
-    return rest
+    return { removeIds, rest }
 }
 
-// deleteNode and deleteEdge call back into this handler. Changes from that call update the list. They must not
-// call delete again.
-export function dispatchCanvasChanges(changes, { applying, remove, apply } = {}) {
-    if (applying?.current) {
-        apply?.(changes)
-        return
+// A parent and its loop children. Walk from the requested ids so a child listed first is still included.
+export function collectRemovedNodeIds(nodes, nodeIds) {
+    const ids = new Set((nodeIds || []).filter((id) => id != null))
+    const children = new Map()
+    for (const node of nodes || []) {
+        if (!node?.parentNode) continue
+        const list = children.get(node.parentNode) || []
+        list.push(node.id)
+        children.set(node.parentNode, list)
     }
-    applyCanvasChanges(changes, {
-        remove: (id) => {
-            if (applying) applying.current = true
-            try {
-                remove?.(id)
-            } finally {
-                if (applying) applying.current = false
+    const stack = [...ids]
+    while (stack.length) {
+        const id = stack.pop()
+        for (const child of children.get(id) || []) {
+            if (ids.has(child)) continue
+            ids.add(child)
+            stack.push(child)
+        }
+    }
+    return ids
+}
+
+// One next list of cards and one next list of lines. Callers must pass these arrays to setNodes and setEdges
+// once. A second read of the store still has the pre-delete cards.
+export function canvasAfterDelete({ nodes, edges, nodeIds = [], edgeIds = [] } = {}) {
+    const nodeList = Array.isArray(nodes) ? nodes : []
+    const edgeList = Array.isArray(edges) ? edges : []
+    const removeNodes = collectRemovedNodeIds(nodeList, nodeIds)
+    const removeEdges = new Set((edgeIds || []).filter((id) => id != null))
+    let nextNodes = nodeList
+    for (const id of removeNodes) nextNodes = nodesAfterConnectedDelete(nextNodes, edgeList, id, 'node')
+    for (const id of removeEdges) nextNodes = nodesAfterConnectedDelete(nextNodes, edgeList, id, 'edge')
+    nextNodes = nextNodes.filter((node) => node && !removeNodes.has(node.id))
+    const nextEdges = edgeList.filter(
+        (edge) => edge && !removeEdges.has(edge.id) && !removeNodes.has(edge.source) && !removeNodes.has(edge.target)
+    )
+    return { nodes: nextNodes, edges: nextEdges }
+}
+
+// Node removes and edge removes arrive in two calls. Hold them and delete once, after both have been seen.
+export function createCanvasDeleteQueue(deleteBatch) {
+    const applying = { current: false }
+    let nodeIds = []
+    let edgeIds = []
+    let scheduled = false
+    const flush = () => {
+        scheduled = false
+        const batch = { nodeIds, edgeIds }
+        nodeIds = []
+        edgeIds = []
+        if (!batch.nodeIds.length && !batch.edgeIds.length) return
+        applying.current = true
+        try {
+            deleteBatch(batch)
+        } finally {
+            applying.current = false
+        }
+    }
+    const accept = (kind, changes, apply) => {
+        if (applying.current) {
+            apply?.(changes)
+            return
+        }
+        const { removeIds, rest } = partitionCanvasChanges(changes)
+        if (removeIds.length) {
+            if (kind === 'node') nodeIds.push(...removeIds)
+            else edgeIds.push(...removeIds)
+            if (!scheduled) {
+                scheduled = true
+                queueMicrotask(flush)
             }
-        },
-        apply
-    })
+        }
+        if (rest.length) apply?.(rest)
+    }
+    return {
+        applying,
+        nodes: (changes, apply) => accept('node', changes, apply),
+        edges: (changes, apply) => accept('edge', changes, apply),
+        flush
+    }
 }
 
 // Drop {{sourceId.data.instance}} (and a list entry that names that id) from the cards a removed node or edge fed.

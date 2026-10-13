@@ -1,15 +1,23 @@
+/**
+ * @jest-environment <rootDir>/src/__mocks__/jsdomCanvasEnvironment.js
+ */
 import fs from 'fs'
 import path from 'path'
-import { createElement } from 'react'
+import PropTypes from 'prop-types'
+import { createElement, useContext, useEffect } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { ThemeProvider, createTheme } from '@mui/material/styles'
 
+import { render, act } from '@testing-library/react'
+import { Provider } from 'react-redux'
+import { createStore } from 'redux'
+
+import { SET_DIRTY } from '@/store/actions'
+import { ReactFlowContext, flowContext } from '@/store/context/ReactFlowContext'
 import {
     actionBarSide,
-    applyCanvasChanges,
-    dispatchCanvasChanges,
     cardActionNames,
-    nodesAfterConnectedDelete,
+    createCanvasDeleteQueue,
     panelHeaderActions,
     panelStateWhenNodesChange,
     showCardActions
@@ -132,12 +140,60 @@ describe('settings panel header', () => {
     })
 })
 
-function connectedCanvas() {
+// React Flow 11.10.4 turns each controlled setNodes / setEdges into a reset of the array it was given,
+// and getNodes / getEdges stay on the pre-delete objects until the handler returns.
+function createReactFlow11Store(nodes, edges) {
+    const state = {
+        nodes,
+        edges,
+        nodeWrites: [],
+        edgeWrites: [],
+        passthrough: []
+    }
+    let onNodesChange = () => {}
+    let onEdgesChange = () => {}
+    const write = (kind, payload, current, emit) => {
+        const next = typeof payload === 'function' ? payload(current) : payload
+        ;(kind === 'node' ? state.nodeWrites : state.edgeWrites).push(next)
+        const changes =
+            next.length === 0 ? current.map((item) => ({ type: 'remove', id: item.id })) : next.map((item) => ({ type: 'reset', item }))
+        emit(changes)
+    }
     return {
-        dirty: false,
+        state,
+        instance: {
+            getNodes: () => state.nodes,
+            getEdges: () => state.edges,
+            setNodes: (payload) => write('node', payload, state.nodes, (changes) => onNodesChange(changes)),
+            setEdges: (payload) => write('edge', payload, state.edges, (changes) => onEdgesChange(changes))
+        },
+        setHandlers(handlers) {
+            onNodesChange = handlers.nodes
+            onEdgesChange = handlers.edges
+        },
+        saved() {
+            return {
+                nodes: state.nodeWrites[state.nodeWrites.length - 1] ?? state.nodes,
+                edges: state.edgeWrites[state.edgeWrites.length - 1] ?? state.edges
+            }
+        }
+    }
+}
+
+function flowGraph() {
+    return {
         nodes: [
-            { id: 'promptTemplate_0', data: { name: 'promptTemplate', inputs: { template: '' } } },
-            { id: 'promptTemplate_1', data: { name: 'promptTemplate', inputs: { template: '' } } },
+            { id: 'promptTemplate_0', data: { name: 'promptTemplate', inputs: {} } },
+            { id: 'promptTemplate_1', data: { name: 'promptTemplate', inputs: {} } },
+            {
+                id: 'loop_0',
+                data: { name: 'iteration', inputs: {} }
+            },
+            {
+                id: 'child_0',
+                parentNode: 'loop_0',
+                data: { name: 'promptTemplate', inputs: {} }
+            },
             {
                 id: 'llmChain_0',
                 data: {
@@ -145,7 +201,7 @@ function connectedCanvas() {
                     inputAnchors: [{ name: 'tools', list: true }],
                     inputParams: [{ name: 'prompt', acceptVariable: true }],
                     inputs: {
-                        prompt: 'Hello {{promptTemplate_0.data.instance}}',
+                        prompt: '{{promptTemplate_0.data.instance}} {{child_0.data.instance}}',
                         tools: ['{{promptTemplate_0.data.instance}}', '{{promptTemplate_1.data.instance}}', 'keep']
                     }
                 }
@@ -153,132 +209,172 @@ function connectedCanvas() {
             { id: 'startAgentflow_0', data: { name: 'startAgentflow', inputs: {} } }
         ],
         edges: [
-            {
-                id: 'e0',
-                source: 'promptTemplate_0',
-                target: 'llmChain_0',
-                targetHandle: 'llmChain_0-input-prompt-string'
-            },
-            {
-                id: 'e0tools',
-                source: 'promptTemplate_0',
-                target: 'llmChain_0',
-                targetHandle: 'llmChain_0-input-tools-array'
-            },
-            {
-                id: 'e1',
-                source: 'promptTemplate_1',
-                target: 'llmChain_0',
-                targetHandle: 'llmChain_0-input-tools-array'
-            }
+            { id: 'e0', source: 'promptTemplate_0', target: 'llmChain_0', targetHandle: 'llmChain_0-input-prompt-string' },
+            { id: 'e0tools', source: 'promptTemplate_0', target: 'llmChain_0', targetHandle: 'llmChain_0-input-tools-array' },
+            { id: 'e1', source: 'promptTemplate_1', target: 'llmChain_0', targetHandle: 'llmChain_0-input-tools-array' },
+            { id: 'eChild', source: 'child_0', target: 'llmChain_0', targetHandle: 'llmChain_0-input-prompt-string' }
         ]
     }
 }
 
-// The same path both editor canvases use. deleteNode and deleteEdge mark the canvas unsaved and clear references.
-function applyKey(state, nodeChanges, edgeChanges) {
-    const applied = { nodes: [], edges: [] }
-    const deleteNode = (id) => {
-        state.nodes = nodesAfterConnectedDelete(state.nodes, state.edges, id, 'node')
-        state.nodes = state.nodes.filter((node) => node.id !== id)
-        state.edges = state.edges.filter((edge) => edge.source !== id && edge.target !== id)
-        state.dirty = true
-    }
-    const deleteEdge = (id) => {
-        state.nodes = nodesAfterConnectedDelete(state.nodes, state.edges, id, 'edge')
-        state.edges = state.edges.filter((edge) => edge.id !== id)
-        state.dirty = true
-    }
-    applyCanvasChanges(nodeChanges, {
-        remove: deleteNode,
-        apply: (rest) => applied.nodes.push(...rest)
+function Grab({ rf, api }) {
+    const ctx = useContext(flowContext)
+    useEffect(() => {
+        ctx.setReactFlowInstance(rf.instance)
+        api.current = ctx
     })
-    applyCanvasChanges(edgeChanges, {
-        remove: deleteEdge,
-        apply: (rest) => applied.edges.push(...rest)
+    return null
+}
+
+Grab.propTypes = {
+    rf: PropTypes.shape({ instance: PropTypes.object.isRequired }).isRequired,
+    api: PropTypes.shape({ current: PropTypes.any }).isRequired
+}
+
+function mountCanvas(graph) {
+    const rf = createReactFlow11Store(graph.nodes, graph.edges)
+    const redux = createStore((state = { dirty: 0 }, action) => (action.type === SET_DIRTY ? { dirty: state.dirty + 1 } : state))
+    const api = { current: null }
+    render(createElement(Provider, { store: redux }, createElement(ReactFlowContext, null, createElement(Grab, { rf, api }))))
+    const queue = createCanvasDeleteQueue((batch) => api.current.deleteSelection(batch))
+    rf.setHandlers({
+        nodes: (changes) => {
+            if (api.current?.applyingDelete?.current) return
+            queue.nodes(changes, (rest) => rf.state.passthrough.push(...rest))
+        },
+        edges: (changes) => {
+            if (api.current?.applyingDelete?.current) return
+            queue.edges(changes, (rest) => rf.state.passthrough.push(...rest))
+        }
     })
-    return applied
+    return { rf, redux, api, queue }
 }
 
 describe('keyboard delete on a connected card', () => {
-    test.each(['Delete', 'Backspace'])('%s marks the canvas unsaved and clears the downstream reference', (key) => {
-        const state = connectedCanvas()
-        const applied = applyKey(
-            state,
-            [
-                { type: 'remove', id: 'promptTemplate_0', key },
-                { type: 'position', id: 'llmChain_0', position: { x: 4, y: 8 } }
-            ],
-            [
-                { type: 'remove', id: 'e0', key },
-                { type: 'remove', id: 'e0tools', key }
-            ]
-        )
-        expect(state.dirty).toBe(true)
-        expect(state.nodes.map((node) => node.id)).not.toContain('promptTemplate_0')
-        expect(state.nodes.map((node) => node.id)).toContain('startAgentflow_0')
-        const chain = state.nodes.find((node) => node.id === 'llmChain_0')
-        expect(chain.data.inputs.prompt).toBe('Hello ')
-        expect(JSON.stringify(chain.data.inputs)).not.toContain('promptTemplate_0')
-        expect(chain.data.inputs.tools).toEqual(['{{promptTemplate_1.data.instance}}', 'keep'])
-        expect(applied.nodes).toEqual([{ type: 'position', id: 'llmChain_0', position: { x: 4, y: 8 } }])
-        expect(applied.edges).toEqual([])
-    })
-
-    test('Delete removes every selected card and leaves the start card', () => {
-        const state = connectedCanvas()
-        applyKey(
-            state,
-            [
-                { type: 'remove', id: 'promptTemplate_0' },
-                { type: 'remove', id: 'promptTemplate_1' }
-            ],
-            [
-                { type: 'remove', id: 'e0' },
-                { type: 'remove', id: 'e0tools' },
-                { type: 'remove', id: 'e1' }
-            ]
-        )
-        expect(state.dirty).toBe(true)
-        expect(state.nodes.map((node) => node.id).sort()).toEqual(['llmChain_0', 'startAgentflow_0'])
-        const chain = state.nodes.find((node) => node.id === 'llmChain_0')
-        expect(chain.data.inputs.prompt).toBe('Hello ')
-        expect(chain.data.inputs.tools).toEqual(['keep'])
-        expect(state.edges).toEqual([])
-    })
-
-    test('a delete that updates the canvas does not delete again', () => {
-        const applying = { current: false }
-        const applied = []
-        const removed = []
-        dispatchCanvasChanges([{ type: 'remove', id: 'promptTemplate_0' }], {
-            applying,
-            remove: (id) => {
-                removed.push(id)
-                dispatchCanvasChanges(
-                    [
-                        { type: 'reset', item: { id: 'llmChain_0' } },
-                        { type: 'remove', id: 'e0' }
-                    ],
-                    {
-                        applying,
-                        remove: (nested) => removed.push(nested),
-                        apply: (rest) => applied.push(...rest)
-                    }
-                )
-            },
-            apply: (rest) => applied.push(...rest)
+    test('the Delete button clears the downstream reference in one write', () => {
+        const { rf, redux, api } = mountCanvas(flowGraph())
+        act(() => {
+            api.current.deleteNode('promptTemplate_0')
         })
-        expect(removed).toEqual(['promptTemplate_0'])
-        expect(applied.map((change) => change.type)).toEqual(['reset', 'remove'])
-        expect(applying.current).toBe(false)
+        const saved = rf.saved()
+        expect(redux.getState().dirty).toBe(1)
+        expect(rf.state.nodeWrites).toHaveLength(1)
+        expect(rf.state.edgeWrites).toHaveLength(1)
+        expect(saved.nodes.map((node) => node.id)).not.toContain('promptTemplate_0')
+        expect(saved.nodes.map((node) => node.id)).toContain('startAgentflow_0')
+        const chain = saved.nodes.find((node) => node.id === 'llmChain_0')
+        expect(chain.data.inputs.prompt).toBe(' {{child_0.data.instance}}')
+        expect(chain.data.inputs.tools).toEqual(['{{promptTemplate_1.data.instance}}', 'keep'])
+        expect(saved.edges.map((edge) => edge.id)).not.toContain('e0')
+        expect(rf.state.nodes.find((node) => node.id === 'promptTemplate_0')).toBeTruthy()
+    })
+
+    test('deleteEdge clears the reference for that line and leaves the card', () => {
+        const { rf, redux, api } = mountCanvas(flowGraph())
+        act(() => {
+            api.current.deleteEdge('e1')
+        })
+        const saved = rf.saved()
+        expect(redux.getState().dirty).toBe(1)
+        expect(rf.state.nodeWrites).toHaveLength(1)
+        expect(rf.state.edgeWrites).toHaveLength(1)
+        expect(saved.edges.map((edge) => edge.id)).not.toContain('e1')
+        expect(saved.nodes.find((node) => node.id === 'promptTemplate_1')).toBeTruthy()
+        expect(saved.nodes.find((node) => node.id === 'llmChain_0').data.inputs.tools).toEqual([
+            '{{promptTemplate_0.data.instance}}',
+            'keep'
+        ])
+    })
+
+    test('keyboard delete of one card, two cards, and a loop each remove every card, edge, and reference', async () => {
+        const one = mountCanvas(flowGraph())
+        await act(async () => {
+            one.queue.edges(
+                [
+                    { type: 'remove', id: 'e0' },
+                    { type: 'remove', id: 'e0tools' }
+                ],
+                (rest) => one.rf.state.passthrough.push(...rest)
+            )
+            one.queue.nodes(
+                [
+                    { type: 'remove', id: 'promptTemplate_0' },
+                    { type: 'position', id: 'llmChain_0', position: { x: 3, y: 4 } }
+                ],
+                (rest) => one.rf.state.passthrough.push(...rest)
+            )
+            await Promise.resolve()
+        })
+        let saved = one.rf.saved()
+        expect(one.redux.getState().dirty).toBe(1)
+        expect(one.rf.state.nodeWrites).toHaveLength(1)
+        expect(saved.nodes.map((node) => node.id)).not.toContain('promptTemplate_0')
+        expect(JSON.stringify(saved.nodes.find((node) => node.id === 'llmChain_0').data.inputs)).not.toContain('promptTemplate_0')
+        expect(one.rf.state.passthrough).toEqual([{ type: 'position', id: 'llmChain_0', position: { x: 3, y: 4 } }])
+
+        const two = mountCanvas(flowGraph())
+        await act(async () => {
+            two.queue.edges(
+                [
+                    { type: 'remove', id: 'e0' },
+                    { type: 'remove', id: 'e0tools' },
+                    { type: 'remove', id: 'e1' }
+                ],
+                (rest) => two.rf.state.passthrough.push(...rest)
+            )
+            two.queue.nodes(
+                [
+                    { type: 'remove', id: 'promptTemplate_0' },
+                    { type: 'remove', id: 'promptTemplate_1' }
+                ],
+                (rest) => two.rf.state.passthrough.push(...rest)
+            )
+            await Promise.resolve()
+        })
+        saved = two.rf.saved()
+        expect(two.rf.state.nodeWrites).toHaveLength(1)
+        expect(saved.nodes.map((node) => node.id).sort()).toEqual(['child_0', 'llmChain_0', 'loop_0', 'startAgentflow_0'])
+        expect(saved.nodes.find((node) => node.id === 'llmChain_0').data.inputs.tools).toEqual(['keep'])
+        expect(saved.nodes.find((node) => node.id === 'llmChain_0').data.inputs.prompt).toBe(' {{child_0.data.instance}}')
+        expect(saved.edges.map((edge) => edge.id)).toEqual(['eChild'])
+
+        const loop = mountCanvas(flowGraph())
+        await act(async () => {
+            loop.queue.edges([{ type: 'remove', id: 'eChild' }], (rest) => loop.rf.state.passthrough.push(...rest))
+            loop.queue.nodes(
+                [
+                    { type: 'remove', id: 'loop_0' },
+                    { type: 'remove', id: 'child_0' }
+                ],
+                (rest) => loop.rf.state.passthrough.push(...rest)
+            )
+            await Promise.resolve()
+        })
+        saved = loop.rf.saved()
+        expect(loop.rf.state.nodeWrites).toHaveLength(1)
+        expect(saved.nodes.map((node) => node.id)).not.toContain('loop_0')
+        expect(saved.nodes.map((node) => node.id)).not.toContain('child_0')
+        expect(JSON.stringify(saved.nodes.find((node) => node.id === 'llmChain_0').data.inputs)).not.toContain('child_0')
+        expect(saved.edges.map((edge) => edge.id)).not.toContain('eChild')
+    })
+
+    test('drag and select still pass through', () => {
+        const { rf, queue } = mountCanvas(flowGraph())
+        const changes = [
+            { type: 'position', id: 'llmChain_0', position: { x: 8, y: 9 } },
+            { type: 'select', id: 'llmChain_0', selected: true }
+        ]
+        queue.nodes(changes, (rest) => rf.state.passthrough.push(...rest))
+        expect(rf.state.passthrough).toEqual(changes)
+        expect(rf.state.nodeWrites).toHaveLength(0)
     })
 
     test('both editor canvases send remove changes through that path', () => {
         const files = [path.join(__dirname, 'index.jsx'), path.join(__dirname, '../agentflowsv2/Canvas.jsx')]
         for (const file of files) {
             const source = fs.readFileSync(file, 'utf8')
-            expect(source).toContain('dispatchCanvasChanges')
+            expect(source).toContain('createCanvasDeleteQueue')
+            expect(source).toContain('deleteSelection')
             expect(source).toContain('onNodesChange={handleNodesChange}')
             expect(source).toContain('onEdgesChange={handleEdgesChange}')
             expect(source).not.toContain('onNodesChange={onNodesChange}')

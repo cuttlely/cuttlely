@@ -1,8 +1,8 @@
-import { createContext, useState } from 'react'
+import { createContext, useRef, useState } from 'react'
 import { useDispatch } from 'react-redux'
 import PropTypes from 'prop-types'
 import { getUniqueNodeId, showHideInputParams } from '@/utils/genericHelper'
-import { nodesAfterConnectedDelete } from '@/views/canvas/cardActions'
+import { canvasAfterDelete } from '@/views/canvas/cardActions'
 import { cloneDeep, isEqual } from 'lodash'
 import { SET_DIRTY } from '@/store/actions'
 
@@ -91,57 +91,31 @@ export const ReactFlowContext = ({ children }) => {
         }
     }
 
-    const deleteNode = (nodeid) => {
-        deleteConnectedInput(nodeid, 'node')
-
-        // Gather all nodes to be deleted (parent and all descendants)
-        const nodesToDelete = new Set()
-
-        // Helper function to collect all descendant nodes recursively
-        const collectDescendants = (parentId) => {
-            const childNodes = reactFlowInstance.getNodes().filter((node) => node.parentNode === parentId)
-
-            childNodes.forEach((childNode) => {
-                nodesToDelete.add(childNode.id)
-                collectDescendants(childNode.id)
-            })
-        }
-
-        // Collect all descendants first
-        collectDescendants(nodeid)
-
-        // Add the parent node itself last
-        nodesToDelete.add(nodeid)
-
-        // Clean up inputs for all nodes to be deleted
-        nodesToDelete.forEach((id) => {
-            if (id !== nodeid) {
-                // Skip parent node as it's already processed at the beginning
-                deleteConnectedInput(id, 'node')
-            }
+    // React Flow 11 reads the store for every setNodes / setEdges. The store stays on the pre-delete cards until
+    // this handler returns, so the cleaned cards and the filtered cards have to be one array, written once.
+    const applyingDelete = useRef(false)
+    const deleteSelection = ({ nodeIds = [], edgeIds = [] } = {}) => {
+        if (!reactFlowInstance) return
+        if (!nodeIds.length && !edgeIds.length) return
+        const next = canvasAfterDelete({
+            nodes: reactFlowInstance.getNodes(),
+            edges: reactFlowInstance.getEdges(),
+            nodeIds,
+            edgeIds
         })
-
-        // Filter out all nodes and edges in a single operation
-        reactFlowInstance.setNodes((nodes) => nodes.filter((node) => !nodesToDelete.has(node.id)))
-
-        // Remove all edges connected to any of the deleted nodes
-        reactFlowInstance.setEdges((edges) => edges.filter((edge) => !nodesToDelete.has(edge.source) && !nodesToDelete.has(edge.target)))
-
+        applyingDelete.current = true
+        try {
+            reactFlowInstance.setNodes(next.nodes)
+            reactFlowInstance.setEdges(next.edges)
+        } finally {
+            applyingDelete.current = false
+        }
         dispatch({ type: SET_DIRTY })
     }
 
-    const deleteEdge = (edgeid) => {
-        deleteConnectedInput(edgeid, 'edge')
-        reactFlowInstance.setEdges((edges) => edges.filter((edge) => edge.id !== edgeid))
-        dispatch({ type: SET_DIRTY })
-    }
+    const deleteNode = (nodeid) => deleteSelection({ nodeIds: [nodeid] })
 
-    const deleteConnectedInput = (id, type) => {
-        const edges = reactFlowInstance.getEdges()
-        const connected = type === 'node' ? edges.some((edge) => edge.source === id) : edges.some((edge) => edge.id === id)
-        if (!connected) return
-        reactFlowInstance.setNodes((nds) => nodesAfterConnectedDelete(nds, edges, id, type))
-    }
+    const deleteEdge = (edgeid) => deleteSelection({ edgeIds: [edgeid] })
 
     const duplicateNode = (id, distance = 50) => {
         const nodes = reactFlowInstance.getNodes()
@@ -231,6 +205,8 @@ export const ReactFlowContext = ({ children }) => {
                 setReactFlowInstance,
                 deleteNode,
                 deleteEdge,
+                deleteSelection,
+                applyingDelete,
                 duplicateNode,
                 onAgentflowNodeStatusUpdate,
                 clearAgentflowNodeStatus,
