@@ -159,7 +159,20 @@ function watchLoops(videos, win, doc) {
                 } else {
                     wantsPlay.delete(video)
                     onScreen.delete(video)
-                    video.pause()
+                    const doc = video.ownerDocument
+                    const endedNarration = !!(doc && narrating.get(doc) === video)
+                    try {
+                        video.pause()
+                    } catch {
+                        // Already idle.
+                    }
+                    // Scrolling the sounding video away never fires ended, so the hold would stay forever.
+                    // Coming back plays the silent preview, not the narration.
+                    if (endedNarration) {
+                        endNarration(video)
+                        if (sounding.has(video)) leaveSoundMode(video)
+                        resumeMutedPreviews(doc, win)
+                    }
                 }
             }
             sortPending()
@@ -404,13 +417,39 @@ function playFromStart(video) {
     const pending = video.play?.()
     if (pending && typeof pending.catch === 'function') {
         pending.catch(() => {
-            // A rejected play must not leave this video narrating, or the previews stay paused.
-            endNarration(video)
-            if (sounding.has(video)) leaveSoundMode(video)
-            resumeMutedPreviews(video.ownerDocument, video.ownerDocument?.defaultView)
+            const doc = video.ownerDocument
+            // pause() rejects the play that this narration already replaced. That catch must not
+            // resume previews behind the video that is narrating now.
+            if (doc && narrating.get(doc) !== video) return
+            settleNarration(video, doc?.defaultView)
         })
     }
     return pending
+}
+
+/**
+ * End a sound session. With autoplay off, drop the sources and load the empty element so the poster
+ * paints. Otherwise return to the silent preview and resume loops the queue has already started.
+ */
+function settleNarration(video, win) {
+    endNarration(video)
+    try {
+        video.pause()
+    } catch {
+        // Already idle.
+    }
+    if (sounding.has(video)) leaveSoundMode(video)
+    const view = win || video.ownerDocument?.defaultView
+    if (view && !canAutoplay(view) && parkSources(video)) {
+        video.load()
+        return
+    }
+    try {
+        video.currentTime = 0
+    } catch {
+        // Leave the playhead. The button still returns.
+    }
+    resumeMutedPreviews(video.ownerDocument, view)
 }
 
 function bindHeroPlay(video, win) {
@@ -434,33 +473,16 @@ function bindHeroPlay(video, win) {
     })
     video.addEventListener('ended', () => {
         if (!sounding.has(video)) return
-        endNarration(video)
-        try {
-            video.pause()
-        } catch {
-            // Already idle.
-        }
-        leaveSoundMode(video)
-        // Seeking to 0 paints frame 0. On this file that frame is empty, so the poster has to be loaded
-        // with the sources detached. load() while they are still attached would refetch.
-        if (!canAutoplay(win) && parkSources(video)) {
-            video.load()
-            return
-        }
-        try {
-            video.currentTime = 0
-        } catch {
-            // Leave the playhead. The button still returns.
-        }
-        // The sound playback paused every on-screen loop. Resume the ones the queue has already
-        // admitted. A hero that has scrolled away stays paused until the play observer brings it back.
-        resumeMutedPreviews(video.ownerDocument, win)
+        // Seeking to 0 paints frame 0. On this file that frame is empty, so with autoplay off the
+        // poster is loaded only after the sources are detached.
+        settleNarration(video, win)
     })
 }
 
 function resumeMutedPreviews(doc, win) {
     const view = win || doc?.defaultView
     if (!view || !canAutoplay(view) || typeof doc?.querySelectorAll !== 'function') return
+    if (narrating.has(doc)) return
     for (const preview of doc.querySelectorAll('[data-demo-video], [data-loop-video]')) {
         if (!preview?.dataset || sounding.has(preview) || parkedSources.has(preview) || !onScreen.has(preview)) continue
         preview.defaultMuted = true
