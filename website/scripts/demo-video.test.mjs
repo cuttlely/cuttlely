@@ -48,9 +48,14 @@ function fakes({ reduced = false, small = false, saveData = false, videos = 1, h
         }
         return video
     })
+    const listeners = { doc: {}, win: {} }
+    const listen = (bucket) => (type, fn) => {
+        ;(listeners[bucket][type] ||= []).push(fn)
+    }
     const win = {
         matchMedia: (query) => ({ matches: (reduced && query.includes('reduce')) || (small && query.includes('max-width')) }),
         navigator: { connection: { saveData } },
+        addEventListener: listen('win'),
         ...(hasObserver
             ? {
                   IntersectionObserver: class {
@@ -64,7 +69,15 @@ function fakes({ reduced = false, small = false, saveData = false, videos = 1, h
               }
             : {})
     }
-    const doc = { querySelectorAll: (selector) => (selector.includes('[data-demo-video]') ? list : []) }
+    const doc = {
+        hidden: false,
+        visibilityState: 'visible',
+        querySelectorAll: (selector) => (selector.includes('[data-demo-video]') ? list : []),
+        addEventListener: listen('doc')
+    }
+    const dispatch = (bucket, type, event = {}) => {
+        for (const fn of listeners[bucket][type] || []) fn(event)
+    }
     const playObserver = () => observers.find((observer) => observer.options.threshold === 0.5)
     const nearObserver = () => observers.find((observer) => String(observer.options.rootMargin || '').includes('100%'))
     return {
@@ -85,7 +98,8 @@ function fakes({ reduced = false, small = false, saveData = false, videos = 1, h
             list[i].events.error()
         },
         inFlight: () => open.size,
-        peak: () => peak
+        peak: () => peak,
+        dispatch
     }
 }
 
@@ -219,6 +233,74 @@ test('a fetch already in progress is not restarted by the queue', () => {
     assert.equal(calls.includes('load 0'), false)
     assert.equal(list[0].currentTime, 0.2)
     assert.equal(typeof list[0].events.canplaythrough, 'function')
+})
+
+test('resume restarts a frozen download without resetting a playing loop', () => {
+    const { doc, win, calls, list, approach, finish, dispatch, inFlight, peak } = fakes({ videos: 4 })
+    initDemoVideo(doc, win)
+    approach([0, 1, 2, 3])
+    assert.deepEqual(
+        calls.filter((call) => call.startsWith('load')),
+        ['load 0', 'load 1']
+    )
+    // Freeze closed the sockets and left both downloads LOADING. stalled must not free a slot.
+    assert.equal(list[0].events.stalled, undefined)
+    assert.equal(list[1].events.stalled, undefined)
+    assert.equal(inFlight(), 2)
+    const times = []
+    let time = 0.49
+    Object.defineProperty(list[0], 'currentTime', {
+        configurable: true,
+        get: () => time,
+        set: (value) => {
+            times.push(value)
+            time = value
+        }
+    })
+    // Loop 0 is playing with an aborted socket. Loop 1 never got a frame.
+    list[0].readyState = 3
+    list[0].networkState = 2
+    list[0].paused = false
+    list[1].currentTime = 0
+    list[1].readyState = 1
+    list[1].networkState = 2
+    doc.hidden = true
+    doc.visibilityState = 'hidden'
+    dispatch('doc', 'resume')
+    dispatch('win', 'pageshow', { persisted: false })
+    assert.deepEqual(
+        calls.filter((call) => call.startsWith('load')),
+        ['load 0', 'load 1']
+    )
+    doc.hidden = false
+    doc.visibilityState = 'visible'
+    dispatch('doc', 'visibilitychange')
+    // Only the frozen, not-yet-playing download is selected again.
+    assert.deepEqual(
+        calls.filter((call) => call.startsWith('load')),
+        ['load 0', 'load 1', 'load 1']
+    )
+    assert.deepEqual(times, [])
+    assert.equal(list[0].currentTime, 0.49)
+    finish(0)
+    finish(1)
+    assert.deepEqual(
+        calls.filter((call) => call.startsWith('load')),
+        ['load 0', 'load 1', 'load 1', 'load 2', 'load 3']
+    )
+    assert.equal(inFlight(), 2)
+    assert.equal(peak(), 2)
+})
+
+test('a back-forward restore restarts a frozen download once the page is visible', () => {
+    const { doc, win, calls, approach, dispatch } = fakes({ videos: 2 })
+    initDemoVideo(doc, win)
+    approach([0, 1])
+    dispatch('win', 'pageshow', { persisted: true })
+    assert.deepEqual(
+        calls.filter((call) => call.startsWith('load')),
+        ['load 0', 'load 1', 'load 0', 'load 1']
+    )
 })
 
 test('a source error frees the slot only when no candidate is left', () => {

@@ -18,14 +18,25 @@ export function canAutoplay(win = window) {
  * element is still NETWORK_EMPTY, and a second load() would abort playback and set currentTime
  * back to 0. play() waits until this slot has started the element. A loop that is half on screen
  * moves ahead of the ones that are only nearby, and plays when its download starts.
+ *
+ * A slot is freed only when:
+ * - canplaythrough fires
+ * - the video fires error
+ * - a source error fires and networkState is NETWORK_NO_SOURCE (the last candidate failed)
+ * - the element is already NETWORK_NO_SOURCE or HAVE_ENOUGH_DATA when the slot opens
+ * A stalled download keeps its slot. A frozen page aborts the fetch without those events;
+ * resume calls load() again once the document is visible, and that restart is what lets the
+ * listeners above free the slot. A playing or fully buffered loop is not loaded again.
  */
-function watchLoops(videos, win) {
+function watchLoops(videos, win, doc) {
     const wantsPlay = new WeakSet()
     const queued = new WeakSet()
     const started = new WeakSet()
+    const holding = new Set()
     const pending = []
     let active = 0
     let pumping = false
+    let restartWhenVisible = false
 
     const sortPending = () => {
         pending.sort((a, b) => {
@@ -43,12 +54,14 @@ function watchLoops(videos, win) {
             while (active < MAX_LOADING && pending.length) {
                 const video = pending.shift()
                 started.add(video)
+                holding.add(video)
                 active += 1
                 let released = false
                 let onSourceError = () => {}
                 const done = () => {
                     if (released) return
                     released = true
+                    holding.delete(video)
                     video.removeEventListener('canplaythrough', done)
                     video.removeEventListener('error', done)
                     // Source errors do not bubble. The capture listener is what sees them.
@@ -121,6 +134,31 @@ function watchLoops(videos, win) {
         playObserver.observe(video)
         nearObserver.observe(video)
     }
+
+    // Freeze aborts the socket and leaves networkState LOADING, with no error and no emptied.
+    // load() runs the resource selection again so the listeners above can free the slot.
+    const documentVisible = () => (doc.visibilityState ? doc.visibilityState === 'visible' : doc.hidden !== true)
+    const restartFrozen = () => {
+        if (!documentVisible()) {
+            restartWhenVisible = true
+            return
+        }
+        restartWhenVisible = false
+        for (const video of holding) {
+            const readyState = video.readyState || 0
+            // load() would send a playing or fully buffered loop back to the start.
+            if (readyState >= 4 || (video.currentTime || 0) > 0) continue
+            if (video.networkState === 2 && readyState < 4) video.load()
+        }
+    }
+    doc.addEventListener('resume', restartFrozen)
+    doc.addEventListener('visibilitychange', () => {
+        if (restartWhenVisible) restartFrozen()
+    })
+    // pageshow is a window event. persisted is the back/forward cache restore.
+    win.addEventListener('pageshow', (event) => {
+        if (event?.persisted) restartFrozen()
+    })
 }
 
 /** Plays the demo video and the tile loops while they are on screen, when autoplay is fine for this visitor. */
@@ -131,7 +169,7 @@ export function initDemoVideo(doc = document, win = window) {
         for (const video of videos) if ('demoVideo' in (video.dataset ?? {})) video.muted = false
         return false
     }
-    watchLoops(videos, win)
+    watchLoops(videos, win, doc)
     return true
 }
 
