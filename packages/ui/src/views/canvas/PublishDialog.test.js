@@ -193,6 +193,48 @@ describe('PublishDialog while the check setup is still pending', () => {
         expect(onDraftStatus).toHaveBeenCalledWith(expect.objectContaining({ publishGate: expect.objectContaining({ block: reason }) }))
         act(() => root.unmount())
     })
+
+    test('a form start with the gate already on says how to turn it off and does not offer a run', async () => {
+        flowDraftsApi.getCheckSetup.mockImplementation(() => new Promise(() => {}))
+        flowDraftsApi.getStatus.mockResolvedValue({
+            data: { publishGate: { enabled: true, block: 'There is no result for this draft yet.' } }
+        })
+        const form = JSON.stringify({
+            nodes: [{ id: 'start', data: { name: 'startAgentflow', inputs: { startInputType: 'formInput' } } }],
+            edges: []
+        })
+        const container = document.createElement('div')
+        document.body.appendChild(container)
+        const root = createRoot(container)
+        await act(async () => {
+            root.render(
+                createElement(
+                    ThemeProvider,
+                    { theme: createTheme() },
+                    createElement(PublishDialog, {
+                        open: true,
+                        chatflow: { id: 'flow-1', type: 'AGENTFLOW', name: 'Order form', flowData: form },
+                        draftStatus: {
+                            draft: { flowData: form },
+                            publishGate: {
+                                enabled: true,
+                                block: 'Publish needs a passing test set at 100%. There is no result for this draft yet.'
+                            }
+                        },
+                        isDirty: false,
+                        onClose: () => {},
+                        onDraftStatus: () => {},
+                        onChatflowUpdated: () => {},
+                        onApplyCanvas: () => {}
+                    })
+                )
+            )
+        })
+        expect(document.body.textContent).toContain('starts with a form, so it cannot use a dataset.')
+        expect(document.body.textContent).toContain('Turn off the passing test set before you publish.')
+        expect(document.body.textContent).not.toContain('Run the test set')
+        act(() => root.unmount())
+    })
 })
 
 const graph = (label, path) =>

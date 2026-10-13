@@ -31,6 +31,7 @@ import {
     postProcessHash,
     testSetChangedReason
 } from './gate'
+import { datasetStartRefusal } from '../flow-check/kinds'
 import { casesFromDataset, currentTestSetHash, loadEvaluators } from '../flow-check/score'
 
 // Test seam. A race test changes the flow's type after a draft save has started and before it writes.
@@ -208,14 +209,20 @@ function gateSettingsOf(state: FlowVersionState | null) {
     }
 }
 
-export function gateStatusFor(flow: Pick<DraftFlow, 'type'>, state: FlowVersionState | null, draftFlowData?: string | null): GateStatus {
+export function gateStatusFor(
+    flow: Pick<DraftFlow, 'type' | 'flowData'>,
+    state: FlowVersionState | null,
+    draftFlowData?: string | null
+): GateStatus {
     const settings = gateSettingsOf(state)
     const result = readGateResult(state?.publishGateResult)
     // Harness and other canvases share this row. The setting is refused for them, and a harness check
     // does not write a pass, so the gate stays off even when the flag is set.
     const enabled = publishGateApplies(flow.type) && settings.enabled
+    // A start that cannot take a dataset keeps the gate on. Dropping it would let a start change publish with no pass.
+    const startBlock = enabled ? datasetGateBlock(flow.type, [flow.flowData, draftFlowData]) : null
     const block = enabled
-        ? publishBlockReason({ ...settings, enabled: true }, result, draftFlowData ? canvasHash(draftFlowData) : null)
+        ? startBlock || publishBlockReason({ ...settings, enabled: true }, result, draftFlowData ? canvasHash(draftFlowData) : null)
         : null
     if (!state) return emptyGateStatus()
     return { ...settings, enabled, result, block }
@@ -233,6 +240,13 @@ export function statusFrom(flow: DraftFlow, state: FlowVersionState | null): Dra
         draft: draftInfo(flow, state),
         lastPublished: state?.publishedDate ? { sha: state.liveSha || null, date: new Date(state.publishedDate).toISOString() } : null
     }
+}
+
+// The same 400 a dataset check returns, plus how to leave the block. The gate stays on.
+function datasetGateBlock(type: string | null | undefined, canvases: Array<string | null | undefined>): string | null {
+    const refusal = datasetStartRefusal(type, canvases)
+    if (!refusal) return null
+    return `${refusal} Turn off the passing test set before you publish.`
 }
 
 // A passing result is stale when the rows the check asked, or an evaluator's type or config, no longer match.
@@ -469,6 +483,8 @@ export async function updateDraftSettings(
         if (!publishGateApplies(flow.type)) {
             throw new AppError(StatusCodes.BAD_REQUEST, 'A passing test set before Publish is for chatflows and agentflows.')
         }
+        const refusal = datasetStartRefusal(flow.type, [flow.flowData, state?.draftFlowData])
+        if (refusal) throw new AppError(StatusCodes.BAD_REQUEST, refusal)
     }
     if (nextInstant && state?.draftFlowData) {
         throw new AppError(
