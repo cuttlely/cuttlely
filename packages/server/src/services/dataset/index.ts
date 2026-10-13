@@ -1,3 +1,4 @@
+import { randomUUID } from 'crypto'
 import { Request } from 'express'
 import { StatusCodes } from 'http-status-codes'
 import { Readable } from 'stream'
@@ -19,6 +20,8 @@ const RATING_VALUES = new Set(['THUMBS_UP', 'THUMBS_DOWN'])
 // One call does not copy an unbounded history. Callers can ask for fewer.
 export const RATING_IMPORT_CAP = 500
 const RATING_PAGE = 200
+// A window full of stored or question-less ratings must not walk the whole history.
+export const RATING_SCAN_CAP = 1000
 const RATING_PREVIEW_ROWS = 5
 const RATING_PREVIEW_CHARS = 160
 const RATING_DAY_MS = 24 * 60 * 60 * 1000
@@ -32,6 +35,28 @@ function viewPermissionForFlow(type: string | undefined): string {
 function isUniqueViolation(error: unknown): boolean {
     const message = getErrorMessage(error).toLowerCase()
     return message.includes('unique') || message.includes('duplicate')
+}
+
+function isDatabaseBusy(error: unknown): boolean {
+    const message = getErrorMessage(error).toLowerCase()
+    return (
+        message.includes('sqlite_busy') ||
+        message.includes('database is locked') ||
+        message.includes('deadlock') ||
+        message.includes('cannot start a transaction within a transaction')
+    )
+}
+
+// Sqlite has one connection. A second BEGIN fails and its rollback can undo the first write.
+const ratingWrites = new Map<string, Promise<unknown>>()
+
+function writeRatingsInTurn<T>(datasetId: string, work: () => Promise<T>): Promise<T> {
+    const previous = ratingWrites.get(datasetId) || Promise.resolve()
+    const run = previous.catch(() => undefined).then(work)
+    ratingWrites.set(datasetId, run)
+    return run.finally(() => {
+        if (ratingWrites.get(datasetId) === run) ratingWrites.delete(datasetId)
+    })
 }
 
 import csv from 'csv-parser'
@@ -554,11 +579,14 @@ const addDatasetRowFromChatMessage = async (
         created.sourceFlowId = flow.id
         created.sourceDate = message.createdDate
         try {
-            return await appServer.AppDataSource.transaction(async (manager) => {
-                const saved = await manager.getRepository(DatasetRow).save(created)
-                await changeUpdateOnDataset(dataset.id, workspaceId, manager)
-                return saved
-            })
+            // The same turn as a bulk import. Sqlite cannot start a second transaction on its one connection.
+            return await writeRatingsInTurn(dataset.id, () =>
+                appServer.AppDataSource.transaction(async (manager) => {
+                    const saved = await manager.getRepository(DatasetRow).save(created)
+                    await changeUpdateOnDataset(dataset.id, workspaceId, manager)
+                    return saved
+                })
+            )
         } catch (error) {
             if (error instanceof AppError) throw error
             if (!isUniqueViolation(error)) throw error
@@ -641,7 +669,14 @@ const addDatasetRowsFromRatings = async (
         const seenMessages = new Set<string>()
         let skipped = 0
         let offset = 0
+        let scanned = 0
+        let truncated = false
         while (planned.length < limit) {
+            if (scanned >= RATING_SCAN_CAP) {
+                truncated = true
+                break
+            }
+            const take = Math.min(RATING_PAGE, RATING_SCAN_CAP - scanned)
             const page = await feedbackRepo.find({
                 where: {
                     chatflowid: flow.id,
@@ -649,10 +684,12 @@ const addDatasetRowsFromRatings = async (
                     createdDate: MoreThanOrEqual(since)
                 },
                 order: { createdDate: 'DESC', id: 'DESC' },
-                take: RATING_PAGE,
+                take,
                 skip: offset
             })
             if (!page.length) break
+            scanned += page.length
+            offset += page.length
             const messageIds = [...new Set(page.map((item) => item.messageId).filter((id) => typeof id === 'string' && id.length > 0))]
             const messages = messageIds.length ? await messageRepo.find({ where: { id: In(messageIds) } }) : []
             const messageById = new Map(messages.map((item) => [item.id, item]))
@@ -700,38 +737,107 @@ const addDatasetRowsFromRatings = async (
                     row
                 })
             }
-            if (page.length < RATING_PAGE) break
-            offset += page.length
+            if (page.length < take) break
         }
 
-        const preview = planned.slice(0, RATING_PREVIEW_ROWS).map((item) => ({
-            input: clipRatingPreview(item.input),
-            output: clipRatingPreview(item.output),
-            rating: item.rating,
-            feedbackId: item.feedbackId,
-            messageId: item.messageId,
-            needsExpectedAnswer: item.needsExpectedAnswer
-        }))
+        const toPreview = (items: RatingPlan[]) =>
+            items.slice(0, RATING_PREVIEW_ROWS).map((item) => ({
+                input: clipRatingPreview(item.input),
+                output: clipRatingPreview(item.output),
+                rating: item.rating,
+                feedbackId: item.feedbackId,
+                messageId: item.messageId,
+                needsExpectedAnswer: item.needsExpectedAnswer
+            }))
         if (dryRun || !planned.length) {
-            return { dryRun, count: planned.length, skipped, preview }
+            return { dryRun, count: planned.length, skipped, preview: toPreview(planned), truncated }
         }
 
-        await appServer.AppDataSource.transaction(async (entityManager) => {
-            const rows = entityManager.getRepository(DatasetRow)
-            const maxValueEntity = await rows.find({
-                where: { datasetId: dataset.id },
-                order: { sequenceNo: 'DESC' },
-                take: 1
+        const writeOnce = () =>
+            appServer.AppDataSource.transaction(async (entityManager) => {
+                // The dataset update is the write lock. The next sequence is read only after it, so two imports cannot share a number.
+                await entityManager.getRepository(Dataset).update({ id: dataset.id, workspaceId }, { updatedDate: new Date() })
+                const rows = entityManager.getRepository(DatasetRow)
+                const messageIds = planned.map((item) => item.messageId)
+                const already = await rows.find({
+                    where: { datasetId: dataset.id, sourceMessageId: In(messageIds) },
+                    select: { id: true, sourceMessageId: true }
+                })
+                const storedNow = new Set(already.map((item) => item.sourceMessageId).filter((id): id is string => Boolean(id)))
+                const maxValueEntity = await rows.find({
+                    where: { datasetId: dataset.id },
+                    order: { sequenceNo: 'DESC' },
+                    take: 1
+                })
+                let sequenceNo = maxValueEntity.length > 0 ? maxValueEntity[0].sequenceNo + 1 : 0
+                const saved: RatingPlan[] = []
+                let skippedNow = 0
+                for (const item of planned) {
+                    if (storedNow.has(item.messageId)) {
+                        skippedNow += 1
+                        continue
+                    }
+                    const id = randomUUID()
+                    item.row.id = id
+                    item.row.sequenceNo = sequenceNo
+                    // ON CONFLICT DO NOTHING on sqlite and postgres, INSERT IGNORE on mysql and mariadb.
+                    // A duplicate source message is skipped and the other rows in this write stay.
+                    try {
+                        const insert = entityManager
+                            .createQueryBuilder()
+                            .insert()
+                            .into(DatasetRow)
+                            .values({
+                                id,
+                                datasetId: item.row.datasetId,
+                                input: item.row.input,
+                                output: item.row.output,
+                                sequenceNo,
+                                sourceType: item.row.sourceType,
+                                sourceMessageId: item.row.sourceMessageId,
+                                sourceFlowId: item.row.sourceFlowId,
+                                sourceDate: item.row.sourceDate,
+                                sourceFeedbackId: item.row.sourceFeedbackId,
+                                sourceRating: item.row.sourceRating,
+                                sourceFeedbackText: item.row.sourceFeedbackText ?? null,
+                                sourceRejectedAnswer: item.row.sourceRejectedAnswer ?? null,
+                                needsExpectedAnswer: item.row.needsExpectedAnswer ?? false
+                            })
+                            .orIgnore()
+                            .updateEntity(false)
+                        // Stay inside the caller's transaction. A nested commit releases the sequence lock early.
+                        insert.useTransaction(false)
+                        await insert.execute()
+                    } catch (error) {
+                        if (isDatabaseBusy(error)) throw error
+                        if (!isUniqueViolation(error)) throw error
+                    }
+                    const landed = await rows.findOne({ where: { id }, select: { id: true } })
+                    if (!landed) {
+                        skippedNow += 1
+                        storedNow.add(item.messageId)
+                        continue
+                    }
+                    sequenceNo += 1
+                    storedNow.add(item.messageId)
+                    saved.push(item)
+                }
+                return { saved, skippedNow }
             })
-            let sequenceNo = maxValueEntity.length > 0 ? maxValueEntity[0].sequenceNo + 1 : 0
-            for (const item of planned) {
-                item.row.sequenceNo = sequenceNo
-                sequenceNo += 1
-                await rows.save(item.row)
+        let written: RatingPlan[] = []
+        await writeRatingsInTurn(dataset.id, async () => {
+            for (let attempt = 0; attempt < 5; attempt += 1) {
+                try {
+                    const result = await writeOnce()
+                    written = result.saved
+                    skipped += result.skippedNow
+                    return
+                } catch (error) {
+                    if (!isDatabaseBusy(error) || attempt === 4) throw error
+                }
             }
-            await changeUpdateOnDataset(dataset.id, workspaceId, entityManager)
         })
-        return { dryRun: false, count: planned.length, skipped, preview }
+        return { dryRun: false, count: written.length, skipped, preview: toPreview(written), truncated }
     } catch (error) {
         if (error instanceof AppError) throw error
         throw new AppError(StatusCodes.INTERNAL_SERVER_ERROR, `Error: datasetService.addDatasetRowsFromRatings - ${getErrorMessage(error)}`)

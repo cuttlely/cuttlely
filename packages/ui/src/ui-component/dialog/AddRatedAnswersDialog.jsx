@@ -1,5 +1,5 @@
 import PropTypes from 'prop-types'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useDispatch } from 'react-redux'
 
 import { Alert, Box, Button, Dialog, DialogActions, DialogContent, DialogTitle, OutlinedInput, TextField, Typography } from '@mui/material'
@@ -131,6 +131,9 @@ export function AddRatedAnswersForm({
                         {preview.count} rated {preview.count === 1 ? 'answer' : 'answers'} will be added.
                     </Typography>
                     <Typography>{preview.skipped} already in this test set.</Typography>
+                    {preview.truncated ? (
+                        <Typography>The scan stopped before the whole window was read. Run it again to continue.</Typography>
+                    ) : null}
                     {preview.preview.map((item) => (
                         <Typography key={item.feedbackId || item.messageId} variant='body2' sx={{ mt: 1 }}>
                             {item.input}
@@ -147,7 +150,7 @@ export function AddRatedAnswersForm({
                     See how many
                 </Button>
                 {preview ? (
-                    <StyledButton variant='contained' disabled={!ready || preview.count < 1} onClick={onAdd}>
+                    <StyledButton variant='contained' disabled={!ready || adding || preview.count < 1} onClick={onAdd}>
                         Add rated answers
                     </StyledButton>
                 ) : null}
@@ -199,9 +202,22 @@ const AddRatedAnswersDialog = ({ show, flowId, rating, canCreate, canView = true
     const [adding, setAdding] = useState(false)
     const [preview, setPreview] = useState(null)
     const [loadError, setLoadError] = useState('')
+    // Bumped whenever days, limit, dataset, or rating change, so a late dry run cannot restore an old count.
+    const fieldsGeneration = useRef(0)
+    const previewGeneration = useRef(-1)
+    const checkTicket = useRef(0)
+    const addingRef = useRef(false)
+
+    const invalidatePreview = () => {
+        fieldsGeneration.current += 1
+        previewGeneration.current = -1
+        setPreview(null)
+    }
 
     useEffect(() => {
         if (!show) return
+        fieldsGeneration.current += 1
+        previewGeneration.current = -1
         setDays('7')
         setLimit('')
         setDatasetId('')
@@ -275,7 +291,7 @@ const AddRatedAnswersDialog = ({ show, flowId, rating, canCreate, canView = true
                 setDatasetId(created.id)
                 setShowNew(false)
                 setNewName('')
-                setPreview(null)
+                invalidatePreview()
             }
         } catch (error) {
             report(error?.response?.data?.message || 'Could not create the dataset')
@@ -286,20 +302,27 @@ const AddRatedAnswersDialog = ({ show, flowId, rating, canCreate, canView = true
 
     const onCheck = async () => {
         if (!datasetId || !flowId || !rating) return
+        const generation = fieldsGeneration.current
+        const ticket = ++checkTicket.current
         setChecking(true)
         try {
             const response = await datasetApi.addDatasetRowsFromRatings(body())
+            if (generation !== fieldsGeneration.current) return
+            previewGeneration.current = generation
             setPreview(response.data)
         } catch (error) {
+            if (generation !== fieldsGeneration.current) return
             setPreview(null)
             report(error?.response?.data?.message || 'Could not count the rated answers')
         } finally {
-            setChecking(false)
+            if (ticket === checkTicket.current) setChecking(false)
         }
     }
 
     const onAdd = async () => {
-        if (!preview || preview.count < 1) return
+        if (addingRef.current || !preview || preview.count < 1) return
+        if (fieldsGeneration.current !== previewGeneration.current) return
+        addingRef.current = true
         setAdding(true)
         try {
             const response = await datasetApi.addDatasetRowsFromRatings({ ...body(), dryRun: false })
@@ -315,6 +338,7 @@ const AddRatedAnswersDialog = ({ show, flowId, rating, canCreate, canView = true
         } catch (error) {
             report(error?.response?.data?.message || 'Could not add the rated answers')
         } finally {
+            addingRef.current = false
             setAdding(false)
         }
     }
@@ -328,18 +352,18 @@ const AddRatedAnswersDialog = ({ show, flowId, rating, canCreate, canView = true
                     days={days}
                     onDaysChange={(value) => {
                         setDays(value)
-                        setPreview(null)
+                        invalidatePreview()
                     }}
                     limit={limit}
                     onLimitChange={(value) => {
                         setLimit(value)
-                        setPreview(null)
+                        invalidatePreview()
                     }}
                     datasets={datasets}
                     datasetId={datasetId}
                     onDatasetChange={(value) => {
                         setDatasetId(value)
-                        setPreview(null)
+                        invalidatePreview()
                     }}
                     canCreate={canCreate}
                     canView={canView}
