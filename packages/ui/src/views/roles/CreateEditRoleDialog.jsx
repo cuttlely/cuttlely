@@ -29,6 +29,7 @@ import useNotifier from '@/utils/useNotifier'
 import { HIDE_CANVAS_DIALOG, SHOW_CANVAS_DIALOG } from '@/store/actions'
 
 import './CreateEditRoleDialog.css'
+import { enabledPermissionKeys, togglePermission } from './rolePermissions'
 
 const CreateEditRoleDialog = ({ show, dialogProps, onCancel, onConfirm, setError }) => {
     const portalElement = document.getElementById('portal')
@@ -61,38 +62,10 @@ const CreateEditRoleDialog = ({ show, dialogProps, onCancel, onConfirm, setError
 
     const handlePermissionChange = (category, key) => {
         setSelectedPermissions((prevPermissions) => {
-            const updatedCategoryPermissions = {
-                ...prevPermissions[category],
-                [key]: !prevPermissions[category]?.[key]
-            }
-
-            if (category === 'templates') {
-                if (key !== 'templates:marketplace' && key !== 'templates:custom') {
-                    updatedCategoryPermissions['templates:marketplace'] = true
-                    updatedCategoryPermissions['templates:custom'] = true
-                }
-            } else {
-                const viewPermissionKey = `${category}:view`
-                if (key !== viewPermissionKey) {
-                    const hasEnabledPermissions = Object.keys(updatedCategoryPermissions).some(
-                        ([permissionKey, isEnabled]) => permissionKey !== viewPermissionKey && isEnabled
-                    )
-                    if (hasEnabledPermissions) {
-                        updatedCategoryPermissions[viewPermissionKey] = true
-                    }
-                } else {
-                    const hasEnabledPermissions = Object.keys(updatedCategoryPermissions).some(
-                        ([permissionKey, isEnabled]) => permissionKey === viewPermissionKey && isEnabled
-                    )
-                    if (hasEnabledPermissions) {
-                        updatedCategoryPermissions[key] = true
-                    }
-                }
-            }
-
+            const categoryKeys = (permissions[category] || []).map((permission) => permission.key)
             return {
                 ...prevPermissions,
-                [category]: updatedCategoryPermissions
+                [category]: togglePermission(category, prevPermissions[category], key, categoryKeys)
             }
         })
     }
@@ -220,16 +193,7 @@ const CreateEditRoleDialog = ({ show, dialogProps, onCancel, onConfirm, setError
                 createdBy: currentUser.id,
                 organizationId: currentUser.activeOrganizationId
             }
-            const tempPermissions = Object.keys(selectedPermissions)
-                .map((category) => {
-                    return Object.keys(selectedPermissions[category]).map((key) => {
-                        if (selectedPermissions[category][key]) {
-                            return key
-                        }
-                    })
-                })
-                .flat()
-            saveObj.permissions = JSON.stringify(tempPermissions)
+            saveObj.permissions = JSON.stringify(enabledPermissionKeys(selectedPermissions))
             let saveResp
             if (dialogProps.type === 'EDIT') {
                 saveObj.id = dialogProps.data.id
