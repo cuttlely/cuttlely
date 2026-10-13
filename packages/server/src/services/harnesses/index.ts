@@ -339,6 +339,19 @@ const assertRunRequest = async (name: string, body: Record<string, unknown>, wor
     return { harness, question, chatId: typeof rawChatId === 'string' && rawChatId ? rawChatId : `playground-${randomUUID()}` }
 }
 
+function recordedId(row: Record<string, unknown> | null): string | undefined {
+    return row && typeof row.id === 'string' ? row.id : undefined
+}
+
+// The queue worker copies the saved history id onto the job result. It is not part of the public payload.
+function takeJobRunId(payload: unknown): string | undefined {
+    if (!payload || typeof payload !== 'object' || Array.isArray(payload) || !('runId' in payload)) return undefined
+    const record = payload as { runId?: unknown }
+    const runId = typeof record.runId === 'string' ? record.runId : undefined
+    delete record.runId
+    return runId
+}
+
 const startRun = async (
     name: string,
     body: Record<string, unknown>,
@@ -401,12 +414,10 @@ const startRun = async (
             }
         })
         // An external worker writes history in its own process, so onRecorded does not run here.
-        // The row is already in the shared history before this lookup. Do it before the span ends.
-        if (!recorded && !opts.replay) {
-            const history = await loadHarness('history.mjs')
-            recorded = history.listRuns(name, { limit: 20 }).find((row: { chatId?: string }) => row.chatId === prepared.chatId) || null
-        }
-        const runId = recorded && typeof (recorded as { id?: unknown }).id === 'string' ? (recorded as { id: string }).id : undefined
+        // The worker puts that saved id on the job result. Drop it before the response is returned.
+        const jobRunId = takeJobRunId(payload)
+        if (!recorded && jobRunId) recorded = { id: jobRunId }
+        const runId = recordedId(recorded)
         harnessTrace?.finish({
             text: typeof (payload as { text?: unknown } | undefined)?.text === 'string' ? (payload as { text: string }).text : undefined,
             runId
@@ -427,7 +438,11 @@ const startRun = async (
         }
         return { payload, run: recorded, chatId: prepared.chatId }
     } catch (error) {
-        if ((error as { code?: string }).code !== 'wrong_workspace') harnessTrace?.fail(error)
+        if (!recorded) {
+            const carried = error && typeof error === 'object' ? (error as { runId?: unknown }).runId : undefined
+            if (typeof carried === 'string') recorded = { id: carried }
+        }
+        if ((error as { code?: string }).code !== 'wrong_workspace') harnessTrace?.fail(error, { runId: recordedId(recorded) })
         const wrapped = httpHarnessError(error) as AppError & { harnessRun?: unknown }
         wrapped.harnessRun = recorded
         throw wrapped

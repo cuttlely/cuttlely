@@ -92,7 +92,6 @@ export interface HarnessEngine {
     runHarness(args: HarnessRunArgs): Promise<HarnessRunResult>
     runQueuedHarness?(args: HarnessRunArgs): Promise<HarnessRunResult>
     assertHarnessWorkspace?(name: string, flowOptions?: HarnessFlowOptions): void
-    listHarnessRuns?(name: string, options?: { limit?: number }): Array<{ id?: string; chatId?: string }>
     configureHarnessRuntime(options: {
         contextFor?: (
             record: { chatflowId?: string; workspaceId?: string | null; name?: string } | null

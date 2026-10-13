@@ -2,7 +2,6 @@ const mockHarnessRuns: { current: Record<string, unknown> | null } = { current: 
 const listedHarnesses: Array<{ name: string; description?: string; workspaceId?: string }> = []
 const assertHarnessWorkspace = jest.fn()
 const openHarnessRunTrace = jest.fn()
-const listHarnessRuns = jest.fn((_name?: string, _options?: { limit?: number }): Array<{ id?: string; chatId?: string }> => [])
 const queuedRun = jest.fn(async (_opts?: { onRecorded?: (row: unknown) => void; chatId?: string }) => mockHarnessRuns.current)
 
 jest.mock('../engine', () => ({
@@ -10,8 +9,7 @@ jest.mock('../engine', () => ({
         listHarnesses: () => listedHarnesses,
         runHarness: async () => mockHarnessRuns.current,
         runQueuedHarness: (opts: { onRecorded?: (row: unknown) => void; chatId?: string }) => queuedRun(opts),
-        assertHarnessWorkspace: (...args: unknown[]) => assertHarnessWorkspace(...args),
-        listHarnessRuns: (name: string, options?: { limit?: number }) => listHarnessRuns(name, options)
+        assertHarnessWorkspace: (...args: unknown[]) => assertHarnessWorkspace(...args)
     })
 }))
 
@@ -122,7 +120,6 @@ describe('Harness node queued run id', () => {
 
     beforeEach(() => {
         exporter.reset()
-        listHarnessRuns.mockReset()
         queuedRun.mockReset()
         mockHarnessRuns.current = { text: 'Two loaves.' }
         process.env.CUTTLELY_OTEL_TRACES = 'true'
@@ -133,36 +130,59 @@ describe('Harness node queued run id', () => {
         delete process.env.CUTTLELY_OTEL_TRACES
         delete process.env.CUTTLELY_HARNESS_QUEUE
         openHarnessRunTrace.mockReset()
-        listHarnessRuns.mockReset()
         queuedRun.mockReset()
         queuedRun.mockImplementation(async () => mockHarnessRuns.current)
     })
 
-    function runId(): unknown {
-        return exporter.getFinishedSpans().find((span) => span.name === 'harness.run')?.attributes['run.id']
+    function rootAttributes(): Record<string, unknown> | undefined {
+        return exporter.getFinishedSpans().find((span) => span.name === 'harness.run')?.attributes
     }
 
     it('an external queue run puts the saved history id on harness.run', async () => {
         process.env.CUTTLELY_HARNESS_QUEUE = 'external'
-        queuedRun.mockImplementation(async () => mockHarnessRuns.current)
-        listHarnessRuns.mockReturnValue([{ id: externalId, chatId: 'c1' }])
+        queuedRun.mockImplementation(async () => ({ text: 'Two loaves.', runId: externalId }))
         const node = new HarnessNode()
-        await node.run(nodeData as never, 'How many loaves?', { chatId: 'c1', workspaceId: WORKSPACE })
-        expect(runId()).toBe(externalId)
-        expect(listHarnessRuns).toHaveBeenCalledWith('bakery', { limit: 20 })
+        const payload = await node.run(nodeData as never, 'How many loaves?', { chatId: 'c1', workspaceId: WORKSPACE })
+        expect(rootAttributes()?.['run.id']).toBe(externalId)
+        expect(payload).not.toHaveProperty('runId')
     })
 
     it('an inline queue run keeps the id recorded in this process', async () => {
         process.env.CUTTLELY_HARNESS_QUEUE = 'inline'
         queuedRun.mockImplementation(async (opts) => {
             opts?.onRecorded?.({ id: inlineId })
-            return mockHarnessRuns.current
+            return { text: 'Two loaves.', runId: externalId }
         })
-        listHarnessRuns.mockReturnValue([{ id: externalId, chatId: 'c1' }])
         const node = new HarnessNode()
         await node.run(nodeData as never, 'How many loaves?', { chatId: 'c1', workspaceId: WORKSPACE })
-        expect(runId()).toBe(inlineId)
-        expect(listHarnessRuns).not.toHaveBeenCalled()
+        expect(rootAttributes()?.['run.id']).toBe(inlineId)
+    })
+
+    it('an external queue failure still puts the saved history id on harness.run', async () => {
+        process.env.CUTTLELY_HARNESS_QUEUE = 'external'
+        queuedRun.mockImplementation(async () => {
+            throw Object.assign(new Error('oven failed'), { runId: externalId })
+        })
+        const node = new HarnessNode()
+        await expect(node.run(nodeData as never, 'How many loaves?', { chatId: 'c1', workspaceId: WORKSPACE })).rejects.toThrow(
+            /oven failed/
+        )
+        expect(rootAttributes()?.['run.id']).toBe(externalId)
+        expect(rootAttributes()?.status).toBe('error')
+    })
+
+    it('an inline queue failure keeps the id recorded in this process', async () => {
+        process.env.CUTTLELY_HARNESS_QUEUE = 'inline'
+        queuedRun.mockImplementation(async (opts) => {
+            opts?.onRecorded?.({ id: inlineId })
+            throw new Error('oven failed')
+        })
+        const node = new HarnessNode()
+        await expect(node.run(nodeData as never, 'How many loaves?', { chatId: 'c1', workspaceId: WORKSPACE })).rejects.toThrow(
+            /oven failed/
+        )
+        expect(rootAttributes()?.['run.id']).toBe(inlineId)
+        expect(rootAttributes()?.status).toBe('error')
     })
 })
 
