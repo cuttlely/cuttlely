@@ -1632,7 +1632,11 @@ class Agent_Agentflow implements INode {
             if (error instanceof Error && error.message === 'Aborted') {
                 throw error
             }
-            throw new Error(`Error in Agent node: ${error instanceof Error ? error.message : String(error)}`)
+            const wrapped = new Error(`Error in Agent node: ${error instanceof Error ? error.message : String(error)}`)
+            const trace = error as { usedTools?: IUsedTool[]; usageMetadata?: unknown }
+            if (trace.usedTools) (wrapped as Error & { usedTools?: IUsedTool[] }).usedTools = trace.usedTools
+            if (trace.usageMetadata !== undefined) (wrapped as Error & { usageMetadata?: unknown }).usageMetadata = trace.usageMetadata
+            throw wrapped
         }
     }
 
@@ -2476,7 +2480,10 @@ class Agent_Agentflow implements INode {
                         error: getErrorMessage(e)
                     })
                     sseStreamer?.streamUsedToolsEvent(chatId, flatten(usedTools))
-                    throw new Error(getErrorMessage(e))
+                    const failure = new Error(getErrorMessage(e)) as Error & { usedTools: IUsedTool[]; usageMetadata: unknown }
+                    failure.usedTools = usedTools
+                    failure.usageMetadata = response?.usage_metadata
+                    throw failure
                 }
             }
         }
@@ -2884,7 +2891,10 @@ class Agent_Agentflow implements INode {
                             error: getErrorMessage(e)
                         })
                         sseStreamer?.streamUsedToolsEvent(chatId, flatten(usedTools))
-                        throw new Error(getErrorMessage(e))
+                        const failure = new Error(getErrorMessage(e)) as Error & { usedTools: IUsedTool[]; usageMetadata: unknown }
+                        failure.usedTools = usedTools
+                        failure.usageMetadata = response?.usage_metadata
+                        throw failure
                     }
                 }
             }

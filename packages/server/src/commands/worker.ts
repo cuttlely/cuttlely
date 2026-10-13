@@ -11,6 +11,7 @@ import { QueueEvents, QueueEventsListener } from 'bullmq'
 import { AbortControllerPool } from '../AbortControllerPool'
 import { UsageCacheManager } from '../UsageCacheManager'
 import { ossIdentity } from '../identity/ossPlatform'
+import { registerCuttlelyTraces, shutdownCuttlelyTraces } from '../metrics/tracing'
 
 interface CustomListener extends QueueEventsListener {
     abort: (args: { id: string }, id: string) => void
@@ -23,6 +24,7 @@ export default class Worker extends BaseCommand {
 
     async run(): Promise<void> {
         logger.info('Starting Flowise Worker...')
+        registerCuttlelyTraces()
 
         const { appDataSource, telemetry, componentNodes, cachePool, abortControllerPool, usageCacheManager, identityManager } =
             await this.prepareData()
@@ -130,6 +132,7 @@ export default class Worker extends BaseCommand {
             await this.failExit()
         }
 
+        await shutdownCuttlelyTraces()
         await this.gracefullyExit()
     }
 }

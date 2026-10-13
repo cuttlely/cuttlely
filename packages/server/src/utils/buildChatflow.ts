@@ -86,6 +86,7 @@ import { OSS_PRODUCT_ID } from '../identity/ossPlatform'
 import { getWorkspaceSearchOptions } from '../identity/workspaceScope'
 import { OMIT_QUEUE_JOB_DATA } from './constants'
 import { executeAgentFlow } from './buildAgentflow'
+import { traceChatflowPrediction, withNodeSpan } from '../metrics/tracing'
 import { getClientAbortSignal, onAbort, runWithAbortSignal } from './clientAbort'
 import { isStreamingValue } from './streaming'
 import { Workspace } from '../database/entities/identity'
@@ -565,494 +566,514 @@ export const executeFlow = async ({
         })
     }
 
-    /*** Get chatflows and prepare data  ***/
-    const flowData = chatflow.flowData
-    const parsedFlowData: IReactFlowObject = JSON.parse(flowData)
-    const nodes = parsedFlowData.nodes
-    const edges = parsedFlowData.edges
+    return traceChatflowPrediction(
+        replay === true,
+        chatflow.id,
+        () => incomingInput.question,
+        async () => {
+            /*** Get chatflows and prepare data  ***/
+            const flowData = chatflow.flowData
+            const parsedFlowData: IReactFlowObject = JSON.parse(flowData)
+            const nodes = parsedFlowData.nodes
+            const edges = parsedFlowData.edges
 
-    const apiMessageId = uuidv4()
+            const apiMessageId = uuidv4()
 
-    /*** Get session ID ***/
-    const memoryNode = findMemoryNode(nodes, edges)
-    const memoryType = memoryNode?.data.label || ''
-    let sessionId = getMemorySessionId(memoryNode, incomingInput, chatId, isInternal)
+            /*** Get session ID ***/
+            const memoryNode = findMemoryNode(nodes, edges)
+            const memoryType = memoryNode?.data.label || ''
+            let sessionId = getMemorySessionId(memoryNode, incomingInput, chatId, isInternal)
 
-    /*** Get Ending Node with Directed Graph  ***/
-    const { graph, nodeDependencies } = constructGraphs(nodes, edges)
-    const directedGraph = graph
-    const endingNodes = getEndingNodes(nodeDependencies, directedGraph, nodes)
+            /*** Get Ending Node with Directed Graph  ***/
+            const { graph, nodeDependencies } = constructGraphs(nodes, edges)
+            const directedGraph = graph
+            const endingNodes = getEndingNodes(nodeDependencies, directedGraph, nodes)
 
-    /*** Get Starting Nodes with Reversed Graph ***/
-    const constructedObj = constructGraphs(nodes, edges, { isReversed: true })
-    const nonDirectedGraph = constructedObj.graph
-    let startingNodeIds: string[] = []
-    let depthQueue: IDepthQueue = {}
-    const endingNodeIds = endingNodes.map((n) => n.id)
-    for (const endingNodeId of endingNodeIds) {
-        const resx = getStartingNodes(nonDirectedGraph, endingNodeId)
-        startingNodeIds.push(...resx.startingNodeIds)
-        depthQueue = Object.assign(depthQueue, resx.depthQueue)
-    }
-    startingNodeIds = [...new Set(startingNodeIds)]
+            /*** Get Starting Nodes with Reversed Graph ***/
+            const constructedObj = constructGraphs(nodes, edges, { isReversed: true })
+            const nonDirectedGraph = constructedObj.graph
+            let startingNodeIds: string[] = []
+            let depthQueue: IDepthQueue = {}
+            const endingNodeIds = endingNodes.map((n) => n.id)
+            for (const endingNodeId of endingNodeIds) {
+                const resx = getStartingNodes(nonDirectedGraph, endingNodeId)
+                startingNodeIds.push(...resx.startingNodeIds)
+                depthQueue = Object.assign(depthQueue, resx.depthQueue)
+            }
+            startingNodeIds = [...new Set(startingNodeIds)]
 
-    const isAgentFlow =
-        endingNodes.filter((node) => node.data.category === 'Multi Agents' || node.data.category === 'Sequential Agents').length > 0
-    if (replay && isAgentFlow) throw new AppError(StatusCodes.CONFLICT, 'The check works on chatflows and agentflows.')
+            const isAgentFlow =
+                endingNodes.filter((node) => node.data.category === 'Multi Agents' || node.data.category === 'Sequential Agents').length > 0
+            if (replay && isAgentFlow) throw new AppError(StatusCodes.CONFLICT, 'The check works on chatflows and agentflows.')
 
-    /*** Get Chat History ***/
-    const chatHistory = await getChatHistory({
-        endingNodes,
-        nodes,
-        chatflowid,
-        appDataSource,
-        componentNodes,
-        incomingInput,
-        chatId,
-        isInternal,
-        isAgentFlow,
-        workspaceId
-    })
-
-    /*** Get API Config ***/
-    const availableVariables = await appDataSource.getRepository(Variable).findBy(getWorkspaceSearchOptions(workspaceId))
-    const { nodeOverrides, variableOverrides, apiOverrideStatus } = getAPIOverrideConfig(chatflow)
-
-    const flowConfig: IFlowConfig = {
-        chatflowid,
-        chatflowId: chatflow.id,
-        chatId,
-        sessionId,
-        chatHistory,
-        apiMessageId
-    }
-
-    logger.debug(`[server]: [${orgId}]: Start building flow ${chatflowid}`)
-
-    /*** BFS to traverse from Starting Nodes to Ending Node ***/
-    const reactFlowNodes = await buildFlow({
-        startingNodeIds,
-        reactFlowNodes: nodes,
-        reactFlowEdges: edges,
-        apiMessageId,
-        graph,
-        depthQueue,
-        componentNodes,
-        question,
-        uploadedFilesContent,
-        chatHistory,
-        chatId,
-        sessionId,
-        chatflowid,
-        appDataSource,
-        overrideConfig,
-        apiOverrideStatus,
-        nodeOverrides,
-        availableVariables,
-        variableOverrides,
-        cachePool,
-        usageCacheManager,
-        isUpsert: false,
-        uploads,
-        baseURL,
-        orgId,
-        workspaceId,
-        subscriptionId,
-        updateStorageUsage,
-        checkStorage
-    })
-
-    const setVariableNodesOutput = getSetVariableNodesOutput(reactFlowNodes)
-
-    if (isAgentFlow) {
-        const agentflow = chatflow
-        const streamResults = await buildAgentGraph({
-            agentflow,
-            flowConfig,
-            incomingInput,
-            nodes,
-            edges,
-            initializedNodes: reactFlowNodes,
-            endingNodeIds,
-            startingNodeIds,
-            depthQueue,
-            chatHistory,
-            uploadedFilesContent,
-            appDataSource,
-            componentNodes,
-            sseStreamer,
-            shouldStreamResponse: true, // agentflow is always streamed
-            cachePool,
-            baseURL,
-            signal,
-            orgId,
-            workspaceId
-        })
-
-        if (streamResults) {
-            const { finalResult, finalAction, sourceDocuments, artifacts, usedTools, agentReasoning } = streamResults
-            const userMessage: Omit<IChatMessage, 'id'> = {
-                role: 'userMessage',
-                content: incomingInput.question,
-                chatflowid: agentflow.id,
-                chatType: chatType || (isEvaluation ? ChatType.EVALUATION : isInternal ? ChatType.INTERNAL : ChatType.EXTERNAL),
+            /*** Get Chat History ***/
+            const chatHistory = await getChatHistory({
+                endingNodes,
+                nodes,
+                chatflowid,
+                appDataSource,
+                componentNodes,
+                incomingInput,
                 chatId,
-                memoryType,
+                isInternal,
+                isAgentFlow,
+                workspaceId
+            })
+
+            /*** Get API Config ***/
+            const availableVariables = await appDataSource.getRepository(Variable).findBy(getWorkspaceSearchOptions(workspaceId))
+            const { nodeOverrides, variableOverrides, apiOverrideStatus } = getAPIOverrideConfig(chatflow)
+
+            const flowConfig: IFlowConfig = {
+                chatflowid,
+                chatflowId: chatflow.id,
+                chatId,
                 sessionId,
-                createdDate: userMessageDateTime,
-                fileUploads: fileUploads.length ? JSON.stringify(fileUploads) : undefined,
-                leadEmail: incomingInput.leadEmail
+                chatHistory,
+                apiMessageId
             }
-            await utilAddChatMessage(userMessage, appDataSource)
 
-            const apiMessage: Omit<IChatMessage, 'createdDate'> = {
-                id: apiMessageId,
-                role: 'apiMessage',
-                content: finalResult,
-                chatflowid: agentflow.id,
-                chatType: chatType || (isEvaluation ? ChatType.EVALUATION : isInternal ? ChatType.INTERNAL : ChatType.EXTERNAL),
+            logger.debug(`[server]: [${orgId}]: Start building flow ${chatflowid}`)
+
+            /*** BFS to traverse from Starting Nodes to Ending Node ***/
+            const reactFlowNodes = await buildFlow({
+                startingNodeIds,
+                reactFlowNodes: nodes,
+                reactFlowEdges: edges,
+                apiMessageId,
+                graph,
+                depthQueue,
+                componentNodes,
+                question,
+                uploadedFilesContent,
+                chatHistory,
                 chatId,
-                memoryType,
-                sessionId
-            }
+                sessionId,
+                chatflowid,
+                appDataSource,
+                overrideConfig,
+                apiOverrideStatus,
+                nodeOverrides,
+                availableVariables,
+                variableOverrides,
+                cachePool,
+                usageCacheManager,
+                isUpsert: false,
+                uploads,
+                baseURL,
+                orgId,
+                workspaceId,
+                subscriptionId,
+                updateStorageUsage,
+                checkStorage,
+                cuttlelyReplay: replay === true
+            })
 
-            if (sourceDocuments?.length) apiMessage.sourceDocuments = JSON.stringify(sourceDocuments)
-            if (artifacts?.length) apiMessage.artifacts = JSON.stringify(artifacts)
-            if (usedTools?.length) apiMessage.usedTools = JSON.stringify(usedTools)
-            if (agentReasoning?.length) apiMessage.agentReasoning = JSON.stringify(agentReasoning)
-            if (finalAction && Object.keys(finalAction).length) apiMessage.action = JSON.stringify(finalAction)
+            const setVariableNodesOutput = getSetVariableNodesOutput(reactFlowNodes)
 
-            if (agentflow.followUpPrompts) {
-                const followUpPromptsConfig = JSON.parse(agentflow.followUpPrompts)
-                const generatedFollowUpPrompts = await generateFollowUpPrompts(followUpPromptsConfig, apiMessage.content, {
-                    chatId,
-                    chatflowid: agentflow.id,
+            if (isAgentFlow) {
+                const agentflow = chatflow
+                const streamResults = await buildAgentGraph({
+                    agentflow,
+                    flowConfig,
+                    incomingInput,
+                    nodes,
+                    edges,
+                    initializedNodes: reactFlowNodes,
+                    endingNodeIds,
+                    startingNodeIds,
+                    depthQueue,
+                    chatHistory,
+                    uploadedFilesContent,
                     appDataSource,
-                    databaseEntities
+                    componentNodes,
+                    sseStreamer,
+                    shouldStreamResponse: true, // agentflow is always streamed
+                    cachePool,
+                    baseURL,
+                    signal,
+                    orgId,
+                    workspaceId
                 })
-                if (generatedFollowUpPrompts?.questions) {
-                    apiMessage.followUpPrompts = JSON.stringify(generatedFollowUpPrompts.questions)
-                }
-            }
-            const messageRepo = appDataSource.getRepository(ChatMessage)
-            const existingMessage = typeof messageRepo.findOneBy === 'function' ? await messageRepo.findOneBy({ id: apiMessageId }) : null
-            const chatMessage = existingMessage
-                ? await messageRepo.save(Object.assign(existingMessage, apiMessage))
-                : await utilAddChatMessage(apiMessage, appDataSource)
 
-            await telemetry.sendTelemetry(
-                'agentflow_prediction_sent',
-                {
-                    version: await getAppVersion(),
-                    agentflowId: agentflow.id,
-                    chatId,
-                    type: isEvaluation ? ChatType.EVALUATION : isInternal ? ChatType.INTERNAL : ChatType.EXTERNAL,
-                    flowGraph: getTelemetryFlowObj(nodes, edges)
-                },
-                orgId
-            )
+                if (streamResults) {
+                    const { finalResult, finalAction, sourceDocuments, artifacts, usedTools, agentReasoning } = streamResults
+                    const userMessage: Omit<IChatMessage, 'id'> = {
+                        role: 'userMessage',
+                        content: incomingInput.question,
+                        chatflowid: agentflow.id,
+                        chatType: chatType || (isEvaluation ? ChatType.EVALUATION : isInternal ? ChatType.INTERNAL : ChatType.EXTERNAL),
+                        chatId,
+                        memoryType,
+                        sessionId,
+                        createdDate: userMessageDateTime,
+                        fileUploads: fileUploads.length ? JSON.stringify(fileUploads) : undefined,
+                        leadEmail: incomingInput.leadEmail
+                    }
+                    await utilAddChatMessage(userMessage, appDataSource)
 
-            // Find the previous chat message with the same action id and remove the action
-            if (incomingInput.action && Object.keys(incomingInput.action).length) {
-                let query = await appDataSource
-                    .getRepository(ChatMessage)
-                    .createQueryBuilder('chat_message')
-                    .where('chat_message.chatId = :chatId', { chatId })
-                    .orWhere('chat_message.sessionId = :sessionId', { sessionId })
-                    .orderBy('chat_message.createdDate', 'DESC')
-                    .getMany()
+                    const apiMessage: Omit<IChatMessage, 'createdDate'> = {
+                        id: apiMessageId,
+                        role: 'apiMessage',
+                        content: finalResult,
+                        chatflowid: agentflow.id,
+                        chatType: chatType || (isEvaluation ? ChatType.EVALUATION : isInternal ? ChatType.INTERNAL : ChatType.EXTERNAL),
+                        chatId,
+                        memoryType,
+                        sessionId
+                    }
 
-                for (const result of query) {
-                    if (result.action) {
-                        try {
-                            const action: IAction = JSON.parse(result.action)
-                            if (action.id === incomingInput.action.id) {
-                                const newChatMessage = new ChatMessage()
-                                Object.assign(newChatMessage, result)
-                                newChatMessage.action = null
-                                const cm = await appDataSource.getRepository(ChatMessage).create(newChatMessage)
-                                await appDataSource.getRepository(ChatMessage).save(cm)
-                                break
-                            }
-                        } catch (e) {
-                            // error converting action to JSON
+                    if (sourceDocuments?.length) apiMessage.sourceDocuments = JSON.stringify(sourceDocuments)
+                    if (artifacts?.length) apiMessage.artifacts = JSON.stringify(artifacts)
+                    if (usedTools?.length) apiMessage.usedTools = JSON.stringify(usedTools)
+                    if (agentReasoning?.length) apiMessage.agentReasoning = JSON.stringify(agentReasoning)
+                    if (finalAction && Object.keys(finalAction).length) apiMessage.action = JSON.stringify(finalAction)
+
+                    if (agentflow.followUpPrompts) {
+                        const followUpPromptsConfig = JSON.parse(agentflow.followUpPrompts)
+                        const generatedFollowUpPrompts = await generateFollowUpPrompts(followUpPromptsConfig, apiMessage.content, {
+                            chatId,
+                            chatflowid: agentflow.id,
+                            appDataSource,
+                            databaseEntities
+                        })
+                        if (generatedFollowUpPrompts?.questions) {
+                            apiMessage.followUpPrompts = JSON.stringify(generatedFollowUpPrompts.questions)
                         }
                     }
+                    const messageRepo = appDataSource.getRepository(ChatMessage)
+                    const existingMessage =
+                        typeof messageRepo.findOneBy === 'function' ? await messageRepo.findOneBy({ id: apiMessageId }) : null
+                    const chatMessage = existingMessage
+                        ? await messageRepo.save(Object.assign(existingMessage, apiMessage))
+                        : await utilAddChatMessage(apiMessage, appDataSource)
+
+                    await telemetry.sendTelemetry(
+                        'agentflow_prediction_sent',
+                        {
+                            version: await getAppVersion(),
+                            agentflowId: agentflow.id,
+                            chatId,
+                            type: isEvaluation ? ChatType.EVALUATION : isInternal ? ChatType.INTERNAL : ChatType.EXTERNAL,
+                            flowGraph: getTelemetryFlowObj(nodes, edges)
+                        },
+                        orgId
+                    )
+
+                    // Find the previous chat message with the same action id and remove the action
+                    if (incomingInput.action && Object.keys(incomingInput.action).length) {
+                        let query = await appDataSource
+                            .getRepository(ChatMessage)
+                            .createQueryBuilder('chat_message')
+                            .where('chat_message.chatId = :chatId', { chatId })
+                            .orWhere('chat_message.sessionId = :sessionId', { sessionId })
+                            .orderBy('chat_message.createdDate', 'DESC')
+                            .getMany()
+
+                        for (const result of query) {
+                            if (result.action) {
+                                try {
+                                    const action: IAction = JSON.parse(result.action)
+                                    if (action.id === incomingInput.action.id) {
+                                        const newChatMessage = new ChatMessage()
+                                        Object.assign(newChatMessage, result)
+                                        newChatMessage.action = null
+                                        const cm = await appDataSource.getRepository(ChatMessage).create(newChatMessage)
+                                        await appDataSource.getRepository(ChatMessage).save(cm)
+                                        break
+                                    }
+                                } catch (e) {
+                                    // error converting action to JSON
+                                }
+                            }
+                        }
+                    }
+
+                    // Prepare response
+                    let result: ICommonObject = {}
+                    result.text = finalResult
+
+                    result.question = incomingInput.question
+                    result.chatId = chatId
+                    result.chatMessageId = chatMessage?.id
+                    if (sessionId) result.sessionId = sessionId
+                    if (memoryType) result.memoryType = memoryType
+                    if (agentReasoning?.length) result.agentReasoning = agentReasoning
+                    if (finalAction && Object.keys(finalAction).length) result.action = finalAction
+                    if (Object.keys(setVariableNodesOutput).length) result.flowVariables = setVariableNodesOutput
+                    result.followUpPrompts = JSON.stringify(apiMessage.followUpPrompts)
+                    if (sessionToken) result.sessionToken = sessionToken
+                    // Multi Agents and Sequential Agents return here. The graph already collected model usage on tokenUsage.
+                    // A tool interrupt still has finalAction. Those tokens ride on the action until the resume finishes.
+                    if (streamResults.tokenUsage && !waitingForApproval(finalAction)) {
+                        void recordCompletedRun(appDataSource, {
+                            workspaceId,
+                            flowId: agentflow.id,
+                            result: chatflowUsageResult({ text: finalResult }, streamResults.tokenUsage)
+                        })
+                    }
+                    return result
                 }
-            }
+                return undefined
+            } else {
+                let chatflowConfig: ICommonObject = {}
+                if (chatflow.chatbotConfig) {
+                    chatflowConfig = JSON.parse(chatflow.chatbotConfig)
+                }
 
-            // Prepare response
-            let result: ICommonObject = {}
-            result.text = finalResult
+                let isStreamValid = false
 
-            result.question = incomingInput.question
-            result.chatId = chatId
-            result.chatMessageId = chatMessage?.id
-            if (sessionId) result.sessionId = sessionId
-            if (memoryType) result.memoryType = memoryType
-            if (agentReasoning?.length) result.agentReasoning = agentReasoning
-            if (finalAction && Object.keys(finalAction).length) result.action = finalAction
-            if (Object.keys(setVariableNodesOutput).length) result.flowVariables = setVariableNodesOutput
-            result.followUpPrompts = JSON.stringify(apiMessage.followUpPrompts)
-            if (sessionToken) result.sessionToken = sessionToken
-            // Multi Agents and Sequential Agents return here. The graph already collected model usage on tokenUsage.
-            // A tool interrupt still has finalAction. Those tokens ride on the action until the resume finishes.
-            if (streamResults.tokenUsage && !waitingForApproval(finalAction)) {
+                /* Check for post-processing settings, if available isStreamValid is always false */
+                if (chatflowConfig?.postProcessing?.enabled === true) {
+                    isStreamValid = false
+                } else {
+                    isStreamValid = await checkIfStreamValid(endingNodes, nodes, streaming)
+                }
+
+                /*** Find the last node to execute ***/
+                const { endingNodeData, endingNodeInstance } = await initEndingNode({
+                    endingNodeIds,
+                    componentNodes,
+                    reactFlowNodes,
+                    incomingInput,
+                    flowConfig,
+                    uploadedFilesContent,
+                    availableVariables,
+                    apiOverrideStatus,
+                    nodeOverrides,
+                    variableOverrides
+                })
+
+                /*** If user uploaded files from chat, prepend the content of the files ***/
+                const finalQuestion = uploadedFilesContent ? `${uploadedFilesContent}\n\n${incomingInput.question}` : incomingInput.question
+
+                /*** Prepare run params ***/
+                const chatflowTokenUsage = new ChatflowTokenUsage()
+                const runParams = {
+                    orgId,
+                    workspaceId,
+                    subscriptionId,
+                    chatId,
+                    chatflowid,
+                    apiMessageId,
+                    logger,
+                    appDataSource,
+                    databaseEntities,
+                    usageCacheManager,
+                    analytic: chatflow.analytic,
+                    componentNodes,
+                    uploads,
+                    prependMessages,
+                    ...(isStreamValid && { sseStreamer, shouldStreamResponse: isStreamValid }),
+                    evaluationRunId,
+                    updateStorageUsage,
+                    checkStorage,
+                    cachePool,
+                    baseURL,
+                    // Read by additionalCallbacks: a replay is not sent to tracing providers set in the environment.
+                    ...(replay && { cuttlelyReplay: true }),
+                    tokenUsageCallback: chatflowTokenUsage
+                }
+
+                /*** Run the ending node ***/
+                // The run's signal becomes the implicit LangChain config, so an abort (client disconnect or the abort route)
+                // reaches the chat model and retriever calls inside the node, not only the agentflow nodes that pass it themselves.
+                let result = await withNodeSpan(endingNodeData.id, endingNodeData.name, () =>
+                    runWithAbortSignal<any>(signal?.signal, () => endingNodeInstance.run(endingNodeData, finalQuestion, runParams))
+                )
+
+                result = typeof result === 'string' ? { text: result } : result
+
+                /*** Retrieve threadId from OpenAI Assistant if exists ***/
+                if (typeof result === 'object' && result.assistant) {
+                    sessionId = result.assistant.threadId
+                }
+
+                const userMessage: Omit<IChatMessage, 'id'> = {
+                    role: 'userMessage',
+                    content: question,
+                    chatflowid,
+                    chatType: chatType || (isEvaluation ? ChatType.EVALUATION : isInternal ? ChatType.INTERNAL : ChatType.EXTERNAL),
+                    chatId,
+                    memoryType,
+                    sessionId,
+                    createdDate: userMessageDateTime,
+                    fileUploads: fileUploads.length ? JSON.stringify(fileUploads) : undefined,
+                    leadEmail: incomingInput.leadEmail
+                }
+                // A publish check replay writes no chat history, so it never shows up as a chat or feeds a memory.
+                if (!replay) await utilAddChatMessage(userMessage, appDataSource)
+
+                let resultText = ''
+                if (result.text) {
+                    resultText = result.text
+                    /* Check for post-processing settings */
+                    if (chatflowConfig?.postProcessing?.enabled === true) {
+                        try {
+                            const postProcessingFunction = JSON.parse(chatflowConfig?.postProcessing?.customFunction)
+                            const nodeInstanceFilePath = componentNodes['customFunction'].filePath as string
+                            const nodeModule = await import(nodeInstanceFilePath)
+                            //set the outputs.output to EndingNode to prevent json escaping of content...
+                            const nodeData = {
+                                inputs: { javascriptFunction: postProcessingFunction },
+                                outputs: { output: 'output' }
+                            }
+                            const options: ICommonObject = {
+                                chatflowid: chatflow.id,
+                                sessionId,
+                                chatId,
+                                input: question,
+                                postProcessing: {
+                                    rawOutput: resultText,
+                                    chatHistory: cloneDeep(chatHistory),
+                                    sourceDocuments: result?.sourceDocuments ? cloneDeep(result.sourceDocuments) : undefined,
+                                    usedTools: result?.usedTools ? cloneDeep(result.usedTools) : undefined,
+                                    artifacts: result?.artifacts ? cloneDeep(result.artifacts) : undefined,
+                                    fileAnnotations: result?.fileAnnotations ? cloneDeep(result.fileAnnotations) : undefined
+                                },
+                                appDataSource,
+                                databaseEntities,
+                                workspaceId,
+                                orgId,
+                                logger
+                            }
+                            const customFuncNodeInstance = new nodeModule.nodeClass()
+                            let moderatedResponse = await customFuncNodeInstance.init(nodeData, question, options)
+                            if (typeof moderatedResponse === 'string') {
+                                result.text = handleEscapeCharacters(moderatedResponse, true)
+                            } else if (typeof moderatedResponse === 'object') {
+                                result.text = '```json\n' + JSON.stringify(moderatedResponse, null, 2) + '\n```'
+                            } else {
+                                result.text = moderatedResponse
+                            }
+                            resultText = result.text
+                        } catch (e) {
+                            logger.log('[server]: Post Processing Error:', e)
+                        }
+                    }
+                } else if (result.json) resultText = '```json\n' + JSON.stringify(result.json, null, 2)
+                else resultText = JSON.stringify(result, null, 2)
+
+                const apiMessage: Omit<IChatMessage, 'createdDate'> = {
+                    id: apiMessageId,
+                    role: 'apiMessage',
+                    content: resultText,
+                    chatflowid,
+                    chatType: chatType || (isEvaluation ? ChatType.EVALUATION : isInternal ? ChatType.INTERNAL : ChatType.EXTERNAL),
+                    chatId,
+                    memoryType,
+                    sessionId
+                }
+                if (result?.harness) {
+                    const harnessPayload = {
+                        text: result.text,
+                        harness: result.harness,
+                        agents: result.agents || [],
+                        sources: result.sources || result.sourceDocuments || [],
+                        artifacts: result.artifacts || [],
+                        ...(result.timings ? { timings: result.timings } : {}),
+                        ...(result.report ? { report: result.report } : {}),
+                        ...(result.trace ? { trace: result.trace } : {})
+                    }
+                    apiMessage.content = result.text || resultText
+                    apiMessage.harnessPayload = JSON.stringify(harnessPayload)
+                    apiMessage.agentReasoning = JSON.stringify(harnessPayload.agents)
+                    if (harnessPayload.sources) apiMessage.sourceDocuments = JSON.stringify(harnessPayload.sources)
+                    if (harnessPayload.artifacts) apiMessage.artifacts = JSON.stringify(harnessPayload.artifacts)
+                    result.sources = harnessPayload.sources
+                    result.artifacts = harnessPayload.artifacts
+                    result.agents = harnessPayload.agents
+                }
+                if (result?.sourceDocuments && !apiMessage.sourceDocuments)
+                    apiMessage.sourceDocuments = JSON.stringify(result.sourceDocuments)
+                if (result?.usedTools) apiMessage.usedTools = JSON.stringify(result.usedTools)
+                if (result?.fileAnnotations) apiMessage.fileAnnotations = JSON.stringify(result.fileAnnotations)
+                if (result?.artifacts) apiMessage.artifacts = JSON.stringify(result.artifacts)
+                if (result?.action) apiMessage.action = typeof result.action === 'string' ? result.action : JSON.stringify(result.action)
+                if (replay) {
+                    // Only the answer: no saved message, follow-up prompts, telemetry or speech.
+                    // The check still spent tokens, so the daily total includes them.
+                    void recordCompletedRun(appDataSource, {
+                        workspaceId,
+                        flowId: chatflowid,
+                        result: chatflowUsageResult(result, chatflowTokenUsage)
+                    })
+                    return { text: resultText, sourceDocuments: result?.sourceDocuments, usedTools: result?.usedTools }
+                }
+                if (chatflow.followUpPrompts) {
+                    const followUpPromptsConfig = JSON.parse(chatflow.followUpPrompts)
+                    const followUpPrompts = await generateFollowUpPrompts(followUpPromptsConfig, apiMessage.content, {
+                        chatId,
+                        chatflowid,
+                        appDataSource,
+                        databaseEntities
+                    })
+                    if (followUpPrompts?.questions) {
+                        apiMessage.followUpPrompts = JSON.stringify(followUpPrompts.questions)
+                    }
+                }
+
+                const chatMessage = await utilAddChatMessage(apiMessage, appDataSource)
+
+                logger.debug(`[server]: [${orgId}]: Finished running ${endingNodeData.label} (${endingNodeData.id})`)
+                if (evaluationRunId) {
+                    const metrics = await EvaluationRunner.getAndDeleteMetrics(evaluationRunId)
+                    result.metrics = metrics
+                }
                 void recordCompletedRun(appDataSource, {
                     workspaceId,
-                    flowId: agentflow.id,
-                    result: chatflowUsageResult({ text: finalResult }, streamResults.tokenUsage)
+                    flowId: chatflowid,
+                    result: chatflowUsageResult(result, chatflowTokenUsage)
                 })
-            }
-            return result
-        }
-        return undefined
-    } else {
-        let chatflowConfig: ICommonObject = {}
-        if (chatflow.chatbotConfig) {
-            chatflowConfig = JSON.parse(chatflow.chatbotConfig)
-        }
-
-        let isStreamValid = false
-
-        /* Check for post-processing settings, if available isStreamValid is always false */
-        if (chatflowConfig?.postProcessing?.enabled === true) {
-            isStreamValid = false
-        } else {
-            isStreamValid = await checkIfStreamValid(endingNodes, nodes, streaming)
-        }
-
-        /*** Find the last node to execute ***/
-        const { endingNodeData, endingNodeInstance } = await initEndingNode({
-            endingNodeIds,
-            componentNodes,
-            reactFlowNodes,
-            incomingInput,
-            flowConfig,
-            uploadedFilesContent,
-            availableVariables,
-            apiOverrideStatus,
-            nodeOverrides,
-            variableOverrides
-        })
-
-        /*** If user uploaded files from chat, prepend the content of the files ***/
-        const finalQuestion = uploadedFilesContent ? `${uploadedFilesContent}\n\n${incomingInput.question}` : incomingInput.question
-
-        /*** Prepare run params ***/
-        const chatflowTokenUsage = new ChatflowTokenUsage()
-        const runParams = {
-            orgId,
-            workspaceId,
-            subscriptionId,
-            chatId,
-            chatflowid,
-            apiMessageId,
-            logger,
-            appDataSource,
-            databaseEntities,
-            usageCacheManager,
-            analytic: chatflow.analytic,
-            componentNodes,
-            uploads,
-            prependMessages,
-            ...(isStreamValid && { sseStreamer, shouldStreamResponse: isStreamValid }),
-            evaluationRunId,
-            updateStorageUsage,
-            checkStorage,
-            cachePool,
-            baseURL,
-            // Read by additionalCallbacks: a replay is not sent to tracing providers set in the environment.
-            ...(replay && { cuttlelyReplay: true }),
-            tokenUsageCallback: chatflowTokenUsage
-        }
-
-        /*** Run the ending node ***/
-        // The run's signal becomes the implicit LangChain config, so an abort (client disconnect or the abort route)
-        // reaches the chat model and retriever calls inside the node, not only the agentflow nodes that pass it themselves.
-        let result = await runWithAbortSignal<any>(signal?.signal, () => endingNodeInstance.run(endingNodeData, finalQuestion, runParams))
-
-        result = typeof result === 'string' ? { text: result } : result
-
-        /*** Retrieve threadId from OpenAI Assistant if exists ***/
-        if (typeof result === 'object' && result.assistant) {
-            sessionId = result.assistant.threadId
-        }
-
-        const userMessage: Omit<IChatMessage, 'id'> = {
-            role: 'userMessage',
-            content: question,
-            chatflowid,
-            chatType: chatType || (isEvaluation ? ChatType.EVALUATION : isInternal ? ChatType.INTERNAL : ChatType.EXTERNAL),
-            chatId,
-            memoryType,
-            sessionId,
-            createdDate: userMessageDateTime,
-            fileUploads: fileUploads.length ? JSON.stringify(fileUploads) : undefined,
-            leadEmail: incomingInput.leadEmail
-        }
-        // A publish check replay writes no chat history, so it never shows up as a chat or feeds a memory.
-        if (!replay) await utilAddChatMessage(userMessage, appDataSource)
-
-        let resultText = ''
-        if (result.text) {
-            resultText = result.text
-            /* Check for post-processing settings */
-            if (chatflowConfig?.postProcessing?.enabled === true) {
-                try {
-                    const postProcessingFunction = JSON.parse(chatflowConfig?.postProcessing?.customFunction)
-                    const nodeInstanceFilePath = componentNodes['customFunction'].filePath as string
-                    const nodeModule = await import(nodeInstanceFilePath)
-                    //set the outputs.output to EndingNode to prevent json escaping of content...
-                    const nodeData = {
-                        inputs: { javascriptFunction: postProcessingFunction },
-                        outputs: { output: 'output' }
-                    }
-                    const options: ICommonObject = {
-                        chatflowid: chatflow.id,
-                        sessionId,
+                await telemetry.sendTelemetry(
+                    'prediction_sent',
+                    {
+                        version: await getAppVersion(),
+                        chatflowId: chatflowid,
                         chatId,
-                        input: question,
-                        postProcessing: {
-                            rawOutput: resultText,
-                            chatHistory: cloneDeep(chatHistory),
-                            sourceDocuments: result?.sourceDocuments ? cloneDeep(result.sourceDocuments) : undefined,
-                            usedTools: result?.usedTools ? cloneDeep(result.usedTools) : undefined,
-                            artifacts: result?.artifacts ? cloneDeep(result.artifacts) : undefined,
-                            fileAnnotations: result?.fileAnnotations ? cloneDeep(result.fileAnnotations) : undefined
-                        },
-                        appDataSource,
-                        databaseEntities,
-                        workspaceId,
+                        type: isEvaluation ? ChatType.EVALUATION : isInternal ? ChatType.INTERNAL : ChatType.EXTERNAL,
+                        flowGraph: getTelemetryFlowObj(nodes, edges),
+                        productId,
+                        subscriptionId
+                    },
+                    orgId
+                )
+
+                /*** Prepare response ***/
+                result.question = incomingInput.question // return the question in the response, this is used when input text is empty but question is in audio format
+                result.chatId = chatId
+                result.chatMessageId = chatMessage?.id
+                result.followUpPrompts = JSON.stringify(apiMessage.followUpPrompts)
+                result.isStreamValid = isStreamValid
+
+                if (sessionId) result.sessionId = sessionId
+                if (memoryType) result.memoryType = memoryType
+                if (sessionToken) result.sessionToken = sessionToken
+                if (Object.keys(setVariableNodesOutput).length) result.flowVariables = setVariableNodesOutput
+
+                if (shouldAutoPlayTTS(chatflow.textToSpeech) && result.text) {
+                    const options = {
                         orgId,
-                        logger
+                        chatflowid,
+                        chatId,
+                        appDataSource,
+                        databaseEntities
                     }
-                    const customFuncNodeInstance = new nodeModule.nodeClass()
-                    let moderatedResponse = await customFuncNodeInstance.init(nodeData, question, options)
-                    if (typeof moderatedResponse === 'string') {
-                        result.text = handleEscapeCharacters(moderatedResponse, true)
-                    } else if (typeof moderatedResponse === 'object') {
-                        result.text = '```json\n' + JSON.stringify(moderatedResponse, null, 2) + '\n```'
-                    } else {
-                        result.text = moderatedResponse
-                    }
-                    resultText = result.text
-                } catch (e) {
-                    logger.log('[server]: Post Processing Error:', e)
+                    await generateTTSForResponseStream(
+                        result.text,
+                        chatflow.textToSpeech,
+                        options,
+                        chatId,
+                        chatMessage?.id,
+                        sseStreamer,
+                        signal
+                    )
                 }
-            }
-        } else if (result.json) resultText = '```json\n' + JSON.stringify(result.json, null, 2)
-        else resultText = JSON.stringify(result, null, 2)
 
-        const apiMessage: Omit<IChatMessage, 'createdDate'> = {
-            id: apiMessageId,
-            role: 'apiMessage',
-            content: resultText,
-            chatflowid,
-            chatType: chatType || (isEvaluation ? ChatType.EVALUATION : isInternal ? ChatType.INTERNAL : ChatType.EXTERNAL),
-            chatId,
-            memoryType,
-            sessionId
-        }
-        if (result?.harness) {
-            const harnessPayload = {
-                text: result.text,
-                harness: result.harness,
-                agents: result.agents || [],
-                sources: result.sources || result.sourceDocuments || [],
-                artifacts: result.artifacts || [],
-                ...(result.timings ? { timings: result.timings } : {}),
-                ...(result.report ? { report: result.report } : {}),
-                ...(result.trace ? { trace: result.trace } : {})
-            }
-            apiMessage.content = result.text || resultText
-            apiMessage.harnessPayload = JSON.stringify(harnessPayload)
-            apiMessage.agentReasoning = JSON.stringify(harnessPayload.agents)
-            if (harnessPayload.sources) apiMessage.sourceDocuments = JSON.stringify(harnessPayload.sources)
-            if (harnessPayload.artifacts) apiMessage.artifacts = JSON.stringify(harnessPayload.artifacts)
-            result.sources = harnessPayload.sources
-            result.artifacts = harnessPayload.artifacts
-            result.agents = harnessPayload.agents
-        }
-        if (result?.sourceDocuments && !apiMessage.sourceDocuments) apiMessage.sourceDocuments = JSON.stringify(result.sourceDocuments)
-        if (result?.usedTools) apiMessage.usedTools = JSON.stringify(result.usedTools)
-        if (result?.fileAnnotations) apiMessage.fileAnnotations = JSON.stringify(result.fileAnnotations)
-        if (result?.artifacts) apiMessage.artifacts = JSON.stringify(result.artifacts)
-        if (result?.action) apiMessage.action = typeof result.action === 'string' ? result.action : JSON.stringify(result.action)
-        if (replay) {
-            // Only the answer: no saved message, follow-up prompts, telemetry or speech.
-            // The check still spent tokens, so the daily total includes them.
-            void recordCompletedRun(appDataSource, {
-                workspaceId,
-                flowId: chatflowid,
-                result: chatflowUsageResult(result, chatflowTokenUsage)
-            })
-            return { text: resultText, sourceDocuments: result?.sourceDocuments, usedTools: result?.usedTools }
-        }
-        if (chatflow.followUpPrompts) {
-            const followUpPromptsConfig = JSON.parse(chatflow.followUpPrompts)
-            const followUpPrompts = await generateFollowUpPrompts(followUpPromptsConfig, apiMessage.content, {
-                chatId,
-                chatflowid,
-                appDataSource,
-                databaseEntities
-            })
-            if (followUpPrompts?.questions) {
-                apiMessage.followUpPrompts = JSON.stringify(followUpPrompts.questions)
+                return result
             }
         }
-
-        const chatMessage = await utilAddChatMessage(apiMessage, appDataSource)
-
-        logger.debug(`[server]: [${orgId}]: Finished running ${endingNodeData.label} (${endingNodeData.id})`)
-        if (evaluationRunId) {
-            const metrics = await EvaluationRunner.getAndDeleteMetrics(evaluationRunId)
-            result.metrics = metrics
-        }
-        void recordCompletedRun(appDataSource, {
-            workspaceId,
-            flowId: chatflowid,
-            result: chatflowUsageResult(result, chatflowTokenUsage)
-        })
-        await telemetry.sendTelemetry(
-            'prediction_sent',
-            {
-                version: await getAppVersion(),
-                chatflowId: chatflowid,
-                chatId,
-                type: isEvaluation ? ChatType.EVALUATION : isInternal ? ChatType.INTERNAL : ChatType.EXTERNAL,
-                flowGraph: getTelemetryFlowObj(nodes, edges),
-                productId,
-                subscriptionId
-            },
-            orgId
-        )
-
-        /*** Prepare response ***/
-        result.question = incomingInput.question // return the question in the response, this is used when input text is empty but question is in audio format
-        result.chatId = chatId
-        result.chatMessageId = chatMessage?.id
-        result.followUpPrompts = JSON.stringify(apiMessage.followUpPrompts)
-        result.isStreamValid = isStreamValid
-
-        if (sessionId) result.sessionId = sessionId
-        if (memoryType) result.memoryType = memoryType
-        if (sessionToken) result.sessionToken = sessionToken
-        if (Object.keys(setVariableNodesOutput).length) result.flowVariables = setVariableNodesOutput
-
-        if (shouldAutoPlayTTS(chatflow.textToSpeech) && result.text) {
-            const options = {
-                orgId,
-                chatflowid,
-                chatId,
-                appDataSource,
-                databaseEntities
-            }
-            await generateTTSForResponseStream(result.text, chatflow.textToSpeech, options, chatId, chatMessage?.id, sseStreamer, signal)
-        }
-
-        return result
-    }
+    )
 }
 
 // Ordinary chatflows do not put token counts on the result. The copy is only for the usage write,
