@@ -30,6 +30,14 @@ function fakes({ reduced = false, small = false, saveData = false, videos = 1, h
                 video.networkState = 2
                 video.loaded = true
                 video.beginFetch()
+                if (!video.finishRestart) return
+                // The restarted resource reaches metadata, then can play through. The test does not fire that.
+                video.readyState = 1
+                video.events.loadedmetadata?.()
+                video.readyState = 4
+                video.networkState = 1
+                open.delete(video)
+                video.events.canplaythrough?.()
             },
             beginFetch() {
                 if (open.has(video)) return
@@ -235,21 +243,10 @@ test('a fetch already in progress is not restarted by the queue', () => {
     assert.equal(typeof list[0].events.canplaythrough, 'function')
 })
 
-test('resume restarts a frozen download without resetting a playing loop', () => {
-    const { doc, win, calls, list, approach, finish, dispatch, inFlight, peak } = fakes({ videos: 4 })
-    initDemoVideo(doc, win)
-    approach([0, 1, 2, 3])
-    assert.deepEqual(
-        calls.filter((call) => call.startsWith('load')),
-        ['load 0', 'load 1']
-    )
-    // Freeze closed the sockets and left both downloads LOADING. stalled must not free a slot.
-    assert.equal(list[0].events.stalled, undefined)
-    assert.equal(list[1].events.stalled, undefined)
-    assert.equal(inFlight(), 2)
+function trackTime(video, start) {
     const times = []
-    let time = 0.49
-    Object.defineProperty(list[0], 'currentTime', {
+    let time = start
+    Object.defineProperty(video, 'currentTime', {
         configurable: true,
         get: () => time,
         set: (value) => {
@@ -257,17 +254,101 @@ test('resume restarts a frozen download without resetting a playing loop', () =>
             time = value
         }
     })
-    // Loop 0 is playing with an aborted socket. Loop 1 never got a frame.
+    return times
+}
+
+test('resume restarts a playing loop and a paused one, then the next loops start', async () => {
+    const { doc, win, calls, list, approach, show, dispatch, inFlight, peak } = fakes({ videos: 4 })
+    initDemoVideo(doc, win)
+    approach([0, 1, 2, 3])
+    show(0, true)
+    show(1, false)
+    const playing = trackTime(list[0], 0.49)
+    const paused = trackTime(list[1], 0.2)
     list[0].readyState = 3
     list[0].networkState = 2
     list[0].paused = false
-    list[1].currentTime = 0
-    list[1].readyState = 1
+    list[1].readyState = 3
     list[1].networkState = 2
+    list[1].paused = true
+    list[0].finishRestart = true
+    list[1].finishRestart = true
+    assert.equal(list[0].events.stalled, undefined)
+    dispatch('doc', 'resume')
+    await Promise.resolve()
+    assert.equal(list[0].currentTime, 0.49)
+    assert.equal(list[1].currentTime, 0.2)
+    assert.ok(playing.includes(0.49))
+    assert.ok(paused.includes(0.2))
+    assert.ok(calls.includes('play 0'))
+    assert.equal(
+        calls.filter((call) => call === 'play 1').length,
+        0
+    )
+    const loads = calls.filter((call) => call.startsWith('load'))
+    assert.deepEqual(loads.filter((call) => call === 'load 0'), ['load 0', 'load 0'])
+    assert.deepEqual(loads.filter((call) => call === 'load 1'), ['load 1', 'load 1'])
+    assert.equal(loads.includes('load 2') && loads.includes('load 3'), true)
+    assert.equal(list[2].preload, 'auto')
+    assert.equal(list[3].preload, 'auto')
+    assert.equal(inFlight(), 2)
+    assert.equal(peak(), 2)
+})
+
+test('resume and a back-forward pageshow in one turn restart each held loop once', async () => {
+    const { doc, win, calls, list, approach, dispatch } = fakes({ videos: 2 })
+    initDemoVideo(doc, win)
+    approach([0, 1])
+    list[0].readyState = 2
+    list[0].networkState = 2
+    list[1].readyState = 2
+    list[1].networkState = 2
+    dispatch('doc', 'resume')
+    dispatch('win', 'pageshow', { persisted: true })
+    assert.deepEqual(
+        calls.filter((call) => call.startsWith('load')),
+        ['load 0', 'load 1']
+    )
+    await Promise.resolve()
+    assert.deepEqual(
+        calls.filter((call) => call.startsWith('load')),
+        ['load 0', 'load 1', 'load 0', 'load 1']
+    )
+})
+
+test('a later freeze restarts a held loop again', async () => {
+    const { doc, win, calls, list, approach, dispatch } = fakes({ videos: 2 })
+    initDemoVideo(doc, win)
+    approach([0, 1])
+    list[0].networkState = 2
+    list[1].networkState = 2
+    dispatch('doc', 'resume')
+    await Promise.resolve()
+    list[0].networkState = 2
+    list[0].readyState = 1
+    list[1].networkState = 2
+    list[1].readyState = 1
+    dispatch('doc', 'resume')
+    await Promise.resolve()
+    assert.deepEqual(
+        calls.filter((call) => call.startsWith('load')),
+        ['load 0', 'load 1', 'load 0', 'load 1', 'load 0', 'load 1']
+    )
+})
+
+test('a resume while the page is hidden waits until it is visible', async () => {
+    const { doc, win, calls, list, approach, dispatch } = fakes({ videos: 2 })
+    initDemoVideo(doc, win)
+    approach([0, 1])
+    list[0].networkState = 2
+    list[0].readyState = 2
+    list[1].networkState = 2
+    list[1].readyState = 2
     doc.hidden = true
     doc.visibilityState = 'hidden'
     dispatch('doc', 'resume')
     dispatch('win', 'pageshow', { persisted: false })
+    await Promise.resolve()
     assert.deepEqual(
         calls.filter((call) => call.startsWith('load')),
         ['load 0', 'load 1']
@@ -275,28 +356,7 @@ test('resume restarts a frozen download without resetting a playing loop', () =>
     doc.hidden = false
     doc.visibilityState = 'visible'
     dispatch('doc', 'visibilitychange')
-    // Only the frozen, not-yet-playing download is selected again.
-    assert.deepEqual(
-        calls.filter((call) => call.startsWith('load')),
-        ['load 0', 'load 1', 'load 1']
-    )
-    assert.deepEqual(times, [])
-    assert.equal(list[0].currentTime, 0.49)
-    finish(0)
-    finish(1)
-    assert.deepEqual(
-        calls.filter((call) => call.startsWith('load')),
-        ['load 0', 'load 1', 'load 1', 'load 2', 'load 3']
-    )
-    assert.equal(inFlight(), 2)
-    assert.equal(peak(), 2)
-})
-
-test('a back-forward restore restarts a frozen download once the page is visible', () => {
-    const { doc, win, calls, approach, dispatch } = fakes({ videos: 2 })
-    initDemoVideo(doc, win)
-    approach([0, 1])
-    dispatch('win', 'pageshow', { persisted: true })
+    await Promise.resolve()
     assert.deepEqual(
         calls.filter((call) => call.startsWith('load')),
         ['load 0', 'load 1', 'load 0', 'load 1']

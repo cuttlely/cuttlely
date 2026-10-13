@@ -24,9 +24,15 @@ export function canAutoplay(win = window) {
  * - the video fires error
  * - a source error fires and networkState is NETWORK_NO_SOURCE (the last candidate failed)
  * - the element is already NETWORK_NO_SOURCE or HAVE_ENOUGH_DATA when the slot opens
- * A stalled download keeps its slot. A frozen page aborts the fetch without those events;
- * resume calls load() again once the document is visible, and that restart is what lets the
- * listeners above free the slot. A playing or fully buffered loop is not loaded again.
+ * A stalled download keeps its slot. A frozen page aborts the fetch without those events.
+ * On resume, or a back-forward pageshow, every held loop that is not yet fully buffered is
+ * load()ed once, playing or paused. Its playhead is restored on loadedmetadata, and it plays
+ * again only if it should still be on screen. That restart is what lets the listeners above
+ * free the slot. A fully buffered loop is not loaded again.
+ * Safari and Firefox do not fire resume. A socket aborted while the page is hidden, and not
+ * restored from the back-forward cache, is started again only if resume was already seen
+ * while hidden and the page later becomes visible. Coming back to a visible tab does not
+ * restart downloads by itself, because that would abort a download that is still healthy.
  */
 function watchLoops(videos, win, doc) {
     const wantsPlay = new WeakSet()
@@ -138,26 +144,42 @@ function watchLoops(videos, win, doc) {
     // Freeze aborts the socket and leaves networkState LOADING, with no error and no emptied.
     // load() runs the resource selection again so the listeners above can free the slot.
     const documentVisible = () => (doc.visibilityState ? doc.visibilityState === 'visible' : doc.hidden !== true)
-    const restartFrozen = () => {
-        if (!documentVisible()) {
-            restartWhenVisible = true
-            return
-        }
-        restartWhenVisible = false
-        for (const video of holding) {
+    const restartHeld = () => {
+        for (const video of [...holding]) {
             const readyState = video.readyState || 0
-            // load() would send a playing or fully buffered loop back to the start.
-            if (readyState >= 4 || (video.currentTime || 0) > 0) continue
-            if (video.networkState === 2 && readyState < 4) video.load()
+            if (readyState >= 4 || video.networkState !== 2) continue
+            const saved = video.currentTime || 0
+            const onMeta = () => {
+                video.removeEventListener('loadedmetadata', onMeta)
+                if (saved > 0) video.currentTime = saved
+                if (wantsPlay.has(video)) video.play().catch(() => {})
+            }
+            video.addEventListener('loadedmetadata', onMeta)
+            video.load()
         }
     }
-    doc.addEventListener('resume', restartFrozen)
+    // resume and a persisted pageshow can fire in the same turn. One microtask covers both.
+    let restartScheduled = false
+    const scheduleRestart = () => {
+        if (restartScheduled) return
+        restartScheduled = true
+        queueMicrotask(() => {
+            restartScheduled = false
+            if (!documentVisible()) {
+                restartWhenVisible = true
+                return
+            }
+            restartWhenVisible = false
+            restartHeld()
+        })
+    }
+    doc.addEventListener('resume', scheduleRestart)
     doc.addEventListener('visibilitychange', () => {
-        if (restartWhenVisible) restartFrozen()
+        if (restartWhenVisible && documentVisible()) scheduleRestart()
     })
-    // pageshow is a window event. persisted is the back/forward cache restore.
+    // pageshow is a window event. persisted is the back-forward cache restore.
     win.addEventListener('pageshow', (event) => {
-        if (event?.persisted) restartFrozen()
+        if (event?.persisted) scheduleRestart()
     })
 }
 
