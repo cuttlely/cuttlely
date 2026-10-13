@@ -310,10 +310,10 @@ describe('executeAgentFlow with replay on (publish check)', () => {
         } as any
         const live = await resolveVariables(field, '', { name: 'ada', note: '' }, undefined, [], '', [], {} as any)
         const checked = await resolveVariables(field, '', parsed, undefined, [], '', [], {} as any)
-        expect(live.inputs.value1).toBe('')
-        expect(checked.inputs.value1).toBe('')
-        expect(isEmpty(live.inputs.value1)).toBe(true)
-        expect(isEmpty(checked.inputs.value1)).toBe(true)
+        expect(live.inputs?.value1).toBe('')
+        expect(checked.inputs?.value1).toBe('')
+        expect(isEmpty(live.inputs?.value1)).toBe(true)
+        expect(isEmpty(checked.inputs?.value1)).toBe(true)
 
         const rich = { bio: 'line1\nname: eve', path: 'C:\\temp', win: 'a\r\nb', note: 'size: large' }
         const lines = formObjectToStoredLines(rich)
