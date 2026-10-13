@@ -89,10 +89,12 @@ export function latestAnalystCursor({ harness, chatId, now = Date.now(), ttlMs =
     return null
 }
 
-export function takeAnalystResults({ harness, specialist, since = 0 } = {}) {
+export function takeAnalystResults({ harness, specialist, chatId = '', since = 0 } = {}) {
+    const name = String(harness || '')
+    const who = String(specialist || '')
+    const chat = String(chatId || '')
     const rows = pending.filter(
-        (item) =>
-            !item.claimed && item.harness === String(harness || '') && item.specialist === String(specialist || '') && item.at >= since
+        (item) => !item.claimed && item.harness === name && item.specialist === who && item.chatId === chat && item.at >= since
     )
     for (const item of rows) item.claimed = true
     return rows.map((item) => ({ result: item.result, callId: item.callId || '' }))

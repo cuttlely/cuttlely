@@ -8194,7 +8194,47 @@ check(
     JSON.stringify({ heldText, passedText })
 )
 const { analystPingHeader, writeAnalystMcpStatus } = await import('./runtime/analyst-mcp-status.mjs')
-const { analystCaptureId, noteAnalystGatewayCall, recordAnalystResult } = await import('./analyst-capture.mjs')
+const { analystCaptureId, dropAnalystCapture, noteAnalystGatewayCall, recordAnalystResult, takeAnalystResults } = await import(
+    './analyst-capture.mjs'
+)
+recordAnalystResult({
+    harness: 'capture-split',
+    specialist: 'analyst',
+    chatId: 'chat-a',
+    callId: '1:same',
+    result: { rows: [{ id: 'A1' }] },
+    at: 1
+})
+recordAnalystResult({
+    harness: 'capture-split',
+    specialist: 'analyst',
+    chatId: 'chat-b',
+    callId: '1:same',
+    result: { rows: [{ id: 'B' }] },
+    at: 2
+})
+recordAnalystResult({
+    harness: 'capture-split',
+    specialist: 'analyst',
+    chatId: 'chat-a',
+    callId: '2:same',
+    result: { rows: [{ id: 'A2' }] },
+    at: 3
+})
+const takenA = takeAnalystResults({ harness: 'capture-split', specialist: 'analyst', chatId: 'chat-a', since: 0 })
+const takenB = takeAnalystResults({ harness: 'capture-split', specialist: 'analyst', chatId: 'chat-b', since: 0 })
+const takenAAgain = takeAnalystResults({ harness: 'capture-split', specialist: 'analyst', chatId: 'chat-a', since: 0 })
+check(
+    'taking one chat does not claim the other chat, even when the call ids match',
+    takenA.map((row) => row.result.rows[0].id).join(',') === 'A1,A2' &&
+        takenB.map((row) => row.result.rows[0].id).join(',') === 'B' &&
+        takenAAgain.length === 0 &&
+        takenA.every((row) => row.callId) &&
+        takenB[0].callId === '1:same',
+    JSON.stringify({ takenA, takenB, takenAAgain })
+)
+dropAnalystCapture({ harness: 'capture-split', chatId: 'chat-a' })
+dropAnalystCapture({ harness: 'capture-split', chatId: 'chat-b' })
 saveHarness(
     {
         name: 'analyst-direct',
@@ -8258,7 +8298,13 @@ const capRun = await runHarness({
     input: 'Use the analyst database for a row cap check. Create a tickets table and insert 150 rows, then select all rows.',
     baseUrl: 'http://127.0.0.1:9',
     fetchImpl: analystHermesFetch(() => {
-        recordAnalystResult({ harness: 'analyst-ground', specialist: 'analyst', callId: 'cap-handoff', result: rowCapBody })
+        recordAnalystResult({
+            harness: 'analyst-ground',
+            specialist: 'analyst',
+            chatId: 'cap-handoff',
+            callId: 'cap-handoff',
+            result: rowCapBody
+        })
         const preview = `${JSON.stringify(rowCapBody).slice(0, 80)}...`
         return {
             output: 'The select returned 100 rows and the tool marked the result as truncated.',
@@ -8284,7 +8330,13 @@ const shortRun = await runHarness({
     input: 'Use the analyst database. Create tickets and select all rows.',
     baseUrl: 'http://127.0.0.1:9',
     fetchImpl: analystHermesFetch(() => {
-        recordAnalystResult({ harness: 'analyst-ground', specialist: 'analyst', callId: 'cap-short', result: shortBody })
+        recordAnalystResult({
+            harness: 'analyst-ground',
+            specialist: 'analyst',
+            chatId: 'cap-short',
+            callId: 'cap-short',
+            result: shortBody
+        })
         return {
             output: 'Here are a few of the rows.',
             events: [
@@ -8336,7 +8388,13 @@ const droppedRun = await runHarness({
     input: 'Show all rows in the tickets table.',
     baseUrl: 'http://127.0.0.1:9',
     fetchImpl: analystHermesFetch(() => {
-        recordAnalystResult({ harness: 'analyst-ground', specialist: 'analyst', callId: 'cap-drop', result: droppedBody })
+        recordAnalystResult({
+            harness: 'analyst-ground',
+            specialist: 'analyst',
+            chatId: 'cap-drop-100',
+            callId: 'cap-drop',
+            result: droppedBody
+        })
         return {
             output: 'Listed the capped rows.',
             events: [
@@ -8378,7 +8436,7 @@ const countRun = await runHarness({
     input: 'How many rows are in tickets?',
     baseUrl: 'http://127.0.0.1:9',
     fetchImpl: analystHermesFetch(() => {
-        recordAnalystResult({ harness: 'analyst-ground', specialist: 'analyst', result: shortBody })
+        recordAnalystResult({ harness: 'analyst-ground', specialist: 'analyst', chatId: 'cap-count', result: shortBody })
         return {
             output: '150',
             events: [{ event: 'tool.completed', tool: 'mcp__analyst__query', preview: '150' }]
@@ -8807,28 +8865,38 @@ const statusRun = await runHarness({
         recordAnalystResult({
             harness: 'analyst-ground',
             specialist: 'analyst',
+            chatId: 'cap-status-lines',
             callId: 'status-1',
             result: { command: 'OK', rowCount: 0 }
         })
         recordAnalystResult({
             harness: 'analyst-ground',
             specialist: 'analyst',
+            chatId: 'cap-status-lines',
             callId: 'status-2',
             result: { command: 'OK', rowCount: 0 }
         })
         recordAnalystResult({
             harness: 'analyst-ground',
             specialist: 'analyst',
+            chatId: 'cap-status-lines',
             callId: 'status-3',
             result: { command: 'OK', rowCount: 150 }
         })
         recordAnalystResult({
             harness: 'analyst-ground',
             specialist: 'analyst',
+            chatId: 'cap-status-lines',
             callId: 'status-4',
             result: { rows: [{ id: 'seed', note: 'ignore' }] }
         })
-        recordAnalystResult({ harness: 'analyst-ground', specialist: 'analyst', callId: 'status-5', result: droppedBody })
+        recordAnalystResult({
+            harness: 'analyst-ground',
+            specialist: 'analyst',
+            chatId: 'cap-status-lines',
+            callId: 'status-5',
+            result: droppedBody
+        })
         return {
             output: 'Created the table, inserted 150 rows, and selected them.',
             events: [
@@ -8945,7 +9013,7 @@ async function runSingleColumnFill({ chatId, callId, rows, answer, summary }) {
         input: 'Show all rows from the analyst table.',
         baseUrl: 'http://127.0.0.1:9',
         fetchImpl: analystHermesFetch(() => {
-            recordAnalystResult({ harness: 'analyst-ground', specialist: 'analyst', callId, result: body })
+            recordAnalystResult({ harness: 'analyst-ground', specialist: 'analyst', chatId, callId, result: body })
             return {
                 output: 'Listed the capped rows.',
                 events: [
@@ -9189,6 +9257,7 @@ const refusalRun = await runHarness({
         recordAnalystResult({
             harness: 'analyst-ground',
             specialist: 'analyst',
+            chatId: 'chip-refusal',
             result: { error: 'Analyst mode refused that PRAGMA.', cuttlelyOutcome: 'expected' }
         })
         return {
@@ -9230,6 +9299,7 @@ const fiveRun = await runHarness({
             recordAnalystResult({
                 harness: 'analyst-ground',
                 specialist: 'analyst',
+                chatId: 'chip-five',
                 result: n === 5 ? { rows: [{ id: n, region: 'west' }] } : { error: `step ${n}`, cuttlelyOutcome: 'expected' }
             })
         }
@@ -9269,6 +9339,7 @@ const retryChipRun = await runHarness({
         recordAnalystResult({
             harness: 'analyst-ground',
             specialist: 'analyst',
+            chatId: 'chip-retry',
             result: { rows: [{ id: 1, region: 'west' }] }
         })
         return {
@@ -9345,6 +9416,7 @@ const mixRun = await runHarness({
         recordAnalystResult({
             harness: 'analyst-ground',
             specialist: 'analyst',
+            chatId: 'chip-mix',
             callId: selectId,
             result: { rows: [{ id: 1, description: 'Ticket 001' }], truncated: true, summary: pageCapLine }
         })
@@ -9395,6 +9467,7 @@ const gapRun = await runHarness({
         recordAnalystResult({
             harness: 'analyst-ground',
             specialist: 'analyst',
+            chatId: 'chip-gap',
             callId: selectId,
             result: { rows: [{ id: 9, description: 'Ticket 009' }], summary: pageCapLine }
         })
@@ -9424,12 +9497,14 @@ const twoRun = await runHarness({
         recordAnalystResult({
             harness: 'analyst-ground',
             specialist: 'analyst',
+            chatId: 'chip-two',
             callId: 'call_left',
             result: { rows: [{ id: 1, side: 'left' }] }
         })
         recordAnalystResult({
             harness: 'analyst-ground',
             specialist: 'analyst',
+            chatId: 'chip-two',
             callId: 'call_right',
             result: { rows: [{ id: 8, side: 'right' }] }
         })
@@ -11299,6 +11374,21 @@ await (async () => {
             souls: [...souls.keys()],
             publishedSession: readMessages(name, publishedChat).length
         })
+    )
+})()
+
+await (async () => {
+    const { appendTurn, listUserTurns } = await import('./session.mjs')
+    const name = 'turn-questions'
+    const prefix = 'q'.repeat(240)
+    appendTurn(name, 'chat-1', `${prefix} rye bread`, 'one')
+    appendTurn(name, 'chat-2', `${prefix} wheat loaf`, 'two')
+    const listed = listUserTurns(name, { limit: 10 })
+    check(
+        'session user turns keep the full prompt, not the run preview',
+        listed.map((row) => row.content).join('|') === `${prefix} wheat loaf|${prefix} rye bread` &&
+            listed.every((row) => row.content.length > 240 && !row.content.endsWith('…')),
+        listed.map((row) => row.content.length).join(',')
     )
 })()
 

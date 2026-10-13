@@ -1,5 +1,7 @@
 // Harness questions for the publish check, and the replay that runs one side.
-// Questions come from the harness's run history (newest distinct input previews, same caps as chat questions).
+// Questions are the full user turns stored for this harness, newest distinct first, with the same caps
+// as chat questions. Secrets are redacted the same way as a run preview, then the text is cut at 2,000
+// characters. The short preview on the Runs list is not replayed.
 // A dataset loader is not on this server yet. `questionSources.dataset` is the seam: when it is set, a
 // request that sends `datasetId` replays those rows on Live and the draft. Until then that request is refused.
 import { randomUUID } from 'crypto'
@@ -10,9 +12,9 @@ import { COMPARE_COUNT_MAX, pickQuestions, parseCompareCount } from './compare'
 // The same character cap the chat question check uses.
 const MAX_QUESTION_CHARS = 2000
 
-export interface RunPreview {
-    inputPreview?: string
-    startedAt?: string
+export interface UserTurn {
+    content?: string
+    createdAt?: string
 }
 
 export interface DatasetRow {
@@ -31,15 +33,13 @@ export interface QuestionSource {
 // Unset until a dataset check is on main. A harness request that sends datasetId uses this when it is set.
 export const questionSources: QuestionSource = { dataset: null }
 
-export interface ListedRun {
-    inputPreview?: string
-    startedAt?: string
-}
-
-// Tests stand in for run history. Production reads the harness history module.
+// Tests stand in for the session transcript. Production reads the harness session messages.
 export const harnessCheckHooks: {
-    listRuns: null | ((name: string, opts?: { limit?: number }) => ListedRun[])
-} = { listRuns: null }
+    listUserTurns: null | ((name: string, opts?: { limit?: number }) => UserTurn[])
+} = { listUserTurns: null }
+
+// Newest user turns read from the session file. Past that, older questions may exist.
+const TURN_SCAN_CAP = 2000
 
 export interface ReplayCall {
     name: string
@@ -55,30 +55,50 @@ export const harnessReplayHooks: {
         | ((call: ReplayCall) => Promise<{ text?: string; report?: { tokens?: { prompt?: number | null; completion?: number | null } } }>)
 } = { run: null }
 
-export function questionsFromRunPreviews(rows: RunPreview[], max: number, maxChars: number): Array<{ text: string; date: string }> {
-    const texts = rows.map((row) => String(row.inputPreview || ''))
-    const picked = pickQuestions(texts, max, maxChars)
+// The same replacements as a run-history preview. Whitespace is left as the person typed it.
+export function redactSecrets(text: string): string {
+    return String(text ?? '')
+        .replace(/\bsk-[A-Za-z0-9_-]{8,}\b/g, '[redacted]')
+        .replace(/\bxai-[A-Za-z0-9_-]{8,}\b/g, '[redacted]')
+        .replace(/Bearer\s+\S+/gi, 'Bearer [redacted]')
+        .replace(/\bpostgres(?:ql)?:\/\/\S+/gi, '[redacted]')
+}
+
+// Redact first, then cut. A cut does not add the preview ellipsis.
+export function questionTextFromTurn(content: string): string {
+    const redacted = redactSecrets(content).trim()
+    if (!redacted) return ''
+    return redacted.length > MAX_QUESTION_CHARS ? redacted.slice(0, MAX_QUESTION_CHARS) : redacted
+}
+
+export function questionsFromUserTurns(rows: UserTurn[], max: number, maxChars: number): Array<{ text: string; date: string }> {
+    const prepared = rows
+        .map((row) => ({ text: questionTextFromTurn(String(row.content || '')), date: row.createdAt || '' }))
+        .filter((row) => row.text)
+    const picked = pickQuestions(
+        prepared.map((row) => row.text),
+        max,
+        maxChars
+    )
     return picked.map((text) => {
-        const row = rows.find((item) => String(item.inputPreview || '').trim() === text)
-        return { text, date: row?.startedAt || '' }
+        const row = prepared.find((item) => item.text === text)
+        return { text, date: row?.date || '' }
     })
 }
 
-// Run history keeps 100 rows. Reading that many is the whole store, so the scan is truncated only when
-// those 100 rows did not yield 100 different questions (older wordings were already dropped).
-export async function loadHarnessRunPreviews(name: string | null | undefined): Promise<{ rows: RunPreview[]; truncated: boolean }> {
+export async function loadHarnessUserTurns(name: string | null | undefined): Promise<{ rows: UserTurn[]; truncated: boolean }> {
     const harnessName = String(name || '').trim()
     if (!harnessName) return { rows: [], truncated: false }
-    const list = harnessCheckHooks.listRuns || (await historyListRuns())
-    const rows = list(harnessName, { limit: COMPARE_COUNT_MAX }) || []
-    const distinct = questionsFromRunPreviews(rows, COMPARE_COUNT_MAX, MAX_QUESTION_CHARS)
-    return { rows, truncated: rows.length >= COMPARE_COUNT_MAX && distinct.length < COMPARE_COUNT_MAX }
+    const list = harnessCheckHooks.listUserTurns || (await sessionUserTurns())
+    const rows = list(harnessName, { limit: TURN_SCAN_CAP }) || []
+    const distinct = questionsFromUserTurns(rows, COMPARE_COUNT_MAX, MAX_QUESTION_CHARS)
+    return { rows, truncated: rows.length >= TURN_SCAN_CAP && distinct.length < COMPARE_COUNT_MAX }
 }
 
-async function historyListRuns(): Promise<(name: string, opts?: { limit?: number }) => ListedRun[]> {
+async function sessionUserTurns(): Promise<(name: string, opts?: { limit?: number }) => UserTurn[]> {
     const { loadHarness } = await import('../harnesses')
-    const history = await loadHarness('history.mjs')
-    return (name: string, opts?: { limit?: number }) => history.listRuns(name, opts)
+    const session = await loadHarness('session.mjs')
+    return (name: string, opts?: { limit?: number }) => session.listUserTurns(name, opts)
 }
 
 function starterQuestions(chatbotConfig?: string | null): string[] {
@@ -92,8 +112,8 @@ function starterQuestions(chatbotConfig?: string | null): string[] {
 }
 
 export async function harnessQuestionsFor(flow: { name?: string | null; chatbotConfig?: string | null }) {
-    const loaded = await loadHarnessRunPreviews(flow.name)
-    const recent = questionsFromRunPreviews(loaded.rows, COMPARE_COUNT_MAX, MAX_QUESTION_CHARS)
+    const loaded = await loadHarnessUserTurns(flow.name)
+    const recent = questionsFromUserTurns(loaded.rows, COMPARE_COUNT_MAX, MAX_QUESTION_CHARS)
     const asked = new Set(recent.map((q) => q.text.toLowerCase()))
     const starters = starterQuestions(flow.chatbotConfig)
         .filter((text) => !asked.has(text.toLowerCase()))
@@ -159,8 +179,8 @@ export async function harnessQuestionsToRun(
     const parsed = parseCompareCount(body?.count)
     if (!parsed.ok) throw new AppError(StatusCodes.BAD_REQUEST, parsed.message)
     if (parsed.count === null) return { questions: cleanQuestions(body?.questions, 10, false), selection: null }
-    const loaded = await loadHarnessRunPreviews(flow.name)
-    const texts = loaded.rows.map((row) => String(row.inputPreview || ''))
+    const loaded = await loadHarnessUserTurns(flow.name)
+    const texts = loaded.rows.map((row) => questionTextFromTurn(String(row.content || '')))
     const available = pickQuestions(texts, COMPARE_COUNT_MAX, MAX_QUESTION_CHARS)
     const past = pickQuestions(texts, parsed.count, MAX_QUESTION_CHARS)
     const extras = cleanQuestions(body?.questions, COMPARE_COUNT_MAX, true)

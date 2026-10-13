@@ -1298,7 +1298,7 @@ async function runHermesSpecialist(context, specialist, task) {
 }
 
 function attachCapturedAnalystResults(context, specialist, since, logStart = 0) {
-    const captured = takeAnalystResults({ harness: context.name, specialist: specialist.name, since })
+    const captured = takeAnalystResults({ harness: context.name, specialist: specialist.name, chatId: context.chatId, since })
     if (!captured.length) return
     if (!context.toolLog) context.toolLog = []
     const slots = []

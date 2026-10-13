@@ -44,7 +44,7 @@ jest.mock('@cuttlely/components', () => ({ EvaluationRunner: { metrics: new Map(
 jest.mock('../../utils/logger', () => ({ __esModule: true, default: { error: jest.fn(), debug: jest.fn() } }))
 
 import { checks, getCheck, getCheckSetup, replayHooks, startCheck, stopCheck } from './index'
-import { harnessCheckHooks, harnessReplayHooks, questionSources } from './harness'
+import { harnessCheckHooks, harnessReplayHooks, questionSources, questionsFromUserTurns, questionTextFromTurn } from './harness'
 
 const canvas = (word: string, extra: any[] = []) =>
     JSON.stringify({
@@ -66,7 +66,7 @@ const canvas = (word: string, extra: any[] = []) =>
 
 const LIVE = canvas('MANGO')
 const DRAFT = canvas('PAPAYA')
-const runs: Array<{ inputPreview: string; startedAt: string }> = []
+const turns: Array<{ content: string; createdAt: string }> = []
 
 const flow = (overrides: any = {}) => ({
     id: 'flow-1',
@@ -85,12 +85,12 @@ beforeEach(() => {
     checks.clear()
     states.clear()
     messages.length = 0
-    runs.length = 0
+    turns.length = 0
     queryState.take = undefined
     queryState.skip = 0
     draftsOn = true
     states.set('flow-1', { chatflowId: 'flow-1', draftFlowData: DRAFT, publishInstantly: false })
-    harnessCheckHooks.listRuns = (name) => (name === 'bakery-team' ? runs : [])
+    harnessCheckHooks.listUserTurns = (name) => (name === 'bakery-team' ? turns : [])
     harnessReplayHooks.run = null
     questionSources.dataset = null
     replayHooks.run = async ({ flowData }) => {
@@ -101,7 +101,7 @@ beforeEach(() => {
 })
 
 afterEach(() => {
-    harnessCheckHooks.listRuns = null
+    harnessCheckHooks.listUserTurns = null
     harnessReplayHooks.run = null
     questionSources.dataset = null
     replayHooks.run = null
@@ -109,11 +109,11 @@ afterEach(() => {
 })
 
 describe('harness publish check', () => {
-    test('offers the newest distinct run previews, then starter questions', async () => {
-        runs.push(
-            { inputPreview: 'What time do you open?', startedAt: '2026-10-08T10:00:00.000Z' },
-            { inputPreview: 'what time do you open?', startedAt: '2026-10-08T09:00:00.000Z' },
-            { inputPreview: 'Do you have rye?', startedAt: '2026-10-08T08:00:00.000Z' }
+    test('offers the newest distinct user turns, then starter questions', async () => {
+        turns.push(
+            { content: 'What time do you open?', createdAt: '2026-10-08T10:00:00.000Z' },
+            { content: 'what time do you open?', createdAt: '2026-10-08T09:00:00.000Z' },
+            { content: 'Do you have rye?', createdAt: '2026-10-08T08:00:00.000Z' }
         )
         const setup = await getCheckSetup(
             flow({
@@ -207,7 +207,7 @@ describe('harness publish check', () => {
     })
 
     test('dataset rows replay on both rosters when a loader is plugged in, and are refused until then', async () => {
-        runs.push({ inputPreview: 'From a real run', startedAt: '2026-10-08T10:00:00.000Z' })
+        turns.push({ content: 'From a real run', createdAt: '2026-10-08T10:00:00.000Z' })
         await expect(startCheck(flow() as any, { datasetId: 'ds-1' }, 'http://x')).rejects.toMatchObject({
             statusCode: 400,
             message: 'A dataset check is not available on this server yet.'
@@ -230,7 +230,7 @@ describe('harness publish check', () => {
 
     test('a chatflow check still reads chat messages and ignores a dataset id', async () => {
         messages.push({ content: 'From chat', createdDate: new Date('2026-10-08T10:00:00.000Z'), fileUploads: null })
-        runs.push({ inputPreview: 'From a run', startedAt: '2026-10-08T10:00:00.000Z' })
+        turns.push({ content: 'From a run', createdAt: '2026-10-08T10:00:00.000Z' })
         const chatNode = (label: string) =>
             JSON.stringify({ nodes: [{ id: 'n', data: { name: 'chatOpenAI', category: 'Chat Models', label } }], edges: [] })
         const chat = flow({ type: 'CHATFLOW', flowData: chatNode('MANGO') })
@@ -247,5 +247,34 @@ describe('harness publish check', () => {
         const done = await getCheck(chat, started.id)
         expect(done.cases[0].question).toBe('From chat')
         expect(done.status).toBe('done')
+    })
+})
+
+describe('harness questions from full turns', () => {
+    const prefix = 'a'.repeat(240)
+
+    test('two prompts that share a 240-character prefix stay two questions', () => {
+        const questions = questionsFromUserTurns(
+            [
+                { content: `${prefix} later rye`, createdAt: '2026-10-08T10:00:00.000Z' },
+                { content: `${prefix} earlier loaf`, createdAt: '2026-10-08T09:00:00.000Z' }
+            ],
+            100,
+            2000
+        )
+        expect(questions.map((item) => item.text)).toEqual([`${prefix} later rye`, `${prefix} earlier loaf`])
+        expect(questions.every((item) => !item.text.endsWith('…') && !item.text.endsWith('...'))).toBe(true)
+    })
+
+    test('a secret in a long prompt is redacted, and a 2500-character prompt is cut at 2000', () => {
+        const secret = `Please use sk-${'a'.repeat(12)} and then continue.`
+        const padded = `${secret}${'z'.repeat(2500)}`
+        const text = questionTextFromTurn(padded)
+        expect(text.startsWith('Please use [redacted] and then continue.')).toBe(true)
+        expect(text.includes('sk-')).toBe(false)
+        expect(text.length).toBe(2000)
+        expect(text.endsWith('…')).toBe(false)
+        const questions = questionsFromUserTurns([{ content: padded, createdAt: '2026-10-08T10:00:00.000Z' }], 100, 2000)
+        expect(questions).toEqual([{ text, date: '2026-10-08T10:00:00.000Z' }])
     })
 })
