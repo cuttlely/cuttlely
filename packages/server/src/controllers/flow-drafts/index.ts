@@ -154,11 +154,19 @@ const rollbackLive = async (req: Request, res: Response, next: NextFunction) => 
     }
 }
 
+// Starting a check already requires these. Reading one must too, or a flow viewer sees dataset rows and evaluator names.
+async function checkReveal(req: Request) {
+    return {
+        datasets: await hasAnyPermission(req, 'datasets:view'),
+        evaluators: await hasAnyPermission(req, 'evaluators:view')
+    }
+}
+
 // The publish check: recent questions replayed against Live and the draft. Optional; Publish never waits for it.
 const getCheckSetup = async (req: Request, res: Response, next: NextFunction) => {
     try {
         const flow = await flowFor(req, 'view')
-        return res.json(await flowCheckService.getCheckSetup(flow))
+        return res.json(await flowCheckService.getCheckSetup(flow, undefined, await checkReveal(req)))
     } catch (error) {
         next(error)
     }
@@ -201,6 +209,14 @@ const startCheck = async (req: Request, res: Response, next: NextFunction) => {
     let detach: () => void = () => undefined
     try {
         const flow = await flowFor(req, 'update')
+        const body = req.body || {}
+        // On top of the flow permission: a dataset needs datasets:view, and evaluators need evaluators:view.
+        if (body.datasetId !== undefined && body.datasetId !== null && !(await hasAnyPermission(req, 'datasets:view'))) {
+            throw new AppError(StatusCodes.FORBIDDEN, 'You do not have permission to view datasets.')
+        }
+        if (Array.isArray(body.evaluatorIds) && body.evaluatorIds.length > 0 && !(await hasAnyPermission(req, 'evaluators:view'))) {
+            throw new AppError(StatusCodes.FORBIDDEN, 'You do not have permission to view evaluators.')
+        }
         const socket = req.socket
         const stopOwned = (force = false) => {
             if (stopped || !ownedId) return
@@ -243,7 +259,7 @@ const startCheck = async (req: Request, res: Response, next: NextFunction) => {
         listen(res, 'finish', onDelivered)
         const baseURL = `${req.get('x-forwarded-proto') || req.protocol}://${req.get('host')}`
         const closed = () => gone || clientGone(req)
-        const view = await flowCheckService.startCheck(flow, req.body || {}, baseURL, undefined, { closed })
+        const view = await flowCheckService.startCheck(flow, body, baseURL, undefined, { closed })
         ownedId = view.id
         if (closed()) {
             const id = ownedId
@@ -263,7 +279,7 @@ const startCheck = async (req: Request, res: Response, next: NextFunction) => {
 const getCheck = async (req: Request, res: Response, next: NextFunction) => {
     try {
         const flow = await flowFor(req, 'view')
-        return res.json(await flowCheckService.getCheck(flow, req.params.checkId))
+        return res.json(await flowCheckService.getCheck(flow, req.params.checkId, undefined, await checkReveal(req)))
     } catch (error) {
         next(error)
     }
@@ -272,7 +288,7 @@ const getCheck = async (req: Request, res: Response, next: NextFunction) => {
 const stopCheck = async (req: Request, res: Response, next: NextFunction) => {
     try {
         const flow = await flowFor(req, 'update')
-        return res.json(await flowCheckService.stopCheck(flow, req.params.checkId))
+        return res.json(await flowCheckService.stopCheck(flow, req.params.checkId, undefined, await checkReveal(req)))
     } catch (error) {
         next(error)
     }

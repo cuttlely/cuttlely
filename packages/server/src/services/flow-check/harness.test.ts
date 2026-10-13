@@ -33,9 +33,26 @@ const queryBuilder: any = {
     }
 }
 const writes = { save: jest.fn(), insert: jest.fn(), update: jest.fn() }
+const datasets = new Map<string, { id: string; workspaceId: string }>()
+const datasetRows: Array<{ datasetId: string; input: string; output: string; sequenceNo: number }> = []
 jest.mock('../../utils/getRunningExpressApp', () => ({
     getRunningExpressApp: () => ({
-        AppDataSource: { getRepository: () => ({ createQueryBuilder: () => queryBuilder, ...writes }) }
+        AppDataSource: {
+            getRepository: (entity: { name?: string }) => {
+                if (entity?.name === 'Dataset') {
+                    return { findOneBy: async (where: { id?: string }) => datasets.get(where?.id || '') || null }
+                }
+                if (entity?.name === 'DatasetRow') {
+                    return {
+                        find: async (opts: { where?: { datasetId?: string } }) =>
+                            datasetRows
+                                .filter((row) => row.datasetId === opts?.where?.datasetId)
+                                .sort((a, b) => a.sequenceNo - b.sequenceNo)
+                    }
+                }
+                return { createQueryBuilder: () => queryBuilder, ...writes, findOneBy: async () => null, find: async () => [] }
+            }
+        }
     })
 }))
 jest.mock('../../database/entities/ChatMessage', () => ({ ChatMessage: class ChatMessage {} }))
@@ -86,6 +103,8 @@ beforeEach(() => {
     states.clear()
     messages.length = 0
     turns.length = 0
+    datasets.clear()
+    datasetRows.length = 0
     queryState.take = undefined
     queryState.skip = 0
     draftsOn = true
@@ -206,14 +225,17 @@ describe('harness publish check', () => {
         expect(done.cases[0].draft).toBeNull()
     })
 
-    test('dataset rows replay on both rosters when a loader is plugged in, and are refused until then', async () => {
+    test('dataset rows replay on both rosters, and a missing dataset starts nothing', async () => {
         turns.push({ content: 'From a real run', createdAt: '2026-10-08T10:00:00.000Z' })
-        await expect(startCheck(flow() as any, { datasetId: 'ds-1' }, 'http://x')).rejects.toMatchObject({
-            statusCode: 400,
-            message: 'A dataset check is not available on this server yet.'
-        })
+        await expect(startCheck(flow() as any, { datasetId: 'missing' }, 'http://x')).rejects.toMatchObject({ statusCode: 404 })
+        expect(checks.size).toBe(0)
+        datasets.set('ds-1', { id: 'ds-1', workspaceId: 'team-a' })
+        datasetRows.push(
+            { datasetId: 'ds-1', input: 'Second?', output: 'two', sequenceNo: 2 },
+            { datasetId: 'ds-1', input: 'First?', output: 'one', sequenceNo: 1 },
+            { datasetId: 'ds-1', input: '   ', output: 'blank', sequenceNo: 0 }
+        )
         process.env.CUTTLELY_CHECK_CONCURRENCY = '1'
-        questionSources.dataset = async () => [{ text: 'Second?' }, { text: 'First?' }, { text: '   ' }]
         const seen: string[] = []
         replayHooks.run = async ({ flowData, question }) => {
             seen.push(`${question}:${JSON.parse(flowData).nodes[0].data.inputs.instructions}`)
@@ -223,12 +245,12 @@ describe('harness publish check', () => {
         await settle()
         const done = await getCheck(flow(), started.id)
         expect(done.selection).toBeNull()
-        expect(done.cases.map((item) => item.question)).toEqual(['Second?', 'First?'])
-        expect(seen).toEqual(['Second?:MANGO', 'Second?:PAPAYA', 'First?:MANGO', 'First?:PAPAYA'])
+        expect(done.cases.map((item) => item.question)).toEqual(['First?', 'Second?'])
+        expect(seen).toEqual(['First?:MANGO', 'First?:PAPAYA', 'Second?:MANGO', 'Second?:PAPAYA'])
         expect(seen.join(' ')).not.toContain('From a real run')
     })
 
-    test('a chatflow check still reads chat messages and ignores a dataset id', async () => {
+    test('a chatflow check still reads chat messages', async () => {
         messages.push({ content: 'From chat', createdDate: new Date('2026-10-08T10:00:00.000Z'), fileUploads: null })
         turns.push({ content: 'From a run', createdAt: '2026-10-08T10:00:00.000Z' })
         const chatNode = (label: string) =>
@@ -242,7 +264,7 @@ describe('harness publish check', () => {
         replayHooks.run = async ({ flowData }) => ({ text: JSON.parse(flowData).nodes[0].data.label, metrics: [{ totalTokens: 1 }] })
         const setup = await getCheckSetup(chat)
         expect(setup.questions.map((q) => q.text)).toEqual(['From chat'])
-        const started = await startCheck(chat as any, { questions: ['From chat'], datasetId: 'ds-1' }, 'http://x')
+        const started = await startCheck(chat as any, { questions: ['From chat'] }, 'http://x')
         await settle()
         const done = await getCheck(chat, started.id)
         expect(done.cases[0].question).toBe('From chat')

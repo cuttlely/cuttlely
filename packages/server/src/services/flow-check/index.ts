@@ -32,6 +32,7 @@ import {
     COMPARE_COUNT_DEFAULT,
     COMPARE_COUNT_MAX,
     CheckCase,
+    CheckScore,
     CheckSummary,
     SideResult,
     parseCompareCount,
@@ -43,8 +44,9 @@ import {
 } from './compare'
 import { RiskyStep, riskySteps } from './risk'
 import { NO_PAST_RUNS, RecordedRow, applyPreviews, recordedDraft, replayFromQuestion } from './inputs'
-import { TriggerStart, Unavailable, startUnavailable, triggerStart, typeUnavailable } from './kinds'
+import { TriggerStart, Unavailable, datasetStartRefusal, startUnavailable, triggerStart, typeUnavailable } from './kinds'
 import { harnessQuestionsFor, harnessQuestionsToRun, replayHarnessQuestion } from './harness'
+import { casesFromDataset, CheckEvaluator, loadEvaluators, readDatasetId, readEvaluatorIds, scoreAnswer } from './score'
 
 // A question list sent without `count` stays capped at 10, which is what this route accepted before.
 export const MAX_QUESTIONS = 10
@@ -152,6 +154,11 @@ interface CheckRecord {
     liveEmpty: boolean
     cases: CheckCase[]
     selection: CheckSelection | null
+    // True when the questions are dataset rows. A read hides those rows without datasets:view.
+    fromDataset: boolean
+    evaluators: CheckEvaluator[]
+    // Tokens from a side that was dropped when the cap was hit. The case no longer shows them, but they still count.
+    spentTokens: number
     inflight: Set<AbortController>
     stopRequested: boolean
 }
@@ -181,6 +188,25 @@ function purge(now = Date.now()) {
 function clip(text: string | null): string | null {
     if (text == null) return null
     return text.length > MAX_ANSWER_CHARS ? `${text.slice(0, MAX_ANSWER_CHARS)}…` : text
+}
+
+export interface CheckReveal {
+    datasets: boolean
+    evaluators: boolean
+}
+
+function shownScores(scores: CheckScore[] | undefined, showEvaluators: boolean): CheckScore[] | undefined {
+    if (!scores) return undefined
+    if (showEvaluators) return scores
+    return scores.map((score) => ({ result: score.result, ...(score.message ? { message: score.message } : {}) }))
+}
+
+function shownSide(side: SideResult | null, showEvaluators: boolean): SideResult | null {
+    if (!side) return null
+    const shown: SideResult = { text: clip(side.text), error: side.error, tokens: side.tokens, ms: side.ms }
+    const scores = shownScores(side.scores, showEvaluators)
+    if (scores) shown.scores = scores
+    return shown
 }
 
 async function draftCanvas(flow: DraftFlow): Promise<string | null> {
@@ -213,7 +239,11 @@ function unavailableFor(flow: DraftFlow, candidate: Candidate, custom: boolean):
     return startUnavailable(flow.type, [flow.flowData, candidate.canvas])
 }
 
-function view(record: CheckRecord, currentDraftHash: string | null): CheckView {
+function view(record: CheckRecord, currentDraftHash: string | null, reveal?: CheckReveal): CheckView {
+    // A caller that did not pass a reveal (the start response, and tests) sees the stored check.
+    // A read passes the caller's permissions. Dataset rows and evaluator names stay out otherwise.
+    const showRows = !reveal || !record.fromDataset || reveal.datasets
+    const showEvaluators = !reveal || reveal.evaluators
     const ran = record.cases.filter((c) => (record.liveEmpty || c.live) && c.draft).length
     return {
         id: record.id,
@@ -229,10 +259,11 @@ function view(record: CheckRecord, currentDraftHash: string | null): CheckView {
         limits: record.limits,
         liveEmpty: record.liveEmpty,
         cases: record.cases.map((c) => ({
-            question: c.question,
-            ...(c.preview ? { preview: c.preview } : {}),
-            live: c.live && { ...c.live, text: clip(c.live.text) },
-            draft: c.draft && { ...c.draft, text: clip(c.draft.text) },
+            question: showRows ? c.question : '',
+            expected: showRows ? c.expected ?? null : null,
+            ...(showRows && c.preview ? { preview: c.preview } : {}),
+            live: shownSide(c.live, showEvaluators),
+            draft: shownSide(c.draft, showEvaluators),
             same: c.same
         })),
         summary: summarize(record.cases, record.liveEmpty),
@@ -356,7 +387,11 @@ export function starterQuestions(chatbotConfig?: string | null): string[] {
     }
 }
 
-export async function getCheckSetup(flow: DraftFlow & { chatbotConfig?: string | null }, given?: Candidate): Promise<CheckSetup> {
+export async function getCheckSetup(
+    flow: DraftFlow & { chatbotConfig?: string | null },
+    given?: Candidate,
+    reveal?: CheckReveal
+): Promise<CheckSetup> {
     purge()
     const candidate = await candidateFor(flow, given)
     const draft = candidate.canvas
@@ -380,7 +415,7 @@ export async function getCheckSetup(flow: DraftFlow & { chatbotConfig?: string |
         limits: checkLimits(),
         liveEmpty: liveIsEmpty(flow.flowData),
         replayInputs: Boolean(kind),
-        check: record ? view(record, draft ? canvasHash(draft) : null) : null
+        check: record ? view(record, draft ? canvasHash(draft) : null, reveal) : null
     }
 }
 
@@ -389,15 +424,15 @@ async function inputsFor(flow: DraftFlow, kind: TriggerStart) {
     return { questions: loaded.questions, pastCount: loaded.questions.length, pastTruncated: loaded.truncated }
 }
 
-export async function getCheck(flow: DraftFlow, checkId: string, given?: Candidate): Promise<CheckView> {
+export async function getCheck(flow: DraftFlow, checkId: string, given?: Candidate, reveal?: CheckReveal): Promise<CheckView> {
     const candidate = await candidateFor(flow, given)
     const record = checks.get(candidate.key)
     if (!record || record.id !== checkId) throw new AppError(StatusCodes.NOT_FOUND, 'That check was not found. Run it again.')
     const draft = candidate.canvas
-    return view(record, draft ? canvasHash(draft) : null)
+    return view(record, draft ? canvasHash(draft) : null, reveal)
 }
 
-export async function stopCheck(flow: DraftFlow, checkId: string, given?: Candidate): Promise<CheckView> {
+export async function stopCheck(flow: DraftFlow, checkId: string, given?: Candidate, reveal?: CheckReveal): Promise<CheckView> {
     const candidate = await candidateFor(flow, given)
     const record = checks.get(candidate.key)
     if (!record || record.id !== checkId) throw new AppError(StatusCodes.NOT_FOUND, 'That check was not found. Run it again.')
@@ -406,7 +441,7 @@ export async function stopCheck(flow: DraftFlow, checkId: string, given?: Candid
         for (const controller of record.inflight) controller.abort()
     }
     const draft = candidate.canvas
-    return view(record, draft ? canvasHash(draft) : null)
+    return view(record, draft ? canvasHash(draft) : null, reveal)
 }
 
 function cleanQuestions(input: unknown, max = MAX_QUESTIONS, allowEmpty = false): string[] {
@@ -498,7 +533,7 @@ async function inputsToRun(
 
 export async function startCheck(
     flow: IChatFlow,
-    body: { questions?: unknown; includeRiskySteps?: unknown; count?: unknown; datasetId?: unknown },
+    body: { questions?: unknown; includeRiskySteps?: unknown; count?: unknown; datasetId?: unknown; evaluatorIds?: unknown },
     baseURL: string,
     given?: Candidate,
     watch?: StartWatch
@@ -507,14 +542,35 @@ export async function startCheck(
     const closed = () => Boolean(watch?.closed?.())
     const candidate = await candidateFor(flow as DraftFlow, given)
     const draft = candidate.canvas
+    const request = body || {}
+    const datasetId = readDatasetId(request)
+    const evaluatorIds = readEvaluatorIds(request)
+    if (datasetId && (request.questions !== undefined || request.count !== undefined)) {
+        throw new AppError(StatusCodes.BAD_REQUEST, 'Send a datasetId on its own. Do not send questions or count with it.')
+    }
+    // Resolve the dataset and the evaluators before any other refusal, so a missing one is 404 and starts nothing.
+    const workspaceId = String(flow.workspaceId || '')
+    const fromDataset = datasetId ? await casesFromDataset(datasetId, workspaceId) : null
+    // The client left while the dataset was loading. Do not store a record or start a replay,
+    // and do not stop a check this request did not create.
+    if (closed()) throw new AppError(StatusCodes.BAD_REQUEST, 'The check was cancelled before it started.')
+    if (fromDataset) {
+        const refusal = datasetStartRefusal(flow.type, [flow.flowData, draft])
+        if (refusal) throw new AppError(StatusCodes.BAD_REQUEST, refusal)
+    }
+    const evaluators = await loadEvaluators(evaluatorIds, workspaceId)
+    if (closed()) throw new AppError(StatusCodes.BAD_REQUEST, 'The check was cancelled before it started.')
     const unavailable = unavailableFor(flow as DraftFlow, candidate, Boolean(given))
     if (unavailable) throw new AppError(StatusCodes.CONFLICT, unavailable.message)
-    const kind = triggerStart(flow.type, [flow.flowData, draft])
+    const kind = fromDataset ? null : triggerStart(flow.type, [flow.flowData, draft])
     let questions: string[]
     let selection: CheckSelection | null
     let previews: string[] = []
-    if (kind) {
-        const resolved = await inputsToRun(flow, kind, body || {})
+    if (fromDataset) {
+        questions = fromDataset.map((row) => row.question)
+        selection = null
+    } else if (kind) {
+        const resolved = await inputsToRun(flow, kind, request)
         questions = resolved.questions
         selection = resolved.selection
         previews = resolved.previews
@@ -523,12 +579,11 @@ export async function startCheck(
         questions = resolved.questions
         selection = resolved.selection
     } else {
-        const resolved = await questionsToRun(flow.id, body || {})
+        const resolved = await questionsToRun(flow.id, request)
         questions = resolved.questions
         selection = resolved.selection
     }
-    // The client left during the question scan. Do not store a record or start a replay,
-    // and do not stop a check this request did not create.
+    // The client left during the question or input scan. Nothing from this request is left running.
     if (closed()) throw new AppError(StatusCodes.BAD_REQUEST, 'The check was cancelled before it started.')
     if (body?.includeRiskySteps !== undefined && typeof body.includeRiskySteps !== 'boolean')
         throw new AppError(StatusCodes.BAD_REQUEST, 'includeRiskySteps must be true or false.')
@@ -563,12 +618,16 @@ export async function startCheck(
         liveEmpty: liveIsEmpty(flow.flowData),
         cases: questions.map((question, index) => ({
             question,
-            ...(previews?.[index] ? { preview: previews[index] } : {}),
+            expected: fromDataset ? fromDataset[index].expected : null,
+            ...(previews[index] ? { preview: previews[index] } : {}),
             live: null,
             draft: null,
             same: null
         })),
         selection,
+        fromDataset: Boolean(fromDataset),
+        evaluators,
+        spentTokens: 0,
         inflight: new Set<AbortController>(),
         stopRequested: false
     }
@@ -613,15 +672,69 @@ function budgetLeft(record: CheckRecord): CheckView['stopReason'] {
     if (record.stopRequested) return 'stopped'
     if (Date.now() >= record.startedAt + record.limits.maxSeconds * 1000) return 'time'
     // Every run so far counts, including the Live half of a question whose draft has not run yet.
-    const used = record.cases.reduce((sum, c) => sum + (c.live?.tokens || 0) + (c.draft?.tokens || 0), 0)
+    const used =
+        record.spentTokens +
+        record.cases.reduce(
+            (sum, c) => sum + (c.live?.tokens || 0) + (c.draft?.tokens || 0) + (c.live?.graderTokens || 0) + (c.draft?.graderTokens || 0),
+            0
+        )
     if (used >= record.limits.maxTokens) return 'tokens'
     return null
 }
 
 // One question: Live, then the draft, so the two sides see the data as close together as they can.
 // A failure is stored on that question. It does not stop the others.
+async function attachScores(record: CheckRecord, side: SideResult | null, question: string, expected: string | null, flowData: string) {
+    if (!side || !record.evaluators.length) return
+    // The same per-run limit as the answer itself: 60 seconds, or whatever the check has left.
+    // Stop aborts this controller because it is in the check's in-flight set.
+    const deadline = record.startedAt + record.limits.maxSeconds * 1000
+    const controller = new AbortController()
+    record.inflight.add(controller)
+    const timeoutMs = Math.max(1, Math.min(RUN_TIMEOUT_MS, deadline - Date.now()))
+    const timer = setTimeout(() => controller.abort(), timeoutMs)
+    timer.unref?.()
+    try {
+        const graded = await scoreAnswer({
+            evaluators: record.evaluators,
+            question,
+            expected,
+            text: side.text,
+            error: side.error,
+            tokens: side.tokens,
+            ms: side.ms,
+            workspaceId: record.workspaceId,
+            flowData,
+            signal: controller.signal,
+            timeoutMs
+        })
+        side.scores = graded.scores
+        side.graderTokens = graded.tokens
+    } catch (error) {
+        // Stop clears the case after this returns. A grader that timed out is Error, and the check moves on.
+        // Scores already computed for text, JSON and numeric evaluators stay. Only a model score is replaced.
+        if (!record.stopRequested) {
+            const aborted = error instanceof Error && /aborted/i.test(error.message)
+            const message = aborted ? 'The grading model did not finish.' : 'The grading model could not be started.'
+            const kept = new Map((side.scores || []).filter((score) => score.id).map((score) => [score.id, score]))
+            side.scores = record.evaluators.map((evaluator) => {
+                if (evaluator.type !== 'llm') {
+                    return kept.get(evaluator.id) || { id: evaluator.id, name: evaluator.name, result: 'Error' as const }
+                }
+                return { id: evaluator.id, name: evaluator.name, result: 'Error' as const, message }
+            })
+        }
+    } finally {
+        clearTimeout(timer)
+        record.inflight.delete(controller)
+    }
+}
+
 async function runCase(record: CheckRecord, c: CheckCase, flow: IChatFlow, draft: string, baseURL: string) {
-    if (!record.liveEmpty) c.live = await runOne(record, flow, flow.flowData, c.question, baseURL)
+    if (!record.liveEmpty) {
+        c.live = await runOne(record, flow, flow.flowData, c.question, baseURL)
+        await attachScores(record, c.live, c.question, c.expected ?? null, flow.flowData)
+    }
     if (record.stopRequested) {
         c.live = null
         c.draft = null
@@ -630,11 +743,14 @@ async function runCase(record: CheckRecord, c: CheckCase, flow: IChatFlow, draft
     }
     const stop = budgetLeft(record)
     if (stop) {
+        // The side is not shown, but its replay and grader tokens still count toward the next question.
+        record.spentTokens += (c.live?.tokens || 0) + (c.live?.graderTokens || 0)
         c.live = null
         record.stopReason = record.stopReason || stop
         return
     }
     c.draft = await runOne(record, flow, draft, c.question, baseURL)
+    await attachScores(record, c.draft, c.question, c.expected ?? null, draft)
     if (record.stopRequested) {
         c.live = null
         c.draft = null
