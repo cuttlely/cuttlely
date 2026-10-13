@@ -3,13 +3,15 @@ const states = new Map<string, any>()
 let draftsOn = true
 const recordPublishGateResult: jest.Mock = jest.fn(async () => undefined)
 const clearPublishGateResult: jest.Mock = jest.fn(async () => undefined)
+const noteGateCheck: jest.Mock = jest.fn()
 jest.mock('../flow-drafts', () => ({
     __esModule: true,
     default: {
         getState: async (id: string) => states.get(id) || null,
         isDraftsEnabled: () => draftsOn,
         recordPublishGateResult: (...args: unknown[]) => recordPublishGateResult(...args),
-        clearPublishGateResult: (...args: unknown[]) => clearPublishGateResult(...args)
+        clearPublishGateResult: (...args: unknown[]) => clearPublishGateResult(...args),
+        noteGateCheck: (...args: unknown[]) => noteGateCheck(...args)
     },
     canvasHash: (flowData: string) => `hash:${flowData}`
 }))
@@ -1074,6 +1076,20 @@ describe('a dataset and evaluators', () => {
         expect(failed.verdict).toBeNull()
         expect(clearPublishGateResult).toHaveBeenCalledWith(expect.objectContaining({ id: 'flow-1' }))
         expect(recordPublishGateResult).toHaveBeenCalled()
+        expect(noteGateCheck).toHaveBeenCalledWith('flow-1', started.id)
+    })
+
+    test('a failed gate write still fails the check when clearing the old pass also throws', async () => {
+        recordPublishGateResult.mockRejectedValueOnce(new Error('disk full'))
+        clearPublishGateResult.mockRejectedValueOnce(new Error('still full'))
+        const started = await startCheck(flow() as any, { datasetId: 'ds-1', threshold: 0 }, 'http://x')
+        await settle()
+        const failed = await getCheck(flow(), started.id)
+        expect(failed.status).toBe('failed')
+        expect(failed.error).toBe('The test set result could not be saved.')
+        expect(failed.error).not.toContain('still full')
+        expect(noteGateCheck).toHaveBeenCalledWith('flow-1', started.id)
+        expect(clearPublishGateResult).toHaveBeenCalledWith(expect.objectContaining({ id: 'flow-1' }))
     })
 
     test('a write during scoring cannot pair a pass with the new test set hash', async () => {

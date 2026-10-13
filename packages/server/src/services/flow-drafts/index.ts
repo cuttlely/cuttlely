@@ -235,7 +235,7 @@ export function statusFrom(flow: DraftFlow, state: FlowVersionState | null): Dra
         mode,
         reason,
         publishInstantly: Boolean(state?.publishInstantly),
-        publishGate: gateStatusFor(flow, state, state?.draftFlowData),
+        publishGate: gateStatusWithNote(flow, gateStatusFor(flow, state, state?.draftFlowData)),
         // A draft left over from before Publish instantly or a type change is still shown, so it is not lost.
         draft: draftInfo(flow, state),
         lastPublished: state?.publishedDate ? { sha: state.liveSha || null, date: new Date(state.publishedDate).toISOString() } : null
@@ -247,6 +247,19 @@ function datasetGateBlock(type: string | null | undefined, canvases: Array<strin
     const refusal = datasetStartRefusal(type, canvases)
     if (!refusal) return null
     return `${refusal} Turn off the passing test set before you publish.`
+}
+
+// An older pass stays usable only when this process has not started a later check. A check that failed
+// to store its result, and failed to clear the previous one, notes its id here. Publish then refuses
+// a stored result that is not from that check.
+function gateStatusWithNote(flow: DraftFlow, gate: GateStatus): GateStatus {
+    const noted = notedGateCheck(flow.id)
+    if (!gate.enabled || !noted || gate.block || gate.result?.checkId === noted) return gate
+    const threshold = gate.threshold ?? 100
+    return {
+        ...gate,
+        block: `Publish needs a passing test set at ${threshold}%. The test set result could not be saved.`
+    }
 }
 
 // A passing result is stale when the rows the check asked, or an evaluator's type or config, no longer match.
@@ -497,7 +510,9 @@ export async function updateDraftSettings(
     if (gate?.enabled && gate.datasetId) await assertGateTargets(flow.workspaceId, gate.datasetId, gate.evaluatorIds)
     // A draft save or a publish can land during that lookup. Write only the settings columns, then
     // re-read, so the stale row from before the lookup cannot put the old draft or publication back.
-    const patch = settingsPatch(hasInstant, nextInstant, gate)
+    // Turning one setting on is conditional on the other still being off. A publish-instantly save
+    // that commits during the lookup must not leave both flags true: publishInstantly would win and
+    // the gate would never be consulted.
     const current = await getState(flow.id)
     if (!current) {
         if (!nextInstant && !nextGate) return withTestSet(flow, statusFrom(flow, null))
@@ -505,33 +520,40 @@ export async function updateDraftSettings(
             repo().create({
                 chatflowId: flow.id,
                 workspaceId: flow.workspaceId,
-                publishInstantly: false,
-                publishGate: false,
-                ...patch
+                publishInstantly: Boolean(nextInstant),
+                publishGate: Boolean(gate?.enabled),
+                ...(gate?.enabled
+                    ? {
+                          publishGateDatasetId: gate.datasetId,
+                          publishGateEvaluatorIds: JSON.stringify(gate.evaluatorIds),
+                          publishGateThreshold: gate.threshold
+                      }
+                    : {})
             })
         )
-    } else if (Object.keys(patch).length) {
-        await repo().update({ chatflowId: flow.id }, patch)
+    } else {
+        if (gate?.enabled) {
+            const updated = await repo().update(
+                { chatflowId: flow.id, publishInstantly: false },
+                {
+                    publishGate: true,
+                    publishGateDatasetId: gate.datasetId,
+                    publishGateEvaluatorIds: JSON.stringify(gate.evaluatorIds),
+                    publishGateThreshold: gate.threshold
+                }
+            )
+            if (!updated?.affected) throw new AppError(StatusCodes.BAD_REQUEST, conflictingSettingsMessage(true))
+        } else if (gate && !gate.enabled) {
+            await repo().update({ chatflowId: flow.id }, { publishGate: false })
+        }
+        if (hasInstant && nextInstant) {
+            const updated = await repo().update({ chatflowId: flow.id, publishGate: false }, { publishInstantly: true })
+            if (!updated?.affected) throw new AppError(StatusCodes.BAD_REQUEST, conflictingSettingsMessage(false))
+        } else if (hasInstant && !nextInstant) {
+            await repo().update({ chatflowId: flow.id }, { publishInstantly: false })
+        }
     }
     return withTestSet(flow, statusFrom(flow, await getState(flow.id)))
-}
-
-function settingsPatch(
-    hasInstant: boolean,
-    nextInstant: boolean,
-    gate: { enabled: boolean; datasetId: string | null; evaluatorIds: string[]; threshold: number | null } | null
-): Partial<FlowVersionState> {
-    const patch: Partial<FlowVersionState> = {}
-    if (hasInstant) patch.publishInstantly = nextInstant
-    if (gate?.enabled) {
-        patch.publishGate = true
-        patch.publishGateDatasetId = gate.datasetId
-        patch.publishGateEvaluatorIds = JSON.stringify(gate.evaluatorIds)
-        patch.publishGateThreshold = gate.threshold
-    } else if (gate && !gate.enabled) {
-        patch.publishGate = false
-    }
-    return patch
 }
 
 export interface GateResultInput {
@@ -546,6 +568,23 @@ export interface GateResultInput {
     verdict: 'passed' | 'failed'
     contentHash?: string
     postProcessHash?: string
+    checkId?: string
+}
+
+// The check run that must match the stored result. Set before the result is written, including when
+// that write fails, so Publish can refuse an older pass that this run did not replace.
+const gateCheckNotes = new Map<string, string>()
+
+export function noteGateCheck(flowId: string, checkId: string): void {
+    if (flowId && checkId) gateCheckNotes.set(flowId, checkId)
+}
+
+export function notedGateCheck(flowId: string): string | null {
+    return gateCheckNotes.get(flowId) || null
+}
+
+export function clearGateCheckNotes(): void {
+    gateCheckNotes.clear()
 }
 
 // The same workspace lookup the dataset check uses. A missing id and an id from another workspace
@@ -582,7 +621,8 @@ export async function recordPublishGateResult(flow: DraftFlow, input: GateResult
         errored: input.errored,
         verdict: input.verdict,
         contentHash: input.contentHash || '',
-        postProcessHash: input.postProcessHash || ''
+        postProcessHash: input.postProcessHash || '',
+        ...(input.checkId ? { checkId: input.checkId } : {})
     }
     await repo().update({ chatflowId: flow.id }, { publishGateResult: gateResultRecord(record) })
 }
@@ -623,6 +663,7 @@ export default {
     updateDraftSettings,
     recordPublishGateResult,
     clearPublishGateResult,
+    noteGateCheck,
     flowDataForTestChat,
     deleteStateFor
 }

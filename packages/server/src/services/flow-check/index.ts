@@ -975,6 +975,9 @@ async function runCheck(record: CheckRecord, flow: IChatFlow, draft: string, bas
                 flowDraftsService.recordPublishGateResult
             ) {
                 const verdict = draftVerdict(summarize(record.cases, record.liveEmpty).scores?.draft, record.threshold)
+                // Noted before the write. If the write and the clear both fail, Publish still sees that
+                // this run did not store the result and refuses an older pass.
+                flowDraftsService.noteGateCheck(flow.id, record.id)
                 try {
                     await flowDraftsService.recordPublishGateResult(flow as DraftFlow, {
                         draftHash: record.draftHash,
@@ -987,7 +990,8 @@ async function runCheck(record: CheckRecord, flow: IChatFlow, draft: string, bas
                         errored: verdict.errored,
                         verdict: verdict.result,
                         contentHash: record.contentHash,
-                        postProcessHash: record.postProcessHash
+                        postProcessHash: record.postProcessHash,
+                        checkId: record.id
                     })
                 } catch (error) {
                     stored = false

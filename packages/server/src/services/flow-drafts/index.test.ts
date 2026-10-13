@@ -91,6 +91,8 @@ import {
     updateDraftSettings,
     recordPublishGateResult,
     clearPublishGateResult,
+    noteGateCheck,
+    clearGateCheckNotes,
     typeHasDrafts,
     uniqueUploadNames
 } from './index'
@@ -116,6 +118,7 @@ beforeEach(() => {
     datasetRows.length = 0
     evaluators.clear()
     duringDatasetLookup = null
+    clearGateCheckNotes()
     chats.push({ id: 'flow-1', type: 'CHATFLOW', workspaceId: 'team-a' })
     draftWriteHooks.beforeDraftWrite = null
     jest.clearAllMocks()
@@ -617,6 +620,44 @@ describe('a passing test set before Publish', () => {
         })
         return { contentHash, draftHash }
     }
+
+    test('a publish-instantly save during target validation keeps the gate off', async () => {
+        seed()
+        rows.push({
+            id: 'state-1',
+            chatflowId: 'flow-1',
+            workspaceId: 'team-a',
+            publishInstantly: false,
+            publishGate: false
+        })
+        duringDatasetLookup = async () => {
+            rows[0].publishInstantly = true
+        }
+        await expect(updateDraftSettings(flow(), { publishGate: gate })).rejects.toMatchObject({
+            statusCode: 400,
+            message: 'Turn off Publish instantly before requiring a passing test set.'
+        })
+        expect(rows[0].publishInstantly).toBe(true)
+        expect(rows[0].publishGate).toBe(false)
+        expect(rows[0].publishGateDatasetId).toBeUndefined()
+    })
+
+    test('an older pass cannot publish when this check failed to replace it', async () => {
+        await arm()
+        await recordPass()
+        noteGateCheck('flow-1', 'check-2')
+        await expect(draftToPublish(flow())).rejects.toMatchObject({
+            statusCode: 409,
+            message: expect.stringContaining('The test set result could not be saved.')
+        })
+        clearGateCheckNotes()
+        await recordPublishGateResult(flow(), {
+            ...(JSON.parse(rows[0].publishGateResult) as Record<string, unknown>),
+            checkId: 'check-2'
+        })
+        noteGateCheck('flow-1', 'check-2')
+        await expect(draftToPublish(flow())).resolves.toContain('Draft')
+    })
 
     test('a draft save during target validation survives the settings write', async () => {
         seed()

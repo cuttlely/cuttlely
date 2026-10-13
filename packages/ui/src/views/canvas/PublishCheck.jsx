@@ -677,7 +677,7 @@ const PublishCheck = ({ chatflowId, variant = 'publish', api = flowDraftsApi, fl
     const [starting, setStarting] = useState(false)
     const [error, setError] = useState('')
     const timer = useRef(null)
-    const live = useRef({ mounted: true, checkId: null, running: false })
+    const live = useRef({ mounted: true, checkId: null, running: false, ownedId: null })
 
     const poll = useCallback(
         (checkId) => {
@@ -730,8 +730,9 @@ const PublishCheck = ({ chatflowId, variant = 'publish', api = flowDraftsApi, fl
             cancelled = true
             state.mounted = false
             clearTimeout(timer.current)
-            // Closing the dialog (or publishing) stops a check that is still running, so it stops costing tokens.
-            if (state.running && state.checkId) api.stopCheck(chatflowId, state.checkId).catch(() => {})
+            // Stop only a check this instance started. A running check returned by setup (for example a
+            // gate run started from Publish) must keep going so it can still store a pass.
+            if (state.ownedId && state.running) api.stopCheck(chatflowId, state.ownedId).catch(() => {})
         }
     }, [chatflowId, poll, api, hintedKind])
 
@@ -797,9 +798,14 @@ const PublishCheck = ({ chatflowId, variant = 'publish', api = flowDraftsApi, fl
                     ? { count, ...(added.length ? { questions: added } : {}), ...scored, includeRiskySteps: runAnyway }
                     : { questions: pickedQuestions(list), ...scored, includeRiskySteps: runAnyway }
             const res = await api.startCheck(chatflowId, body)
-            if (!live.current.mounted) return
+            if (!live.current.mounted) {
+                // This instance started the check. Stop it if the dialog closed before the response.
+                if (res.data?.status === 'running' && res.data?.id) api.stopCheck(chatflowId, res.data.id).catch(() => {})
+                return
+            }
             setCheck(res.data)
             live.current.checkId = res.data?.id
+            live.current.ownedId = res.data?.id || null
             live.current.running = res.data?.status === 'running'
             if (live.current.running) poll(res.data.id)
         } catch (err) {

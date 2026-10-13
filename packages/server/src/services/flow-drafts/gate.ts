@@ -31,6 +31,8 @@ export interface GateResult {
     contentHash: string
     // Hash of chatbotConfig.postProcessing at the time of the check. Not the function text in the clear.
     postProcessHash: string
+    // The check run that stored this result. Absent on a result stored before runs were marked.
+    checkId?: string
 }
 
 export interface GateStatus extends GateSettings {
@@ -234,7 +236,8 @@ export function readGateResult(stored: string | null | undefined): GateResult | 
             verdict: parsed.verdict,
             checkedAt: typeof parsed.checkedAt === 'string' ? parsed.checkedAt : '',
             contentHash: typeof parsed.contentHash === 'string' ? parsed.contentHash : '',
-            postProcessHash: typeof parsed.postProcessHash === 'string' ? parsed.postProcessHash : ''
+            postProcessHash: typeof parsed.postProcessHash === 'string' ? parsed.postProcessHash : '',
+            ...(typeof parsed.checkId === 'string' && parsed.checkId ? { checkId: parsed.checkId } : {})
         }
     } catch {
         return null
@@ -255,7 +258,8 @@ export function gateResultRecord(input: Omit<GateResult, 'checkedAt'> & { checke
         verdict: input.verdict,
         checkedAt: input.checkedAt || new Date().toISOString(),
         contentHash: input.contentHash || '',
-        postProcessHash: input.postProcessHash || ''
+        postProcessHash: input.postProcessHash || '',
+        ...(input.checkId ? { checkId: input.checkId } : {})
     }
     return JSON.stringify(record)
 }

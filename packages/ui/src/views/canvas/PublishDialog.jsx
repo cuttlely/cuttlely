@@ -151,8 +151,47 @@ const PublishDialog = ({ open, chatflow, draftStatus, isDirty, onClose, onDraftS
     const mounted = useRef(true)
     const gateGeneration = useRef(0)
     useEffect(() => {
-        if (!open) gateGeneration.current += 1
-    }, [open])
+        if (!open) {
+            // The dialog stays mounted. Bump the generation and clear the busy flag here. The poll's
+            // finally still checks the generation, so an older run cannot clear a newer one.
+            gateGeneration.current += 1
+            setGateBusy(false)
+            return undefined
+        }
+        if (!chatflow?.id) return undefined
+        const generation = gateGeneration.current
+        let cancelled = false
+        // A check that is still running was started before this open. Re-read it instead of keeping
+        // the busy flag from the previous open.
+        flowDraftsApi
+            .getCheckSetup(chatflow.id)
+            .then(async (res) => {
+                const running = res?.data?.check
+                if (cancelled || gateGeneration.current !== generation) return
+                if (!running || running.status !== 'running' || !running.id) return
+                setGateBusy(true)
+                try {
+                    const view = await pollGateCheck({
+                        view: running,
+                        pollMs: POLL_MS,
+                        shouldStop: () => cancelled || !mounted.current || gateGeneration.current !== generation,
+                        sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+                        read: async () => (await flowDraftsApi.getCheck(chatflow.id, running.id)).data
+                    })
+                    if (cancelled || !mounted.current || gateGeneration.current !== generation) return
+                    const status = await flowDraftsApi.getStatus(chatflow.id)
+                    if (cancelled || !mounted.current || gateGeneration.current !== generation) return
+                    if (status?.data) onStatus.current(status.data)
+                    if (view?.status !== 'done') setError(view?.error || 'The test set did not finish.')
+                } finally {
+                    if (mounted.current && gateGeneration.current === generation) setGateBusy(false)
+                }
+            })
+            .catch(() => {})
+        return () => {
+            cancelled = true
+        }
+    }, [open, chatflow?.id])
     useEffect(
         () => () => {
             mounted.current = false
