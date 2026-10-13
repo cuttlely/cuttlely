@@ -4518,6 +4518,89 @@ await expectCase('a caller from another workspace is rejected', async () => {
     )
 })
 
+await expectCase('a save does not adopt a harness from another workspace', async () => {
+    saveHarness(
+        {
+            name: 'maClash',
+            chatflowId: 'canvas-w1',
+            workspaceId: 'w1',
+            chief: { model: { provider: 'xai', model: 'grok-4.7', credentialId: 'cred-xai' } },
+            specialists: [{ name: 'reader', modules: [], mcpServers: [] }]
+        },
+        { overwrite: true }
+    )
+    const clash = await capture(() =>
+        saveHarness(
+            {
+                name: 'maClash',
+                chatflowId: 'canvas-w1',
+                workspaceId: 'w2',
+                chief: { model: { provider: 'xai', model: 'grok-4.7', credentialId: 'cred-xai' } },
+                specialists: [{ name: 'reader', modules: [], mcpServers: [] }]
+            },
+            { overwrite: true }
+        )
+    )
+    const kept = getHarness('maClash')
+    check(
+        'a save does not adopt a harness from another workspace',
+        clash.error?.code === 'name_clash' && kept?.workspaceId === 'w1' && kept?.chatflowId === 'canvas-w1',
+        clash.error?.message || kept?.workspaceId
+    )
+})
+
+await expectCase('a save does not stamp a team onto a harness that has none', async () => {
+    const payroll = {
+        name: 'payroll',
+        chief: { model: { provider: 'xai', model: 'grok-4.7', credentialId: 'cred-xai' } },
+        specialists: [{ name: 'reader', modules: [], mcpServers: [] }]
+    }
+    saveHarness(payroll, { overwrite: true })
+    const before = fs.readFileSync(path.join(process.env.CUTTLELY_DATA_DIR, 'harnesses', 'payroll.json'), 'utf8')
+    const clash = await capture(() =>
+        saveHarness(
+            {
+                ...payroll,
+                workspaceId: 'w2'
+            },
+            { overwrite: true }
+        )
+    )
+    const after = fs.readFileSync(path.join(process.env.CUTTLELY_DATA_DIR, 'harnesses', 'payroll.json'), 'utf8')
+    check(
+        'a save does not stamp a team onto a harness that has none',
+        clash.error?.code === 'name_clash' && after === before && !JSON.parse(after).workspaceId,
+        clash.error?.message || 'file changed'
+    )
+})
+
+await expectCase('a harness with no team is not run for a caller that has one', async () => {
+    saveHarness(
+        {
+            name: 'maUnassigned',
+            chief: { model: { provider: 'xai', model: 'grok-4.7', credentialId: 'cred-xai' } },
+            specialists: [{ name: 'reader', modules: [], mcpServers: [] }]
+        },
+        { overwrite: true }
+    )
+    const http = cannedFetch()
+    const run = await capture(() =>
+        runHarness({
+            name: 'maUnassigned',
+            chatId: 'unassigned-1',
+            input: 'hello',
+            fetchImpl: http.fetchImpl,
+            modelBaseUrl: 'http://127.0.0.1:9/v1',
+            flowOptions: flowContext({ workspaceId: 'w2' }).flowOptions
+        })
+    )
+    check(
+        'a harness with no team is not run for a caller that has one',
+        run.error?.code === 'wrong_workspace' && http.calls.length === 0,
+        run.error?.message || `model calls ${http.calls.length}`
+    )
+})
+
 await expectCase('chatflow tool cannot call the calling chat flow', async () => {
     class ChatflowProbe {
         static httpCalls = 0
@@ -7378,11 +7461,15 @@ const callerJob = enqueueHarnessJob({
     name: 'queue-worker',
     chatId: 'caller-flow-job',
     input: 'Say hi',
-    flowOptions: { chatflowid: 'caller-flow' }
+    flowOptions: { chatflowid: 'caller-flow', workspaceId: 'ws-caller' }
 })
 const callerPayload = JSON.parse(queueDatabase().prepare('SELECT payload FROM jobs WHERE id = ?').get(callerJob.id).payload)
 queueDatabase().prepare('DELETE FROM jobs WHERE id = ?').run(callerJob.id)
-check('a queued job keeps the caller chatflow id', callerPayload.callerChatflowId === 'caller-flow', JSON.stringify(callerPayload))
+check(
+    'a queued job keeps the caller chatflow id and workspace id',
+    callerPayload.callerChatflowId === 'caller-flow' && callerPayload.workspaceId === 'ws-caller',
+    JSON.stringify(callerPayload)
+)
 {
     const { finishJob, waitForJob } = await import('./queue.mjs')
     const imageJob = enqueueHarnessJob({ name: 'queue-worker', chatId: 'image-bytes-job', input: 'Draw' })
@@ -7613,7 +7700,13 @@ let pooledRun
 try {
     pooledRun = await executeJob({
         id: 'job-pool',
-        payload: { name: 'pool-worker', chatId: 'pool-1', input: 'Say hi', callerChatflowId: 'caller-flow' },
+        payload: {
+            name: 'pool-worker',
+            chatId: 'pool-1',
+            input: 'Say hi',
+            callerChatflowId: 'caller-flow',
+            workspaceId: 'ws-pool'
+        },
         cancelRequested: false
     })
 } catch (error) {
@@ -7624,6 +7717,193 @@ check(
     pooledRun?.text === 'answer:pooled' && pooledRun?.harness === 'pool-worker',
     pooledRun?.message || pooledRun?.text
 )
+{
+    const { claimJob, enqueueHarnessJob: enqueueExternal } = await import('./queue.mjs')
+    const { listRuns } = await import('./history.mjs')
+    const gatewayApi = await import('./gateway.mjs')
+    let modelCalls = 0
+    setWorkerContext(async (record) => ({
+        componentNodes: {},
+        loadNode: async () =>
+            class {
+                async init() {
+                    return {
+                        async invoke() {
+                            modelCalls += 1
+                            return { content: 'answer:ext' }
+                        }
+                    }
+                }
+            },
+        // Copies the harness file, which is the bug the payload team has to override.
+        flowOptions: { workspaceId: record?.workspaceId, chatflowid: record?.chatflowId }
+    }))
+    const externalRoster = (name, workspaceId) =>
+        saveHarness(
+            {
+                name,
+                ...(workspaceId ? { workspaceId } : {}),
+                chief: { instructions: 'Combine.', model: nodeModel('scriptedChat') },
+                specialists: [{ name: 'reader', instructions: 'Read.', modules: [], mcpServers: [] }]
+            },
+            { overwrite: true }
+        )
+    const tokenFor = (name) => {
+        const token = `${name}Token`.padEnd(43, 'x').slice(0, 43)
+        gatewayApi.registerProfileToken({ token, harnessName: name, specialistName: 'reader', profileName: `${name}--reader` })
+        return token
+    }
+    const refuseExternal = async (name, callerWorkspace) => {
+        modelCalls = 0
+        const before = listRuns(name).length
+        const enqueued = enqueueExternal({
+            name,
+            chatId: `${name}-chat`,
+            input: 'question from the other team',
+            flowOptions: { workspaceId: callerWorkspace, chatflowid: 'caller-flow' }
+        })
+        const claimed = claimJob()
+        const owned = claimed?.id === enqueued.id
+        let error
+        let gatewayStatus = 0
+        let gatewayBody = ''
+        const previous = gatewayApi.setGatewayContext(async (record) => ({
+            flowOptions: { workspaceId: record?.workspaceId, chatflowid: record?.chatflowId }
+        }))
+        const gateway = await openGateway()
+        try {
+            if (gateway && owned) {
+                const listed = await localRequest({
+                    port: gateway.port,
+                    method: 'POST',
+                    path: '/harness/tools/list',
+                    token: tokenFor(name),
+                    body: {}
+                })
+                gatewayStatus = listed.status
+                gatewayBody = listed.body
+            }
+            if (owned) {
+                try {
+                    await executeJob(claimed)
+                } catch (err) {
+                    error = err
+                }
+            }
+        } finally {
+            gatewayApi.setGatewayContext(previous)
+            if (gateway) await gateway.close()
+        }
+        return { owned, error, before, after: listRuns(name).length, modelCalls, gatewayStatus, gatewayBody }
+    }
+    externalRoster('extUnassigned')
+    const unassignedJob = await refuseExternal('extUnassigned', 'team-a')
+    check(
+        'an external job does not run a harness that has no team',
+        unassignedJob.owned &&
+            unassignedJob.error?.code === 'wrong_workspace' &&
+            unassignedJob.modelCalls === 0 &&
+            unassignedJob.after === unassignedJob.before &&
+            unassignedJob.gatewayStatus === 502 &&
+            unassignedJob.gatewayBody.includes('another workspace'),
+        JSON.stringify({
+            code: unassignedJob.error?.code,
+            calls: unassignedJob.modelCalls,
+            runs: [unassignedJob.before, unassignedJob.after],
+            gateway: unassignedJob.gatewayStatus,
+            body: unassignedJob.gatewayBody.slice(0, 240)
+        })
+    )
+    externalRoster('extOther', 'team-b')
+    const otherJob = await refuseExternal('extOther', 'team-a')
+    check(
+        'an external job does not run another team harness',
+        otherJob.owned &&
+            otherJob.error?.code === 'wrong_workspace' &&
+            otherJob.modelCalls === 0 &&
+            otherJob.after === otherJob.before &&
+            otherJob.gatewayStatus === 502 &&
+            otherJob.gatewayBody.includes('another workspace'),
+        JSON.stringify({
+            code: otherJob.error?.code,
+            calls: otherJob.modelCalls,
+            runs: [otherJob.before, otherJob.after],
+            gateway: otherJob.gatewayStatus,
+            body: otherJob.gatewayBody.slice(0, 240)
+        })
+    )
+    externalRoster('extSame', 'team-a')
+    modelCalls = 0
+    const sameBefore = listRuns('extSame').length
+    const sameEnqueued = enqueueExternal({
+        name: 'extSame',
+        chatId: 'extSame-chat',
+        input: 'Say hi',
+        flowOptions: { workspaceId: 'team-a', chatflowid: 'caller-flow' }
+    })
+    const sameClaimed = claimJob()
+    let sameText = ''
+    let sameError
+    let sameGateway = 0
+    const previousContext = gatewayApi.setGatewayContext(async (record) => ({
+        flowOptions: { workspaceId: record?.workspaceId, chatflowid: record?.chatflowId }
+    }))
+    const sameGatewayServer = await openGateway()
+    try {
+        if (sameGatewayServer && sameClaimed?.id === sameEnqueued.id) {
+            const listed = await localRequest({
+                port: sameGatewayServer.port,
+                method: 'POST',
+                path: '/harness/tools/list',
+                token: tokenFor('extSame'),
+                body: {}
+            })
+            sameGateway = listed.status
+        }
+        if (sameClaimed?.id === sameEnqueued.id) {
+            try {
+                const result = await executeJob(sameClaimed)
+                sameText = result?.text || ''
+            } catch (err) {
+                sameError = err
+            }
+        }
+    } finally {
+        gatewayApi.setGatewayContext(previousContext)
+        if (sameGatewayServer) await sameGatewayServer.close()
+    }
+    check(
+        'an external job runs a harness in the caller team',
+        sameClaimed?.id === sameEnqueued.id &&
+            sameGateway === 200 &&
+            sameText === 'answer:ext' &&
+            modelCalls > 0 &&
+            listRuns('extSame').length === sameBefore + 1,
+        JSON.stringify({ text: sameText, calls: modelCalls, gateway: sameGateway, error: sameError?.message, claimed: sameClaimed?.id })
+    )
+    externalRoster('extBare')
+    modelCalls = 0
+    const bareBefore = listRuns('extBare').length
+    const bareEnqueued = enqueueExternal({ name: 'extBare', chatId: 'extBare-chat', input: 'question from the other team' })
+    const bareClaimed = claimJob()
+    let bareError
+    if (bareClaimed?.id === bareEnqueued.id) {
+        try {
+            await executeJob(bareClaimed)
+        } catch (err) {
+            bareError = err
+        }
+    }
+    check(
+        'an external job with no caller workspace id is refused',
+        bareClaimed?.id === bareEnqueued.id &&
+            bareError?.code === 'wrong_workspace' &&
+            modelCalls === 0 &&
+            listRuns('extBare').length === bareBefore,
+        JSON.stringify({ code: bareError?.code, calls: modelCalls, claimed: bareClaimed?.id === bareEnqueued.id })
+    )
+    setWorkerContext(bootedPool.contextFor)
+}
 saveHarness(
     {
         name: 'pool-missing',
@@ -7641,7 +7921,7 @@ let missingPool
 try {
     await executeJob({
         id: 'job-pool-missing',
-        payload: { name: 'pool-missing', chatId: 'pool-missing', input: 'Say hi' },
+        payload: { name: 'pool-missing', chatId: 'pool-missing', input: 'Say hi', workspaceId: 'ws-pool' },
         cancelRequested: false
     })
 } catch (error) {
@@ -7678,6 +7958,8 @@ workerChild.stdout.on('data', (chunk) => {
 workerChild.stderr.on('data', (chunk) => {
     workerErr += String(chunk)
 })
+const { claimWorkspace } = await import('./store.mjs')
+claimWorkspace('queue-worker', 'ws-queue')
 let externalRun
 try {
     externalRun = await runQueuedHarness({
@@ -7685,7 +7967,8 @@ try {
         chatId: 'queue-external',
         input: 'Say hi',
         offlineModel: true,
-        timeoutMs: 8000
+        timeoutMs: 8000,
+        flowOptions: { workspaceId: 'ws-queue' }
     })
 } finally {
     workerChild.kill('SIGTERM')
@@ -7713,6 +7996,73 @@ check(
         !workerErr.includes('0.0.0.0'),
     JSON.stringify({ out: workerOut.slice(0, 400), err: workerErr.slice(0, 200) })
 )
+
+await expectCase('inline and off refuse another team harness before a run row', async () => {
+    const { listRuns } = await import('./history.mjs')
+    const { runQueuedHarness: queuedRun } = await import('./queue.mjs')
+    saveHarness(
+        {
+            name: 'nodeTeam',
+            workspaceId: 'team-a',
+            chief: { instructions: 'Combine.', model: nodeModel('scriptedChat') },
+            specialists: [{ name: 'reader', instructions: 'Read.', modules: [], mcpServers: [] }]
+        },
+        { overwrite: true }
+    )
+    let calls = 0
+    const loadNode = async () =>
+        class {
+            async init() {
+                return {
+                    async invoke() {
+                        calls += 1
+                        return { content: 'answer:team' }
+                    }
+                }
+            }
+        }
+    const before = listRuns('nodeTeam').length
+    const savedMode = process.env.CUTTLELY_HARNESS_QUEUE
+    const cross = async (mode, workspaceId, chatId) => {
+        process.env.CUTTLELY_HARNESS_QUEUE = mode
+        const args = {
+            name: 'nodeTeam',
+            chatId,
+            input: 'question from the other team',
+            loadNode,
+            source: 'prediction',
+            flowOptions: flowContext({ workspaceId }).flowOptions
+        }
+        if (mode === 'off') return capture(() => runHarness(args))
+        return capture(() => queuedRun(args))
+    }
+    try {
+        const inlineOther = await cross('inline', 'team-b', 'inline-other')
+        const offOther = await cross('off', 'team-b', 'off-other')
+        const refusedCalls = calls
+        const inlineOwn = await cross('inline', 'team-a', 'inline-own')
+        const offOwn = await cross('off', 'team-a', 'off-own')
+        check(
+            'inline and off refuse another team harness before a run row',
+            inlineOther.error?.code === 'wrong_workspace' &&
+                offOther.error?.code === 'wrong_workspace' &&
+                refusedCalls === 0 &&
+                inlineOwn.value?.text === 'answer:team' &&
+                offOwn.value?.text === 'answer:team' &&
+                listRuns('nodeTeam').length === before + 2,
+            JSON.stringify({
+                inline: inlineOther.error?.code || inlineOther.value?.text,
+                off: offOther.error?.code || offOther.value?.text,
+                calls: refusedCalls,
+                own: [inlineOwn.value?.text || inlineOwn.error?.message, offOwn.value?.text || offOwn.error?.message],
+                runs: listRuns('nodeTeam').length
+            })
+        )
+    } finally {
+        if (savedMode === undefined) delete process.env.CUTTLELY_HARNESS_QUEUE
+        else process.env.CUTTLELY_HARNESS_QUEUE = savedMode
+    }
+})
 
 const previousBlob = process.env.BLOB_STORAGE_PATH
 const blobRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'cuttlely-upload-'))
@@ -9762,9 +10112,9 @@ await expectCase('harness runs keep a summary with status, latency, and a trace 
     )
     const workspace = listRuns('maWorkspace', { limit: 5 })[0]
     check(
-        'a rejected harness turn is listed as failed',
-        workspace?.status === 'failed' && workspace?.error?.code === 'wrong_workspace',
-        workspace ? `${workspace.status} ${workspace.error?.code}` : 'no row'
+        'a rejected harness turn is not stored on the other team',
+        !workspace,
+        workspace ? `${workspace.status} ${workspace.inputPreview}` : 'no row'
     )
     for (let i = 0; i < 101; i += 1) {
         beginHarnessRun({ name: 'historyCap', chatId: `c${i}`, source: 'api', input: `row ${i}`, startedAt: 1_700_000_000_000 + i })
@@ -9773,7 +10123,7 @@ await expectCase('harness runs keep a summary with status, latency, and a trace 
     check('run history keeps the latest 100 rows', capped.length === 100 && capped[0].inputPreview === 'row 100', String(capped.length))
     check(
         'harness runs keep a summary with status, latency, and a trace link',
-        failedRow?.status === 'failed' && Boolean(finished) && workspace?.status === 'failed' && capped.length === 100,
+        failedRow?.status === 'failed' && Boolean(finished) && !workspace && capped.length === 100,
         'see the rows above'
     )
 })
@@ -9994,7 +10344,7 @@ await (async () => {
                         return {}
                     }
                 },
-            flowOptions: { workspaceId: record.workspaceId || 'w1', chatflowid: record.chatflowId }
+            flowOptions: { workspaceId: record.workspaceId, chatflowid: record.chatflowId }
         }
     })
     const gateway = await openGateway()
@@ -10288,7 +10638,11 @@ await (async () => {
             if (nodeName === 'postgreSQLMCP') return PageAnalyst
             throw new Error(`unexpected node ${nodeName}`)
         },
-        flowOptions: flowContext({ workspaceId: record.workspaceId || 'w1', chatflowid: record.chatflowId }).flowOptions
+        flowOptions: {
+            ...flowContext().flowOptions,
+            workspaceId: record.workspaceId,
+            chatflowid: record.chatflowId
+        }
     }))
     const gateway = await openGateway()
     const tryId = 'b'.repeat(16)
@@ -11386,6 +11740,93 @@ await (async () => {
         })
     )
 })()
+
+await expectCase('a publish check replay from another team is refused and the owner still runs', async () => {
+    const { listRuns } = await import('./history.mjs')
+    saveHarness(
+        {
+            name: 'checkScope',
+            workspaceId: 'team-own',
+            chief: { instructions: 'Combine.', model: nodeModel('scriptedChat') },
+            specialists: [{ name: 'reader', instructions: 'Read.', modules: [], mcpServers: [] }]
+        },
+        { overwrite: true }
+    )
+    saveHarness(
+        {
+            name: 'checkBare',
+            chief: { instructions: 'Combine.', model: nodeModel('scriptedChat') },
+            specialists: [{ name: 'reader', instructions: 'Read.', modules: [], mcpServers: [] }]
+        },
+        { overwrite: true }
+    )
+    let calls = 0
+    const loadNode = async () =>
+        class {
+            async init() {
+                return {
+                    async invoke() {
+                        calls += 1
+                        return { content: 'CHECK_ANSWER' }
+                    }
+                }
+            }
+        }
+    const before = listRuns('checkScope').length + listRuns('checkBare').length
+    const other = await capture(() =>
+        runHarness({
+            name: 'checkScope',
+            chatId: 'check-other',
+            input: 'replay from the other team',
+            loadNode,
+            replay: true,
+            flowOptions: flowContext({ workspaceId: 'team-other' }).flowOptions,
+            record: { ...getHarness('checkScope'), tryId: 'a'.repeat(16) }
+        })
+    )
+    const bare = await capture(() =>
+        runHarness({
+            name: 'checkBare',
+            chatId: 'check-bare',
+            input: 'replay of a harness with no team',
+            loadNode,
+            replay: true,
+            flowOptions: flowContext({ workspaceId: 'team-own' }).flowOptions,
+            record: { ...getHarness('checkBare'), tryId: 'c'.repeat(16) }
+        })
+    )
+    const refusedCalls = calls
+    const owned = await capture(() =>
+        runHarness({
+            name: 'checkScope',
+            chatId: 'check-own',
+            input: 'replay from the owner',
+            loadNode,
+            replay: true,
+            flowOptions: flowContext({ workspaceId: 'team-own' }).flowOptions,
+            record: { ...getHarness('checkScope'), tryId: 'b'.repeat(16) }
+        })
+    )
+    const after = listRuns('checkScope').length + listRuns('checkBare').length
+    check(
+        'a publish check replay from another team is refused and the owner still runs',
+        other.error?.code === 'wrong_workspace' &&
+            bare.error?.code === 'wrong_workspace' &&
+            refusedCalls === 0 &&
+            calls > 0 &&
+            owned.value?.text === 'CHECK_ANSWER' &&
+            owned.value?.harness === 'checkScope' &&
+            after === before,
+        JSON.stringify({
+            other: other.error?.code,
+            bare: bare.error?.code,
+            refusedCalls,
+            calls,
+            text: owned.value?.text || owned.error?.message,
+            runs: [before, after]
+        })
+    )
+})
 
 await (async () => {
     const profiles = path.join(process.env.CUTTLELY_HERMES_HOME, 'profiles')

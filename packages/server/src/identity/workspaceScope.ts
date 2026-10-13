@@ -52,16 +52,26 @@ function nonEmpty(value: unknown): string | null {
     return typeof value === 'string' && value.length > 0 ? value : null
 }
 
-/** Find condition for one workspace. A missing or blank id is 400, not a match-all and not a match on "". */
-export function getWorkspaceSearchOptions(workspaceId?: string | null): { workspaceId: FindOperator<string> } {
+/** The active team id. A missing or blank id is 400, not a match-all and not a match on "". */
+export function requireWorkspaceId(workspaceId?: string | null): string {
     const id = nonEmpty(workspaceId)
     if (!id) throw new AppError(StatusCodes.BAD_REQUEST, WORKSPACE_ID_REQUIRED)
-    return { workspaceId: Equal(id) }
+    return id
+}
+
+/** Find condition for one workspace. A missing or blank id is 400, not a match-all and not a match on "". */
+export function getWorkspaceSearchOptions(workspaceId?: string | null): { workspaceId: FindOperator<string> } {
+    return { workspaceId: Equal(requireWorkspaceId(workspaceId)) }
 }
 
 /** Same condition, taken from the caller's active team. An API key's user carries that key's workspace. */
 export function getWorkspaceSearchOptionsFromReq(req: RequestWithUser): { workspaceId: FindOperator<string> } {
     return getWorkspaceSearchOptions(req.user?.activeWorkspaceId)
+}
+
+/** The caller's active team. An API key's user carries that key's workspace. */
+export function requireWorkspaceIdFromReq(req: RequestWithUser): string {
+    return requireWorkspaceId(req.user?.activeWorkspaceId)
 }
 
 /**
