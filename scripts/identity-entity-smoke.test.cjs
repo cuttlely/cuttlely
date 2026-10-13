@@ -334,7 +334,8 @@ describe('identity postgres schema', () => {
                     'HashApiKey1783000000000',
                     'AddFlowVersionState1784000000000',
                     'AddTokenUsageDay1791900000000',
-                    'AddModelPriceOverride1793000000000'
+                    'AddModelPriceOverride1793000000000',
+                    'AddDatasetRowSource1795000000000'
                 ]
             )
             assert.equal((await dataSource.runMigrations()).length, 0)
@@ -434,7 +435,8 @@ describe('identity mariadb schema', () => {
                     'AddFlowVersionState1784000000000',
                     'AddTokenUsageDay1791900000000',
                     'AddModelPriceOverride1793000000000',
-                    'BinCollationOnTokenUsageDayModel1794000000000'
+                    'BinCollationOnTokenUsageDayModel1794000000000',
+                    'AddDatasetRowSource1795000000000'
                 ]
             )
             assert.equal((await dataSource.runMigrations()).length, 0)
@@ -613,7 +615,8 @@ describe('identity mysql 8 schema', () => {
                     'AddFlowVersionState1784000000000',
                     'AddTokenUsageDay1791900000000',
                     'AddModelPriceOverride1793000000000',
-                    'BinCollationOnTokenUsageDayModel1794000000000'
+                    'BinCollationOnTokenUsageDayModel1794000000000',
+                    'AddDatasetRowSource1795000000000'
                 ]
             )
             assert.equal((await dataSource.runMigrations()).length, 0)
@@ -659,7 +662,8 @@ describe('identity sqlite upgrade', () => {
                     'HashApiKey1783000000000',
                     'AddFlowVersionState1784000000000',
                     'AddTokenUsageDay1791900000000',
-                    'AddModelPriceOverride1793000000000'
+                    'AddModelPriceOverride1793000000000',
+                    'AddDatasetRowSource1795000000000'
                 ]
             )
             assert.equal((await dataSource.runMigrations()).length, 0)
