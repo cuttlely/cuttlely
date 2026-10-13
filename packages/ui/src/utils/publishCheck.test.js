@@ -1,6 +1,10 @@
 import {
     CHECK_INTRO,
     CHECK_TITLE,
+    CHECK_RUNS_TITLE,
+    checkTitle,
+    countPickerLabel,
+    loadingText,
     COMPARE_COUNTS,
     DEFAULT_COMPARE_COUNT,
     addQuestion,
@@ -83,7 +87,16 @@ describe('recorded input preview', () => {
         expect(noPastRunsMessage('webhook')).toBe('No past runs exist yet. Call the webhook once, then check again.')
         expect(noPastRunsMessage('schedule')).toBe('No past runs exist yet. Wait for the schedule, or trigger it once, then check again.')
         expect(noPastRunsMessage('form')).toBe('No past runs exist yet. Submit the form once, then check again.')
-        expect(noPastRunsMessage()).toContain('Submit the form, call the webhook, or wait for or trigger the schedule')
+        expect(noPastRunsMessage()).toBe('')
+        expect(noPastRunsMessage('other')).toBe('')
+        expect(checkTitle(false)).toBe(CHECK_TITLE)
+        expect(checkTitle(true)).toBe(CHECK_RUNS_TITLE)
+        expect(loadingText(false)).toBe('Loading recent questions…')
+        expect(loadingText(true)).toBe('Loading recent runs…')
+        expect(countPickerLabel({ replayInputs: true, requested: 4, available: 4 })).toBe('Past runs')
+        expect(countPickerLabel({ replayInputs: true, requested: 4, available: 2 })).toBe('Requested runs')
+        expect(countPickerLabel({ replayInputs: false, requested: 50, available: 37 })).toBe('Requested questions')
+        expect(countPickerLabel({ replayInputs: false, requested: 4, available: 10 })).toBe('Past questions')
         const when = formatListDateTime('2026-10-08T11:00:00.000Z')
         expect(inputMeta('webhook', '2026-10-08T11:00:00.000Z')).toBe(`Webhook · ${when}`)
         expect(inputMeta('form', '2026-10-08T11:00:00.000Z')).toBe(`Form · ${when}`)
@@ -241,6 +254,7 @@ describe('results', () => {
             .concat(Object.values(NO_PAST_RUNS))
             .join(' ')
         expect(CHECK_TITLE).toBe('Check recent questions')
+        expect(CHECK_RUNS_TITLE).toBe('Check recent runs')
         expect(CHECK_INTRO).toContain('This is optional.')
         expect(text.includes('\u00a7')).toBe(false)
         expect(/\b(git|commit|branch|sha|replay|endpoint|API)\b/i.test(text)).toBe(false)

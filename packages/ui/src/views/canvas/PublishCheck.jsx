@@ -19,7 +19,9 @@ import { useTheme } from '@mui/material/styles'
 import flowDraftsApi from '@/api/flowDrafts'
 import { apiErrorMessage } from '@/utils/flowDrafts'
 import {
-    CHECK_TITLE,
+    checkTitle,
+    countPickerLabel,
+    loadingText,
     CHECK_VARY_NOTE,
     CHECK_WORDS,
     COMPARE_COUNTS,
@@ -239,6 +241,7 @@ export const PublishCheckView = ({
     const checklist = pastCount > 0 ? list.filter((q) => q.added) : list
     const unit = replayInputs ? 'run' : 'question'
     const cap = capMessage(count, pastCount, Boolean(setup?.pastTruncated), unit)
+    const countLabel = countPickerLabel({ replayInputs, requested: count, available: pastCount })
     const intro = replayInputs
         ? setup?.liveEmpty
             ? words.introInputsNew || words.introNew
@@ -252,13 +255,13 @@ export const PublishCheckView = ({
     return (
         <Box data-testid='publish-check' sx={{ mt: 2, p: 1.5, border: '1px solid', borderColor: theme.palette.divider, borderRadius: 1 }}>
             <Typography variant='subtitle1' component='h3' sx={{ fontWeight: 600 }}>
-                {CHECK_TITLE}
+                {checkTitle(replayInputs)}
             </Typography>
             {loading && (
                 <Stack direction='row' spacing={1} alignItems='center' sx={{ mt: 1 }}>
                     <CircularProgress size={16} />
                     <Typography variant='body2' color='text.secondary'>
-                        Loading recent questions…
+                        {loadingText(replayInputs)}
                     </Typography>
                 </Stack>
             )}
@@ -410,16 +413,16 @@ export const PublishCheckView = ({
                         <TextField
                             select
                             size='small'
-                            label={replayInputs ? 'Past runs' : 'Past questions'}
+                            label={countLabel}
                             value={String(COMPARE_COUNTS.includes(count) ? count : DEFAULT_COMPARE_COUNT)}
                             disabled={running || starting || pastCount === 0}
                             onChange={(event) => onCount(Number(event.target.value))}
                             SelectProps={{ native: true }}
                             inputProps={{
-                                'aria-label': replayInputs ? 'Past runs' : 'Past questions',
+                                'aria-label': countLabel,
                                 'data-testid': 'compare-count'
                             }}
-                            sx={{ width: 148 }}
+                            sx={{ width: 180 }}
                         >
                             {COMPARE_COUNTS.map((n) => (
                                 <option key={n} value={n}>

@@ -9,6 +9,19 @@ export const DEFAULT_COMPARE_COUNT = 4
 export const RESULT_PAGE_SIZE = 12
 
 export const CHECK_TITLE = 'Check recent questions'
+export const CHECK_RUNS_TITLE = 'Check recent runs'
+
+export const checkTitle = (replayInputs) => (replayInputs ? CHECK_RUNS_TITLE : CHECK_TITLE)
+
+export const loadingText = (replayInputs) => (replayInputs ? 'Loading recent runs…' : 'Loading recent questions…')
+
+// The number in the picker is a request. When fewer runs or questions exist, the label says so,
+// so "4" is not read as "4 past runs" next to "Only 2 past runs available".
+export const countPickerLabel = ({ replayInputs = false, requested = 0, available = 0 } = {}) => {
+    const clamped = Number(available) > 0 && Number(requested) > Number(available)
+    if (replayInputs) return clamped ? 'Requested runs' : 'Past runs'
+    return clamped ? 'Requested questions' : 'Past questions'
+}
 export const CHECK_INTRO =
     'Ask recent questions again, on Live and on your draft, and compare the answers before you publish. This is optional.'
 // Shown when a form, webhook or schedule flow has no execution to run again. Not a refusal.
@@ -18,9 +31,8 @@ export const NO_PAST_RUNS = {
     schedule: 'No past runs exist yet. Wait for the schedule, or trigger it once, then check again.'
 }
 
-export const noPastRunsMessage = (source) =>
-    NO_PAST_RUNS[source] ||
-    'No past runs exist yet. Submit the form, call the webhook, or wait for or trigger the schedule, then check again.'
+// Only the three sentences the server returns. A missing source has no fourth sentence.
+export const noPastRunsMessage = (source) => NO_PAST_RUNS[source] || ''
 
 export const REPLAY_SOURCE_LABEL = { form: 'Form', webhook: 'Webhook', schedule: 'Schedule' }
 

@@ -101,12 +101,16 @@ describe('PublishCheckView', () => {
                 summary: { ran: 1, same: 0, changed: 1, errors: 0, liveTokens: 44, draftTokens: 45, liveMedianMs: 657, draftMedianMs: 525 }
             }
         })
+        expect(html).toContain('Check recent runs')
+        expect(html).not.toContain('Check recent questions')
         expect(html).toContain('Run recent inputs again on Live and on your draft')
+        expect(html).toContain('Requested runs')
+        expect(html).toContain('Only 1 past run available. Comparing that run.')
         expect(html).toContain(`Webhook · ${formatListDateTime('2026-10-08T10:00:00.000Z')}`)
         expect(html).toContain('{&quot;event&quot;:&quot;bake&quot;,&quot;loaf&quot;:&quot;rye&quot;}')
         expect(html).not.toContain('sekret')
         expect(html).not.toContain('Add your own question')
-        expect(html).toContain('Past runs')
+        expect(html).not.toContain('Past runs')
         expect(html).not.toContain('Past questions')
         expect(html).toContain('Changed')
         expect(html).toContain('MANGO')
@@ -129,9 +133,10 @@ describe('PublishCheckView', () => {
             },
             list: []
         })
+        expect(html).toContain('Check recent runs')
         expect(html).toContain(`Form · ${formatListDateTime(recorded)}`)
         expect(html).toContain('{&quot;loaf&quot;:&quot;rye&quot;}')
-        expect(html).toContain('Past runs')
+        expect(html).toContain('Requested runs')
     })
 
     test('on promote, recorded inputs are described as this server’s and still show source and time', () => {
@@ -233,10 +238,13 @@ describe('PublishCheckView', () => {
             },
             list: []
         })
+        expect(html).toContain('Check recent runs')
         expect(html).toContain('data-testid="compare-count"')
-        expect(html).toContain('Past runs')
+        expect(html).toContain('Requested runs')
+        expect(html).not.toContain('Past runs')
         expect(html).not.toContain('Past questions')
         for (const n of [4, 10, 25, 50, 100]) expect(html).toContain(`value="${n}"`)
+        expect(html).toContain('value="10"')
         expect(html).toContain('Only 1 past run available. Comparing that run.')
         expect(html).toContain(`Schedule · ${formatListDateTime(recorded)}`)
         expect(html).toContain('&quot;daily&quot;')
@@ -321,6 +329,35 @@ describe('PublishCheckView', () => {
 
     test('loading and load errors never block publishing', () => {
         expect(render({ loading: true, setup: null })).toContain('Loading recent questions…')
+        expect(render({ loading: true, setup: null })).toContain('Check recent questions')
+        expect(
+            render({
+                loading: true,
+                setup: {
+                    unavailable: null,
+                    replayInputs: true,
+                    replaySource: 'webhook',
+                    questions: [],
+                    riskySteps: [],
+                    limits,
+                    check: null
+                }
+            })
+        ).toContain('Loading recent runs…')
+        expect(
+            render({
+                loading: true,
+                setup: {
+                    unavailable: null,
+                    replayInputs: true,
+                    replaySource: 'webhook',
+                    questions: [],
+                    riskySteps: [],
+                    limits,
+                    check: null
+                }
+            })
+        ).toContain('Check recent runs')
         expect(render({ loadError: 'Recent questions could not be loaded.', setup: null })).toContain(
             'Recent questions could not be loaded. You can still publish.'
         )
@@ -341,7 +378,8 @@ describe('PublishCheckView', () => {
             list: []
         })
         expect(html).toContain('data-testid="compare-count"')
-        expect(html).toContain('Past questions')
+        expect(html).toContain('Requested questions')
+        expect(html).not.toContain('Past questions')
         for (const n of [4, 10, 25, 50, 100]) expect(html).toContain(`value="${n}"`)
         expect(html).toContain('Only 37 past questions available. Comparing all 37.')
         expect(html).toContain('That is 74 runs for 37 questions.')
