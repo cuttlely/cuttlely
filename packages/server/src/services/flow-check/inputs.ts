@@ -1,6 +1,6 @@
 // Recorded inputs for a form, webhook or schedule agentflow, taken from execution records.
-// The publish check replays these instead of chat questions. The text is canonical JSON so the
-// same payload counts once, and so the replay can rebuild the input the run was started with.
+// The publish check replays these instead of chat questions. `key` is canonical JSON so the
+// same payload counts once. `text` is what a replay runs. A form keeps the stored field order.
 import { parseStoredForm } from '../../utils/buildAgentflow'
 import { TriggerStart } from './kinds'
 
@@ -10,7 +10,7 @@ export const NO_PAST_RUNS = 'No past runs to replay yet. Run this flow once, the
 export const REDACTED = '[REDACTED]'
 
 export const UNREPLAYABLE_FORM =
-    'This recorded form cannot be replayed. A field name appears more than once, which happens when an older run stored a line break inside a value.'
+    'This recorded form cannot be replayed. An older run stored a line break inside a value, so the fields cannot be read back as they were submitted.'
 
 const SENSITIVE_PARTS = ['authorization', 'cookie', 'token', 'secret', 'key', 'password', 'signature']
 
@@ -126,7 +126,8 @@ function startOutput(executionData: unknown): Record<string, unknown> | null {
 
 // A real form run stores `name: value` lines, not the object that was submitted. An object is kept as stored.
 // Rows this version writes start with a marker line and may escape a backslash. Older rows have no marker
-// and stay literal text. duplicate is set when an older line-break inside a value made the same field name appear twice.
+// and stay literal text. duplicate is set when an older line break inside a value repeats a field name
+// or leaves a line with no field name. The check does not replay the shortened object.
 function formFromStored(value: unknown): { form: Record<string, unknown>; duplicate: boolean } | null {
     const object = asObject(value)
     if (object) return Object.keys(object).length ? { form: object, duplicate: false } : null
@@ -140,8 +141,11 @@ function formRow(form: Record<string, unknown>, duplicate: boolean): RecordedRow
         const text = canonicalJson({ unreplayable: UNREPLAYABLE_FORM })
         return { key: text, text, preview: UNREPLAYABLE_FORM, bodyKey: null, rawQuery: {}, rawHeaders: {} }
     }
-    const text = canonicalJson({ form })
-    return { key: text, text, preview: plainPreview(text), bodyKey: null, rawQuery: {}, rawHeaders: {} }
+    // key ignores field order so two orders of the same fields count once. text keeps the stored order,
+    // which is the order the model and $flow.input saw.
+    const key = canonicalJson({ form })
+    const text = JSON.stringify({ form })
+    return { key, text, preview: plainPreview(text), bodyKey: null, rawQuery: {}, rawHeaders: {} }
 }
 
 function plainPreview(text: string): string {
@@ -239,7 +243,7 @@ export function recordedQuestion(executionData: unknown, kind: TriggerStart): st
 }
 
 // Turn a stored question back into the prediction input. Chat questions stay a question.
-// A trigger question is the canonical JSON from recordedQuestion. A form is sent without a question,
+// A trigger question is the JSON from recordedQuestion. A form is sent without a question,
 // because the engine refuses both at once. Webhook and schedule replays use the chat type those starts require.
 export function replayFromQuestion(question: string, kind: TriggerStart | null): ReplayCall {
     const history: never[] = []

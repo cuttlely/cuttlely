@@ -1601,7 +1601,8 @@ export function formObjectToStoredLines(form: Record<string, any>): string {
 
 export interface ParsedFormString {
     form: Record<string, string>
-    // True when one field name appears twice. An older run stored a raw line break inside a value.
+    // True when the stored lines cannot be replayed as submitted. An older run stored a raw line
+    // break inside a value, so a field name is repeated or a following line has no field name.
     duplicateKey: boolean
 }
 
@@ -1619,13 +1620,21 @@ export function parseStoredForm(formString: string): ParsedFormString {
     if (!body) return { form, duplicateKey }
     for (const line of body.split('\n')) {
         const splitAt = line.indexOf(': ')
-        if (splitAt <= 0) continue
+        // An unmarked row that drops a line would replay a shorter form than the original run sent.
+        if (splitAt <= 0) {
+            if (!marked) duplicateKey = true
+            continue
+        }
         const rawKey = line.slice(0, splitAt).trim()
-        const rawValue = line.slice(splitAt + 2).trim()
+        const afterColon = line.slice(splitAt + 2)
         // Only text this version wrote (the marker line) is unescaped. Older rows stay literal.
+        // A marked value keeps its spaces. A value that is only spaces is a blank field.
         const key = marked ? unescapeFormField(rawKey) : rawKey
-        const value = marked ? unescapeFormField(rawValue) : rawValue
-        if (!key) continue
+        const value = marked ? (afterColon.trim() === '' ? '' : unescapeFormField(afterColon)) : afterColon.trim()
+        if (!key) {
+            if (!marked) duplicateKey = true
+            continue
+        }
         if (Object.prototype.hasOwnProperty.call(form, key)) duplicateKey = true
         form[key] = value
     }

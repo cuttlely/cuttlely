@@ -20,10 +20,11 @@ const execution = (output: unknown) =>
 
 describe('recorded inputs', () => {
     test('a form payload is the form object, and key order does not make a new input', () => {
-        const first = recordedQuestion(execution({ form: { loaf: 'rye', count: 2 } }), 'formInput')
-        const second = recordedQuestion(execution({ form: { count: 2, loaf: 'rye' } }), 'formInput')
-        expect(first).toBe(second)
-        expect(JSON.parse(first as string)).toEqual({ form: { count: 2, loaf: 'rye' } })
+        const first = recordedDraft(execution({ form: { loaf: 'rye', count: 2 } }), 'formInput')
+        const second = recordedDraft(execution({ form: { count: 2, loaf: 'rye' } }), 'formInput')
+        expect(first?.key).toBe(second?.key)
+        expect(Object.keys(JSON.parse(first?.text as string).form)).toEqual(['loaf', 'count'])
+        expect(Object.keys(JSON.parse(second?.text as string).form)).toEqual(['count', 'loaf'])
         expect(recordedQuestion(execution({ question: 'hello' }), 'formInput')).toBeNull()
     })
 
@@ -38,10 +39,12 @@ describe('recorded inputs', () => {
     })
 
     test('a real form run stores name: value lines, and a schedule form uses the same shape', () => {
-        const form = recordedQuestion(execution({ form: 'loaf: rye\ncount: 2' }), 'formInput')
-        const again = recordedQuestion(execution({ form: 'count: 2\nloaf: rye' }), 'formInput')
-        expect(JSON.parse(form as string)).toEqual({ form: { loaf: 'rye', count: '2' } })
-        expect(again).toBe(form)
+        const form = recordedDraft(execution({ form: 'loaf: rye\ncount: 2' }), 'formInput')
+        const again = recordedDraft(execution({ form: 'count: 2\nloaf: rye' }), 'formInput')
+        expect(JSON.parse(form?.text as string)).toEqual({ form: { loaf: 'rye', count: '2' } })
+        expect(form?.key).toBe(again?.key)
+        expect(Object.keys(JSON.parse(form?.text as string).form)).toEqual(['loaf', 'count'])
+        expect(Object.keys(JSON.parse(again?.text as string).form)).toEqual(['count', 'loaf'])
         expect(JSON.parse(recordedQuestion(execution({ form: 'note: size: large' }), 'formInput') as string).form).toEqual({
             note: 'size: large'
         })
@@ -67,6 +70,19 @@ describe('recorded inputs', () => {
         const lines = values.map(([key, value]) => `${key}: ${value}`).join('\n')
         expect(JSON.parse(recordedQuestion(execution({ form: lines }), 'formInput') as string).form).toEqual(Object.fromEntries(values))
         expect(JSON.parse(recordedQuestion(execution({ form: lines }), 'scheduleInput') as string).form).toEqual(Object.fromEntries(values))
+    })
+
+    test('a legacy form with a raw line break inside a value is not replayed, and two ordinary fields are', () => {
+        const broken = 'bio: line1\nline2'
+        const text = recordedQuestion(execution({ form: broken }), 'formInput')
+        expect(text).toContain(UNREPLAYABLE_FORM)
+        expect(text).not.toContain('line1')
+        expect(() => replayFromQuestion(text as string, 'formInput')).toThrow(UNREPLAYABLE_FORM)
+        expect(() => replayFromQuestion(recordedQuestion(execution({ form: broken }), 'scheduleInput') as string, 'scheduleInput')).toThrow(
+            UNREPLAYABLE_FORM
+        )
+        const kept = replayFromQuestion(recordedQuestion(execution({ form: 'loaf: rye\ncount: 2' }), 'formInput') as string, 'formInput')
+        expect(kept.incoming.form).toEqual({ loaf: 'rye', count: '2' })
     })
 
     test('a legacy form with a raw line break that repeats a field name is not replayed', () => {

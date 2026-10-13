@@ -6,8 +6,15 @@
 import fs from 'fs'
 import os from 'os'
 import path from 'path'
-import { recordedQuestion } from '../services/flow-check/inputs'
-import { STORED_FORM_MARKER, executeAgentFlow, formObjectToStoredLines, parseStoredForm, resolveVariables } from './buildAgentflow'
+import { recordedQuestion, replayFromQuestion } from '../services/flow-check/inputs'
+import {
+    STORED_FORM_MARKER,
+    executeAgentFlow,
+    formObjectToReadableLines,
+    formObjectToStoredLines,
+    parseStoredForm,
+    resolveVariables
+} from './buildAgentflow'
 import { stepTokens } from '../services/flow-check/compare'
 
 jest.mock('./logger', () => ({ __esModule: true, default: { warn: jest.fn(), info: jest.fn(), debug: jest.fn(), error: jest.fn() } }))
@@ -349,6 +356,21 @@ describe('executeAgentFlow with replay on (publish check)', () => {
         expect(replay.result.agentFlowExecutedData.find((row: any) => row.nodeLabel === 'Read input').data.output.content).toBe(readable)
     })
 
+    it('replays a form in the stored field order', () => {
+        const lines = 'path: C:\\temp\nbio: line one\nnote: keep'
+        const stored = JSON.stringify([
+            {
+                nodeId: 'startAgentflow_0',
+                data: { name: 'startAgentflow', output: { form: lines } },
+                status: 'FINISHED'
+            }
+        ])
+        const text = recordedQuestion(stored, 'formInput') as string
+        const form = replayFromQuestion(text, 'formInput').incoming.form as Record<string, string>
+        expect(Object.keys(form)).toEqual(['path', 'bio', 'note'])
+        expect(formObjectToReadableLines(form)).toBe(lines)
+    })
+
     it('a blank form value stays empty on both sides, and escapes round-trip', async () => {
         const isEmpty = (value: unknown) => [undefined, null, ''].includes(value as string)
         const stored = formObjectToStoredLines({ name: 'ada', note: '' })
@@ -380,6 +402,11 @@ describe('executeAgentFlow with replay on (publish check)', () => {
         expect(lines.startsWith(`${STORED_FORM_MARKER}\n`)).toBe(true)
         expect(lines.split('\n')).toHaveLength(7)
         expect(parseStoredForm(lines)).toEqual({ form: rich, duplicateKey: false })
+        const spaced = formObjectToStoredLines({ note: '  millet  ', blank: '' })
+        expect(parseStoredForm(spaced).form.note).toBe('  millet  ')
+        expect(parseStoredForm(spaced).form.blank).toBe('')
+        const broken = parseStoredForm('bio: line1\nline2')
+        expect(broken.duplicateKey).toBe(true)
         expect(parseStoredForm('loaf: rye\ncount: 2')).toEqual({ form: { loaf: 'rye', count: '2' }, duplicateKey: false })
         expect(parseStoredForm('team: bakery')).toEqual({ form: { team: 'bakery' }, duplicateKey: false })
         const legacy = parseStoredForm('name: ada\nbio: line1\nname: eve')
