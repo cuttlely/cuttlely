@@ -20,7 +20,7 @@ Questions: chatflow "Two country sourdough loaves and three butter croissants. W
 
 Shown on the card: 1.1 s, 1.3 s, 1.3 s.
 
-## Agentflows (equivalent flow, not the recorded canvas)
+## Agentflows (equivalent flow, same branches and questions, not the recorded canvas)
 
 | Metric                                             | Median s | p90 s | Min s | Max s | Correct  |
 | -------------------------------------------------- | -------- | ----- | ----- | ----- | -------- |
@@ -29,7 +29,7 @@ Shown on the card: 1.1 s, 1.3 s, 1.3 s.
 | Price question (order branch): time to first words | 0.84     | 0.95  | 0.72  | 1.06  | 20 of 20 |
 | Price question (order branch): full answer (extra) | 1.24     | 1.39  | 1.13  | 1.43  | 20 of 20 |
 
-Shown on the card: 0.9 s, 1.2 s, 0.8 s. These medians are from the rebuilt flow below, not from the canvas in the video.
+Shown on the card: 0.9 s, 1.2 s, 0.8 s. These medians are from an equivalent flow with the same branches and questions, not the recorded canvas.
 
 ## Share and embed (public prediction stream, no session)
 
@@ -53,7 +53,7 @@ Shown on the card: 0.4 s, 0.8 s, 0.4 s.
 
 -   Chatflows: the recorded canvas. The nodes and system prompt match the video (gpt-4.1-mini, Tool Agent, Buffer Memory, Calculator).
 -   Share and embed: the recorded canvas. The nodes, prompt and share settings match the video (gpt-4.1-mini, Conversation Chain, Buffer Memory; title, welcome, starters, allowed origins), made public as the video does.
--   Agentflows: the recorded canvas was not kept. Build with AI generated it for the video and the export was discarded. The medians are from an equivalent flow rebuilt the same way, with the same four cards (Start, Classify Message, Order Agent, Care Agent), the same two branches, and the same questions. The rebuilt prompts were not the video's prompts.
+-   Agentflows: the recorded canvas was not kept. The medians are from an equivalent flow with the same branches and questions, not the recorded canvas. The flow has the same four cards (Start, Classify Message, Order Agent, Care Agent) and the same two branches. Its prompts are not the video's prompts.
 -   The questions are the videos' exact turns.
 
 ## Notes
