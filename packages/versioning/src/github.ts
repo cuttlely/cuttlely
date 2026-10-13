@@ -1495,14 +1495,10 @@ export class GithubSync {
                     return
                 }
                 const namedReader = !isLegacyChain(plan.environments)
-                // A later environment never installs a tip whose note is missing, on another commit, or a different list.
+                // A matching note installs this tip, including one published after the connect listing.
+                // A later environment never installs a tip whose note is missing or a different list.
                 // The saved Dev and Prod pair still offers versions when the repository has no record at all.
-                if (
-                    (namedReader && note.kind !== 'match') ||
-                    note.kind === 'mismatch' ||
-                    note.kind === 'unverified' ||
-                    (plan.verifiedSource !== null && sha !== plan.verifiedSource)
-                ) {
+                if ((namedReader && note.kind !== 'match') || note.kind === 'mismatch' || note.kind === 'unverified') {
                     await drop(INCOMING_NEXT_REF)
                     this.state = 'stopped'
                     this.message = note.kind === 'mismatch' ? LIST_MISMATCH : LIST_UNVERIFIED

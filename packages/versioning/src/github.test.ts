@@ -137,6 +137,29 @@ function seedRecordedVersions(ref: string, environments: { name: string; branch:
     execFileSync('git', ['push', '-q', `file://${bare}`, 'refs/notes/commits:refs/notes/commits'], { cwd: work, env })
 }
 
+// A new tip on a branch that already has versions. note is recorded on that tip; null leaves the existing record.
+function advancePrevious(branch: string, note: string | null): string {
+    const work = path.join(tmp, `advance-${branch.replace(/[^\w]+/g, '-')}`)
+    fs.rmSync(work, { recursive: true, force: true })
+    fs.mkdirSync(work, { recursive: true })
+    const env = noteAuthorEnv()
+    execFileSync('git', ['init', '-q'], { cwd: work, env })
+    execFileSync('git', ['fetch', '-q', `file://${bare}`, `${branch}:refs/heads/src`], { cwd: work, env })
+    if (bareRef(bare, 'refs/notes/commits')) {
+        execFileSync('git', ['fetch', '-q', `file://${bare}`, 'refs/notes/commits:refs/notes/commits'], { cwd: work, env })
+    }
+    execFileSync('git', ['symbolic-ref', 'HEAD', 'refs/heads/src'], { cwd: work, env })
+    execFileSync('git', ['commit', '-q', '--allow-empty', '-m', 'newer'], { cwd: work, env })
+    const sha = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: work, env, encoding: 'utf8' }).trim()
+    const args = ['push', '-q', `file://${bare}`, `HEAD:${branch}`]
+    if (note !== null) {
+        execFileSync('git', ['notes', 'add', '-f', '-m', note, sha], { cwd: work, env })
+        args.push('refs/notes/commits:refs/notes/commits')
+    }
+    execFileSync('git', args, { cwd: work, env })
+    return sha
+}
+
 function makeBare(dir: string): string {
     execFileSync('git', ['init', '-q', '--bare', dir], { env: cleanEnv() })
     return dir
@@ -1645,6 +1668,80 @@ describe('Dev or Prod label', () => {
             message: 'Connect the repository your Dev server copies to. This one has no versions from Dev yet.'
         })
         expect(fs.existsSync(saved)).toBe(false)
+        expect(bareRef(bare, 'refs/heads/staging')).toBeNull()
+    })
+
+    test('a newer tip with a matching note is installed and a middle environment copies on that pass', async () => {
+        const chain = [
+            { name: 'Dev', branch: 'main', server: 'dev' },
+            { name: 'Staging', branch: 'staging', server: 'staging' },
+            { name: 'Prod', branch: 'prod', server: 'prod' }
+        ]
+        const fingerprint = environmentListFingerprint(chain)
+        sync = makeSync({ checkEveryMs: 60_000, retryMs: [60_000] })
+        setGithubForTests(sync)
+        await sync.setEnvironment('staging', chain)
+        await save('One')
+        seedRecordedVersions('refs/heads/main', chain)
+        const listed = bareMain(bare)
+        let fetches = 0
+        let newer = ''
+        sync.stop()
+        sync = makeSync({
+            checkEveryMs: 60_000,
+            retryMs: [60_000],
+            onGit: (args, env) => {
+                gitCalls.push({ args, env })
+                if (args[0] !== 'fetch') return
+                fetches += 1
+                if (fetches === 2) newer = advancePrevious('refs/heads/main', fingerprint)
+            }
+        })
+        setGithubForTests(sync)
+        const status = await sync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)
+        expect(newer).not.toBe('')
+        expect(newer).not.toBe(listed)
+        expect(status.state).not.toBe('stopped')
+        expect(refOf(versionsDir(), 'refs/versions/incoming')).toBe(newer)
+        expect(bareRef(bare, 'refs/heads/staging')).toBe(plainGit(versionsDir(), 'rev-parse', 'HEAD').trim())
+    })
+
+    test.each([
+        ['mismatched', 'mismatch'],
+        ['missing', 'absent']
+    ] as const)('a newer tip with a %s note is not installed and is not copied', async (_label, mode) => {
+        const chain = [
+            { name: 'Dev', branch: 'main', server: 'dev' },
+            { name: 'Staging', branch: 'staging', server: 'staging' },
+            { name: 'Prod', branch: 'prod', server: 'prod' }
+        ]
+        sync = makeSync({ checkEveryMs: 60_000, retryMs: [60_000] })
+        setGithubForTests(sync)
+        await sync.setEnvironment('staging', chain)
+        await save('One')
+        seedRecordedVersions('refs/heads/main', chain)
+        const listed = bareMain(bare)
+        let fetches = 0
+        let newer = ''
+        sync.stop()
+        sync = makeSync({
+            checkEveryMs: 60_000,
+            retryMs: [60_000],
+            onGit: (args, env) => {
+                gitCalls.push({ args, env })
+                if (args[0] !== 'fetch') return
+                fetches += 1
+                if (fetches === 2) newer = advancePrevious('refs/heads/main', mode === 'mismatch' ? 'not-this-list' : null)
+                if (mode === 'absent' && fetches === 3) {
+                    execFileSync('git', ['--git-dir', bare, 'update-ref', '-d', 'refs/notes/commits'], { env: cleanEnv() })
+                }
+            }
+        })
+        setGithubForTests(sync)
+        const status = await sync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)
+        expect(newer).not.toBe(listed)
+        expect(status.state).toBe('stopped')
+        expect(refOf(versionsDir(), 'refs/versions/incoming')).toBeNull()
         expect(bareRef(bare, 'refs/heads/staging')).toBeNull()
     })
 })

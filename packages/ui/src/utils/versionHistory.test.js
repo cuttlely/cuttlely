@@ -25,6 +25,8 @@ describe('versionHistory', () => {
         expect(kindLabel('create')).toBe('Created')
         expect(kindLabel('restore')).toBe('Restored')
         expect(kindLabel('promote')).toBe('Promoted from Dev')
+        expect(kindLabel('promote', 'Promoted from Dev: Created Bakery helper')).toBe('Promoted from Dev')
+        expect(kindLabel('promote', 'Promoted from Staging: Changed instructions (aaaaaaa)')).toBe('Promoted from Staging')
         expect(kindLabel('something-else')).toBe('Saved')
     })
 
