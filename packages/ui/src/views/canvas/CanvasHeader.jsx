@@ -41,7 +41,7 @@ import flowDraftsApi from '@/api/flowDrafts'
 import flowVersionsApi from '@/api/flowVersions'
 import { exactTime, lastEditedText, lastEditedVersion } from '@/utils/versionHistory'
 import { STALE_DRAFT_WARNING, apiErrorMessage, badgeText, draftBadge, showDraftChrome } from '@/utils/flowDrafts'
-import { reservedHarnessNameMessage } from '@/utils/harnessName'
+import { reservedHarnessNameMessage } from '@/utils/harnessChatReady'
 
 // Hooks
 import useApi from '@/hooks/useApi'
