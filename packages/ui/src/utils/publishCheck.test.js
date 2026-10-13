@@ -244,6 +244,19 @@ describe('results', () => {
         expect(usageText(done)).toBe(
             'Tokens: Live 1,840, draft 188 (Draft used 1,652 fewer). Typical time: Live 0.6 s, draft 0.5 s (Draft was 0.1 s faster).'
         )
+        const priced = {
+            ...done,
+            summary: {
+                ...done.summary,
+                liveEstimatedCostUsd: 0.0012,
+                draftEstimatedCostUsd: null,
+                livePrice: 'known',
+                draftPrice: 'no price'
+            },
+            cases: [{ question: 'a', live: { ...live, estimatedCostUsd: 0.0012, price: 'known' }, draft }]
+        }
+        expect(usageText(priced)).toContain('Estimated cost: Live estimated $0.0012, draft no price.')
+        expect(sideCaption(priced.cases[0].live)).toBe('44 tokens, 0.7 s, estimated $0.0012')
         expect(summaryText({ status: 'stopped', summary: { ran: 0 } })).toBe('No question was answered by both versions.')
         expect(summaryText({ status: 'stopped', summary: { ran: 0 } }, CHECK_WORDS.publish, 'run')).toBe(
             'No recorded input was answered by both versions.'

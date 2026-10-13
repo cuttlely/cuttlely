@@ -107,6 +107,19 @@ jest.mock('../controllers/flow-promote', () => ({
     )
 }))
 
+jest.mock('../controllers/model-prices', () => ({
+    __esModule: true,
+    default: new Proxy(
+        {},
+        {
+            get: () => (_req: Request, res: express.Response) => {
+                hits.n += 1
+                res.status(200).json({ ok: true })
+            }
+        }
+    )
+}))
+
 jest.mock('../controllers/stats', () => ({
     __esModule: true,
     default: new Proxy(
@@ -133,6 +146,7 @@ jest.mock('../controllers/flow-drafts', () => ({
     )
 }))
 
+import modelPricesRouter from '../routes/model-prices'
 import statsRouter from '../routes/stats'
 import apikeyRouter from '../routes/apikey'
 import chatflowsRouter from '../routes/chatflows'
@@ -413,6 +427,30 @@ describe('switched route groups', () => {
         const user = { id: 'user-1', activeWorkspaceId: 'team-a', permissions: [], isOrganizationAdmin: false }
         expect((await call(group.router, user, group.anyOf)).status).toBe(200)
         expect(hits.n).toBe(1)
+    })
+
+    it('model prices are for the owner only', async () => {
+        const probes = [
+            { method: 'get' as const, path: '/' },
+            { method: 'put' as const, path: '/' },
+            { method: 'delete' as const, path: '/' }
+        ]
+        const everything = ['chatflows:view', 'chatflows:update', 'agentflows:view', 'users:manage', 'roles:manage', 'workspace:update']
+        memberships.set('user-1|team-a', grant(everything))
+        const member = { id: 'user-1', activeWorkspaceId: 'team-a', permissions: everything, isOrganizationAdmin: true }
+        const key = { permissions: everything, isOrganizationAdmin: true, activeWorkspaceId: 'team-a' }
+        for (const probe of probes) {
+            expect((await call(modelPricesRouter, member, { ...probe, permission: '' })).status).toBe(403)
+            expect((await call(modelPricesRouter, key, { ...probe, permission: '' })).status).toBe(403)
+            expect((await call(modelPricesRouter, null, { ...probe, permission: '' })).status).toBe(401)
+        }
+        expect(hits.n).toBe(0)
+        memberships.set('owner|team-b', grant(null, true))
+        const owner = { id: 'owner', activeWorkspaceId: 'team-b', permissions: [], isOrganizationAdmin: false }
+        for (const probe of probes) {
+            expect((await call(modelPricesRouter, owner, { ...probe, permission: '' })).status).toBe(200)
+        }
+        expect(hits.n).toBe(3)
     })
 
     it('stats refuses tools:view and still loads for chatflows:view and the owner', async () => {

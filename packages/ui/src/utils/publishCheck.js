@@ -331,12 +331,37 @@ export const formatMs = (ms) => {
     return `${(Math.max(1, Math.round(ms / 100)) / 10).toFixed(1)} s`
 }
 
-// "44 tokens, 0.7 s" under each answer.
+// US dollars. Small estimates keep enough digits to tell $0.0004 from zero.
+export const formatUsd = (value) => {
+    const n = Number(value)
+    if (!Number.isFinite(n)) return ''
+    if (n === 0) return '$0'
+    const abs = Math.abs(n)
+    if (abs >= 0.01) return `$${n.toFixed(2)}`
+    return `$${n.toFixed(8).replace(/0+$/, '').replace(/\.$/, '')}`
+}
+
+export const estimatePhrase = (usd, price) => {
+    if (price === 'no price') return 'no price'
+    if (price === 'partial') {
+        const money = formatUsd(usd)
+        return money ? `estimated ${money} (some models have no price)` : 'no price'
+    }
+    if (price === 'known') {
+        const money = formatUsd(usd)
+        return money ? `estimated ${money}` : ''
+    }
+    return ''
+}
+
+// "44 tokens, 0.7 s, estimated $0.0012" under each answer. The dollar figure is an estimate.
 export const sideCaption = (side) => {
     if (!side) return ''
     const parts = []
     if (side.tokens != null) parts.push(plural(side.tokens, 'token', 'tokens'))
     if (side.ms != null) parts.push(formatMs(side.ms))
+    const estimate = estimatePhrase(side.estimatedCostUsd, side.price)
+    if (estimate) parts.push(estimate)
     return parts.join(', ')
 }
 
@@ -397,6 +422,11 @@ export const summaryText = (check, words = CHECK_WORDS.publish, unit = 'question
     return `${parts.join(', ')}.`
 }
 
+const estimateClause = (usd, price, label) => {
+    const phrase = estimatePhrase(usd, price)
+    return phrase ? `${label} ${phrase}` : ''
+}
+
 // One line per side. Absent when the check did not use evaluators.
 export const passRateText = (check, words = CHECK_WORDS.publish) => {
     const scores = check?.summary?.scores
@@ -419,9 +449,14 @@ export const passRateText = (check, words = CHECK_WORDS.publish) => {
 export const usageText = (check, words = CHECK_WORDS.publish) => {
     const s = check?.summary
     if (!s || !s.ran) return ''
-    if (check.liveEmpty) return `Tokens: ${words.short} ${number(s.draftTokens)}. Typical time: ${formatMs(s.draftMedianMs)}.`
-    // Token and time differences come from the totals already measured. There is no price for this check, so no cost.
-    return `Tokens: Live ${number(s.liveTokens)}, ${words.short} ${number(s.draftTokens)}${tokenChange(
+    const draftEstimate = estimateClause(s.draftEstimatedCostUsd, s.draftPrice, words.short)
+    if (check.liveEmpty) {
+        const base = `Tokens: ${words.short} ${number(s.draftTokens)}. Typical time: ${formatMs(s.draftMedianMs)}.`
+        return draftEstimate ? `${base} Estimated cost: ${draftEstimate}.` : base
+    }
+    const liveEstimate = estimateClause(s.liveEstimatedCostUsd, s.livePrice, 'Live')
+    const costs = [liveEstimate, draftEstimate].filter(Boolean).join(', ')
+    const base = `Tokens: Live ${number(s.liveTokens)}, ${words.short} ${number(s.draftTokens)}${tokenChange(
         s.liveTokens,
         s.draftTokens,
         words.side
@@ -430,6 +465,7 @@ export const usageText = (check, words = CHECK_WORDS.publish) => {
         s.draftMedianMs,
         words.side
     )}.`
+    return costs ? `${base} Estimated cost: ${costs}.` : base
 }
 
 // Which questions to show in the results: the ones answered, then the rest while running.
