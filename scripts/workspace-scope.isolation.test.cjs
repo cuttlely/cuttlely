@@ -909,6 +909,86 @@ describe('workspace isolation', () => {
             fs.rmSync(dataDir, { recursive: true, force: true })
         }
     })
+
+    it('does not open another team harness session for the publish check', async () => {
+        const dataDir = fs.mkdtempSync(path.join(tmpdir(), 'cuttlely-harness-prompts-'))
+        const previous = {
+            data: process.env.CUTTLELY_DATA_DIR,
+            hermes: process.env.CUTTLELY_HERMES_HOME,
+            warm: process.env.CUTTLELY_WARM_HERMES
+        }
+        process.env.CUTTLELY_DATA_DIR = dataDir
+        process.env.CUTTLELY_HERMES_HOME = path.join(dataDir, 'hermes')
+        process.env.CUTTLELY_WARM_HERMES = 'false'
+        const harnessDir = path.join(dataDir, 'harnesses')
+        fs.mkdirSync(harnessDir, { recursive: true })
+        fs.writeFileSync(
+            path.join(harnessDir, 'payroll.json'),
+            JSON.stringify({
+                name: 'payroll',
+                workspaceId: WS1,
+                chief: { instructions: 'Live', model: { nodeName: 'demoChat', inputs: { modelName: 'demo' } } },
+                specialists: [{ name: 'reader', instructions: 'Read.', modules: [], mcpServers: [] }]
+            })
+        )
+        const secret = 'TEAM-A-PRIVATE-PROMPT'
+        const flowCheck = serverRequire('./src/services/flow-check/index.ts')
+        const harnessMod = serverRequire('./src/services/flow-check/harness.ts')
+        const previousTurns = harnessMod.harnessCheckHooks.listUserTurns
+        const previousOwner = harnessMod.harnessCheckHooks.inWorkspace
+        const previousReplay = flowCheck.replayHooks.run
+        let opens = 0
+        harnessMod.harnessCheckHooks.inWorkspace = null
+        harnessMod.harnessCheckHooks.listUserTurns = () => {
+            opens += 1
+            return [{ content: secret, createdAt: '2026-10-08T10:00:00.000Z' }]
+        }
+        flowCheck.replayHooks.run = async () => ({ text: 'checked', metrics: [{ totalTokens: 1 }] })
+        const canvas = JSON.stringify({
+            nodes: [{ id: 'chief', data: { name: 'harnessChief', inputs: { instructions: 'Live' } } }],
+            edges: []
+        })
+        const row = (id, workspaceId) => ({
+            id,
+            name: 'payroll',
+            type: 'HARNESS',
+            flowData: canvas,
+            workspaceId
+        })
+        const draft = { key: 'flow-b', canvas }
+        try {
+            const setup = await flowCheck.getCheckSetup(row('flow-b', WS2), { ...draft, key: 'flow-b' })
+            assert.deepEqual(setup.questions, [])
+            assert.equal(opens, 0)
+            assert.equal(JSON.stringify(setup).includes(secret), false)
+            const started = await flowCheck.startCheck(row('flow-b', WS2), { count: 4 }, 'http://127.0.0.1', { ...draft, key: 'flow-b' })
+            assert.deepEqual(started.cases, [])
+            assert.equal(opens, 0)
+            assert.equal(JSON.stringify(started).includes(secret), false)
+
+            const ownSetup = await flowCheck.getCheckSetup(row('flow-own', WS1), { ...draft, key: 'flow-own' })
+            assert.deepEqual(
+                ownSetup.questions.map((item) => item.text),
+                [secret]
+            )
+            assert.equal(opens, 1)
+            const ownStarted = await flowCheck.startCheck(row('flow-own', WS1), { count: 4 }, 'http://127.0.0.1', {
+                ...draft,
+                key: 'flow-own'
+            })
+            assert.deepEqual(
+                ownStarted.cases.map((item) => item.question),
+                [secret]
+            )
+            assert.equal(opens, 2)
+        } finally {
+            harnessMod.harnessCheckHooks.listUserTurns = previousTurns
+            harnessMod.harnessCheckHooks.inWorkspace = previousOwner
+            flowCheck.replayHooks.run = previousReplay
+            restoreEnv(previous)
+            fs.rmSync(dataDir, { recursive: true, force: true })
+        }
+    })
 })
 
 async function missingHarness(run) {

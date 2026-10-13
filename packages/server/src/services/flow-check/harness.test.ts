@@ -109,6 +109,7 @@ beforeEach(() => {
     queryState.skip = 0
     draftsOn = true
     states.set('flow-1', { chatflowId: 'flow-1', draftFlowData: DRAFT, publishInstantly: false })
+    harnessCheckHooks.inWorkspace = async () => true
     harnessCheckHooks.listUserTurns = (name) => (name === 'bakery-team' ? turns : [])
     harnessReplayHooks.run = null
     replayHooks.run = async ({ flowData }) => {
@@ -120,6 +121,7 @@ beforeEach(() => {
 
 afterEach(() => {
     harnessCheckHooks.listUserTurns = null
+    harnessCheckHooks.inWorkspace = null
     harnessReplayHooks.run = null
     replayHooks.run = null
     delete process.env.CUTTLELY_CHECK_CONCURRENCY
