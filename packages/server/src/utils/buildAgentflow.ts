@@ -1536,8 +1536,19 @@ const checkForMultipleStartNodes = (startingNodeIds: string[], isRecursive: bool
     }
 }
 
-// A line break or a backslash inside a value is stored as \n, \r or \\ so the execution text stays one
-// field per line. Rows saved before that escaping have no backslashes and parse as they always did.
+// Rows this version writes start with STORED_FORM_MARKER on its own line, then one `name: value` line
+// per field. A line break or a backslash inside a value is stored as \n, \r or \\ so the execution
+// text stays one field per line. The marker is recognized only when the first line is exactly that
+// text. It contains no ": ", and the older encoder's first line always does (`name: value`), so a
+// field name cannot be read as the marker: a field stored under that name would be `marker: value`.
+// Without the marker, each line is literal text split on the first ": ". Backslashes are not
+// escapes, so a value such as C:\new stays C:\new.
+export const STORED_FORM_MARKER = '\u0000cuttlely-form-1'
+
+function storedFormIsMarked(formString: string): boolean {
+    return formString === STORED_FORM_MARKER || formString.startsWith(`${STORED_FORM_MARKER}\n`)
+}
+
 function escapeFormField(value: unknown): string {
     return String(value ?? '')
         .replace(/\\/g, '\\\\')
@@ -1573,9 +1584,10 @@ function unescapeFormField(value: string): string {
 }
 
 export function formObjectToStoredLines(form: Record<string, any>): string {
-    return Object.entries(form)
+    const lines = Object.entries(form)
         .map(([key, value]) => `${escapeFormField(key)}: ${escapeFormField(value)}`)
         .join('\n')
+    return lines ? `${STORED_FORM_MARKER}\n${lines}` : STORED_FORM_MARKER
 }
 
 export interface ParsedFormString {
@@ -1591,13 +1603,19 @@ export interface ParsedFormString {
 export const parseFormStringToJson = (formString: string): Record<string, string> => parseStoredForm(formString).form
 
 export function parseStoredForm(formString: string): ParsedFormString {
+    const marked = storedFormIsMarked(formString)
+    const body = formString === STORED_FORM_MARKER ? '' : marked ? formString.slice(STORED_FORM_MARKER.length + 1) : formString
     const form: Record<string, string> = {}
     let duplicateKey = false
-    for (const line of formString.split('\n')) {
+    if (!body) return { form, duplicateKey }
+    for (const line of body.split('\n')) {
         const splitAt = line.indexOf(': ')
         if (splitAt <= 0) continue
-        const key = unescapeFormField(line.slice(0, splitAt).trim())
-        const value = unescapeFormField(line.slice(splitAt + 2).trim())
+        const rawKey = line.slice(0, splitAt).trim()
+        const rawValue = line.slice(splitAt + 2).trim()
+        // Only text this version wrote (the marker line) is unescaped. Older rows stay literal.
+        const key = marked ? unescapeFormField(rawKey) : rawKey
+        const value = marked ? unescapeFormField(rawValue) : rawValue
         if (!key) continue
         if (Object.prototype.hasOwnProperty.call(form, key)) duplicateKey = true
         form[key] = value
@@ -1789,7 +1807,9 @@ export const executeAgentFlow = async ({
         agentflowRuntime.state = previousState
     }
 
-    // If the start input type is form input, get the form values from the previous execution (form values are persisted in the same session)
+    // If the start input type is form input, get the form values from the previous execution (form values are persisted in the same session).
+    // When that form was stored as lines, the next message keeps those lines on the Start step. The parsed object is only for this run.
+    let resumedFormText: string | undefined
     if (startInputType === 'formInput' && previousExecution) {
         const previousExecutionData = (JSON.parse(previousExecution.executionData) as IAgentflowExecutedData[]) ?? []
 
@@ -1800,6 +1820,7 @@ export const executeAgentFlow = async ({
             if (previousStartAgentOutput && typeof previousStartAgentOutput === 'object' && 'form' in previousStartAgentOutput) {
                 const formValues = previousStartAgentOutput.form
                 if (typeof formValues === 'string') {
+                    resumedFormText = formValues
                     agentflowRuntime.form = parseFormStringToJson(formValues)
                 } else {
                     agentflowRuntime.form = formValues
@@ -2209,7 +2230,13 @@ export const executeAgentFlow = async ({
             }
 
             if (nodeResult && nodeResult.output && nodeResult.output.form) {
-                agentflowRuntime.form = nodeResult.output.form
+                if (resumedFormText && reactFlowNode.data.name === 'startAgentflow') {
+                    const produced = nodeResult.output.form
+                    nodeResult.output.form = resumedFormText
+                    if (produced && typeof produced === 'object') agentflowRuntime.form = produced
+                } else {
+                    agentflowRuntime.form = nodeResult.output.form
+                }
             }
 
             if (nodeResult && nodeResult.output && nodeResult.output.ephemeralMemory) {

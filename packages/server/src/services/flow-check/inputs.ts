@@ -125,7 +125,8 @@ function startOutput(executionData: unknown): Record<string, unknown> | null {
 }
 
 // A real form run stores `name: value` lines, not the object that was submitted. An object is kept as stored.
-// duplicate is set when an older line-break inside a value made the same field name appear twice.
+// Rows this version writes start with a marker line and may escape a backslash. Older rows have no marker
+// and stay literal text. duplicate is set when an older line-break inside a value made the same field name appear twice.
 function formFromStored(value: unknown): { form: Record<string, unknown>; duplicate: boolean } | null {
     const object = asObject(value)
     if (object) return Object.keys(object).length ? { form: object, duplicate: false } : null

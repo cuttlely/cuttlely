@@ -7,7 +7,7 @@ import fs from 'fs'
 import os from 'os'
 import path from 'path'
 import { recordedQuestion } from '../services/flow-check/inputs'
-import { executeAgentFlow, formObjectToStoredLines, parseStoredForm, resolveVariables } from './buildAgentflow'
+import { STORED_FORM_MARKER, executeAgentFlow, formObjectToStoredLines, parseStoredForm, resolveVariables } from './buildAgentflow'
 import { stepTokens } from '../services/flow-check/compare'
 
 jest.mock('./logger', () => ({ __esModule: true, default: { warn: jest.fn(), info: jest.fn(), debug: jest.fn(), error: jest.fn() } }))
@@ -81,14 +81,14 @@ const canvas = (startInputType: string) =>
     })
 
 // Records every read and write by table.
-function recordingDataSource() {
+function recordingDataSource(previousExecutions: any[] = []) {
     const calls: string[] = []
     const saved: Record<string, any> = {}
     const repo = (entity: any) => {
         const table = typeof entity === 'function' ? entity.name : String(entity)
         const log = (op: string) => calls.push(`${table}.${op}`)
         return {
-            find: async () => (log('find'), []),
+            find: async () => (log('find'), table === 'Execution' ? previousExecutions : []),
             findBy: async () => (log('findBy'), []),
             findOne: async () => (log('findOne'), saved[table] ?? null),
             findOneBy: async () => (log('findOneBy'), saved[table] ?? null),
@@ -137,8 +137,9 @@ async function run(opts: {
     incoming?: Record<string, unknown>
     chatType?: string
     nodes?: Record<string, { filePath: string }>
+    previousExecutions?: any[]
 }) {
-    const { calls, saved, appDataSource } = recordingDataSource()
+    const { calls, saved, appDataSource } = recordingDataSource(opts.previousExecutions)
     const { events, sseStreamer } = streamer()
     const telemetry = { sendTelemetry: jest.fn() }
     const result = await executeAgentFlow({
@@ -270,7 +271,7 @@ describe('executeAgentFlow with replay on (publish check)', () => {
             nodes
         })
         const stored = JSON.parse(form.saved.Execution.executionData).find((step: any) => step.data?.name === 'startAgentflow')
-        expect(stored.data.output.form).toBe('loaf: millet')
+        expect(stored.data.output.form).toBe(`${STORED_FORM_MARKER}\nloaf: millet`)
         expect(JSON.parse(recordedQuestion(form.saved.Execution.executionData, 'formInput') as string)).toEqual({
             form: { loaf: 'millet' }
         })
@@ -290,7 +291,7 @@ describe('executeAgentFlow with replay on (publish check)', () => {
             nodes
         })
         const scheduleStored = JSON.parse(schedule.saved.Execution.executionData).find((step: any) => step.data?.name === 'startAgentflow')
-        expect(scheduleStored.data.output.form).toBe('team: bakery')
+        expect(scheduleStored.data.output.form).toBe(`${STORED_FORM_MARKER}\nteam: bakery`)
         expect(JSON.parse(recordedQuestion(schedule.saved.Execution.executionData, 'scheduleInput') as string)).toEqual({
             form: { team: 'bakery' }
         })
@@ -299,7 +300,7 @@ describe('executeAgentFlow with replay on (publish check)', () => {
     it('a blank form value stays empty on both sides, and escapes round-trip', async () => {
         const isEmpty = (value: unknown) => [undefined, null, ''].includes(value as string)
         const stored = formObjectToStoredLines({ name: 'ada', note: '' })
-        expect(stored).toBe('name: ada\nnote: ')
+        expect(stored).toBe(`${STORED_FORM_MARKER}\nname: ada\nnote: `)
         expect(parseStoredForm('note:    ').form).toEqual({ note: '' })
         const parsed = parseStoredForm(stored).form
         expect(parsed).toEqual({ name: 'ada', note: '' })
@@ -315,15 +316,124 @@ describe('executeAgentFlow with replay on (publish check)', () => {
         expect(isEmpty(live.inputs?.value1)).toBe(true)
         expect(isEmpty(checked.inputs?.value1)).toBe(true)
 
-        const rich = { bio: 'line1\nname: eve', path: 'C:\\temp', win: 'a\r\nb', note: 'size: large' }
+        const rich = {
+            bio: 'line1\nname: eve',
+            path: 'C:\\temp',
+            win: 'a\r\nb',
+            note: 'size: large',
+            colon: 'a: b',
+            blank: ''
+        }
         const lines = formObjectToStoredLines(rich)
-        expect(lines.split('\n')).toHaveLength(4)
+        expect(lines.startsWith(`${STORED_FORM_MARKER}\n`)).toBe(true)
+        expect(lines.split('\n')).toHaveLength(7)
         expect(parseStoredForm(lines)).toEqual({ form: rich, duplicateKey: false })
         expect(parseStoredForm('loaf: rye\ncount: 2')).toEqual({ form: { loaf: 'rye', count: '2' }, duplicateKey: false })
         expect(parseStoredForm('team: bakery')).toEqual({ form: { team: 'bakery' }, duplicateKey: false })
         const legacy = parseStoredForm('name: ada\nbio: line1\nname: eve')
         expect(legacy.duplicateKey).toBe(true)
         expect(legacy.form.name).toBe('eve')
+    })
+
+    // Values an older run stored with no escapes. Each one contains a backslash the unescape step would rewrite.
+    const legacyForm = {
+        notes: 'C:\\notes\\readme',
+        fresh: 'C:\\new',
+        share: '\\\\server\\share',
+        report: 'C:\\reports\\q1',
+        literal: 'line\\nbreak',
+        temp: 'C:\\temp'
+    }
+    const legacyText = Object.entries(legacyForm)
+        .map(([key, value]) => `${key}: ${value}`)
+        .join('\n')
+
+    it('an older form line keeps a backslash as typed', () => {
+        expect(legacyText.startsWith(STORED_FORM_MARKER)).toBe(false)
+        expect(parseStoredForm(legacyText)).toEqual({ form: legacyForm, duplicateKey: false })
+        for (const [key, value] of Object.entries(legacyForm)) {
+            expect(parseStoredForm(`${key}: ${value}`).form[key]).toBe(value)
+        }
+        // A field name that begins with the marker is still a legacy `name: value` line.
+        const named = `${STORED_FORM_MARKER}: C:\\new`
+        expect(parseStoredForm(named).form[STORED_FORM_MARKER]).toBe('C:\\new')
+    })
+
+    it('a later message in a legacy form session keeps the stored text', async () => {
+        const probe = path.join(dir, 'form-probe.js')
+        fs.writeFileSync(
+            probe,
+            step(
+                `const form = (options.agentflowRuntime && options.agentflowRuntime.form) || {}
+                return { id: nodeData.id, name: 'llmAgentflow', input: {}, output: { content: JSON.stringify(form) }, state: {} }`
+            )
+        )
+        const previous = {
+            id: 'exec-legacy',
+            state: 'FINISHED',
+            sessionId: 'c0ffee00-0000-4000-8000-000000000001',
+            agentflowId: 'b7c1a6f2-1d9e-4a51-9a7e-3f1f0c2d4e5a',
+            workspaceId: 'ws-1',
+            executionData: JSON.stringify([
+                {
+                    nodeId: 'startAgentflow_0',
+                    nodeLabel: 'Start',
+                    data: { name: 'startAgentflow', output: { form: legacyText } },
+                    status: 'FINISHED'
+                }
+            ])
+        }
+        const resumed = await run({
+            replay: false,
+            startInputType: 'formInput',
+            incoming: { question: 'next' },
+            nodes: { ...componentNodes, startAgentflow: componentNodes.formStart, llmAgentflow: { filePath: probe } },
+            previousExecutions: [previous]
+        })
+        const stored = JSON.parse(resumed.saved.Execution.executionData).find((row: any) => row.data?.name === 'startAgentflow')
+        expect(stored.data.output.form).toBe(legacyText)
+        expect(JSON.parse(resumed.result.text)).toEqual(legacyForm)
+        expect(JSON.parse(recordedQuestion(resumed.saved.Execution.executionData, 'formInput') as string).form).toEqual(legacyForm)
+    })
+
+    it('random form text round-trips through the old lines and the marked lines', () => {
+        let state = 0xc0ffee
+        const next = () => {
+            state = (state + 0x6d2b79f5) >>> 0
+            let t = Math.imul(state ^ (state >>> 15), state | 1)
+            t ^= t + Math.imul(t ^ (t >>> 7), t | 61)
+            return ((t ^ (t >>> 14)) >>> 0) / 4294967296
+        }
+        const body = ['a', 'b', 'n', 'r', '\\', ':', '0', 'Z', '.', '_']
+        const glue = ['', ' ', ':', ': ']
+        const chunk = () => {
+            const len = 1 + Math.floor(next() * 4)
+            let out = ''
+            for (let i = 0; i < len; i++) out += body[Math.floor(next() * body.length)]
+            return out
+        }
+        const text = () => {
+            const parts = 1 + Math.floor(next() * 4)
+            let out = ''
+            for (let i = 0; i < parts; i++) out += (i ? glue[Math.floor(next() * glue.length)] : '') + chunk()
+            return out
+        }
+        const legacyLines = (form: Record<string, string>) =>
+            Object.entries(form)
+                .map(([key, value]) => `${key}: ${value}`)
+                .join('\n')
+        for (let trial = 0; trial < 40; trial++) {
+            const form: Record<string, string> = {}
+            const fields = 1 + Math.floor(next() * 4)
+            for (let i = 0; i < fields; i++) form[`k${trial}_${i}_${chunk()}`] = i === fields - 1 && next() < 0.2 ? '' : text()
+            form[`p${trial}`] = `${text()}\\n${text()}\\r${text()}: ${text()}`
+            const unmarked = legacyLines(form)
+            expect(unmarked.startsWith(STORED_FORM_MARKER)).toBe(false)
+            expect(parseStoredForm(unmarked)).toEqual({ form, duplicateKey: false })
+            const marked = formObjectToStoredLines(form)
+            expect(marked.startsWith(`${STORED_FORM_MARKER}\n`)).toBe(true)
+            expect(parseStoredForm(marked)).toEqual({ form, duplicateKey: false })
+        }
     })
 
     it('a nested webhook query is stored, and the check hides the password', async () => {

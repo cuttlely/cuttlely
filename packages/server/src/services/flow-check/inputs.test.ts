@@ -55,6 +55,20 @@ describe('recorded inputs', () => {
         expect(recordedDraft(execution({ form: '' }), 'scheduleInput')).toBeNull()
     })
 
+    test('a legacy form line keeps a backslash as typed', () => {
+        const values: Array<[string, string]> = [
+            ['notes', 'C:\\notes\\readme'],
+            ['fresh', 'C:\\new'],
+            ['share', '\\\\server\\share'],
+            ['report', 'C:\\reports\\q1'],
+            ['literal', 'line\\nbreak'],
+            ['temp', 'C:\\temp']
+        ]
+        const lines = values.map(([key, value]) => `${key}: ${value}`).join('\n')
+        expect(JSON.parse(recordedQuestion(execution({ form: lines }), 'formInput') as string).form).toEqual(Object.fromEntries(values))
+        expect(JSON.parse(recordedQuestion(execution({ form: lines }), 'scheduleInput') as string).form).toEqual(Object.fromEntries(values))
+    })
+
     test('a legacy form with a raw line break that repeats a field name is not replayed', () => {
         const legacy = 'name: ada\nbio: line1\nname: eve'
         const text = recordedQuestion(execution({ form: legacy }), 'formInput')
