@@ -14,6 +14,8 @@ The command reads the API key from `CUTTLELY_API_KEY`. It does not take the key 
 | Agentflow | `agentflows:view` and `agentflows:update` |
 | Harness   | `chatflows:view` and `chatflows:update`   |
 
+An ETL pipeline is not in that table. Its Publish dialog lists what changed and does not replay, and `cuttlely check` against it is refused with `The check works on chatflows and agentflows.`
+
 ```bash
 export CUTTLELY_API_KEY=<key>
 npx cuttlely check --flow <flow id> --fail-on-changed
