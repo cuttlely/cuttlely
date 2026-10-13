@@ -58,6 +58,12 @@ beforeAll(() => {
                 output.question = input
             }
             return { id: nodeData.id, name: 'startAgentflow', input: {}, output, state: {} }`
+        ),
+        // Same assignment as Custom Function: $flow.input is the string the engine passed in.
+        customFunctionAgentflow: write(
+            'custom-function',
+            `const flow = { input: input }
+            return { id: nodeData.id, name: 'customFunctionAgentflow', input: {}, output: { content: flow.input }, state: {} }`
         )
     }
 })
@@ -228,9 +234,17 @@ describe('executeAgentFlow with replay on (publish check)', () => {
     })
 
     it('replays a form, webhook or schedule start from the recorded input and writes nothing', async () => {
-        const form = await run({ replay: true, startInputType: 'formInput', incoming: { form: { loaf: 'rye' } } })
+        const readable = 'path: C:\\temp\nbio: line one\nline two'
+        const form = await run({
+            replay: true,
+            startInputType: 'formInput',
+            incoming: { form: { path: 'C:\\temp', bio: 'line one\nline two' } }
+        })
         expect(form.result.status).toBe('FINISHED')
-        expect(form.result.text).toContain('loaf: rye')
+        expect(form.result.text).toBe(`Fresh bread at 7 for: ${readable}`)
+        expect(form.result.text).not.toContain('\u0000')
+        expect(form.result.text).not.toContain('C:\\\\temp')
+        expect(form.result.text).not.toContain('line one\\nline two')
         expect(form.calls.filter((c) => c.startsWith('Execution.') || c.startsWith('ChatMessage.'))).toEqual([])
 
         const webhookCanvas = JSON.stringify({
@@ -295,6 +309,44 @@ describe('executeAgentFlow with replay on (publish check)', () => {
         expect(JSON.parse(recordedQuestion(schedule.saved.Execution.executionData, 'scheduleInput') as string)).toEqual({
             form: { team: 'bakery' }
         })
+    })
+
+    it('gives the model and $flow.input the readable lines, and stores the marked form', async () => {
+        const submitted = { path: 'C:\\temp', bio: 'line one\nline two', note: '' }
+        const readable = 'path: C:\\temp\nbio: line one\nline two\nnote: '
+        const flowData = JSON.stringify({
+            nodes: [
+                node('startAgentflow_0', 'startAgentflow', 'Start', { startInputType: 'formInput' }),
+                node('customFunctionAgentflow_0', 'customFunctionAgentflow', 'Read input', {}),
+                node('llmAgentflow_0', 'llmAgentflow', 'Bakery helper', { llmModel: 'chatOpenAI' })
+            ],
+            edges: [
+                { id: 'e1', source: 'startAgentflow_0', target: 'customFunctionAgentflow_0', sourceHandle: 'a', targetHandle: 'b' },
+                { id: 'e2', source: 'customFunctionAgentflow_0', target: 'llmAgentflow_0', sourceHandle: 'a', targetHandle: 'b' }
+            ]
+        })
+        const nodes = { ...componentNodes, startAgentflow: componentNodes.formStart }
+        const live = await run({ replay: false, startInputType: 'formInput', flowData, incoming: { form: submitted }, nodes })
+        expect(live.result.text).toBe(`Fresh bread at 7 for: ${readable}`)
+        expect(live.result.text).not.toContain('\u0000')
+        const seen = live.result.agentFlowExecutedData.find((row: any) => row.nodeLabel === 'Read input')
+        expect(seen.data.output.content).toBe(readable)
+        const stored = JSON.parse(live.saved.Execution.executionData).find((row: any) => row.data?.name === 'startAgentflow')
+        expect(stored.data.output.form).toBe(formObjectToStoredLines(submitted))
+        expect(stored.data.output.form.startsWith(`${STORED_FORM_MARKER}\n`)).toBe(true)
+        expect(stored.data.output.form).toContain('path: C:\\\\temp')
+        expect(stored.data.output.form).toContain('bio: line one\\nline two')
+        expect(parseStoredForm(stored.data.output.form)).toEqual({ form: submitted, duplicateKey: false })
+
+        const replay = await run({
+            replay: true,
+            startInputType: 'formInput',
+            flowData,
+            incoming: { form: parseStoredForm(stored.data.output.form).form },
+            nodes
+        })
+        expect(replay.result.text).toBe(live.result.text)
+        expect(replay.result.agentFlowExecutedData.find((row: any) => row.nodeLabel === 'Read input').data.output.content).toBe(readable)
     })
 
     it('a blank form value stays empty on both sides, and escapes round-trip', async () => {

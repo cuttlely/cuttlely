@@ -1227,7 +1227,8 @@ const executeNode = async ({
             // Prepare final question with uploaded content if any
             finalInput = uploadedFilesContent ? `${uploadedFilesContent}\n\n${incomingInput.question}` : incomingInput.question
         } else if (isObjectNotEmpty(incomingInput.form)) {
-            finalInput = formObjectToStoredLines(incomingInput.form || {})
+            // Nodes see the submitted characters. The marker and escapes are only for the stored Start output.
+            finalInput = formObjectToReadableLines(incomingInput.form || {})
         } else if (incomingInput.webhook) {
             finalInput = JSON.stringify(incomingInput.webhook)
         }
@@ -1583,6 +1584,14 @@ function unescapeFormField(value: string): string {
     return out
 }
 
+// The text a model, an Agent node and $flow.input see: one `name: value` line, with the characters that were submitted.
+export function formObjectToReadableLines(form: Record<string, any>): string {
+    return Object.entries(form)
+        .map(([key, value]) => `${key}: ${String(value ?? '')}`)
+        .join('\n')
+}
+
+// The text saved on the Start step. A line break or a backslash is escaped, and the marker says this version wrote it.
 export function formObjectToStoredLines(form: Record<string, any>): string {
     const lines = Object.entries(form)
         .map(([key, value]) => `${escapeFormField(key)}: ${escapeFormField(value)}`)
@@ -2231,9 +2240,18 @@ export const executeAgentFlow = async ({
 
             if (nodeResult && nodeResult.output && nodeResult.output.form) {
                 if (resumedFormText && reactFlowNode.data.name === 'startAgentflow') {
+                    // An older row stays as it was stored. Do not write the marker over it.
                     const produced = nodeResult.output.form
                     nodeResult.output.form = resumedFormText
                     if (produced && typeof produced === 'object') agentflowRuntime.form = produced
+                } else if (
+                    reactFlowNode.data.name === 'startAgentflow' &&
+                    typeof nodeResult.output.form === 'string' &&
+                    isObjectNotEmpty(incomingInput.form)
+                ) {
+                    // First run: Start was given the readable lines. Persist the marked encoding instead.
+                    nodeResult.output.form = formObjectToStoredLines(incomingInput.form)
+                    agentflowRuntime.form = incomingInput.form
                 } else {
                     agentflowRuntime.form = nodeResult.output.form
                 }
@@ -2453,9 +2471,7 @@ export const executeAgentFlow = async ({
         finalUserInput = question || humanInput?.feedback || ' '
     } else if (startInputType === 'formInput') {
         if (form) {
-            finalUserInput = Object.entries(form || {})
-                .map(([key, value]) => `${key}: ${value}`)
-                .join('\n')
+            finalUserInput = formObjectToReadableLines(form)
         } else {
             finalUserInput = question || humanInput?.feedback || ' '
         }
