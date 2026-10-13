@@ -2119,7 +2119,11 @@ export async function parseWithTypeConversion<T extends z.ZodTypeAny>(schema: T,
  * @param {any[]} structuredOutput - Array of structured output schema definitions
  * @returns {BaseChatModel} - The configured LLM instance
  */
-export const configureStructuredOutput = (llmNodeInstance: BaseChatModel, structuredOutput: any[]): BaseChatModel => {
+export const configureStructuredOutput = (
+    llmNodeInstance: BaseChatModel,
+    structuredOutput: any[],
+    options?: { includeRaw?: boolean }
+): BaseChatModel => {
     try {
         const zodObj: ICommonObject = {}
         for (const sch of structuredOutput) {
@@ -2163,7 +2167,8 @@ export const configureStructuredOutput = (llmNodeInstance: BaseChatModel, struct
 
         // @ts-ignore
         return llmNodeInstance.withStructuredOutput(structuredOutputSchema, {
-            method: 'functionCalling'
+            method: 'functionCalling',
+            ...(options?.includeRaw ? { includeRaw: true } : {})
         })
     } catch (exception) {
         console.error(exception)

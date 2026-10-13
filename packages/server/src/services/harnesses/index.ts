@@ -10,6 +10,7 @@ import { getRunningExpressApp } from '../../utils/getRunningExpressApp'
 import logger from '../../utils/logger'
 import { orgIdForWorkspace } from '../etl'
 import flowDraftsService from '../flow-drafts'
+import { recordCompletedRun } from '../usage'
 import { chatImages } from './chatImages'
 
 // The server build targets CommonJS, and tsc rewrites import() into require().
@@ -227,6 +228,19 @@ const startRun = async (
         if (!recorded && !opts.replay) {
             const history = await loadHarness('history.mjs')
             recorded = history.listRuns(name, { limit: 20 }).find((row: { chatId?: string }) => row.chatId === prepared.chatId) || null
+        }
+        // Public runs and a canvas draft try both finish here. startCanvasRun calls startRun, so this is the only write.
+        const workspaceId = prepared.harness.workspaceId
+        if (workspaceId) {
+            try {
+                void recordCompletedRun(getRunningExpressApp().AppDataSource, {
+                    workspaceId,
+                    flowId: prepared.harness.name,
+                    result: payload
+                })
+            } catch (error) {
+                logger.warn(`[usage] harness token totals were not saved: ${getErrorMessage(error)}`)
+            }
         }
         return { payload, run: recorded, chatId: prepared.chatId }
     } catch (error) {
