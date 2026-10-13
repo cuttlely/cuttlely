@@ -398,6 +398,14 @@ export async function withNodeSpan<T>(nodeId: string, nodeType: string, fn: () =
         return value
     } catch (error) {
         endError(span, error)
+        // The graph keeps going after a node throws, so the run span has to learn about the error here.
+        const parent = api().trace.getActiveSpan() as SpanLike | undefined
+        if (parent && parent !== span) {
+            const message = error instanceof Error ? error.message : String(error)
+            parent.setAttribute('status', 'error')
+            if (typeof parent.attributes?.error !== 'string') parent.setAttribute('error', message)
+            failedSpans.add(parent)
+        }
         throw error
     }
 }
@@ -735,11 +743,16 @@ function requestedToolCalls(messages: Array<Record<string, any>>): Array<{ name:
     return rows
 }
 
+function toolNameKey(name: string): string {
+    return name.toLowerCase()
+}
+
 function fillToolIds(tools: GraphToolCall[], donors: Array<{ name: string; id?: string }>): void {
     const pool = donors.filter((donor) => donor.id)
     for (const tool of tools) {
         if (tool.id) continue
-        const index = pool.findIndex((donor) => donor.name === tool.name && donor.id)
+        // The callback reports the tool class name (Calculator) and the model call says calculator.
+        const index = pool.findIndex((donor) => toolNameKey(donor.name) === toolNameKey(tool.name) && donor.id)
         if (index < 0) continue
         tool.id = pool[index].id
         pool.splice(index, 1)
@@ -751,7 +764,8 @@ function pendingToolCalls(calls: Array<{ name: string; id?: string }>, ran: Grap
     const nameless = new Map<string, number>()
     for (const tool of ran) {
         if (tool.id) continue
-        nameless.set(tool.name, (nameless.get(tool.name) || 0) + 1)
+        const key = toolNameKey(tool.name)
+        nameless.set(key, (nameless.get(key) || 0) + 1)
     }
     const pending: Array<{ name: string; id?: string }> = []
     for (const call of calls) {
@@ -760,9 +774,10 @@ function pendingToolCalls(calls: Array<{ name: string; id?: string }>, ran: Grap
             pending.push(call)
             continue
         }
-        const left = nameless.get(call.name) || 0
+        const key = toolNameKey(call.name)
+        const left = nameless.get(key) || 0
         if (left > 0) {
-            nameless.set(call.name, left - 1)
+            nameless.set(key, left - 1)
             continue
         }
         pending.push(call)

@@ -88,13 +88,19 @@ Nothing is sent until `CUTTLELY_OTEL_TRACES` is `true`. A publish check sends no
 | Sequential Agents | `chatflow.prediction`                    | A node span for each step that runs, including a tool step, with the same model and tool spans.                                         |
 | Approval resume   | Child of the waiting run                 | The next prediction continues the waiting trace. See below.                                                                             |
 
-A Sequential Agents or chatflow approval keeps the trace id and the root span id on the server, keyed by the action, the chat and the flow. The action that is streamed and saved does not include them. The next prediction continues that trace only when the stored message has the same action id. A trace id sent with the request is ignored. The record is kept for at most 24 hours, the oldest records are dropped when the server is holding 1,000 of them, and it is removed two minutes after the resume finishes so a retry can still join.
+A Sequential Agents or chatflow approval keeps the trace id and the root span id on the server, keyed by the action, the chat and the flow. The action that is streamed and saved does not include them. The next prediction continues that trace only when the stored message has the same action id. A trace id sent with the request is ignored. The record is kept for at most 24 hours, the oldest records are dropped when the server is holding 1,000 of them, and it is removed two minutes after the resume finishes so a retry can still join. That record lives in the server process that handled the waiting run. A resume handled by another process, or after a restart, starts a new trace.
+
+A Sequential Agents resume needs the Start node's Agent Memory. That is the checkpoint saver the canvas uses. Without it the graph cannot continue, the prediction fails, and the waiting tool span stays `pending`.
 
 An agentflow approval keeps those ids the same way. The resume uses the action on the stopped step it is continuing (the step named by the request, otherwise the last stopped step). Ids written onto the saved action are ignored. If that step's record is already gone, the resume starts a new trace.
 
-A Condition Agent calls its model from the route, not from a graph node. That call is still one model span on the condition step.
+A Condition Agent calls its model from the route, not from a graph node. That call is still one model span on the condition step. The canvas stores each route as an option on the output anchor. A saved anchor that has no options still traces the route, using the edge handle as the route name.
 
-The waiting tool call stays `pending` until that next prediction runs it. The step that runs the tool is the only one with a tool span for that call. A later step that copies the tool onto its message does not add another.
+A model call has a model span only when it runs with the graph's callback list. The approval prompt in `seekPermissionMessage` does not. That is the Sequential Agent node (`packages/components/nodes/sequentialagents/Agent/Agent.ts`) and the Sequential Tool node (`packages/components/nodes/sequentialagents/ToolNode/ToolNode.ts`). Those calls are not model spans.
+
+The waiting tool call stays `pending` until that next prediction runs it. The step that runs the tool is the only one with a tool span for that call. `tool.id` is the model's tool call id, including when the callback's tool name differs from that call only by case. A later step that copies the tool onto its message does not add another.
+
+A graph node that ends in error marks the run span `error` as well. The prediction can still return, with an empty answer, when the failure is an abort. That response is the same one the graph already returned before these spans.
 
 Harness runs are not in these traces.
 

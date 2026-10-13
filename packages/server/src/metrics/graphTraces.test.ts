@@ -472,6 +472,60 @@ describe('graph run traces', () => {
         } as any)
     }
 
+    async function runConditionCanvas(outputAnchors: unknown[], sourceHandle: string, flowId: string, chatId: string) {
+        const chainFile = path.join(dir, `chain-gate-${chatId.slice(-4)}.js`)
+        fs.writeFileSync(chainFile, chainNodeSource())
+        ;(global as { __chainModelSeen?: unknown[] }).__chainModelSeen = []
+        const flowData = JSON.stringify({
+            nodes: [
+                canvasNode('seqStart_0', 'seqStart', 'Sequential Agents'),
+                canvasNode('seqLLM_0', 'seqLLMNode', 'Sequential Agents'),
+                {
+                    ...canvasNode('seqConditionAgent_0', 'seqConditionAgent', 'Sequential Agents'),
+                    data: {
+                        ...canvasNode('seqConditionAgent_0', 'seqConditionAgent', 'Sequential Agents').data,
+                        outputAnchors
+                    }
+                },
+                canvasNode('seqEnd_0', 'seqEnd', 'Sequential Agents')
+            ],
+            edges: [
+                { id: 'e1', source: 'seqStart_0', target: 'seqLLM_0', targetHandle: 'seqLLM_0-input-sequentialNode' },
+                { id: 'e2', source: 'seqLLM_0', target: 'seqConditionAgent_0', targetHandle: 'seqConditionAgent_0-input-sequentialNode' },
+                {
+                    id: 'e3',
+                    source: 'seqConditionAgent_0',
+                    target: 'seqEnd_0',
+                    sourceHandle,
+                    targetHandle: 'seqEnd_0-input-sequentialNode'
+                }
+            ]
+        })
+        await executeFlow({
+            componentNodes: {
+                seqStart: { filePath: chainFile },
+                seqLLMNode: { filePath: chainFile },
+                seqConditionAgent: { filePath: chainFile },
+                seqEnd: { filePath: chainFile }
+            },
+            incomingInput: { question: 'Which way?', history: [] },
+            chatflow: { id: flowId, name: 'Gate', type: 'MULTIAGENT', flowData, workspaceId: 'ws-1' },
+            chatId,
+            appDataSource: dataSource(),
+            telemetry: { sendTelemetry: jest.fn() },
+            cachePool: {},
+            usageCacheManager: {},
+            sseStreamer: new Proxy({}, { get: () => () => undefined }),
+            baseURL: 'http://127.0.0.1',
+            isInternal: true,
+            orgId: 'org-1',
+            workspaceId: 'ws-1',
+            subscriptionId: 'sub-1',
+            productId: 'prod-1',
+            replay: false
+        } as any)
+    }
+
     it('exports a Multi Agents tree whose model tokens sum to the step total', async () => {
         process.env.CUTTLELY_OTEL_TRACES = 'true'
         process.env.CUTTLELY_OTEL_TRACES_CONTENT = 'false'
@@ -1212,6 +1266,57 @@ describe('graph run traces', () => {
         expect(tools[0].attributes['status']).toBe('ok')
     })
 
+    it('copies the tool call id when the callback name differs only by case', async () => {
+        process.env.CUTTLELY_OTEL_TRACES = 'true'
+        const lc = loadLangChain()
+        const node = traceGraphNode('worker_0', 'worker', async (_state: unknown, config: { callbacks?: { handlers?: any[] } }) => {
+            const handlers = config.callbacks?.handlers ?? []
+            for (const handler of handlers) {
+                if (typeof handler.handleToolStart === 'function')
+                    await handler.handleToolStart({ name: 'Calculator' }, '2+2', 'tool-run-1')
+                if (typeof handler.handleToolEnd === 'function') await handler.handleToolEnd('4', 'tool-run-1')
+            }
+            return {
+                messages: [
+                    new lc.AIMessage({
+                        content: '',
+                        tool_calls: [{ id: 'call-oven', name: 'calculator', args: {}, type: 'tool_call' }]
+                    })
+                ]
+            }
+        }) as (state: unknown, config: unknown) => Promise<unknown>
+        await traceFlow('chatflow', 'c8d2b7a3-5555-4555-8555-555555555591', async () => {
+            await node({}, { callbacks: new lc.CallbackManager() })
+            return { text: '4' }
+        })
+        const tools = memory.spans().filter((span) => span.name === 'tool')
+        expect(tools).toHaveLength(1)
+        expect(tools[0].attributes['tool.name']).toBe('Calculator')
+        expect(tools[0].attributes['tool.id']).toBe('call-oven')
+        expect(tools[0].attributes['status']).toBe('ok')
+    })
+
+    it('marks the run span error when a graph node throws and the run continues', async () => {
+        process.env.CUTTLELY_OTEL_TRACES = 'true'
+        await traceFlow('chatflow', 'c8d2b7a3-5555-4555-8555-555555555590', async () => {
+            const node = traceGraphNode('supervisor_0', 'supervisor', async () => {
+                throw new Error('Aborted!')
+            }) as (state: unknown, config: unknown) => Promise<unknown>
+            try {
+                await node({}, {})
+            } catch {
+                // A graph that stops on this error still returns the steps it finished.
+            }
+            return { text: '' }
+        })
+        const root = memory.spans().find((span) => span.name === 'chatflow.prediction')
+        const node = memory.spans().find((span) => span.name === 'node' && span.attributes['node.id'] === 'supervisor_0')
+        expect(node?.attributes['status']).toBe('error')
+        expect(node?.attributes['error']).toBe('Aborted!')
+        expect(root?.attributes['status']).toBe('error')
+        expect(root?.attributes['error']).toBe('Aborted!')
+    })
+
     it('does not attach the collector twice when the callback lists are one array', async () => {
         process.env.CUTTLELY_OTEL_TRACES = 'true'
         const lc = loadLangChain()
@@ -1304,6 +1409,48 @@ describe('graph run traces', () => {
         expect(step).toHaveLength(1)
         expect(step[0].attributes['tokens.input']).toBe(4)
         expect(step[0].attributes['tokens.output']).toBe(1)
+    })
+
+    it('exports a Condition Agent model span from the anchors the canvas saves', async () => {
+        process.env.CUTTLELY_OTEL_TRACES = 'true'
+        await runConditionCanvas(
+            [
+                {
+                    name: 'output',
+                    label: 'Output',
+                    type: 'options',
+                    options: [
+                        {
+                            id: 'seqConditionAgent_0-output-yes-Condition',
+                            name: 'yes',
+                            label: 'Yes',
+                            type: 'Condition',
+                            isAnchor: true
+                        }
+                    ]
+                }
+            ],
+            'seqConditionAgent_0-output-yes-Condition',
+            'c8d2b7a3-5555-4555-8555-555555555582',
+            'c0ffee00-0000-4000-8000-000000000083'
+        )
+        const condition = memory.spans().filter((span) => span.name === 'model' && span.attributes['node.id'] === 'seqConditionAgent_0')
+        expect(condition).toHaveLength(1)
+        expect(condition[0].attributes['tokens.input']).toBe(7)
+        expect(condition[0].attributes['tokens.output']).toBe(3)
+    })
+
+    it('exports a Condition Agent model span when the saved anchor has no options', async () => {
+        process.env.CUTTLELY_OTEL_TRACES = 'true'
+        await runConditionCanvas(
+            [{ id: 'seqConditionAgent_0-output', name: 'output', label: 'Output' }],
+            'Yes',
+            'c8d2b7a3-5555-4555-8555-555555555583',
+            'c0ffee00-0000-4000-8000-000000000084'
+        )
+        const condition = memory.spans().filter((span) => span.name === 'model' && span.attributes['node.id'] === 'seqConditionAgent_0')
+        expect(condition).toHaveLength(1)
+        expect(condition[0].attributes['tokens.input']).toBe(7)
     })
 
     it('exports Multi Agents model spans from the supervisor chain and the worker tool', async () => {

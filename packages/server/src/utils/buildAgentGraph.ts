@@ -823,6 +823,24 @@ type SeqAgentsGraphParams = {
     uploadedFilesContent?: string
 }
 
+/**
+ * The UI stores a condition route as an option label on the anchor.
+ * A saved anchor with no options still names the route by the edge handle, and that route is traced.
+ */
+function conditionRouteLabel(outputAnchors: unknown, sourceHandle: string | null | undefined): string {
+    const handle = typeof sourceHandle === 'string' ? sourceHandle : ''
+    const anchor = Array.isArray(outputAnchors) ? outputAnchors[0] : undefined
+    if (!anchor || !handle) return ''
+    const options = (anchor as { options?: unknown }).options
+    if (Array.isArray(options)) {
+        const match = options.find((option) => option && typeof option === 'object' && (option as { id?: string }).id === handle) as
+            | { label?: string }
+            | undefined
+        return typeof match?.label === 'string' ? match.label : ''
+    }
+    return handle
+}
+
 const compileSeqAgentsGraph = async (params: SeqAgentsGraphParams) => {
     const {
         depthQueue,
@@ -935,11 +953,7 @@ const compileSeqAgentsGraph = async (params: SeqAgentsGraphParams) => {
             const conditionNode = reactFlowNodes.find((node) => node.id === conditionNodeId)
             if (!conditionNode) continue
 
-            const outputAnchors = conditionNode?.data.outputAnchors
-            if (!outputAnchors || !outputAnchors.length || !outputAnchors[0].options) continue
-
-            const conditionOutputAnchorLabel =
-                outputAnchors[0].options.find((option: any) => option.id === conditionNodeOutputAnchorId)?.label ?? ''
+            const conditionOutputAnchorLabel = conditionRouteLabel(conditionNode?.data.outputAnchors, conditionNodeOutputAnchorId)
             if (!conditionOutputAnchorLabel) continue
 
             if (Object.prototype.hasOwnProperty.call(interruptedRouteMapping, conditionNodeId)) {
@@ -970,12 +984,7 @@ const compileSeqAgentsGraph = async (params: SeqAgentsGraphParams) => {
             const conditionNodeOutputAnchorId = conditionEdge.sourceHandle
 
             const conditionNode = reactFlowNodes.find((node) => node.id === conditionNodeId)
-            const outputAnchors = conditionNode?.data.outputAnchors
-
-            if (!outputAnchors || !outputAnchors.length || !outputAnchors[0].options) continue
-
-            const conditionOutputAnchorLabel =
-                outputAnchors[0].options.find((option: any) => option.id === conditionNodeOutputAnchorId)?.label ?? ''
+            const conditionOutputAnchorLabel = conditionRouteLabel(conditionNode?.data.outputAnchors, conditionNodeOutputAnchorId)
 
             if (!conditionOutputAnchorLabel) continue
 
