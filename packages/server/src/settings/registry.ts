@@ -1028,7 +1028,7 @@ export const SETTINGS: SettingDef[] = [
         section: 'integrations',
         group: 'Traces',
         label: 'Run traces',
-        help: 'Sends an OpenTelemetry trace for each chatflow prediction and each agentflow run. Off sends nothing.',
+        help: 'Sends an OpenTelemetry trace for each chatflow prediction, each agentflow run, and each harness run. Off sends nothing.',
         type: 'switch',
         ...TRUE_FALSE,
         defaultLabel: 'Off',
