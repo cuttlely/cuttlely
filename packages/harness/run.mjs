@@ -1571,11 +1571,10 @@ function preserveAnalystRows(answer, results, question) {
         if (!line) continue
         const structured = cappedAnalystRowLines(result.analystPayloads)
         const rows = structured == null ? analystRowLines(block, line) : structured
-        const limit = Math.min(rows.length, 100)
         const missingAll = missingAnalystRows(next, rows)
         const present = rows.length - missingAll.length
-        if (limit > 0 && present >= limit && next.includes(line)) continue
-        const missing = missingAll.slice(0, 100)
+        if (rows.length > 0 && present >= rows.length && next.includes(line)) continue
+        const missing = missingAll
         const hadPage = next.includes(line)
         if (!missing.length && hadPage) continue
         // Strip while the page line is still in place. Moving it first would leave
