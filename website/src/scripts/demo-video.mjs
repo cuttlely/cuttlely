@@ -14,9 +14,10 @@ export function canAutoplay(win = window) {
 
 /**
  * Downloads start about a viewport before a loop is played, two at a time.
- * In Chromium, setting preload="auto" is what opens the request. load() runs only when the
+ * In Chromium, preload="auto" opens a request, and load() does too. load() runs only when the
  * element is still NETWORK_EMPTY, and a second load() would abort playback and set currentTime
- * back to 0. play() waits until this slot has started the element. A loop that is half on screen
+ * back to 0. The two-download cap still holds: a slot is taken before preload is set to auto.
+ * play() waits until this slot has started the element. A loop that is half on screen
  * moves ahead of the ones that are only nearby, and plays when its download starts.
  *
  * A slot is freed only when:
