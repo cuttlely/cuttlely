@@ -28,6 +28,7 @@ import {
     progressText,
     riskyWarning,
     sideCaption,
+    passMarkNumber,
     passRateText,
     verdictText,
     stopReasonText,
@@ -321,6 +322,13 @@ describe('results', () => {
         expect(CHECK_TITLE).toBe('Check recent questions')
         expect(CHECK_RUNS_TITLE).toBe('Check recent runs')
         expect(CHECK_INTRO).toContain('This is optional.')
+        expect(passMarkNumber('')).toBeNull()
+        expect(passMarkNumber('   ')).toBeNull()
+        expect(passMarkNumber('1.5')).toBeNull()
+        expect(passMarkNumber(101)).toBeNull()
+        expect(passMarkNumber('0')).toBe(0)
+        expect(passMarkNumber(0)).toBe(0)
+        expect(passMarkNumber('80')).toBe(80)
         expect(text.includes('\u00a7')).toBe(false)
         expect(/\b(git|commit|branch|sha|replay|endpoint|API)\b/i.test(text)).toBe(false)
     })

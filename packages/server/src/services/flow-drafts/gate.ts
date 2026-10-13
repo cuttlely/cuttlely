@@ -1,4 +1,5 @@
 // The optional rule that Publish waits for a passing dataset check. Pure: no database and no answers.
+import crypto from 'crypto'
 
 function refuse(message: string): never {
     const error = new Error(message) as Error & { statusCode: number }
@@ -26,6 +27,8 @@ export interface GateResult {
     errored: number
     verdict: 'passed' | 'failed'
     checkedAt: string
+    // Hash of the rows the check asked and of each evaluator's type and config. Not the rows or the answers.
+    contentHash: string
 }
 
 export interface GateStatus extends GateSettings {
@@ -80,6 +83,48 @@ function parseStoredThreshold(value: unknown): number {
     return value
 }
 
+export interface AskedRow {
+    input: string
+    expected: string
+    sequence: number
+}
+
+export interface EvaluatorShape {
+    id: string
+    type: string
+    config: string
+}
+
+function stableConfig(config: string): string {
+    try {
+        const parsed = JSON.parse(config)
+        const sort = (value: unknown): unknown => {
+            if (Array.isArray(value)) return value.map(sort)
+            if (!value || typeof value !== 'object') return value
+            return Object.keys(value as Record<string, unknown>)
+                .sort()
+                .reduce<Record<string, unknown>>((acc, key) => {
+                    acc[key] = sort((value as Record<string, unknown>)[key])
+                    return acc
+                }, {})
+        }
+        return JSON.stringify(sort(parsed))
+    } catch {
+        return String(config ?? '')
+    }
+}
+
+// Evaluator order does not matter. The hash covers the rows the check asked and each evaluator's type and config.
+export function testSetHash(rows: AskedRow[], evaluators: EvaluatorShape[]): string {
+    const body = {
+        rows: rows.map((row) => ({ input: row.input, expected: row.expected, sequence: row.sequence })),
+        evaluators: [...evaluators]
+            .map((item) => ({ id: item.id, type: item.type, config: stableConfig(item.config) }))
+            .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+    }
+    return crypto.createHash('sha256').update(JSON.stringify(body)).digest('hex')
+}
+
 export function settingsKey(datasetId: string | null, evaluatorIds: string[], threshold: number | null): string {
     return JSON.stringify({
         datasetId: datasetId || '',
@@ -118,6 +163,13 @@ export function publishBlockReason(settings: GateSettings, result: GateResult | 
     return null
 }
 
+// A row, an evaluator's check, or a missing dataset or evaluator. Same shape as the settings message.
+export function testSetChangedReason(threshold: number, result: GateResult): string {
+    const need = `Publish needs a passing test set at ${threshold}%.`
+    const rate = result.passRate == null ? 'unscored' : `${result.passRate}%`
+    return `${need} The last result was ${rate} and ${result.verdict}. The test set has changed since that check.`
+}
+
 export function readEvaluatorIdList(stored: string | null | undefined): string[] {
     if (!stored) return []
     try {
@@ -147,7 +199,8 @@ export function readGateResult(stored: string | null | undefined): GateResult | 
             failed: Number(parsed.failed) || 0,
             errored: Number(parsed.errored) || 0,
             verdict: parsed.verdict,
-            checkedAt: typeof parsed.checkedAt === 'string' ? parsed.checkedAt : ''
+            checkedAt: typeof parsed.checkedAt === 'string' ? parsed.checkedAt : '',
+            contentHash: typeof parsed.contentHash === 'string' ? parsed.contentHash : ''
         }
     } catch {
         return null
@@ -166,7 +219,8 @@ export function gateResultRecord(input: Omit<GateResult, 'checkedAt'> & { checke
         failed: input.failed,
         errored: input.errored,
         verdict: input.verdict,
-        checkedAt: input.checkedAt || new Date().toISOString()
+        checkedAt: input.checkedAt || new Date().toISOString(),
+        contentHash: input.contentHash || ''
     }
     return JSON.stringify(record)
 }

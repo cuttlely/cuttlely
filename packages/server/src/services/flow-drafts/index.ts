@@ -26,8 +26,10 @@ import {
     publishGateApplies,
     readEvaluatorIdList,
     readGateResult,
-    sameGateSettings
+    sameGateSettings,
+    testSetChangedReason
 } from './gate'
+import { currentTestSetHash } from '../flow-check/score'
 
 // Test seam. A race test changes the flow's type after a draft save has started and before it writes.
 export const draftWriteHooks: { beforeDraftWrite: null | (() => Promise<void>) } = { beforeDraftWrite: null }
@@ -229,8 +231,21 @@ export function statusFrom(flow: DraftFlow, state: FlowVersionState | null): Dra
     }
 }
 
+// A passing result is stale when the rows the check asked, or an evaluator's type or config, no longer match.
+// A missing dataset or evaluator is the same stale result. Settings and draft checks stay in front of this.
+async function withTestSet(flow: DraftFlow, status: DraftStatus): Promise<DraftStatus> {
+    const gate = status.publishGate
+    if (!gate.enabled || gate.block || !gate.result || gate.result.verdict !== 'passed' || !gate.datasetId) return status
+    const current = await currentTestSetHash(gate.datasetId, gate.evaluatorIds, flow.workspaceId)
+    if (current && gate.result.contentHash && current === gate.result.contentHash) return status
+    return {
+        ...status,
+        publishGate: { ...gate, block: testSetChangedReason(gate.threshold ?? gate.result.threshold, gate.result) }
+    }
+}
+
 export async function getDraftStatus(flow: DraftFlow): Promise<DraftStatus> {
-    return statusFrom(flow, await getState(flow.id))
+    return withTestSet(flow, statusFrom(flow, await getState(flow.id)))
 }
 
 function refuse(flow: DraftFlow, state: FlowVersionState | null) {
@@ -366,7 +381,7 @@ export async function draftToPublish(flow: DraftFlow, overwriteLiveChanges?: unk
             'Live changed after these edits started, for example through the API. Publishing replaces those changes. Send overwriteLiveChanges: true to publish anyway.'
         )
     }
-    const block = gateStatusFor(flow, state, draft.flowData).block
+    const block = (await withTestSet(flow, statusFrom(flow, state))).publishGate.block
     if (block) throw new AppError(StatusCodes.CONFLICT, block)
     return draft.flowData
 }
@@ -475,6 +490,7 @@ export interface GateResultInput {
     failed: number
     errored: number
     verdict: 'passed' | 'failed'
+    contentHash?: string
 }
 
 // Writes the last gate result onto the flow row. A check that does not match the current gate settings
@@ -502,7 +518,8 @@ export async function recordPublishGateResult(flow: DraftFlow, input: GateResult
         passed: input.passed,
         failed: input.failed,
         errored: input.errored,
-        verdict: input.verdict
+        verdict: input.verdict,
+        contentHash: input.contentHash || ''
     }
     await repo().update({ chatflowId: flow.id }, { publishGateResult: gateResultRecord(record) })
 }

@@ -55,7 +55,7 @@ import {
     triggerStart,
     typeUnavailable
 } from './kinds'
-import { casesFromDataset, CheckEvaluator, loadEvaluators, readDatasetId, readEvaluatorIds, scoreAnswer } from './score'
+import { casesFromDataset, CheckEvaluator, currentTestSetHash, loadEvaluators, readDatasetId, readEvaluatorIds, scoreAnswer } from './score'
 
 // A question list sent without `count` stays capped at 10, which is what this route accepted before.
 export const MAX_QUESTIONS = 10
@@ -171,6 +171,8 @@ interface CheckRecord {
     fromDataset: boolean
     datasetId: string | null
     threshold: number | null
+    // Hash of the rows and evaluators this check asked. Empty when the check did not use a dataset.
+    contentHash: string
     evaluators: CheckEvaluator[]
     // Tokens from a side that was dropped when the cap was hit. The case no longer shows them, but they still count.
     spentTokens: number
@@ -600,6 +602,7 @@ export async function startCheck(
         if (refusal) throw new AppError(StatusCodes.BAD_REQUEST, refusal)
     }
     const evaluators = await loadEvaluators(evaluatorIds, workspaceId)
+    const contentHash = datasetId ? (await currentTestSetHash(datasetId, evaluatorIds, workspaceId)) || '' : ''
     if (closed()) throw new AppError(StatusCodes.BAD_REQUEST, 'The check was cancelled before it started.')
     const unavailable = unavailableFor(flow as DraftFlow, candidate, Boolean(given))
     if (unavailable) throw new AppError(StatusCodes.CONFLICT, unavailable.message)
@@ -671,6 +674,7 @@ export async function startCheck(
         fromDataset: Boolean(fromDataset),
         datasetId,
         threshold,
+        contentHash,
         evaluators,
         spentTokens: 0,
         inflight: new Set<AbortController>(),
@@ -861,7 +865,8 @@ async function runCheck(record: CheckRecord, flow: IChatFlow, draft: string, bas
                         passed: verdict.passed,
                         failed: verdict.failed,
                         errored: verdict.errored,
-                        verdict: verdict.result
+                        verdict: verdict.result,
+                        contentHash: record.contentHash
                     })
                     .catch((error: Error) => {
                         logger.error(

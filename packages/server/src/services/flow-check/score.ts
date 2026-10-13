@@ -11,6 +11,7 @@ import { getRunningExpressApp } from '../../utils/getRunningExpressApp'
 export type CheckEvaluator = EvaluatorDTO
 import { runAdditionalEvaluators } from '../evaluations/EvaluatorRunner'
 import { LLMEvaluationRunner } from '../evaluations/LLMEvaluationRunner'
+import { testSetHash } from '../flow-drafts/gate'
 import { COMPARE_COUNT_MAX, CheckScore } from './compare'
 
 export const MAX_QUESTION_CHARS = 2000
@@ -86,16 +87,27 @@ function clipExpected(text: unknown): string {
 
 // Rows stay in sequence order. Blank questions and questions over the check's length limit are left out.
 // The list stops at the check's maximum question count. Repeats are kept: two rows are two questions.
-export function questionsFromDataset(rows: Array<{ input?: unknown; output?: unknown; sequenceNo?: unknown }>): DatasetCase[] {
+export interface AskedRow {
+    input: string
+    expected: string
+    sequence: number
+}
+
+// The rows a dataset check actually asks, in sequence order, capped the same way as the questions.
+export function askedRowsFromDataset(rows: Array<{ input?: unknown; output?: unknown; sequenceNo?: unknown }>): AskedRow[] {
     const sorted = [...rows].sort((a, b) => Number(a.sequenceNo) - Number(b.sequenceNo))
-    const cases: DatasetCase[] = []
+    const asked: AskedRow[] = []
     for (const row of sorted) {
         const question = String(row.input ?? '').trim()
         if (!question || question.length > MAX_QUESTION_CHARS) continue
-        cases.push({ question, expected: clipExpected(row.output) })
-        if (cases.length >= COMPARE_COUNT_MAX) break
+        asked.push({ input: question, expected: clipExpected(row.output), sequence: Number(row.sequenceNo) || 0 })
+        if (asked.length >= COMPARE_COUNT_MAX) break
     }
-    return cases
+    return asked
+}
+
+export function questionsFromDataset(rows: Array<{ input?: unknown; output?: unknown; sequenceNo?: unknown }>): DatasetCase[] {
+    return askedRowsFromDataset(rows).map((row) => ({ question: row.input, expected: row.expected }))
 }
 
 export async function casesFromDataset(datasetId: string, workspaceId: string): Promise<DatasetCase[]> {
@@ -129,6 +141,27 @@ export async function loadEvaluators(ids: string[], workspaceId: string): Promis
         }
     }
     return loaded
+}
+
+// Hash of the rows this check would ask and of each evaluator's type and config. Null when the dataset
+// or an evaluator is missing from this workspace. Evaluator order does not matter. No answers are included.
+export async function currentTestSetHash(datasetId: string, evaluatorIds: string[], workspaceId: string): Promise<string | null> {
+    if (!workspaceId || !datasetId) return null
+    const app = getRunningExpressApp()
+    const dataset = await app.AppDataSource.getRepository(Dataset).findOneBy({ id: datasetId, workspaceId })
+    if (!dataset) return null
+    const rows = await app.AppDataSource.getRepository(DatasetRow).find({
+        where: { datasetId: dataset.id },
+        order: { sequenceNo: 'ASC' }
+    })
+    const evaluators: Array<{ id: string; type: string; config: string }> = []
+    const repo = app.AppDataSource.getRepository(Evaluator)
+    for (const id of evaluatorIds) {
+        const row = await repo.findOneBy({ id, workspaceId })
+        if (!row) return null
+        evaluators.push({ id: row.id, type: String(row.type || ''), config: String(row.config ?? '') })
+    }
+    return testSetHash(askedRowsFromDataset(rows), evaluators)
 }
 
 // Each agentflow step stores its model under its own input names. The config is read the same way the step reads it:

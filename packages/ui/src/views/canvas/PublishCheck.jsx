@@ -49,6 +49,7 @@ import {
     riskyWarning,
     sideCaption,
     stopReasonText,
+    passMarkNumber,
     passRateText,
     verdictText,
     summaryText,
@@ -279,7 +280,8 @@ export const PublishCheckView = ({
     canUseEvaluators = false,
     onSource = () => {},
     onDataset = () => {},
-    onToggleEvaluator = () => {}
+    onToggleEvaluator = () => {},
+    gateNote = ''
 }) => {
     const theme = useTheme()
     const [previewShown, setPreviewShown] = useState(RESULT_PAGE_SIZE)
@@ -361,10 +363,11 @@ export const PublishCheckView = ({
             )}
             {!loading && !loadError && setup && !unavailable && (
                 <>
-                    <Typography variant='body2' color='text.secondary' sx={{ mt: 0.5 }}>
-                        {fromDataset
-                            ? `Ask the rows of a saved dataset, on Live and on ${words.yours}, and compare the answers. This is optional.`
-                            : intro}
+                    <Typography variant='body2' color='text.secondary' sx={{ mt: 0.5 }} data-testid='check-intro'>
+                        {gateNote ||
+                            (fromDataset
+                                ? `Ask the rows of a saved dataset, on Live and on ${words.yours}, and compare the answers. This is optional.`
+                                : intro)}
                     </Typography>
                     {canUseDatasets && (
                         <TextField
@@ -596,8 +599,8 @@ export const PublishCheckView = ({
                                 {starting ? 'Starting…' : check ? 'Run check again' : 'Run check'}
                             </Button>
                         )}
-                        <Typography variant='caption' color='text.secondary'>
-                            {running ? words.closeNote : words.optional}
+                        <Typography variant='caption' color='text.secondary' data-testid='check-optional'>
+                            {running ? words.closeNote : gateNote || words.optional}
                         </Typography>
                     </Stack>
                     {error && (
@@ -642,14 +645,15 @@ PublishCheckView.propTypes = {
     canUseEvaluators: PropTypes.bool,
     onSource: PropTypes.func,
     onDataset: PropTypes.func,
-    onToggleEvaluator: PropTypes.func
+    onToggleEvaluator: PropTypes.func,
+    gateNote: PropTypes.string
 }
 
 // The publish check panel: loads recent questions, runs the check, polls it, and stops it when the dialog closes.
 // The same panel checks a version from Dev before Promote: variant 'promote' with that check's api.
 const asList = (payload) => (Array.isArray(payload) ? payload : payload?.data || [])
 
-const PublishCheck = ({ chatflowId, variant = 'publish', api = flowDraftsApi, flowType, canvases }) => {
+const PublishCheck = ({ chatflowId, variant = 'publish', api = flowDraftsApi, flowType, canvases, gateNote = '' }) => {
     const words = CHECK_WORDS[variant] || CHECK_WORDS.publish
     const hintedKind = checkKind(flowType, canvases)
     const { hasPermission } = useAuth()
@@ -851,6 +855,7 @@ const PublishCheck = ({ chatflowId, variant = 'publish', api = flowDraftsApi, fl
             onToggleEvaluator={(id) =>
                 setEvaluatorIds((current) => (current.includes(id) ? current.filter((item) => item !== id) : [...current, id]))
             }
+            gateNote={gateNote}
         />
     )
 }
@@ -860,7 +865,8 @@ PublishCheck.propTypes = {
     variant: PropTypes.oneOf(['publish', 'promote']),
     api: PropTypes.object,
     flowType: PropTypes.string,
-    canvases: PropTypes.array
+    canvases: PropTypes.array,
+    gateNote: PropTypes.string
 }
 
 // Flow configuration: require a passing dataset check before Publish. Uses the same dataset and evaluator lists as the check above.
@@ -916,14 +922,14 @@ export const PublishGateSettings = ({ dialogProps }) => {
         if (!chatflow?.id) return
         setError('')
         setSaved('')
-        const whole = Number(next.threshold)
+        const whole = passMarkNumber(next.threshold)
         if (next.enabled && (!next.datasetId || !next.evaluatorIds.length)) {
             setOn(Boolean(gate?.enabled))
             setError('Choose a dataset and at least one evaluator.')
             return
         }
-        if (next.enabled && (!Number.isInteger(whole) || whole < 0 || whole > 100)) {
-            setOn(Boolean(gate?.enabled))
+        if (next.enabled && whole == null) {
+            setThreshold(gate?.threshold ?? 100)
             setError('The pass mark is a whole number from 0 to 100.')
             return
         }
@@ -1007,7 +1013,14 @@ export const PublishGateSettings = ({ dialogProps }) => {
                     disabled={locked || !canChoose}
                     onChange={(event) => setThreshold(event.target.value)}
                     onBlur={() => {
-                        if (on) save({ enabled: true, datasetId, evaluatorIds, threshold })
+                        const mark = passMarkNumber(threshold)
+                        if (mark == null) {
+                            setThreshold(gate?.threshold ?? 100)
+                            setError('The pass mark is a whole number from 0 to 100.')
+                            return
+                        }
+                        setThreshold(mark)
+                        if (on) save({ enabled: true, datasetId, evaluatorIds, threshold: mark })
                     }}
                     inputProps={{ 'aria-label': 'Pass at', min: 0, max: 100, step: 1, 'data-testid': 'publish-gate-threshold' }}
                     helperText='A whole number from 0 to 100. 100 means every score passed.'

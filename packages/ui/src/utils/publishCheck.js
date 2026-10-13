@@ -102,6 +102,19 @@ export const CHECK_VARY_NOTE = 'Answers from a model can vary a little between r
 export const CHECK_CLOSE_NOTE = 'Closing this window or publishing stops a check that is still running.'
 export const RUN_ANYWAY_LABEL = 'Run it anyway, including those steps'
 export const POLL_MS = 1000
+
+// A blank field is not 0. Only a whole number from 0 to 100 is a pass mark.
+export const passMarkNumber = (value) => {
+    if (typeof value === 'number') {
+        if (!Number.isInteger(value) || value < 0 || value > 100) return null
+        return value
+    }
+    const text = String(value ?? '').trim()
+    if (!/^\d+$/.test(text)) return null
+    const whole = Number(text)
+    if (whole > 100) return null
+    return whole
+}
 export const DRAFT_CHANGED_NOTE = 'The draft changed after this check ran. Run it again to see answers from the current draft.'
 
 // The words that differ between the publish check (Live against the draft) and the promote check (Live

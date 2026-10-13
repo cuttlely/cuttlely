@@ -234,6 +234,9 @@ const PublishDialog = ({ open, chatflow, draftStatus, isDirty, onClose, onDraftS
                         chatflowId={chatflow.id}
                         flowType={chatflow.type}
                         canvases={[chatflow.flowData, draftStatus?.draft?.flowData]}
+                        gateNote={
+                            draftStatus?.publishGate?.enabled ? draftStatus.publishGate.block || 'This draft passed the test set.' : ''
+                        }
                     />
                 )}
                 <PublishGateNotice

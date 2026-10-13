@@ -24,7 +24,37 @@ const fakeRepo = {
 const chatRepo = {
     findOneBy: jest.fn(async (where: any) => chats.find((row) => row.id === where.id) || null)
 }
-const repositoryFor = (entity: { name?: string }) => (entity?.name === 'ChatFlow' ? chatRepo : fakeRepo)
+const datasets = new Map<string, any>()
+const datasetRows: any[] = []
+const evaluators = new Map<string, any>()
+const repositoryFor = (entity: { name?: string }) => {
+    const name = entity?.name
+    if (name === 'ChatFlow') return chatRepo
+    if (name === 'Dataset') {
+        return {
+            findOneBy: async (where: any) => {
+                const row = where?.id ? datasets.get(where.id) : null
+                if (!row || row.workspaceId !== where.workspaceId) return null
+                return row
+            }
+        }
+    }
+    if (name === 'DatasetRow') {
+        return {
+            find: async (opts: any) => datasetRows.filter((row) => row.datasetId === opts?.where?.datasetId)
+        }
+    }
+    if (name === 'Evaluator') {
+        return {
+            findOneBy: async (where: any) => {
+                const row = where?.id ? evaluators.get(where.id) : null
+                if (!row || row.workspaceId !== where.workspaceId) return null
+                return row
+            }
+        }
+    }
+    return fakeRepo
+}
 const manager = { getRepository: repositoryFor }
 jest.mock('../../utils/getRunningExpressApp', () => ({
     getRunningExpressApp: () => ({
@@ -57,6 +87,7 @@ import {
     typeHasDrafts,
     uniqueUploadNames
 } from './index'
+import { currentTestSetHash } from '../flow-check/score'
 
 const canvas = (label: string) => JSON.stringify({ nodes: [{ id: 'chatOpenAI_0', data: { label } }], edges: [] })
 const LIVE = canvas('Live')
@@ -73,6 +104,9 @@ const original = process.env.CUTTLELY_DRAFTS
 beforeEach(() => {
     rows.length = 0
     chats.length = 0
+    datasets.clear()
+    datasetRows.length = 0
+    evaluators.clear()
     chats.push({ id: 'flow-1', type: 'CHATFLOW', workspaceId: 'team-a' })
     draftWriteHooks.beforeDraftWrite = null
     jest.clearAllMocks()
@@ -487,9 +521,36 @@ describe('a passing test set before Publish', () => {
         verdict: 'passed' as const
     }
 
+    const sampleEval = (id = 'ev-1', config = { operator: 'Contains', value: 'Yes' }) => ({
+        id,
+        workspaceId: 'team-a',
+        type: 'text',
+        config: JSON.stringify(config)
+    })
+
+    function seed(
+        nextRows = [{ id: 'r1', datasetId: 'ds-1', input: 'Do you have rye?', output: 'Yes', sequenceNo: 1 }],
+        evals = [sampleEval()]
+    ) {
+        datasets.clear()
+        datasetRows.length = 0
+        evaluators.clear()
+        datasets.set('ds-1', { id: 'ds-1', workspaceId: 'team-a' })
+        datasetRows.push(...nextRows)
+        for (const item of evals) evaluators.set(item.id, item)
+    }
+
     async function arm(extra: Record<string, unknown> = {}) {
         await saveDraft(flow(), canvas('Draft'), context)
         await updateDraftSettings(flow(), { publishGate: { ...gate, ...extra } })
+    }
+
+    async function recordPass(extra: Record<string, unknown> = {}) {
+        seed()
+        const contentHash = await currentTestSetHash('ds-1', ['ev-1'], 'team-a')
+        const draftHash = canvasHash(canvas('Draft'))
+        await recordPublishGateResult(flow(), { ...pass, draftHash, contentHash: contentHash || '', ...extra })
+        return { contentHash, draftHash }
     }
 
     test('stays off, and Publish is unchanged', async () => {
@@ -548,7 +609,7 @@ describe('a passing test set before Publish', () => {
             statusCode: 409,
             message: 'Publish needs a passing test set at 100%. The last result was 75% and failed.'
         })
-        await recordPublishGateResult(flow(), { ...pass, draftHash: hash })
+        await recordPass()
         expect(await draftToPublish(flow())).toBe(canvas('Draft'))
         await saveDraft(flow(), canvas('Edited'), context)
         await expect(draftToPublish(flow())).rejects.toMatchObject({
@@ -566,12 +627,61 @@ describe('a passing test set before Publish', () => {
 
     test('a stored pass still allows Publish after the check is gone from memory', async () => {
         await arm()
-        const hash = canvasHash(canvas('Draft'))
-        await recordPublishGateResult(flow(), { ...pass, draftHash: hash })
+        const { draftHash, contentHash } = await recordPass()
         const stored = JSON.parse(rows[0].publishGateResult)
-        expect(stored).toMatchObject({ draftHash: hash, verdict: 'passed', passRate: 100, threshold: 100 })
-        expect(JSON.stringify(stored)).not.toMatch(/answer|question|expected/i)
+        expect(stored).toMatchObject({ draftHash, verdict: 'passed', passRate: 100, threshold: 100, contentHash })
+        expect(JSON.stringify(stored)).not.toMatch(/answer|question|expected|Do you have rye/i)
         expect(await draftToPublish(flow())).toBe(canvas('Draft'))
+        expect(await draftToPublish(flow())).toBe(canvas('Draft'))
+    })
+
+    test('a pass goes stale when the rows or evaluators change, and an unchanged test set still publishes', async () => {
+        const stale = 'The test set has changed since that check.'
+        await arm()
+        await recordPass()
+        expect(await draftToPublish(flow())).toBe(canvas('Draft'))
+
+        datasetRows[0].output = 'No'
+        await expect(draftToPublish(flow())).rejects.toMatchObject({ statusCode: 409, message: expect.stringContaining(stale) })
+
+        datasetRows[0].output = 'Yes'
+        expect(await draftToPublish(flow())).toBe(canvas('Draft'))
+
+        datasetRows.push({ id: 'r2', datasetId: 'ds-1', input: 'Is it burnt?', output: 'No', sequenceNo: 2 })
+        await expect(draftToPublish(flow())).rejects.toMatchObject({ statusCode: 409, message: expect.stringContaining(stale) })
+        datasetRows.pop()
+        expect(await draftToPublish(flow())).toBe(canvas('Draft'))
+
+        evaluators.get('ev-1').config = JSON.stringify({ operator: 'Contains', value: 'No' })
+        await expect(draftToPublish(flow())).rejects.toMatchObject({ statusCode: 409, message: expect.stringContaining(stale) })
+        evaluators.set('ev-1', sampleEval())
+        expect(await draftToPublish(flow())).toBe(canvas('Draft'))
+
+        datasets.delete('ds-1')
+        await expect(draftToPublish(flow())).rejects.toMatchObject({ statusCode: 409, message: expect.stringContaining(stale) })
+        datasets.set('ds-1', { id: 'ds-1', workspaceId: 'team-a' })
+        expect(await draftToPublish(flow())).toBe(canvas('Draft'))
+
+        evaluators.delete('ev-1')
+        await expect(draftToPublish(flow())).rejects.toMatchObject({ statusCode: 409, message: expect.stringContaining(stale) })
+    })
+
+    test('evaluator order does not change the test set hash', async () => {
+        await saveDraft(flow(), canvas('Draft'), context)
+        await updateDraftSettings(flow(), { publishGate: { ...gate, evaluatorIds: ['ev-b', 'ev-a'] } })
+        seed(
+            [{ id: 'r1', datasetId: 'ds-1', input: 'Do you have rye?', output: 'Yes', sequenceNo: 1 }],
+            [sampleEval('ev-b'), sampleEval('ev-a')]
+        )
+        const forward = await currentTestSetHash('ds-1', ['ev-a', 'ev-b'], 'team-a')
+        const reverse = await currentTestSetHash('ds-1', ['ev-b', 'ev-a'], 'team-a')
+        expect(forward).toBe(reverse)
+        await recordPublishGateResult(flow(), {
+            ...pass,
+            evaluatorIds: ['ev-b', 'ev-a'],
+            draftHash: canvasHash(canvas('Draft')),
+            contentHash: reverse || ''
+        })
         expect(await draftToPublish(flow())).toBe(canvas('Draft'))
     })
 

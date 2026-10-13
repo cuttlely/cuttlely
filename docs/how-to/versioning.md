@@ -213,9 +213,9 @@ A chatflow or an agentflow can refuse Publish until the current draft passes a s
 
 You need permission to update the flow, and to view datasets and evaluators. Turning it on is refused when drafts are off for the server, or when **Publish instantly** is on. Turning **Publish instantly** on while this is on is refused too. A harness canvas uses the same Publish button, and this setting is not offered there, because a dataset check runs on chatflows and agentflows. A pipeline does not use that Publish button.
 
-In the Publish dialog, the verdict is shown and **Publish** stays disabled, with the reason, until the latest result passed for this draft and these settings. **Run the test set** starts that check. Editing the draft, or changing the dataset, the evaluators, or the pass mark, makes an earlier pass out of date. A failing result, or no result yet, also blocks Publish. The same rule is enforced by the API.
+In the Publish dialog, the verdict is shown and **Publish** stays disabled, with the reason, until the latest result passed for this draft and these settings. **Run the test set** starts that check. Editing the draft, or changing the dataset, the evaluators, or the pass mark, makes an earlier pass out of date. So does editing a row the check asked, adding a row it would ask, changing an evaluator's check, or deleting the dataset or an evaluator. A failing result, or no result yet, also blocks Publish. The same rule is enforced by the API.
 
-The server stores the last result for the flow: the draft hash, the settings used, the pass rate, the verdict, and the time. It does not store the answers. The result is still there after a restart.
+The server stores the last result for the flow: the draft hash, the settings used, the pass rate, the verdict, the time, and a hash of the rows the check asked and of each evaluator's type and settings. It does not store the rows or the answers. The result is still there after a restart. Changing those rows or that evaluator check, or deleting the dataset or an evaluator, makes the pass out of date.
 
 These other ways of changing what is Live do not use this rule:
 
