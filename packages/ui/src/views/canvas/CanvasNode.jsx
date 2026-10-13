@@ -18,15 +18,15 @@ import AdditionalParamsDialog from '@/ui-component/dialog/AdditionalParamsDialog
 import NodeInfoDialog from '@/ui-component/dialog/NodeInfoDialog'
 
 // const
+import { baseURL } from '@/store/constant'
 import { IconAlertTriangle } from '@tabler/icons-react'
 import { normalizeNodeData } from '@/utils/normalizeCanvasFlow'
 import { missingNodeInfo } from '@/utils/missingNode'
 import MissingNodeCard from './MissingNodeCard'
 import { canvasOutputKey } from '@/utils/canvasFieldKey'
 import { cardPlugParams } from '@/utils/canvasLook'
-import { cardAccentColor, cardAccentSx } from '@/utils/cardAccent'
+import { CardAccentIcon, cardAccentColor, cardAccentSx } from '@/utils/cardAccent'
 import { CanvasPanelContext } from '@/store/context/CanvasPanelContext'
-import CardAccentIcon from './CardAccentIcon'
 
 // ===========================|| CANVAS NODE ||=========================== //
 
@@ -114,7 +114,7 @@ const CanvasNode = ({ data }) => {
                     <Box>
                         <div style={{ display: 'flex', flexDirection: 'row', alignItems: 'center' }}>
                             <Box style={{ width: 50, marginRight: 10, padding: 10 }}>
-                                <CardAccentIcon name={data.name} color={accent} />
+                                <CardAccentIcon name={data.name} color={accent} src={`${baseURL}/api/v1/node-icon/${data.name}`} />
                             </Box>
                             <Box>
                                 <Typography

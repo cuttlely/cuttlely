@@ -13,12 +13,14 @@ import NodeInputHandler from '@/views/canvas/NodeInputHandler'
 import NodeOutputHandler from '@/views/canvas/NodeOutputHandler'
 import AdditionalParamsDialog from '@/ui-component/dialog/AdditionalParamsDialog'
 import CompactCardBody, { COMPACT_CARD_WIDTH } from '@/views/canvas/CompactCardBody'
-import CardAccentIcon from '@/views/canvas/CardAccentIcon'
 import { useCardHover } from '@/views/canvas/NodeActionBar'
 import { CanvasPanelContext } from '@/store/context/CanvasPanelContext'
 import { missingNodeInfo } from '@/utils/missingNode'
 import MissingNodeCard from '@/views/canvas/MissingNodeCard'
-import { cardAccentColor, cardAccentSx } from '@/utils/cardAccent'
+import { CardAccentIcon, cardAccentColor, cardAccentSx } from '@/utils/cardAccent'
+
+// const
+import { baseURL } from '@/store/constant'
 
 const CardWrapper = styled(MainCard)(({ theme }) => ({
     background: theme.palette.card.main,
@@ -82,7 +84,12 @@ const MarketplaceCanvasNode = ({ data }) => {
                 <Box>
                     <div style={{ display: 'flex', flexDirection: 'row', alignItems: 'center' }}>
                         <Box style={{ width: 50, marginRight: 10, padding: 5 }}>
-                            <CardAccentIcon name={node.name} color={accent} size={44} />
+                            <CardAccentIcon
+                                name={node.name}
+                                color={accent}
+                                size={44}
+                                src={`${baseURL}/api/v1/node-icon/${node.name || 'unknown'}`}
+                            />
                         </Box>
                         <Box>
                             <Typography
