@@ -1,19 +1,54 @@
 const nodes: Record<string, { filePath: string }> = {}
-jest.mock('../../utils', () => ({ databaseEntities: {} }))
+const mockDatabaseEntities = { Credential: class Credential {} }
+const mockFindCredential = jest.fn()
+const mockDecrypt = jest.fn()
+const mockAppDataSource = {
+    getRepository: () => ({ findOneBy: mockFindCredential }),
+    entityMetadatas: []
+}
+jest.mock('../../utils', () => ({ databaseEntities: mockDatabaseEntities }))
 jest.mock('../../utils/logger', () => ({ __esModule: true, default: { error: jest.fn(), info: jest.fn(), debug: jest.fn() } }))
 jest.mock('../../utils/getRunningExpressApp', () => ({
     getRunningExpressApp: () => ({
         nodesPool: { componentNodes: nodes },
-        AppDataSource: {}
+        AppDataSource: mockAppDataSource
     })
 }))
-jest.mock('@cuttlely/components', () => ({ convertSchemaToZod: () => ({}) }))
+jest.mock('@cuttlely/components', () => {
+    const actual = jest.requireActual('@cuttlely/components')
+    return {
+        ...actual,
+        convertSchemaToZod: () => ({})
+    }
+})
+jest.mock('crypto-js', () => {
+    const actual = jest.requireActual('crypto-js')
+    return {
+        ...actual,
+        AES: {
+            ...actual.AES,
+            decrypt: (...args: unknown[]) => mockDecrypt(...args)
+        }
+    }
+})
 
 import path from 'path'
 import { RunnableLambda } from '@langchain/core/runnables'
+import { scoreAnswer } from '../flow-check/score'
 import { LLMEvaluationRunner, graderNodeInputs, graderTokenTotal, noteGraderTokens } from './LLMEvaluationRunner'
 
 const fixture = path.join(__dirname, 'grader-node-fixture.js')
+const node = require('./grader-node-fixture.js')
+
+beforeEach(() => {
+    node.nodeClass.last = null
+    node.nodeClass.lastOptions = null
+    node.nodeClass.initCalls = 0
+    node.nodeClass.modelCalls = 0
+    node.nodeClass.useCredentialGate = false
+    mockFindCredential.mockReset()
+    mockDecrypt.mockClear()
+})
 
 test('a Bedrock-style step is built with inputs.model, modelName, and streaming off', () => {
     const inputs = graderNodeInputs({
@@ -48,8 +83,8 @@ test('createLLM spreads that config onto the node', async () => {
             inputs: { model: 'anthropic.claude-3-haiku-20240307-v1:0', region: 'us-east-1', streaming: true }
         }
     })
-    const node = require('./grader-node-fixture.js')
     expect(node.nodeClass.last.credential).toBe('cred-bedrock')
+    expect(node.nodeClass.lastOptions.workspaceId).toBe('team-a')
     expect(node.nodeClass.last.inputs).toEqual({
         model: 'anthropic.claude-3-haiku-20240307-v1:0',
         modelName: 'anthropic.claude-3-haiku-20240307-v1:0',
@@ -148,6 +183,44 @@ test('a thrown abort does not start the evaluator after it', async () => {
     })
     expect(started).toEqual([1, 2])
     expect(tokens).toBe(250)
+})
+
+test('a credential from another workspace is not decrypted and the grade is Error', async () => {
+    nodes.awsChatBedrock = { filePath: fixture }
+    node.nodeClass.useCredentialGate = true
+    mockFindCredential.mockResolvedValue({
+        id: 'cred-foreign',
+        workspaceId: 'team-b',
+        encryptedData: 'ciphertext-from-team-b'
+    })
+    const flowData = JSON.stringify({
+        nodes: [
+            {
+                data: {
+                    name: 'awsChatBedrock',
+                    category: 'Chat Models',
+                    credential: 'cred-foreign',
+                    inputs: { model: 'anthropic.claude-3-haiku-20240307-v1:0', region: 'us-east-1' }
+                }
+            }
+        ]
+    })
+    const graded = await scoreAnswer({
+        evaluators: [{ id: 'llm-1', name: 'Graded', type: 'llm', prompt: 'Grade {actualOutput}', outputSchema: [] } as any],
+        question: 'Q',
+        expected: null,
+        text: 'ok',
+        error: null,
+        tokens: 4,
+        ms: 5,
+        workspaceId: 'team-a',
+        flowData
+    })
+    expect(graded.scores).toEqual([{ id: 'llm-1', name: 'Graded', result: 'Error', message: 'The grading model could not be started.' }])
+    expect(mockFindCredential).toHaveBeenCalledWith({ id: 'cred-foreign' })
+    expect(node.nodeClass.modelCalls).toBe(0)
+    expect(mockDecrypt).not.toHaveBeenCalled()
+    expect(JSON.stringify(graded)).not.toContain('ciphertext-from-team-b')
 })
 
 test('a node that fails to start says the grading model could not be started', async () => {

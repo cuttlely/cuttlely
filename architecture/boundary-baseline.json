@@ -1371,7 +1371,13 @@
             "reason": "compatibility test for the earlier components package specifier"
         }
     ],
-    "r4Edges": [],
+    "r4Edges": [
+        {
+            "from": "packages/server/src/services/evaluations/LLMEvaluationRunner.test.ts",
+            "to": "packages/server/src/services/flow-check/score.ts",
+            "reason": "The grader test scores a check answer so a credential from another workspace is refused before decrypt and before a model call."
+        }
+    ],
     "r5Edges": [
         {
             "from": "scripts/hermes-import-smoke.mjs",
