@@ -13,7 +13,8 @@
 // Chatflows, agentflows and harnesses can be checked. An agentflow replay also writes no execution record.
 // A harness replay uses the canvas try profile (Live roster and draft roster, each in its own directory).
 // It writes no chat message, no run history, no session and no analyst capture. The tokens it shows are
-// the route, specialist and handoff tokens that run already summed. It does not add a second usage count.
+// the route, specialist and handoff tokens that run already summed. The estimate uses those lines,
+// grouped by model, the same lines the usage write stores under the harness name. It does not add a second usage count.
 // Results stay in this server's memory for a short while and are never written to the database or logged.
 // The check is optional and never blocks Publish.
 import crypto from 'crypto'

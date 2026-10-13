@@ -60,7 +60,8 @@ jest.mock('../../database/entities/identity', () => ({ Workspace: class Workspac
 jest.mock('@cuttlely/components', () => ({ EvaluationRunner: { metrics: new Map() } }))
 jest.mock('../../utils/logger', () => ({ __esModule: true, default: { error: jest.fn(), debug: jest.fn() } }))
 
-import { checks, getCheck, getCheckSetup, replayHooks, startCheck, stopCheck } from './index'
+import { checks, getCheck, getCheckSetup, priceHooks, replayHooks, startCheck, stopCheck } from './index'
+import { usageLinesFromRun } from '../usage'
 import { harnessCheckHooks, harnessReplayHooks, questionsFromUserTurns, questionTextFromTurn } from './harness'
 
 const canvas = (word: string, extra: any[] = []) =>
@@ -111,6 +112,7 @@ beforeEach(() => {
     states.set('flow-1', { chatflowId: 'flow-1', draftFlowData: DRAFT, publishInstantly: false })
     harnessCheckHooks.listUserTurns = (name) => (name === 'bakery-team' ? turns : [])
     harnessReplayHooks.run = null
+    priceHooks.load = null
     replayHooks.run = async ({ flowData }) => {
         const word = JSON.parse(flowData).nodes[0].data.inputs.instructions
         return { text: word, metrics: [{ totalTokens: 8 }] }
@@ -121,6 +123,7 @@ beforeEach(() => {
 afterEach(() => {
     harnessCheckHooks.listUserTurns = null
     harnessReplayHooks.run = null
+    priceHooks.load = null
     replayHooks.run = null
     delete process.env.CUTTLELY_CHECK_CONCURRENCY
 })
@@ -184,6 +187,45 @@ describe('harness publish check', () => {
         expect(done.cases[0].draft?.tokens).toBe(14)
         expect(done.summary.liveTokens).toBe(14)
         expect(done.summary.draftTokens).toBe(14)
+    })
+
+    test('prices route and specialist lines once per model, matching the usage write', async () => {
+        priceHooks.load = async () => ({
+            unit: 'usd_per_million_tokens',
+            rateFor(model: string) {
+                if (model === 'openai/gpt-oss-20b') return { inputUsdPerMillion: 0.075, outputUsdPerMillion: 0 }
+                return null
+            }
+        })
+        replayHooks.run = null
+        const recorded = {
+            report: { tokens: { prompt: 90, completion: 0 } },
+            trace: {
+                route: { model: 'openai/gpt-oss-20b', tokens: { prompt: 45, completion: 0 } },
+                specialists: [{ model: 'openai/gpt-oss-20b', tokens: { prompt: 45, completion: 0 } }],
+                handoff: { status: 'skipped', model: '', tokens: null }
+            }
+        }
+        harnessReplayHooks.run = async ({ flowData }) => ({
+            text: JSON.parse(flowData).nodes[0].data.inputs.instructions,
+            ...recorded
+        })
+        const started = await startCheck(flow() as any, { questions: ['Do you have rye?'] }, 'http://x')
+        await settle()
+        const done = await getCheck(flow(), started.id)
+        // 45 and 45 of one model are one 90-token line. Priced twice they would be 0.00000676.
+        expect(usageLinesFromRun(recorded)).toEqual([{ model: 'openai/gpt-oss-20b', inputTokens: 90, outputTokens: 0 }])
+        expect(done.cases[0].live).toMatchObject({
+            tokens: 90,
+            estimatedCostUsd: 0.00000675,
+            price: 'known',
+            unpricedModels: []
+        })
+        expect(done.cases[0].draft).toMatchObject({ estimatedCostUsd: 0.00000675, price: 'known', unpricedModels: [] })
+        expect(done.summary.liveEstimatedCostUsd).toBe(0.00000675)
+        expect(done.summary.draftEstimatedCostUsd).toBe(0.00000675)
+        expect(done.summary.livePrice).toBe('known')
+        expect(done.summary.draftPrice).toBe('known')
     })
 
     test('a shell specialist needs confirmation, and Stop aborts the replay', async () => {
