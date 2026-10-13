@@ -16,24 +16,54 @@ export function typeUnavailable(...types: Array<string | null | undefined>): Una
     return null
 }
 
-function startInputType(flowData: string): string | null {
+const CHAT_START_MESSAGE = 'The check asks questions, so it works on agentflows that start with a chat message.'
+
+const TRIGGER_STARTS = new Set(['formInput', 'webhookTrigger', 'scheduleInput'])
+
+export type TriggerStart = 'formInput' | 'webhookTrigger' | 'scheduleInput'
+
+// The Start node's input type, or null when this canvas has no Start node (or is not JSON).
+// An empty string means the Start node is there but its input type is blank.
+export function canvasStart(flowData: string | null | undefined): string | null {
+    if (!flowData) return null
     try {
         const nodes = JSON.parse(flowData)?.nodes
         if (!Array.isArray(nodes)) return null
         const start = nodes.find((node: any) => node?.data?.name === 'startAgentflow')
-        return start ? String(start.data?.inputs?.startInputType || '') : null
+        if (!start) return null
+        return String(start.data?.inputs?.startInputType || '')
     } catch {
         return null
     }
 }
 
-// The check asks each question as a chat message, so an agentflow must start with one on both sides.
-// A form, a webhook or a schedule start has nothing to replay.
+function presentStarts(canvases: Array<string | null | undefined>): string[] {
+    return canvases
+        .filter((canvas): canvas is string => Boolean(canvas))
+        .map(canvasStart)
+        .filter((start): start is string => start != null)
+}
+
+// The start both versions share, when it is a form, a webhook or a schedule.
+// A canvas with no Start node is ignored, so a flow that was never published can still be checked.
+// Two different starts, or a Start node with no input type, are not a trigger replay.
+export function triggerStart(type: string | null | undefined, canvases: Array<string | null | undefined>): TriggerStart | null {
+    if (type !== 'AGENTFLOW') return null
+    const present = presentStarts(canvases)
+    if (!present.length) return null
+    const first = present[0]
+    if (!TRIGGER_STARTS.has(first) || !present.every((start) => start === first)) return null
+    return first as TriggerStart
+}
+
+// Chat-started agentflows are checked by replaying questions. Form, webhook and schedule starts are checked
+// by replaying recorded inputs, and both versions must use that same start. Anything else keeps the chat message.
 export function startUnavailable(type: string | null | undefined, canvases: Array<string | null | undefined>): Unavailable | null {
     if (type !== 'AGENTFLOW') return null
-    const starts = canvases.filter((canvas): canvas is string => Boolean(canvas)).map(startInputType)
-    if (starts.every((start) => start === 'chatInput')) return null
-    return { code: 'start', message: 'The check asks questions, so it works on agentflows that start with a chat message.' }
+    const present = presentStarts(canvases)
+    if (present.length > 0 && present.every((start) => start === 'chatInput')) return null
+    if (triggerStart(type, canvases)) return null
+    return { code: 'start', message: CHAT_START_MESSAGE }
 }
 
 const START_NAMES: Record<string, string> = {
@@ -45,10 +75,17 @@ const START_NAMES: Record<string, string> = {
 // A dataset check is refused on its own, with a 400, because the rows are chat questions.
 // A recent-question check on the same flow stays the 409 from startUnavailable.
 export function datasetStartRefusal(type: string | null | undefined, canvases: Array<string | null | undefined>): string | null {
+    const trigger = triggerStart(type, canvases)
+    if (trigger) {
+        return `A dataset check asks each row as a chat message. This flow starts with ${START_NAMES[trigger]}, so it cannot use a dataset.`
+    }
     if (type !== 'AGENTFLOW') return null
-    const starts = canvases.filter((canvas): canvas is string => Boolean(canvas)).map(startInputType)
-    if (starts.length && starts.every((start) => start === 'chatInput')) return null
-    const named = starts.map((start) => START_NAMES[start || '']).find(Boolean)
+    const starts = canvases
+        .filter((canvas): canvas is string => Boolean(canvas))
+        .map(canvasStart)
+        .filter((start): start is string => start != null)
+    if (!starts.length || starts.every((start) => start === 'chatInput')) return null
+    const named = starts.map((start) => START_NAMES[start] || '').find(Boolean)
     const which = named || 'something other than a chat message'
     return `A dataset check asks each row as a chat message. This flow starts with ${which}, so it cannot use a dataset.`
 }

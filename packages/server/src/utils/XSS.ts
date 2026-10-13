@@ -11,20 +11,29 @@ import {
 } from './domainValidation'
 import logger from './logger'
 
+// Express parses user[password]=s3cret into a nested object. sanitize-html only accepts a string.
+const MAX_QUERY_DEPTH = 10
+
+function sanitizeQueryValue(value: unknown, depth: number): unknown {
+    if (typeof value === 'string') return sanitizeHtml(value)
+    if (depth >= MAX_QUERY_DEPTH) return value
+    if (Array.isArray(value)) return value.map((item) => sanitizeQueryValue(item, depth + 1))
+    if (value && typeof value === 'object') {
+        const sanitized: Record<string, unknown> = {}
+        for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
+            sanitized[key] = sanitizeQueryValue(entry, depth + 1)
+        }
+        return sanitized
+    }
+    return value
+}
+
 export function sanitizeMiddleware(req: Request, res: Response, next: NextFunction): void {
     // decoding is necessary as the url is encoded by the browser
     const decodedURI = decodeURI(req.url)
     req.url = sanitizeHtml(decodedURI)
-    for (let p in req.query) {
-        if (Array.isArray(req.query[p])) {
-            const sanitizedQ = []
-            for (const q of req.query[p] as string[]) {
-                sanitizedQ.push(sanitizeHtml(q))
-            }
-            req.query[p] = sanitizedQ
-        } else {
-            req.query[p] = sanitizeHtml(req.query[p] as string)
-        }
+    for (const p in req.query) {
+        req.query[p] = sanitizeQueryValue(req.query[p], 0) as (typeof req.query)[string]
     }
     next()
 }

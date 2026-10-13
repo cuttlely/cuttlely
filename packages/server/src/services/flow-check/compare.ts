@@ -23,6 +23,8 @@ export interface CheckCase {
     question: string
     // The dataset row's expected answer. Null when the question did not come from a dataset.
     expected?: string | null
+    // Compact line for a recorded input. Set when the row is a form, webhook or schedule replay.
+    preview?: string
     live: SideResult | null
     draft: SideResult | null
     // True when both answers match after ignoring case and spacing. Null until both sides ran.

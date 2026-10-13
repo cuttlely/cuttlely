@@ -27,6 +27,7 @@ import {
     CHECK_WORDS,
     COMPARE_COUNTS,
     DEFAULT_COMPARE_COUNT,
+    NO_PAST_RUNS,
     POLL_MS,
     RESULT_PAGE_SIZE,
     RUN_ANYWAY_LABEL,
@@ -36,6 +37,7 @@ import {
     caseBadge,
     costNote,
     initialPicks,
+    inputPreview,
     pickedQuestions,
     progressText,
     riskyWarning,
@@ -90,7 +92,7 @@ const Side = ({ title, side, running, empty }) => (
 
 Side.propTypes = { title: PropTypes.string, side: PropTypes.object, running: PropTypes.bool, empty: PropTypes.string }
 
-export const CheckResults = ({ check, words = CHECK_WORDS.publish }) => {
+export const CheckResults = ({ check, words = CHECK_WORDS.publish, replayInputs = false }) => {
     const theme = useTheme()
     const [shown, setShown] = useState(RESULT_PAGE_SIZE)
     useEffect(() => {
@@ -144,8 +146,23 @@ export const CheckResults = ({ check, words = CHECK_WORDS.publish }) => {
                         sx={{ border: '1px solid', borderColor: theme.palette.divider, borderRadius: 1, p: 1.25 }}
                     >
                         <Stack direction='row' spacing={1} alignItems='flex-start' sx={{ mb: 1 }}>
-                            <Typography variant='body2' sx={{ fontWeight: 600, flex: 1, wordBreak: 'break-word' }}>
-                                {c.question}
+                            <Typography
+                                variant='body2'
+                                sx={{
+                                    fontWeight: 600,
+                                    flex: 1,
+                                    wordBreak: 'break-word',
+                                    ...(replayInputs ? { fontFamily: 'monospace', fontSize: '0.8rem' } : {})
+                                }}
+                            >
+                                {replayInputs
+                                    ? c.preview ||
+                                      inputPreview(
+                                          c.question,
+                                          undefined,
+                                          allCases.map((item) => item.question)
+                                      )
+                                    : c.question}
                             </Typography>
                             <Chip
                                 size='small'
@@ -190,7 +207,7 @@ export const CheckResults = ({ check, words = CHECK_WORDS.publish }) => {
     )
 }
 
-CheckResults.propTypes = { check: PropTypes.object, words: PropTypes.object }
+CheckResults.propTypes = { check: PropTypes.object, words: PropTypes.object, replayInputs: PropTypes.bool }
 
 // Everything the panel shows, from plain props, so it can be rendered in tests without a server.
 export const PublishCheckView = ({
@@ -235,13 +252,22 @@ export const PublishCheckView = ({
     const running = check?.status === 'running'
     const risky = setup?.riskySteps || []
     const unavailable = setup?.unavailable || null
+    const replayInputs = Boolean(setup?.replayInputs)
     const past = (setup?.questions || []).filter((q) => !q.starter)
     const pastCount = Number.isFinite(Number(setup?.pastCount)) ? Number(setup.pastCount) : past.length
     const used = pastCount > 0 ? Math.min(count, pastCount) : 0
     const addedPicked = pastCount > 0 ? list.filter((q) => q.added && q.picked).length : 0
     const questionCount = pastCount > 0 ? used + addedPicked : picked
     const checklist = pastCount > 0 ? list.filter((q) => q.added) : list
-    const cap = capMessage(count, pastCount, Boolean(setup?.pastTruncated))
+    const unit = replayInputs ? 'run' : 'question'
+    const cap = capMessage(count, pastCount, Boolean(setup?.pastTruncated), unit)
+    const intro = replayInputs
+        ? setup?.liveEmpty
+            ? words.introInputsNew || words.introNew
+            : words.introInputs || words.intro
+        : setup?.liveEmpty
+        ? words.introNew
+        : words.intro
     if (unavailable?.code === 'off') return null
     const fromDataset = source === 'dataset'
     const chosenDataset = datasets.find((item) => item.id === datasetId)
@@ -284,9 +310,7 @@ export const PublishCheckView = ({
                     <Typography variant='body2' color='text.secondary' sx={{ mt: 0.5 }}>
                         {fromDataset
                             ? `Ask the rows of a saved dataset, on Live and on ${words.yours}, and compare the answers. This is optional.`
-                            : setup.liveEmpty
-                            ? words.introNew
-                            : words.intro}
+                            : intro}
                     </Typography>
                     {canUseDatasets && (
                         <TextField
@@ -339,9 +363,19 @@ export const PublishCheckView = ({
                                         key={`${index}-${q.text}`}
                                         variant='body2'
                                         data-testid='compare-question'
-                                        sx={{ wordBreak: 'break-word' }}
+                                        sx={{
+                                            wordBreak: 'break-word',
+                                            ...(replayInputs ? { fontFamily: 'monospace', fontSize: '0.8rem' } : {})
+                                        }}
                                     >
-                                        {q.text}
+                                        {replayInputs
+                                            ? q.preview ||
+                                              inputPreview(
+                                                  q.text,
+                                                  undefined,
+                                                  past.map((item) => item.text)
+                                              )
+                                            : q.text}
                                     </Typography>
                                 ))}
                             {used > previewShown && (
@@ -357,8 +391,8 @@ export const PublishCheckView = ({
                         </Stack>
                     )}
                     {fromDataset ? null : pastCount === 0 && checklist.length === 0 ? (
-                        <Typography variant='body2' color='text.secondary' sx={{ mt: 1 }}>
-                            No one has asked this flow anything yet. Add a question to check.
+                        <Typography variant='body2' color='text.secondary' sx={{ mt: 1 }} data-testid='check-empty'>
+                            {replayInputs ? NO_PAST_RUNS : 'No one has asked this flow anything yet. Add a question to check.'}
                         </Typography>
                     ) : checklist.length > 0 ? (
                         <Stack sx={{ mt: 1 }} aria-label='Questions to check'>
@@ -393,7 +427,7 @@ export const PublishCheckView = ({
                             })}
                         </Stack>
                     ) : null}
-                    {!fromDataset && (
+                    {!fromDataset && !replayInputs && (
                         <Stack direction='row' spacing={1} sx={{ mt: 1 }} alignItems='flex-start'>
                             <TextField
                                 size='small'
@@ -435,7 +469,7 @@ export const PublishCheckView = ({
                         </Alert>
                     )}
                     <Typography variant='body2' color='text.secondary' sx={{ mt: 1 }} data-testid='check-cost'>
-                        {costNote(limits, fromDataset ? datasetQuestions : questionCount, words, Boolean(setup.liveEmpty))}
+                        {costNote(limits, fromDataset ? datasetQuestions : questionCount, words, Boolean(setup.liveEmpty), unit)}
                     </Typography>
                     {canUseEvaluators && (
                         <Stack sx={{ mt: 1 }} aria-label='Evaluators'>
@@ -475,12 +509,15 @@ export const PublishCheckView = ({
                             <TextField
                                 select
                                 size='small'
-                                label='Past questions'
+                                label={replayInputs ? 'Past runs' : 'Past questions'}
                                 value={String(COMPARE_COUNTS.includes(count) ? count : DEFAULT_COMPARE_COUNT)}
                                 disabled={running || starting || pastCount === 0}
                                 onChange={(event) => onCount(Number(event.target.value))}
                                 SelectProps={{ native: true }}
-                                inputProps={{ 'aria-label': 'Past questions', 'data-testid': 'compare-count' }}
+                                inputProps={{
+                                    'aria-label': replayInputs ? 'Past runs' : 'Past questions',
+                                    'data-testid': 'compare-count'
+                                }}
                                 sx={{ width: 148 }}
                             >
                                 {COMPARE_COUNTS.map((n) => (
@@ -508,7 +545,7 @@ export const PublishCheckView = ({
                             {error}
                         </Alert>
                     )}
-                    <CheckResults check={check} words={words} />
+                    <CheckResults check={check} words={words} replayInputs={replayInputs} />
                 </>
             )}
         </Box>
