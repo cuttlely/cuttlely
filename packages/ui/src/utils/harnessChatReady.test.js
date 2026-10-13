@@ -124,7 +124,7 @@ describe('reserved harness names', () => {
         expect(reservedHarnessNameMessage(`Try${'AB'.repeat(8)}`)).toContain('reserved for a draft try')
         expect(reservedHarnessNameMessage('tryabcdef')).toBe('')
         expect(reservedHarnessNameMessage(`tryx${'ab'.repeat(8)}`)).toBe(
-            `Harness name "tryx${'ab'.repeat(8)}" is reserved. Choose a different name.`
+            `Harness name "tryx${'ab'.repeat(8)}" is reserved for a draft try. Choose a different name.`
         )
         expect(reservedHarnessNameMessage('chief-of-staff')).toBe('')
     })

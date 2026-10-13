@@ -56,6 +56,6 @@ const FITTED_PROFILE_NAME = /^tryx[a-f0-9]{16}$/i
 export function reservedHarnessNameMessage(name) {
     const text = String(name || '').trim()
     if (TRY_PROFILE_NAME.test(text)) return `Harness name "${text}" is reserved for a draft try. Choose a different name.`
-    if (FITTED_PROFILE_NAME.test(text)) return `Harness name "${text}" is reserved. Choose a different name.`
+    if (FITTED_PROFILE_NAME.test(text)) return `Harness name "${text}" is reserved for a draft try. Choose a different name.`
     return ''
 }
