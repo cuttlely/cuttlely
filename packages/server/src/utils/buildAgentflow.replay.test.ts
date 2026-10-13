@@ -8,6 +8,7 @@ import os from 'os'
 import path from 'path'
 import { recordedQuestion } from '../services/flow-check/inputs'
 import { executeAgentFlow } from './buildAgentflow'
+import { sanitizeMiddleware } from './XSS'
 import { stepTokens } from '../services/flow-check/compare'
 
 jest.mock('./logger', () => ({ __esModule: true, default: { warn: jest.fn(), info: jest.fn(), debug: jest.fn(), error: jest.fn() } }))
@@ -45,8 +46,15 @@ beforeAll(() => {
             const mode = nodeData.inputs && nodeData.inputs.scheduleInputMode
             const output = {}
             const runtimeForm = options.agentflowRuntime && options.agentflowRuntime.form
+            const runtimeWebhook = options.agentflowRuntime && options.agentflowRuntime.webhook
             if (type === 'formInput' || (type === 'scheduleInput' && mode === 'form')) {
                 output.form = runtimeForm && Object.keys(runtimeForm).length ? runtimeForm : input
+            } else if (type === 'webhookTrigger') {
+                let webhook = input
+                if (typeof webhook === 'string') {
+                    try { webhook = JSON.parse(webhook) } catch (e) { /* the runtime object is used instead */ }
+                }
+                output.webhook = runtimeWebhook && Object.keys(runtimeWebhook).length ? runtimeWebhook : webhook
             } else {
                 output.question = input
             }
@@ -287,6 +295,32 @@ describe('executeAgentFlow with replay on (publish check)', () => {
         expect(JSON.parse(recordedQuestion(schedule.saved.Execution.executionData, 'scheduleInput') as string)).toEqual({
             form: { team: 'bakery' }
         })
+    })
+
+    it('a nested webhook query is stored, and the check hides the password', async () => {
+        const req = {
+            url: '/api/v1/webhook/b7c1a6f2-1d9e-4a51-9a7e-3f1f0c2d4e5a?user[password]=s3cret&user[name]=ada&note=keep',
+            query: { user: { password: 's3cret', name: 'ada' }, note: 'keep' }
+        } as any
+        sanitizeMiddleware(req, {} as any, () => undefined)
+        expect(req.query).toEqual({ user: { password: 's3cret', name: 'ada' }, note: 'keep' })
+        const nodes = { ...componentNodes, startAgentflow: componentNodes.formStart }
+        const webhook = await run({
+            replay: false,
+            startInputType: 'webhookTrigger',
+            chatType: 'WEBHOOK',
+            nodes,
+            incoming: { webhook: { body: { event: 'bake' }, query: req.query, headers: {} } }
+        })
+        const stored = JSON.parse(webhook.saved.Execution.executionData).find((step: any) => step.data?.name === 'startAgentflow')
+        expect(stored.data.output.webhook.query.user.password).toBe('s3cret')
+        expect(stored.data.output.webhook.query.user.name).toBe('ada')
+        expect(stored.data.output.webhook.query.note).toBe('keep')
+        const shown = recordedQuestion(webhook.saved.Execution.executionData, 'webhookTrigger') as string
+        expect(shown).not.toContain('s3cret')
+        expect(shown).toContain('[REDACTED]')
+        expect(shown).toContain('ada')
+        expect(shown).toContain('keep')
     })
 
     it('still refuses a webhook or schedule replay that is not that kind of call', async () => {

@@ -521,6 +521,14 @@ describe('form, webhook and schedule starts', () => {
         expect(events[59]).toBe('e-01')
     })
 
+    test('questions sent with count are refused for a webhook start', async () => {
+        execution(webhookOutput({ event: 'bake' }), '2026-10-08T10:00:00Z', 'one')
+        await expect(startCheck(webhookFlow() as any, { count: 4, questions: ['hello'] }, 'http://x')).rejects.toMatchObject({
+            statusCode: 400,
+            message: 'Questions are not used for a form, webhook or schedule start. Send count on its own.'
+        })
+    })
+
     test('no past executions returns a message instead of a refusal', async () => {
         const setup = await getCheckSetup(webhookFlow())
         expect(setup.unavailable).toBeNull()

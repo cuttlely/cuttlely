@@ -1,13 +1,16 @@
 // Recorded inputs for a form, webhook or schedule agentflow, taken from execution records.
 // The publish check replays these instead of chat questions. The text is canonical JSON so the
 // same payload counts once, and so the replay can rebuild the input the run was started with.
-import { parseFormStringToJson } from '../../utils/buildAgentflow'
+import { parseStoredForm } from '../../utils/buildAgentflow'
 import { TriggerStart } from './kinds'
 
 export const NO_PAST_RUNS = 'No past runs to replay yet. Run this flow once, then check again.'
 
 // Shown in place of a secret header or query value. The name stays; the value does not.
 export const REDACTED = '[REDACTED]'
+
+export const UNREPLAYABLE_FORM =
+    'This recorded form cannot be replayed. A field name appears more than once, which happens when an older run stored a line break inside a value.'
 
 const SENSITIVE_PARTS = ['authorization', 'cookie', 'token', 'secret', 'key', 'password', 'signature']
 
@@ -122,12 +125,22 @@ function startOutput(executionData: unknown): Record<string, unknown> | null {
 }
 
 // A real form run stores `name: value` lines, not the object that was submitted. An object is kept as stored.
-function formFromStored(value: unknown): Record<string, unknown> | null {
+// duplicate is set when an older line-break inside a value made the same field name appear twice.
+function formFromStored(value: unknown): { form: Record<string, unknown>; duplicate: boolean } | null {
     const object = asObject(value)
-    if (object) return Object.keys(object).length ? object : null
-    if (typeof value !== 'string' || !value.trim()) return null
-    const parsed = parseFormStringToJson(value)
-    return Object.keys(parsed).length ? parsed : null
+    if (object) return Object.keys(object).length ? { form: object, duplicate: false } : null
+    if (typeof value !== 'string') return null
+    const parsed = parseStoredForm(value)
+    return Object.keys(parsed.form).length ? { form: parsed.form, duplicate: parsed.duplicateKey } : null
+}
+
+function formRow(form: Record<string, unknown>, duplicate: boolean): RecordedRow {
+    if (duplicate) {
+        const text = canonicalJson({ unreplayable: UNREPLAYABLE_FORM })
+        return { key: text, text, preview: UNREPLAYABLE_FORM, bodyKey: null, rawQuery: {}, rawHeaders: {} }
+    }
+    const text = canonicalJson({ form })
+    return { key: text, text, preview: plainPreview(text), bodyKey: null, rawQuery: {}, rawHeaders: {} }
 }
 
 function plainPreview(text: string): string {
@@ -196,10 +209,9 @@ export function recordedDraft(executionData: unknown, kind: TriggerStart): Recor
     const output = startOutput(executionData)
     if (!output) return null
     if (kind === 'formInput') {
-        const form = formFromStored(output.form)
-        if (!form) return null
-        const text = canonicalJson({ form })
-        return { key: text, text, preview: plainPreview(text), bodyKey: null, rawQuery: {}, rawHeaders: {} }
+        const stored = formFromStored(output.form)
+        if (!stored) return null
+        return formRow(stored.form, stored.duplicate)
     }
     if (kind === 'webhookTrigger') {
         const webhook = asObject(output.webhook)
@@ -212,11 +224,8 @@ export function recordedDraft(executionData: unknown, kind: TriggerStart): Recor
         const text = canonicalJson({ webhook: { body, query: maskBag(rawQuery), headers: maskBag(rawHeaders) } })
         return { key, text, preview: bodyKey, bodyKey, rawQuery, rawHeaders }
     }
-    const form = formFromStored(output.form)
-    if (form && Object.keys(form).length) {
-        const text = canonicalJson({ form })
-        return { key: text, text, preview: plainPreview(text), bodyKey: null, rawQuery: {}, rawHeaders: {} }
-    }
+    const stored = formFromStored(output.form)
+    if (stored && Object.keys(stored.form).length) return formRow(stored.form, stored.duplicate)
     if (typeof output.question === 'string') {
         const text = canonicalJson({ question: output.question })
         return { key: text, text, preview: plainPreview(text), bodyKey: null, rawQuery: {}, rawHeaders: {} }
@@ -240,6 +249,9 @@ export function replayFromQuestion(question: string, kind: TriggerStart | null):
     } catch {
         recorded = null
     }
+    if (kind === 'formInput' || (kind === 'scheduleInput' && recorded?.unreplayable)) {
+        if (typeof recorded?.unreplayable === 'string') throw new Error(recorded.unreplayable)
+    }
     if (kind === 'formInput') {
         const form = asObject(recorded?.form)
         if (!form) throw new Error('This recorded form input could not be read.')
@@ -250,6 +262,7 @@ export function replayFromQuestion(question: string, kind: TriggerStart | null):
         if (!webhook) throw new Error('This recorded webhook input could not be read.')
         return { incoming: { webhook, streaming: false, history }, chatType: 'WEBHOOK' }
     }
+    if (typeof recorded?.unreplayable === 'string') throw new Error(recorded.unreplayable)
     const form = asObject(recorded?.form)
     if (form && Object.keys(form).length) return { incoming: { form, streaming: false, history }, chatType: 'SCHEDULED' }
     const text = typeof recorded?.question === 'string' ? recorded.question : ' '

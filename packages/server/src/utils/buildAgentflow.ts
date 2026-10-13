@@ -1227,9 +1227,7 @@ const executeNode = async ({
             // Prepare final question with uploaded content if any
             finalInput = uploadedFilesContent ? `${uploadedFilesContent}\n\n${incomingInput.question}` : incomingInput.question
         } else if (isObjectNotEmpty(incomingInput.form)) {
-            finalInput = Object.entries(incomingInput.form || {})
-                .map(([key, value]) => `${key}: ${value}`)
-                .join('\n')
+            finalInput = formObjectToStoredLines(incomingInput.form || {})
         } else if (incomingInput.webhook) {
             finalInput = JSON.stringify(incomingInput.webhook)
         }
@@ -1538,18 +1536,73 @@ const checkForMultipleStartNodes = (startingNodeIds: string[], isRecursive: bool
     }
 }
 
+// A line break or a backslash inside a value is stored as \n, \r or \\ so the execution text stays one
+// field per line. Rows saved before that escaping have no backslashes and parse as they always did.
+function escapeFormField(value: unknown): string {
+    return String(value ?? '')
+        .replace(/\\/g, '\\\\')
+        .replace(/\r/g, '\\r')
+        .replace(/\n/g, '\\n')
+}
+
+function unescapeFormField(value: string): string {
+    if (!value.includes('\\')) return value
+    let out = ''
+    for (let i = 0; i < value.length; i++) {
+        if (value[i] === '\\' && i + 1 < value.length) {
+            const next = value[i + 1]
+            if (next === 'n') {
+                out += '\n'
+                i++
+                continue
+            }
+            if (next === 'r') {
+                out += '\r'
+                i++
+                continue
+            }
+            if (next === '\\') {
+                out += '\\'
+                i++
+                continue
+            }
+        }
+        out += value[i]
+    }
+    return out
+}
+
+export function formObjectToStoredLines(form: Record<string, any>): string {
+    return Object.entries(form)
+        .map(([key, value]) => `${escapeFormField(key)}: ${escapeFormField(value)}`)
+        .join('\n')
+}
+
+export interface ParsedFormString {
+    form: Record<string, string>
+    // True when one field name appears twice. An older run stored a raw line break inside a value.
+    duplicateKey: boolean
+}
+
 // Also used by the publish check, which reads forms already stored in this shape.
-// Split on the first ": " so a value may itself contain a colon. Values come back as strings.
-export const parseFormStringToJson = (formString: string): Record<string, string> => {
-    const result: Record<string, string> = {}
+// Split on the first ": " so a value may itself contain a colon. An empty value is kept.
+// Values come back as strings. A duplicate field name is reported and the later line wins, which is
+// what restoring an older run already did.
+export const parseFormStringToJson = (formString: string): Record<string, string> => parseStoredForm(formString).form
+
+export function parseStoredForm(formString: string): ParsedFormString {
+    const form: Record<string, string> = {}
+    let duplicateKey = false
     for (const line of formString.split('\n')) {
         const splitAt = line.indexOf(': ')
         if (splitAt <= 0) continue
-        const key = line.slice(0, splitAt).trim()
-        const value = line.slice(splitAt + 2).trim()
-        if (key && value) result[key] = value
+        const key = unescapeFormField(line.slice(0, splitAt).trim())
+        const value = unescapeFormField(line.slice(splitAt + 2).trim())
+        if (!key) continue
+        if (Object.prototype.hasOwnProperty.call(form, key)) duplicateKey = true
+        form[key] = value
     }
-    return result
+    return { form, duplicateKey }
 }
 
 /*

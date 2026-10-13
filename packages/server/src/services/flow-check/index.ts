@@ -457,6 +457,9 @@ async function inputsToRun(
 ): Promise<{ questions: string[]; previews: string[]; selection: CheckSelection | null }> {
     const parsed = parseCompareCount(body?.count)
     if (!parsed.ok) throw new AppError(StatusCodes.BAD_REQUEST, parsed.message)
+    if (parsed.count !== null && body?.questions !== undefined) {
+        throw new AppError(StatusCodes.BAD_REQUEST, 'Questions are not used for a form, webhook or schedule start. Send count on its own.')
+    }
     if (parsed.count === null) return { questions: cleanQuestions(body?.questions), previews: [], selection: null }
     const loaded = await loadInputs(flow, kind)
     const inputs = loaded.questions.slice(0, parsed.count)
