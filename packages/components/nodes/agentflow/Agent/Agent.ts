@@ -21,46 +21,6 @@ import { ARTIFACTS_PREFIX, SOURCE_DOCUMENTS_PREFIX, TOOL_ARGS_PREFIX } from '../
 import { flatten } from 'lodash'
 import { toolSchemaToJsonSchema, type ToolJsonSchema } from '../../../src/utils'
 import { getErrorMessage } from '../../../src/error'
-
-function throwToolFailure(cause: unknown, usedTools: IUsedTool[], usageMetadata: unknown): never {
-    const failure = new Error(getErrorMessage(cause)) as Error & { usedTools: IUsedTool[]; usageMetadata: unknown }
-    failure.usedTools = usedTools
-    failure.usageMetadata = usageMetadata
-    throw failure
-}
-
-function tokenField(usage: Record<string, unknown> | undefined, key: string): number {
-    const value = usage?.[key]
-    return typeof value === 'number' && Number.isFinite(value) ? value : 0
-}
-
-/** Add the token counts from two model turns. A missing side contributes nothing. */
-function sumTokenCounts(left: unknown, right: unknown): { input_tokens: number; output_tokens: number; total_tokens: number } | undefined {
-    const a = left && typeof left === 'object' ? (left as Record<string, unknown>) : undefined
-    const b = right && typeof right === 'object' ? (right as Record<string, unknown>) : undefined
-    if (!a && !b) return undefined
-    return {
-        input_tokens: tokenField(a, 'input_tokens') + tokenField(b, 'input_tokens'),
-        output_tokens: tokenField(a, 'output_tokens') + tokenField(b, 'output_tokens'),
-        total_tokens: tokenField(a, 'total_tokens') + tokenField(b, 'total_tokens')
-    }
-}
-
-function tracedPair(left: unknown, right?: unknown): { input_tokens: number; output_tokens: number } | undefined {
-    const summed = sumTokenCounts(left, right)
-    if (!summed) return undefined
-    return { input_tokens: summed.input_tokens, output_tokens: summed.output_tokens }
-}
-
-function rethrowAccumulatedToolFailure(error: unknown, usedTools: IUsedTool[], usageMetadata: unknown, nextUsage?: unknown): never {
-    const failure = error as { usedTools?: IUsedTool[]; usageMetadata?: unknown }
-    if (Array.isArray(failure.usedTools)) usedTools.push(...failure.usedTools)
-    const errorHasUsage = failure.usageMetadata !== undefined && failure.usageMetadata !== null
-    // The follow-up model call's tokens are added only when this frame created that response and the
-    // rejection does not already carry them. A nested tool failure already includes that call.
-    const base = errorHasUsage ? usageMetadata : sumTokenCounts(usageMetadata, nextUsage)
-    throwToolFailure(error, usedTools, errorHasUsage ? sumTokenCounts(base, failure.usageMetadata) : base)
-}
 import { DataSource } from 'typeorm'
 import { randomBytes } from 'crypto'
 import {
@@ -135,6 +95,79 @@ const sanitizeToolName = (name: string): string => {
 
     // Enforce 64 character limit common for tool names
     return sanitized.slice(0, 64)
+}
+
+type StepUsage = { input_tokens?: number; output_tokens?: number; total_tokens?: number }
+
+function tokenField(usage: Record<string, unknown> | undefined, key: string): number {
+    const value = usage?.[key]
+    return typeof value === 'number' && Number.isFinite(value) ? value : 0
+}
+
+function sumTokenCounts(left: unknown, right: unknown): { input_tokens: number; output_tokens: number; total_tokens: number } | undefined {
+    const a = left && typeof left === 'object' ? (left as Record<string, unknown>) : undefined
+    const b = right && typeof right === 'object' ? (right as Record<string, unknown>) : undefined
+    if (!a && !b) return undefined
+    return {
+        input_tokens: tokenField(a, 'input_tokens') + tokenField(b, 'input_tokens'),
+        output_tokens: tokenField(a, 'output_tokens') + tokenField(b, 'output_tokens'),
+        total_tokens: tokenField(a, 'total_tokens') + tokenField(b, 'total_tokens')
+    }
+}
+
+function throwToolFailure(cause: unknown, usedTools: IUsedTool[], usageMetadata: unknown): never {
+    const failure = new Error(getErrorMessage(cause)) as Error & { usedTools: IUsedTool[]; usageMetadata: unknown }
+    failure.usedTools = usedTools
+    failure.usageMetadata = usageMetadata
+    throw failure
+}
+
+function rethrowAccumulatedToolFailure(error: unknown, usedTools: IUsedTool[], usageMetadata: unknown, nextUsage?: unknown): never {
+    const failure = error as { usedTools?: IUsedTool[]; usageMetadata?: unknown }
+    if (Array.isArray(failure.usedTools)) usedTools.push(...failure.usedTools)
+    const errorHasUsage = failure.usageMetadata !== undefined && failure.usageMetadata !== null
+    const base = errorHasUsage ? usageMetadata : sumTokenCounts(usageMetadata, nextUsage)
+    throwToolFailure(error, usedTools, errorHasUsage ? sumTokenCounts(base, failure.usageMetadata) : base)
+}
+
+function addStepUsage(into: { input: number; output: number; total: number }, usage?: StepUsage | null) {
+    if (!usage) return
+    const input = Number(usage.input_tokens) || 0
+    const output = Number(usage.output_tokens) || 0
+    const total = Number(usage.total_tokens)
+    into.input += input
+    into.output += output
+    into.total += Number.isFinite(total) && total > 0 ? total : input + output
+}
+
+// Tool-loop sums omit the structured-output conversion and the memory summarizer. Add those calls
+// before the step is stored. A plain answer with neither stays on the message's own usage.
+function completeStepUsage(args: {
+    toolInput: number
+    toolOutput: number
+    toolTotal: number
+    generation?: StepUsage | null
+    conversion?: StepUsage | null
+    summarizer?: StepUsage | null
+    structured: boolean
+}): { inputTokens: number; outputTokens: number; totalTokens: number; counted: boolean } {
+    const hadToolSum = args.toolInput > 0 || args.toolOutput > 0 || args.toolTotal > 0
+    const full = { input: 0, output: 0, total: 0 }
+    if (hadToolSum) {
+        full.input = args.toolInput
+        full.output = args.toolOutput
+        full.total = args.toolTotal
+    } else if (args.structured || args.summarizer) {
+        addStepUsage(full, args.generation)
+    }
+    if (args.summarizer) addStepUsage(full, args.summarizer)
+    if (args.structured) addStepUsage(full, args.conversion)
+    return {
+        inputTokens: full.input,
+        outputTokens: full.output,
+        totalTokens: full.total,
+        counted: hadToolSum || args.structured || !!args.summarizer
+    }
 }
 
 class Agent_Agentflow implements INode {
@@ -1070,8 +1103,9 @@ class Agent_Agentflow implements INode {
             }
 
             // Handle memory management if enabled
+            let summarizerUsage: StepUsage | undefined
             if (enableMemory) {
-                await this.handleMemory({
+                summarizerUsage = await this.handleMemory({
                     messages,
                     memoryType,
                     pastChatHistory,
@@ -1128,7 +1162,8 @@ class Agent_Agentflow implements INode {
             let artifacts: any[] = []
             let fileAnnotations: any[] = []
             let additionalTokens = 0
-            let tracedTokens: { input_tokens: number; output_tokens: number } | undefined
+            let stepInputTokens = 0
+            let stepOutputTokens = 0
             let isWaitingForHumanInput = false
             let reasonContent = ''
             let thinkingDuration: number | undefined
@@ -1181,7 +1216,8 @@ class Agent_Agentflow implements INode {
                 sourceDocuments = result.sourceDocuments
                 artifacts = result.artifacts
                 additionalTokens = result.totalTokens
-                tracedTokens = result.tracedTokens
+                stepInputTokens = result.inputTokens || 0
+                stepOutputTokens = result.outputTokens || 0
                 isWaitingForHumanInput = result.isWaitingForHumanInput || false
                 if (result.accumulatedReasonContent !== undefined) {
                     reasonContent = result.accumulatedReasonContent
@@ -1258,7 +1294,8 @@ class Agent_Agentflow implements INode {
                 sourceDocuments = result.sourceDocuments
                 artifacts = result.artifacts
                 additionalTokens = result.totalTokens
-                tracedTokens = result.tracedTokens
+                stepInputTokens = result.inputTokens || 0
+                stepOutputTokens = result.outputTokens || 0
                 isWaitingForHumanInput = result.isWaitingForHumanInput || false
                 if (result.accumulatedReasonContent !== undefined) {
                     reasonContent = result.accumulatedReasonContent
@@ -1434,17 +1471,30 @@ class Agent_Agentflow implements INode {
                 )
             }
 
+            // Keep the generation call. The conversion call comes back on the raw message.
+            const generationUsage = response?.usage_metadata
+            let structuredParsed: unknown
             // If is structured output, then invoke LLM again with structured output at the very end after all tool calls
             if (isStructuredOutput) {
-                const structuredllmNodeInstance = configureStructuredOutput(llmWithoutToolsBind, _agentStructuredOutput)
+                const structuredllmNodeInstance = configureStructuredOutput(llmWithoutToolsBind, _agentStructuredOutput, {
+                    includeRaw: true
+                })
                 const prompt = 'Convert the following response to the structured output format: ' + finalResponse
-                response = await structuredllmNodeInstance.invoke(prompt, { signal: abortController?.signal })
-
-                // Prefix the response with ```json and suffix with ``` to render as a code block
-                if (typeof response === 'object') {
-                    finalResponse = '```json\n' + JSON.stringify(response, null, 2) + '\n```'
-                } else {
-                    finalResponse = response
+                const structured = await structuredllmNodeInstance.invoke(prompt, { signal: abortController?.signal })
+                const raw =
+                    structured && typeof structured === 'object' && 'raw' in structured
+                        ? (structured as { raw?: AIMessageChunk }).raw
+                        : undefined
+                structuredParsed =
+                    structured && typeof structured === 'object' && 'parsed' in structured
+                        ? (structured as { parsed?: unknown }).parsed
+                        : structured
+                if (raw) response = raw
+                // The chat text stays the parsed fields, the same shape as before the raw message was kept.
+                if (structuredParsed !== undefined && typeof structuredParsed === 'object') {
+                    finalResponse = '```json\n' + JSON.stringify(structuredParsed, null, 2) + '\n```'
+                } else if (structuredParsed != null) {
+                    finalResponse = String(structuredParsed)
                 }
 
                 if (isLastNode && sseStreamer) {
@@ -1462,11 +1512,21 @@ class Agent_Agentflow implements INode {
             const reasonContentObj =
                 reasonContent !== undefined && reasonContent !== '' ? { thinking: reasonContent, thinkingDuration } : undefined
 
+            const completed = completeStepUsage({
+                toolInput: stepInputTokens,
+                toolOutput: stepOutputTokens,
+                toolTotal: additionalTokens,
+                generation: generationUsage,
+                conversion: isStructuredOutput ? response?.usage_metadata : undefined,
+                summarizer: summarizerUsage,
+                structured: !!isStructuredOutput
+            })
+
+            // Price the split after it is final. Adding the final call on top of the step total counted those tokens twice.
             const costMetadata = await this.calculateUsageCost(
                 model,
                 modelConfig?.modelName as string | undefined,
-                response.usage_metadata,
-                additionalTokens
+                completed.counted ? { input_tokens: completed.inputTokens, output_tokens: completed.outputTokens } : response.usage_metadata
             )
 
             const output = this.prepareOutputObject(
@@ -1479,13 +1539,20 @@ class Agent_Agentflow implements INode {
                 usedTools,
                 sourceDocuments,
                 artifacts,
-                additionalTokens,
+                completed.counted ? completed.totalTokens : additionalTokens,
                 isWaitingForHumanInput,
                 fileAnnotations,
                 isStructuredOutput,
                 reasonContentObj,
                 costMetadata,
-                tracedTokens
+                completed.counted
+                    ? { inputTokens: completed.inputTokens, outputTokens: completed.outputTokens }
+                    : stepInputTokens > 0 || stepOutputTokens > 0
+                    ? { inputTokens: stepInputTokens, outputTokens: stepOutputTokens }
+                    : undefined,
+                structuredParsed !== undefined && typeof structuredParsed === 'object'
+                    ? (structuredParsed as Record<string, unknown>)
+                    : undefined
             )
 
             // End analytics tracking
@@ -1505,7 +1572,9 @@ class Agent_Agentflow implements INode {
 
             // Process template variables in state
             const outputForStateProcessing =
-                isStructuredOutput && typeof response === 'object' ? JSON.stringify(response, null, 2) : finalResponse
+                isStructuredOutput && structuredParsed !== undefined && typeof structuredParsed === 'object'
+                    ? JSON.stringify(structuredParsed, null, 2)
+                    : finalResponse
             newState = processTemplateVariables(newState, outputForStateProcessing)
 
             /**
@@ -1780,7 +1849,7 @@ class Agent_Agentflow implements INode {
         abortController: AbortController
         options: ICommonObject
         modelConfig: ICommonObject
-    }): Promise<void> {
+    }): Promise<StepUsage | undefined> {
         const { updatedPastMessages } = await getPastChatHistoryImageMessages(pastChatHistory, options)
         pastChatHistory = updatedPastMessages
 
@@ -1805,6 +1874,7 @@ class Agent_Agentflow implements INode {
         const { updatedMessages } = await processMessagesWithImages(pastMessages, options)
         pastMessages = updatedMessages
 
+        let summarizerUsage: StepUsage | undefined
         if (pastMessages.length > 0) {
             if (memoryType === 'windowSize') {
                 // Window memory: Keep the last N messages
@@ -1832,9 +1902,10 @@ class Agent_Agentflow implements INode {
                         content: input
                     })
                 }
+                summarizerUsage = summary.usage_metadata
             } else if (memoryType === 'conversationSummaryBuffer') {
                 // Summary buffer: Summarize messages that exceed token limit
-                await this.handleSummaryBuffer(messages, pastMessages, llmWithoutToolsBind, nodeData, abortController)
+                summarizerUsage = await this.handleSummaryBuffer(messages, pastMessages, llmWithoutToolsBind, nodeData, abortController)
             } else {
                 // Default: Use all messages
                 messages.push(...pastMessages)
@@ -1848,6 +1919,7 @@ class Agent_Agentflow implements INode {
                 content: userMessage
             })
         }
+        return summarizerUsage
     }
 
     /**
@@ -1859,7 +1931,7 @@ class Agent_Agentflow implements INode {
         llmWithoutToolsBind: BaseChatModel,
         nodeData: INodeData,
         abortController: AbortController
-    ): Promise<void> {
+    ): Promise<StepUsage | undefined> {
         const maxTokenLimit = (nodeData.inputs?.agentMemoryMaxTokenLimit as number) || 2000
 
         // Convert past messages to a format suitable for token counting
@@ -1903,9 +1975,11 @@ class Agent_Agentflow implements INode {
             }
             messages.push({ role: summaryRole, content: `Previous conversation summary: ${extractResponseContent(summary)}` })
             messages.push(...remainingMessages)
+            return summary.usage_metadata
         } else {
             // If under token limit, use all messages
             messages.push(...pastMessages)
+            return undefined
         }
     }
 
@@ -2021,8 +2095,7 @@ class Agent_Agentflow implements INode {
     private async calculateUsageCost(
         provider: string | undefined,
         modelName: string | undefined,
-        usageMetadata: Record<string, any> | undefined,
-        additionalTokens: number = 0
+        usageMetadata: Record<string, any> | undefined
     ): Promise<
         | {
               input_cost: number
@@ -2035,7 +2108,7 @@ class Agent_Agentflow implements INode {
     > {
         if (!provider || !modelName) return undefined
         const inputTokens = (usageMetadata?.input_tokens ?? 0) as number
-        const outputTokens = ((usageMetadata?.output_tokens ?? 0) as number) + additionalTokens
+        const outputTokens = (usageMetadata?.output_tokens ?? 0) as number
         try {
             const modelConfig = await getModelConfigByModelName(MODEL_TYPE.CHAT, provider, modelName)
             if (!modelConfig) return undefined
@@ -2082,7 +2155,8 @@ class Agent_Agentflow implements INode {
             base_input_cost: number
             base_output_cost: number
         },
-        tracedTokens?: { input_tokens: number; output_tokens: number }
+        stepUsage?: { inputTokens: number; outputTokens: number },
+        structuredFields?: Record<string, unknown>
     ): any {
         const output: any = {
             content: finalResponse,
@@ -2097,18 +2171,20 @@ class Agent_Agentflow implements INode {
             output.calledTools = response.tool_calls
         }
 
-        // Include token usage metadata with accumulated tokens from tool calls
+        // stepUsage is the sum of every model call. total_tokens is that same sum, which is what the chip and the usage API show.
+        const splitTotal = stepUsage ? stepUsage.inputTokens + stepUsage.outputTokens : undefined
         if (response.usage_metadata) {
             const originalTokens = response.usage_metadata.total_tokens || 0
             output.usageMetadata = {
                 ...response.usage_metadata,
-                total_tokens: originalTokens + additionalTokens,
+                ...(stepUsage ? { input_tokens: stepUsage.inputTokens, output_tokens: stepUsage.outputTokens } : {}),
+                total_tokens: splitTotal != null ? splitTotal : originalTokens + additionalTokens,
                 tool_call_tokens: additionalTokens
             }
         } else if (additionalTokens > 0) {
-            // If no original usage metadata but we have tool tokens
             output.usageMetadata = {
-                total_tokens: additionalTokens,
+                ...(stepUsage ? { input_tokens: stepUsage.inputTokens, output_tokens: stepUsage.outputTokens } : {}),
+                total_tokens: splitTotal != null ? splitTotal : additionalTokens,
                 tool_call_tokens: additionalTokens
             }
         }
@@ -2121,24 +2197,21 @@ class Agent_Agentflow implements INode {
             output.usageMetadata.base_output_cost = costMetadata.base_output_cost
         }
 
-        // Cost stays on the final model call. The tracer reads the sum of every model turn.
-        if (tracedTokens) {
-            output.usageMetadata = {
-                ...(output.usageMetadata ?? {}),
-                input_tokens: tracedTokens.input_tokens,
-                output_tokens: tracedTokens.output_tokens
-            }
-        }
-
         if (response.response_metadata) {
             output.responseMetadata = response.response_metadata
         }
 
-        if (isStructuredOutput && typeof response === 'object') {
-            const structuredOutput = response as Record<string, any>
-            for (const key in structuredOutput) {
-                if (structuredOutput[key] !== undefined && structuredOutput[key] !== null) {
-                    output[key] = structuredOutput[key]
+        // The parsed fields used to be the response. The raw message now carries conversion usage, so copy the parsed object only.
+        const parsedFields =
+            structuredFields && typeof structuredFields === 'object'
+                ? structuredFields
+                : isStructuredOutput && typeof response === 'object' && !response.usage_metadata
+                ? (response as Record<string, any>)
+                : undefined
+        if (parsedFields) {
+            for (const key in parsedFields) {
+                if (parsedFields[key] !== undefined && parsedFields[key] !== null) {
+                    output[key] = parsedFields[key]
                 }
             }
         }
@@ -2215,7 +2288,8 @@ class Agent_Agentflow implements INode {
         iterationContext,
         isStructuredOutput = false,
         accumulatedReasonContent: initialAccumulatedReasonContent,
-        accumulatedReasoningDuration: initialAccumulatedReasoningDuration
+        accumulatedReasoningDuration: initialAccumulatedReasoningDuration,
+        countIncoming = true
     }: {
         response: AIMessageChunk
         messages: BaseMessageLike[]
@@ -2232,19 +2306,23 @@ class Agent_Agentflow implements INode {
         isStructuredOutput?: boolean
         accumulatedReasonContent?: string
         accumulatedReasoningDuration?: number
+        // The caller already counted this response when it is a follow-up from the previous round.
+        countIncoming?: boolean
     }): Promise<{
         response: AIMessageChunk
         usedTools: IUsedTool[]
         sourceDocuments: Array<any>
         artifacts: any[]
         totalTokens: number
-        tracedTokens?: { input_tokens: number; output_tokens: number }
+        inputTokens: number
+        outputTokens: number
         isWaitingForHumanInput?: boolean
         accumulatedReasonContent?: string
         accumulatedReasoningDuration?: number
     }> {
-        // Track total tokens used throughout this process
-        let totalTokens = response.usage_metadata?.total_tokens || 0
+        const spent = { input: 0, output: 0, total: 0 }
+        if (countIncoming) addStepUsage(spent, response.usage_metadata)
+        let totalTokens = spent.total
         const usedTools: IUsedTool[] = []
         let sourceDocuments: Array<any> = []
         let artifacts: any[] = []
@@ -2252,17 +2330,30 @@ class Agent_Agentflow implements INode {
         // Use reasoning from caller (first turn); subsequent turns are added when we get newResponse
         let accumulatedReasonContent = initialAccumulatedReasonContent ?? ''
         let accumulatedReasoningDuration = initialAccumulatedReasoningDuration ?? 0
+        const finish = (
+            done: AIMessageChunk,
+            extra: { isWaitingForHumanInput?: boolean; accumulatedReasonContent?: string; accumulatedReasoningDuration?: number } = {}
+        ) => {
+            totalTokens = spent.total
+            return {
+                response: done,
+                usedTools,
+                sourceDocuments,
+                artifacts,
+                totalTokens,
+                inputTokens: spent.input,
+                outputTokens: spent.output,
+                isWaitingForHumanInput: extra.isWaitingForHumanInput,
+                accumulatedReasonContent: extra.accumulatedReasonContent,
+                accumulatedReasoningDuration: extra.accumulatedReasoningDuration
+            }
+        }
 
         if (!response.tool_calls || response.tool_calls.length === 0) {
-            return {
-                response,
-                usedTools: [],
-                sourceDocuments: [],
-                artifacts: [],
-                totalTokens,
+            return finish(response, {
                 accumulatedReasonContent: accumulatedReasonContent || undefined,
                 accumulatedReasoningDuration: accumulatedReasoningDuration || undefined
-            }
+            })
         }
 
         // Stream tool calls if available
@@ -2322,17 +2413,11 @@ class Agent_Agentflow implements INode {
                     if (!isStructuredOutput) {
                         sseStreamer?.streamTokenEvent(chatId, responseContent)
                     }
-                    return {
-                        response,
-                        usedTools,
-                        sourceDocuments,
-                        artifacts,
-                        totalTokens,
-                        tracedTokens: tracedPair(response.usage_metadata),
+                    return finish(response, {
                         isWaitingForHumanInput: true,
                         accumulatedReasonContent: accumulatedReasonContent || undefined,
                         accumulatedReasoningDuration: accumulatedReasoningDuration || undefined
-                    }
+                    })
                 }
 
                 let toolIds: ICommonObject | undefined
@@ -2427,7 +2512,7 @@ class Agent_Agentflow implements INode {
                         id: toolCall.id
                     })
                     sseStreamer?.streamUsedToolsEvent(chatId, flatten(usedTools))
-                    throwToolFailure(e, usedTools, response.usage_metadata)
+                    throwToolFailure(e, usedTools, response?.usage_metadata)
                 }
             }
         }
@@ -2443,41 +2528,48 @@ class Agent_Agentflow implements INode {
                     sseStreamer.streamTokenEvent(chatId, lastToolOutputString)
                 }
 
-                return {
-                    response: new AIMessageChunk(lastToolOutputString),
-                    usedTools,
-                    sourceDocuments,
-                    artifacts,
-                    totalTokens,
-                    tracedTokens: tracedPair(response.usage_metadata),
+                const kept = response.usage_metadata
+                const direct = new AIMessageChunk({
+                    content: lastToolOutputString,
+                    usage_metadata: kept
+                        ? {
+                              input_tokens: kept.input_tokens || 0,
+                              output_tokens: kept.output_tokens || 0,
+                              total_tokens: kept.total_tokens || 0
+                          }
+                        : undefined
+                })
+                return finish(direct, {
                     accumulatedReasonContent: accumulatedReasonContent || undefined,
                     accumulatedReasoningDuration: accumulatedReasoningDuration || undefined
-                }
+                })
             }
         }
 
         if (response.tool_calls.length === 0) {
             const responseContent = extractResponseContent(response)
-            return {
-                response: new AIMessageChunk(responseContent),
-                usedTools,
-                sourceDocuments,
-                artifacts,
-                totalTokens,
-                tracedTokens: tracedPair(response.usage_metadata),
+            const kept = response.usage_metadata
+            const replaced = new AIMessageChunk({
+                content: responseContent,
+                usage_metadata: kept
+                    ? {
+                          input_tokens: kept.input_tokens || 0,
+                          output_tokens: kept.output_tokens || 0,
+                          total_tokens: kept.total_tokens || 0
+                      }
+                    : undefined
+            })
+            return finish(replaced, {
                 accumulatedReasonContent: accumulatedReasonContent || undefined,
                 accumulatedReasoningDuration: accumulatedReasoningDuration || undefined
-            }
+            })
         }
 
-        // The follow-up model call and any later tool turn share one failure path, so a rejected
-        // call still carries the tools and tokens from this turn.
-        let newResponse: AIMessageChunk
-        let tracedTokens = tracedPair(response.usage_metadata)
-        let followUp: AIMessageChunk | undefined
+        // Get LLM response after tool calls. A rejected follow-up still carries the tools from this turn.
+        let newResponse: AIMessageChunk | undefined
         try {
             if (isStreamable) {
-                followUp = await this.handleStreamingResponse(
+                newResponse = await this.handleStreamingResponse(
                     sseStreamer,
                     llmNodeInstance,
                     messages,
@@ -2487,19 +2579,16 @@ class Agent_Agentflow implements INode {
                     isLastNode
                 )
             } else {
-                followUp = await llmNodeInstance.invoke(messages, { signal: abortController?.signal })
+                newResponse = await llmNodeInstance.invoke(messages, { signal: abortController?.signal })
 
                 // Stream non-streaming response if this is the last node
                 if (isLastNode && sseStreamer && !isStructuredOutput) {
-                    sseStreamer.streamTokenEvent(chatId, extractResponseContent(followUp))
+                    sseStreamer.streamTokenEvent(chatId, extractResponseContent(newResponse))
                 }
             }
-            newResponse = followUp
 
-            // Add tokens from this response
-            if (newResponse.usage_metadata?.total_tokens) {
-                totalTokens += newResponse.usage_metadata.total_tokens
-            }
+            addStepUsage(spent, newResponse.usage_metadata)
+            totalTokens = spent.total
 
             // Accumulate this turn's reasoning content and duration
             if (newResponse.additional_kwargs?.reasoning_content) {
@@ -2510,6 +2599,7 @@ class Agent_Agentflow implements INode {
                 accumulatedReasoningDuration += newResponse.additional_kwargs.reasoning_duration
             }
 
+            // Check for recursive tool calls and handle them
             if (newResponse.tool_calls && newResponse.tool_calls.length > 0) {
                 const {
                     response: recursiveResponse,
@@ -2517,7 +2607,8 @@ class Agent_Agentflow implements INode {
                     sourceDocuments: recursiveSourceDocuments,
                     artifacts: recursiveArtifacts,
                     totalTokens: recursiveTokens,
-                    tracedTokens: recursiveTracedTokens,
+                    inputTokens: recursiveInput,
+                    outputTokens: recursiveOutput,
                     isWaitingForHumanInput: recursiveIsWaitingForHumanInput,
                     accumulatedReasonContent: recursiveAccumulatedReasonContent,
                     accumulatedReasoningDuration: recursiveAccumulatedReasoningDuration
@@ -2536,16 +2627,19 @@ class Agent_Agentflow implements INode {
                     iterationContext,
                     isStructuredOutput,
                     accumulatedReasonContent,
-                    accumulatedReasoningDuration
+                    accumulatedReasoningDuration,
+                    countIncoming: false
                 })
 
-                // Merge results from recursive tool calls. The recursive sum already includes this follow-up.
+                // The follow-up response was already added. The recursive call starts after it.
                 newResponse = recursiveResponse
                 usedTools.push(...recursiveUsedTools)
                 sourceDocuments = [...sourceDocuments, ...recursiveSourceDocuments]
                 artifacts = [...artifacts, ...recursiveArtifacts]
-                totalTokens += recursiveTokens
-                tracedTokens = tracedPair(response.usage_metadata, recursiveTracedTokens)
+                spent.input += recursiveInput
+                spent.output += recursiveOutput
+                spent.total += recursiveTokens
+                totalTokens = spent.total
                 isWaitingForHumanInput = recursiveIsWaitingForHumanInput
                 if (recursiveAccumulatedReasonContent !== undefined) {
                     accumulatedReasonContent = recursiveAccumulatedReasonContent
@@ -2553,24 +2647,16 @@ class Agent_Agentflow implements INode {
                 if (recursiveAccumulatedReasoningDuration !== undefined) {
                     accumulatedReasoningDuration = recursiveAccumulatedReasoningDuration
                 }
-            } else {
-                tracedTokens = tracedPair(response.usage_metadata, newResponse.usage_metadata)
             }
         } catch (error) {
-            rethrowAccumulatedToolFailure(error, usedTools, response.usage_metadata, followUp?.usage_metadata)
+            rethrowAccumulatedToolFailure(error, usedTools, response.usage_metadata, newResponse?.usage_metadata)
         }
 
-        return {
-            response: newResponse,
-            usedTools,
-            sourceDocuments,
-            artifacts,
-            totalTokens,
-            tracedTokens,
+        return finish(newResponse as AIMessageChunk, {
             isWaitingForHumanInput,
             accumulatedReasonContent: accumulatedReasonContent || undefined,
             accumulatedReasoningDuration: accumulatedReasoningDuration || undefined
-        }
+        })
     }
 
     /**
@@ -2612,7 +2698,8 @@ class Agent_Agentflow implements INode {
         sourceDocuments: Array<any>
         artifacts: any[]
         totalTokens: number
-        tracedTokens?: { input_tokens: number; output_tokens: number }
+        inputTokens: number
+        outputTokens: number
         isWaitingForHumanInput?: boolean
         accumulatedReasonContent?: string
         accumulatedReasoningDuration?: number
@@ -2631,6 +2718,8 @@ class Agent_Agentflow implements INode {
                 sourceDocuments: [],
                 artifacts: [],
                 totalTokens: 0,
+                inputTokens: 0,
+                outputTokens: 0,
                 accumulatedReasonContent: undefined,
                 accumulatedReasoningDuration: undefined
             }
@@ -2643,8 +2732,29 @@ class Agent_Agentflow implements INode {
         messages.length = 0
         messages.push(...lastCheckpointMessages.slice(0, lastCheckpointMessages.length - 1))
 
-        // Track total tokens used throughout this process
-        let totalTokens = response.usage_metadata?.total_tokens || 0
+        // The stopped step already summed every model call up to the approval. The last message is only the
+        // latest of those calls. Start from the step total, then add calls that happen after the approval.
+        const priorUsage = humanInputAction?.data?.priorUsage as
+            | { input_tokens?: number; output_tokens?: number; tool_call_tokens?: number }
+            | undefined
+        const spent = { input: 0, output: 0, total: 0 }
+        const priorInput = Number(priorUsage?.input_tokens) || 0
+        const priorOutput = Number(priorUsage?.output_tokens) || 0
+        const priorTool = Number(priorUsage?.tool_call_tokens) || 0
+        if (priorInput || priorOutput || priorTool) {
+            addStepUsage(spent, {
+                input_tokens: priorInput,
+                output_tokens: priorOutput,
+                total_tokens: priorTool || priorInput + priorOutput
+            })
+        } else {
+            addStepUsage(spent, response.usage_metadata)
+        }
+        let totalTokens = spent.total
+        const resumedSplit = () => {
+            totalTokens = spent.total
+            return { totalTokens, inputTokens: spent.input, outputTokens: spent.output }
+        }
 
         if (!response.tool_calls || response.tool_calls.length === 0) {
             const acc = (response.additional_kwargs?.reasoning_content as string) || undefined
@@ -2657,8 +2767,7 @@ class Agent_Agentflow implements INode {
                 usedTools: [],
                 sourceDocuments: [],
                 artifacts: [],
-                totalTokens,
-                tracedTokens: tracedPair(response.usage_metadata),
+                ...resumedSplit(),
                 accumulatedReasonContent: acc,
                 accumulatedReasoningDuration: dur
             }
@@ -2816,7 +2925,7 @@ class Agent_Agentflow implements INode {
                             id: toolCall.id
                         })
                         sseStreamer?.streamUsedToolsEvent(chatId, flatten(usedTools))
-                        throwToolFailure(e, usedTools, response.usage_metadata)
+                        throwToolFailure(e, usedTools, response?.usage_metadata)
                     }
                 }
             }
@@ -2838,20 +2947,32 @@ class Agent_Agentflow implements INode {
                     typeof response.additional_kwargs?.reasoning_duration === 'number'
                         ? response.additional_kwargs.reasoning_duration
                         : undefined
+                const kept = response.usage_metadata
+                const direct = new AIMessageChunk({
+                    content: lastToolOutputString,
+                    usage_metadata: kept
+                        ? {
+                              input_tokens: kept.input_tokens || 0,
+                              output_tokens: kept.output_tokens || 0,
+                              total_tokens: kept.total_tokens || 0
+                          }
+                        : undefined
+                })
                 return {
-                    response: new AIMessageChunk(lastToolOutputString),
+                    response: direct,
                     usedTools,
                     sourceDocuments,
                     artifacts,
-                    totalTokens,
-                    tracedTokens: tracedPair(response.usage_metadata),
+                    ...resumedSplit(),
                     accumulatedReasonContent: acc,
                     accumulatedReasoningDuration: dur
                 }
             }
         }
 
-        // Get LLM response after tool calls
+        // Get LLM response after tool calls. A rejected follow-up still carries the tools from this turn.
+        let newResponse: AIMessageChunk | undefined
+
         if (llmNodeInstance && (llmNodeInstance as any).builtInTools && (llmNodeInstance as any).builtInTools.length > 0) {
             toolsInstance.push(...(llmNodeInstance as any).builtInTools)
         }
@@ -2865,17 +2986,12 @@ class Agent_Agentflow implements INode {
             llmNodeInstance = llmNodeInstance.bindTools(toolsInstance)
         }
 
-        // The follow-up model call and any later tool turn share one failure path, so a rejected
-        // call still carries the tools and tokens from this turn.
-        let newResponse: AIMessageChunk
-        let tracedTokens = tracedPair(response.usage_metadata)
-        let followUp: AIMessageChunk | undefined
         let accumulatedReasonContent = (response.additional_kwargs?.reasoning_content as string) || ''
         let accumulatedReasoningDuration =
             typeof response.additional_kwargs?.reasoning_duration === 'number' ? response.additional_kwargs.reasoning_duration : 0
         try {
             if (isStreamable) {
-                followUp = await this.handleStreamingResponse(
+                newResponse = await this.handleStreamingResponse(
                     sseStreamer,
                     llmNodeInstance,
                     messages,
@@ -2885,19 +3001,17 @@ class Agent_Agentflow implements INode {
                     isLastNode
                 )
             } else {
-                followUp = await llmNodeInstance.invoke(messages, { signal: abortController?.signal })
+                newResponse = await llmNodeInstance.invoke(messages, { signal: abortController?.signal })
 
                 // Stream non-streaming response if this is the last node
                 if (isLastNode && sseStreamer && !isStructuredOutput) {
-                    sseStreamer.streamTokenEvent(chatId, extractResponseContent(followUp))
+                    sseStreamer.streamTokenEvent(chatId, extractResponseContent(newResponse))
                 }
             }
-            newResponse = followUp
 
-            // Add tokens from this response
-            if (newResponse.usage_metadata?.total_tokens) {
-                totalTokens += newResponse.usage_metadata.total_tokens
-            }
+            // Add this post-approval model call. The checkpoint total already includes the call that asked for approval.
+            addStepUsage(spent, newResponse.usage_metadata)
+            totalTokens = spent.total
 
             // Accumulate reasoning and duration from checkpoint response and this turn
             if (newResponse.additional_kwargs?.reasoning_content) {
@@ -2908,6 +3022,7 @@ class Agent_Agentflow implements INode {
                 accumulatedReasoningDuration += newResponse.additional_kwargs.reasoning_duration
             }
 
+            // Check for recursive tool calls and handle them
             if (newResponse.tool_calls && newResponse.tool_calls.length > 0) {
                 const {
                     response: recursiveResponse,
@@ -2915,7 +3030,8 @@ class Agent_Agentflow implements INode {
                     sourceDocuments: recursiveSourceDocuments,
                     artifacts: recursiveArtifacts,
                     totalTokens: recursiveTokens,
-                    tracedTokens: recursiveTracedTokens,
+                    inputTokens: recursiveInput,
+                    outputTokens: recursiveOutput,
                     isWaitingForHumanInput: recursiveIsWaitingForHumanInput,
                     accumulatedReasonContent: recursiveAccumulatedReasonContent,
                     accumulatedReasoningDuration: recursiveAccumulatedReasoningDuration
@@ -2934,16 +3050,19 @@ class Agent_Agentflow implements INode {
                     iterationContext,
                     isStructuredOutput,
                     accumulatedReasonContent,
-                    accumulatedReasoningDuration
+                    accumulatedReasoningDuration,
+                    countIncoming: false
                 })
 
-                // Merge results from recursive tool calls. The recursive sum already includes this follow-up.
+                // Merge results from recursive tool calls
                 newResponse = recursiveResponse
                 usedTools.push(...recursiveUsedTools)
                 sourceDocuments = [...sourceDocuments, ...recursiveSourceDocuments]
                 artifacts = [...artifacts, ...recursiveArtifacts]
-                totalTokens += recursiveTokens
-                tracedTokens = tracedPair(response.usage_metadata, recursiveTracedTokens)
+                spent.input += recursiveInput
+                spent.output += recursiveOutput
+                spent.total += recursiveTokens
+                totalTokens = spent.total
                 isWaitingForHumanInput = recursiveIsWaitingForHumanInput
                 if (recursiveAccumulatedReasonContent !== undefined) {
                     accumulatedReasonContent = recursiveAccumulatedReasonContent
@@ -2951,20 +3070,17 @@ class Agent_Agentflow implements INode {
                 if (recursiveAccumulatedReasoningDuration !== undefined) {
                     accumulatedReasoningDuration = recursiveAccumulatedReasoningDuration
                 }
-            } else {
-                tracedTokens = tracedPair(response.usage_metadata, newResponse.usage_metadata)
             }
         } catch (error) {
-            rethrowAccumulatedToolFailure(error, usedTools, response.usage_metadata, followUp?.usage_metadata)
+            rethrowAccumulatedToolFailure(error, usedTools, response.usage_metadata, newResponse?.usage_metadata)
         }
 
         return {
-            response: newResponse,
+            response: newResponse as AIMessageChunk,
             usedTools,
             sourceDocuments,
             artifacts,
-            totalTokens,
-            tracedTokens,
+            ...resumedSplit(),
             isWaitingForHumanInput,
             accumulatedReasonContent: accumulatedReasonContent || undefined,
             accumulatedReasoningDuration: accumulatedReasoningDuration || undefined
@@ -3015,4 +3131,4 @@ class Agent_Agentflow implements INode {
     }
 }
 
-module.exports = { nodeClass: Agent_Agentflow }
+module.exports = { nodeClass: Agent_Agentflow, completeStepUsage }
