@@ -281,7 +281,9 @@
             "packages/ui/src/views/canvas/CanvasNode.missing.test.js",
             "packages/ui/src/views/canvas/MissingNodeCard.jsx",
             "packages/ui/src/views/canvas/MissingNodeCard.test.js",
-            "packages/ui/src/views/canvas/NodeSidePanel.jsx"
+            "packages/ui/src/views/canvas/NodePanelHeader.jsx",
+            "packages/ui/src/views/canvas/NodeSidePanel.jsx",
+            "packages/ui/src/views/canvas/cardActions.js"
         ],
         "inherited": [
             "packages/server/**",
@@ -870,7 +872,9 @@
                 "packages/ui/src/views/canvas/CanvasNode.missing.test.js",
                 "packages/ui/src/views/canvas/MissingNodeCard.jsx",
                 "packages/ui/src/views/canvas/MissingNodeCard.test.js",
-                "packages/ui/src/views/canvas/NodeSidePanel.jsx"
+                "packages/ui/src/views/canvas/NodePanelHeader.jsx",
+                "packages/ui/src/views/canvas/NodeSidePanel.jsx",
+                "packages/ui/src/views/canvas/cardActions.js"
             ],
             "entryPoints": [
                 "packages/components/nodes/module-catalog.json",
@@ -928,7 +932,9 @@
                 "packages/ui/src/utils/yourKey.js",
                 "packages/ui/src/views/canvas/CompactCardBody.jsx",
                 "packages/ui/src/views/canvas/MissingNodeCard.jsx",
+                "packages/ui/src/views/canvas/NodePanelHeader.jsx",
                 "packages/ui/src/views/canvas/NodeSidePanel.jsx",
+                "packages/ui/src/views/canvas/cardActions.js",
                 "packages/ui/src/views/notfound/index.jsx"
             ]
         }

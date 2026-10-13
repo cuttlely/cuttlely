@@ -1836,11 +1836,13 @@ packages/ui/src/views/canvas/CanvasHeader.jsx
 packages/ui/src/views/canvas/CanvasHeader.test.js
 packages/ui/src/views/canvas/CanvasNode.jsx
 packages/ui/src/views/canvas/CredentialInputHandler.jsx
+packages/ui/src/views/canvas/NodeActionBar.jsx
 packages/ui/src/views/canvas/NodeInputHandler.jsx
 packages/ui/src/views/canvas/NodeOutputHandler.jsx
 packages/ui/src/views/canvas/StickyNote.jsx
 packages/ui/src/views/canvas/canvasSavePermission.js
 packages/ui/src/views/canvas/canvasSavePermission.test.js
+packages/ui/src/views/canvas/cardActions.test.js
 packages/ui/src/views/canvas/index.css
 packages/ui/src/views/canvas/index.jsx
 packages/ui/src/views/chatbot/index.jsx
@@ -1908,6 +1910,8 @@ packages/ui/src/views/marketplaces/MarketplaceCanvas.jsx
 packages/ui/src/views/marketplaces/MarketplaceCanvasHeader.jsx
 packages/ui/src/views/marketplaces/MarketplaceCanvasNode.jsx
 packages/ui/src/views/marketplaces/index.jsx
+packages/ui/src/views/marketplaces/templatePreview.js
+packages/ui/src/views/marketplaces/templatePreview.test.js
 packages/ui/src/views/marketplaces/templateUsePermission.js
 packages/ui/src/views/marketplaces/templateUsePermission.test.js
 packages/ui/src/views/organization/index.jsx

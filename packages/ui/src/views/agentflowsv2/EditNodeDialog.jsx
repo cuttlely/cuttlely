@@ -3,7 +3,7 @@ import { useDispatch, useSelector } from 'react-redux'
 import { useState, useEffect, useRef, useContext, memo } from 'react'
 import { useUpdateNodeInternals } from 'reactflow'
 import PropTypes from 'prop-types'
-import { Stack, Box, Typography, TextField, Dialog, DialogContent, ButtonBase, Avatar, IconButton } from '@mui/material'
+import { Stack, Box, Typography, TextField, Dialog, DialogContent, ButtonBase, Avatar } from '@mui/material'
 import NodeInputHandler from '@/views/canvas/NodeInputHandler'
 import { HIDE_CANVAS_DIALOG, SHOW_CANVAS_DIALOG } from '@/store/actions'
 import { IconPencil, IconX, IconCheck, IconInfoCircle } from '@tabler/icons-react'
@@ -11,6 +11,8 @@ import { useTheme } from '@mui/material/styles'
 import { flowContext } from '@/store/context/ReactFlowContext'
 import { applyVisibleInputDefaults, showHideInputParams } from '@/utils/genericHelper'
 import { NODE_SIDE_PANEL_WIDTH } from '@/views/canvas/NodeSidePanel'
+import NodePanelHeader from '@/views/canvas/NodePanelHeader'
+import { CanvasPanelContext } from '@/store/context/CanvasPanelContext'
 
 // variant 'panel' shows the same settings docked on the right of the canvas (the new card look) instead of in a dialog.
 const EditNodeDialog = ({ show, dialogProps, onCancel, variant = 'dialog' }) => {
@@ -20,7 +22,8 @@ const EditNodeDialog = ({ show, dialogProps, onCancel, variant = 'dialog' }) => 
     const theme = useTheme()
     const customization = useSelector((state) => state.customization)
     const nodeNameRef = useRef()
-    const { reactFlowInstance } = useContext(flowContext)
+    const { reactFlowInstance, deleteNode, duplicateNode } = useContext(flowContext)
+    const { onDuplicated } = useContext(CanvasPanelContext)
     const updateNodeInternals = useUpdateNodeInternals()
 
     const [inputParams, setInputParams] = useState([])
@@ -301,16 +304,22 @@ const EditNodeDialog = ({ show, dialogProps, onCancel, variant = 'dialog' }) => 
                     pr: 1
                 }}
             >
-                <IconButton
-                    title='Close'
-                    aria-label='Close settings'
-                    onClick={onCancel}
-                    size='small'
-                    sx={{ position: 'absolute', top: 8, right: 8, zIndex: 2 }}
+                <NodePanelHeader
+                    nodeName={data?.name}
+                    readOnly={Boolean(dialogProps.disabled)}
+                    onClose={onCancel}
+                    onDuplicate={() => {
+                        const created = duplicateNode(data.id)
+                        if (created?.id) onDuplicated(created)
+                    }}
+                    onDelete={() => {
+                        deleteNode(data.id)
+                        onCancel()
+                    }}
                 >
-                    <IconX size={20} />
-                </IconButton>
-                <Box sx={{ pr: 4 }}>{content}</Box>
+                    <span />
+                </NodePanelHeader>
+                <Box>{content}</Box>
             </Box>
         )
     }
@@ -318,13 +327,14 @@ const EditNodeDialog = ({ show, dialogProps, onCancel, variant = 'dialog' }) => 
     const component = show ? (
         <Dialog
             onClose={onCancel}
+            onKeyDown={onPanelKeyDown}
             open={show}
             fullWidth
             maxWidth='sm'
             aria-labelledby='alert-dialog-title'
             aria-describedby='alert-dialog-description'
         >
-            <DialogContent>{content}</DialogContent>
+            <DialogContent onKeyDown={onPanelKeyDown}>{content}</DialogContent>
         </Dialog>
     ) : null
 
