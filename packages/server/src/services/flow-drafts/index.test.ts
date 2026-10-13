@@ -645,6 +645,43 @@ describe('a passing test set before Publish', () => {
         await expect(updateDraftSettings(flow({ type: 'ETL' }), { publishGate: gate })).rejects.toMatchObject({ statusCode: 400 })
     })
 
+    test('a form, webhook, or schedule start cannot turn the gate on, and an existing gate stays blocking', async () => {
+        seed()
+        chats[0].type = 'AGENTFLOW'
+        const agent = (start: string) =>
+            JSON.stringify({
+                nodes: [{ id: 'start', data: { name: 'startAgentflow', inputs: { startInputType: start } } }],
+                edges: []
+            })
+        for (const [start, named] of [
+            ['formInput', 'a form'],
+            ['webhookTrigger', 'a webhook'],
+            ['scheduleInput', 'a schedule']
+        ]) {
+            await expect(
+                updateDraftSettings(flow({ type: 'AGENTFLOW', flowData: agent(start) }), { publishGate: gate })
+            ).rejects.toMatchObject({
+                statusCode: 400,
+                message: expect.stringContaining(`This flow starts with ${named}, so it cannot use a dataset.`)
+            })
+        }
+        expect(rows.some((row) => row.publishGate)).toBe(false)
+
+        const chat = flow({ type: 'AGENTFLOW', flowData: agent('chatInput') })
+        await saveDraft(chat, agent('chatInput'), context)
+        await updateDraftSettings(chat, { publishGate: gate })
+        expect(rows[0].publishGate).toBe(true)
+        await saveDraft(chat, agent('formInput'), context)
+        const status = await getDraftStatus(chat)
+        expect(status.publishGate.enabled).toBe(true)
+        expect(status.publishGate.block).toEqual(expect.stringContaining('starts with a form, so it cannot use a dataset.'))
+        expect(status.publishGate.block).toEqual(expect.stringContaining('Turn off the passing test set before you publish.'))
+        await expect(draftToPublish(chat)).rejects.toMatchObject({
+            statusCode: 409,
+            message: expect.stringContaining('Turn off the passing test set before you publish.')
+        })
+    })
+
     test('refuses Publish instantly while the gate is on', async () => {
         await arm()
         await expect(setPublishInstantly(flow(), true)).rejects.toMatchObject({

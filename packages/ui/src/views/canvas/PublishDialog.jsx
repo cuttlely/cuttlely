@@ -25,6 +25,7 @@ import {
     apiErrorMessage,
     canvasAfterDiscard,
     canvasAfterPublish,
+    datasetGateBlock,
     publishBody,
     publishChangeLines,
     publishResultMessage,
@@ -73,8 +74,15 @@ PublishChangeList.propTypes = {
     lines: PropTypes.array
 }
 
-export const PublishGateNotice = ({ gate, busy, runAnyway, onRunAnyway, onRun }) => {
+export const PublishGateNotice = ({ gate, busy, runAnyway, onRunAnyway, onRun, startBlock }) => {
     if (!gate?.enabled) return null
+    if (startBlock) {
+        return (
+            <Alert severity='warning' data-testid='publish-gate' sx={{ mt: 1.5 }}>
+                <Typography variant='body2'>{startBlock}</Typography>
+            </Alert>
+        )
+    }
     const result = gate.result
     const summary = result
         ? `Last result: ${result.passRate == null ? 'unscored' : `${result.passRate}%`} and ${result.verdict} (${result.passed} passed, ${
@@ -106,7 +114,8 @@ PublishGateNotice.propTypes = {
     busy: PropTypes.bool,
     runAnyway: PropTypes.bool,
     onRunAnyway: PropTypes.func,
-    onRun: PropTypes.func
+    onRun: PropTypes.func,
+    startBlock: PropTypes.string
 }
 
 const PublishDialog = ({ open, chatflow, draftStatus, isDirty, onClose, onDraftStatus, onChatflowUpdated, onApplyCanvas }) => {
@@ -120,7 +129,11 @@ const PublishDialog = ({ open, chatflow, draftStatus, isDirty, onClose, onDraftS
 
     const stale = Boolean(draftStatus?.draft?.stale)
     const replayCheck = showsPublishCheck(chatflow?.type)
-    const gateBlock = replayCheck && draftStatus?.publishGate?.enabled ? draftStatus.publishGate.block : null
+    const startBlock =
+        replayCheck && draftStatus?.publishGate?.enabled
+            ? datasetGateBlock(chatflow?.type, [chatflow?.flowData, draftStatus?.draft?.flowData])
+            : null
+    const gateBlock = replayCheck && draftStatus?.publishGate?.enabled ? startBlock || draftStatus.publishGate.block : null
     const lines = useMemo(
         () => (open ? publishChangeLines(chatflow?.flowData, draftStatus?.draft?.flowData) : []),
         [open, chatflow?.flowData, draftStatus?.draft?.flowData]
@@ -275,6 +288,7 @@ const PublishDialog = ({ open, chatflow, draftStatus, isDirty, onClose, onDraftS
                         runAnyway={runAnyway}
                         onRunAnyway={setRunAnyway}
                         onRun={onRunGate}
+                        startBlock={startBlock}
                     />
                 )}
                 {stale && (
