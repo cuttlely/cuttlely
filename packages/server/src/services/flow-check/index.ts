@@ -849,7 +849,13 @@ async function runCheck(record: CheckRecord, flow: IChatFlow, draft: string, bas
 // Runs one question through a canvas without saving anything. For a chatflow the token counter is Cuttlely's
 // evaluation tracer, the only analytics provider on the copy, so the flow's own tracing providers are not called.
 // An agentflow replay calls no tracing provider and keeps its run in memory; its steps report their tokens.
-async function replayFlow({ flow, flowData, question, signal, baseURL }: ReplayInput): Promise<{ text: string; metrics?: unknown[] }> {
+async function replayFlow({
+    flow,
+    flowData,
+    question,
+    signal,
+    baseURL
+}: ReplayInput): Promise<{ text: string; metrics?: unknown[]; lines?: UsageLine[] }> {
     // Imported here so loading this module does not load the whole prediction path.
     const { executeFlow } = await import('../../utils/buildChatflow')
     const app = getRunningExpressApp()
