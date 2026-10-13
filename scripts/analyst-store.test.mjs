@@ -214,6 +214,48 @@ async function assertWideTailStaysInOrder(query, sql) {
     )
 }
 
+async function assertPagesStayContiguous(query, sql, total, pageSizes) {
+    const first = await query(sql)
+    assert.equal(/page \d+/.test(String(first.summary || '')), false, first.summary)
+    await assert.rejects(query({ cursor: first.cursor, page: 3 }), (error) => {
+        assert.equal(error.message, ANALYST_CURSOR_ERRORS.page)
+        return true
+    })
+    const seen = []
+    let page = first
+    let index = 0
+    while (page) {
+        assert.equal(page.rows.length, pageSizes[index], page.summary)
+        assert.equal(/page \d+/.test(String(page.summary || '')), false)
+        for (const row of page.rows) seen.push(row.n)
+        index += 1
+        if (!page.cursor || String(page.summary || '').includes('last page')) break
+        const next = await query({ cursor: page.cursor })
+        assert.equal(next.rows[0].n, seen.at(-1) + 1)
+        page = next
+    }
+    assert.equal(index, pageSizes.length)
+    assert.deepEqual(
+        seen,
+        Array.from({ length: total }, (_, item) => item + 1)
+    )
+}
+
+async function assertExactPageCount(query, sql, total, cap) {
+    const pages = Math.ceil(total / cap)
+    const first = await query(sql)
+    assert.equal(first.rows.length, Math.min(cap, total))
+    assert.match(
+        first.summary,
+        new RegExp(`^rows 1-${Math.min(cap, total)} of ${total} \\(page 1 of ${pages}, say "show more" for the next page\\)$`)
+    )
+    const lastStart = (pages - 1) * cap + 1
+    const jumped = await query({ cursor: first.cursor, page: pages })
+    assert.equal(jumped.rows[0].n, lastStart)
+    assert.equal(jumped.rows.at(-1).n, total)
+    assert.equal(jumped.rows.length, total - lastStart + 1)
+}
+
 function walkedPageBounds(rows, cap) {
     const bounds = []
     let offset = 0
@@ -1870,6 +1912,60 @@ describe('analyst URL path', () => {
             await assertWideTailStaysInOrder(run, 'SELECT n, noted FROM days ORDER BY n')
             resetAnalystStoreForTests()
             await assertWideTailStaysInOrder(run, 'SELECT n, noted FROM days ORDER BY n LIMIT 100000')
+        } finally {
+            resetAnalystStoreForTests()
+            await admin.query(`DROP DATABASE IF EXISTS ${dbName} WITH (FORCE)`).catch(() => {})
+            await admin.query(`DROP ROLE IF EXISTS ${role}`).catch(() => {})
+            await admin.end().catch(() => {})
+        }
+    })
+
+    it('names a page count for a json object or scalar, and not for an array', async (t) => {
+        const admin = await postgresAdmin()
+        if (!admin) {
+            t.skip('analyst URL path: local postgres admin is not reachable')
+            return
+        }
+        const suffix = randomBytes(4).toString('hex')
+        const dbName = `analyst_json_${suffix}`
+        const role = `json_${suffix}`
+        const password = randomBytes(18).toString('base64url')
+        try {
+            await admin.query(`CREATE ROLE ${role} LOGIN PASSWORD '${password}'`)
+            await admin.query(`CREATE DATABASE ${dbName} OWNER ${role}`)
+            const cfg = adminConfig()
+            const url = postgresUrl({ user: role, password, host: cfg.host, port: cfg.port, database: dbName })
+            const owner = new Client({ connectionString: url })
+            await owner.connect()
+            await owner.query('CREATE TABLE pairs (n integer PRIMARY KEY, payload jsonb)')
+            await owner.query(
+                `INSERT INTO pairs SELECT g, CASE WHEN g <= 250 THEN NULL ELSE '[{"id": 1}, {"id": 2}]'::jsonb END FROM generate_series(1, 600) g`
+            )
+            await owner.query('CREATE TABLE seven (n integer PRIMARY KEY, payload jsonb)')
+            await owner.query(
+                `INSERT INTO seven SELECT g, CASE WHEN g <= 100 THEN NULL ELSE '[{"id":1},{"id":1},{"id":1},{"id":1},{"id":1},{"id":1},{"id":1}]'::jsonb END FROM generate_series(1, 300) g`
+            )
+            await owner.query('CREATE TABLE objects (n integer PRIMARY KEY, payload jsonb)')
+            await owner.query(`INSERT INTO objects SELECT g, '{"id":1}'::jsonb FROM generate_series(1, 600) g`)
+            await owner.query('CREATE TABLE scalars (n integer PRIMARY KEY, payload json)')
+            await owner.query(`INSERT INTO scalars SELECT g, '1'::json FROM generate_series(1, 600) g`)
+            await owner.end()
+            const run = (cap, input) =>
+                withAnalystScope(`json-${suffix}`, () => queryAnalystUrl(url, input, { env: { CUTTLELY_ANALYST_ROW_CAP: String(cap) } }))
+            await assertPagesStayContiguous((input) => run(250, input), 'SELECT n, payload FROM pairs ORDER BY n', 600, [250, 241, 109])
+            resetAnalystStoreForTests()
+            await assertPagesStayContiguous(
+                (input) => run(250, input),
+                'SELECT n, payload FROM pairs ORDER BY n LIMIT 100000',
+                600,
+                [250, 241, 109]
+            )
+            resetAnalystStoreForTests()
+            await assertPagesStayContiguous((input) => run(100, input), 'SELECT n, payload FROM seven ORDER BY n', 300, [100, 91, 91, 18])
+            resetAnalystStoreForTests()
+            await assertExactPageCount((input) => run(250, input), 'SELECT n, payload FROM objects ORDER BY n', 600, 250)
+            resetAnalystStoreForTests()
+            await assertExactPageCount((input) => run(250, input), 'SELECT n, payload FROM scalars ORDER BY n', 600, 250)
         } finally {
             resetAnalystStoreForTests()
             await admin.query(`DROP DATABASE IF EXISTS ${dbName} WITH (FORCE)`).catch(() => {})

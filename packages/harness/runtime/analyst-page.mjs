@@ -350,7 +350,8 @@ export function keysetSql({ selectList, table, where, keys, last, limit, offset 
 
 // A Date printed with toString() in a long timezone name stays under this.
 const ANALYST_DATE_LINE_FLOOR = 128
-// `${plainObject}` is "[object Object]".
+// `${plainObject}` is "[object Object]". An array stringifies with a comma between elements,
+// which can be longer than the JSON text, so an array has no bound.
 const ANALYST_JSON_LINE_FLOOR = 15
 
 function sqlLiteral(value) {
@@ -362,7 +363,7 @@ function sqlLiteral(value) {
 function valueLengthExpr(name, engine) {
     const id = quoteIdent(name)
     if (engine === 'postgres') {
-        return `CASE WHEN ${id} IS NULL THEN 4 WHEN pg_typeof(${id})::text IN ('smallint', 'integer', 'bigint') THEN length(${id}::text) WHEN pg_typeof(${id})::text = 'boolean' THEN length(${id}::text) WHEN pg_typeof(${id})::text IN ('text', 'character varying', 'character', 'name') THEN octet_length(${id}::text) WHEN pg_typeof(${id})::text IN ('date', 'timestamp without time zone', 'timestamp with time zone') THEN GREATEST(octet_length(${id}::text), ${ANALYST_DATE_LINE_FLOOR}) WHEN pg_typeof(${id})::text IN ('json', 'jsonb') THEN GREATEST(octet_length(${id}::text), ${ANALYST_JSON_LINE_FLOOR}) ELSE NULL END`
+        return `CASE WHEN ${id} IS NULL THEN 4 WHEN pg_typeof(${id})::text IN ('smallint', 'integer', 'bigint') THEN length(${id}::text) WHEN pg_typeof(${id})::text = 'boolean' THEN length(${id}::text) WHEN pg_typeof(${id})::text IN ('text', 'character varying', 'character', 'name') THEN octet_length(${id}::text) WHEN pg_typeof(${id})::text IN ('date', 'timestamp without time zone', 'timestamp with time zone') THEN GREATEST(octet_length(${id}::text), ${ANALYST_DATE_LINE_FLOOR}) WHEN pg_typeof(${id})::text IN ('json', 'jsonb') AND jsonb_typeof(to_jsonb(${id})) = 'array' THEN NULL WHEN pg_typeof(${id})::text IN ('json', 'jsonb') THEN GREATEST(octet_length(${id}::text), ${ANALYST_JSON_LINE_FLOOR}) ELSE NULL END`
     }
     return `CASE typeof(${id}) WHEN 'null' THEN 4 WHEN 'integer' THEN length(CAST(${id} AS TEXT)) WHEN 'text' THEN length(CAST(${id} AS BLOB)) ELSE NULL END`
 }
