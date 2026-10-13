@@ -1,6 +1,6 @@
 import client from './client'
 
-const getLogs = (startDate, endDate) => client.get(`/logs?startDate=${startDate}&endDate=${endDate}`)
+const getLogs = (params) => client.get('/logs', { params })
 
 export default {
     getLogs

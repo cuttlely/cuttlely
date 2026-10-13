@@ -26,6 +26,7 @@ import getUploadFileRouter from './get-upload-file'
 import internalChatmessagesRouter from './internal-chat-messages'
 import internalPredictionRouter from './internal-predictions'
 import leadsRouter from './leads'
+import logRouter from './log'
 import loadPromptRouter from './load-prompts'
 import marketplacesRouter from './marketplaces'
 import mcpEndpointRouter from './mcp-endpoint'
@@ -163,6 +164,6 @@ router.use('/workspaceuser', identityWorkspaceUserRouter)
 router.use('/audit', closedRouter())
 router.use('/organization', closedRouter())
 router.use('/loginmethod', closedRouter())
-router.use('/logs', closedRouter())
+router.use('/logs', logRouter)
 
 export default router
