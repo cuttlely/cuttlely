@@ -1,5 +1,7 @@
 // The ordered list of environments a promotion walks. A saved Dev or Prod label with no list is the
 // pair [dev, prod], both publishing to the same place, which is how a two-server setup already works.
+import { createHash } from 'crypto'
+
 export interface NamedEnvironment {
     // Shown on the promote page.
     name: string
@@ -42,6 +44,12 @@ const PUBLISH = /^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/
 
 export function legacyEnvironments(): NamedEnvironment[] {
     return LEGACY_ENVIRONMENTS.map((item) => ({ ...item }))
+}
+
+// Same text for the same list on every server. A publisher records it; a reader stops when its own list differs.
+export function environmentListFingerprint(environments: NamedEnvironment[]): string {
+    const body = JSON.stringify(environments.map(({ name, branch, server }) => ({ name, branch, server })))
+    return createHash('sha256').update(body).digest('hex')
 }
 
 export function isLegacyChain(environments: NamedEnvironment[]): boolean {

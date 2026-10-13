@@ -927,6 +927,101 @@ describe('Dev or Prod label', () => {
         expect(gitCalls.filter((call) => call.args[0] === 'push').length).toBeGreaterThan(pushes)
         expect(retried.state).toBe('stopped')
     })
+
+    test('a bad environment file stays connected and can be saved again', async () => {
+        const chain = [
+            { name: 'Dev', branch: 'main', server: 'dev' },
+            { name: 'Staging', branch: 'staging', server: 'staging' },
+            { name: 'Prod', branch: 'prod', server: 'prod' }
+        ]
+        await sync.setEnvironment('prod', chain)
+        await sync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)
+        fs.writeFileSync(path.join(versionsDir(), '.git', 'versions-environment.json'), '{')
+        const status = await sync.status()
+        expect(status.connected).toBe(true)
+        expect(status.repo).toBe(`file://${bare}`)
+        expect(status.state).toBe('stopped')
+        expect(status.message).toContain('could not be read')
+        const saved = await sync.setEnvironment('staging', chain)
+        expect(saved.environment).toBe('staging')
+        expect(saved.connected).toBe(true)
+        expect(saved.state).not.toBe('stopped')
+    })
+
+    test('a list change during a credential read or a fetch does not use main', async () => {
+        const chain = [
+            { name: 'Dev', branch: 'dev', server: 'dev' },
+            { name: 'Staging', branch: 'staging', server: 'staging' },
+            { name: 'Prod', branch: 'prod', server: 'prod' }
+        ]
+        const roleFile = path.join(versionsDir(), '.git', 'versions-environment.json')
+        let mode: 'off' | 'get' | 'fetch' = 'off'
+        sync.stop()
+        sync = makeSync({
+            checkEveryMs: 60_000,
+            credentials: {
+                async get(id: string, workspaceId: string) {
+                    if (mode === 'get') fs.writeFileSync(roleFile, '{')
+                    return credentialStore.get(id, workspaceId)
+                },
+                create: (input) => credentialStore.create(input)
+            },
+            onGit: (args, env) => {
+                gitCalls.push({ args, env })
+                if (mode === 'fetch' && args[0] === 'fetch') fs.writeFileSync(roleFile, '{')
+            }
+        })
+        setGithubForTests(sync)
+        await sync.setEnvironment('staging', chain)
+        await save('One')
+        await sync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)
+        const touchesMain = (call: { args: string[] }) => call.args.some((arg) => arg.includes('refs/heads/main'))
+        mode = 'get'
+        const mark = gitCalls.length
+        await save('Two')
+        await settle()
+        expect((await sync.status()).state).toBe('stopped')
+        expect(gitCalls.slice(mark).some(touchesMain)).toBe(false)
+        expect(gitCalls.slice(mark).some((call) => call.args[0] === 'push' || call.args[0] === 'fetch')).toBe(false)
+        mode = 'off'
+        await sync.setEnvironment('staging', chain)
+        mode = 'fetch'
+        const again = gitCalls.length
+        await sync.sync()
+        await sync.idle()
+        const during = gitCalls.slice(again)
+        expect(during.some((call) => call.args[0] === 'fetch' && call.args.some((arg) => arg.includes('refs/heads/dev')))).toBe(true)
+        expect(during.some(touchesMain)).toBe(false)
+        expect(during.some((call) => call.args[0] === 'push' && call.args.some((arg) => arg.includes('refs/heads/')))).toBe(false)
+    })
+
+    test('a reader stops when the publisher recorded a different environment list', async () => {
+        const three = [
+            { name: 'Dev', branch: 'main', server: 'dev' },
+            { name: 'Staging', branch: 'staging', server: 'staging' },
+            { name: 'Prod', branch: 'prod', server: 'prod' }
+        ]
+        await sync.setEnvironment('dev', three)
+        await save('One')
+        await sync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)
+        expect(bareMain(bare)).toBeTruthy()
+        await sync.disconnect()
+        await sync.setEnvironment('prod', [
+            { name: 'dev', branch: 'main', server: 'dev' },
+            { name: 'prod', branch: 'main', server: 'prod' }
+        ])
+        await sync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)
+        const status = await sync.status()
+        expect(status.state).toBe('stopped')
+        expect(status.message).toContain('same list')
+        let incoming = ''
+        try {
+            incoming = plainGit(versionsDir(), 'rev-parse', '--verify', '-q', 'refs/versions/incoming')
+        } catch {
+            incoming = ''
+        }
+        expect(incoming.trim()).toBe('')
+    })
 })
 
 describe('local stand-in for GitHub (end-to-end runs without an account)', () => {

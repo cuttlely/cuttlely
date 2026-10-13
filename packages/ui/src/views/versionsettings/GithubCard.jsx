@@ -59,7 +59,7 @@ import {
     tokenHint
 } from '@/utils/githubSync'
 import GithubTokenHelp from './GithubTokenHelp'
-import { incomingSummary, promotePath, readIntro, readLine, sourceTitleOf } from '@/utils/promote'
+import { incomingSummary, isSavedDevProdPair, promotePath, readIntro, readLine, sourceTitleOf } from '@/utils/promote'
 
 const pop = keyframes`
   0% { transform: scale(0.4); opacity: 0; }
@@ -654,23 +654,23 @@ const GithubCard = ({ onStatus, initialStatus = null }) => {
                                         value={status.environment || ''}
                                         onChange={changeEnvironment}
                                         aria-label={
-                                            (status.environments || []).length > 2 ? 'This server is' : 'This server is Dev or Prod'
+                                            isSavedDevProdPair(status.environments) ? 'This server is Dev or Prod' : 'This server is'
                                         }
                                     >
-                                        {(status.environments || []).length > 2
-                                            ? status.environments.map((env) => (
-                                                  <ToggleButton key={env.server} value={env.server} sx={{ px: 2.5 }}>
-                                                      {env.name}
-                                                  </ToggleButton>
-                                              ))
-                                            : [
+                                        {isSavedDevProdPair(status.environments)
+                                            ? [
                                                   <ToggleButton key='dev' value='dev' sx={{ px: 2.5 }}>
                                                       Dev
                                                   </ToggleButton>,
                                                   <ToggleButton key='prod' value='prod' sx={{ px: 2.5 }}>
                                                       Prod
                                                   </ToggleButton>
-                                              ]}
+                                              ]
+                                            : (status.environments || []).map((env) => (
+                                                  <ToggleButton key={env.server} value={env.server} sx={{ px: 2.5 }}>
+                                                      {env.name}
+                                                  </ToggleButton>
+                                              ))}
                                         <ToggleButton value='' sx={{ px: 2 }}>
                                             Not set
                                         </ToggleButton>

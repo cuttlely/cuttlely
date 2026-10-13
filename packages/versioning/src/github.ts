@@ -27,6 +27,7 @@ import {
     parseEnvironmentFile,
     parseEnvironmentsAllowingLegacy,
     syncPlan,
+    environmentListFingerprint,
     type EnvironmentConfig,
     type NamedEnvironment,
     type SyncPlan
@@ -148,6 +149,24 @@ const PUSHED_REF = 'refs/versions/github'
 export const INCOMING_REF = 'refs/versions/incoming'
 // Each read lands here first and moves to INCOMING_REF only if the connection is still the same one.
 const INCOMING_NEXT_REF = 'refs/versions/incoming-next'
+// The publisher's environment list, as a note on the copied commit. Not a force-push of history.
+const ENVIRONMENT_NOTE_REMOTE = 'refs/notes/commits'
+const ENVIRONMENT_NOTE_LOCAL = 'refs/notes/environment-list'
+const LIST_MISMATCH =
+    "This server's environment list does not match the list used to publish these versions. Save the same list on every server, then select Try again."
+const LIST_UNREADABLE = 'The environment list could not be read. Save it again.'
+
+interface ActivePlan extends SyncPlan {
+    invalid: boolean
+    environments: NamedEnvironment[]
+}
+
+const NOTE_ENV = {
+    GIT_AUTHOR_NAME: 'Cuttlely',
+    GIT_AUTHOR_EMAIL: 'system@versions.local',
+    GIT_COMMITTER_NAME: 'Cuttlely',
+    GIT_COMMITTER_EMAIL: 'system@versions.local'
+}
 const DEFAULT_CHECK_EVERY_MS = 120_000
 const DEFAULT_RETRY_MS = [30_000, 60_000, 120_000, 300_000, 600_000, 900_000]
 const NETWORK_TIMEOUT_MS = 60_000
@@ -575,12 +594,15 @@ export class GithubSync {
         blank.promotes = plan.reads
         blank.role = plan.reads && !plan.copies ? 'read' : 'copy'
         if (saved.invalid) {
+            // The repository file is still there. The card needs connected so Disconnect stays available.
+            const link = this.savedConnection()
             return {
                 ...blank,
+                ...link,
                 state: 'stopped',
                 promotes: false,
                 role: 'copy',
-                message: 'The environment list could not be read. Save it again.'
+                message: LIST_UNREADABLE
             }
         }
         if (blank.role === 'read') {
@@ -706,9 +728,24 @@ export class GithubSync {
     }
 
     private plan(): SyncPlan {
+        return this.capturedPlan()
+    }
+
+    // One read of the environment file for a sync pass. Callers must not read it again to choose a branch.
+    private capturedPlan(): ActivePlan {
         const saved = this.readEnvironment()
-        if (saved.invalid) return { reads: false, copies: false, sourceBranch: null, publishBranch: null }
-        return syncPlan(saved.environments, saved.environment)
+        if (saved.invalid) return { reads: false, copies: false, sourceBranch: null, publishBranch: null, invalid: true, environments: [] }
+        return { ...syncPlan(saved.environments, saved.environment), invalid: false, environments: saved.environments }
+    }
+
+    private savedConnection(): { connected: boolean; repo: string | null; credential: { id: string; name: string } | null } {
+        try {
+            const saved = this.readSaved()
+            if (!saved) return { connected: false, repo: null, credential: null }
+            return { connected: true, repo: saved.repo, credential: { id: saved.credential.id, name: saved.credential.name } }
+        } catch {
+            return { connected: true, repo: null, credential: null }
+        }
     }
 
     // The previous environment, as the screen names it. "Dev" for the saved pair.
@@ -761,7 +798,8 @@ export class GithubSync {
             before.copies !== after.copies ||
             before.sourceBranch !== after.sourceBranch ||
             before.publishBranch !== after.publishBranch
-        if (connected && changed) {
+        // An unreadable file is not a real plan. Saving the list again is how the operator fixes it.
+        if (connected && !current.invalid && changed) {
             throw new GithubError(409, 'Disconnect GitHub before changing what this server reads or copies.')
         }
         await this.deps.store().ensure()
@@ -1065,16 +1103,23 @@ export class GithubSync {
             this.again = true
             return this.running
         }
-        this.running = (async () => {
+        const gate: { run?: Promise<void> } = {}
+        gate.run = (async () => {
             try {
                 do {
                     this.again = false
-                    const plan = this.plan()
-                    if (plan.reads) await this.readOnce()
+                    const plan = this.capturedPlan()
+                    if (plan.invalid) {
+                        this.state = 'stopped'
+                        this.message = LIST_UNREADABLE
+                        this.nextTryAt = null
+                        return
+                    }
+                    if (plan.reads) await this.readOnce(plan)
                     // A read that just failed must not be followed by a copy in the same pass.
                     // A copy that already stopped for a reason the operator has to fix is not retried by the next read.
                     const readFailed = plan.reads && (this.state === 'retrying' || this.state === 'stopped')
-                    if (plan.copies && !readFailed && !this.copyHold) await this.pushOnce()
+                    if (plan.copies && !readFailed && !this.copyHold) await this.pushOnce(plan)
                     if (this.copyHold) {
                         this.state = 'stopped'
                         this.message = this.copyHold
@@ -1096,15 +1141,25 @@ export class GithubSync {
                     reading
                 )
             } finally {
-                this.running = null
+                // Yield so this.running is assigned before we clear it when the body never awaits.
+                await Promise.resolve()
+                if (this.running === gate.run) this.running = null
             }
         })()
-        return this.running
+        this.running = gate.run
+        return gate.run
     }
 
-    private async pushOnce(): Promise<void> {
+    private async pushOnce(plan: ActivePlan): Promise<void> {
         const generation = this.generation
         if (!this.deps.enabled()) return
+        const branch = plan.publishBranch
+        if (plan.invalid || !branch) {
+            this.state = 'stopped'
+            this.message = LIST_UNREADABLE
+            this.nextTryAt = null
+            return
+        }
         let config: ActiveConfig | null
         try {
             config = await this.config()
@@ -1112,12 +1167,21 @@ export class GithubSync {
             this.holdCopy((error as Error).message)
             return
         }
+        // The file can go bad while the credential is read. Do not publish anywhere else, including main.
         if (!config || generation !== this.generation) return
+        if (this.readEnvironment().invalid) {
+            this.state = 'stopped'
+            this.message = LIST_UNREADABLE
+            this.nextTryAt = null
+            return
+        }
         const store = this.deps.store()
         await store.ensure()
         const head = await this.refSha('refs/heads/main')
         const base = await this.refSha(PUSHED_REF)
         if (!head || head === base) {
+            await this.publishEnvironmentNote(config, head, plan, generation)
+            if (generation !== this.generation || this.state === 'stopped') return
             this.state = 'up-to-date'
             this.failures = 0
             this.nextTryAt = null
@@ -1139,12 +1203,14 @@ export class GithubSync {
 
         this.state = 'copying'
         const result = await this.git(
-            ['push', '--porcelain', '--no-verify', config.url, `${head}:refs/heads/${this.plan().publishBranch || 'main'}`],
+            ['push', '--porcelain', '--no-verify', config.url, `${head}:refs/heads/${branch}`],
             authEnv(config.url, config.token)
         )
         if (generation !== this.generation) return
         if (result.ok) {
             await runGit(store.dir, ['update-ref', PUSHED_REF, head])
+            await this.publishEnvironmentNote(config, head, plan, generation)
+            if (generation !== this.generation) return
             this.copyHold = null
             this.state = 'up-to-date'
             this.message = ''
@@ -1173,9 +1239,16 @@ export class GithubSync {
 
     // Prod: reads the newest versions from Dev into INCOMING_REF. It writes nothing to the repository and never
     // changes local main, the work tree, a draft or Live: promoting a version is always a person's choice.
-    private async readOnce(): Promise<void> {
+    private async readOnce(plan: ActivePlan): Promise<void> {
         const generation = this.generation
         if (!this.deps.enabled()) return
+        const branch = plan.sourceBranch
+        if (plan.invalid || !branch) {
+            this.state = 'stopped'
+            this.message = LIST_UNREADABLE
+            this.nextTryAt = null
+            return
+        }
         let config: ActiveConfig | null
         try {
             config = await this.config()
@@ -1184,18 +1257,18 @@ export class GithubSync {
             this.message = (error as Error).message
             return
         }
+        // The file can go bad while the credential is read. Do not fetch main in its place.
         if (!config || generation !== this.generation) return
+        if (this.readEnvironment().invalid) {
+            this.state = 'stopped'
+            this.message = LIST_UNREADABLE
+            this.nextTryAt = null
+            return
+        }
         await this.deps.store().ensure()
         this.state = 'copying'
         const result = await this.git(
-            [
-                'fetch',
-                '--no-tags',
-                '--no-recurse-submodules',
-                '--quiet',
-                config.url,
-                `+refs/heads/${this.plan().sourceBranch || 'main'}:${INCOMING_NEXT_REF}`
-            ],
+            ['fetch', '--no-tags', '--no-recurse-submodules', '--quiet', config.url, `+refs/heads/${branch}:${INCOMING_NEXT_REF}`],
             authEnv(config.url, config.token)
         )
         const dir = this.deps.store().dir
@@ -1208,6 +1281,16 @@ export class GithubSync {
         if (!failure) {
             const next = await runGit(dir, ['rev-parse', '--verify', '-q', `${INCOMING_NEXT_REF}^{commit}`]).catch(() => null)
             const sha = next?.stdout.trim()
+            if (sha && (await this.environmentListDiffers(config, sha, plan, generation))) {
+                await drop(INCOMING_NEXT_REF)
+                await drop(INCOMING_REF)
+                if (generation !== this.generation) return
+                this.state = 'stopped'
+                this.message = LIST_MISMATCH
+                this.nextTryAt = null
+                this.schedule(this.deps.checkEveryMs ?? DEFAULT_CHECK_EVERY_MS)
+                return
+            }
             if (sha) await runGit(dir, ['update-ref', INCOMING_REF, sha])
             await drop(INCOMING_NEXT_REF)
             // Disconnect may have run while the ref moved: it never leaves a read behind.
@@ -1232,6 +1315,57 @@ export class GithubSync {
         }
         this.log(`[versions] Reading GitHub ${config.repo} failed (${failure.kind}): ${scrub(result.stderr, config.token)}`)
         this.scheduleRetry(failure.message, true)
+    }
+
+    // Records this server's list on the copied commit and publishes that note. Best effort: a missing note
+    // does not block the copy. A reader compares it and stops when the lists differ.
+    private async publishEnvironmentNote(config: ActiveConfig, head: string | null, plan: ActivePlan, generation: number): Promise<void> {
+        if (!head || plan.invalid || !plan.environments.length || generation !== this.generation) return
+        const fingerprint = environmentListFingerprint(plan.environments)
+        const dir = this.deps.store().dir
+        try {
+            let existing = ''
+            try {
+                existing = (await runGit(dir, ['notes', 'show', head])).stdout.trim()
+            } catch {
+                existing = ''
+            }
+            if (existing !== fingerprint) await runGit(dir, ['notes', 'add', '-f', '-m', fingerprint, head], NOTE_ENV)
+        } catch (error) {
+            this.log(`[versions] Could not record the environment list: ${scrub((error as Error)?.message || String(error))}`)
+            return
+        }
+        if (generation !== this.generation) return
+        const result = await this.git(
+            ['push', '--porcelain', '--no-verify', config.url, `${ENVIRONMENT_NOTE_REMOTE}:${ENVIRONMENT_NOTE_REMOTE}`],
+            authEnv(config.url, config.token)
+        )
+        if (!result.ok) this.log(`[versions] Could not publish the environment list: ${scrub(result.stderr, config.token)}`)
+    }
+
+    // True when the publisher recorded a list and it is not this server's list. No record yet is not a difference.
+    private async environmentListDiffers(config: ActiveConfig, sha: string, plan: ActivePlan, generation: number): Promise<boolean> {
+        if (plan.invalid || !plan.environments.length || generation !== this.generation) return false
+        const result = await this.git(
+            [
+                'fetch',
+                '--no-tags',
+                '--no-recurse-submodules',
+                '--quiet',
+                config.url,
+                `${ENVIRONMENT_NOTE_REMOTE}:${ENVIRONMENT_NOTE_LOCAL}`
+            ],
+            authEnv(config.url, config.token)
+        )
+        if (!result.ok) return false
+        let note = ''
+        try {
+            note = (await runGit(this.deps.store().dir, ['notes', '--ref=environment-list', 'show', sha])).stdout.trim()
+        } catch {
+            return false
+        }
+        if (!note) return false
+        return note !== environmentListFingerprint(plan.environments)
     }
 
     private scheduleRetry(reason: string, reading = this.readOnly()): void {

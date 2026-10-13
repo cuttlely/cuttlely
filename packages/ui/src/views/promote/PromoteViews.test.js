@@ -52,7 +52,22 @@ describe('PromoteListView', () => {
 
     test('says when everything is Live, and when the server is not set up as Prod', () => {
         expect(render({ list: list([]) })).toContain('Everything from Dev is Live here')
-        expect(render({ list: list([], { enabled: false }) })).toContain('server labeled Prod')
+        expect(render({ list: list([], { enabled: false }) })).toContain('previous environment')
+        expect(render({ list: list([], { enabled: false }) })).not.toContain('labeled Prod')
+        const first = render({
+            list: list([], {
+                enabled: false,
+                environments: [
+                    { name: 'Dev', server: 'dev' },
+                    { name: 'Staging', server: 'staging' },
+                    { name: 'Prod', server: 'prod' }
+                ],
+                target: 'dev',
+                source: null
+            })
+        })
+        expect(first).toContain('first in the list, so it does not promote')
+        expect(first).not.toContain('labeled Prod')
         expect(render({ list: list([], { connected: false }) })).toContain('Connect this server to the repository')
         expect(render({ list: list([]), status: { lastCheckedAt: at } })).toContain('Looked 2 minutes ago')
     })

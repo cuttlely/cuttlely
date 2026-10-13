@@ -1,5 +1,6 @@
 import {
     adjacentError,
+    environmentListFingerprint,
     isLegacyChain,
     legacyEnvironments,
     parseEnvironmentFile,
@@ -98,5 +99,7 @@ describe('environment list', () => {
         expect(sourceTitle(legacyEnvironments(), 'prod')).toBe('Dev')
         expect(sourceTitle(THREE, 'staging')).toBe('Dev')
         expect(sourceTitle(THREE, 'prod')).toBe('Staging')
+        expect(environmentListFingerprint(THREE)).toBe(environmentListFingerprint(THREE.map((item) => ({ ...item }))))
+        expect(environmentListFingerprint(THREE)).not.toBe(environmentListFingerprint(legacyEnvironments()))
     })
 })

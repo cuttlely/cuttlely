@@ -39,6 +39,15 @@ export const sourceTitleOf = (record) => {
 
 export const showEnvironmentChain = (record) => (record?.environments || []).length > 2
 
+// The Dev and Prod buttons. Any other list, including two entries with other server identities, uses its own names.
+export const isSavedDevProdPair = (environments) => {
+    if (!environments || environments.length !== 2) return false
+    const [dev, prod] = environments
+    const named = (item, server) =>
+        item?.server === server && String(item?.name || '').toLowerCase() === server && (item.branch == null || item.branch === 'main')
+    return named(dev, 'dev') && named(prod, 'prod')
+}
+
 export const howItWorks = (record) => {
     if (!showEnvironmentChain(record)) return HOW_IT_WORKS
     const from = sourceTitleOf(record)

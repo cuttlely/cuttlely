@@ -292,12 +292,12 @@ Or use a **Github API** credential already in the caller's workspace instead of 
 { "repo": "acme/cuttlely-flows", "credentialId": "<credential id>" }
 ```
 
-`repo` is `owner/name` or the repository's `https://github.com/owner/name` address. Cuttlely first asks GitHub for the repository's branches and tags with that token. Nothing is saved unless that works. The repository must be empty (no branches or tags at all), or have a `main` that is already part of this server's history (for example, one this server copied to before). A repository with a `master` or any other branch, or a tag, but no `main` is refused. Then a pasted token is saved as a new **Github API** credential in the caller's workspace, named `credentialName` or `GitHub: <owner/name>`, and Cuttlely saves the connection and copies every version. A token that fails the check is never saved.
+`repo` is `owner/name` or the repository's `https://github.com/owner/name` address. Cuttlely first asks GitHub for the repository's branches and tags with that token. Nothing is saved unless that works. With the saved Dev and Prod pair, the repository must be empty (no branches or tags at all), or have a `main` that is already part of this server's history (for example, one this server copied to before). A repository with a `master` or any other branch, or a tag, but no `main` is refused. With a named list, the check is this server's own publish branch: that branch must be absent, or already part of this server's history. Other environments' branches may already be in the repository. A read-only server (the last in the list) does not need `main` and does not need its own publish branch. Then a pasted token is saved as a new **Github API** credential in the caller's workspace, named `credentialName` or `GitHub: <owner/name>`, and Cuttlely saves the connection and copies every version. A token that fails the check is never saved.
 
-| Status | When                                                                                                                                                                          |
-| ------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 400    | The repository or token is not valid, GitHub did not accept the token, the repository is not there, or GitHub could not be reached. The message says which. Nothing is saved. |
-| 409    | History is off, or the repository already has other content (a `main` this server did not write, or other branches or tags and no `main`).                                    |
+| Status | When                                                                                                                                                                                                                                                                                    |
+| ------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 400    | The repository or token is not valid, GitHub did not accept the token, the repository is not there, or GitHub could not be reached. The message says which. Nothing is saved.                                                                                                           |
+| 409    | History is off, or the repository already has other content. For the saved pair that is a `main` this server did not write, or other branches or tags and no `main`. For a named list it is this server's publish branch when that branch is not already part of this server's history. |
 
 ### Disconnect
 
@@ -380,16 +380,17 @@ Switching this server, or saving a list that changes what it reads or copies, wh
 -   The token is a **Github API** credential, encrypted like every credential. Change it on the Credentials page and the next copy uses the new one. The connection itself (repository, its address, credential id and name) is a file in the history repo's `.git` folder, outside the files Git tracks, so it is never in a version. The token reaches Git only in the environment of the copy, as an HTTP header for that repository. It is not written into the repo's settings, a remote address, a command line, or the logs.
 -   Flow credentials are never copied. Each version names the credentials a flow uses by name and type, as in [Version files](./version-files.md), so another server can match them to its own Credentials by name.
 -   Cuttlely does not add a remote to the history repo. It keeps the last copied version in the ref `refs/versions/github`.
+-   With that copy, the publishing server records a fingerprint of its environment list. A reading server compares the fingerprint with its own list and stops when they differ, so a stale list cannot promote an earlier environment straight through. Until a publisher has copied once, there is no fingerprint yet.
 
 ### How Prod reads
 
--   Prod connects to the repository Dev copies to, with the same `PUT /github`. An empty repository is fine (Dev has not copied yet). A repository with other content and no `main` is refused. The token needs **Contents: Read** only.
--   Every two minutes, and on `POST /github/push` (**Try again**), Prod reads the previous environment's branch into the ref `refs/versions/incoming`. With the saved Dev and Prod pair, that branch is `main`. It changes nothing else: not its own history, not a flow, not a draft, not Live. A failed read retries like a failed copy and never affects Live flows.
+-   Prod connects to the repository the previous environment copies to, with the same `PUT /github`. With the saved Dev and Prod pair, an empty repository is fine (Dev has not copied yet), and a repository with other content and no `main` is refused. With a named list, connect checks this server's own publish branch. A read-only server does not need `main`. The token needs **Contents: Read** only.
+-   Every two minutes, and on `POST /github/push` (**Try again**), Prod reads the previous environment's branch into the ref `refs/versions/incoming`. With the saved Dev and Prod pair, that branch is `main`. It changes nothing else: not its own history, not a flow, not a draft, not Live. A failed read retries like a failed copy and never affects Live flows. When the publisher's list fingerprint differs from this server's list, the read stops and those versions are not offered.
 -   Disconnecting forgets `refs/versions/incoming` too.
 
 ## Promote from Dev to Prod
 
-On a server that has a previous environment (Prod, in the saved pair), these routes list the flows with a new version from that environment, show one with what it changes and the credentials it needs, run the behavior check against Live, and promote it. Promotion moves only to the next environment. How to use it from the app: [Move a flow from Dev to Prod](../how-to/versioning.md#move-a-flow-from-dev-to-prod). They need a signed-in organization owner, like the GitHub routes. On the first environment the list is empty and Promote is 409.
+On a server that has a previous environment (Prod, in the saved pair), these routes list the flows with a new version from that environment, show one with what it changes and the credentials it needs, run the behavior check against Live, and promote it. Promotion moves only to the next environment. How to use it from the app: [Move a flow from Dev to Prod](../how-to/versioning.md#move-a-flow-from-dev-to-prod). They need a signed-in organization owner, like the GitHub routes. On the first environment the list is empty and Promote is 409. Staging, and any environment that is not first, may promote from the previous one.
 
 The list also returns `environments` (the order), `source` (the previous server identity) and `target` (this server). A saved Dev and Prod label returns dev, then prod, with `source` `dev`.
 
@@ -473,10 +474,10 @@ The list also returns `environments` (the order), `source` (the previous server 
 -   A draft here is kept, unchanged, and stays marked as started from the old Live, so **Publish** asks before replacing what was promoted.
 -   Nothing is ever promoted on its own.
 
-| Status | When                                                                                                                                                  |
-| ------ | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 400    | `sha` is not 40 lowercase hex characters.                                                                                                             |
-| 409    | A newer version arrived from Dev, the version is no longer offered, a credential is missing (the message lists each one), or this server is not Prod. |
+| Status | When                                                                                                                                                                                                                                                                                                                                                             |
+| ------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 400    | `sha` is not 40 lowercase hex characters.                                                                                                                                                                                                                                                                                                                        |
+| 409    | A newer version arrived, the version is no longer offered, a credential is missing (the message lists each one), this server is the first environment (it publishes and does not promote), or `from` is not the previous environment. Staging may promote. With the saved pair, the first environment is Dev and the message still says this server is not Prod. |
 
 ### Behavior check
 

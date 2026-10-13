@@ -130,10 +130,19 @@ export const PromoteListView = ({ list, status, loading, error, checking, onChec
     }
     if (error) return <Alert severity='error'>{error}</Alert>
     if (list && !list.enabled) {
+        const chain = list.environments || []
+        const first = chain.length >= 2 && chain[0].server === list.target
+        if (first) {
+            return (
+                <Alert severity='info' data-testid='promote-not-prod'>
+                    This server is first in the list, so it does not promote. The next environment promotes what this server publishes.
+                </Alert>
+            )
+        }
         return (
             <Alert severity='info' data-testid='promote-not-prod'>
-                Promoting works on a server labeled Prod. Label this server Prod and connect it to the repository your Dev server copies to,
-                on the <RouterLink to='/version-history'>Version History</RouterLink> page.
+                Promoting works on a server that has a previous environment. Connect it to the repository the previous environment publishes
+                to, on the <RouterLink to='/version-history'>Version History</RouterLink> page.
             </Alert>
         )
     }

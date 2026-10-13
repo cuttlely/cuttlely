@@ -58,4 +58,21 @@ describe('GithubCard environment names', () => {
         expect(html).not.toContain('from your Dev server')
         expect(html).not.toContain('from Dev')
     })
+
+    test('a two-entry list that is not Dev and Prod uses those server identities', () => {
+        const html = wrap(
+            status({
+                role: 'copy',
+                environment: 'qa',
+                environments: [
+                    { name: 'QA', branch: 'qa', server: 'qa' },
+                    { name: 'Live', branch: 'live', server: 'live' }
+                ]
+            })
+        )
+        expect(html).toContain('value="qa"')
+        expect(html).toContain('value="live"')
+        expect(html).not.toContain('value="dev"')
+        expect(html).not.toContain('value="prod"')
+    })
 })
