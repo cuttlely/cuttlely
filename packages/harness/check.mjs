@@ -87,13 +87,16 @@ const {
     analystTraceRowCap,
     emptyTrace,
     explainTruncation,
+    buildRunTrace,
     publicToolStep,
     reduceHarnessEvent,
     routeSummary,
     settleToolChips,
     snapshotSpecialist,
     toolChipLabel,
-    traceFromPayload
+    TRACE_JSON_LIMIT,
+    traceFromPayload,
+    traceQuestionForCaption
 } = await import('./trace.mjs')
 const { getHarness } = await import('./store.mjs')
 const { CHIEF_MODEL_REQUIRED } = await import('./errors.mjs')
@@ -10031,6 +10034,114 @@ await expectCase('harness runs keep a summary with status, latency, and a trace 
     check(
         'harness runs keep a summary with status, latency, and a trace link',
         failedRow?.status === 'failed' && Boolean(finished) && workspace?.status === 'failed' && capped.length === 100,
+        'see the rows above'
+    )
+})
+
+await expectCase('a stored question is redacted in full and does not push the trace out of history', async () => {
+    const secret = 'postgres://user:s3cret-pass@db.example/warehouse'
+    const asked = `${'Please compare the warehouse export. '.repeat(16)}${secret} List every ticket`
+    const preview = {
+        columns: ['id', 'title'],
+        rows: [
+            ['1', 'Ticket 1'],
+            ['2', 'Ticket 2'],
+            ['3', 'Ticket 3'],
+            ['4', 'Ticket 4'],
+            ['5', 'Ticket 5']
+        ],
+        moreRows: true,
+        nextPage: true,
+        moreColumns: false,
+        columnCount: 2,
+        summary: 'rows 1-100 of 150 (page 1 of 2, say "show more" for the next page)'
+    }
+    const secretTrace = buildRunTrace({
+        harness: 'trace-question',
+        steps: [{ specialist: 'analyst', task: asked }],
+        question: asked,
+        agents: [
+            {
+                name: 'analyst',
+                status: 'completed',
+                tools: [{ name: 'mcp__analyst__query', status: 'done', rowCount: 100, preview }]
+            }
+        ]
+    })
+    const secretSaved = finishHarnessRun(beginHarnessRun({ name: 'trace-question', chatId: 'secret', source: 'api', input: asked }), {
+        result: { text: 'Listed the tickets.', trace: secretTrace, agents: secretTrace.specialists, report: {} }
+    })
+    const secretRow = getRun('trace-question', secretSaved?.id)
+    const secretJson = JSON.stringify(secretRow)
+    const secretView = analystStepView(secretTrace.specialists[0].tools[0])
+    check(
+        'a secret past the first 500 characters is redacted on the trace and on the runs API',
+        asked.indexOf(secret) > 500 &&
+            asked.length > 500 &&
+            secretTrace.question.includes('[redacted]') &&
+            !secretTrace.question.includes('s3cret-pass') &&
+            !secretTrace.questionCut &&
+            secretRow?.trace?.question === secretTrace.question &&
+            !secretJson.includes('s3cret-pass') &&
+            !secretJson.includes(secret) &&
+            secretRow.trace.specialists[0].tools[0].rowCount === 100 &&
+            secretRow.trace.specialists[0].tools[0].preview.rows[0][1] === 'Ticket 1',
+        JSON.stringify({ at: asked.indexOf(secret), question: secretTrace.question, stored: Boolean(secretRow?.trace) })
+    )
+    const longQuestion = `List every ticket ${'q'.repeat(25000)}`
+    const longTrace = buildRunTrace({
+        harness: 'trace-question',
+        steps: [{ specialist: 'analyst', task: 'List every ticket' }],
+        question: longQuestion,
+        agents: [
+            {
+                name: 'analyst',
+                status: 'completed',
+                tools: [{ name: 'mcp__analyst__query', status: 'done', rowCount: 100, preview }]
+            }
+        ]
+    })
+    const longJson = JSON.stringify(longTrace)
+    const longSaved = finishHarnessRun(beginHarnessRun({ name: 'trace-question', chatId: 'long', source: 'api', input: longQuestion }), {
+        result: { text: 'Listed the tickets.', trace: longTrace, agents: longTrace.specialists, report: {} }
+    })
+    const longRow = listRuns('trace-question', { limit: 5 }).find((run) => run.chatId === 'long')
+    const listing = analystPreviewCaption(secretView, 'List every ticket')
+    const cutCaption = analystPreviewCaption(secretView, traceQuestionForCaption(longTrace))
+    check(
+        'a 25000 character question keeps the trace json, the row count, and the preview',
+        longQuestion.length >= 25000 &&
+            longJson.length <= TRACE_JSON_LIMIT &&
+            !longJson.includes(longQuestion) &&
+            longTrace.specialists[0].tools[0].rowCount === 100 &&
+            longTrace.specialists[0].tools[0].preview.rows.length === 5 &&
+            longSaved?.trace &&
+            longRow?.trace?.specialists?.[0]?.tools?.[0]?.rowCount === 100 &&
+            longRow.trace.specialists[0].tools[0].preview.rows[0][0] === '1',
+        JSON.stringify({
+            json: longJson.length,
+            stored: Boolean(longRow?.trace),
+            row: longRow?.trace?.specialists?.[0]?.tools?.[0]?.rowCount
+        })
+    )
+    check(
+        'a cut question does not say the rows are in the answer',
+        longTrace.questionCut === true &&
+            longTrace.question.startsWith('List every ticket') &&
+            longTrace.question.endsWith('…') &&
+            traceQuestionForCaption(longTrace) === '' &&
+            listing.includes('in this chat') &&
+            !cutCaption.includes('in this chat') &&
+            cutCaption.includes('The answer can show fewer rows than the query returned.'),
+        JSON.stringify({ cut: longTrace.questionCut, asked: traceQuestionForCaption(longTrace), cutCaption, listing })
+    )
+    check(
+        'a stored question is redacted in full and does not push the trace out of history',
+        secretTrace.question.includes('[redacted]') &&
+            !secretJson.includes('s3cret-pass') &&
+            longJson.length <= TRACE_JSON_LIMIT &&
+            Boolean(longRow?.trace) &&
+            !cutCaption.includes('in this chat'),
         'see the rows above'
     )
 })

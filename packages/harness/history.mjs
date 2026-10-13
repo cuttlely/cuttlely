@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { settleToolChips } from './trace.mjs'
+import { TRACE_JSON_LIMIT, redactSecrets, settleToolChips } from './trace.mjs'
 import { database, immediate } from './lock.mjs'
 import { assertHarnessName } from './store.mjs'
 
@@ -44,11 +44,7 @@ export function previewText(value, limit = PREVIEW) {
     let text = String(value ?? '')
         .replace(/\s+/g, ' ')
         .trim()
-    text = text
-        .replace(/\bsk-[A-Za-z0-9_-]{8,}\b/g, '[redacted]')
-        .replace(/\bxai-[A-Za-z0-9_-]{8,}\b/g, '[redacted]')
-        .replace(/Bearer\s+\S+/gi, 'Bearer [redacted]')
-        .replace(/\bpostgres(?:ql)?:\/\/\S+/gi, '[redacted]')
+    text = redactSecrets(text)
     if (text.length > limit) text = `${text.slice(0, limit)}…`
     return text
 }
@@ -175,7 +171,7 @@ function traceJson(result) {
     if (!trace || typeof trace !== 'object' || !trace.route) return null
     try {
         const body = JSON.stringify(trace)
-        if (body.length > 20000) return null
+        if (body.length > TRACE_JSON_LIMIT) return null
         return body
     } catch {
         return null

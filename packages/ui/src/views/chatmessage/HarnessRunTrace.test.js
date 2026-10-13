@@ -164,6 +164,17 @@ describe('which question the caption uses', () => {
         expect(caption(pageLine(), preview)).toContain('in this chat')
     })
 
+    test('a cut trace question does not produce the rows sentence', () => {
+        const cut = questionForTrace({ question: 'List every ticket and the rest was cut…', questionCut: true }, '')
+        expect(cut).toBe('')
+        const html = caption(pageLine(), cut)
+        expect(html).toContain('The answer can show fewer rows than the query returned.')
+        expect(html).not.toContain('in this chat')
+        expect(questionForTrace({ question: 'List every ticket and the rest was cut…', questionCut: true }, 'List every ticket')).toBe(
+            'List every ticket'
+        )
+    })
+
     test('an uncut history preview is still used as the question', () => {
         const listing = 'List every ticket'
         const count = 'How many tickets are in the table?'

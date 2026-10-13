@@ -10,7 +10,8 @@ import {
     formatDuration,
     formatTokens,
     routeSummary,
-    toolChipLabel
+    toolChipLabel,
+    traceQuestionForCaption
 } from '../../../../../packages/harness/trace.mjs'
 
 const FILL_NOTE = {
@@ -170,7 +171,7 @@ export function previousUserQuestion(messages, index) {
 // before that final event, or a trace saved before questions were stored.
 // A chat bubble or a later edit of the Try it box can differ from that question.
 export function questionForTrace(trace, question) {
-    const stored = typeof trace?.question === 'string' ? trace.question.trim() : ''
+    const stored = traceQuestionForCaption(trace)
     if (stored) return stored
     return typeof question === 'string' ? question : ''
 }

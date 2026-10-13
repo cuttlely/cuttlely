@@ -18,6 +18,60 @@ const SPECIALIST_PARTS = {
     sources: (name) => `Source snippets from ${name} were shortened before Harness Prime read them.`
 }
 
+// history.mjs drops a trace whose JSON is longer than this. The question is the part that shrinks.
+export const TRACE_JSON_LIMIT = 20000
+
+// The same replacements previewText uses, with no length cut. A secret past the
+// first 240 or 500 characters is still a secret.
+export function redactSecrets(value) {
+    return String(value ?? '')
+        .replace(/\bsk-[A-Za-z0-9_-]{8,}\b/g, '[redacted]')
+        .replace(/\bxai-[A-Za-z0-9_-]{8,}\b/g, '[redacted]')
+        .replace(/Bearer\s+\S+/gi, 'Bearer [redacted]')
+        .replace(/\bpostgres(?:ql)?:\/\/\S+/gi, '[redacted]')
+}
+
+function redactTraceQuestion(value) {
+    return redactSecrets(
+        String(value ?? '')
+            .replace(/\s+/g, ' ')
+            .trim()
+    )
+}
+
+function traceJsonFits(trace) {
+    return JSON.stringify(trace).length <= TRACE_JSON_LIMIT
+}
+
+// A question that does not fit is cut, and marked so the caption does not treat
+// the remaining words as the question the run asked. The row count and preview stay.
+function fitTraceQuestion(trace, question) {
+    const redacted = redactTraceQuestion(question)
+    if (!redacted) return trace
+    const full = { ...trace, question: redacted }
+    if (traceJsonFits(full)) return full
+    let lo = 0
+    let hi = redacted.length
+    let best = -1
+    while (lo <= hi) {
+        const mid = (lo + hi) >> 1
+        const cut = `${redacted.slice(0, mid)}…`
+        if (traceJsonFits({ ...trace, question: cut, questionCut: true })) {
+            best = mid
+            lo = mid + 1
+        } else hi = mid - 1
+    }
+    if (best < 0) return trace
+    return { ...trace, question: `${redacted.slice(0, best)}…`, questionCut: true }
+}
+
+// A cut question is not evidence that the answer has the rows. Callers that still
+// have the sent prompt, the previous chat message, or an uncut preview pass that instead.
+export function traceQuestionForCaption(trace) {
+    if (!trace || trace.questionCut) return ''
+    return typeof trace.question === 'string' ? trace.question.trim() : ''
+}
+
 export function publicTask(task) {
     const value = String(task ?? '')
         .replace(/\s+/g, ' ')
@@ -635,7 +689,7 @@ export function buildRunTrace({
     const specialistsMs = timings.specialistsMs ?? timings.toolMs ?? 0
     const handoffMs = direct ? 0 : timings.handoffMs ?? 0
     const truncated = (report?.truncated || []).filter(Boolean).map((field) => ({ field, reason: explainTruncation(field) }))
-    return {
+    const body = {
         harness: harness || '',
         status: (agents || []).some((agent) => agent.status === 'failed') ? 'partial' : 'completed',
         direct: Boolean(direct),
@@ -688,9 +742,9 @@ export function buildRunTrace({
                       fallback: handoffFallback || '',
                       tokens: handoffTokens
                   },
-        ...(direct && directDetail ? { directDetail } : {}),
-        ...(String(question || '').trim() ? { question: String(question) } : {})
+        ...(direct && directDetail ? { directDetail } : {})
     }
+    return fitTraceQuestion(body, question)
 }
 
 export function traceFromPayload(payload) {
