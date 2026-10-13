@@ -45,11 +45,46 @@ import {
 import { AppError } from '../errors/appError'
 import { getErrorMessage } from '../errors/utils'
 import logger from './logger'
+import { ChatMessage } from '../database/entities/ChatMessage'
 import { Variable } from '../database/entities/Variable'
 import { getWorkspaceSearchOptions } from '../identity/workspaceScope'
 import { DataSource } from 'typeorm'
 import { CachePool } from '../CachePool'
-import { applyCarriedUsage, ChatflowTokenUsage, recordCompletedRun, waitingForApproval, withCarriedUsage } from '../services/usage'
+import { applyCarriedUsage, ChatflowTokenUsage, recordCompletedRun, withCarriedUsage } from '../services/usage'
+
+// The canvas posts the action it was streamed. That copy can omit or invent priorUsage.
+// The saved chat message is the copy written by the server, so the resume reads that.
+async function storedPriorUsage(
+    appDataSource: DataSource,
+    chatId: string,
+    sessionId: string | undefined,
+    actionId: string | undefined
+): Promise<unknown> {
+    if (!actionId || typeof appDataSource?.getRepository !== 'function') return undefined
+    const repo = appDataSource.getRepository(ChatMessage)
+    if (typeof repo?.createQueryBuilder !== 'function') return undefined
+    let rows: Array<{ action?: string | null }> = []
+    try {
+        rows = await repo
+            .createQueryBuilder('chat_message')
+            .where('chat_message.chatId = :chatId', { chatId })
+            .orWhere('chat_message.sessionId = :sessionId', { sessionId })
+            .orderBy('chat_message.createdDate', 'DESC')
+            .getMany()
+    } catch {
+        return undefined
+    }
+    for (const row of rows) {
+        if (!row?.action || typeof row.action !== 'string') continue
+        try {
+            const saved = JSON.parse(row.action) as { id?: string; priorUsage?: unknown }
+            if (saved?.id === actionId) return saved.priorUsage
+        } catch {
+            // A message action that is not JSON is not this interrupt.
+        }
+    }
+    return undefined
+}
 
 /**
  * Build Agent Graph
@@ -105,7 +140,15 @@ export const buildAgentGraph = async ({
         const uploads = incomingInput.uploads
 
         const chatflowTokenUsage = new ChatflowTokenUsage()
-        applyCarriedUsage(chatflowTokenUsage, incomingInput.action)
+        const requestedAction = incomingInput.action
+        const seededAction =
+            requestedAction && typeof requestedAction === 'object'
+                ? {
+                      ...requestedAction,
+                      priorUsage: await storedPriorUsage(appDataSource, chatId, sessionId, (requestedAction as { id?: string }).id)
+                  }
+                : undefined
+        applyCarriedUsage(chatflowTokenUsage, seededAction)
         const options = {
             orgId,
             workspaceId,
@@ -373,18 +416,21 @@ export const buildAgentGraph = async ({
                                 approveButtonText = node.data.inputs?.approveButtonText || 'Yes'
                                 rejectButtonText = node.data.inputs?.rejectButtonText || 'No'
                             }
-                            finalAction = {
-                                id: uuidv4(),
-                                mapping: {
-                                    approve: approveButtonText,
-                                    reject: rejectButtonText,
-                                    toolCalls: lastMessageRaw.tool_calls
+                            finalAction = withCarriedUsage(
+                                {
+                                    id: uuidv4(),
+                                    mapping: {
+                                        approve: approveButtonText,
+                                        reject: rejectButtonText,
+                                        toolCalls: lastMessageRaw.tool_calls
+                                    },
+                                    elements: [
+                                        { type: 'approve-button', label: approveButtonText },
+                                        { type: 'reject-button', label: rejectButtonText }
+                                    ]
                                 },
-                                elements: [
-                                    { type: 'approve-button', label: approveButtonText },
-                                    { type: 'reject-button', label: rejectButtonText }
-                                ]
-                            }
+                                chatflowTokenUsage
+                            )
                             if (shouldStreamResponse && sseStreamer) {
                                 sseStreamer.streamTokenEvent(chatId, finalResult)
                                 sseStreamer.streamActionEvent(chatId, finalAction)
@@ -412,7 +458,7 @@ export const buildAgentGraph = async ({
 
                 return {
                     finalResult,
-                    finalAction: waitingForApproval(finalAction) ? withCarriedUsage(finalAction, chatflowTokenUsage) : finalAction,
+                    finalAction,
                     sourceDocuments: totalSourceDocuments,
                     artifacts: totalArtifacts,
                     usedTools: totalUsedTools,

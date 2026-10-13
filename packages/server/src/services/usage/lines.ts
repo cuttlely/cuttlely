@@ -181,7 +181,7 @@ export function carriedUsageLines(usage: ChatflowTokenUsage): Array<{ model: str
     return usage.sink.map((row) => ({ model: row.model, promptTokens: row.promptTokens, completionTokens: row.completionTokens }))
 }
 
-// A Sequential Agents interrupt round-trips on the action. The resume starts from these lines, then adds later calls.
+// Lines taken from the saved chat message for this action. The request's own priorUsage is not used.
 export function applyCarriedUsage(usage: ChatflowTokenUsage, action: unknown) {
     const lines = action && typeof action === 'object' ? (action as { priorUsage?: unknown }).priorUsage : undefined
     if (!Array.isArray(lines)) return

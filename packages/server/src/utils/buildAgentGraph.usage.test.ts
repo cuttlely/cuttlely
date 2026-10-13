@@ -3,7 +3,7 @@
  * in-process counter a chatflow uses, and a finished graph returns it for that write. An aborted graph does not.
  */
 import { buildAgentGraph } from './buildAgentGraph'
-import { applyCarriedUsage, ChatflowTokenUsage, recordCompletedRun, waitingForApproval, withCarriedUsage } from '../services/usage'
+import { ChatflowTokenUsage, recordCompletedRun, waitingForApproval } from '../services/usage'
 
 jest.mock('./logger', () => ({
     __esModule: true,
@@ -134,51 +134,273 @@ describe('Multi Agents usage', () => {
         expect(queries[0][1]).toEqual(expect.arrayContaining(['w1', 'f1', 'gpt-4.1-mini', 5, 2]))
     })
 
-    it('does not store a Sequential Agents interrupt, and stores one total after approval', async () => {
-        const waiting = new ChatflowTokenUsage()
-        waiting.sink.push({ model: 'gpt-4.1-mini', promptTokens: 50, completionTokens: 20 })
-        const action = withCarriedUsage({ id: 'act-1', mapping: { approve: 'Yes', reject: 'No', toolCalls: [] } }, waiting)
-        expect(waitingForApproval(action)).toBe(true)
-        expect(action.priorUsage).toEqual([{ model: 'gpt-4.1-mini', promptTokens: 50, completionTokens: 20 }])
+    it('does not return a counter when the graph is aborted', async () => {
+        const result = await runGraph('abort')
+        expect(result.tokenUsage).toBeUndefined()
+        expect(result.finalResult).toBe('')
+    })
+})
 
-        const queries: unknown[][] = []
-        const dataSource = {
+const seqNodeFile = require('path').join(require('os').tmpdir(), `seq-interrupt-${process.pid}.js`)
+const seqRequireFrom = JSON.stringify(require('path').join(__dirname, 'buildAgentGraph.usage.test.ts'))
+require('fs').writeFileSync(
+    seqNodeFile,
+    `
+const { createRequire } = require('module')
+const req = createRequire(${seqRequireFrom})
+const { AIMessage } = req('@langchain/core/messages')
+const { START } = req('@langchain/langgraph')
+class Node {
+  async init(nodeData) {
+    if (nodeData.name === 'seqEnd') {
+      const { END } = req('@langchain/langgraph')
+      return { id: nodeData.id, node: END, name: END, label: END, type: 'end', predecessorAgents: [{ name: 'baker' }] }
+    }
+    return {
+      id: 'seqLLM_0',
+      name: 'baker',
+      type: 'llm',
+      llm: { bindTools() { return this } },
+      predecessorAgents: [{ name: START }],
+      node: async (_state, config) => {
+        try {
+        const plan = global.__seqPlan || []
+        const round = plan[(global.__seqRound = (global.__seqRound || 0) + 1) - 1] || plan[plan.length - 1]
+        const handlers = config && config.callbacks && config.callbacks.handlers ? config.callbacks.handlers : []
+        const reported = {
+          generations: [[{
+            message: {
+              usage_metadata: { input_tokens: round.input, output_tokens: round.output, total_tokens: round.input + round.output },
+              response_metadata: { model_name: 'gpt-4.1-mini' }
+            }
+          }]]
+        }
+        for (const handler of handlers) {
+          if (typeof handler.handleLLMEnd !== 'function') continue
+          try { await handler.handleLLMEnd(reported, 'seq-run-' + global.__seqRound) } catch (error) {}
+        }
+        return {
+          messages: [new AIMessage({
+            content: round.tools ? '' : 'Loaf is ready.',
+            tool_calls: round.tools ? [{ id: 'call-' + global.__seqRound, name: 'lookup', args: { q: 'loaf' }, type: 'tool_call' }] : [],
+            additional_kwargs: { nodeId: 'seqLLM_0' }
+          })]
+        }
+        } catch (error) { throw new Error('node-failed ' + (error && error.message)) }
+      }
+    }
+  }
+}
+module.exports = { nodeClass: Node }
+`
+)
+
+const seqCanvas = () => {
+    const blank = { inputParams: [], inputAnchors: [], outputAnchors: [], outputs: {} }
+    return [
+        {
+            id: 'seqStart_0',
+            data: {
+                id: 'seqStart_0',
+                name: 'seqStart',
+                label: 'Start',
+                category: 'Sequential Agents',
+                inputs: {},
+                instance: { name: 'start', label: 'Start' },
+                ...blank
+            }
+        },
+        {
+            id: 'seqLLM_0',
+            data: {
+                id: 'seqLLM_0',
+                name: 'seqLLMNode',
+                label: 'Baker',
+                category: 'Sequential Agents',
+                inputs: {},
+                instance: {
+                    name: 'baker',
+                    label: 'Baker',
+                    agentInterruptToolNode: { seekPermissionMessage: async () => 'Approve the lookup?' }
+                },
+                ...blank
+            }
+        },
+        {
+            id: 'seqEnd_0',
+            data: {
+                id: 'seqEnd_0',
+                name: 'seqEnd',
+                label: 'End',
+                category: 'Sequential Agents',
+                inputs: {},
+                instance: { name: 'end', label: 'End' },
+                ...blank
+            }
+        }
+    ]
+}
+
+function chatStore() {
+    const messages: Array<{ action?: string; chatId: string; sessionId: string }> = []
+    const appDataSource = {
+        options: { type: 'sqlite' },
+        query: async () => undefined,
+        getRepository: (entity: { name?: string }) => {
+            if (entity?.name === 'ChatMessage') {
+                return {
+                    createQueryBuilder: () => {
+                        const qb: any = {
+                            where: () => qb,
+                            orWhere: () => qb,
+                            orderBy: () => qb,
+                            getMany: async () => [...messages].reverse()
+                        }
+                        return qb
+                    }
+                }
+            }
+            return { findBy: async () => [] }
+        }
+    }
+    return { messages, appDataSource }
+}
+
+function streamer() {
+    const actions: any[] = []
+    const sseStreamer = new Proxy(
+        {},
+        {
+            get: (_target, name) => {
+                if (name === 'streamActionEvent') return (_chatId: string, data: unknown) => actions.push(data)
+                return () => undefined
+            }
+        }
+    )
+    return { actions, sseStreamer }
+}
+
+async function runSequential(appDataSource: any, sseStreamer: any, action?: Record<string, unknown>) {
+    return buildAgentGraph({
+        agentflow: { id: 'f1', name: 'team', flowData: '{}', workspaceId: 'w1' } as any,
+        flowConfig: { ...FLOW_CONFIG } as any,
+        incomingInput: { question: 'hi', history: [], overrideConfig: {}, ...(action ? { action } : {}) } as any,
+        nodes: [],
+        edges: [],
+        initializedNodes: seqCanvas() as any,
+        endingNodeIds: ['seqEnd_0'],
+        startingNodeIds: ['seqStart_0'],
+        depthQueue: { seqLLM_0: 0, seqEnd_0: 1 },
+        chatHistory: [],
+        uploadedFilesContent: '',
+        appDataSource,
+        componentNodes: { seqLLMNode: { filePath: seqNodeFile }, seqEnd: { filePath: seqNodeFile } } as any,
+        sseStreamer,
+        shouldStreamResponse: true,
+        cachePool: {} as any,
+        baseURL: 'http://127.0.0.1',
+        orgId: 'o1',
+        workspaceId: 'w1'
+    })
+}
+
+function saveInterrupt(messages: Array<{ action?: string; chatId: string; sessionId: string }>, action: unknown) {
+    messages.push({ action: JSON.stringify(action), chatId: 'c1', sessionId: 's1' })
+}
+
+async function storedTotal(usage: ChatflowTokenUsage) {
+    const queries: unknown[][] = []
+    await recordCompletedRun(
+        {
             options: { type: 'sqlite' },
             query: async (...args: unknown[]) => {
                 queries.push(args)
             }
-        }
-        if (!waitingForApproval(action)) {
-            await recordCompletedRun(dataSource, {
-                workspaceId: 'w1',
-                flowId: 'f1',
-                result: { metrics: waiting.sink }
-            })
-        }
-        expect(queries).toEqual([])
-
-        const resumed = new ChatflowTokenUsage()
-        applyCarriedUsage(resumed, action)
-        resumed.sink.push({ model: 'gpt-4.1-mini', promptTokens: 10, completionTokens: 4 })
-        expect(waitingForApproval({})).toBe(false)
-        await recordCompletedRun(dataSource, {
+        },
+        {
             workspaceId: 'w1',
             flowId: 'f1',
             result: {
-                metrics: resumed.sink.map((row) => ({
+                metrics: usage.sink.map((row) => ({
                     model: row.model,
                     promptTokens: row.promptTokens,
                     completionTokens: row.completionTokens
                 }))
             }
-        })
-        expect(queries).toHaveLength(1)
-        expect(queries[0][1]).toEqual(expect.arrayContaining(['w1', 'f1', 'gpt-4.1-mini', 60, 24]))
+        }
+    )
+    const amounts = queries.map((query) => query[1] as unknown[])
+    const input = amounts.reduce((sum, row) => sum + Number(row[5] || 0), 0)
+    const output = amounts.reduce((sum, row) => sum + Number(row[6] || 0), 0)
+    return { queries, input, output }
+}
+
+describe('Sequential Agents interrupt on the streaming path', () => {
+    const forged = [{ model: 'gpt-4.1-mini', promptTokens: 999, completionTokens: 999 }]
+
+    beforeEach(() => {
+        ;(global as any).__seqRound = 0
     })
 
-    it('does not return a counter when the graph is aborted', async () => {
-        const result = await runGraph('abort')
-        expect(result.tokenUsage).toBeUndefined()
-        expect(result.finalResult).toBe('')
+    it('streams the waiting lines, saves that action, and stores 60 in and 24 out after approval', async () => {
+        ;(global as any).__seqPlan = [
+            { input: 50, output: 20, tools: true },
+            { input: 10, output: 4, tools: false }
+        ]
+        const { messages, appDataSource } = chatStore()
+        const { actions, sseStreamer } = streamer()
+        const waiting = await runSequential(appDataSource, sseStreamer)
+        expect(actions).toHaveLength(1)
+        expect(actions[0]).toBe(waiting.finalAction)
+        expect(actions[0].priorUsage).toEqual([{ model: 'gpt-4.1-mini', promptTokens: 50, completionTokens: 20 }])
+        expect(waitingForApproval(waiting.finalAction)).toBe(true)
+        saveInterrupt(messages, waiting.finalAction)
+        expect(JSON.parse(messages[0].action || '').priorUsage).toEqual(actions[0].priorUsage)
+
+        const finished = await runSequential(appDataSource, sseStreamer, { ...waiting.finalAction, priorUsage: forged })
+        expect(waitingForApproval(finished.finalAction)).toBe(false)
+        expect(await storedTotal(finished.tokenUsage)).toMatchObject({ input: 60, output: 24 })
+    })
+
+    it('keeps every round across two interrupts', async () => {
+        ;(global as any).__seqPlan = [
+            { input: 50, output: 20, tools: true },
+            { input: 10, output: 4, tools: true },
+            { input: 8, output: 3, tools: false }
+        ]
+        const { messages, appDataSource } = chatStore()
+        const { actions, sseStreamer } = streamer()
+        const first = await runSequential(appDataSource, sseStreamer)
+        saveInterrupt(messages, first.finalAction)
+        const second = await runSequential(appDataSource, sseStreamer, { ...first.finalAction, priorUsage: forged })
+        expect(actions[1]).toBe(second.finalAction)
+        expect(actions[1].priorUsage).toEqual([
+            { model: 'gpt-4.1-mini', promptTokens: 50, completionTokens: 20 },
+            { model: 'gpt-4.1-mini', promptTokens: 10, completionTokens: 4 }
+        ])
+        saveInterrupt(messages, second.finalAction)
+        const finished = await runSequential(appDataSource, sseStreamer, { ...second.finalAction, priorUsage: forged })
+        expect(waitingForApproval(finished.finalAction)).toBe(false)
+        expect(await storedTotal(finished.tokenUsage)).toMatchObject({ input: 68, output: 27 })
+    })
+
+    it('ignores a forged priorUsage and uses the saved message', async () => {
+        ;(global as any).__seqPlan = [
+            { input: 50, output: 20, tools: true },
+            { input: 10, output: 4, tools: false }
+        ]
+        const { messages, appDataSource } = chatStore()
+        const { sseStreamer } = streamer()
+        const waiting = await runSequential(appDataSource, sseStreamer)
+        saveInterrupt(messages, waiting.finalAction)
+        const finished = await runSequential(appDataSource, sseStreamer, {
+            id: waiting.finalAction.id,
+            mapping: waiting.finalAction.mapping,
+            elements: waiting.finalAction.elements,
+            priorUsage: forged
+        })
+        const total = await storedTotal(finished.tokenUsage)
+        expect(total).toMatchObject({ input: 60, output: 24 })
+        expect(total.input).not.toBe(999)
     })
 })
