@@ -21,7 +21,7 @@
 | 15  | Release tooling, changelog, upgrade tests and Compose image fallback (D30, D31)                  | Done                                                                                     |
 | 16  | Brand, theme and screenshots (D38)                                                               | Done                                                                                     |
 | 17  | Fix the open issues                                                                              | Done. Closed issues stay in the tracker                                                  |
-| 18  | First public release, v1.0.0                                                                     | Done. 1.0.1 and 1.0.2 followed: image, GitHub release and npm all from each tag          |
+| 18  | First public release, v1.0.0                                                                     | Done. 1.0.1, 1.0.2 and 1.0.3 followed: image, GitHub release and npm all from each tag   |
 | 19  | Builder UI for harness credentials and MCP servers                                               | Later                                                                                    |
 | 20  | Convert remaining `adapt` catalog rows when a harness needs them (D5)                            | Later, never blocking                                                                    |
 | 21  | Project website with the docs (`website/`)                                                       | Built. Publishing it is a maintainer step                                                |

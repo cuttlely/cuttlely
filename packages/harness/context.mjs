@@ -311,6 +311,16 @@ export function isAnalystCapSummary(summary) {
     return new RegExp(`^(?:${ANALYST_SUMMARY_LINE.source})$`).test(String(summary || '').trim())
 }
 
+// A count or a total does not ask for the rows, so the answer keeps the specialist's sentence.
+// A listing verb in the same question still asks for the rows.
+export function wantsAnalystRows(question) {
+    const text = String(question || '')
+    const aggregate = /\b(how many|count|number of|total|sum|average|avg|mean)\b/i.test(text)
+    const listing = /\b(list|show|select\s+\*|all rows|every row|each row)\b/i.test(text)
+    if (aggregate && !listing) return false
+    return true
+}
+
 export function compactAnalystPageText(content) {
     const text = String(content || '')
     const line = text.match(ANALYST_SUMMARY_LINE)?.[0]
