@@ -69,17 +69,23 @@ const DRAFT = JSON.stringify({
 })
 const FLOW = 'flow-http'
 
+const user = {
+    id: 'user-1',
+    activeWorkspaceId: 'team-a',
+    activeOrganizationId: 'org-1',
+    activeOrganizationSubscriptionId: 'sub-1'
+}
+
 function app() {
     const server = express()
     server.use(express.json())
     server.post('/api/v1/flow-drafts/:chatflowId/check', (req, res, next) => {
-        req.user = {
-            id: 'user-1',
-            activeWorkspaceId: 'team-a',
-            activeOrganizationId: 'org-1',
-            activeOrganizationSubscriptionId: 'sub-1'
-        } as any
+        req.user = user as any
         return controller.startCheck(req, res, next)
+    })
+    server.get('/api/v1/flow-drafts/:chatflowId/check/:checkId', (req, res, next) => {
+        req.user = user as any
+        return controller.getCheck(req, res, next)
     })
     server.use((error: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
         res.status(error.statusCode || 500).json({ message: error.message })
@@ -87,7 +93,7 @@ function app() {
     return server
 }
 
-function post(port: number, body: unknown) {
+function post(port: number, body: unknown, headers: Record<string, string> = {}) {
     const payload = JSON.stringify(body)
     let req: http.ClientRequest
     const done = new Promise<{ status: number; json: any; error?: Error }>((resolve) => {
@@ -97,7 +103,7 @@ function post(port: number, body: unknown) {
                 port,
                 path: `/api/v1/flow-drafts/${FLOW}/check`,
                 method: 'POST',
-                headers: { 'content-type': 'application/json', 'content-length': Buffer.byteLength(payload) }
+                headers: { 'content-type': 'application/json', 'content-length': Buffer.byteLength(payload), ...headers }
             },
             (res) => {
                 const chunks: Buffer[] = []
@@ -118,6 +124,44 @@ function post(port: number, body: unknown) {
         req.end(payload)
     })
     return { request: () => req, done }
+}
+
+function readCheck(port: number, id: string) {
+    return new Promise<{ status: number; json: any }>((resolve, reject) => {
+        const req = http.get({ host: '127.0.0.1', port, path: `/api/v1/flow-drafts/${FLOW}/check/${id}` }, (res) => {
+            const chunks: Buffer[] = []
+            res.on('data', (chunk) => chunks.push(chunk))
+            res.on('end', () => {
+                const text = Buffer.concat(chunks).toString('utf8')
+                let json = null
+                try {
+                    json = text ? JSON.parse(text) : null
+                } catch {
+                    json = null
+                }
+                resolve({ status: res.statusCode || 0, json })
+            })
+        })
+        req.on('error', reject)
+    })
+}
+
+// Holds the replay until the check is stopped, so a finished replay cannot look like a freed slot.
+function holdReplay() {
+    let finish = () => undefined
+    replayHooks.run = ({ signal }) =>
+        new Promise((resolve) => {
+            const done = () => resolve({ text: 'open at 7', metrics: [] })
+            finish = done
+            if (signal.signal.aborted) return done()
+            signal.signal.addEventListener('abort', done, { once: true })
+        })
+    return () => finish()
+}
+
+async function listen(server: http.Server) {
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()))
+    return (server.address() as any).port as number
 }
 
 beforeEach(() => {
@@ -180,6 +224,93 @@ describe('start check over a live socket', () => {
             expect(again.status).toBe(202)
             expect(again.json.status).toBe('running')
         } finally {
+            server.close()
+        }
+    })
+
+    it('frees the running slot when the socket resets as the 202 is written', async () => {
+        let release: () => void = () => undefined
+        const entered = new Promise<void>((resolve) => {
+            scan.entered = resolve
+        })
+        scan.wait = new Promise<void>((resolve) => {
+            release = resolve
+        })
+        const releaseReplay = holdReplay()
+        const server = http.createServer(app())
+        const port = await listen(server)
+        try {
+            const pending = post(port, { questions: ['What time do you open?'] })
+            await entered
+            await new Promise<void>((resolve) => {
+                setTimeout(() => {
+                    release()
+                    pending.request().socket?.resetAndDestroy()
+                    resolve()
+                }, 0)
+            })
+            const response = await pending.done
+            expect(response.error && (response.error as NodeJS.ErrnoException).code).toBe('ECONNRESET')
+            const deadline = Date.now() + 2000
+            while (checks.get(FLOW)?.status === 'running' && Date.now() < deadline) {
+                await new Promise((resolve) => setTimeout(resolve, 10))
+            }
+            expect(checks.get(FLOW)?.status).toBe('stopped')
+            scan.wait = Promise.resolve()
+            scan.entered = () => undefined
+            replayHooks.run = async () => ({ text: 'open at 7', metrics: [] })
+            const again = await post(port, { questions: ['What time do you open?'] }).done
+            expect(again.status).toBe(202)
+            expect(again.json.status).toBe('running')
+        } finally {
+            releaseReplay()
+            server.close()
+        }
+    })
+
+    it('keeps a check that the client read and then closed', async () => {
+        const releaseReplay = holdReplay()
+        const server = http.createServer(app())
+        const port = await listen(server)
+        try {
+            const response = await post(port, { questions: ['What time do you open?'] }, { connection: 'close' }).done
+            expect(response.status).toBe(202)
+            expect(response.json.status).toBe('running')
+            await new Promise((resolve) => setTimeout(resolve, 30))
+            expect(checks.get(FLOW)?.status).toBe('running')
+            const read = await readCheck(port, response.json.id)
+            expect(read.status).toBe(200)
+            expect(read.json.status).toBe('running')
+            expect(read.json.id).toBe(response.json.id)
+        } finally {
+            releaseReplay()
+            server.close()
+        }
+    })
+
+    it('keeps a check when fetch aborts after reading the response body', async () => {
+        const releaseReplay = holdReplay()
+        const server = http.createServer(app())
+        const port = await listen(server)
+        try {
+            const ac = new AbortController()
+            const response = await fetch(`http://127.0.0.1:${port}/api/v1/flow-drafts/${FLOW}/check`, {
+                method: 'POST',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify({ questions: ['What time do you open?'] }),
+                signal: ac.signal
+            })
+            const json = await response.json()
+            expect(response.status).toBe(202)
+            ac.abort()
+            await new Promise((resolve) => setTimeout(resolve, 50))
+            expect(checks.get(FLOW)?.id).toBe(json.id)
+            expect(checks.get(FLOW)?.status).toBe('running')
+            const read = await readCheck(port, json.id)
+            expect(read.status).toBe(200)
+            expect(read.json.status).toBe('running')
+        } finally {
+            releaseReplay()
             server.close()
         }
     })
