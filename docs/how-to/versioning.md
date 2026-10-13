@@ -11,7 +11,7 @@ Install first: [Docker](./docker.md), [From source](./from-source.md), or [Rende
 Each step links to its section below.
 
 1. **Edit a draft.** The canvas saves to a draft, and Live keeps serving until you publish. See [Drafts and Publish](#drafts-and-publish).
-2. **Check before you publish.** A chatflow and a harness replay recent questions on Live and on the draft. An agentflow replays recent questions, or the recorded inputs of a form, webhook, or schedule start. A pipeline lists what changed and does not replay. See [Which canvases get a check](#which-canvases-get-a-check) and [Check recent questions before you publish](#check-recent-questions-before-you-publish).
+2. **Check before you publish.** A chatflow and a harness replay recent questions on Live and on the draft. An agentflow replays recent questions, or the recorded inputs of a form, webhook, or schedule start. A pipeline lists what changed and does not replay. See [Which canvases get a check](#which-canvases-get-a-check) and [Check recent questions before you publish](#check-recent-questions-before-you-publish). To run that check from continuous integration, see [Fail a build when answers change](./ci-gate.md).
 3. **Publish.** Your draft goes Live, and history marks the version **Published**. See [Drafts and Publish](#drafts-and-publish).
 4. **Look back.** Every version says what changed and who changed it. See [Open version history](#open-version-history), [See what changed](#see-what-changed), [Compare with now](#compare-with-now) and [Who changed it](#who-changed-it).
 5. **Undo.** Open an old version as your draft, or roll Live back in one step. See [Restore a version](#restore-a-version).

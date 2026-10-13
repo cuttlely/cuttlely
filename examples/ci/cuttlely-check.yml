@@ -1,10 +1,12 @@
 # Run the Publish check against a Cuttlely server you already operate.
-# This workflow does not start Cuttlely.
+# This workflow does not start Cuttlely. It uses no GitHub Action.
+# If you add a uses: step, pin it to a version tag such as actions/checkout@v4.
 #
 # Repository secret: CUTTLELY_API_KEY
 #   An API key with both view and update for the flow:
 #   chatflows:view and chatflows:update, or agentflows:view and agentflows:update.
 #   Update starts the check. View is required to read the result.
+#   The step does not print the secret. The command reads CUTTLELY_API_KEY from the environment.
 # Repository variables: CUTTLELY_URL, CUTTLELY_FLOW_ID
 #   The server origin, and the flow id from the canvas address bar.
 #   pnpm dev serves the API on port 3000. scripts/start-cuttlely.sh and npx cuttlely start listen on port 43117.
