@@ -368,6 +368,10 @@ function fromMetrics(metrics: unknown): UsageLine[] {
         if (!metric || typeof metric !== 'object') continue
         const record = metric as { model?: unknown; cost_values?: unknown }
         if (record.cost_values) continue
+        // The tracer also stores estimatedTokenUsage: prompt and completion counts, and no model.
+        // The usage write keeps only lines that name a model, so this row is not priced as 'unknown'.
+        const model = typeof record.model === 'string' ? record.model.trim() : ''
+        if (!model && tokenPair(metric)) continue
         pushLine(lines, record.model, metric)
     }
     return lines

@@ -91,7 +91,7 @@ The same response includes `report`:
 
 ### In the Publish check
 
-Before you publish a chatflow or an agentflow, the Publish dialog can ask recent questions again, once on Live and once on your draft. Each question shows the two answers side by side, with the tokens, the time, and an estimated cost under each. The summary shows the token total, the typical time, and the estimated cost for Live and for the draft. The cost is an estimate in US dollars from the current model prices. A model with no price is shown as no price, not as zero.
+Before you publish a chatflow or an agentflow, the Publish dialog can ask recent questions again, once on Live and once on your draft. Each question shows the two answers side by side, with the tokens, the time, and an estimated cost under each. The summary shows the token total, the typical time, and the estimated cost for Live and for the draft. The cost is an estimate in US dollars from the current model prices. The total groups that side's tokens by model and prices each model once. The figure under one answer can differ from the total by one hundred-millionth of a dollar. A model with no price is shown as no price, not as zero.
 
 Those tokens are the total the check counted for that side. The check does not split them into input, output and cached on the dialog, and it does not show the route, specialist and handoff times. Those stay on the run card and in the API response. The estimate uses the input and output tokens each model reported.
 

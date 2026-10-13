@@ -80,6 +80,7 @@ export function summaryText(check) {
         `Live: ${summary.liveTokens ?? 0} tokens, median ${formatMs(summary.liveMedianMs)}`,
         `Draft: ${summary.draftTokens ?? 0} tokens, median ${formatMs(summary.draftMedianMs)}`
     ]
+    // The check total, with each model priced once. It is not the sum of the per-answer figures.
     const liveEstimate = estimateLine('Live', summary.liveEstimatedCostUsd, summary.livePrice)
     const draftEstimate = estimateLine('Draft', summary.draftEstimatedCostUsd, summary.draftPrice)
     if (liveEstimate) lines.push(liveEstimate)

@@ -286,6 +286,38 @@ describe('running', () => {
         expect(done.summary.livePrice).toBe('partial')
     })
 
+    test('a chatflow prices the named sink, and an unnamed tracer count is not a second model', async () => {
+        priceHooks.load = async () => ({
+            unit: 'usd_per_million_tokens',
+            rateFor(model: string) {
+                if (model === 'gpt-4.1-mini') return { inputUsdPerMillion: 0.4, outputUsdPerMillion: 1.6 }
+                return null
+            }
+        })
+        // The tracer's named row is a tokenizer estimate. The unnamed row is the provider count.
+        // The lines are what the usage write keeps: 1000 in and 500 out on gpt-4.1-mini.
+        replayHooks.run = async ({ flowData }) => ({
+            text: wordOf(flowData),
+            metrics: [
+                JSON.stringify({ model: 'gpt-4.1-mini', promptTokens: 800, completionTokens: 400, totalTokens: 1200 }),
+                { promptTokens: 1000, completionTokens: 500, totalTokens: 1500 }
+            ],
+            lines: [{ model: 'gpt-4.1-mini', inputTokens: 1000, outputTokens: 500 }]
+        })
+        const started = await startCheck(flow() as any, { questions: ['How much is a loaf?'] }, 'http://x')
+        await settle()
+        const done = await getCheck(flow(), started.id)
+        expect(done.cases[0].live).toMatchObject({
+            estimatedCostUsd: 0.0012,
+            price: 'known',
+            unpricedModels: []
+        })
+        expect(done.cases[0].draft).toMatchObject({ estimatedCostUsd: 0.0012, price: 'known', unpricedModels: [] })
+        expect(done.summary.liveEstimatedCostUsd).toBe(0.0012)
+        expect(done.summary.livePrice).toBe('known')
+        expect(done.summary.draftPrice).toBe('known')
+    })
+
     test('writes nothing: no chat messages, no state, no Live save', async () => {
         const started = await startCheck(flow() as any, { questions: ['Q'] }, 'http://x')
         await settle()

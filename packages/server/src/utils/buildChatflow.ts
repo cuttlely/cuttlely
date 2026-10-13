@@ -993,12 +993,14 @@ export const executeFlow = async ({
                 if (replay) {
                     // Only the answer: no saved message, follow-up prompts, telemetry or speech.
                     // The check still spent tokens, so the daily total includes them.
+                    // `usage` is that same write, so the check prices the callback sink and not the tracer.
+                    const usage = chatflowUsageResult(result, chatflowTokenUsage)
                     void recordCompletedRun(appDataSource, {
                         workspaceId,
                         flowId: chatflowid,
-                        result: chatflowUsageResult(result, chatflowTokenUsage)
+                        result: usage
                     })
-                    return { text: resultText, sourceDocuments: result?.sourceDocuments, usedTools: result?.usedTools }
+                    return { text: resultText, sourceDocuments: result?.sourceDocuments, usedTools: result?.usedTools, usage }
                 }
                 if (chatflow.followUpPrompts) {
                     const followUpPromptsConfig = JSON.parse(chatflow.followUpPrompts)

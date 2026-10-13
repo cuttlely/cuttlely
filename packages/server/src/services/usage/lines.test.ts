@@ -1,5 +1,6 @@
 import { stepTokens } from '../flow-check/compare'
-import { ChatflowTokenUsage, usageFromLlmEnd, usageLinesFromRun, usageRange } from './lines'
+import { ChatflowTokenUsage, usageFromLlmEnd, usageLinesFromMetrics, usageLinesFromRun, usageRange } from './lines'
+import { estimateTokenLines } from './cost'
 
 const NOW = new Date('2026-10-12T18:00:00.000Z')
 
@@ -211,5 +212,22 @@ describe('usageLinesFromRun', () => {
             })
         ).toEqual([{ model: 'gpt-4.1-mini', inputTokens: 3, outputTokens: 4 }])
         expect(usageLinesFromRun({ text: 'ok' })).toEqual([])
+    })
+
+    it('drops a tracer metric that has token counts and no model name', () => {
+        const lines = usageLinesFromMetrics([
+            { model: 'gpt-4.1-mini', promptTokens: 1000, completionTokens: 500, totalTokens: 1500 },
+            { promptTokens: 1000, completionTokens: 500, totalTokens: 1500 }
+        ])
+        expect(lines).toEqual([{ model: 'gpt-4.1-mini', inputTokens: 1000, outputTokens: 500 }])
+        expect(
+            estimateTokenLines(lines, {
+                unit: 'usd_per_million_tokens',
+                rateFor(model: string) {
+                    return model === 'gpt-4.1-mini' ? { inputUsdPerMillion: 0.4, outputUsdPerMillion: 1.6 } : null
+                }
+            })
+        ).toEqual({ estimatedCostUsd: 0.0012, price: 'known', unpricedModels: [] })
+        expect(usageLinesFromMetrics([{ promptTokens: 1000, completionTokens: 500 }])).toEqual([])
     })
 })

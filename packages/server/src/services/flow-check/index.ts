@@ -212,6 +212,20 @@ function sideCost(lines: UsageLine[] | undefined, tokens: number | null, book: P
     return estimateTokenLines(lines, book)
 }
 
+// Rates travel with the lines so the summary can price each model once, without the book.
+function ratedLines(lines: UsageLine[], book: PriceBook | null) {
+    return lines.map((line) => {
+        const rate = book ? book.rateFor(line.model) : null
+        return {
+            model: line.model,
+            inputTokens: line.inputTokens,
+            outputTokens: line.outputTokens,
+            inputUsdPerMillion: rate ? rate.inputUsdPerMillion : null,
+            outputUsdPerMillion: rate ? rate.outputUsdPerMillion : null
+        }
+    })
+}
+
 export interface ReplayInput {
     flow: IChatFlow
     flowData: string
@@ -716,8 +730,16 @@ async function runOne(record: CheckRecord, flow: IChatFlow, flowData: string, qu
         const { text, metrics, lines } = await run({ flow, flowData, question, signal: controller, baseURL })
         const tokens = totalTokens(metrics)
         const usage = lines ?? usageLinesFromMetrics(metrics)
-        const estimate = sideCost(usage, tokens, await bookOnce(record))
-        return { text: String(text ?? ''), error: null, tokens, ms: Date.now() - started, ...estimate }
+        const book = await bookOnce(record)
+        const estimate = sideCost(usage, tokens, book)
+        return {
+            text: String(text ?? ''),
+            error: null,
+            tokens,
+            ms: Date.now() - started,
+            ...estimate,
+            usageLines: ratedLines(usage, book)
+        }
     } catch (error) {
         const timedOut = controller.signal.aborted && !record.stopRequested
         const message = record.stopRequested
@@ -918,12 +940,12 @@ async function replayFlow({
             signal,
             replay: true
         })
-        // An agentflow reports tokens on each step; a chatflow through the evaluation tracer.
+        // An agentflow reports tokens on each step. A chatflow prices the lines the usage write keeps.
         const metrics = flow.type === 'AGENTFLOW' ? stepTokens(result?.agentFlowExecutedData) : EvaluationRunner.metrics.get(runId)
         const lines =
             flow.type === 'AGENTFLOW'
                 ? usageLinesFromRun({ agentFlowExecutedData: result?.agentFlowExecutedData })
-                : usageLinesFromMetrics(EvaluationRunner.metrics.get(runId))
+                : usageLinesFromRun(result?.usage)
         return { text: result?.text ?? '', metrics, lines }
     } finally {
         EvaluationRunner.metrics.delete(runId)

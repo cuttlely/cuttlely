@@ -45,7 +45,7 @@ test('the summary counts same, changed and errors, sums tokens and takes the med
     expect(median([])).toBeNull()
 })
 
-test('estimated cost is summed per side, and a missing price stays missing', () => {
+test('without token lines, estimated cost is the sum of the rounded per-answer figures, and a missing price stays missing', () => {
     const summary = summarize([
         {
             question: 'a',
@@ -66,6 +66,28 @@ test('estimated cost is summed per side, and a missing price stays missing', () 
     expect(summary.draftPrice).toBe('partial')
     expect(summary.draftTokens).toBe(160)
     expect(summary.scores).toBeUndefined()
+})
+
+test('two 45-token answers at $0.075 per million price as one 90-token group', () => {
+    const line = {
+        model: 'openai/gpt-oss-20b',
+        inputTokens: 45,
+        outputTokens: 0,
+        inputUsdPerMillion: 0.075,
+        outputUsdPerMillion: 0
+    }
+    // One answer rounds to 338 hundred-millionths. Two of those sum to 0.00000676.
+    // The merged 90 tokens are 675 hundred-millionths, which is 0.00000675.
+    const answer = side('x', { tokens: 45, estimatedCostUsd: 0.00000338, price: 'known', unpricedModels: [], usageLines: [line] })
+    const summary = summarize([
+        { question: 'a', live: answer, draft: answer, same: true },
+        { question: 'b', live: answer, draft: answer, same: true }
+    ])
+    expect(summary.liveEstimatedCostUsd).toBe(0.00000675)
+    expect(summary.draftEstimatedCostUsd).toBe(0.00000675)
+    expect(summary.livePrice).toBe('known')
+    expect(summary.draftPrice).toBe('known')
+    expect(answer.estimatedCostUsd).toBe(0.00000338)
 })
 
 test('evaluators add a pass rate per side, and a check without them does not', () => {
