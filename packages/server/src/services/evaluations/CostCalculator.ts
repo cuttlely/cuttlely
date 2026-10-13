@@ -1,4 +1,5 @@
 import { ICommonObject } from '@cuttlely/components'
+import { dollarsFromPerThousand } from '../usage'
 
 // fractionDigits is the number of digits after the decimal point, for display purposes
 const fractionDigits = 2
@@ -26,17 +27,17 @@ export const calculateCost = (metricsArray: ICommonObject[]) => {
             }
 
             if (costValues.total_cost > 0 && totalTokens) {
-                let cost = costValues.total_cost * (totalTokens / 1000)
+                let cost = dollarsFromPerThousand(costValues.total_cost, totalTokens)
                 totalTokensCost = formatCost(cost)
             } else {
                 let totalCost = 0
                 if (promptTokens) {
-                    const cost = costValues.input_cost * (promptTokens / 1000)
+                    const cost = dollarsFromPerThousand(costValues.input_cost, promptTokens)
                     totalCost += cost
                     promptTokensCost = formatCost(cost)
                 }
                 if (completionTokens) {
-                    const cost = costValues.output_cost * (completionTokens / 1000)
+                    const cost = dollarsFromPerThousand(costValues.output_cost, completionTokens)
                     totalCost += cost
                     completionTokensCost = formatCost(cost)
                 }
