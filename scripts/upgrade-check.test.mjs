@@ -8,7 +8,11 @@ import {
     compareVersions,
     fixtureProblems,
     harnessMigrationProblems,
+    SEEDED_DRAFT_COLLECTION,
+    SEEDED_LIVE_COLLECTION,
     pipelineMigrationProblems,
+    seededPipelineUpgradeProblems,
+    upgradePipelineCanvas,
     keyAliasEnv,
     nodeCount,
     readFixture,
@@ -146,4 +150,39 @@ test('a pipeline stays Live version 1 until the first edit creates a draft', () 
     assert.match(edited.join('\n'), /changed the Live canvas/)
     assert.match(edited.join('\n'), /changed the pipeline runs serve/)
     assert.match(edited.join('\n'), /did not create a draft/)
+})
+
+test('a seeded pipeline stays Live until Publish, and a run keeps reading it', () => {
+    const live = upgradePipelineCanvas('/tmp/catalog.csv', SEEDED_LIVE_COLLECTION)
+    const draft = upgradePipelineCanvas('/tmp/catalog.csv', SEEDED_DRAFT_COLLECTION)
+    const ok = seededPipelineUpgradeProblems({
+        statusBefore: { mode: 'draft', draft: null },
+        liveBefore: live,
+        liveAfterEdit: live,
+        servedBefore: 1,
+        servedAfterEdit: 1,
+        runBefore: live,
+        runAfterEdit: live,
+        draft: { draft: { flowData: draft } },
+        runAfterPublish: draft
+    })
+    assert.deepEqual(ok, [])
+    const edited = seededPipelineUpgradeProblems({
+        statusBefore: { mode: 'live', draft: { flowData: 'x' } },
+        liveBefore: live,
+        liveAfterEdit: draft,
+        servedBefore: 1,
+        servedAfterEdit: 2,
+        runBefore: 'other',
+        runAfterEdit: draft,
+        draft: { draft: null },
+        runAfterPublish: live
+    })
+    assert.match(edited.join('\n'), /not Live with no draft/)
+    assert.match(edited.join('\n'), /changed the Live canvas/)
+    assert.match(edited.join('\n'), /changed the pipeline runs serve/)
+    assert.match(edited.join('\n'), /did not create a draft/)
+    assert.match(edited.join('\n'), /did not read the Live pipeline/)
+    assert.match(edited.join('\n'), /did not keep reading the Live pipeline/)
+    assert.match(edited.join('\n'), /did not read the published draft/)
 })
