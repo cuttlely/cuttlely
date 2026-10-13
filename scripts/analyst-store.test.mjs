@@ -14,6 +14,7 @@ import {
     ANALYST_ROW_CAP_MAX,
     ANALYST_STATEMENT_TIMEOUT_MS,
     ANALYST_STATEMENT_TIMEOUT_MAX_MS,
+    ANALYST_PG_QUERY_BACKSTOP_MS,
     ANALYST_TIMEOUT_MESSAGE,
     analystCallLimits,
     analystConfiguredRowCap,
@@ -34,6 +35,8 @@ import {
     analystErrorOutcome,
     analystToolSpec,
     queryAnalyst,
+    queryPostgres,
+    setAnalystPgClientForTests,
     queryAnalystUrl,
     pgPlaceholders,
     analystUrlToolSpec,
@@ -512,6 +515,88 @@ describe('analyst sqlite storage', () => {
         assert.equal(warnings.filter((message) => message.includes('""')).length, 0)
     })
 
+    it('keeps a reused Postgres session past the first call timeout', async () => {
+        const clients = []
+        setAnalystPgClientForTests((config) => {
+            const client = {
+                config,
+                statementMs: null,
+                ended: false,
+                connect() {
+                    return Promise.resolve()
+                },
+                end() {
+                    this.ended = true
+                    return Promise.resolve()
+                },
+                query(sql) {
+                    const text = typeof sql === 'string' ? sql : String(sql?.text || sql || '')
+                    const setTimeoutSql = text.match(/^SET statement_timeout = (\d+)$/)
+                    if (setTimeoutSql) {
+                        this.statementMs = Number(setTimeoutSql[1])
+                        return Promise.resolve({ rows: [], command: 'SET' })
+                    }
+                    if (text.startsWith('SET search_path') || text === 'ROLLBACK') return Promise.resolve({ rows: [], command: 'SET' })
+                    const sleep = text.match(/pg_sleep\(([0-9.]+)\)/)
+                    if (sleep) {
+                        const ms = Number(sleep[1]) * 1000
+                        if (this.statementMs && ms >= this.statementMs) {
+                            const error = new Error('canceling statement due to statement timeout')
+                            error.code = '57014'
+                            return Promise.reject(error)
+                        }
+                        if (ms >= this.config.query_timeout) {
+                            return Promise.reject(new Error('Query read timeout'))
+                        }
+                        return Promise.resolve({ rows: [{ slept: 1 }], command: 'SELECT', rowCount: 1 })
+                    }
+                    if (/analyst_n/i.test(text)) return Promise.resolve({ rows: [{ analyst_n: 1 }], command: 'SELECT' })
+                    return Promise.resolve({ rows: [{ ok: 1 }], command: 'SELECT', rowCount: 1 })
+                }
+            }
+            clients.push(client)
+            return client
+        })
+        const store = {
+            host: '127.0.0.1',
+            port: 5432,
+            database: 'analyst_demo',
+            user: 'analyst_reader',
+            schema: 'analyst',
+            password: 'session-secret',
+            ssl: undefined
+        }
+        const scope = 'turn-timeout'
+        const paging = { scope, page: 1, rowCap: 100, statement: 'SELECT 1' }
+        const env = { CUTTLELY_ANALYST_STATEMENT_TIMEOUT_MS: '120000' }
+        try {
+            await queryPostgres(store, 'SELECT 1', { paging }, 1000, env)
+            const slept = await queryPostgres(
+                store,
+                'SELECT pg_sleep(7)',
+                { paging: { ...paging, statement: 'SELECT pg_sleep(7)' } },
+                60000,
+                env
+            )
+            assert.equal(slept.rows[0].slept, 1)
+            assert.equal(clients.length, 1)
+            assert.equal(clients[0].config.query_timeout, ANALYST_PG_QUERY_BACKSTOP_MS)
+            assert.equal(clients[0].statementMs, 60000)
+            assert.equal(clients[0].ended, false)
+            await assert.rejects(queryPostgres(store, 'SELECT pg_sleep(7)', { paging }, 2000, env), (error) => {
+                assert.equal(error.message, ANALYST_TIMEOUT_MESSAGE)
+                assert.equal(error.cuttlelyOutcome, 'expected')
+                assert.equal(String(error.message).includes('Query read timeout'), false)
+                return true
+            })
+            assert.equal(clients.length, 1)
+            assert.equal(clients[0].ended, false)
+        } finally {
+            await endAnalystRun(scope)
+            resetAnalystStoreForTests()
+        }
+    })
+
     it('caps rows at 100 unless the server setting changes it, and a node override cannot exceed that', () => {
         const none = {}
         assert.equal(ANALYST_ROW_CAP, 100)
@@ -521,6 +606,13 @@ describe('analyst sqlite storage', () => {
         assert.equal(analystRowCap(0, none), 100)
         assert.equal(analystRowCap(40, none), 40)
         assert.equal(analystRowCap(500, none), 100)
+        const high = { CUTTLELY_ANALYST_ROW_CAP: '1000' }
+        assert.equal(analystRowCap(0.5, high), 1)
+        assert.equal(analystRowCap(0.9, high), 1)
+        assert.equal(analystRowCap(1, high), 1)
+        assert.equal(analystRowCap(1.2, high), 1)
+        assert.equal(analystRowCap(40, high), 40)
+        assert.equal(analystRowCap(0, high), 1000)
         const raised = { CUTTLELY_ANALYST_ROW_CAP: '250' }
         assert.equal(analystConfiguredRowCap(raised), 250)
         assert.equal(analystRowCap(undefined, raised), 250)

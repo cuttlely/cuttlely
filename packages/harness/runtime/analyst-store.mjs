@@ -31,6 +31,11 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../.
 const require = createRequire(path.join(ROOT, 'packages/components/package.json'))
 const CryptoJS = require('crypto-js')
 const { Client } = require('pg')
+let pgClientFactory = (config) => new Client(config)
+
+export function setAnalystPgClientForTests(factory) {
+    pgClientFactory = typeof factory === 'function' ? factory : (config) => new Client(config)
+}
 
 export const ANALYST_ROLE = 'analyst_reader'
 export const ANALYST_SCHEMA = 'analyst'
@@ -38,6 +43,8 @@ export const ANALYST_STATEMENT_TIMEOUT = '15s'
 export const ANALYST_STATEMENT_TIMEOUT_MS = 15000
 // Hard ceiling. The admin setting and a node override are both clamped to this.
 export const ANALYST_STATEMENT_TIMEOUT_MAX_MS = 120000
+// A reused session client must outlast every later call. The per-call limit is SET statement_timeout.
+export const ANALYST_PG_QUERY_BACKSTOP_MS = ANALYST_STATEMENT_TIMEOUT_MAX_MS + 5000
 export const ANALYST_TIMEOUT_MESSAGE = 'canceling statement due to statement timeout'
 export const ANALYST_ROW_CAP = 100
 // Hard ceiling. A larger page would paste too much of a table into the prompt.
@@ -119,6 +126,9 @@ export function analystConfiguredTimeoutMs(env = process.env) {
 // A node or a single call may ask for fewer rows. It cannot ask for more than the admin ceiling.
 export function analystRowCap(value, env = process.env) {
     const ceiling = analystConfiguredRowCap(env)
+    const raw = Number(value)
+    // A fraction in (0, 1) floors to 0 and would otherwise mean "unset", which raises the cap.
+    if (Number.isFinite(raw) && raw > 0 && raw < 1) return Math.min(1, ceiling)
     const n = positiveInt(value)
     if (n == null) return ceiling
     return Math.min(n, ceiling)
@@ -934,6 +944,7 @@ export function resetAnalystStoreForTests() {
     pageCursors.clear()
     stopAnalystSqliteWorker()
     for (const scope of [...pgRunSessions.keys()]) closePgRunSession(scope)
+    pgClientFactory = (config) => new Client(config)
 }
 
 export async function ensureAnalystStore(env = process.env, options = {}) {
@@ -1258,8 +1269,8 @@ async function runPostgresStatement(client, statement, paging, runner = postgres
     return readSelectPage(runner, plan, { ...paging, total, page: 1, previousOffset: 0, lastKey: null })
 }
 
-function analystPgClient(store, ms) {
-    return new Client({
+function analystPgClient(store, ms, queryTimeout = ms + 5000) {
+    return pgClientFactory({
         host: store.host,
         port: store.port,
         database: store.database,
@@ -1271,12 +1282,13 @@ function analystPgClient(store, ms) {
         // Set when the connection starts, so it wins over the role's default. The analyst login may change
         // its own role defaults, and that must not lift the timeout or move it out of schema analyst.
         options: `-c statement_timeout=${ms} -c search_path=${store.schema || ANALYST_SCHEMA}`,
-        // Backstop if the server never answers the cancel.
-        query_timeout: ms + 5000
+        // Backstop if the server never answers the cancel. A reused session uses the hard maximum so a later,
+        // longer call is not cut by the first call's client read timeout.
+        query_timeout: queryTimeout
     })
 }
 
-async function queryPostgres(store, statement, replay, timeoutMs = ANALYST_STATEMENT_TIMEOUT_MS, env = process.env) {
+export async function queryPostgres(store, statement, replay, timeoutMs = ANALYST_STATEMENT_TIMEOUT_MS, env = process.env) {
     const ms = analystStatementTimeoutMs(timeoutMs, env)
     const scope = replay?.paging?.scope || ''
     if (scope) return queryPostgresRun(scope, store, statement, replay, ms)
@@ -1318,7 +1330,7 @@ function pgRunSession(scope, store, ms) {
     const current = pgRunSessions.get(scope)
     if (current && current.key === key) return current
     if (current) closePgRunSession(scope)
-    const client = analystPgClient(store, ms)
+    const client = analystPgClient(store, ms, ANALYST_PG_QUERY_BACKSTOP_MS)
     const session = { key, client, queue: Promise.resolve(), idle: null, connected: client.connect() }
     session.connected.catch(() => {})
     pgRunSessions.set(scope, session)
