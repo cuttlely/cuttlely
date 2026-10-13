@@ -2,9 +2,15 @@
 // The publish check replays these instead of chat questions. `key` is canonical JSON so the
 // same payload counts once. `text` is what a replay runs. A form keeps the stored field order.
 import { parseStoredForm } from '../../utils/buildAgentflow'
-import { TriggerStart } from './kinds'
+import { TriggerStart, sourceOf } from './kinds'
 
-export const NO_PAST_RUNS = 'No past runs to replay yet. Run this flow once, then check again.'
+// The dialog shows this instead of refusing the flow. Each start says how to record the first run.
+export function noPastRunsMessage(kind: TriggerStart): string {
+    const source = sourceOf(kind)
+    if (source === 'form') return 'No past runs exist yet. Submit the form once, then check again.'
+    if (source === 'webhook') return 'No past runs exist yet. Call the webhook once, then check again.'
+    return 'No past runs exist yet. Wait for the schedule, or trigger it once, then check again.'
+}
 
 // Shown in place of a secret header or query value. The name stays; the value does not.
 export const REDACTED = '[REDACTED]'

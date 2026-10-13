@@ -24,7 +24,6 @@ import {
     CHECK_WORDS,
     COMPARE_COUNTS,
     DEFAULT_COMPARE_COUNT,
-    NO_PAST_RUNS,
     POLL_MS,
     RESULT_PAGE_SIZE,
     RUN_ANYWAY_LABEL,
@@ -34,7 +33,9 @@ import {
     caseBadge,
     costNote,
     initialPicks,
+    inputMeta,
     inputPreview,
+    noPastRunsMessage,
     pickedQuestions,
     progressText,
     riskyWarning,
@@ -74,7 +75,20 @@ const Side = ({ title, side, running, empty }) => (
 
 Side.propTypes = { title: PropTypes.string, side: PropTypes.object, running: PropTypes.bool, empty: PropTypes.string }
 
-export const CheckResults = ({ check, words = CHECK_WORDS.publish, replayInputs = false }) => {
+// Source and recorded time for one form, webhook or schedule input. Chat questions have neither.
+const InputMeta = ({ source, date, fallbackSource }) => {
+    const meta = inputMeta(source || fallbackSource, date)
+    if (!meta) return null
+    return (
+        <Typography variant='caption' color='text.secondary' data-testid='input-meta' sx={{ display: 'block' }}>
+            {meta}
+        </Typography>
+    )
+}
+
+InputMeta.propTypes = { source: PropTypes.string, date: PropTypes.string, fallbackSource: PropTypes.string }
+
+export const CheckResults = ({ check, words = CHECK_WORDS.publish, replayInputs = false, replaySource }) => {
     const theme = useTheme()
     const [shown, setShown] = useState(RESULT_PAGE_SIZE)
     useEffect(() => {
@@ -123,24 +137,26 @@ export const CheckResults = ({ check, words = CHECK_WORDS.publish, replayInputs 
                         sx={{ border: '1px solid', borderColor: theme.palette.divider, borderRadius: 1, p: 1.25 }}
                     >
                         <Stack direction='row' spacing={1} alignItems='flex-start' sx={{ mb: 1 }}>
-                            <Typography
-                                variant='body2'
-                                sx={{
-                                    fontWeight: 600,
-                                    flex: 1,
-                                    wordBreak: 'break-word',
-                                    ...(replayInputs ? { fontFamily: 'monospace', fontSize: '0.8rem' } : {})
-                                }}
-                            >
-                                {replayInputs
-                                    ? c.preview ||
-                                      inputPreview(
-                                          c.question,
-                                          undefined,
-                                          allCases.map((item) => item.question)
-                                      )
-                                    : c.question}
-                            </Typography>
+                            <Box sx={{ flex: 1, minWidth: 0 }}>
+                                {replayInputs && <InputMeta source={c.source} date={c.date} fallbackSource={replaySource || undefined} />}
+                                <Typography
+                                    variant='body2'
+                                    sx={{
+                                        fontWeight: 600,
+                                        wordBreak: 'break-word',
+                                        ...(replayInputs ? { fontFamily: 'monospace', fontSize: '0.8rem' } : {})
+                                    }}
+                                >
+                                    {replayInputs
+                                        ? c.preview ||
+                                          inputPreview(
+                                              c.question,
+                                              undefined,
+                                              allCases.map((item) => item.question)
+                                          )
+                                        : c.question}
+                                </Typography>
+                            </Box>
                             <Chip
                                 size='small'
                                 label={badge.label}
@@ -174,7 +190,12 @@ export const CheckResults = ({ check, words = CHECK_WORDS.publish, replayInputs 
     )
 }
 
-CheckResults.propTypes = { check: PropTypes.object, words: PropTypes.object, replayInputs: PropTypes.bool }
+CheckResults.propTypes = {
+    check: PropTypes.object,
+    words: PropTypes.object,
+    replayInputs: PropTypes.bool,
+    replaySource: PropTypes.string
+}
 
 // Everything the panel shows, from plain props, so it can be rendered in tests without a server.
 export const PublishCheckView = ({
@@ -267,24 +288,28 @@ export const PublishCheckView = ({
                                 .slice(0, used)
                                 .slice(0, previewShown)
                                 .map((q, index) => (
-                                    <Typography
-                                        key={`${index}-${q.text}`}
-                                        variant='body2'
-                                        data-testid='compare-question'
-                                        sx={{
-                                            wordBreak: 'break-word',
-                                            ...(replayInputs ? { fontFamily: 'monospace', fontSize: '0.8rem' } : {})
-                                        }}
-                                    >
-                                        {replayInputs
-                                            ? q.preview ||
-                                              inputPreview(
-                                                  q.text,
-                                                  undefined,
-                                                  past.map((item) => item.text)
-                                              )
-                                            : q.text}
-                                    </Typography>
+                                    <Box key={`${index}-${q.text}`} data-testid='compare-input'>
+                                        {replayInputs && (
+                                            <InputMeta source={q.source} date={q.date} fallbackSource={setup?.replaySource || undefined} />
+                                        )}
+                                        <Typography
+                                            variant='body2'
+                                            data-testid='compare-question'
+                                            sx={{
+                                                wordBreak: 'break-word',
+                                                ...(replayInputs ? { fontFamily: 'monospace', fontSize: '0.8rem' } : {})
+                                            }}
+                                        >
+                                            {replayInputs
+                                                ? q.preview ||
+                                                  inputPreview(
+                                                      q.text,
+                                                      undefined,
+                                                      past.map((item) => item.text)
+                                                  )
+                                                : q.text}
+                                        </Typography>
+                                    </Box>
                                 ))}
                             {used > previewShown && (
                                 <Button
@@ -300,7 +325,9 @@ export const PublishCheckView = ({
                     )}
                     {pastCount === 0 && checklist.length === 0 ? (
                         <Typography variant='body2' color='text.secondary' sx={{ mt: 1 }} data-testid='check-empty'>
-                            {replayInputs ? NO_PAST_RUNS : 'No one has asked this flow anything yet. Add a question to check.'}
+                            {replayInputs
+                                ? noPastRunsMessage(setup?.replaySource)
+                                : 'No one has asked this flow anything yet. Add a question to check.'}
                         </Typography>
                     ) : checklist.length > 0 ? (
                         <Stack sx={{ mt: 1 }} aria-label='Questions to check'>
@@ -418,7 +445,7 @@ export const PublishCheckView = ({
                             {error}
                         </Alert>
                     )}
-                    <CheckResults check={check} words={words} replayInputs={replayInputs} />
+                    <CheckResults check={check} words={words} replayInputs={replayInputs} replaySource={setup?.replaySource} />
                 </>
             )}
         </Box>

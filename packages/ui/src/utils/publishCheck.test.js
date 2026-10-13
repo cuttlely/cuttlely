@@ -6,8 +6,10 @@ import {
     addQuestion,
     canRunCheck,
     capMessage,
+    inputMeta,
     inputPreview,
     NO_PAST_RUNS,
+    noPastRunsMessage,
     caseBadge,
     CHECK_WORDS,
     costNote,
@@ -23,6 +25,7 @@ import {
     usageText,
     visibleCases
 } from './publishCheck'
+import { formatListDateTime } from '@/utils/formatDate'
 import * as copy from './publishCheck'
 
 const limits = { maxQuestions: 10, maxQuestionChars: 2000, maxTokens: 100000, maxSeconds: 180 }
@@ -76,7 +79,15 @@ describe('recorded input preview', () => {
         const long = JSON.stringify({ form: { note: 'x'.repeat(200) } })
         expect(inputPreview(long, 20).endsWith('…')).toBe(true)
         expect(inputPreview(long, 20).length).toBe(21)
-        expect(NO_PAST_RUNS.startsWith('No past runs to replay yet')).toBe(true)
+        expect(noPastRunsMessage('form')).toBe(NO_PAST_RUNS.form)
+        expect(noPastRunsMessage('webhook')).toBe('No past runs exist yet. Call the webhook once, then check again.')
+        expect(noPastRunsMessage('schedule')).toBe('No past runs exist yet. Wait for the schedule, or trigger it once, then check again.')
+        expect(noPastRunsMessage('form')).toBe('No past runs exist yet. Submit the form once, then check again.')
+        expect(noPastRunsMessage()).toContain('Submit the form, call the webhook, or wait for or trigger the schedule')
+        const when = formatListDateTime('2026-10-08T11:00:00.000Z')
+        expect(inputMeta('webhook', '2026-10-08T11:00:00.000Z')).toBe(`Webhook · ${when}`)
+        expect(inputMeta('form', '2026-10-08T11:00:00.000Z')).toBe(`Form · ${when}`)
+        expect(inputMeta('schedule', '')).toBe('Schedule')
     })
 })
 
@@ -225,9 +236,9 @@ describe('results', () => {
     })
 
     test('copy is plain words, with no section mark and no engineering terms', () => {
-        // The empty-state sentence is specified with the word "replay". The rest of the copy does not use it.
         const text = Object.values(copy)
-            .filter((v) => typeof v === 'string' && v !== NO_PAST_RUNS)
+            .filter((v) => typeof v === 'string')
+            .concat(Object.values(NO_PAST_RUNS))
             .join(' ')
         expect(CHECK_TITLE).toBe('Check recent questions')
         expect(CHECK_INTRO).toContain('This is optional.')

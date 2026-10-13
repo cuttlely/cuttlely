@@ -13,6 +13,9 @@ export interface CheckCase {
     question: string
     // Compact line for a recorded input. Set when the row is a form, webhook or schedule replay.
     preview?: string
+    // Where a recorded input came from, and when that run was stored. Chat questions leave both unset.
+    source?: 'form' | 'webhook' | 'schedule'
+    date?: string
     live: SideResult | null
     draft: SideResult | null
     // True when both answers match after ignoring case and spacing. Null until both sides ran.

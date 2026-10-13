@@ -353,6 +353,8 @@ describe('agentflows', () => {
         messages.push({ content: 'When is the rye ready?', createdDate: new Date('2026-10-08T10:00:00Z'), fileUploads: null })
         const setup = await getCheckSetup(agentflow())
         expect(setup.replayInputs).toBe(false)
+        expect(setup.replaySource).toBeNull()
+        expect(setup.questions[0].source).toBeUndefined()
         expect(setup.questions.map((q) => q.text)).toEqual(['When is the rye ready?'])
         const started = await startCheck(agentflow() as any, { questions: ['When is the rye ready?'] }, 'http://x')
         await settle()
@@ -411,9 +413,13 @@ describe('form, webhook and schedule starts', () => {
         const setup = await getCheckSetup(webhookFlow())
         expect(setup.unavailable).toBeNull()
         expect(setup.replayInputs).toBe(true)
+        expect(setup.replaySource).toBe('webhook')
         expect(setup.pastCount).toBe(2)
         expect(setup.questions.map((q) => JSON.parse(q.text).webhook.body.event)).toEqual(['close', 'bake'])
+        expect(setup.questions[0]).toMatchObject({ source: 'webhook', date: '2026-10-08T11:00:00.000Z' })
+        expect(setup.questions[1]).toMatchObject({ source: 'webhook', date: '2026-10-08T10:00:00.000Z' })
         const started = await startCheck(webhookFlow() as any, { count: 4 }, 'http://x')
+        expect(started.cases[0]).toMatchObject({ source: 'webhook', date: '2026-10-08T11:00:00.000Z' })
         expect(started.selection).toMatchObject({ requested: 4, available: 2, used: 2 })
         await settle()
         const done = await getCheck(webhookFlow(), started.id)
@@ -529,15 +535,23 @@ describe('form, webhook and schedule starts', () => {
         })
     })
 
-    test('no past executions returns a message instead of a refusal', async () => {
-        const setup = await getCheckSetup(webhookFlow())
-        expect(setup.unavailable).toBeNull()
-        expect(setup.replayInputs).toBe(true)
-        expect(setup.questions).toEqual([])
-        await expect(startCheck(webhookFlow() as any, { count: 4 }, 'http://x')).rejects.toMatchObject({
-            statusCode: 400,
-            message: 'No past runs to replay yet. Run this flow once, then check again.'
-        })
+    test('no past executions names how to create one, and does not refuse the flow', async () => {
+        const starts = [
+            ['webhookTrigger', 'webhook', 'No past runs exist yet. Call the webhook once, then check again.'],
+            ['formInput', 'form', 'No past runs exist yet. Submit the form once, then check again.'],
+            ['scheduleInput', 'schedule', 'No past runs exist yet. Wait for the schedule, or trigger it once, then check again.']
+        ] as const
+        for (const [start, source, message] of starts) {
+            checks.clear()
+            states.set('flow-1', { chatflowId: 'flow-1', draftFlowData: agentCanvas('PAPAYA', start), publishInstantly: false })
+            const row = flow({ type: 'AGENTFLOW', flowData: agentCanvas('MANGO', start) })
+            const setup = await getCheckSetup(row)
+            expect(setup.unavailable).toBeNull()
+            expect(setup.replayInputs).toBe(true)
+            expect(setup.replaySource).toBe(source)
+            expect(setup.questions).toEqual([])
+            await expect(startCheck(row as any, { count: 4 }, 'http://x')).rejects.toMatchObject({ statusCode: 400, message })
+        }
     })
 
     test('a risky step on a webhook-started flow is blocked the same way as a chat-started flow', async () => {
@@ -593,6 +607,98 @@ describe('a version from Dev as the candidate (Promote)', () => {
         expect((await getCheckSetup(flow(), missing)).unavailable?.code).toBe('credentials')
         await expect(startCheck(flow(), { questions: ['q'] }, 'http://x', missing)).rejects.toMatchObject({ statusCode: 409 })
         expect((await getCheckSetup(flow({ type: 'MULTIAGENT' }), candidate())).unavailable?.code).toBe('type')
+        expect((await getCheckSetup(flow({ type: 'MULTIAGENT' }), candidate())).unavailable?.message).toBe(
+            'The check works on chatflows and agentflows.'
+        )
+    })
+
+    test('a webhook-started flow replays executions recorded on this server', async () => {
+        const live = agentCanvas('MANGO', 'webhookTrigger')
+        const fromDev = agentCanvas('KIWI', 'webhookTrigger')
+        executions.push({
+            id: 'prod-run',
+            executionData: JSON.stringify([
+                {
+                    nodeId: 'startAgentflow_0',
+                    data: {
+                        name: 'startAgentflow',
+                        output: {
+                            webhook: { body: { event: 'bake', loaf: 'rye' }, headers: { authorization: 'Bearer sekret' }, query: {} }
+                        }
+                    }
+                }
+            ]),
+            createdDate: new Date('2026-10-08T11:00:00Z'),
+            updatedDate: new Date('2026-10-08T11:00:00Z')
+        })
+        const row = flow({ type: 'AGENTFLOW', flowData: live, workspaceId: 'team-a' })
+        const incoming = candidate({ canvas: fromDev })
+        const wheres: Array<[string, unknown]> = []
+        const previous = queryBuilder.andWhere
+        queryBuilder.andWhere = (clause: string, params: unknown) => {
+            wheres.push([clause, params])
+            return queryBuilder
+        }
+        try {
+            const setup = await getCheckSetup(row, incoming)
+            expect(wheres).toEqual(
+                expect.arrayContaining([
+                    ['execution.agentflowId = :agentflowId', { agentflowId: 'flow-1' }],
+                    ['execution.workspaceId = :workspaceId', { workspaceId: 'team-a' }]
+                ])
+            )
+            expect(setup.unavailable).toBeNull()
+            expect(setup.replayInputs).toBe(true)
+            expect(setup.replaySource).toBe('webhook')
+            expect(setup.questions).toHaveLength(1)
+            expect(setup.questions[0]).toMatchObject({ source: 'webhook', date: '2026-10-08T11:00:00.000Z' })
+            expect(setup.questions[0].text).toContain('authorization":"[REDACTED]"')
+            expect(JSON.stringify(setup.questions)).not.toContain('sekret')
+            const started = await startCheck(row as any, { count: 4 }, 'http://x', incoming)
+            expect(started.cases[0]).toMatchObject({ source: 'webhook', date: '2026-10-08T11:00:00.000Z' })
+            await settle('flow-1:promote')
+            const done = await getCheck(row, started.id, incoming)
+            expect(done.status).toBe('done')
+            expect(done.cases[0]).toMatchObject({ live: { text: 'MANGO' }, draft: { text: 'KIWI' }, same: false, source: 'webhook' })
+        } finally {
+            queryBuilder.andWhere = previous
+        }
+    })
+
+    test('a webhook-started flow with no executions on this server says how to call the webhook', async () => {
+        const live = agentCanvas('MANGO', 'webhookTrigger')
+        const fromDev = agentCanvas('KIWI', 'webhookTrigger')
+        const row = flow({ type: 'AGENTFLOW', flowData: live })
+        const incoming = candidate({ canvas: fromDev })
+        const setup = await getCheckSetup(row, incoming)
+        expect(setup.unavailable).toBeNull()
+        expect(setup.replayInputs).toBe(true)
+        expect(setup.replaySource).toBe('webhook')
+        expect(setup.questions).toEqual([])
+        await expect(startCheck(row as any, { count: 4 }, 'http://x', incoming)).rejects.toMatchObject({
+            statusCode: 400,
+            message: 'No past runs exist yet. Call the webhook once, then check again.'
+        })
+    })
+
+    test('a chat-started agentflow still replays questions when promoted, and ignores executions', async () => {
+        messages.push({ content: 'When is the rye ready?', createdDate: new Date('2026-10-08T10:00:00Z'), fileUploads: null, id: 'q1' })
+        executions.push({
+            id: 'ignored',
+            executionData: JSON.stringify([
+                { nodeId: 'startAgentflow_0', data: { name: 'startAgentflow', output: { webhook: { body: { event: 'bake' } } } } }
+            ]),
+            createdDate: new Date('2026-10-08T11:00:00Z'),
+            updatedDate: new Date('2026-10-08T11:00:00Z')
+        })
+        const row = flow({ type: 'AGENTFLOW', flowData: agentCanvas('MANGO', 'chatInput') })
+        const incoming = candidate({ canvas: agentCanvas('KIWI', 'chatInput') })
+        const setup = await getCheckSetup(row, incoming)
+        expect(setup.replayInputs).toBe(false)
+        expect(setup.replaySource).toBeNull()
+        expect(setup.questions.map((q) => q.text)).toEqual(['When is the rye ready?'])
+        expect(setup.questions[0].source).toBeUndefined()
+        expect(JSON.stringify(setup.questions)).not.toContain('bake')
     })
 })
 

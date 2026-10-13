@@ -22,6 +22,15 @@ const TRIGGER_STARTS = new Set(['formInput', 'webhookTrigger', 'scheduleInput'])
 
 export type TriggerStart = 'formInput' | 'webhookTrigger' | 'scheduleInput'
 
+// What the dialog calls the start. One flow uses one of these for every recorded input.
+export type ReplaySource = 'form' | 'webhook' | 'schedule'
+
+export function sourceOf(kind: TriggerStart): ReplaySource {
+    if (kind === 'formInput') return 'form'
+    if (kind === 'webhookTrigger') return 'webhook'
+    return 'schedule'
+}
+
 // The Start node's input type, or null when this canvas has no Start node (or is not JSON).
 // An empty string means the Start node is there but its input type is blank.
 export function canvasStart(flowData: string | null | undefined): string | null {

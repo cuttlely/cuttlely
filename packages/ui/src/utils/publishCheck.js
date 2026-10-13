@@ -1,5 +1,6 @@
 // Plain-words helpers for the publish check in the Publish dialog: recent questions asked again,
 // against Live and the draft, side by side. The check is optional and never blocks Publish.
+import { formatListDateTime } from '@/utils/formatDate'
 
 // The dialog offers these. The server accepts any whole number from 1 to 100 and clamps it.
 export const COMPARE_COUNTS = [4, 10, 25, 50, 100]
@@ -10,7 +11,26 @@ export const RESULT_PAGE_SIZE = 12
 export const CHECK_TITLE = 'Check recent questions'
 export const CHECK_INTRO =
     'Ask recent questions again, on Live and on your draft, and compare the answers before you publish. This is optional.'
-export const NO_PAST_RUNS = 'No past runs to replay yet. Run this flow once, then check again.'
+// Shown when a form, webhook or schedule flow has no execution to run again. Not a refusal.
+export const NO_PAST_RUNS = {
+    form: 'No past runs exist yet. Submit the form once, then check again.',
+    webhook: 'No past runs exist yet. Call the webhook once, then check again.',
+    schedule: 'No past runs exist yet. Wait for the schedule, or trigger it once, then check again.'
+}
+
+export const noPastRunsMessage = (source) =>
+    NO_PAST_RUNS[source] ||
+    'No past runs exist yet. Submit the form, call the webhook, or wait for or trigger the schedule, then check again.'
+
+export const REPLAY_SOURCE_LABEL = { form: 'Form', webhook: 'Webhook', schedule: 'Schedule' }
+
+// "Webhook · Oct 8, 2026, 11:00 AM" above a recorded input. Either half can stand alone.
+export const inputMeta = (source, date) => {
+    const label = REPLAY_SOURCE_LABEL[source] || ''
+    const when = formatListDateTime(date)
+    if (label && when) return `${label} · ${when}`
+    return label || when
+}
 export const INPUT_PREVIEW_CHARS = 180
 export const CHECK_VARY_NOTE = 'Answers from a model can vary a little between runs, even with no change.'
 export const CHECK_CLOSE_NOTE = 'Closing this window or publishing stops a check that is still running.'
@@ -43,9 +63,9 @@ export const CHECK_WORDS = {
         intro: 'Ask recent questions again, on Live and on the version from Dev, and compare the answers before you promote. This is optional.',
         introNew: 'Ask questions on the version from Dev before you promote. Live is empty until the first promote. This is optional.',
         introInputs:
-            'Run recent inputs again on Live and on the version from Dev, and compare the answers before you promote. This is optional.',
+            'Run recent inputs from this server again, on Live and on the version from Dev, and compare the answers before you promote. This is optional.',
         introInputsNew:
-            'Run recent inputs again on the version from Dev before you promote. Live is empty until the first promote. This is optional.',
+            'Run recent inputs from this server again on the version from Dev before you promote. Live is empty until the first promote. This is optional.',
         emptyLive: 'Empty until the first promote',
         closeNote: 'Leaving this page or promoting stops a check that is still running.',
         optional: 'Promote works with or without a check.',
