@@ -57,7 +57,7 @@ describe('model prices', () => {
 
     it('refuses a secret-shaped model name and a price that is not a plain number', () => {
         expect(parseModelName('')).toMatchObject({ ok: false })
-        expect(parseModelName('sk-secret-model')).toMatchObject({ ok: false })
+        expect(parseModelName('sk-abc')).toMatchObject({ ok: false })
         expect(parseModelName('gpt-4.1-mini')).toEqual({ ok: true, model: 'gpt-4.1-mini' })
         expect(parseUsdPerMillion(-1, 'input')).toMatchObject({ ok: false })
         expect(parseUsdPerMillion('1e-7', 'input')).toMatchObject({ ok: false })
