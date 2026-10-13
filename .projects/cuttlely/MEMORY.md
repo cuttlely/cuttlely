@@ -59,6 +59,7 @@ Conventions, do and don't, and lessons a newcomer would otherwise relearn. Add a
 
 ## Lessons
 
+-   **A failed try-directory delete is not a finished cleanup.** The runtime can keep `logs/errors.log` and `logs/gateway.log` open in the try directory and in each specialist directory. Close those profiles before deleting, then retry. A directory that is still there is logged once and removed on the next start, and only when it carries the try marker. A saved harness is left in place.
 -   **A green `pnpm verify` is not a real-model run.** Model-dependent behaviour (routing, analyst answers, row grounding) has passed every check and still failed with a real model. Run the guide prompts against a real model before calling such a change done.
 -   **LangChain chat models read provider keys from the environment.** A node with a deleted credential still answered from a server env key. The harness checks that a required credential exists before calling `init`.
 -   **OpenAI-compatible servers treat a missing `tool_choice` as `auto`.** The runtime omits it on its final turn; defaulting to `required` made the model loop on tool calls. The gateway maps a missing value to `auto`.

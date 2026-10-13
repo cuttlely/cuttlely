@@ -10658,6 +10658,14 @@ await (async () => {
         path.join(tryDir(dead), '.env'),
         `OPENAI_API_KEY=${deadToken}\nOPENAI_BASE_URL=http://127.0.0.1:43118/v1\nCUTTLELY_GATEWAY_HARNESS=${dead}\nCUTTLELY_GATEWAY_SPECIALIST=clerk\nCUTTLELY_GATEWAY_TRY=1\n`
     )
+    const deadChild = `${dead}--clerk`
+    fs.mkdirSync(path.join(tryDir(deadChild), 'logs'), { recursive: true })
+    fs.writeFileSync(path.join(tryDir(deadChild), 'harness-parent'), `${dead}\n`)
+    fs.writeFileSync(path.join(tryDir(deadChild), 'logs', 'errors.log'), 'held\n')
+    fs.writeFileSync(path.join(tryDir(deadChild), 'logs', 'gateway.log'), 'held\n')
+    const unmarked = `try${'2b'.repeat(8)}`
+    fs.mkdirSync(tryDir(unmarked), { recursive: true })
+    fs.writeFileSync(path.join(tryDir(unmarked), 'SOUL.md'), 'NOT-A-TRY\n')
     const deadFit = `tryx${'ef'.repeat(8)}`
     fs.mkdirSync(tryDir(deadFit), { recursive: true })
     fs.writeFileSync(path.join(tryDir(deadFit), 'harness-parent'), `${dead}\n`)
@@ -10727,12 +10735,14 @@ await (async () => {
     const savedMemory = fs.readFileSync(path.join(savedDir, 'memory', 'MEMORY.md'), 'utf8')
     const savedWorkspace = fs.readFileSync(path.join(savedWork, 'keep.txt'), 'utf8')
     check(
-        'finished tries leave no directories, and a crash leftover is dropped on the next start',
+        'finished tries leave no directories, and a crash leftover with its specialist directory is dropped on the next start',
         tryHomes().includes(live) &&
             tryHomes().includes(savedName) &&
             !tryHomes().includes(dead) &&
             !fs.existsSync(tryDir(dead)) &&
+            !fs.existsSync(tryDir(deadChild)) &&
             !fs.existsSync(tryDir(deadFit)) &&
+            fs.readFileSync(path.join(tryDir(unmarked), 'SOUL.md'), 'utf8').includes('NOT-A-TRY') &&
             !fs.existsSync(tryDir(`try${'1'.repeat(16)}`)) &&
             !fs.existsSync(path.join(tryDir(`try${'1'.repeat(16)}--shell`), 'logs')) &&
             !fs.existsSync(path.join(tryDir(`try${'1'.repeat(16)}--clerk`), 'logs')) &&
@@ -11374,6 +11384,289 @@ await (async () => {
             souls: [...souls.keys()],
             publishedSession: readMessages(name, publishedChat).length
         })
+    )
+})()
+
+await (async () => {
+    const profiles = path.join(process.env.CUTTLELY_HERMES_HOME, 'profiles')
+    const { tryRuntime } = await import('./profile.mjs')
+    const { registerProfileToken } = await import('./gateway.mjs')
+    const tryId = 'b7e10e6d577ffa82'
+    const scope = `try${tryId}`
+    const child = `${scope}--clerk`
+    const token = 'B'.repeat(43)
+    const childToken = 'K'.repeat(43)
+    const envFor = (value, specialist) =>
+        `OPENAI_API_KEY=${value}\nOPENAI_BASE_URL=http://127.0.0.1:43118/v1\nCUTTLELY_GATEWAY_HARNESS=${scope}\nCUTTLELY_GATEWAY_SPECIALIST=${specialist}\nCUTTLELY_GATEWAY_TRY=1\n`
+    fs.mkdirSync(path.join(profiles, scope, 'logs'), { recursive: true })
+    fs.mkdirSync(path.join(profiles, child, 'logs'), { recursive: true })
+    fs.writeFileSync(path.join(profiles, scope, 'harness-try'), `${scope}\n`)
+    fs.writeFileSync(path.join(profiles, scope, 'logs', 'errors.log'), 'held\n')
+    fs.writeFileSync(path.join(profiles, scope, 'logs', 'gateway.log'), 'held\n')
+    fs.writeFileSync(path.join(profiles, scope, '.env'), envFor(token, 'prime'))
+    fs.writeFileSync(path.join(profiles, child, 'harness-parent'), `${scope}\n`)
+    fs.writeFileSync(path.join(profiles, child, 'logs', 'errors.log'), 'held\n')
+    fs.writeFileSync(path.join(profiles, child, 'logs', 'gateway.log'), 'held\n')
+    fs.writeFileSync(path.join(profiles, child, '.env'), envFor(childToken, 'clerk'))
+    for (const [value, specialist, profileName] of [
+        [token, 'prime', scope],
+        [childToken, 'clerk', child]
+    ]) {
+        registerProfileToken({ token: value, harnessName: scope, specialistName: specialist, modelKey: 'k', profileName, tryProfile: true })
+    }
+    const closed = []
+    let removedBeforeClose = false
+    tryRuntime.closeProfiles = async (names) => {
+        closed.push(...names)
+    }
+    const realRm = fs.rmSync
+    const failedFirst = new Set()
+    fs.rmSync = function rmSync(target, options) {
+        const text = String(target)
+        const ownProfile =
+            text.includes(`${path.sep}profiles${path.sep}`) &&
+            (text.endsWith(`${path.sep}${scope}`) || text.endsWith(`${path.sep}${child}`))
+        if (ownProfile && closed.length === 0) removedBeforeClose = true
+        if (ownProfile && !failedFirst.has(text)) {
+            failedFirst.add(text)
+            const error = new Error('EBUSY')
+            error.code = 'EBUSY'
+            throw error
+        }
+        return realRm.call(fs, target, options)
+    }
+    const warnings = []
+    const realWarn = console.warn
+    console.warn = (...args) => warnings.push(args.map(String).join(' '))
+    let failed = null
+    try {
+        await discardTryProfile(tryId)
+    } catch (error) {
+        failed = error
+    } finally {
+        fs.rmSync = realRm
+        console.warn = realWarn
+        tryRuntime.closeProfiles = null
+        tryRuntime.afterFirstRemoval = null
+    }
+    const gateway = await openGateway()
+    const statuses = []
+    for (const value of [token, childToken]) {
+        statuses.push((await localRequest({ port: gateway.port, method: 'GET', path: '/v1/models', token: value })).status)
+    }
+    await gateway.close()
+    const left = [scope, child].filter((entry) => fs.existsSync(path.join(profiles, entry)))
+    check(
+        'a busy try directory is removed on the retry after the runtime and specialist are closed',
+        !failed &&
+            !removedBeforeClose &&
+            closed.includes(scope) &&
+            closed.includes(child) &&
+            failedFirst.size === 2 &&
+            left.length === 0 &&
+            warnings.length === 0 &&
+            statuses.every((status) => status === 401),
+        JSON.stringify({ failed: failed?.message, removedBeforeClose, closed, failedFirst: [...failedFirst], left, warnings, statuses })
+    )
+})()
+
+await (async () => {
+    const profiles = path.join(process.env.CUTTLELY_HERMES_HOME, 'profiles')
+    const { tryRuntime } = await import('./profile.mjs')
+    const { sweepAbandonedTryProfiles } = await import('./gateway.mjs')
+    const tryId = 'c0ffee00c0ffee00'
+    const scope = `try${tryId}`
+    const child = `${scope}--clerk`
+    const unmarked = `try${'3c'.repeat(8)}`
+    const savedName = 'try12345678'
+    fs.mkdirSync(path.join(profiles, scope, 'logs'), { recursive: true })
+    fs.mkdirSync(path.join(profiles, child, 'logs'), { recursive: true })
+    fs.writeFileSync(path.join(profiles, scope, 'harness-try'), `${scope}\n`)
+    fs.writeFileSync(path.join(profiles, scope, 'logs', 'errors.log'), 'held\n')
+    fs.writeFileSync(path.join(profiles, scope, 'logs', 'gateway.log'), 'held\n')
+    fs.writeFileSync(path.join(profiles, child, 'harness-parent'), `${scope}\n`)
+    fs.writeFileSync(path.join(profiles, child, 'logs', 'errors.log'), 'held\n')
+    fs.writeFileSync(path.join(profiles, child, 'logs', 'gateway.log'), 'held\n')
+    fs.mkdirSync(path.join(profiles, unmarked), { recursive: true })
+    fs.writeFileSync(path.join(profiles, unmarked, 'SOUL.md'), 'NOT-A-TRY\n')
+    const closed = []
+    tryRuntime.closeProfiles = async (names) => {
+        closed.push(...names)
+    }
+    const realRm = fs.rmSync
+    fs.rmSync = function rmSync(target, options) {
+        const text = String(target)
+        if (text.includes(`${path.sep}profiles${path.sep}${scope}`)) {
+            const error = new Error('EBUSY')
+            error.code = 'EBUSY'
+            throw error
+        }
+        return realRm.call(fs, target, options)
+    }
+    const warnings = []
+    const realWarn = console.warn
+    console.warn = (...args) => warnings.push(args.map(String).join(' '))
+    let failed = null
+    try {
+        await discardTryProfile(tryId)
+    } catch (error) {
+        failed = error
+    } finally {
+        fs.rmSync = realRm
+        console.warn = realWarn
+        tryRuntime.closeProfiles = null
+    }
+    const leftBefore = [scope, child].filter((entry) => fs.existsSync(path.join(profiles, entry)))
+    const swept = sweepAbandonedTryProfiles()
+    const savedDir = path.join(profiles, savedName)
+    const savedChild = path.join(profiles, `${savedName}--clerk`)
+    check(
+        'a try directory that stays busy is logged once, and startup removes that try and its specialist only',
+        !failed &&
+            closed.includes(scope) &&
+            closed.includes(child) &&
+            warnings.length === 1 &&
+            warnings[0].includes(scope) &&
+            warnings[0].includes(child) &&
+            leftBefore.length === 2 &&
+            swept.has(scope) &&
+            swept.has(child) &&
+            !swept.has(unmarked) &&
+            !swept.has(savedName) &&
+            !fs.existsSync(path.join(profiles, scope)) &&
+            !fs.existsSync(path.join(profiles, child)) &&
+            fs.existsSync(path.join(profiles, unmarked)) &&
+            fs.existsSync(savedDir) &&
+            fs.existsSync(savedChild),
+        JSON.stringify({
+            failed: failed?.message,
+            closed,
+            warnings,
+            leftBefore,
+            swept: [...swept],
+            unmarked: fs.existsSync(path.join(profiles, unmarked)),
+            saved: fs.existsSync(savedDir)
+        })
+    )
+})()
+
+await (async () => {
+    const { tryRuntime } = await import('./profile.mjs')
+    tryRuntime.closeProfiles = null
+    tryRuntime.afterFirstRemoval = null
+    const name = 'check-cleanup'
+    const model = nodeModel('scriptedChat', { credential: 'cred-xai', label: 'Echo Chat', inputs: { modelName: 'gpt-4.1' } })
+    saveHarness(
+        {
+            name,
+            chief: { instructions: 'LIVE-INSTRUCTIONS', model },
+            specialists: [
+                {
+                    name: 'clerk',
+                    instructions: 'CLERK',
+                    shell: true,
+                    browser: false,
+                    codeExecution: false,
+                    fileAccess: false,
+                    modules: [],
+                    mcpServers: []
+                }
+            ]
+        },
+        { overwrite: true }
+    )
+    const profiles = path.join(process.env.CUTTLELY_HERMES_HOME, 'profiles')
+    const tokens = new Map()
+    const previousHook = runHooks.afterProfile
+    const stopId = 'd3'.repeat(8)
+    const abortController = new AbortController()
+    runHooks.afterProfile = async (info) => {
+        if (typeof previousHook === 'function') await previousHook(info)
+        if (!info?.tryId) return
+        const env = readProfileEnv(`try${info.tryId}--clerk`)
+        if (env.OPENAI_API_KEY) tokens.set(info.tryId, env.OPENAI_API_KEY)
+        if (info.tryId === stopId) abortController.abort()
+    }
+    const okId = 'd1'.repeat(8)
+    const errId = 'd2'.repeat(8)
+    const loadNode = async () => recordingChat([], () => ({ content: 'CHECK_ANSWER' }))
+    const fetchImpl = async () => ({
+        ok: true,
+        status: 200,
+        statusText: 'OK',
+        text: async () => JSON.stringify({ output: 'SPECIALIST_OK', status: 'completed' })
+    })
+    let okText = ''
+    let failed = null
+    try {
+        const ok = await runHarnessRaw({
+            name,
+            chatId: 'cleanup-ok',
+            input: 'cleanup question',
+            baseUrl: 'http://127.0.0.1:9',
+            loadNode,
+            fetchImpl,
+            replay: true,
+            record: { ...getHarness(name), tryId: okId }
+        })
+        okText = ok.text
+    } catch (error) {
+        failed = error
+    }
+    let errThrown = false
+    try {
+        await runHarnessRaw({
+            name,
+            chatId: 'cleanup-err',
+            input: 'cleanup error',
+            baseUrl: 'http://127.0.0.1:9',
+            loadNode: async () => {
+                throw new Error('model failed')
+            },
+            fetchImpl,
+            replay: true,
+            record: { ...getHarness(name), tryId: errId }
+        })
+    } catch {
+        errThrown = true
+    }
+    let stopThrown = false
+    try {
+        await runHarnessRaw({
+            name,
+            chatId: 'cleanup-stop',
+            input: 'cleanup stop',
+            baseUrl: 'http://127.0.0.1:9',
+            loadNode,
+            fetchImpl,
+            signal: abortController.signal,
+            replay: true,
+            record: { ...getHarness(name), tryId: stopId }
+        })
+    } catch {
+        stopThrown = true
+    }
+    runHooks.afterProfile = previousHook
+    const gateway = await openGateway()
+    const forgotten = []
+    for (const id of [okId, errId, stopId]) {
+        const token = tokens.get(id)
+        forgotten.push(token ? (await localRequest({ port: gateway.port, method: 'GET', path: '/v1/models', token })).status : 0)
+    }
+    await gateway.close()
+    const tryLeft = [okId, errId, stopId].filter(
+        (id) => fs.existsSync(path.join(profiles, `try${id}`)) || fs.existsSync(path.join(profiles, `try${id}--clerk`))
+    )
+    check(
+        'a finished check with a specialist leaves no try directories, on success, error and Stop',
+        !failed &&
+            okText === 'CHECK_ANSWER' &&
+            errThrown &&
+            stopThrown &&
+            tryLeft.length === 0 &&
+            forgotten.length === 3 &&
+            forgotten.every((status) => status === 401),
+        JSON.stringify({ failed: failed?.message, okText, errThrown, stopThrown, tryLeft, forgotten, tokens: [...tokens.keys()] })
     )
 })()
 
