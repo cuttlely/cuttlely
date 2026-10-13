@@ -228,7 +228,7 @@ describe('harness Live and drafts', () => {
         const chatflows = fs.readFileSync(path.join(__dirname, '../chatflows/index.ts'), 'utf8')
         const updateStart = chatflows.indexOf('const updateChatflow')
         const updateEnd = chatflows.indexOf('async function validateEtlCanvas')
-        expect(chatflows.slice(updateStart, updateEnd)).toContain('await syncHarnessCanvas(dbResponse)')
+        expect(chatflows.slice(updateStart, updateEnd)).toContain('await keepHarnessCanvas(dbResponse')
         expect(fs.readFileSync(path.join(__dirname, 'index.ts'), 'utf8').includes('syncHarness')).toBe(false)
     })
 })

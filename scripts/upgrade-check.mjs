@@ -446,6 +446,70 @@ async function checkHarnessUpgrade(base, cookie, meta, say) {
     return problems
 }
 
+// A harness file from before teams were stored on the roster. The canvas id ties it to that team's flow.
+export function plantLegacyHarness(dataRoot) {
+    const dir = path.join(dataRoot, 'harnesses')
+    const source = JSON.parse(fs.readFileSync(path.join(dir, 'bakery-team.json'), 'utf8'))
+    const legacy = {
+        name: 'legacy-team',
+        chatflowId: source.chatflowId,
+        description: 'Saved before a harness stored its team.',
+        chief: source.chief,
+        specialists: [{ name: 'baker', instructions: 'Answer in one line.', modules: [] }],
+        createdAt: source.createdAt,
+        updatedAt: source.updatedAt
+    }
+    fs.writeFileSync(path.join(dir, 'legacy-team.json'), `${JSON.stringify(legacy, null, 2)}\n`)
+    // A single-team install also claims a file that has no canvas. The default team is that only team.
+    const solo = {
+        name: 'legacy-solo',
+        description: 'Saved before a harness stored its team, with no canvas.',
+        chief: source.chief,
+        specialists: [{ name: 'baker', instructions: 'Answer in one line.', modules: [] }],
+        createdAt: source.createdAt,
+        updatedAt: source.updatedAt
+    }
+    fs.writeFileSync(path.join(dir, 'legacy-solo.json'), `${JSON.stringify(solo, null, 2)}\n`)
+    return legacy.name
+}
+
+export function legacyTeamsOnDisk(dataRoot) {
+    const dir = path.join(dataRoot, 'harnesses')
+    const read = (name) => {
+        const body = JSON.parse(fs.readFileSync(path.join(dir, `${name}.json`), 'utf8'))
+        return typeof body.workspaceId === 'string' ? body.workspaceId : ''
+    }
+    return { canvas: read('legacy-team'), onlyTeam: read('legacy-solo') }
+}
+
+async function checkLegacyHarness(base, cookie, say) {
+    const name = 'legacy-team'
+    const listed = await request(`${base}/api/v1/harnesses`, { cookie })
+    const row = Array.isArray(listed.json) ? listed.json.find((item) => item.name === name) : null
+    if (!row) return ['a harness saved without a team was not listed after upgrade']
+    if (!row.workspaceId) return ['a harness saved without a team was listed without a team']
+    const got = await request(`${base}/api/v1/harnesses/${name}`, { cookie })
+    if (got.status !== 200 || got.json?.workspaceId !== row.workspaceId) {
+        return [`reading the harness saved without a team failed (${got.status})`]
+    }
+    const run = await request(`${base}/api/v1/harnesses/${name}/runs`, {
+        method: 'POST',
+        cookie,
+        timeoutMs: 180000,
+        body: { question: 'Say smoke-ok' }
+    })
+    const answer = typeof run.json?.text === 'string' ? run.json.text : ''
+    if (run.status !== 200 || !answer.includes('smoke-ok')) {
+        return [`running the harness saved without a team failed (${run.status})`]
+    }
+    const runs = await request(`${base}/api/v1/harnesses/${name}/runs`, { cookie })
+    if (runs.status !== 200 || !Array.isArray(runs.json) || !runs.json.length) {
+        return [`listing runs of the harness saved without a team failed (${runs.status})`]
+    }
+    say('  harness saved without a team is listed and runnable')
+    return []
+}
+
 // Writes a pipeline into the extracted fixture before the new server starts, so the upgrade sees
 // data that was already saved. The chat flow goes in the app database. The version a run reads
 // goes in the pipeline database, through the same record the server uses on a Live save.
@@ -567,6 +631,7 @@ export async function runUpgradeCheck({ fixture = DEFAULT_FIXTURE, serverRoot = 
     const preload = [path.join(ROOT, 'scripts', 'refuse-sso-load.cjs'), path.join(ROOT, 'scripts', 'smoke-fake-model.cjs')]
     try {
         extract(archive, dataRoot)
+        plantLegacyHarness(dataRoot)
         say(`upgrade from ${meta.baseline.commit.slice(0, 7)} (${meta.baseline.date}, ${meta.baseline.subject})`)
         const keyFile = path.join(dataRoot, 'data', 'encryption.key')
         const extra = keyAliasEnv(keyAlias, fs.readFileSync(keyFile, 'utf8'))
@@ -596,9 +661,16 @@ export async function runUpgradeCheck({ fixture = DEFAULT_FIXTURE, serverRoot = 
             }
             await waitForPing(base, server)
             say('first start on the old data: ping ok')
+            // Backfill runs before the server takes requests. An embed of this team is not locked out.
+            const assigned = legacyTeamsOnDisk(dataRoot)
+            const assignedEarly = []
+            if (!assigned.canvas) assignedEarly.push('startup did not assign the canvas team before the first request')
+            if (!assigned.onlyTeam) assignedEarly.push('startup did not assign the only team before the first request')
+            if (!assignedEarly.length) say('  startup assigned a team before the first request')
             const cookie = await login(base, meta.account)
-            problems = await checkData(base, cookie, meta, say)
+            problems = [...assignedEarly, ...(await checkData(base, cookie, meta, say))]
             problems.push(...(await checkHarnessUpgrade(base, cookie, meta, say)))
+            problems.push(...(await checkLegacyHarness(base, cookie, say)))
             problems.push(...(await checkSeededPipeline(base, cookie, say)))
 
             const chat = meta.expected.flows.find((f) => f.predict)
@@ -639,6 +711,8 @@ export async function runUpgradeCheck({ fixture = DEFAULT_FIXTURE, serverRoot = 
             const again = await request(`${base}/api/v1/chatflows/${meta.expected.flows[0].id}`, { cookie })
             if (again.status !== 200) problems.push(`after a second start, ${meta.expected.flows[0].name} returns ${again.status}`)
             else say('second start on the upgraded data: ok')
+            const still = await request(`${base}/api/v1/harnesses/legacy-team`, { cookie })
+            if (still.status !== 200) problems.push(`after a second start, the harness saved without a team returns ${still.status}`)
         } finally {
             await server.stop()
         }

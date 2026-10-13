@@ -162,7 +162,7 @@ describe('harness draft try usage', () => {
             workspaceId: WORKSPACE
         }
 
-        await harnesses.startRun('bakery-team', { question: 'How many loaves?' }, { source: 'api' })
+        await harnesses.startRun('bakery-team', { question: 'How many loaves?' }, { source: 'api', workspaceId: WORKSPACE })
         const afterPublic = await settle(dataSource, 20, 8)
         assert.deepEqual(afterPublic, { inputTokens: 20, outputTokens: 8 })
 

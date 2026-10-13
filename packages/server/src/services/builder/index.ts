@@ -57,7 +57,7 @@ const build = async (kind: string, request: unknown, chatModel: BuildingModel | 
     const harnessNames: string[] =
         kind === 'chat'
             ? await harnessesService
-                  .listHarnesses()
+                  .listHarnesses(workspaceId)
                   .then((list: any[]) => (list || []).map((harness) => String(harness?.name || '')).filter(Boolean))
                   .catch(() => [])
             : []
