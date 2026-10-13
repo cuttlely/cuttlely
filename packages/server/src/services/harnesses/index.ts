@@ -3,7 +3,6 @@ import fs from 'fs'
 import path from 'path'
 import { pathToFileURL } from 'url'
 import { StatusCodes } from 'http-status-codes'
-import { ChatFlow } from '../../database/entities/ChatFlow'
 import { Workspace } from '../../database/entities/identity'
 import { AppError } from '../../errors/appError'
 import { getErrorMessage } from '../../errors/utils'
@@ -68,15 +67,26 @@ async function defaultWorkspaceId(): Promise<string | null> {
 async function ownerOf(record: { workspaceId?: string | null; chatflowId?: string | null }): Promise<string | null> {
     if (typeof record?.workspaceId === 'string' && record.workspaceId) return record.workspaceId
     const chatflowId = typeof record?.chatflowId === 'string' ? record.chatflowId : ''
-    if (UUID.test(chatflowId)) {
-        try {
-            const flow = await getRunningExpressApp().AppDataSource.getRepository(ChatFlow).findOneBy({ id: chatflowId })
-            if (flow?.workspaceId) return flow.workspaceId
-        } catch (error) {
-            logger.warn(`[harness] canvas workspace lookup failed: ${getErrorMessage(error)}`)
-        }
-    }
+    const fromCanvas = await canvasWorkspace(chatflowId)
+    if (fromCanvas) return fromCanvas
     return defaultWorkspaceId()
+}
+
+async function canvasWorkspace(chatflowId: string): Promise<string | null> {
+    if (!UUID.test(chatflowId)) return null
+    try {
+        const row = await getRunningExpressApp()
+            .AppDataSource.createQueryBuilder()
+            .select('chat_flow.workspaceId', 'workspaceId')
+            .from('chat_flow', 'chat_flow')
+            .where('chat_flow.id = :id', { id: chatflowId })
+            .getRawOne()
+        const id = row?.workspaceId ?? row?.workspaceid
+        return typeof id === 'string' && id ? id : null
+    } catch (error) {
+        logger.warn(`[harness] canvas workspace lookup failed: ${getErrorMessage(error)}`)
+        return null
+    }
 }
 
 // The workspace comparison. Another team's harness is a 404, the same response as a missing name.
@@ -156,16 +166,7 @@ export async function backfillHarnessWorkspaces() {
     let fromDefault = 0
     let unassigned = 0
     for (const row of rows) {
-        const chatflowId = typeof row.chatflowId === 'string' ? row.chatflowId : ''
-        let fromCanvas: string | null = null
-        if (UUID.test(chatflowId)) {
-            try {
-                const flow = await getRunningExpressApp().AppDataSource.getRepository(ChatFlow).findOneBy({ id: chatflowId })
-                if (flow?.workspaceId) fromCanvas = flow.workspaceId
-            } catch (error) {
-                logger.warn(`[harness] canvas workspace lookup failed: ${getErrorMessage(error)}`)
-            }
-        }
+        const fromCanvas = await canvasWorkspace(typeof row.chatflowId === 'string' ? row.chatflowId : '')
         const owner = fromCanvas || (await defaultWorkspaceId())
         if (!owner) {
             unassigned += 1
