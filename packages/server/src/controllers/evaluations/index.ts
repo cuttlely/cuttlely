@@ -4,6 +4,15 @@ import { StatusCodes } from 'http-status-codes'
 import evaluationsService from '../../services/evaluations'
 import { getPageAndLimitParams } from '../../utils/pagination'
 
+/** Prediction calls from a run. APP_URL wins when it is set. Otherwise the server calls itself. */
+export function evaluationBaseUrl(): string {
+    const configured = typeof process.env.APP_URL === 'string' ? process.env.APP_URL.trim() : ''
+    if (configured && configured !== 'undefined') return configured.replace(/\/$/, '')
+    const port = Number(process.env.PORT)
+    const listenPort = Number.isInteger(port) && port > 0 ? String(port) : '3000'
+    return `http://127.0.0.1:${listenPort}`
+}
+
 const createEvaluation = async (req: Request, res: Response, next: NextFunction) => {
     try {
         if (!req.body) {
@@ -20,8 +29,7 @@ const createEvaluation = async (req: Request, res: Response, next: NextFunction)
         const body = req.body
         body.workspaceId = workspaceId
 
-        const baseURL = `${process.env.APP_URL}`
-        const apiResponse = await evaluationsService.createEvaluation(body, baseURL, orgId, workspaceId)
+        const apiResponse = await evaluationsService.createEvaluation(body, evaluationBaseUrl(), orgId, workspaceId, req)
         return res.json(apiResponse)
     } catch (error) {
         next(error)
@@ -41,8 +49,7 @@ const runAgain = async (req: Request, res: Response, next: NextFunction) => {
         if (!workspaceId) {
             throw new AppError(StatusCodes.NOT_FOUND, `Error: evaluationsService.runAgain - workspace ${workspaceId} not found!`)
         }
-        const baseURL = `${process.env.APP_URL}`
-        const apiResponse = await evaluationsService.runAgain(req.params.id, baseURL, orgId, workspaceId)
+        const apiResponse = await evaluationsService.runAgain(req.params.id, evaluationBaseUrl(), orgId, workspaceId, req)
         return res.json(apiResponse)
     } catch (error) {
         next(error)
