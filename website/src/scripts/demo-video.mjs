@@ -17,6 +17,9 @@ const onScreen = new WeakSet()
 const heroBound = new WeakSet()
 const previewBound = new WeakSet()
 
+/** Source elements lifted off a hero so load() can paint the poster without fetching the file again. */
+const parkedSources = new WeakMap()
+
 /** Narrow screens, navigator.connection.saveData and reduced motion get the poster and play only when tapped. */
 export function canAutoplay(win = window) {
     if (win.matchMedia('(prefers-reduced-motion: reduce)').matches) return false
@@ -307,12 +310,40 @@ function previousLoop(node) {
     return null
 }
 
+function parkSources(video) {
+    if (parkedSources.has(video) || typeof video.querySelectorAll !== 'function') return false
+    const sources = [...video.querySelectorAll('source')]
+    if (!sources.length) return false
+    parkedSources.set(video, sources)
+    for (const source of sources) source.remove()
+    return true
+}
+
+function restoreSources(video) {
+    const sources = parkedSources.get(video)
+    if (!sources?.length) return
+    for (const source of sources) video.appendChild(source)
+    parkedSources.delete(video)
+}
+
 /**
- * Seek to the start, then play with sound. load() is not used: it would abort the preview download and
- * drop the bytes that are already buffered. Pausing first matters once the preview has moved, because a
- * play() issued while the element is still playing can keep the old position.
+ * Seek to the start, then play with sound. load() is not used on this element: it would abort the preview
+ * download and drop bytes that are already buffered. Other videos are only paused, so a dialog does not
+ * talk over them and the download queue keeps its slots. Pausing first matters once the preview has moved,
+ * because a play() issued while the element is still playing can keep the old position.
  */
 function playFromStart(video) {
+    const doc = video.ownerDocument
+    if (doc && typeof doc.querySelectorAll === 'function') {
+        for (const other of doc.querySelectorAll('video')) {
+            if (other === video) continue
+            try {
+                other.pause()
+            } catch {
+                // Already idle.
+            }
+        }
+    }
     video.loop = false
     video.defaultMuted = false
     video.muted = false
@@ -355,6 +386,8 @@ function bindHeroPlay(video, win) {
     const start = () => {
         sounding.add(video)
         button.hidden = true
+        // Sources come back before play(). load() while they are attached would fetch the file twice.
+        restoreSources(video)
         const pending = playFromStart(video)
         if (pending && typeof pending.then === 'function') {
             pending.catch(() => {
@@ -378,22 +411,41 @@ function bindHeroPlay(video, win) {
         } catch {
             // Already idle.
         }
-        try {
-            video.currentTime = 0
-        } catch {
-            // Leave the playhead. The button still returns.
-        }
         video.defaultMuted = true
         video.muted = true
         video.loop = true
         video.controls = false
         button.hidden = false
+        // Seeking to 0 paints frame 0. On this file that frame is empty, so the poster has to be loaded
+        // with the sources detached. load() while they are still attached would refetch.
+        if (!canAutoplay(win) && parkSources(video)) {
+            video.load()
+            return
+        }
+        try {
+            video.currentTime = 0
+        } catch {
+            // Leave the playhead. The button still returns.
+        }
         // A hero that has scrolled away stays paused. The play observer starts it again on the way back.
         if (canAutoplay(win) && onScreen.has(video)) {
             const pending = video.play?.()
             if (pending && typeof pending.catch === 'function') pending.catch(() => {})
         }
     })
+}
+
+function resumeMutedPreviews(doc) {
+    const view = doc.defaultView
+    if (!view || !canAutoplay(view) || typeof doc.querySelectorAll !== 'function') return
+    for (const preview of doc.querySelectorAll('[data-demo-video], [data-loop-video]')) {
+        if (!preview?.dataset || sounding.has(preview) || parkedSources.has(preview) || !onScreen.has(preview)) continue
+        preview.defaultMuted = true
+        preview.muted = true
+        preview.loop = true
+        const pending = preview.play?.()
+        if (pending && typeof pending.catch === 'function') pending.catch(() => {})
+    }
 }
 
 /** Plays the demo video and the tile loops while they are on screen, when autoplay is fine for this visitor. */
@@ -438,7 +490,15 @@ export function initVideoDialogs(doc = document) {
             previewBound.add(preview)
             preview.addEventListener('click', open)
         }
-        dialog.addEventListener('close', () => video.pause())
+        dialog.addEventListener('close', () => {
+            try {
+                video.pause()
+            } catch {
+                // Already idle.
+            }
+            // The open paused every other video. On-screen silent loops start again when autoplay is allowed.
+            resumeMutedPreviews(doc)
+        })
         // A click on the backdrop lands on the dialog itself.
         dialog.addEventListener('click', (event) => {
             if (event.target === dialog) dialog.close()

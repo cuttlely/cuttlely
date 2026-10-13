@@ -921,6 +921,45 @@ test('the hero play button and the preview start at 0 with sound and do not loop
     assert.equal(video.calls.includes('play'), false)
 })
 
+test('without autoplay, ending the hero loads the poster only after its sources are detached', () => {
+    const source = {
+        removed: false,
+        remove() {
+            this.removed = true
+        }
+    }
+    const attached = [source]
+    const video = shellVideo({ demoVideo: '' })
+    const button = control({ playWithSound: '' })
+    video.nextElementSibling = button
+    video.querySelectorAll = () => attached.filter((item) => !item.removed)
+    video.appendChild = (node) => {
+        node.removed = false
+    }
+    const loads = []
+    video.load = () => {
+        loads.push(video.querySelectorAll('source').length)
+    }
+    const doc = { querySelectorAll: () => [video], addEventListener() {} }
+    const win = {
+        matchMedia: () => ({ matches: true }),
+        navigator: { connection: { saveData: false } },
+        addEventListener() {}
+    }
+    initDemoVideo(doc, win)
+    button.click()
+    assert.equal(loads.length, 0)
+    video.emit('ended')
+    assert.deepEqual(loads, [0])
+    assert.equal(source.removed, true)
+    assert.equal(button.hidden, false)
+    button.click()
+    assert.equal(source.removed, false)
+    assert.deepEqual(loads, [0])
+    assert.equal(video.muted, false)
+    assert.equal(video.paused, false)
+})
+
 test('after the hero ends on screen the silent preview returns with the play button', () => {
     const video = shellVideo({ demoVideo: '' })
     const button = control({ playWithSound: '' })
