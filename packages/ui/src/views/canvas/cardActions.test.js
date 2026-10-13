@@ -173,8 +173,8 @@ function createReactFlow11Store(nodes, edges) {
         },
         saved() {
             return {
-                nodes: state.nodeWrites[state.nodeWrites.length - 1] ?? state.nodes,
-                edges: state.edgeWrites[state.edgeWrites.length - 1] ?? state.edges
+                nodes: state.renderedNodes ?? state.nodeWrites[state.nodeWrites.length - 1] ?? state.nodes,
+                edges: state.renderedEdges ?? state.edgeWrites[state.edgeWrites.length - 1] ?? state.edges
             }
         }
     }
@@ -217,25 +217,40 @@ function flowGraph() {
     }
 }
 
-function Grab({ rf, api }) {
+function Grab({ instance, rememberNodes, rememberEdges, api }) {
     const ctx = useContext(flowContext)
     useEffect(() => {
-        ctx.setReactFlowInstance(rf.instance)
+        ctx.setReactFlowInstance(instance)
+        ctx.bindCanvasState(rememberNodes, rememberEdges)
         api.current = ctx
     })
     return null
 }
 
 Grab.propTypes = {
-    rf: PropTypes.shape({ instance: PropTypes.object.isRequired }).isRequired,
-    api: PropTypes.shape({ current: PropTypes.any }).isRequired
+    instance: PropTypes.object.isRequired,
+    rememberNodes: PropTypes.func.isRequired,
+    rememberEdges: PropTypes.func.isRequired,
+    api: PropTypes.object.isRequired
 }
 
 function mountCanvas(graph) {
     const rf = createReactFlow11Store(graph.nodes, graph.edges)
     const redux = createStore((state = { dirty: 0 }, action) => (action.type === SET_DIRTY ? { dirty: state.dirty + 1 } : state))
     const api = { current: null }
-    render(createElement(Provider, { store: redux }, createElement(ReactFlowContext, null, createElement(Grab, { rf, api }))))
+    const rememberNodes = (next) => {
+        rf.state.renderedNodes = typeof next === 'function' ? next(rf.state.renderedNodes ?? rf.state.nodes) : next
+    }
+    const rememberEdges = (next) => {
+        rf.state.renderedEdges = typeof next === 'function' ? next(rf.state.renderedEdges ?? rf.state.edges) : next
+    }
+    render(
+        createElement(
+            Provider,
+            { store: redux },
+            createElement(ReactFlowContext, null, createElement(Grab, { instance: rf.instance, rememberNodes, rememberEdges, api }))
+        )
+    )
     const queue = createCanvasDeleteQueue((batch) => api.current.deleteSelection(batch))
     rf.setHandlers({
         nodes: (changes) => {
@@ -258,8 +273,8 @@ describe('keyboard delete on a connected card', () => {
         })
         const saved = rf.saved()
         expect(redux.getState().dirty).toBe(1)
-        expect(rf.state.nodeWrites).toHaveLength(1)
-        expect(rf.state.edgeWrites).toHaveLength(1)
+        expect(rf.state.nodeWrites).toHaveLength(0)
+        expect(rf.state.edgeWrites).toHaveLength(0)
         expect(saved.nodes.map((node) => node.id)).not.toContain('promptTemplate_0')
         expect(saved.nodes.map((node) => node.id)).toContain('startAgentflow_0')
         const chain = saved.nodes.find((node) => node.id === 'llmChain_0')
@@ -276,8 +291,7 @@ describe('keyboard delete on a connected card', () => {
         })
         const saved = rf.saved()
         expect(redux.getState().dirty).toBe(1)
-        expect(rf.state.nodeWrites).toHaveLength(1)
-        expect(rf.state.edgeWrites).toHaveLength(1)
+        expect(rf.state.nodeWrites).toHaveLength(0)
         expect(saved.edges.map((edge) => edge.id)).not.toContain('e1')
         expect(saved.nodes.find((node) => node.id === 'promptTemplate_1')).toBeTruthy()
         expect(saved.nodes.find((node) => node.id === 'llmChain_0').data.inputs.tools).toEqual([
@@ -307,7 +321,7 @@ describe('keyboard delete on a connected card', () => {
         })
         let saved = one.rf.saved()
         expect(one.redux.getState().dirty).toBe(1)
-        expect(one.rf.state.nodeWrites).toHaveLength(1)
+        expect(one.rf.state.nodeWrites).toHaveLength(0)
         expect(saved.nodes.map((node) => node.id)).not.toContain('promptTemplate_0')
         expect(JSON.stringify(saved.nodes.find((node) => node.id === 'llmChain_0').data.inputs)).not.toContain('promptTemplate_0')
         expect(one.rf.state.passthrough).toEqual([{ type: 'position', id: 'llmChain_0', position: { x: 3, y: 4 } }])
@@ -332,7 +346,7 @@ describe('keyboard delete on a connected card', () => {
             await Promise.resolve()
         })
         saved = two.rf.saved()
-        expect(two.rf.state.nodeWrites).toHaveLength(1)
+        expect(two.rf.state.nodeWrites).toHaveLength(0)
         expect(saved.nodes.map((node) => node.id).sort()).toEqual(['child_0', 'llmChain_0', 'loop_0', 'startAgentflow_0'])
         expect(saved.nodes.find((node) => node.id === 'llmChain_0').data.inputs.tools).toEqual(['keep'])
         expect(saved.nodes.find((node) => node.id === 'llmChain_0').data.inputs.prompt).toBe(' {{child_0.data.instance}}')
@@ -351,11 +365,43 @@ describe('keyboard delete on a connected card', () => {
             await Promise.resolve()
         })
         saved = loop.rf.saved()
-        expect(loop.rf.state.nodeWrites).toHaveLength(1)
+        expect(loop.rf.state.nodeWrites).toHaveLength(0)
         expect(saved.nodes.map((node) => node.id)).not.toContain('loop_0')
         expect(saved.nodes.map((node) => node.id)).not.toContain('child_0')
         expect(JSON.stringify(saved.nodes.find((node) => node.id === 'llmChain_0').data.inputs)).not.toContain('child_0')
         expect(saved.edges.map((edge) => edge.id)).not.toContain('eChild')
+    })
+
+    test('a selected start card is removed with the rest of the selection', async () => {
+        const mounted = mountCanvas(flowGraph())
+        await act(async () => {
+            mounted.queue.nodes(
+                [
+                    { type: 'remove', id: 'startAgentflow_0' },
+                    { type: 'remove', id: 'promptTemplate_0' },
+                    { type: 'remove', id: 'promptTemplate_1' }
+                ],
+                (rest) => mounted.rf.state.passthrough.push(...rest)
+            )
+            await Promise.resolve()
+        })
+        const saved = mounted.rf.saved()
+        expect(saved.nodes.map((node) => node.id)).not.toContain('startAgentflow_0')
+        expect(saved.nodes.map((node) => node.id)).not.toContain('promptTemplate_0')
+        expect(saved.nodes.map((node) => node.id)).not.toContain('promptTemplate_1')
+        expect(saved.nodes.map((node) => node.id)).toContain('llmChain_0')
+        expect(JSON.stringify(saved.nodes.find((node) => node.id === 'llmChain_0').data.inputs)).not.toContain('promptTemplate_0')
+    })
+
+    test('Delete and Backspace do nothing while the node dialog is open', () => {
+        const dialog = fs.readFileSync(path.join(__dirname, '../agentflowsv2/EditNodeDialog.jsx'), 'utf8')
+        const canvas = fs.readFileSync(path.join(__dirname, '../agentflowsv2/Canvas.jsx'), 'utf8')
+        expect(dialog).toContain('onKeyDown={onPanelKeyDown}')
+        expect(dialog).toContain("if (event.key === 'Delete' || event.key === 'Backspace') event.stopPropagation()")
+        expect(canvas).toContain("deleteKeyCode={canvas.canvasDialogShow ? null : ['Delete', 'Backspace']}")
+        const edge = fs.readFileSync(path.join(__dirname, '../agentflowsv2/AgentFlowEdge.jsx'), 'utf8')
+        expect(edge).toContain('react-flow__edge-path')
+        expect(edge).toContain('addSelectedEdges')
     })
 
     test('drag and select still pass through', () => {
@@ -374,6 +420,7 @@ describe('keyboard delete on a connected card', () => {
         for (const file of files) {
             const source = fs.readFileSync(file, 'utf8')
             expect(source).toContain('createCanvasDeleteQueue')
+            expect(source).toContain('bindCanvasState')
             expect(source).toContain('deleteSelection')
             expect(source).toContain('onNodesChange={handleNodesChange}')
             expect(source).toContain('onEdgesChange={handleEdgesChange}')

@@ -91,9 +91,15 @@ export const ReactFlowContext = ({ children }) => {
         }
     }
 
-    // React Flow 11 reads the store for every setNodes / setEdges. The store stays on the pre-delete cards until
-    // this handler returns, so the cleaned cards and the filtered cards have to be one array, written once.
+    // React Flow 11 turns setNodes / setEdges into a reset of whatever getNodes() still holds, which is the
+    // pre-delete list until this handler returns. The canvas state setters write the cleaned list directly.
     const applyingDelete = useRef(false)
+    const commitNodes = useRef(null)
+    const commitEdges = useRef(null)
+    const bindCanvasState = (setNodes, setEdges) => {
+        commitNodes.current = setNodes
+        commitEdges.current = setEdges
+    }
     const deleteSelection = ({ nodeIds = [], edgeIds = [] } = {}) => {
         if (!reactFlowInstance) return
         if (!nodeIds.length && !edgeIds.length) return
@@ -105,8 +111,8 @@ export const ReactFlowContext = ({ children }) => {
         })
         applyingDelete.current = true
         try {
-            reactFlowInstance.setNodes(next.nodes)
-            reactFlowInstance.setEdges(next.edges)
+            if (commitNodes.current) commitNodes.current(next.nodes)
+            if (commitEdges.current) commitEdges.current(next.edges)
         } finally {
             applyingDelete.current = false
         }
@@ -207,6 +213,7 @@ export const ReactFlowContext = ({ children }) => {
                 deleteEdge,
                 deleteSelection,
                 applyingDelete,
+                bindCanvasState,
                 duplicateNode,
                 onAgentflowNodeStatusUpdate,
                 clearAgentflowNodeStatus,

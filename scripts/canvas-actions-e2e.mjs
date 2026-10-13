@@ -160,15 +160,19 @@ async function signIn(page, base) {
     await page.evaluate(() => window.localStorage.setItem('cuttlely.canvasLook', 'panel'))
 }
 
-async function exercise(page, base, { route, nodeId, connectedId, buttonId, multiIds, removedIds, flowName, flowId, cookie, saveTitle }) {
+async function exercise(
+    page,
+    base,
+    { route, nodeId, connectedId, buttonId, multiIds, removedIds, flowName, flowId, cookie, saveTitle, selectEdge }
+) {
     await page.goto(`${base}${route}`, { waitUntil: 'domcontentloaded' })
     const card = page.locator(`.react-flow__node[data-id="${nodeId}"]`)
     await card.waitFor({ timeout: 20000 })
     await page.waitForTimeout(500)
     if (connectedId) await checkConnectedBackspace(page, connectedId, flowName)
+    if (selectEdge) await deleteWorkflowEdge(page)
     if (buttonId) await deleteFromToolbar(page, buttonId)
     if (multiIds?.length) await deleteSelectedCards(page, multiIds)
-    if (removedIds?.length) await assertSavedFlow(page, base, cookie, flowId, saveTitle, removedIds)
     const before = await page.locator('.react-flow__node').count()
     const box = await card.boundingBox()
     if (!box) throw new Error(`${nodeId} has no box`)
@@ -222,6 +226,7 @@ async function exercise(page, base, { route, nodeId, connectedId, buttonId, mult
     const survivor = await remainingCardId(page, nodeId)
     await checkTopEdge(page, page.locator(`.react-flow__node[data-id="${survivor}"]`), survivor)
     await checkHoverClicks(page, survivor, 'below')
+    if (removedIds?.length) await assertSavedFlow(page, base, cookie, flowId, saveTitle, removedIds)
 }
 
 async function remainingCardId(page, removedId) {
@@ -355,6 +360,21 @@ async function checkConnectedBackspace(page, nodeId, flowName) {
     if (!(await canvasUnsaved(page, flowName))) throw new Error(`${nodeId} Backspace did not mark the canvas unsaved`)
 }
 
+async function deleteWorkflowEdge(page) {
+    const edge = page.locator('.agent-flow-edge').first()
+    await edge.waitFor({ timeout: 10000 })
+    await edge.click()
+    if ((await page.locator('.react-flow__edge.selected').count()) < 1) {
+        throw new Error('workflow edge click did not select the line')
+    }
+    const before = await page.locator('.agent-flow-edge').count()
+    await page.keyboard.press('Delete')
+    await page.waitForTimeout(400)
+    if ((await page.locator('.agent-flow-edge').count()) !== before - 1) {
+        throw new Error('Delete left the selected workflow line')
+    }
+}
+
 async function deleteFromToolbar(page, nodeId) {
     const card = page.locator(`.react-flow__node[data-id="${nodeId}"]`)
     const box = await card.boundingBox()
@@ -403,18 +423,37 @@ async function deleteSelectedCards(page, ids) {
 
 async function assertSavedFlow(page, base, cookie, flowId, saveTitle, ids) {
     const responsePromise = page.waitForResponse(
-        (response) => response.url().includes(`/api/v1/flow-drafts/${flowId}`) && response.request().method() === 'PUT',
+        (response) => {
+            const url = response.url()
+            return (
+                response.request().method() === 'PUT' &&
+                (url.includes(`/api/v1/flow-drafts/${flowId}`) || url.includes(`/api/v1/chatflows/${flowId}`))
+            )
+        },
         { timeout: 15000 }
     )
     await page.locator(`[title="${saveTitle}"]`).click()
     const response = await responsePromise
     const body = await response.json()
-    let flowData = body?.draft?.flowData
+    let flowData = body?.draft?.flowData || body?.flowData
     if (!flowData) {
-        const got = await request(`${base}/api/v1/flow-drafts/${flowId}`, { cookie })
-        flowData = JSON.parse(got.text || '{}')?.draft?.flowData
+        const draft = await request(`${base}/api/v1/flow-drafts/${flowId}`, { cookie })
+        flowData = JSON.parse(draft.text || '{}')?.draft?.flowData
+    }
+    if (!flowData) {
+        const live = await request(`${base}/api/v1/chatflows/${flowId}`, { cookie })
+        flowData = JSON.parse(live.text || '{}')?.flowData
     }
     if (!flowData) throw new Error('save did not return the flow')
+    await page.reload({ waitUntil: 'domcontentloaded' })
+    await page.locator('.react-flow__node').first().waitFor({ timeout: 20000 })
+    const again = await request(`${base}/api/v1/flow-drafts/${flowId}`, { cookie })
+    let reloaded = JSON.parse(again.text || '{}')?.draft?.flowData
+    if (!reloaded) {
+        const live = await request(`${base}/api/v1/chatflows/${flowId}`, { cookie })
+        reloaded = JSON.parse(live.text || '{}')?.flowData
+    }
+    if (reloaded) flowData = reloaded
     const parsed = JSON.parse(flowData)
     const text = JSON.stringify(parsed)
     for (const id of ids) {
@@ -562,7 +601,76 @@ async function prepareFlows(base, cookie) {
         nodes: [start, reply, ...flowSources],
         edges: flowEdges
     })
-    return { chat, flow }
+    const chief = await buildNode(base, cookie, 'harnessChief', 'harnessChief_0', {
+        label: 'Harness Prime',
+        position: { x: 480, y: 40 }
+    })
+    const specialist = await buildNode(base, cookie, 'harnessSpecialist', 'harnessSpecialist_0', {
+        label: 'Helper',
+        position: { x: 800, y: 40 }
+    })
+    specialist.data.inputs.specialistName = 'helper'
+    const model = await buildNode(base, cookie, 'chatOllama', 'chatOllama_0', {
+        label: 'Local model',
+        position: { x: 160, y: 40 }
+    })
+    model.data.inputs.modelName = 'llama3'
+    const harnessPrompt = await buildNode(base, cookie, 'promptTemplate', 'promptTemplate_0', {
+        label: 'Harness prompt',
+        position: { x: 160, y: 280 }
+    })
+    const harnessSources = []
+    for (let index = 1; index <= 4; index += 1) {
+        harnessSources.push(
+            await buildNode(base, cookie, 'promptTemplate', `promptTemplate_${index}`, {
+                label: `Harness ${index}`,
+                position: { x: 160 + (index % 2) * 320, y: 140 + Math.floor(index / 2) * 220 }
+            })
+        )
+    }
+    const harnessEdges = [
+        connectNodes(model, chief, 'chatModel', 'buttonedge'),
+        ...harnessSources.map((node) => connectNodes(node, harnessPrompt, 'promptValues', 'buttonedge'))
+    ]
+    harnessPrompt.data.inputs.promptValues = harnessSources.map((node) => `{{${node.id}.data.instance}}`).join(' ')
+    const harness = await createFlow(base, cookie, {
+        name: `canvas-actions-harness-${Date.now()}`,
+        type: 'HARNESS',
+        nodes: [model, chief, specialist, harnessPrompt, ...harnessSources],
+        edges: harnessEdges
+    })
+    const pipelinePrompt = await buildNode(base, cookie, 'promptTemplate', 'promptTemplate_0', {
+        label: 'Pipeline prompt',
+        position: { x: 160, y: 140 }
+    })
+    const pipelineSources = []
+    for (let index = 1; index <= 4; index += 1) {
+        pipelineSources.push(
+            await buildNode(base, cookie, 'promptTemplate', `promptTemplate_${index}`, {
+                label: `Pipeline ${index}`,
+                position: { x: 160 + (index % 2) * 320, y: 140 + Math.floor(index / 2) * 220 }
+            })
+        )
+    }
+    const pipelineEdges = pipelineSources.map((node) => connectNodes(node, pipelinePrompt, 'promptValues', 'buttonedge'))
+    pipelinePrompt.data.inputs.promptValues = pipelineSources.map((node) => `{{${node.id}.data.instance}}`).join(' ')
+    const pipeline = await createFlow(base, cookie, {
+        name: `canvas-actions-pipeline-${Date.now()}`,
+        type: 'ETL',
+        nodes: [pipelinePrompt, ...pipelineSources],
+        edges: pipelineEdges
+    })
+    return { chat, flow, harness, pipeline }
+}
+
+async function persistDeletes(page, base, cookie, spec) {
+    await page.goto(`${base}${spec.route}`, { waitUntil: 'domcontentloaded' })
+    await page.locator(`.react-flow__node[data-id="${spec.nodeId}"]`).waitFor({ timeout: 20000 })
+    await page.waitForTimeout(400)
+    await checkConnectedBackspace(page, spec.connectedId, spec.flowName)
+    await deleteFromToolbar(page, spec.buttonId)
+    await deleteSelectedCards(page, spec.multiIds)
+    await assertSavedFlow(page, base, cookie, spec.flowId, spec.saveTitle, spec.removedIds)
 }
 
 export async function runCanvasActions(base) {
@@ -607,9 +715,34 @@ export async function runCanvasActions(base) {
             flowName: 'canvas actions workflow',
             flowId: flows.flow.id,
             cookie: loggedIn.cookie,
-            saveTitle: 'Save Agents'
+            saveTitle: 'Save Agents',
+            selectEdge: true
         })
         console.log('workflow canvas actions ok')
+        await persistDeletes(page, base, loggedIn.cookie, {
+            route: `/harnesscanvas/${flows.harness.id}`,
+            nodeId: 'promptTemplate_0',
+            connectedId: 'promptTemplate_1',
+            buttonId: 'promptTemplate_2',
+            multiIds: ['promptTemplate_3', 'promptTemplate_4'],
+            removedIds: ['promptTemplate_1', 'promptTemplate_2', 'promptTemplate_3', 'promptTemplate_4'],
+            flowName: flows.harness.name,
+            flowId: flows.harness.id,
+            saveTitle: 'Save Harness'
+        })
+        console.log('harness canvas actions ok')
+        await persistDeletes(page, base, loggedIn.cookie, {
+            route: `/etlcanvas/${flows.pipeline.id}`,
+            nodeId: 'promptTemplate_0',
+            connectedId: 'promptTemplate_1',
+            buttonId: 'promptTemplate_2',
+            multiIds: ['promptTemplate_3', 'promptTemplate_4'],
+            removedIds: ['promptTemplate_1', 'promptTemplate_2', 'promptTemplate_3', 'promptTemplate_4'],
+            flowName: flows.pipeline.name,
+            flowId: flows.pipeline.id,
+            saveTitle: 'Save Pipeline'
+        })
+        console.log('pipeline canvas actions ok')
     } finally {
         await browser.close()
     }

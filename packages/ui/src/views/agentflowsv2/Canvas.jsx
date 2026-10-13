@@ -109,7 +109,7 @@ const AgentflowCanvas = () => {
         draftStatusRef.current = status
         setDraftStatusState(status)
     }
-    const { reactFlowInstance, setReactFlowInstance, deleteSelection, applyingDelete } = useContext(flowContext)
+    const { reactFlowInstance, setReactFlowInstance, deleteSelection, applyingDelete, bindCanvasState } = useContext(flowContext)
     // Build with AI: starter questions wait here until the first save puts them in the chat settings.
     const builderStartersRef = useRef([])
     const [builtResult, setBuiltResult] = useState(null)
@@ -131,6 +131,7 @@ const AgentflowCanvas = () => {
     const [panelNodeId, setPanelNodeId] = useState(null)
     const [panelProps, setPanelProps] = useState({})
     const [edges, setEdges, onEdgesChange] = useEdgesState()
+    bindCanvasState(setNodes, setEdges)
     const deleteSelectionRef = useRef(deleteSelection)
     deleteSelectionRef.current = deleteSelection
     const deleteQueue = useMemo(() => createCanvasDeleteQueue((batch) => deleteSelectionRef.current?.(batch)), [])

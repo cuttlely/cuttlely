@@ -327,13 +327,14 @@ const EditNodeDialog = ({ show, dialogProps, onCancel, variant = 'dialog' }) => 
     const component = show ? (
         <Dialog
             onClose={onCancel}
+            onKeyDown={onPanelKeyDown}
             open={show}
             fullWidth
             maxWidth='sm'
             aria-labelledby='alert-dialog-title'
             aria-describedby='alert-dialog-description'
         >
-            <DialogContent>{content}</DialogContent>
+            <DialogContent onKeyDown={onPanelKeyDown}>{content}</DialogContent>
         </Dialog>
     ) : null
 

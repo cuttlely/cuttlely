@@ -167,7 +167,8 @@ const Canvas = () => {
     const pendingLangflow = useRef(null)
     const dragOrigin = useRef(new Map())
     chatflowRef.current = chatflow
-    const { reactFlowInstance, setReactFlowInstance, deleteNode, deleteSelection, applyingDelete, duplicateNode } = useContext(flowContext)
+    const { reactFlowInstance, setReactFlowInstance, deleteNode, deleteSelection, applyingDelete, bindCanvasState, duplicateNode } =
+        useContext(flowContext)
 
     // ==============================|| Snackbar ||============================== //
 
@@ -179,6 +180,7 @@ const Canvas = () => {
 
     const [nodes, setNodes, onNodesChange] = useNodesState()
     const [edges, setEdges, onEdgesChange] = useEdgesState()
+    bindCanvasState(setNodes, setEdges)
     // Keyboard Delete and Backspace emit remove changes for every selected card and its lines. One pass deletes
     // that whole set. Drag and select still go through the React Flow handler. The pipeline canvas uses this too.
     const deleteSelectionRef = useRef(deleteSelection)
