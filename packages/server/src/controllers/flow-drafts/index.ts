@@ -154,11 +154,19 @@ const rollbackLive = async (req: Request, res: Response, next: NextFunction) => 
     }
 }
 
+// Starting a check already requires these. Reading one must too, or a flow viewer sees dataset rows and evaluator names.
+async function checkReveal(req: Request) {
+    return {
+        datasets: await hasAnyPermission(req, 'datasets:view'),
+        evaluators: await hasAnyPermission(req, 'evaluators:view')
+    }
+}
+
 // The publish check: recent questions replayed against Live and the draft. Optional; Publish never waits for it.
 const getCheckSetup = async (req: Request, res: Response, next: NextFunction) => {
     try {
         const flow = await flowFor(req, 'view')
-        return res.json(await flowCheckService.getCheckSetup(flow))
+        return res.json(await flowCheckService.getCheckSetup(flow, undefined, await checkReveal(req)))
     } catch (error) {
         next(error)
     }
@@ -271,7 +279,7 @@ const startCheck = async (req: Request, res: Response, next: NextFunction) => {
 const getCheck = async (req: Request, res: Response, next: NextFunction) => {
     try {
         const flow = await flowFor(req, 'view')
-        return res.json(await flowCheckService.getCheck(flow, req.params.checkId))
+        return res.json(await flowCheckService.getCheck(flow, req.params.checkId, undefined, await checkReveal(req)))
     } catch (error) {
         next(error)
     }
@@ -280,7 +288,7 @@ const getCheck = async (req: Request, res: Response, next: NextFunction) => {
 const stopCheck = async (req: Request, res: Response, next: NextFunction) => {
     try {
         const flow = await flowFor(req, 'update')
-        return res.json(await flowCheckService.stopCheck(flow, req.params.checkId))
+        return res.json(await flowCheckService.stopCheck(flow, req.params.checkId, undefined, await checkReveal(req)))
     } catch (error) {
         next(error)
     }

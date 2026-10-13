@@ -47,7 +47,12 @@ test('the grader uses the model and credential saved on the canvas', () => {
             }
         ]
     })
-    expect(gradingModel(chat)).toEqual({ llm: 'chatOpenAI', model: 'gpt-test', credentialId: 'cred-1' })
+    expect(gradingModel(chat)).toEqual({
+        llm: 'chatOpenAI',
+        model: 'gpt-test',
+        credentialId: 'cred-1',
+        inputs: { modelName: 'gpt-test' }
+    })
     const agent = JSON.stringify({
         nodes: [
             {
@@ -58,7 +63,12 @@ test('the grader uses the model and credential saved on the canvas', () => {
             }
         ]
     })
-    expect(gradingModel(agent)).toEqual({ llm: 'chatOpenAI', model: 'gpt-test', credentialId: 'cred-2' })
+    expect(gradingModel(agent)).toEqual({
+        llm: 'chatOpenAI',
+        model: 'gpt-test',
+        credentialId: 'cred-2',
+        inputs: { modelName: 'gpt-test', FLOWISE_CREDENTIAL_ID: 'cred-2' }
+    })
     expect(gradingModel('not json')).toBeNull()
     expect(gradingModel(JSON.stringify({ nodes: [{ data: { name: 'chatOpenAI', category: 'Chat Models' } }] }))).toBeNull()
 })
@@ -75,7 +85,12 @@ test('an Agent, a Condition Agent, and the Simple RAG example each use that step
                 FLOWISE_CREDENTIAL_ID: 'cred-agent'
             })
         )
-    ).toEqual({ llm: 'chatOpenAI', model: 'from-model', credentialId: 'cred-agent' })
+    ).toEqual({
+        llm: 'chatOpenAI',
+        model: 'from-model',
+        credentialId: 'cred-agent',
+        inputs: { model: 'from-model', modelName: 'from-name', FLOWISE_CREDENTIAL_ID: 'cred-agent' }
+    })
     expect(
         gradingModel(
             step('conditionAgentAgentflow', 'conditionAgentModel', 'conditionAgentModelConfig', {
@@ -83,7 +98,47 @@ test('an Agent, a Condition Agent, and the Simple RAG example each use that step
                 FLOWISE_CREDENTIAL_ID: 'cred-condition'
             })
         )
-    ).toEqual({ llm: 'chatOpenAI', model: 'gpt-condition', credentialId: 'cred-condition' })
+    ).toEqual({
+        llm: 'chatOpenAI',
+        model: 'gpt-condition',
+        credentialId: 'cred-condition',
+        inputs: { modelName: 'gpt-condition', FLOWISE_CREDENTIAL_ID: 'cred-condition' }
+    })
     const rag = fs.readFileSync(path.join(__dirname, '../../../marketplaces/agentflowsv2/Simple RAG.json'), 'utf8')
-    expect(gradingModel(rag)).toEqual({ llm: 'chatOpenAI', model: 'gpt-4o-mini', credentialId: '' })
+    const picked = gradingModel(rag)
+    expect(picked).toMatchObject({ llm: 'chatOpenAI', model: 'gpt-4o-mini', credentialId: '' })
+    expect(picked?.inputs.modelName).toBe('gpt-4o-mini')
+    expect(picked?.inputs.temperature).toBe(0.9)
+})
+
+test('a Bedrock-style step keeps inputs.model, not only modelName', () => {
+    const canvas = JSON.stringify({
+        nodes: [
+            {
+                data: {
+                    name: 'agentAgentflow',
+                    inputs: {
+                        agentModel: 'awsChatBedrock',
+                        agentModelConfig: {
+                            model: 'anthropic.claude-3-haiku-20240307-v1:0',
+                            region: 'us-east-1',
+                            temperature: 0.2,
+                            FLOWISE_CREDENTIAL_ID: 'cred-bedrock'
+                        }
+                    }
+                }
+            }
+        ]
+    })
+    expect(gradingModel(canvas)).toEqual({
+        llm: 'awsChatBedrock',
+        model: 'anthropic.claude-3-haiku-20240307-v1:0',
+        credentialId: 'cred-bedrock',
+        inputs: {
+            model: 'anthropic.claude-3-haiku-20240307-v1:0',
+            region: 'us-east-1',
+            temperature: 0.2,
+            FLOWISE_CREDENTIAL_ID: 'cred-bedrock'
+        }
+    })
 })

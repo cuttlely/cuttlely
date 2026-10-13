@@ -295,7 +295,10 @@ describe('the publish check', () => {
         granted.add('chatflows:view')
         const res = response()
         await controller.getCheckSetup(checkRequest(), res, jest.fn())
-        expect(checkService.getCheckSetup).toHaveBeenCalledWith(expect.objectContaining({ id: FLOW.id }))
+        expect(checkService.getCheckSetup).toHaveBeenCalledWith(expect.objectContaining({ id: FLOW.id }), undefined, {
+            datasets: false,
+            evaluators: false
+        })
         expect(res.json).toHaveBeenCalledWith({ unavailable: null, questions: [] })
     })
 
@@ -417,9 +420,15 @@ describe('the publish check', () => {
         granted.add('chatflows:view')
         granted.add('chatflows:update')
         await controller.getCheck(checkRequest({}, { checkId: 'c1' }), response(), jest.fn())
-        expect(checkService.getCheck).toHaveBeenCalledWith(expect.objectContaining({ id: FLOW.id }), 'c1')
+        expect(checkService.getCheck).toHaveBeenCalledWith(expect.objectContaining({ id: FLOW.id }), 'c1', undefined, {
+            datasets: false,
+            evaluators: false
+        })
         await controller.stopCheck(checkRequest({}, { checkId: 'c1' }), response(), jest.fn())
-        expect(checkService.stopCheck).toHaveBeenCalledWith(expect.objectContaining({ id: FLOW.id }), 'c1')
+        expect(checkService.stopCheck).toHaveBeenCalledWith(expect.objectContaining({ id: FLOW.id }), 'c1', undefined, {
+            datasets: false,
+            evaluators: false
+        })
     })
 
     it('a viewer cannot start or stop a check', async () => {
@@ -458,6 +467,34 @@ describe('the publish check', () => {
             expect.objectContaining({ closed: expect.any(Function) })
         )
         expect(res.status).toHaveBeenCalledWith(202)
+    })
+
+    it('a viewer without dataset or evaluator permission polls setup and the check with those fields hidden', async () => {
+        granted.add('chatflows:view')
+        const setupRes = response()
+        await controller.getCheckSetup(checkRequest(), setupRes, jest.fn())
+        expect(checkService.getCheckSetup).toHaveBeenCalledWith(expect.objectContaining({ id: FLOW.id }), undefined, {
+            datasets: false,
+            evaluators: false
+        })
+        const checkRes = response()
+        await controller.getCheck(checkRequest({}, { checkId: 'c1' }), checkRes, jest.fn())
+        expect(checkService.getCheck).toHaveBeenCalledWith(expect.objectContaining({ id: FLOW.id }), 'c1', undefined, {
+            datasets: false,
+            evaluators: false
+        })
+        granted.add('datasets:view')
+        granted.add('evaluators:view')
+        await controller.getCheckSetup(checkRequest(), response(), jest.fn())
+        expect(checkService.getCheckSetup).toHaveBeenLastCalledWith(expect.objectContaining({ id: FLOW.id }), undefined, {
+            datasets: true,
+            evaluators: true
+        })
+        await controller.getCheck(checkRequest({}, { checkId: 'c1' }), response(), jest.fn())
+        expect(checkService.getCheck).toHaveBeenLastCalledWith(expect.objectContaining({ id: FLOW.id }), 'c1', undefined, {
+            datasets: true,
+            evaluators: true
+        })
     })
 
     it('a recent-question check does not ask for dataset or evaluator permission', async () => {

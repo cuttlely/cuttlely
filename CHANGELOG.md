@@ -8,6 +8,14 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 -   A Docker build can leave out Chromium. `INCLUDE_BROWSER=0` builds that image. The default image still includes Chromium. Puppeteer and Playwright document loaders in the smaller image fail with `this image has no browser`. The agent runtime's browser tool also cannot browse there: it returns success: false, and the server keeps running.
 
+### Fixed
+
+-   A model grade keeps text, JSON and numeric scores when the grading model cannot be started. Each model score is Error. Grading tokens count when a provider reports them only as an estimate. A provider that reports usage nowhere leaves the check bounded by the time limit.
+
+### Security
+
+-   Reading a publish check no longer includes dataset row inputs, expected outputs, or evaluator ids and names unless the caller can view datasets and evaluators.
+
 ## [1.0.2] - 2026-10-11
 
 ### Changed

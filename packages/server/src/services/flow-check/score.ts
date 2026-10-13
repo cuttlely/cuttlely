@@ -26,6 +26,8 @@ export interface GradingModel {
     llm: string
     model: string
     credentialId: string
+    // The step's model config, or the chat node's inputs. The grader spreads this onto the node.
+    inputs: Record<string, unknown>
 }
 
 export interface GradeRun {
@@ -160,14 +162,15 @@ export function gradingModel(flowData: string): GradingModel | null {
             const inputs = (data.inputs || {}) as Record<string, any>
             const llm = String(inputs[step.modelKey] || '')
             if (!llm) continue
-            const picked = readStepModel(inputs[step.configKey])
-            return { llm, model: picked.model, credentialId: picked.credentialId }
+            const config = (inputs[step.configKey] || {}) as Record<string, unknown>
+            const picked = readStepModel(config)
+            return { llm, model: picked.model, credentialId: picked.credentialId, inputs: { ...config } }
         }
         if (data.category === 'Chat Models' || data.category === 'LLMs') {
             const inputs = (data.inputs || {}) as Record<string, any>
             const credentialId = String(data.credential || '')
             const model = String(inputs.model ?? inputs.modelName ?? '')
-            if (data.name && credentialId) return { llm: String(data.name), model, credentialId }
+            if (data.name && credentialId) return { llm: String(data.name), model, credentialId, inputs: { ...inputs } }
         }
     }
     return null
@@ -232,15 +235,22 @@ function untilAbort<T>(work: Promise<T>, signal?: AbortSignal): Promise<T> {
     })
 }
 
+function gradingFailureMessage(error: unknown): string {
+    const text = error instanceof Error ? error.message : String(error || '')
+    if (/aborted/i.test(text)) return 'The grading model did not finish.'
+    return 'The grading model could not be started.'
+}
+
 async function gradeWithLlm(
     input: ScoreInput,
     evaluators: EvaluatorDTO[]
-): Promise<{ results: Array<CheckScore['result']>; tokens: number | null }> {
+): Promise<{ results: Array<CheckScore['result']>; tokens: number | null; message?: string }> {
     const errored = () => ({ results: evaluators.map(() => 'Error' as const), tokens: null })
+    const failed = (message: string) => ({ ...errored(), message })
     // A failed answer is Error for every evaluator. The grader is not called.
     if (input.error || input.signal?.aborted) return errored()
     const model = gradingModel(input.flowData)
-    if (!model || !input.workspaceId) return errored()
+    if (!model || !input.workspaceId) return failed('The grading model could not be started.')
     const data: { [key: string]: any } = {
         input: input.question,
         expectedOutput: input.expected ?? '',
@@ -258,10 +268,15 @@ async function gradeWithLlm(
                   graderTokens += tokens
               }
           })
-    const returned = asGrades(await untilAbort(Promise.resolve(work), input.signal))
-    return {
-        results: evaluators.map((_, index) => llmGradeResult(returned.grades[index])),
-        tokens: returned.tokens ?? (graderTokens > 0 ? graderTokens : null)
+    try {
+        const returned = asGrades(await untilAbort(Promise.resolve(work), input.signal))
+        return {
+            results: evaluators.map((_, index) => llmGradeResult(returned.grades[index])),
+            tokens: returned.tokens ?? (graderTokens > 0 ? graderTokens : null)
+        }
+    } catch (error) {
+        // Text, JSON and numeric scores are already stored. Only these model scores become Error.
+        return failed(gradingFailureMessage(error))
     }
 }
 
@@ -290,16 +305,19 @@ export async function scoreAnswer(input: ScoreInput): Promise<{ scores: CheckSco
         }
     }
     let tokens: number | null = null
+    let llmMessage: string | undefined
     if (llm.length) {
         const graded = await gradeWithLlm(input, llm)
         tokens = graded.tokens
+        llmMessage = graded.message
         llm.forEach((evaluator, index) => byId.set(evaluator.id, graded.results[index] || 'Error'))
     }
     return {
         scores: evaluators.map((evaluator) => ({
             id: evaluator.id,
             name: evaluator.name,
-            result: byId.get(evaluator.id) || 'Error'
+            result: byId.get(evaluator.id) || 'Error',
+            ...(evaluator.type === 'llm' && llmMessage ? { message: llmMessage } : {})
         })),
         tokens
     }

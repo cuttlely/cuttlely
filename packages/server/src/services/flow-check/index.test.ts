@@ -96,6 +96,7 @@ jest.mock('../../utils/logger', () => ({ __esModule: true, default: { error: jes
 
 import { checks, getCheck, getCheckSetup, replayHooks, startCheck, stopCheck } from './index'
 import { scoreHooks } from './score'
+import { noteGraderTokens } from '../evaluations/LLMEvaluationRunner'
 
 const canvas = (word: string, extra: any[] = []) =>
     JSON.stringify({
@@ -978,6 +979,47 @@ describe('a dataset and evaluators', () => {
         expect(done.summary.scores).toBeUndefined()
         expect(done.summary).toMatchObject({ ran: 1, same: 0, changed: 1 })
     })
+
+    test('a viewer without dataset or evaluator permission sees no row inputs, expected outputs, or evaluator names', async () => {
+        saveEvaluator('text-1', 'text', { operator: 'ContainsAny', value: 'mango' }, 'team-a', 'Mentions mango')
+        replayHooks.run = async () => ({ text: 'mango', metrics: [JSON.stringify({ totalTokens: 4 })] })
+        const started = await startCheck(flow() as any, { datasetId: 'ds-1', evaluatorIds: ['text-1'] }, 'http://x')
+        expect(started.cases[0].question).toBe('First?')
+        expect(started.cases[0].expected).toBe('one')
+        await settle()
+        const hidden = { datasets: false, evaluators: false }
+        const read = await getCheck(flow(), started.id, undefined, hidden)
+        const setup = await getCheckSetup(flow(), undefined, hidden)
+        const body = JSON.stringify({ read, check: setup.check })
+        expect(body).not.toContain('First?')
+        expect(body).not.toContain('Second?')
+        expect(body).not.toContain('"one"')
+        expect(body).not.toContain('Mentions mango')
+        expect(body).not.toContain('text-1')
+        expect(read.cases[0].question).toBe('')
+        expect(read.cases[0].expected).toBeNull()
+        expect(read.cases[0].live?.scores?.[0]).toEqual({ result: 'Pass' })
+        expect(setup.check?.cases[0].question).toBe('')
+        const shown = { datasets: true, evaluators: true }
+        const full = await getCheck(flow(), started.id, undefined, shown)
+        const fullSetup = await getCheckSetup(flow(), undefined, shown)
+        expect(full.cases.map((item) => [item.question, item.expected])).toEqual([
+            ['First?', 'one'],
+            ['Second?', 'two'],
+            ['First?', 'one again']
+        ])
+        expect(full.cases[0].live?.scores?.[0]).toEqual({ id: 'text-1', name: 'Mentions mango', result: 'Pass' })
+        expect(fullSetup.check?.cases[0].question).toBe('First?')
+        expect(fullSetup.check?.cases[0].expected).toBe('one')
+    })
+
+    test('a recent question stays visible without dataset permission', async () => {
+        const started = await startCheck(flow() as any, { questions: ['What time do you open?'] }, 'http://x')
+        await settle()
+        const read = await getCheck(flow(), started.id, undefined, { datasets: false, evaluators: false })
+        expect(read.cases[0].question).toBe('What time do you open?')
+        expect(read.cases[0].expected).toBeNull()
+    })
 })
 
 describe('a start the client abandons', () => {
@@ -1151,5 +1193,55 @@ describe('grading limits', () => {
         expect(done.status).toBe('stopped')
         expect(done.stopReason).toBe('tokens')
         expect(asked).toEqual(['Q1'])
+    })
+
+    test('a grader that reports usage only via estimatedTokenUsage still hits the token cap', async () => {
+        process.env.CUTTLELY_CHECK_MAX_TOKENS = '1000'
+        process.env.CUTTLELY_CHECK_CONCURRENCY = '1'
+        const asked: string[] = []
+        replayHooks.run = async ({ question }) => {
+            asked.push(question)
+            return { text: 'ok', metrics: [JSON.stringify({ totalTokens: 600 })] }
+        }
+        scoreHooks.gradeLlm = async () => {
+            let tokens = 0
+            noteGraderTokens({ llmOutput: { estimatedTokenUsage: { totalTokens: 500 } } }, (count) => {
+                tokens += count
+            })
+            return { grades: [{ pass: true }], tokens }
+        }
+        const started = await startCheck(
+            flow({ flowData: gradedCanvas('MANGO') }) as any,
+            { questions: ['Q1', 'Q2'], evaluatorIds: ['llm-1'] },
+            'http://x'
+        )
+        await settle()
+        const done = await getCheck(flow({ flowData: gradedCanvas('MANGO') }), started.id)
+        expect(done.status).toBe('stopped')
+        expect(done.stopReason).toBe('tokens')
+        expect(asked).toEqual(['Q1'])
+    })
+
+    test('a grading model that cannot start leaves the other scores', async () => {
+        saveEvaluator('text-1', 'text', { operator: 'ContainsAny', value: 'ok' }, 'team-a', 'Contains ok')
+        saveEvaluator('num-1', 'numeric', { operator: 'greaterThan', measure: 'totalTokens', value: '1' }, 'team-a', 'Has tokens')
+        scoreHooks.gradeLlm = async () => {
+            throw new Error('Error creating LLM')
+        }
+        replayHooks.run = async () => ({ text: 'ok', metrics: [JSON.stringify({ totalTokens: 20 })] })
+        const started = await startCheck(
+            flow({ flowData: gradedCanvas('MANGO') }) as any,
+            { questions: ['Q'], evaluatorIds: ['text-1', 'llm-1', 'num-1'] },
+            'http://x'
+        )
+        await settle()
+        const done = await getCheck(flow({ flowData: gradedCanvas('MANGO') }), started.id)
+        expect(done.cases[0].live?.scores).toEqual([
+            { id: 'text-1', name: 'Contains ok', result: 'Pass' },
+            { id: 'llm-1', name: 'Graded', result: 'Error', message: 'The grading model could not be started.' },
+            { id: 'num-1', name: 'Has tokens', result: 'Pass' }
+        ])
+        expect(done.cases[0].draft?.scores?.[1].message).toBe('The grading model could not be started.')
+        expect(done.status).toBe('done')
     })
 })

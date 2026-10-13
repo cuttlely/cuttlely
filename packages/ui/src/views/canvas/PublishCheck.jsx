@@ -69,17 +69,23 @@ const Side = ({ title, side, running, empty }) => (
                 </Typography>
                 {side.scores?.length > 0 && (
                     <Stack direction='row' spacing={0.5} useFlexGap flexWrap='wrap' sx={{ mt: 0.5 }}>
-                        {side.scores.map((score) => (
+                        {side.scores.map((score, index) => (
                             <Chip
-                                key={score.id}
+                                key={score.id || `score-${index}`}
                                 size='small'
                                 data-testid='check-score'
-                                label={`${score.name}: ${score.result}`}
+                                title={score.message || undefined}
+                                label={score.name ? `${score.name}: ${score.result}` : score.result}
                                 color={score.result === 'Pass' ? 'success' : score.result === 'Fail' ? 'error' : 'warning'}
                                 variant='outlined'
                             />
                         ))}
                     </Stack>
+                )}
+                {side.scores?.some((score) => score.message) && (
+                    <Typography variant='caption' color='text.secondary' data-testid='check-score-message'>
+                        {[...new Set(side.scores.map((score) => score.message).filter(Boolean))].join(' ')}
+                    </Typography>
                 )}
             </>
         ) : (

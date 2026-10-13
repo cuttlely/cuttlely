@@ -1,9 +1,12 @@
 // Same or changed, and the totals the Publish dialog shows. Pure functions, no I/O.
 
 export interface CheckScore {
-    id: string
-    name: string
+    // Omitted on a read when the caller cannot view evaluators.
+    id?: string
+    name?: string
     result: 'Pass' | 'Fail' | 'Error'
+    // Why a model score is Error, when the grading model could not be started or did not finish.
+    message?: string
 }
 
 export interface SideResult {
