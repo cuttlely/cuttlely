@@ -24,11 +24,11 @@ import { fireEvent } from '@testing-library/react'
 import { ThemeProvider, createTheme } from '@mui/material/styles'
 
 import flowDraftsApi from '@/api/flowDrafts'
-import datasetsApi from '@/api/dataset'
-import evaluatorsApi from '@/api/evaluators'
 import { PublishGateSettings } from './PublishCheck'
 
 const { __setAllow } = jest.requireMock('@/hooks/useAuth')
+const datasetsApi = jest.requireMock('@/api/dataset').default
+const evaluatorsApi = jest.requireMock('@/api/evaluators').default
 
 const canvas = (startInputType) =>
     JSON.stringify({
