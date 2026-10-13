@@ -8,6 +8,7 @@ import { ChatMessageFeedback } from '../../database/entities/ChatMessageFeedback
 import { Dataset } from '../../database/entities/Dataset'
 import { DatasetRow } from '../../database/entities/DatasetRow'
 import { AppError } from '../../errors/appError'
+import { ChatMessageRatingType } from '../../Interface'
 import { getErrorMessage } from '../../errors/utils'
 import { hasAnyPermission } from '../../identity/rbac'
 import { getRunningExpressApp } from '../../utils/getRunningExpressApp'
@@ -609,7 +610,7 @@ const addDatasetRowsFromRatings = async (
         if (body.dryRun !== undefined && typeof body.dryRun !== 'boolean') {
             throw new AppError(StatusCodes.BAD_REQUEST, 'dryRun must be true or false.')
         }
-        const rating = body.rating as 'THUMBS_UP' | 'THUMBS_DOWN'
+        const rating = body.rating as ChatMessageRatingType
         const days = body.days
         const limit = typeof body.limit === 'number' ? Math.min(body.limit, RATING_IMPORT_CAP) : RATING_IMPORT_CAP
         const dryRun = body.dryRun === true
