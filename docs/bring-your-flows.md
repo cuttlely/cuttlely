@@ -5,7 +5,7 @@ Built flows in another tool? Cuttlely can open many of them, so you don't start 
 Two things are true for every import:
 
 -   **Keys never travel in a file.** API keys, passwords and saved credential ids are removed before the canvas opens. Save your keys under **Credentials** and select one on each card that needs it.
--   **An import is a new flow.** Nothing is saved until you select **Save**, and the first save is a draft. The API, embeds and shared links serve it only after you **Publish**. See [Drafts and Publish](./how-to/versioning.md#drafts-and-publish).
+-   **An import is a new flow.** Nothing is saved until you select **Save**. On the chatflow canvas that first save is a draft, and the API, embeds and shared links serve it only after you **Publish**. On an agentflow, a harness, or a pipeline, that first save creates the published flow, and the next canvas save is a draft. See [Drafts and Publish](./how-to/versioning.md#drafts-and-publish).
 
 Install and sign in first: [Docker](./how-to/docker.md) and [Sign in](./how-to/sign-in.md).
 

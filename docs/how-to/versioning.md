@@ -11,7 +11,7 @@ Install first: [Docker](./docker.md), [From source](./from-source.md), or [Rende
 Each step links to its section below.
 
 1. **Edit a draft.** The canvas saves to a draft, and Live keeps serving until you publish. See [Drafts and Publish](#drafts-and-publish).
-2. **Check before you publish.** On a chatflow or an agentflow, the Publish dialog can ask recent questions again on Live and on your draft, side by side. See [Check recent questions before you publish](#check-recent-questions-before-you-publish).
+2. **Check before you publish.** A chatflow and a harness replay recent questions on Live and on the draft. An agentflow replays recent questions, or the recorded inputs of a form, webhook, or schedule start. A pipeline lists what changed and does not replay. See [Which canvases get a check](#which-canvases-get-a-check) and [Check recent questions before you publish](#check-recent-questions-before-you-publish).
 3. **Publish.** Your draft goes Live, and history marks the version **Published**. See [Drafts and Publish](#drafts-and-publish).
 4. **Look back.** Every version says what changed and who changed it. See [Open version history](#open-version-history), [See what changed](#see-what-changed), [Compare with now](#compare-with-now) and [Who changed it](#who-changed-it).
 5. **Undo.** Open an old version as your draft, or roll Live back in one step. See [Restore a version](#restore-a-version).
@@ -66,7 +66,7 @@ Restoring needs permission to edit that kind of flow. A user who cannot edit flo
 
 ### Open a version as your draft
 
-On a chatflow, agentflow, or harness with drafts on, which is the default, the button on the version page is **Open As Draft**. The version goes on the canvas as your draft, and Live does not change until you publish.
+On a chatflow, agentflow, harness, or pipeline with drafts on, which is the default, the button on the version page is **Open As Draft**. The version goes on the canvas as your draft, and Live does not change until you publish.
 
 1. Open the version.
 2. Select **Open As Draft**.
@@ -96,7 +96,7 @@ Flows with **Publish instantly** on, and every flow on a server with drafts off,
 
 ![The Restore this version? dialog over the version page of Bakery helper, with Compare With Now selected and Restore This Version at the top right. It reads: The flow goes back to this version and is live right away. Nothing in history is erased: the restore is saved as a new version, so you can undo it the same way. The buttons are Cancel and Restore.](../images/versioning/restore-confirm.png)
 
-The flow goes back to that version and is live right away. That includes the canvas, the flow's name, its type, and its category. The restore runs through the same save as the canvas. A harness that is saving straight to Live is updated the same way, including the roster `POST /api/v1/harnesses/:name/runs` serves. A pipeline that is saving straight to Live is updated the same way, including the version scheduled runs, a run you start, and a full rebuild read.
+The flow goes back to that version and is live right away. That includes the canvas, the flow's name, its type, and its category. The restore runs through the same save as the canvas. With drafts off, or with **Publish instantly** on, a harness restore updates the roster `POST /api/v1/harnesses/:name/runs` serves. A pipeline restore updates the version that scheduled runs, a run you start, and a full rebuild read.
 
 The restore is saved as a new version named `Restored: <name of that version> (<version id>)`, edited by you. To undo a restore, open the version before it and restore that one.
 
@@ -187,7 +187,26 @@ Chat history, uploaded files, runs, and the app database are not in version hist
 
 ## Drafts and Publish
 
-Drafts are on by default. A chatflow, agentflow, harness, or pipeline canvas saves to a **Draft**. The prediction API, embeds, shared links, schedules, webhooks, and `POST /api/v1/harnesses/:name/runs` keep running **Live** until you **Publish**. The canvas test chat runs the draft, so you try the version you are editing. On a harness that is the canvas chat and **Try it**. They use the same internal route as a chatflow test chat, and that try runs the draft roster: its specialists, tools, and models. External callers of `POST /api/v1/harnesses/:name/runs` stay on Live. A pipeline's scheduled runs, a run you start from the canvas, and a full rebuild keep using the published pipeline until you **Publish**. **Preview** is the canvas test of a pipeline: it runs the draft (the canvas you are looking at) and does not write to the store. The Publish dialog for a pipeline lists what changed, in the same words as version history, and has no question check.
+Drafts are on by default. A chatflow, agentflow, harness, or pipeline canvas saves to a **Draft**. A legacy multi-agent canvas does too. An assistant has no canvas drafts. Once the flow exists, the next canvas save goes to the draft. The first save of a new harness, a new pipeline, or a new agentflow creates the published flow. A chatflow made with Build with AI, or imported onto the chatflow canvas, keeps that first save as a draft and leaves Live empty until you publish. The prediction API, embeds, shared links, schedules, webhooks, and `POST /api/v1/harnesses/:name/runs` keep running **Live** until you **Publish**. The canvas test chat runs the draft, so you try the version you are editing. On a harness that is the canvas chat and **Try it**. They use the same internal route as a chatflow test chat, and that try runs the draft roster: its specialists, tools, and models. External callers of `POST /api/v1/harnesses/:name/runs` stay on Live. A pipeline's scheduled runs, a run you start from the canvas, and a full rebuild keep using the published pipeline until you **Publish**. **Preview** is the canvas test of a pipeline: it runs the draft (the canvas you are looking at) and does not write to the store.
+
+### Which canvases get a check
+
+**Publish** always lists what changed, in the same words as version history. A replay check is extra, and only some kinds run one. A pipeline's dialog is that change list and does not replay.
+
+| Canvas                                                | Publish dialog                          | What is replayed                                                                                                                               |
+| ----------------------------------------------------- | --------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| Chatflow                                              | Replay check                            | Recent questions. There is no Start node. A dataset's rows can be the questions.                                                               |
+| Agentflow, Start input **Chat Input** (`chatInput`)   | Replay check                            | Recent questions. A dataset's rows can be the questions.                                                                                       |
+| Agentflow, Start input **Form** (`formInput`)         | Replay check                            | Recorded form submissions, newest first. The box is **Check recent runs**. A dataset is refused.                                               |
+| Agentflow, Start input **Webhook** (`webhookTrigger`) | Replay check                            | Recorded webhook calls, newest first. The box is **Check recent runs**. A dataset is refused.                                                  |
+| Agentflow, Start input **Schedule** (`scheduleInput`) | Replay check                            | Recorded schedule inputs, newest first. A schedule that sent a form is read as a form. The box is **Check recent runs**. A dataset is refused. |
+| Harness                                               | Replay check                            | Recent questions: the full prompts from saved chats, not the short line on **Runs**. A dataset's rows can be the questions.                    |
+| Pipeline                                              | Change list only                        | Nothing. The dialog does not run the question check.                                                                                           |
+| Legacy multi-agent canvas                             | The box stays, and the check is refused | Nothing. The message is `The check works on chatflows and agentflows.`                                                                         |
+
+Live and the draft must start the same way. On an agentflow, a canvas with no Start node does not block the other side, so a flow that was never published can still be checked. Two different starts, a Start node with no input type, or no Start node on either canvas are not replayed. That refusal says `The check asks questions, so it works on agentflows that start with a chat message.`
+
+The steps for a replay are in [Check recent questions before you publish](#check-recent-questions-before-you-publish). The routes and the stored types are in the [Drafts API](../reference/drafts-api.md#kinds-on-these-routes).
 
 The canvas says **Draft, not live yet** and when that draft was saved, or **Live** when there is nothing waiting. **Publish** opens one dialog that lists what changed, in the same words as version history. **Keep editing** closes it. **Discard draft** throws the draft away and puts Live back on the canvas.
 
@@ -490,7 +509,7 @@ Select a flow to open its review page:
 -   **What changes on this server** compares the version from the previous environment with what is Live here now. On the saved Dev and Prod pair that version is Dev's.
 -   **What changed on** the previous environment lists the versions it published since the last promote, newest first. On the saved pair the heading is **What changed on Dev**.
 -   **Credentials** says whether this server has every credential the flow uses. See [Credentials stay on each server](#credentials-stay-on-each-server).
--   **Check recent questions** runs the questions this server's users asked lately on Live and on the version from the previous environment, side by side, the same way as [Check recent questions before you publish](#check-recent-questions-before-you-publish), including the past-question count. A form, webhook or schedule agentflow instead replays inputs recorded on this server, not on the previous environment. That box is titled **Check recent runs** and uses the same **Past runs** choices. When fewer runs exist than the choice, the picker is labeled **Requested runs**. If this server has no such run yet, the box says no past runs exist yet and how to create one here. It is optional. On the saved pair the new version's column is **From Dev**. On a longer list that column is **From** plus the previous environment's name.
+-   **Check recent questions** runs the questions this server's users asked lately on Live and on the version from the previous environment, side by side, the same way as [Check recent questions before you publish](#check-recent-questions-before-you-publish), including the past-question count. A harness uses that same question check, from the full prompts saved for the harness. A form, webhook or schedule agentflow instead replays inputs recorded on this server, not on the previous environment. That box is titled **Check recent runs** and uses the same **Past runs** choices. When fewer runs exist than the choice, the picker is labeled **Requested runs**. If this server has no such run yet, the box says no past runs exist yet and how to create one here. A pipeline has no replay on this page: the review lists what would change. The check is optional. On the saved pair the new version's column is **From Dev**. On a longer list that column is **From** plus the previous environment's name.
 -   **Where this version is**, on a longer list, shows the version of this flow on each environment in the chain. The saved Dev and Prod pair does not show it.
 
 ![The review page for Bakery helper, marked New version available from Dev. What changes on this server lists Changed ChatOpenAI: temperature and Changed Conversation Chain: system message prompt. What changed on Dev lists two versions by Rosa Diaz. Credentials says Every credential it uses is on this server. Below is Check recent questions with two recent questions picked and a Run Check button.](../images/versioning/promote-review.png)
