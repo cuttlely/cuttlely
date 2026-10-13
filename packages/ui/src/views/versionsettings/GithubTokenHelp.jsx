@@ -7,8 +7,8 @@ import { IconBook2, IconExternalLink, IconInfoCircle } from '@tabler/icons-react
 
 import { TOKEN_GUIDE_URL, tokenCreateUrl, tokenHelp } from '@/utils/githubSync'
 
-export const TokenHelpCard = ({ reading }) => {
-    const help = tokenHelp(reading)
+export const TokenHelpCard = ({ reading, from = '' }) => {
+    const help = tokenHelp(reading, from)
     return (
         <Box data-testid='github-token-help' sx={{ width: 380, maxWidth: 'calc(100vw - 32px)', p: 2.25 }}>
             <Stack direction='row' spacing={1} alignItems='center' sx={{ mb: 1.75 }}>
@@ -80,9 +80,9 @@ export const TokenHelpCard = ({ reading }) => {
     )
 }
 
-TokenHelpCard.propTypes = { reading: PropTypes.bool }
+TokenHelpCard.propTypes = { reading: PropTypes.bool, from: PropTypes.string }
 
-const GithubTokenHelp = ({ reading }) => {
+const GithubTokenHelp = ({ reading, from = '' }) => {
     const [anchor, setAnchor] = useState(null)
     const open = Boolean(anchor)
     return (
@@ -109,12 +109,12 @@ const GithubTokenHelp = ({ reading }) => {
                 transformOrigin={{ vertical: 'top', horizontal: 'right' }}
                 PaperProps={{ sx: { mt: 1, borderRadius: 2.5, boxShadow: 8 }, role: 'dialog', 'aria-label': 'Which token to use' }}
             >
-                <TokenHelpCard reading={reading} />
+                <TokenHelpCard reading={reading} from={from} />
             </Popover>
         </>
     )
 }
 
-GithubTokenHelp.propTypes = { reading: PropTypes.bool }
+GithubTokenHelp.propTypes = { reading: PropTypes.bool, from: PropTypes.string }
 
 export default GithubTokenHelp

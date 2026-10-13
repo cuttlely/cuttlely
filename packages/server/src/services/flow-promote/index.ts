@@ -1,7 +1,8 @@
-// Promote: moving a flow from Dev to Prod. Dev copies its published versions to a GitHub repository; Prod reads
-// them from there (see GithubSync, read mode) into INCOMING_REF and lists here, per flow, the version that is
-// newer than the one it last promoted. Reading changes nothing on Prod. A person promotes a version, which puts it
-// Live through the normal update path (controllers/flow-promote): never on its own, and never over a draft.
+// Promote: moving a flow to the next environment. The first environment copies its published versions to a GitHub
+// repository; the next one reads them from there (see GithubSync) into INCOMING_REF and lists here, per flow, the
+// version that is newer than the one it last promoted. A saved Dev and Prod label is that pair, in that order.
+// Reading changes nothing here. A person promotes a version, which puts it Live through the normal update path
+// (controllers/flow-promote): never on its own, and never over a draft. Promotion does not skip an environment.
 import { StatusCodes } from 'http-status-codes'
 import { AppError } from '../../errors/appError'
 import { ChatFlow } from '../../database/entities/ChatFlow'
@@ -21,6 +22,8 @@ import {
     VersionedFlow
 } from '../flow-versions'
 import { INCOMING_REF } from '../flow-versions/github'
+import { adjacentError, isLegacyChain, legacyEnvironments, slotFor, sourceTitle } from '../flow-versions'
+import type { NamedEnvironment } from '../flow-versions'
 import { FlowVersionEntry, listAllVersions, readFlowAt, VersionDiff, VersionEntry } from '../flow-versions/history'
 import { runGit } from '../flow-versions/store'
 import { trailerGrep } from '../flow-versions/trailers'
@@ -63,11 +66,16 @@ export interface IncomingFlow {
 }
 
 export interface IncomingList {
-    // This server is labeled Prod and history is on.
+    // This server promotes from the previous environment, and history is on.
     enabled: boolean
     connected: boolean
     lastCheckedAt: string | null
     flows: IncomingFlow[]
+    // Promotion order. A saved Dev and Prod label is dev, then prod.
+    environments: NamedEnvironment[]
+    // Server identity of the environment this server promotes from, and of this server.
+    source: string | null
+    target: string | null
 }
 
 export interface IncomingDetail extends IncomingFlow {
@@ -78,13 +86,18 @@ export interface IncomingDetail extends IncomingFlow {
     hiddenSecrets: number
     // The behavior check compares Live with this version. Null when it can run.
     checkUnavailable: Unavailable | null
+    environments: NamedEnvironment[]
+    source: string | null
+    target: string | null
 }
 
 export interface PromoteDeps {
     // The flow with this id on this server, in any workspace.
     findFlow: (id: string) => Promise<ChatFlow | null>
     draftOf: (id: string) => Promise<string | null>
-    environment: () => 'dev' | 'prod' | null
+    environment: () => string | null
+    // The ordered list. Omitted means the Dev and Prod pair.
+    environments?: () => NamedEnvironment[]
     connected: () => boolean
     lastCheckedAt: () => Promise<string | null>
     readOptions?: (workspaceId: string) => ReadOptions
@@ -95,8 +108,32 @@ export const defaultDeps: PromoteDeps = {
     findFlow: async (id) => (await getRunningExpressApp().AppDataSource.getRepository(ChatFlow).findOneBy({ id })) || null,
     draftOf: async (id) => (await flowDraftsService.getState(id))?.draftFlowData || null,
     environment: () => getGithub().environment(),
+    environments: () => getGithub().environments(),
     connected: () => getGithub().isConnected(),
     lastCheckedAt: async () => (await getGithub().status()).lastCheckedAt
+}
+
+function chainOf(deps: PromoteDeps): NamedEnvironment[] {
+    const listed = deps.environments?.()
+    return listed || legacyEnvironments()
+}
+
+function hopOf(deps: PromoteDeps) {
+    const chain = chainOf(deps)
+    const slot = slotFor(chain, deps.environment())
+    return {
+        chain,
+        slot,
+        reads: slot.index > 0,
+        environments: chain,
+        source: slot.source?.server || null,
+        target: slot.here?.server || null,
+        from: sourceTitle(chain, deps.environment())
+    }
+}
+
+function noVersion(from: string): string {
+    return from === 'Dev' ? 'There is no new version from Dev for this flow.' : `There is no new version from ${from} for this flow.`
 }
 
 function devVersion(entry: VersionEntry): DevVersion {
@@ -128,7 +165,7 @@ interface Candidate {
 // another workspace here, and flows whose newest version was already promoted are left out.
 async function candidates(workspaceId: string, deps: PromoteDeps, onlyFlow?: string): Promise<Candidate[]> {
     // Only while connected: a disconnected server offers nothing, even if a read finished after Disconnect.
-    if (!isVersioningEnabled() || deps.environment() !== 'prod' || !deps.connected()) return []
+    if (!isVersioningEnabled() || !hopOf(deps).reads || !deps.connected()) return []
     await flushVersions()
     const head = await incomingHead()
     if (!head) return []
@@ -195,28 +232,47 @@ async function toIncoming(candidate: Candidate, deps: PromoteDeps, workspaceId: 
 
 // Every flow with a new version from Dev, newest first.
 export async function listIncoming(workspaceId: string, deps: PromoteDeps = defaultDeps): Promise<IncomingList> {
-    const enabled = isVersioningEnabled() && deps.environment() === 'prod'
-    if (!enabled) return { enabled, connected: false, lastCheckedAt: null, flows: [] }
+    const hop = hopOf(deps)
+    const enabled = isVersioningEnabled() && hop.reads
+    if (!enabled)
+        return {
+            enabled,
+            connected: false,
+            lastCheckedAt: null,
+            flows: [],
+            environments: hop.environments,
+            source: hop.source,
+            target: hop.target
+        }
     const flows: IncomingFlow[] = []
     for (const candidate of await candidates(workspaceId, deps)) {
         const item = await toIncoming(candidate, deps, workspaceId)
         if (item) flows.push(item)
     }
     flows.sort((a, b) => (a.version.date < b.version.date ? 1 : a.version.date > b.version.date ? -1 : 0))
-    return { enabled, connected: deps.connected(), lastCheckedAt: await deps.lastCheckedAt(), flows }
+    return {
+        enabled,
+        connected: deps.connected(),
+        lastCheckedAt: await deps.lastCheckedAt(),
+        flows,
+        environments: hop.environments,
+        source: hop.source,
+        target: hop.target
+    }
 }
 
 // One flow's new version from Dev, with what Promote would change and the credentials it needs here.
 // A version Dev sent is mapped to this server's own Credentials by name and type.
 export async function getIncoming(flowId: string, workspaceId: string, deps: PromoteDeps = defaultDeps): Promise<IncomingDetail> {
-    if (!FLOW_ID.test(flowId)) throw new AppError(StatusCodes.NOT_FOUND, 'There is no new version from Dev for this flow.')
+    const missing = noVersion(hopOf(deps).from)
+    if (!FLOW_ID.test(flowId)) throw new AppError(StatusCodes.NOT_FOUND, missing)
     const [candidate] = await candidates(workspaceId, deps, flowId)
     const item = candidate ? await toIncoming(candidate, deps, workspaceId) : null
-    if (!candidate || !item) throw new AppError(StatusCodes.NOT_FOUND, 'There is no new version from Dev for this flow.')
+    if (!candidate || !item) throw new AppError(StatusCodes.NOT_FOUND, missing)
     const base = candidate.row || blankFlow(flowId, item.name, item.type, workspaceId)
     const version = await getVersion(base, item.version.sha, deps.readOptions?.(workspaceId))
     const diff = await diffVersion(base, item.version.sha, 'current', deps.recordOptions)
-    if (!version || !diff) throw new AppError(StatusCodes.NOT_FOUND, 'There is no new version from Dev for this flow.')
+    if (!version || !diff) throw new AppError(StatusCodes.NOT_FOUND, missing)
     const { sha: _sha, against: _against, ...changes } = diff
     const type = version.type || item.type
     const checkUnavailable: IncomingDetail['checkUnavailable'] = !candidate.row
@@ -233,7 +289,10 @@ export async function getIncoming(flowId: string, workspaceId: string, deps: Pro
         missingCredentials: version.missingCredentials.map((ref) => ({ name: ref.name, credentialName: ref.credentialName })),
         ambiguousCredentials: version.ambiguousCredentials,
         hiddenSecrets: version.hiddenSecrets.reduce((sum, hidden) => sum + hidden.count, 0),
-        checkUnavailable
+        checkUnavailable,
+        environments: hopOf(deps).environments,
+        source: hopOf(deps).source,
+        target: hopOf(deps).target
     }
 }
 
@@ -257,29 +316,60 @@ export async function incomingCanvas(
 }
 
 // Checks that `sha` is still the newest version from Dev for this flow, and returns it.
-export async function promotable(flowId: string, sha: unknown, workspaceId: string, deps: PromoteDeps = defaultDeps): Promise<Candidate> {
+// The history title: "Promoted from Dev" for the saved pair, or the previous environment's name.
+export function promoteSource(deps: PromoteDeps = defaultDeps): string {
+    return hopOf(deps).from
+}
+
+export function promoteVerb(deps: PromoteDeps = defaultDeps): string {
+    return `Promoted from ${promoteSource(deps)}`
+}
+
+export async function promotable(
+    flowId: string,
+    sha: unknown,
+    workspaceId: string,
+    deps: PromoteDeps = defaultDeps,
+    from?: unknown
+): Promise<Candidate> {
     if (typeof sha !== 'string' || !SHA40.test(sha)) {
         throw new AppError(StatusCodes.BAD_REQUEST, 'sha is the full id of the version to promote: 40 lowercase hex characters.')
     }
     if (!isVersioningEnabled()) throw new AppError(StatusCodes.CONFLICT, 'Version history is off on this server.')
-    if (deps.environment() !== 'prod') {
-        throw new AppError(StatusCodes.CONFLICT, 'Only a server labeled Prod promotes versions from Dev.')
+    const hop = hopOf(deps)
+    if (!hop.reads) {
+        throw new AppError(
+            StatusCodes.CONFLICT,
+            isLegacyChain(hop.chain)
+                ? 'Only a server labeled Prod promotes versions from Dev.'
+                : 'This server publishes versions. The next environment promotes them.'
+        )
     }
-    if (!FLOW_ID.test(flowId)) throw new AppError(StatusCodes.NOT_FOUND, 'There is no new version from Dev for this flow.')
+    // A named source has to be the previous environment. Dev to Prod is refused while Staging sits between them.
+    if (typeof from === 'string' && from) {
+        const skipped = adjacentError(hop.chain, from, deps.environment() || '')
+        if (skipped) throw new AppError(StatusCodes.CONFLICT, skipped)
+    }
+    const fromName = hop.from
+    if (!FLOW_ID.test(flowId)) throw new AppError(StatusCodes.NOT_FOUND, noVersion(fromName))
     const [candidate] = await candidates(workspaceId, deps, flowId)
     if (!candidate) {
         throw new AppError(
             StatusCodes.CONFLICT,
-            'This version from Dev is already Live here, or it is no longer offered. Reload to see the latest.'
+            fromName === 'Dev'
+                ? 'This version from Dev is already Live here, or it is no longer offered. Reload to see the latest.'
+                : `This version from ${fromName} is already Live here, or it is no longer offered. Reload to see the latest.`
         )
     }
     if (candidate.latest.sha !== sha) {
         throw new AppError(
             StatusCodes.CONFLICT,
-            'A newer version of this flow arrived from Dev while you were looking. Review it, then promote.'
+            fromName === 'Dev'
+                ? 'A newer version of this flow arrived from Dev while you were looking. Review it, then promote.'
+                : `A newer version of this flow arrived from ${fromName} while you were looking. Review it, then promote.`
         )
     }
     return candidate
 }
 
-export default { listIncoming, getIncoming, incomingCanvas, promotable }
+export default { listIncoming, getIncoming, incomingCanvas, promotable, promoteSource, promoteVerb }
