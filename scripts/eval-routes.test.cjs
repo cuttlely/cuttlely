@@ -278,14 +278,20 @@ async function roundTrip(dataSource) {
     assert.equal(evaluatorEdit.status, 200, JSON.stringify(evaluatorEdit.body))
     assert.equal(evaluatorEdit.body.name, 'Mentions a replacement')
 
+    const chat = await dataSource.getRepository(ChatFlow).save({
+        name: 'Support',
+        flowData: '{}',
+        type: 'CHATFLOW',
+        workspaceId: WORKSPACE
+    })
     const evaluation = await api.post('/evaluations').send({
         name: 'Sample run',
         evaluationType: 'benchmarking',
         datasetId,
         datasetName: 'Sample questions v2',
-        chatflowId: '[]',
-        chatflowName: '[]',
-        chatflowType: '[]',
+        chatflowId: JSON.stringify([chat.id]),
+        chatflowName: JSON.stringify(['Support']),
+        chatflowType: JSON.stringify(['Chatflow']),
         selectedSimpleEvaluators: [],
         datasetAsOneConversation: false
     })
@@ -470,15 +476,21 @@ describe('evaluation routes', () => {
             assert.equal(rejected.status, 404, JSON.stringify(rejected.body))
             assert.equal(runs, 0)
             assert.equal(await dataSource.getRepository(Evaluation).count(), 0)
+            const chat = await dataSource.getRepository(ChatFlow).save({
+                name: 'Grade flow',
+                flowData: '{}',
+                type: 'CHATFLOW',
+                workspaceId: WORKSPACE
+            })
             const accepted = await api.post('/evaluations').send({
                 name: 'Own grade',
                 evaluationType: 'llm',
                 credentialId: owned.id,
                 datasetId: dataset.body.id,
                 datasetName: 'Grade',
-                chatflowId: '[]',
-                chatflowName: '[]',
-                chatflowType: '[]',
+                chatflowId: JSON.stringify([chat.id]),
+                chatflowName: JSON.stringify(['Grade flow']),
+                chatflowType: JSON.stringify(['Chatflow']),
                 llm: 'openAI',
                 model: 'gpt-4o-mini'
             })
@@ -586,9 +598,9 @@ describe('evaluation routes', () => {
                 evaluationType: 'benchmarking',
                 datasetId: 'does-not-exist',
                 datasetName: 'Missing',
-                chatflowId: '[]',
-                chatflowName: '[]',
-                chatflowType: '[]'
+                chatflowId: JSON.stringify(['flow-for-dataset-check']),
+                chatflowName: JSON.stringify(['Support']),
+                chatflowType: JSON.stringify(['Chatflow'])
             })
             assert.equal(missingDataset.status, 404, JSON.stringify(missingDataset.body))
             assert.equal(await dataSource.getRepository(Evaluation).count(), 0)
@@ -605,6 +617,44 @@ describe('evaluation routes', () => {
                 chatflowType: '[]'
             })
             assert.equal(malformed.status, 400, JSON.stringify(malformed.body))
+            assert.equal(await dataSource.getRepository(Evaluation).count(), 0)
+
+            const noFlow = await api.post('/evaluations').send({
+                name: 'No flow',
+                evaluationType: 'benchmarking',
+                datasetId: dataset.body.id,
+                datasetName: 'Questions',
+                chatflowId: '[]',
+                chatflowName: '[]',
+                chatflowType: '[]'
+            })
+            assert.equal(noFlow.status, 400, JSON.stringify(noFlow.body))
+            assert.match(noFlow.body.message, /at least one chatflow or agentflow/i)
+            assert.equal(await dataSource.getRepository(Evaluation).count(), 0)
+
+            const missingList = await api.post('/evaluations').send({
+                name: 'Missing list',
+                evaluationType: 'benchmarking',
+                datasetId: dataset.body.id,
+                datasetName: 'Questions',
+                chatflowName: '[]',
+                chatflowType: '[]'
+            })
+            assert.equal(missingList.status, 400, JSON.stringify(missingList.body))
+            assert.match(missingList.body.message, /at least one chatflow or agentflow/i)
+            assert.equal(await dataSource.getRepository(Evaluation).count(), 0)
+
+            const emptyArray = await api.post('/evaluations').send({
+                name: 'Empty array',
+                evaluationType: 'benchmarking',
+                datasetId: dataset.body.id,
+                datasetName: 'Questions',
+                chatflowId: [],
+                chatflowName: '[]',
+                chatflowType: '[]'
+            })
+            assert.equal(emptyArray.status, 400, JSON.stringify(emptyArray.body))
+            assert.match(emptyArray.body.message, /at least one chatflow or agentflow/i)
             assert.equal(await dataSource.getRepository(Evaluation).count(), 0)
 
             const assistant = await dataSource.getRepository(Assistant).save({

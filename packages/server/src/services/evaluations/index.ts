@@ -23,6 +23,17 @@ import { calculateCost, formatCost } from './CostCalculator'
 import { runAdditionalEvaluators } from './EvaluatorRunner'
 import { LLMEvaluationRunner } from './LLMEvaluationRunner'
 
+function chatflowIdList(value: unknown): unknown[] {
+    if (value === undefined || value === null || value === '') {
+        throw new AppError(StatusCodes.BAD_REQUEST, 'Select at least one chatflow or agentflow')
+    }
+    const parsed = Array.isArray(value) ? value : jsonArray(value, 'chatflowId')
+    if (parsed.length === 0) {
+        throw new AppError(StatusCodes.BAD_REQUEST, 'Select at least one chatflow or agentflow')
+    }
+    return parsed
+}
+
 function jsonArray(value: unknown, label: string): unknown[] {
     if (typeof value !== 'string') {
         throw new AppError(StatusCodes.BAD_REQUEST, `${label} must be a JSON array`)
@@ -114,7 +125,7 @@ const createEvaluation = async (body: ICommonObject, baseURL: string, orgId: str
         if (chatflowTypes.some((type) => type === 'Custom Assistant')) {
             throw new AppError(StatusCodes.BAD_REQUEST, 'Custom assistants cannot be evaluated')
         }
-        const chatflowIds = jsonArray(body.chatflowId, 'chatflowId')
+        const chatflowIds = chatflowIdList(body.chatflowId)
         if (chatflowIds.some((id) => typeof id !== 'string' || id.length === 0)) {
             throw new AppError(StatusCodes.BAD_REQUEST, 'chatflowId must be an array of flow ids')
         }
@@ -126,21 +137,19 @@ const createEvaluation = async (body: ICommonObject, baseURL: string, orgId: str
             workspaceId: workspaceId
         })
         if (!dataset) throw new AppError(StatusCodes.NOT_FOUND, `Dataset ${body.datasetId} not found`)
-        if (chatflowIds.length > 0) {
-            const ids = chatflowIds as string[]
-            const flows = await appServer.AppDataSource.getRepository(ChatFlow).find({
-                where: { id: In(ids), workspaceId }
-            })
-            const byId = new Map(flows.map((flow) => [flow.id, flow]))
-            for (const id of ids) {
-                const flow = byId.get(id)
-                // Unknown, another workspace, an assistant, or a type this caller cannot view: same answer, no row.
-                if (!flow || !VIEWABLE_FLOW_TYPES.has(String(flow.type || ''))) {
-                    throw new AppError(StatusCodes.NOT_FOUND, `Flow ${id} not found`)
-                }
-                if (!(await hasAnyPermission(req, viewPermissionForFlow(flow.type)))) {
-                    throw new AppError(StatusCodes.NOT_FOUND, `Flow ${id} not found`)
-                }
+        const ids = chatflowIds as string[]
+        const flows = await appServer.AppDataSource.getRepository(ChatFlow).find({
+            where: { id: In(ids), workspaceId }
+        })
+        const byId = new Map(flows.map((flow) => [flow.id, flow]))
+        for (const id of ids) {
+            const flow = byId.get(id)
+            // Unknown, another workspace, an assistant, or a type this caller cannot view: same answer, no row.
+            if (!flow || !VIEWABLE_FLOW_TYPES.has(String(flow.type || ''))) {
+                throw new AppError(StatusCodes.NOT_FOUND, `Flow ${id} not found`)
+            }
+            if (!(await hasAnyPermission(req, viewPermissionForFlow(flow.type)))) {
+                throw new AppError(StatusCodes.NOT_FOUND, `Flow ${id} not found`)
             }
         }
 
