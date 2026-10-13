@@ -57,6 +57,7 @@ const RolesPage = Loadable(lazy(() => import('@/views/roles')))
 const Workspaces = Loadable(lazy(() => import('@/views/workspace')))
 const WorkspaceDetails = Loadable(lazy(() => import('@/views/workspace/WorkspaceUsers')))
 const VersionSettings = Loadable(lazy(() => import('@/views/versionsettings')))
+const ServerLogs = Loadable(lazy(() => import('@/views/serverlogs')))
 const NotFound = Loadable(lazy(() => import('@/views/notfound')))
 
 // ==============================|| MAIN ROUTING ||============================== //
@@ -283,6 +284,14 @@ const MainRoutes = {
             element: (
                 <RequireAuth permission={'server:owner'}>
                     <ServerSettings />
+                </RequireAuth>
+            )
+        },
+        {
+            path: '/logs',
+            element: (
+                <RequireAuth permission={'logs:view'}>
+                    <ServerLogs />
                 </RequireAuth>
             )
         },
