@@ -62,7 +62,7 @@ Each specialist **Chat Model** input can stay empty. The specialist uses Harness
 
 ![The chief-of-staff harness with PostgreSQL MCP settings open. Available Actions has QUERY selected, and the line under it starts with Run one SQL statement in the isolated analyst store (SQLite). Connect Credential reads Auto mode: isolated analyst store, no credential needed.](../images/analyst/postgres-mcp-query.png)
 
-**Try it** is on `/harnesses/chief-of-staff`. The chat on the harness canvas (`/harnesscanvas/<id>`) sends to the same runs API, `POST /api/v1/harnesses/chief-of-staff/runs`. It does not build the canvas as a chatflow. The trace on that page shows who ran, the model, and tool names with done, retried, or failed chips. It does not show the tool rows. The answer shows the rows and, when the tool stopped at the cap, a page line such as `rows 1-100 of 150 (page 1 of 2, say "show more" for the next page)`. The raw tool text is also in the agent runtime profile database, `state.db`, under that specialist. The panel is described in [Harnesses](./harnesses.md).
+**Try it** is on `/harnesses/chief-of-staff`. The chat on the harness canvas (`/harnesscanvas/<id>`) and **Try it** run the draft when one exists, and Live otherwise. They do not build the canvas as a chatflow. External callers use `POST /api/v1/harnesses/chief-of-staff/runs`, which stays on Live until you publish. The trace on that page shows who ran, the model, and tool names with done, retried, or failed chips. It does not show the tool rows. The answer shows the rows and, when the tool stopped at the cap, a page line such as `rows 1-100 of 150 (page 1 of 2, say "show more" for the next page)`. The raw tool text is also in the agent runtime profile database, `state.db`, under that specialist. The panel is described in [Harnesses](./harnesses.md).
 
 This is the canvas chat after the sales prompt from [Prompts](#prompts). The Run card names the analyst, its model, and the tool count. The rows are in the answer.
 
@@ -332,7 +332,7 @@ Encode the password, restart, and select **QUERY** again.
 
 **Harness Prime answered directly, and the answer is about the database.** A SQL statement, the words "analyst database", or a message that starts with `Analyst:` has to go to the analyst. Prime does not answer those. Send the prompt again. The run should name the analyst, not "answered directly".
 
-**The canvas chat says `init is not a function`.** The harness canvas chat must call `POST /api/v1/harnesses/<slug>/runs`, the same request as **Try it**. Reload the canvas. One Enter sends one message. The field stays disabled until that reply finishes.
+**The canvas chat says `init is not a function`.** The harness canvas chat and **Try it** must use the internal prediction route, not build the canvas as a chatflow. Reload the canvas. One Enter sends one message. The field stays disabled until that reply finishes.
 
 **The chat says the analyst tool is unavailable.** The agent runtime registered no analyst query tool. That happens when it lists tools before the harness gateway is up. `X-Cuttlely-Analyst` on `GET /api/v1/ping` is `missing` when the bridge recorded 0 tools, `ready` when it recorded at least one, and `unknown` when that status file has not been written. **Available Actions** says **Analyst tool unavailable** when the header is `missing`. Wait a few seconds and send the prompt again. The agent runtime retries the tool list. If the header stays `missing`, restart Cuttlely. The start script waits for the gateway before it starts the agent runtime.
 

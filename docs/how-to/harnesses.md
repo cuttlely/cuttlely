@@ -120,11 +120,15 @@ A playbook can ask for a closing line, such as `Source: sales warehouse`. When t
 1. Select the save icon at the top right (**Save Harness**).
 2. Type a name and select **Save**.
 
-The name is the harness id. Chatflows and the API call the harness by it. It is a letter, then letters, numbers, `_`, or `-`, up to 64 characters. `chief-of-staff` is valid. `Chief of Staff Harness` is refused with `Harness name "Chief of Staff Harness" is not valid. Use a letter followed by letters, numbers, "_" or "-".`
+The name is the harness id. Chatflows and the API call the harness by it. It is a letter, then letters, numbers, `_`, or `-`, up to 64 characters. `chief-of-staff` is valid. `Chief of Staff Harness` is refused with `Harness name "Chief of Staff Harness" is not valid. Use a letter followed by letters, numbers, "_" or "-".` A name that is `try` followed by 8 to 32 hex characters is reserved for a draft try. A name that is `tryx` followed by 16 hex characters is reserved for a fitted specialist profile. Saving or importing either is refused, and the save dialog shows the reserved-name message.
 
 ![The Save New Harness dialog with chief-of-staff typed in the name field, and Cancel and Save buttons.](../images/harnesses/save-dialog-name.png)
 
-The message `Harness saved` appears. The header shows the name and `Last edited by` with your display name. The buttons at the top right are now **Version history**, **API Endpoint**, **Save Harness**, and **Settings**.
+The first save of a new harness is Live, so a chatflow and the API can call it. After that, **Save Harness** writes a **Draft**. The header says **Draft, not live yet**, or **Live** when nothing is waiting. **Publish** puts the draft Live. **Discard draft**, in the Publish dialog, throws the draft away. The canvas chat and **Try it** run the draft when one exists, and Live otherwise. That try uses the draft roster: its specialists, tools, and models. `POST /api/v1/harnesses/:name/runs` stays on Live until you publish. [Drafts and Publish](./versioning.md#drafts-and-publish) is the same flow chatflows use, including **Roll back Live**. The check that replays recent questions is not on a harness yet.
+
+A harness that was saved before drafts is already Live. The next edit on the canvas starts a draft. The saved canvas and the roster runs serve do not change until you publish.
+
+The message `Draft saved` appears for an edit. The first save says `Harness saved`. The header shows the name and `Last edited by` with your display name. The buttons at the top right are now **Version history**, **API Endpoint**, **Save Harness**, and **Settings**, and **Publish** when a draft is waiting.
 
 ![The saved chief-of-staff canvas. The header reads Last edited by Rosa Diaz, just now. No card has an orange triangle and there is no Sync Nodes button, because the template nodes are current.](../images/harnesses/canvas-saved.png)
 
@@ -134,7 +138,7 @@ An orange triangle on a card means that node was saved with an older version of 
 
 ## Test it in the canvas chat
 
-The chat button at the top right of a saved harness canvas sends your message to the saved harness. Save before you chat. Unsaved changes are not used.
+The chat button at the top right of a saved harness canvas runs the draft when one exists, and Live otherwise. Save the draft before you chat. Unsaved changes are not used. `POST /api/v1/harnesses/<name>/runs` is the external route and stays on Live until you **Publish**.
 
 1. Select the chat button (**Chat**).
 2. Ask a document question, for example: `What does the sample note say the researcher reads, and how were its vectors built?`
@@ -201,7 +205,7 @@ Build with AI works the same with classic cards. The team lands with each card a
 
 ![The same study team built with classic cards. Harness Prime, the OpenAI card and two specialists are drawn with every setting on the card.](../images/harnesses/build-with-ai-classic.png)
 
-Change anything you like afterwards, the same as a harness you built by hand. Save keeps your changes. Every save is kept in [Version history](./versioning.md). Pipelines and chatflows have the same button: see [Build a pipeline with AI](./etl.md#build-a-pipeline-with-ai) and [Build a chatflow with AI](./canvas.md#build-a-chatflow-with-ai). A chatflow built that way uses the **Harness** tool only when you name one of your saved harnesses.
+Change anything you like afterwards, the same as a harness you built by hand. The first save is Live. Later saves are a draft until you publish, and Publish records that version in [Version history](./versioning.md). Pipelines and chatflows have the same button: see [Build a pipeline with AI](./etl.md#build-a-pipeline-with-ai) and [Build a chatflow with AI](./canvas.md#build-a-chatflow-with-ai). A chatflow built that way uses the **Harness** tool only when you name one of your saved harnesses.
 
 ## Run it from the harness page
 
@@ -220,7 +224,7 @@ While it runs, the button reads **Running** and **Stop** cancels the run. The ru
 
 ![Try it after the run. The Run card says Finished, 3.3 s, and the answer says There are 2 open tasks and lists draft agenda and send invites.](../images/harnesses/harness-try-it-done.png)
 
-**Try it** is the same request as `POST /api/v1/harnesses/chief-of-staff/runs`. It uses your signed-in session.
+**Try it** uses your signed-in session. It runs the draft when the canvas has one, and Live otherwise, including the draft's specialists, tools, and models. `POST /api/v1/harnesses/chief-of-staff/runs` is what an external caller uses, and that route stays on Live until you publish.
 
 ## Look at earlier runs
 
@@ -271,7 +275,7 @@ Sample chatflows that run a harness by name are in `samples/chatflows/`. The har
 
 `POST /api/v1/prediction/:id` on a chatflow that runs a harness returns `text`, `harness`, `agents`, `sources`, and `artifacts`. Streaming (`true` or `"true"`) sends harness events on that response. The event names are `route`, `specialist`, `tool`, `partial`, `handoff`, and `final`.
 
-The harness page uses a signed-in session: `POST /api/v1/harnesses/:name/runs`. An API key still goes through a chatflow. **Try it** on that page is the same run.
+The harness page uses a signed-in session. **Try it** runs the draft when one exists. An API key still goes through a chatflow, and `POST /api/v1/harnesses/:name/runs` stays on Live.
 
 Chat uploads on `POST /api/v1/prediction/:id` use multipart field `files` with `question`. Turn on file uploads for that chatflow first (**Configuration**, **File Upload**, **Enable Full File Upload**); with them off the file is refused with 403 and not stored. A file over 25 MB is refused. A large file is a path the harness can read. The sample roster is `samples/harnesses/upload.canvas.json`.
 

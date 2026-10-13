@@ -1,11 +1,13 @@
 import crypto from 'node:crypto'
 import fs from 'node:fs'
+import net from 'node:net'
 import path from 'node:path'
 import { isFlowiseMcpBinding } from './bridge.mjs'
 import { CHIEF_MODEL_REQUIRED, HarnessError } from './errors.mjs'
 import { stableStringify } from './flow-graph.mjs'
 import { credentialStamp } from './credential-store.mjs'
 import { forgetProfileToken, gatewayListenPort, gatewayOrigin, gatewayUrl, registerProfileToken } from './gateway.mjs'
+import { endLiveTry, noteLiveTry } from './try-live.mjs'
 import { dataRoot, repoRoot, hermesHome, profileDir } from './paths.mjs'
 import { ROUTING_SUMMARY_CHARS, routingSummaryText } from './store.mjs'
 import { SQL_TOOL_REFUSED, refusedRawServer } from './sql-tools.mjs'
@@ -20,6 +22,8 @@ export const SPECIALIST_PLAYBOOKS =
     'Your playbooks are listed under skills. Before you answer, load each playbook whose description fits the question with skill_view, and follow it.'
 const SPECIALIST_STALE_SECONDS = 45
 const PROFILE_ID_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/
+const PROFILE_MAX = 64
+const PROFILE_HASH = 8
 
 // Provider keys are never written into a profile. Tool credentials still cannot smuggle one in under these names.
 const MODEL_ENV_KEYS = [
@@ -87,18 +91,62 @@ function describedModel(model) {
     return name ? String(name) : ''
 }
 
+// A char-class replace can leave a long run of dashes. An end-anchored dash quantifier is polynomial on that run, so this walks the ends.
+function trimDashEnds(value) {
+    let start = 0
+    let end = value.length
+    while (start < end && value.charCodeAt(start) === 45) start += 1
+    while (end > start && value.charCodeAt(end - 1) === 45) end -= 1
+    return value.slice(start, end)
+}
+
+function trimLeadingDashes(value) {
+    let start = 0
+    while (start < value.length && value.charCodeAt(start) === 45) start += 1
+    return value.slice(start)
+}
+
+function profileHash(value) {
+    return crypto.createHash('sha256').update(String(value)).digest('hex').slice(0, PROFILE_HASH)
+}
+
+// A try id is "try" plus 16 hex characters, so a long specialist slug no longer fits in 64.
+// Ids that already fit stay as they are. A fitted id keeps a hash of the full slug so two long names cannot collide.
+// When the harness name itself leaves no room, the directory is tryx plus 16 hex. That is not a savable harness
+// name and it has no "--", so it cannot equal some other harness's specialist profile.
+function fittedProfileId(harness, slug) {
+    const hash = crypto.createHash('sha256').update(`${harness}\0${slug}`).digest('hex').slice(0, 16)
+    return `tryx${hash}`
+}
+
+function fitSpecialistProfile(harness, slug) {
+    const suffix = `-${profileHash(slug)}`
+    const slugRoom = PROFILE_MAX - harness.length - '--'.length - suffix.length
+    if (slugRoom < 1) {
+        const fitted = fittedProfileId(harness, slug)
+        if (!PROFILE_ID_RE.test(fitted)) {
+            throw new HarnessError('bad_name', `Specialist "${slug}" cannot get its own model profile.`)
+        }
+        return fitted
+    }
+    const slugKept = trimDashEnds(slug.slice(0, slugRoom))
+    const fitted = slugKept ? `${harness}--${slugKept}${suffix}` : `${harness}--${profileHash(slug)}`
+    if (fitted.length > PROFILE_MAX || !PROFILE_ID_RE.test(fitted)) {
+        throw new HarnessError('bad_name', `Specialist "${slug}" cannot get its own model profile.`)
+    }
+    return fitted
+}
+
 export function specialistProfileName(harnessName, specialistName) {
     const harness = String(harnessName || '').toLowerCase()
-    const slug = String(specialistName || '')
-        .toLowerCase()
-        .replace(/[^a-z0-9_-]/g, '-')
-        .replace(/^-+/, '')
-        .replace(/-+$/, '')
+    const slug = trimDashEnds(
+        String(specialistName || '')
+            .toLowerCase()
+            .replace(/[^a-z0-9_-]/g, '-')
+    )
     const profile = `${harness}--${slug}`
-    if (!PROFILE_ID_RE.test(profile)) {
-        throw new HarnessError('bad_name', `Specialist "${specialistName}" cannot get its own model profile.`)
-    }
-    return profile
+    if (profile.length <= PROFILE_MAX && PROFILE_ID_RE.test(profile)) return profile
+    return fitSpecialistProfile(harness, slug || String(specialistName || 'specialist'))
 }
 
 function serverNameFor(specialist) {
@@ -279,9 +327,7 @@ function parseServerConfig(mcp) {
 }
 
 function sanitizeServerName(name) {
-    const cleaned = String(name)
-        .replace(/[^A-Za-z0-9_-]/g, '-')
-        .replace(/^-+/, '')
+    const cleaned = trimLeadingDashes(String(name).replace(/[^A-Za-z0-9_-]/g, '-'))
     return cleaned || 'mcp'
 }
 
@@ -304,7 +350,7 @@ function modelKey(model) {
     return ''
 }
 
-function resolveRoster(record) {
+function resolveRoster(record, profileName = record.name) {
     const chiefModel = modelChoice(record.chief?.model)
     if (!chiefModel) {
         throw new HarnessError('missing_model', `Harness "${record.name}" cannot run: no Harness Prime model. ${CHIEF_MODEL_REQUIRED}`)
@@ -326,7 +372,7 @@ function resolveRoster(record) {
         if (mixed && !specialist.model) {
             throw new HarnessError('bad_model', `Specialist "${specialist.name}" needs a model when the roster uses more than one.`)
         }
-        const profile = specialistProfileName(record.name, specialist.name)
+        const profile = specialistProfileName(profileName, specialist.name)
         if (seen.has(profile)) {
             throw new HarnessError('bad_name', `Specialist "${specialist.name}" collides with another model profile.`)
         }
@@ -414,7 +460,7 @@ function pushProviders(yaml) {
 
 // Hermes sends OPENAI_API_KEY only when OPENAI_BASE_URL equals model.base_url
 // (_host_gated_env_key_candidates). model.api_key and model.key_env stay unset.
-function issueSpecialistToken(record, specialist) {
+function issueSpecialistToken(record, specialist, profileName, tryProfile) {
     const key = modelKey(specialist.model)
     const base = gatewayUrl()
     const previous = readEnvFile(profileEnvPath(specialist.profileName))
@@ -423,10 +469,12 @@ function issueSpecialistToken(record, specialist) {
     const token = reusable ? previous.OPENAI_API_KEY : crypto.randomBytes(32).toString('base64url')
     registerProfileToken({
         token,
-        harnessName: record.name,
+        // The profile directory that holds harness-roster.json, not the saved harness name when this is a try.
+        harnessName: profileName,
         specialistName: specialist.name,
         modelKey: key,
-        profileName: specialist.profileName
+        profileName: specialist.profileName,
+        tryProfile: Boolean(tryProfile)
     })
     return { token, base, modelKey: key }
 }
@@ -587,15 +635,15 @@ export function writePlaybooks(dir, playbooks) {
     }
 }
 
-function compileSpecialistProfile(record, specialist) {
+function compileSpecialistProfile(record, specialist, profileName, tryProfile) {
     const dir = profileDir(specialist.profileName)
     fs.mkdirSync(dir, { recursive: true })
     const workspace = specialistWorkspace(specialist.profileName)
     fs.mkdirSync(workspace, { recursive: true })
-    writeIfChanged(path.join(dir, 'harness-parent'), `${record.name}\n`)
+    writeIfChanged(path.join(dir, 'harness-parent'), `${profileName}\n`)
     writeIfChanged(path.join(dir, 'SOUL.md'), specialistSoul(specialist))
     writePlaybooks(dir, specialist.playbooks || [])
-    const issued = issueSpecialistToken(record, specialist)
+    const issued = issueSpecialistToken(record, specialist, profileName, tryProfile)
     const bridgeOn = usesBridge(specialist)
     const bridge = serverNameFor(specialist)
     const enabled = specialist.hermesToolsets.filter((name) => bridgeOn || name !== bridge || requestedBuiltin(specialist, name))
@@ -650,40 +698,48 @@ function compileSpecialistProfile(record, specialist) {
         OPENAI_BASE_URL: issued.base,
         OPENAI_API_KEY: issued.token,
         CUTTLELY_MODEL_KEY: issued.modelKey,
-        CUTTLELY_GATEWAY_HARNESS: record.name,
-        CUTTLELY_GATEWAY_SPECIALIST: specialist.name
+        CUTTLELY_GATEWAY_HARNESS: profileName,
+        CUTTLELY_GATEWAY_SPECIALIST: specialist.name,
+        ...(tryProfile ? { CUTTLELY_GATEWAY_TRY: '1' } : {})
     })
 }
 
 function forgetRetiredSpecialistProfiles(harnessName, keep) {
     const root = path.join(hermesHome(), 'profiles')
     if (!fs.existsSync(root)) return
-    const prefix = `${String(harnessName).toLowerCase()}--`
+    const parent = String(harnessName)
     for (const entry of fs.readdirSync(root)) {
-        if (!entry.startsWith(prefix) || keep.has(entry)) continue
+        if (entry === parent || keep.has(entry)) continue
         const dir = path.join(root, entry)
         const marker = path.join(dir, 'harness-parent')
         if (!fs.existsSync(marker)) continue
-        if (fs.readFileSync(marker, 'utf8').trim() !== harnessName) continue
+        if (fs.readFileSync(marker, 'utf8').trim() !== parent) continue
         const retired = readEnvFile(path.join(dir, '.env'))
         forgetProfileToken(retired.OPENAI_API_KEY)
         fs.rmSync(dir, { recursive: true, force: true })
+        fs.rmSync(specialistWorkspace(entry), { recursive: true, force: true })
     }
 }
 
-export function compileProfile(record) {
-    const dir = profileDir(record.name)
+export function compileProfile(record, options = {}) {
+    const profileName = options.profileName || record.name
+    const tryProfile = Boolean(options.tryProfile)
+    const dir = profileDir(profileName)
     fs.mkdirSync(path.join(dir, 'memory'), { recursive: true })
     fs.mkdirSync(path.join(dir, 'sessions'), { recursive: true })
+    // A try is this marker, not a name the store might also use.
+    const tryMarker = path.join(dir, 'harness-try')
+    if (tryProfile) writeIfChanged(tryMarker, `${profileName}\n`)
+    else if (fs.existsSync(tryMarker)) fs.rmSync(tryMarker)
 
-    const resolved = resolveRoster(record)
+    const resolved = resolveRoster(record, profileName)
     const keep = new Set()
     for (const specialist of resolved.specialists) {
         if (!specialist.profileName) continue
         keep.add(specialist.profileName)
-        compileSpecialistProfile(record, specialist)
+        compileSpecialistProfile(record, specialist, profileName, tryProfile)
     }
-    forgetRetiredSpecialistProfiles(record.name, keep)
+    forgetRetiredSpecialistProfiles(profileName, keep)
 
     const compiled = {
         ...record,
@@ -708,7 +764,7 @@ export function compileProfile(record) {
         mcpBlocks.push({
             name: 'roster',
             command: process.execPath,
-            args: [path.join(repoRoot(), 'packages', 'harness', 'roster-mcp.mjs'), '--harness', record.name]
+            args: [path.join(repoRoot(), 'packages', 'harness', 'roster-mcp.mjs'), '--harness', profileName]
         })
     }
     for (const block of mcpBlocks) {
@@ -731,12 +787,252 @@ export function compileProfile(record) {
         yaml.push('  max_iterations: 20')
     }
     pushMcpServers(yaml, mcpBlocks)
-    pushModel(yaml, record.name)
+    pushModel(yaml, profileName)
     writeIfChanged(path.join(dir, 'config.yaml'), yaml.join('\n') + '\n')
 
-    const apiServerKey = writeProfileSecrets(record.name, toolCredentialEnv(record))
+    const apiServerKey = writeProfileSecrets(profileName, toolCredentialEnv(record))
     return { dir, roster: compiled, apiServerKey }
 }
+
+// A canvas try compiles here, never into the published profile directory. Each id is its own directory.
+export function tryProfileName(tryId) {
+    const id = String(tryId || '').toLowerCase()
+    if (!/^[a-f0-9]{8,32}$/.test(id)) {
+        throw new HarnessError('bad_name', 'A try profile id is 8 to 32 hex characters.')
+    }
+    return `try${id}`
+}
+
+export function compileTryProfile(record, tryId) {
+    return compileProfile(record, { profileName: tryProfileName(tryId), tryProfile: true })
+}
+
+// Tests stand in for the runtime close. The default asks the running runtime to drop the profile.
+export const tryRuntime = {
+    closeProfiles: null,
+    afterFirstRemoval: null
+}
+
+function tryOwnedEntry(scope, entry, parentMarker) {
+    if (entry === scope || entry.startsWith(`${scope}--`)) return true
+    return /^tryx[a-f0-9]{16}$/.test(entry) && parentMarker === scope
+}
+
+function tryProfileNames(scope) {
+    const root = path.join(hermesHome(), 'profiles')
+    if (!fs.existsSync(root)) return []
+    const names = []
+    for (const entry of fs.readdirSync(root)) {
+        const marker = readMarker(path.join(root, entry, 'harness-parent'))
+        if (tryOwnedEntry(scope, entry, marker)) names.push(entry)
+    }
+    return names
+}
+
+function readMarker(file) {
+    if (!fs.existsSync(file)) return ''
+    return fs.readFileSync(file, 'utf8').trim()
+}
+
+function tryScopeEntries(scope) {
+    const names = new Set(tryProfileNames(scope))
+    const root = path.join(hermesHome(), 'profiles')
+    if (fs.existsSync(root)) {
+        for (const entry of fs.readdirSync(root)) {
+            if (entry === scope || entry.startsWith(`${scope}--`)) names.add(entry)
+        }
+    }
+    const workRoot = path.join(dataRoot(), 'workspaces')
+    if (fs.existsSync(workRoot)) {
+        for (const entry of fs.readdirSync(workRoot)) {
+            if (entry === scope || entry.startsWith(`${scope}--`) || names.has(entry)) names.add(entry)
+        }
+    }
+    return [...names]
+}
+
+// Tokens leave the map before any directory is unlinked. One failed removal does not skip the rest.
+function forgetTryTokens(scope) {
+    const root = path.join(hermesHome(), 'profiles')
+    for (const entry of tryScopeEntries(scope)) {
+        try {
+            const env = readEnvFile(path.join(root, entry, '.env'))
+            if (env.OPENAI_API_KEY) forgetProfileToken(env.OPENAI_API_KEY)
+        } catch {
+            // This directory can be unreadable. The others still lose their tokens.
+        }
+    }
+}
+
+function removeOneTryDir(entry) {
+    const dir = path.join(hermesHome(), 'profiles', entry)
+    try {
+        if (fs.lstatSync(dir).isDirectory()) fs.rmSync(dir, { recursive: true, force: true })
+    } catch {
+        // ENOTEMPTY and any other failure stay on this directory. A tombstone file is left in place.
+    }
+    try {
+        fs.rmSync(path.join(dataRoot(), 'workspaces', entry), { recursive: true, force: true })
+    } catch {
+        // The profile directory above already moved on, and so does the next entry.
+    }
+}
+
+function tryDirIsDirectory(entry) {
+    try {
+        return fs.lstatSync(path.join(hermesHome(), 'profiles', entry)).isDirectory()
+    } catch {
+        return false
+    }
+}
+
+function delay(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+// A file standing in for the directory makes a late logs/ mkdir fail until the settle window ends.
+function placeTryTombstones(names) {
+    const placed = []
+    for (const entry of names) {
+        const dir = path.join(hermesHome(), 'profiles', entry)
+        try {
+            if (fs.existsSync(dir)) {
+                if (fs.lstatSync(dir).isFile()) placed.push(dir)
+                continue
+            }
+            fs.writeFileSync(dir, '')
+            placed.push(dir)
+        } catch {
+            // The next pass removes a directory that appeared instead.
+        }
+    }
+    return placed
+}
+
+function clearTryTombstones(files) {
+    for (const file of files) {
+        try {
+            if (fs.lstatSync(file).isFile()) fs.rmSync(file, { force: true })
+        } catch {
+            // Already gone.
+        }
+    }
+}
+
+const TRY_SETTLE_MS = 250
+
+async function settleTryDirectories(scope, names) {
+    const owned = new Set(names)
+    const deadline = Date.now() + TRY_SETTLE_MS
+    let tombstones = []
+    while (Date.now() < deadline) {
+        for (const entry of tryScopeEntries(scope)) owned.add(entry)
+        for (const entry of owned) removeOneTryDir(entry)
+        if ([...owned].some((entry) => tryDirIsDirectory(entry))) clearTryTombstones(tombstones)
+        else tombstones = placeTryTombstones([...owned])
+        await delay(40)
+    }
+    for (const entry of tryScopeEntries(scope)) owned.add(entry)
+    clearTryTombstones(tombstones)
+    for (const entry of owned) removeOneTryDir(entry)
+}
+
+function gatewaySocketPath() {
+    const home = hermesHome()
+    const direct = path.join(home, 'gateway.sock')
+    if (fs.existsSync(direct)) return direct
+    const pointer = path.join(home, 'gateway.sock.path')
+    if (!fs.existsSync(pointer)) return ''
+    const target = fs.readFileSync(pointer, 'utf8').trim()
+    return target && fs.existsSync(target) ? target : ''
+}
+
+const UNSERVE_ATTEMPTS = 5
+const UNSERVE_TIMEOUT_MS = 2000
+const UNSERVE_RETRY_MS = 150
+
+function unserveOnce(name, sock) {
+    return new Promise((resolve) => {
+        const socket = net.createConnection(sock)
+        let buf = ''
+        let settled = false
+        let timer
+        const finish = (value) => {
+            if (settled) return
+            settled = true
+            clearTimeout(timer)
+            socket.destroy()
+            resolve(value)
+        }
+        timer = setTimeout(() => finish('timeout'), UNSERVE_TIMEOUT_MS)
+        socket.on('error', () => finish('error'))
+        socket.on('data', (chunk) => {
+            buf += String(chunk)
+            const split = buf.indexOf('\n')
+            if (split === -1) return
+            let parsed
+            try {
+                parsed = JSON.parse(buf.slice(0, split))
+            } catch {
+                finish('error')
+                return
+            }
+            const result = parsed?.ok === true ? parsed.result : null
+            if (result && result.pending !== true && result.unserved === name) finish('unserved')
+            else finish('pending')
+        })
+        socket.on('connect', () => {
+            socket.write(`${JSON.stringify({ verb: 'unserve-profile', id: 1, protocol: 1, params: { name } })}\n`)
+        })
+    })
+}
+
+// Pending, a timeout, or a socket error is not a finished close. Poll until the runtime reports this profile unserved.
+async function unserveRuntimeProfile(name) {
+    const sock = gatewaySocketPath()
+    if (!sock || !name) return false
+    for (let attempt = 0; attempt < UNSERVE_ATTEMPTS; attempt += 1) {
+        const outcome = await unserveOnce(name, sock)
+        if (outcome === 'unserved') return true
+        if (attempt + 1 < UNSERVE_ATTEMPTS) await delay(UNSERVE_RETRY_MS)
+    }
+    return false
+}
+
+async function closeTryRuntime(names) {
+    const closeProfiles =
+        tryRuntime.closeProfiles ||
+        (async (profiles) => {
+            for (const name of profiles) await unserveRuntimeProfile(name)
+        })
+    await closeProfiles(names)
+}
+
+// Close the runtime profile before deleting it. Tokens are forgotten first. A close can recreate log
+// directories after it answers, so removal retries until those directories stay gone.
+export async function discardTryProfile(tryId) {
+    const scope = tryProfileName(tryId)
+    try {
+        const names = tryProfileNames(scope)
+        await closeTryRuntime(names.length ? names : [scope])
+        const owned = names.length ? names : [scope]
+        forgetTryTokens(scope)
+        for (const entry of owned) removeOneTryDir(entry)
+        if (typeof tryRuntime.afterFirstRemoval === 'function') {
+            try {
+                tryRuntime.afterFirstRemoval(scope)
+            } catch {
+                // A recreate during the hook is removed by the settle loop.
+            }
+        }
+        await settleTryDirectories(scope, owned)
+    } finally {
+        compiledProfiles.delete(scope)
+        endLiveTry(scope)
+    }
+}
+
+export { noteLiveTry }
 
 const compiledProfiles = new Map()
 
