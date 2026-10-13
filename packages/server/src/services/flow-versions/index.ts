@@ -107,10 +107,16 @@ export {
     setGithubForTests,
     startGithubSync,
     versionsDir,
-    withPrefix
+    withPrefix,
+    adjacentError,
+    legacyEnvironments,
+    slotFor,
+    sourceTitle,
+    isLegacyChain
 } from '@cuttlely/versioning'
 
 export type {
+    NamedEnvironment,
     AmbiguousCredential,
     DiffAgainst,
     ReadOptions,
