@@ -1542,6 +1542,111 @@ describe('Dev or Prod label', () => {
         expect(bareRef(bare, 'refs/heads/staging')).toBeNull()
         expect(bareRef(bare, 'refs/notes/commits')).toBeNull()
     })
+
+    test('selecting Staging while Dev is connecting does not save that list or copy there', async () => {
+        const chain = [
+            { name: 'Dev', branch: 'main', server: 'dev' },
+            { name: 'Staging', branch: 'staging', server: 'staging' },
+            { name: 'Prod', branch: 'prod', server: 'prod' }
+        ]
+        let switching: Promise<unknown> | null = null
+        sync = makeSync({
+            checkEveryMs: 60_000,
+            retryMs: [60_000],
+            onGit: (args, env) => {
+                gitCalls.push({ args, env })
+                if (args[0] === 'ls-remote' && !switching) switching = sync.setEnvironment('staging', chain)
+            }
+        })
+        setGithubForTests(sync)
+        await sync.setEnvironment('dev', chain)
+        await save('One')
+        const status = await sync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)
+        expect(switching).toBeTruthy()
+        await expect(switching).rejects.toMatchObject({
+            status: 409,
+            message: 'Disconnect GitHub before changing what this server reads or copies.'
+        })
+        expect(status.connected).toBe(true)
+        expect(status.environment).toBe('dev')
+        expect(bareRef(bare, 'refs/heads/staging')).toBeNull()
+        expect(bareMain(bare)).toBe(plainGit(versionsDir(), 'rev-parse', 'HEAD').trim())
+        const role = JSON.parse(fs.readFileSync(path.join(versionsDir(), '.git', 'versions-environment.json'), 'utf8'))
+        expect(role.environment).toBe('dev')
+    })
+
+    test('deleting the recorded list between the listing and the fetch saves nothing', async () => {
+        const chain = [
+            { name: 'Dev', branch: 'main', server: 'dev' },
+            { name: 'Staging', branch: 'staging', server: 'staging' },
+            { name: 'Prod', branch: 'prod', server: 'prod' }
+        ]
+        const saved = path.join(versionsDir(), '.git', 'versions-github.json')
+        sync = makeSync({ checkEveryMs: 60_000, retryMs: [60_000] })
+        setGithubForTests(sync)
+        await sync.setEnvironment('dev', chain)
+        await save('One')
+        await sync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)
+        await sync.disconnect()
+        await sync.setEnvironment('staging', chain)
+        let listed = false
+        const deps = (sync as unknown as { deps: { onGit?: (args: string[], env: Record<string, string>) => void } }).deps
+        deps.onGit = (args, env) => {
+            gitCalls.push({ args, env })
+            if (args[0] === 'ls-remote') listed = true
+            else if (listed && args[0] === 'fetch') {
+                listed = false
+                execFileSync('git', ['--git-dir', bare, 'update-ref', '-d', 'refs/notes/commits'], { env: cleanEnv() })
+            }
+        }
+        await expect(sync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)).rejects.toMatchObject({
+            status: 400,
+            message: 'Connect the repository your Dev server copies to. This one has no versions from Dev yet.'
+        })
+        expect(fs.existsSync(saved)).toBe(false)
+        expect(bareRef(bare, 'refs/heads/staging')).toBeNull()
+    })
+
+    test('a note on another commit, or a different list on the tip, is refused', async () => {
+        const chain = [
+            { name: 'Dev', branch: 'main', server: 'dev' },
+            { name: 'Staging', branch: 'staging', server: 'staging' },
+            { name: 'Prod', branch: 'prod', server: 'prod' }
+        ]
+        const saved = path.join(versionsDir(), '.git', 'versions-github.json')
+        foreignCommit(bare, path.join(tmp, 'readme-tip'))
+        const work = path.join(tmp, 'other-note')
+        fs.mkdirSync(work)
+        const env = noteAuthorEnv()
+        execFileSync('git', ['init', '-q'], { cwd: work, env })
+        execFileSync('git', ['fetch', '-q', `file://${bare}`, 'refs/heads/main:refs/heads/main'], { cwd: work, env })
+        execFileSync('git', ['commit', '-q', '--allow-empty', '-m', 'other'], { cwd: work, env })
+        const other = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: work, env, encoding: 'utf8' }).trim()
+        execFileSync('git', ['notes', 'add', '-m', environmentListFingerprint(chain), other], { cwd: work, env })
+        execFileSync('git', ['push', '-q', `file://${bare}`, 'HEAD:refs/heads/other', 'refs/notes/commits:refs/notes/commits'], {
+            cwd: work,
+            env
+        })
+        sync = makeSync({ checkEveryMs: 60_000, retryMs: [60_000] })
+        setGithubForTests(sync)
+        await sync.setEnvironment('staging', chain)
+        await save('One')
+        await expect(sync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)).rejects.toMatchObject({
+            status: 400,
+            message: 'Connect the repository your Dev server copies to. This one has no versions from Dev yet.'
+        })
+        expect(fs.existsSync(saved)).toBe(false)
+        expect(bareRef(bare, 'refs/heads/staging')).toBeNull()
+
+        execFileSync('git', ['notes', 'add', '-f', '-m', 'not-this-list', bareMain(bare) as string], { cwd: work, env })
+        execFileSync('git', ['push', '-q', `file://${bare}`, 'refs/notes/commits:refs/notes/commits'], { cwd: work, env })
+        await expect(sync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)).rejects.toMatchObject({
+            status: 400,
+            message: 'Connect the repository your Dev server copies to. This one has no versions from Dev yet.'
+        })
+        expect(fs.existsSync(saved)).toBe(false)
+        expect(bareRef(bare, 'refs/heads/staging')).toBeNull()
+    })
 })
 
 describe('local stand-in for GitHub (end-to-end runs without an account)', () => {

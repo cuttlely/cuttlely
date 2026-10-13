@@ -28,6 +28,7 @@ import {
     parseEnvironmentsAllowingLegacy,
     syncPlan,
     environmentListFingerprint,
+    sourceTitle,
     type EnvironmentConfig,
     type NamedEnvironment,
     type SyncPlan
@@ -161,10 +162,15 @@ const PICK_ENVIRONMENT = "Pick this server's environment. Nothing is copied unti
 // A second publisher can land its note between our fetch and our push. Retry that race a few times, then stop.
 const NOTE_PUSH_ATTEMPTS = 4
 const NOTE_REMOTE_CACHE = 'refs/notes/remote-list'
+// The previous environment's tip, fetched while connecting. It is not offered until the note on it matches.
+const CONNECT_SOURCE_REF = 'refs/versions/connect-source'
 
 interface ActivePlan extends SyncPlan {
     invalid: boolean
     environments: NamedEnvironment[]
+    environment: string | null
+    // Set only for the connect-time copy: the source tip whose note already matched this list.
+    verifiedSource: string | null
 }
 
 const NOTE_ENV = {
@@ -443,6 +449,10 @@ export class GithubSync {
     // The commit and list fingerprint whose note was read back from the remote. A later pass still reads it again.
     private notedHead: string | null = null
     private notedFingerprint: string | null = null
+    // connect and setEnvironment share this until the connect-time copy finishes, so the list cannot change under the check.
+    private envGate: Promise<void> = Promise.resolve()
+    // The plan connect already checked. The connect-time copy uses it instead of reading the file again.
+    private pinnedPlan: ActivePlan | null = null
 
     constructor(deps: GithubDeps) {
         this.deps = deps
@@ -757,8 +767,25 @@ export class GithubSync {
     // One read of the environment file for a sync pass. Callers must not read it again to choose a branch.
     private capturedPlan(): ActivePlan {
         const saved = this.readEnvironment()
-        if (saved.invalid) return { reads: false, copies: false, sourceBranch: null, publishBranch: null, invalid: true, environments: [] }
-        return { ...syncPlan(saved.environments, saved.environment), invalid: false, environments: saved.environments }
+        if (saved.invalid) {
+            return {
+                reads: false,
+                copies: false,
+                sourceBranch: null,
+                publishBranch: null,
+                invalid: true,
+                environments: [],
+                environment: null,
+                verifiedSource: null
+            }
+        }
+        return {
+            ...syncPlan(saved.environments, saved.environment),
+            invalid: false,
+            environments: saved.environments,
+            environment: saved.environment,
+            verifiedSource: null
+        }
     }
 
     private savedConnection(): { connected: boolean; repo: string | null; credential: { id: string; name: string } | null } {
@@ -793,6 +820,10 @@ export class GithubSync {
     // Names this server, or saves the ordered list. A Dev or Prod label with no list stays the old file.
     async setEnvironment(value: unknown, environmentsInput?: unknown): Promise<GithubStatus> {
         if (!this.deps.enabled()) throw new GithubError(409, 'Version history is off on this server.')
+        return this.withEnvironmentLock(() => this.setEnvironmentBody(value, environmentsInput))
+    }
+
+    private async setEnvironmentBody(value: unknown, environmentsInput?: unknown): Promise<GithubStatus> {
         const current = this.readEnvironment()
         // An environment-only save cannot invent the Dev and Prod pair when the file does not parse.
         // That would delete a named list and rewrite the fingerprint on versions already copied.
@@ -960,6 +991,113 @@ export class GithubSync {
         throw new GithubError(400, 'GitHub did not create the repository. Try again in a moment.')
     }
 
+    // One lock for connect and setEnvironment. The next caller waits until this body, including the connect-time copy, finishes.
+    private async withEnvironmentLock<T>(body: () => Promise<T>): Promise<T> {
+        const previous = this.envGate
+        let release: () => void = () => undefined
+        this.envGate = new Promise<void>((resolve) => {
+            release = resolve
+        })
+        await previous
+        try {
+            return await body()
+        } finally {
+            release()
+        }
+    }
+
+    private sameConnectPlan(left: ActivePlan, right: ActivePlan): boolean {
+        return (
+            left.invalid === right.invalid &&
+            left.environment === right.environment &&
+            left.reads === right.reads &&
+            left.copies === right.copies &&
+            left.sourceBranch === right.sourceBranch &&
+            left.publishBranch === right.publishBranch &&
+            environmentListFingerprint(left.environments) === environmentListFingerprint(right.environments)
+        )
+    }
+
+    private listedSha(refs: string[], mark: string): string {
+        return (refs.find((line) => line.endsWith(` ${mark}`) || line.endsWith(`\t${mark}`)) || '').split(/\s/)[0] || ''
+    }
+
+    // The branch and notes checks for the list on disk. Nothing is written. A later environment must have this
+    // server's list recorded on the previous environment's tip from the listing.
+    private async acceptConnection(
+        plan: ActivePlan,
+        refs: string[],
+        repo: string,
+        url: string,
+        token: string
+    ): Promise<{ plan: ActivePlan; pushed: string | null }> {
+        if (plan.invalid) throw new GithubError(409, LIST_UNREADABLE)
+        if (!plan.reads && !plan.copies) throw new GithubError(409, PICK_ENVIRONMENT)
+        const remoteMain = this.listedSha(refs, 'refs/heads/main')
+        const otherContent = `${repo} already has other content. Connect an empty repository (create it without a README or license), or one this server copied to before.`
+        let pushed: string | null = null
+        let verifiedSource: string | null = null
+        if (isLegacyChain(plan.environments)) {
+            const reading = plan.reads && !plan.copies
+            if (reading) {
+                // Prod reads what Dev copied. An empty repository is fine: Dev has not copied anything yet.
+                if (!remoteMain && refs.length) {
+                    throw new GithubError(
+                        409,
+                        `${repo} has other content and no versions from a Dev server. Connect the repository your Dev server copies to.`
+                    )
+                }
+            } else if (remoteMain) {
+                const head = await this.refSha('refs/heads/main')
+                if (!head || !(await this.isAncestor(remoteMain, head))) throw new GithubError(409, otherContent)
+                pushed = remoteMain
+            } else if (refs.length) {
+                throw new GithubError(409, otherContent)
+            }
+        } else {
+            if (plan.reads && plan.sourceBranch) verifiedSource = await this.requireSourceNote(plan, refs, repo, url, token)
+            if (plan.publishBranch) {
+                // Other environments may already publish here. Only this server's own publish name has to match its history.
+                const remotePublish = this.listedSha(refs, `refs/heads/${plan.publishBranch}`)
+                if (remotePublish) {
+                    const head = await this.refSha('refs/heads/main')
+                    if (!head || !(await this.isAncestor(remotePublish, head))) throw new GithubError(409, otherContent)
+                    pushed = remotePublish
+                }
+            }
+        }
+        return { plan: { ...plan, verifiedSource }, pushed }
+    }
+
+    // Fetch the previous tip named in the listing and require this server's list on that tip. Absent, unverified
+    // and a different list are the same refusal, and nothing is saved.
+    private async requireSourceNote(plan: ActivePlan, refs: string[], repo: string, url: string, token: string): Promise<string> {
+        const from = sourceTitle(plan.environments, plan.environment)
+        const refused = new GithubError(
+            400,
+            `Connect the repository your ${from} server copies to. This one has no versions from ${from} yet.`
+        )
+        const sourceSha = plan.sourceBranch ? this.listedSha(refs, `refs/heads/${plan.sourceBranch}`) : ''
+        if (!sourceSha || !this.listedSha(refs, ENVIRONMENT_NOTE_REMOTE)) throw refused
+        const dir = this.deps.store().dir
+        await runGit(dir, ['update-ref', '-d', CONNECT_SOURCE_REF]).catch(() => undefined)
+        const fetched = await this.git(
+            ['fetch', '--no-tags', '--no-recurse-submodules', '--quiet', url, `refs/heads/${plan.sourceBranch}:${CONNECT_SOURCE_REF}`],
+            authEnv(url, token)
+        )
+        const tip = fetched.ok ? await this.refSha(CONNECT_SOURCE_REF) : null
+        await runGit(dir, ['update-ref', '-d', CONNECT_SOURCE_REF]).catch(() => undefined)
+        if (!fetched.ok || tip !== sourceSha) throw refused
+        const note = await this.environmentNoteCheck(
+            { repo, url, token, credential: { id: '', name: '', workspaceId: '' }, connectedAt: null },
+            sourceSha,
+            plan,
+            this.generation
+        )
+        if (note.kind !== 'match') throw refused
+        return sourceSha
+    }
+
     // Checks the repository and token, then saves the connection and starts the first copy.
     // A pasted token is saved as a new Github API credential in this workspace, after the check passes.
     async connect(
@@ -968,17 +1106,22 @@ export class GithubSync {
     ): Promise<GithubStatus> {
         if (!this.deps.enabled()) throw new GithubError(409, 'Version history is off on this server.')
         if (!workspaceId) throw new GithubError(400, 'No active workspace.')
+        return this.withEnvironmentLock(() => this.connectBody(input, workspaceId))
+    }
+
+    private async connectBody(
+        input: { repo?: string; token?: string; credentialId?: string; credentialName?: string },
+        workspaceId: string
+    ): Promise<GithubStatus> {
         const { repo, url } = parseRepo(String(input?.repo ?? ''))
         const picked = await this.tokenFrom(input, workspaceId)
         const token = picked.token
         const store = this.deps.store()
         await store.ensure()
-        const savedEnv = this.readEnvironment()
-        if (savedEnv.invalid) throw new GithubError(409, 'The environment list could not be read. Save it again.')
-        const plan = syncPlan(savedEnv.environments, savedEnv.environment)
-        if (!plan.reads && !plan.copies) throw new GithubError(409, PICK_ENVIRONMENT)
-        const reading = plan.reads && !plan.copies
-        const legacy = isLegacyChain(savedEnv.environments)
+        const opened = this.capturedPlan()
+        if (opened.invalid) throw new GithubError(409, LIST_UNREADABLE)
+        if (!opened.reads && !opened.copies) throw new GithubError(409, PICK_ENVIRONMENT)
+        const reading = opened.reads && !opened.copies
 
         // Every ref, not just main: a repository with only master, trunk or a tag is not empty.
         const check = await this.git(['ls-remote', url], authEnv(url, token), CHECK_TIMEOUT_MS)
@@ -999,51 +1142,15 @@ export class GithubSync {
             .split('\n')
             .map((line) => line.trim())
             .filter((line) => /\srefs\//.test(line))
-        const remoteMain = (refs.find((line) => /\srefs\/heads\/main$/.test(line)) || '').split(/\s/)[0] || ''
-        const otherContent = `${repo} already has other content. Connect an empty repository (create it without a README or license), or one this server copied to before.`
-        let pushed: string | null = null
-        if (legacy) {
-            if (reading) {
-                // Prod reads what Dev copied. An empty repository is fine: Dev has not copied anything yet.
-                if (!remoteMain && refs.length) {
-                    throw new GithubError(
-                        409,
-                        `${repo} has other content and no versions from a Dev server. Connect the repository your Dev server copies to.`
-                    )
-                }
-            } else if (remoteMain) {
-                const head = await this.refSha('refs/heads/main')
-                if (!head || !(await this.isAncestor(remoteMain, head))) throw new GithubError(409, otherContent)
-                pushed = remoteMain
-            } else if (refs.length) {
-                throw new GithubError(409, otherContent)
-            }
-        } else {
-            // A later environment reads the previous one's versions. An empty repository is not that repository.
-            if (plan.reads && plan.sourceBranch) {
-                const sourceMark = `refs/heads/${plan.sourceBranch}`
-                const hasRef = (mark: string) => refs.some((line) => line.endsWith(` ${mark}`) || line.endsWith(`\t${mark}`))
-                // The previous branch alone is not a copy. A repository created with only a README has that branch and no recorded versions.
-                if (!hasRef(sourceMark) || !hasRef(ENVIRONMENT_NOTE_REMOTE)) {
-                    const from = this.fromLabel()
-                    throw new GithubError(
-                        400,
-                        `Connect the repository your ${from} server copies to. This one has no versions from ${from} yet.`
-                    )
-                }
-            }
-            if (plan.publishBranch) {
-                // Other environments may already publish here. Only this server's own publish name has to match its history.
-                const mark = `refs/heads/${plan.publishBranch}`
-                const remotePublish =
-                    (refs.find((line) => line.endsWith(` ${mark}`) || line.endsWith(`\t${mark}`)) || '').split(/\s/)[0] || ''
-                if (remotePublish) {
-                    const head = await this.refSha('refs/heads/main')
-                    if (!head || !(await this.isAncestor(remotePublish, head))) throw new GithubError(409, otherContent)
-                    pushed = remotePublish
-                }
-            }
-        }
+        // The list can be saved while the listing is in flight. Check the list that is on disk now.
+        let accepted = await this.acceptConnection(this.capturedPlan(), refs, repo, url, token)
+        // And again immediately before the connection file is written, so a later list is not saved under the earlier check.
+        const fresh = this.capturedPlan()
+        if (!this.sameConnectPlan(fresh, accepted.plan)) accepted = await this.acceptConnection(fresh, refs, repo, url, token)
+        const confirm = this.capturedPlan()
+        if (!this.sameConnectPlan(confirm, accepted.plan)) throw new GithubError(409, LIST_UNREADABLE)
+        const plan = accepted.plan
+        const pushed = accepted.pushed
 
         this.generation += 1
         this.clearTimer()
@@ -1077,7 +1184,7 @@ export class GithubSync {
         this.resetState()
         this.known = true
         this.log(`[versions] Connected version history to GitHub ${repo}.`)
-        await this.sync()
+        await this.sync(plan)
         return this.status()
     }
 
@@ -1173,7 +1280,9 @@ export class GithubSync {
     }
 
     // One copy at a time. A version saved while a copy runs is copied right after.
-    sync(): Promise<void> {
+    // A plan passed from connect is the one that passed the check. That copy does not read the file again.
+    sync(pinned?: ActivePlan): Promise<void> {
+        if (pinned) this.pinnedPlan = pinned
         if (this.running) {
             this.again = true
             return this.running
@@ -1183,7 +1292,7 @@ export class GithubSync {
             try {
                 do {
                     this.again = false
-                    const plan = this.capturedPlan()
+                    const plan = this.pinnedPlan ?? this.capturedPlan()
                     if (plan.invalid) {
                         this.state = 'stopped'
                         this.message = LIST_UNREADABLE
@@ -1222,6 +1331,7 @@ export class GithubSync {
                     reading
                 )
             } finally {
+                this.pinnedPlan = null
                 // Yield so this.running is assigned before we clear it when the body never awaits.
                 await Promise.resolve()
                 if (this.running === gate.run) this.running = null
@@ -1384,7 +1494,15 @@ export class GithubSync {
                     this.scheduleRetry(note.message, true)
                     return
                 }
-                if (note.kind === 'mismatch' || note.kind === 'unverified') {
+                const namedReader = !isLegacyChain(plan.environments)
+                // A later environment never installs a tip whose note is missing, on another commit, or a different list.
+                // The saved Dev and Prod pair still offers versions when the repository has no record at all.
+                if (
+                    (namedReader && note.kind !== 'match') ||
+                    note.kind === 'mismatch' ||
+                    note.kind === 'unverified' ||
+                    (plan.verifiedSource !== null && sha !== plan.verifiedSource)
+                ) {
                     await drop(INCOMING_NEXT_REF)
                     this.state = 'stopped'
                     this.message = note.kind === 'mismatch' ? LIST_MISMATCH : LIST_UNVERIFIED
