@@ -18,14 +18,15 @@ import AdditionalParamsDialog from '@/ui-component/dialog/AdditionalParamsDialog
 import NodeInfoDialog from '@/ui-component/dialog/NodeInfoDialog'
 
 // const
-import { baseURL } from '@/store/constant'
 import { IconAlertTriangle } from '@tabler/icons-react'
 import { normalizeNodeData } from '@/utils/normalizeCanvasFlow'
 import { missingNodeInfo } from '@/utils/missingNode'
 import MissingNodeCard from './MissingNodeCard'
 import { canvasOutputKey } from '@/utils/canvasFieldKey'
 import { cardPlugParams } from '@/utils/canvasLook'
+import { cardAccentColor, cardAccentSx } from '@/utils/cardAccent'
 import { CanvasPanelContext } from '@/store/context/CanvasPanelContext'
+import CardAccentIcon from './CardAccentIcon'
 
 // ===========================|| CANVAS NODE ||=========================== //
 
@@ -33,6 +34,7 @@ const CanvasNode = ({ data }) => {
     normalizeNodeData(data)
     const theme = useTheme()
     const canvas = useSelector((state) => state.canvas)
+    const customization = useSelector((state) => state.customization)
     const { panelNodeId, compact } = useContext(CanvasPanelContext)
     const edges = useEdges()
     const inPanel = panelNodeId === data.id
@@ -60,12 +62,6 @@ const CanvasNode = ({ data }) => {
         setShowDialog(true)
     }
 
-    const getBorderColor = () => {
-        if (data.selected) return theme.palette.primary.main
-        else if (theme?.customization?.isDarkMode) return theme.palette.grey[900] + 25
-        else return theme.palette.grey[900] + 50
-    }
-
     useEffect(() => {
         const componentNode = canvas.componentNodes.find((nd) => nd.name === data.name)
         if (componentNode) {
@@ -89,6 +85,8 @@ const CanvasNode = ({ data }) => {
     const missing = missingNodeInfo(data, canvas.componentNodes, canvas.nodePackIndex)
     if (missing) return <MissingNodeCard data={data} message={missing.message} edges={edges} />
 
+    const accent = cardAccentColor(data)
+
     return (
         <>
             <Box {...hoverProps} sx={{ position: 'relative' }}>
@@ -105,33 +103,18 @@ const CanvasNode = ({ data }) => {
                 )}
                 <NodeCardWrapper
                     content={false}
-                    sx={{
-                        padding: 0,
-                        borderColor: getBorderColor(),
-                        ...(compact ? { width: COMPACT_CARD_WIDTH } : {})
-                    }}
+                    sx={cardAccentSx(accent, {
+                        selected: Boolean(data.selected),
+                        hovered,
+                        dark: Boolean(customization?.isDarkMode),
+                        width: compact ? COMPACT_CARD_WIDTH : undefined
+                    })}
                     border={false}
                 >
                     <Box>
                         <div style={{ display: 'flex', flexDirection: 'row', alignItems: 'center' }}>
                             <Box style={{ width: 50, marginRight: 10, padding: 10 }}>
-                                <div
-                                    style={{
-                                        ...theme.typography.commonAvatar,
-                                        ...theme.typography.largeAvatar,
-                                        borderRadius: '50%',
-                                        backgroundColor: 'white',
-                                        cursor: 'grab',
-                                        width: '40px',
-                                        height: '40px'
-                                    }}
-                                >
-                                    <img
-                                        style={{ width: '100%', height: '100%', padding: 5, objectFit: 'contain' }}
-                                        src={`${baseURL}/api/v1/node-icon/${data.name}`}
-                                        alt='Notification'
-                                    />
-                                </div>
+                                <CardAccentIcon name={data.name} color={accent} />
                             </Box>
                             <Box>
                                 <Typography

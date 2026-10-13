@@ -13,12 +13,12 @@ import NodeInputHandler from '@/views/canvas/NodeInputHandler'
 import NodeOutputHandler from '@/views/canvas/NodeOutputHandler'
 import AdditionalParamsDialog from '@/ui-component/dialog/AdditionalParamsDialog'
 import CompactCardBody, { COMPACT_CARD_WIDTH } from '@/views/canvas/CompactCardBody'
+import CardAccentIcon from '@/views/canvas/CardAccentIcon'
+import { useCardHover } from '@/views/canvas/NodeActionBar'
 import { CanvasPanelContext } from '@/store/context/CanvasPanelContext'
 import { missingNodeInfo } from '@/utils/missingNode'
 import MissingNodeCard from '@/views/canvas/MissingNodeCard'
-
-// const
-import { baseURL } from '@/store/constant'
+import { cardAccentColor, cardAccentSx } from '@/utils/cardAccent'
 
 const CardWrapper = styled(MainCard)(({ theme }) => ({
     background: theme.palette.card.main,
@@ -39,8 +39,10 @@ const CardWrapper = styled(MainCard)(({ theme }) => ({
 const MarketplaceCanvasNode = ({ data }) => {
     const theme = useTheme()
     const canvas = useSelector((state) => state.canvas)
+    const customization = useSelector((state) => state.customization)
     const edges = useEdges()
     const { compact } = useContext(CanvasPanelContext)
+    const { hovered, hoverProps } = useCardHover()
     const node = data || {}
     const [showDialog, setShowDialog] = useState(false)
     const [dialogProps, setDialogProps] = useState({})
@@ -62,35 +64,25 @@ const MarketplaceCanvasNode = ({ data }) => {
         setShowDialog(true)
     }
 
+    const accent = cardAccentColor(node)
+
     return (
         <>
             <CardWrapper
+                {...hoverProps}
                 content={false}
-                sx={{
-                    padding: 0,
-                    borderColor: node.selected ? theme.palette.primary.main : theme.palette.text.secondary,
-                    ...(compact ? { width: COMPACT_CARD_WIDTH } : {})
-                }}
+                sx={cardAccentSx(accent, {
+                    selected: Boolean(node.selected),
+                    hovered,
+                    dark: Boolean(customization?.isDarkMode),
+                    width: compact ? COMPACT_CARD_WIDTH : undefined
+                })}
                 border={false}
             >
                 <Box>
                     <div style={{ display: 'flex', flexDirection: 'row', alignItems: 'center' }}>
                         <Box style={{ width: 50, marginRight: 10, padding: 5 }}>
-                            <div
-                                style={{
-                                    ...theme.typography.commonAvatar,
-                                    ...theme.typography.largeAvatar,
-                                    borderRadius: '50%',
-                                    backgroundColor: 'white',
-                                    cursor: 'grab'
-                                }}
-                            >
-                                <img
-                                    style={{ width: '100%', height: '100%', padding: 5, objectFit: 'contain' }}
-                                    src={`${baseURL}/api/v1/node-icon/${node.name || 'unknown'}`}
-                                    alt='Notification'
-                                />
-                            </div>
+                            <CardAccentIcon name={node.name} color={accent} size={44} />
                         </Box>
                         <Box>
                             <Typography
