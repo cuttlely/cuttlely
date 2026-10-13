@@ -1,5 +1,17 @@
+import { AsyncLocalStorage } from 'async_hooks'
 import { BaseCallbackHandler } from '@langchain/core/callbacks/base'
 import { context, SpanStatusCode, trace } from '@opentelemetry/api'
+
+const replaySilence = new AsyncLocalStorage<true>()
+
+export function replaySilenced(): boolean {
+    return replaySilence.getStore() === true
+}
+
+/** A publish-check replay runs inside this store so its spans are not exported. */
+export function silenceRunTraces<T>(fn: () => Promise<T>): Promise<T> {
+    return replaySilence.run(true, fn)
+}
 
 /** The span methods this module uses. A full SDK span satisfies it. */
 interface TraceSpan {
@@ -208,6 +220,7 @@ export class CuttlelyOtelHandler extends BaseCallbackHandler {
 /** Undefined when traces are off, so callers do not construct a handler on the normal path. */
 export function otelRunCallback(): CuttlelyOtelHandler | undefined {
     if (process.env.CUTTLELY_OTEL_TRACES !== 'true') return undefined
+    if (replaySilenced()) return undefined
     if (!tracer()) return undefined
     return new CuttlelyOtelHandler()
 }

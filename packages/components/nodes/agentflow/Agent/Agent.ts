@@ -21,6 +21,13 @@ import { ARTIFACTS_PREFIX, SOURCE_DOCUMENTS_PREFIX, TOOL_ARGS_PREFIX } from '../
 import { flatten } from 'lodash'
 import { toolSchemaToJsonSchema, type ToolJsonSchema } from '../../../src/utils'
 import { getErrorMessage } from '../../../src/error'
+
+function throwToolFailure(cause: unknown, usedTools: IUsedTool[], usageMetadata: unknown): never {
+    const failure = new Error(getErrorMessage(cause)) as Error & { usedTools: IUsedTool[]; usageMetadata: unknown }
+    failure.usedTools = usedTools
+    failure.usageMetadata = usageMetadata
+    throw failure
+}
 import { DataSource } from 'typeorm'
 import { randomBytes } from 'crypto'
 import {
@@ -2365,7 +2372,7 @@ class Agent_Agentflow implements INode {
                         error: getErrorMessage(e)
                     })
                     sseStreamer?.streamUsedToolsEvent(chatId, flatten(usedTools))
-                    throw new Error(getErrorMessage(e))
+                    throwToolFailure(e, usedTools, response.usage_metadata)
                 }
             }
         }
@@ -2737,7 +2744,7 @@ class Agent_Agentflow implements INode {
                             error: getErrorMessage(e)
                         })
                         sseStreamer?.streamUsedToolsEvent(chatId, flatten(usedTools))
-                        throw new Error(getErrorMessage(e))
+                        throwToolFailure(e, usedTools, response.usage_metadata)
                     }
                 }
             }

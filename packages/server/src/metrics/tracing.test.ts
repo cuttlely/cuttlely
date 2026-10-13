@@ -522,6 +522,159 @@ describe('run trace spans', () => {
         expect(oven[0].attributes['status']).toBe('pending')
     })
 
+    it('keeps model tokens and an error tool span when a tool throws', async () => {
+        process.env.CUTTLELY_OTEL_TRACES = 'true'
+        const write = (name: string, body: string) => {
+            const file = path.join(dir, `${name}.js`)
+            fs.writeFileSync(file, body)
+            return { filePath: file }
+        }
+        const step = (body: string) => `exports.nodeClass = class { async run(nodeData, input, options) { ${body} } }\n`
+        const nodes = {
+            startAgentflow: write(
+                'throw-start',
+                step(`return { id: nodeData.id, name: 'startAgentflow', input: { question: input }, output: { question: input } }`)
+            ),
+            llmAgentflow: write(
+                'throw-llm',
+                step(
+                    `const failure = new Error('oven exploded'); failure.usedTools = [{ tool: 'oven', toolInput: 'heat', toolOutput: '', error: 'oven exploded' }]; failure.usageMetadata = { input_tokens: 15, output_tokens: 6 }; throw failure`
+                )
+            )
+        }
+        const flowData = JSON.stringify({
+            nodes: [
+                agentNode('startAgentflow_0', 'startAgentflow', 'Start', { startInputType: 'chatInput' }),
+                agentNode('llmAgentflow_0', 'llmAgentflow', 'Bakery helper', { llmModelConfig: { modelName: 'gpt-4o-mini' } })
+            ],
+            edges: [{ id: 'e1', source: 'startAgentflow_0', target: 'llmAgentflow_0' }]
+        })
+        await expect(
+            executeAgentFlow({
+                componentNodes: nodes,
+                incomingInput: { question: 'Heat the oven', streaming: false },
+                chatflow: {
+                    id: 'e0f4d9c5-4011-4d84-ad01-6c423f50618d',
+                    name: 'Bakery helper',
+                    type: 'AGENTFLOW',
+                    flowData,
+                    workspaceId: 'ws-1'
+                },
+                chatId: 'c0ffee00-0000-4000-8000-000000000021',
+                appDataSource: recordingDataSource(),
+                telemetry: { sendTelemetry: jest.fn() },
+                usageCacheManager: {},
+                cachePool: {},
+                sseStreamer: new Proxy({}, { get: () => () => undefined }),
+                baseURL: 'http://127.0.0.1',
+                isInternal: true,
+                orgId: 'org-1',
+                workspaceId: 'ws-1',
+                subscriptionId: 'sub-1',
+                productId: 'prod-1',
+                replay: false
+            } as any)
+        ).rejects.toThrow('oven exploded')
+        const spans = memory.spans()
+        const root = spans.find((span) => span.name === 'agentflow.run')
+        const model = spans.find((span) => span.name === 'model')
+        const tool = spans.find((span) => span.name === 'tool')
+        const node = spans.find((span) => span.name === 'node' && span.attributes['node.id'] === 'llmAgentflow_0')
+        expect(root?.attributes['status']).toBe('error')
+        expect(node?.attributes['status']).toBe('error')
+        expect(model?.attributes['status']).toBe('error')
+        expect(model?.attributes['tokens.input']).toBe(15)
+        expect(model?.attributes['tokens.output']).toBe(6)
+        expect(tool?.attributes['tool.name']).toBe('oven')
+        expect(tool?.attributes['status']).toBe('error')
+        expect(tool?.attributes['error']).toBe('oven exploded')
+    })
+
+    it('exports zero spans when a replay inits an output prediction chain', async () => {
+        process.env.CUTTLELY_OTEL_TRACES = 'true'
+        const seen = { replay: false }
+        ;(globalThis as { __cuttlelyReplayInit?: { replay: boolean } }).__cuttlelyReplayInit = seen
+        const file = path.join(dir, 'output-prediction.js')
+        fs.writeFileSync(
+            file,
+            `exports.nodeClass = class {
+                constructor() {}
+                async init(nodeData, input, options) {
+                    global.__cuttlelyReplayInit.replay = options && options.cuttlelyReplay === true
+                    const { additionalCallbacks } = require('@cuttlely/components')
+                    const callbacks = await additionalCallbacks(nodeData, options || {})
+                    const handler = callbacks && callbacks[0]
+                    if (handler) {
+                        await handler.handleLLMStart({ kwargs: { modelName: 'gpt-4o-mini' } }, ['When is the sourdough ready?'], 'pred-model')
+                        await handler.handleLLMEnd({ generations: [[{ text: 'At 7.' }]], llmOutput: { tokenUsage: { promptTokens: 3, completionTokens: 1 } } }, 'pred-model')
+                        await handler.handleToolStart({ name: 'calculator' }, '2+2', 'pred-tool')
+                        await handler.handleToolEnd('4', 'pred-tool')
+                    }
+                    return {}
+                }
+                async run() { return { text: 'At 7.' } }
+            }\n`
+        )
+        const modelFile = path.join(dir, 'output-prediction-model.js')
+        fs.writeFileSync(modelFile, `exports.nodeClass = class { constructor() {} async init() { return {} } async run() { return {} } }\n`)
+        const endFile = path.join(dir, 'output-prediction-end.js')
+        fs.writeFileSync(
+            endFile,
+            `exports.nodeClass = class { constructor() {} async init() { return {} } async run() { return { text: 'At 7.' } } }\n`
+        )
+        try {
+            const result = await executeFlow({
+                componentNodes: {
+                    chatOpenAI: { filePath: modelFile },
+                    llmChain: { filePath: file },
+                    endChain: { filePath: endFile }
+                },
+                incomingInput: { question: 'When is the sourdough ready?', streaming: false },
+                chatflow: {
+                    id: 'f1a5e0d6-5122-4e95-be12-7d534061729e',
+                    name: 'Bakery chat',
+                    type: 'CHATFLOW',
+                    workspaceId: 'ws-1',
+                    flowData: JSON.stringify({
+                        nodes: [
+                            chatNode('chatOpenAI_0', 'chatOpenAI', 'Chat Models'),
+                            {
+                                ...chatNode('llmChain_0', 'llmChain', 'Chains'),
+                                data: {
+                                    ...chatNode('llmChain_0', 'llmChain', 'Chains').data,
+                                    outputs: { output: 'outputPrediction' }
+                                }
+                            },
+                            chatNode('endChain_0', 'endChain', 'Chains')
+                        ],
+                        edges: [
+                            { id: 'e1', source: 'chatOpenAI_0', target: 'llmChain_0' },
+                            { id: 'e2', source: 'llmChain_0', target: 'endChain_0' }
+                        ]
+                    })
+                },
+                chatId: 'c0ffee00-0000-4000-8000-000000000031',
+                appDataSource: recordingDataSource(),
+                telemetry: { sendTelemetry: jest.fn() },
+                cachePool: {},
+                usageCacheManager: {},
+                sseStreamer: undefined,
+                baseURL: 'http://127.0.0.1',
+                isInternal: true,
+                orgId: 'org-1',
+                workspaceId: 'ws-1',
+                subscriptionId: 'sub-1',
+                productId: 'prod-1',
+                replay: true
+            } as any)
+            expect(result.text).toBe('At 7.')
+            expect(seen.replay).toBe(true)
+            expect(memory.spans()).toEqual([])
+        } finally {
+            delete (globalThis as { __cuttlelyReplayInit?: unknown }).__cuttlelyReplayInit
+        }
+    })
+
     it('emits no spans for a publish check replay (cuttlelyReplay)', async () => {
         process.env.CUTTLELY_OTEL_TRACES = 'true'
         const result = await runChat(true, true)

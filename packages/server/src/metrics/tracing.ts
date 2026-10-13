@@ -1,6 +1,7 @@
-import { AsyncLocalStorage } from 'async_hooks'
-import { setCuttlelyTracer, tokenCount, writeContent } from '@cuttlely/components'
+import { replaySilenced, setCuttlelyTracer, silenceRunTraces, tokenCount, writeContent } from '@cuttlely/components'
 import logger from '../utils/logger'
+
+export { silenceRunTraces }
 
 /**
  * Optional OpenTelemetry traces for chatflow predictions and agentflow runs.
@@ -13,17 +14,10 @@ const MODEL_NODES = new Set(['llmAgentflow', 'agentAgentflow', 'conditionAgentAg
 let provider: any
 let installed = false
 const failedSpans = new WeakSet<object>()
-// A publish-check replay runs inside this store so its node and model spans are not exported.
-const replaySilence = new AsyncLocalStorage<true>()
 
 function tracesRequested(): boolean {
     if (process.env.CUTTLELY_OTEL_TRACES !== 'true') return false
-    return !replaySilence.getStore()
-}
-
-/** Run fn with tracing suppressed. Used for a publish check replay. */
-export function silenceRunTraces<T>(fn: () => Promise<T>): Promise<T> {
-    return replaySilence.run(true, fn)
+    return !replaySilenced()
 }
 
 type SpanLike = {
@@ -420,6 +414,13 @@ export async function tracedNode<T>(
             if (!toolSpan) recordLateTools(result, nodeId, nodeType)
             return result
         } catch (error) {
+            const failure = error as { usedTools?: unknown; usageMetadata?: unknown }
+            if (modelSpan && failure?.usageMetadata) {
+                const usage = usageOf({ usageMetadata: failure.usageMetadata })
+                if (usage?.input !== undefined) modelSpan.setAttribute('tokens.input', usage.input)
+                if (usage?.output !== undefined) modelSpan.setAttribute('tokens.output', usage.output)
+            }
+            if (!toolSpan && failure?.usedTools) recordLateTools({ output: { usedTools: failure.usedTools } }, nodeId, nodeType)
             endError(modelSpan, error)
             endError(toolSpan, error)
             throw error

@@ -519,6 +519,8 @@ type BuildFlowParams = {
     uploadedFilesContent?: string
     updateStorageUsage?: (orgId: string, workspaceId: string, totalSize: number, usageCacheManager?: any) => void
     checkStorage?: (orgId: string, subscriptionId: string, usageCacheManager: any) => Promise<any>
+    /** Publish-check replay: node init must not export model or tool spans. */
+    cuttlelyReplay?: boolean
 }
 
 /**
@@ -555,7 +557,8 @@ export const buildFlow = async ({
     subscriptionId,
     usageCacheManager,
     updateStorageUsage,
-    checkStorage
+    checkStorage,
+    cuttlelyReplay
 }: BuildFlowParams) => {
     const flowNodes = cloneDeep(reactFlowNodes)
 
@@ -672,7 +675,8 @@ export const buildFlow = async ({
                         baseURL,
                         componentNodes,
                         updateStorageUsage,
-                        checkStorage
+                        checkStorage,
+                        ...(cuttlelyReplay ? { cuttlelyReplay: true } : {})
                     })
                 let outputResult = isUpsert
                     ? await initNode()

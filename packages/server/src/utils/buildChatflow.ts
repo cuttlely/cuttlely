@@ -659,7 +659,8 @@ export const executeFlow = async ({
                 workspaceId,
                 subscriptionId,
                 updateStorageUsage,
-                checkStorage
+                checkStorage,
+                cuttlelyReplay: replay === true
             })
 
             const setVariableNodesOutput = getSetVariableNodesOutput(reactFlowNodes)
