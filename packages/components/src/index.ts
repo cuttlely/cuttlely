@@ -30,7 +30,7 @@ export {
     writeContent
 } from './otelRunSpans'
 export * from './documentText'
-export { isModelList } from './modelLoader'
+export { getRawModelFile, isModelList } from './modelLoader'
 export { applyModelRetryBudget, MODEL_RETRY_BUDGET } from './modelRetryBudget'
 export * from './utils'
 export * from './validator'

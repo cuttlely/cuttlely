@@ -57,6 +57,12 @@ The file has three lists, and all three must be present (an empty list is fine):
 
 Keep the newest models at the top of each node's list, the order the dropdown shows them in.
 
+## Where price estimates come from
+
+`input_cost` and `output_cost` are the default prices. They are US dollars per token. The usage API and the Publish check turn that into US dollars per million tokens by multiplying by 1,000,000, then estimate a cost when the numbers are read. A price of $0.40 per million input tokens stays `0.0000004` in this file and is `0.4` on `GET /api/v1/model-prices`.
+
+An organization owner can set a different input and output price for one model, in US dollars per million tokens, with `PUT /api/v1/model-prices`. `DELETE /api/v1/model-prices` clears that override and the estimate uses this file again. A model with no `input_cost` and `output_cost`, and no override, is shown as no price. It is not treated as free. Every figure that uses these prices is an estimate. The routes are in [Usage API](./usage-api.md#model-prices).
+
 ## Add a model
 
 1. Find the node's entry in the right list (`chat`, `llm` or `embedding`). If the node has no entry yet, add one with its `name` and an empty `models` list.

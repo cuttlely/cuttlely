@@ -1009,6 +1009,8 @@ packages/server/src/controllers/marketplaces/index.ts
 packages/server/src/controllers/mcp-endpoint/index.test.ts
 packages/server/src/controllers/mcp-endpoint/index.ts
 packages/server/src/controllers/mcp-server/index.ts
+packages/server/src/controllers/model-prices/index.test.ts
+packages/server/src/controllers/model-prices/index.ts
 packages/server/src/controllers/node-configs/index.ts
 packages/server/src/controllers/node-icons/index.ts
 packages/server/src/controllers/nodes/index.ts
@@ -1305,6 +1307,7 @@ packages/server/src/routes/marketplaces/index.ts
 packages/server/src/routes/mcp-endpoint/index.test.ts
 packages/server/src/routes/mcp-endpoint/index.ts
 packages/server/src/routes/mcp-server/index.ts
+packages/server/src/routes/model-prices/index.ts
 packages/server/src/routes/node-configs/index.ts
 packages/server/src/routes/node-custom-functions/index.ts
 packages/server/src/routes/node-icons/index.ts
@@ -1353,6 +1356,7 @@ packages/server/src/services/custom-mcp-servers/index.test.ts
 packages/server/src/services/custom-mcp-servers/index.ts
 packages/server/src/services/dataset/index.ts
 packages/server/src/services/documentstore/index.ts
+packages/server/src/services/evaluations/CostCalculator.test.ts
 packages/server/src/services/evaluations/CostCalculator.ts
 packages/server/src/services/evaluations/EvaluatorRunner.ts
 packages/server/src/services/evaluations/LLMEvaluationRunner.test.ts
