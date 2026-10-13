@@ -1123,6 +1123,19 @@ function pageStartOffset(paging, pageSize) {
     return Number.isInteger(paging.offset) ? paging.offset : Math.max(0, (paging.page - 1) * pageSize)
 }
 
+// Pages a full in-memory result the same way finishPage will, one budget window at a time.
+function walkedPageCount(rows, pageSize) {
+    let offset = 0
+    let count = 0
+    const list = Array.isArray(rows) ? rows : []
+    while (offset < list.length && count <= list.length) {
+        count += 1
+        const shown = analystShownRows(list.slice(offset, offset + pageSize).map((row) => stripPageColumns(row)))
+        offset += Math.max(1, shown.length)
+    }
+    return count
+}
+
 function finishPage(rawRows, paging, plan) {
     const pageSize = pageSizeOf(paging)
     const startOffset = pageStartOffset(paging, pageSize)
@@ -1131,12 +1144,16 @@ function finishPage(rawRows, paging, plan) {
     const stripped = capped.map((row) => stripPageColumns(row))
     const shown = analystShownRows(stripped)
     const more = moreInFetch || shown.length < stripped.length
+    const cut = Boolean(paging.cut) || (shown.length < pageSize && more)
+    const walked = plan.mode === 'buffer' && Array.isArray(plan.rows) ? walkedPageCount(plan.rows, pageSize) : null
     const described = describeAnalystPage(shown.length, {
         page: paging.page,
         pageSize,
         total: paging.total,
         more,
-        startOffset
+        startOffset,
+        cut,
+        walked
     })
     const shaped = { rows: shown, truncated: described.truncated }
     if (described.summary) shaped.summary = described.summary
@@ -1157,7 +1174,7 @@ function finishPage(rawRows, paging, plan) {
         pageSize,
         nextOffset: startOffset + shown.length,
         // Once a page is shorter than the cap and rows remain, later jumps cannot use (page - 1) * pageSize.
-        cut: Boolean(paging.cut) || (shown.length < pageSize && more),
+        cut,
         lastKey: usableKey ? lastKey : null,
         expiresAt: paging.now + paging.ttl
     }
@@ -1692,6 +1709,55 @@ export function analystUrlToolSpec(rowCap) {
             ''
         )}`
     }
+}
+
+function analystPagingBase(options = {}) {
+    const env = options.env || process.env
+    const workspace = callWorkspace(options)
+    return {
+        scope: callScope(options),
+        now: nowOf(options),
+        ttl: ttlOf(options),
+        storeKey: storeKey(env, workspace),
+        rowCap: analystRowCap(options.rowCap, env)
+    }
+}
+
+export function probeAnalystCursor(cursor, input, options = {}) {
+    return replayCursor(cursor, input && typeof input === 'object' ? input : {}, analystPagingBase(options))
+}
+
+// Pages an in-memory row list with the same cursor rules as a live query. Tests use it to walk thousands of cases.
+export function openBufferedAnalystPage(rows, options = {}) {
+    const paging = {
+        ...analystPagingBase(options),
+        page: 1,
+        offset: 0,
+        total: rows.length,
+        statement: 'SELECT n, note FROM nums ORDER BY n',
+        cut: false,
+        previousOffset: 0,
+        lastKey: null,
+        cursor: ''
+    }
+    const pageSize = pageSizeOf(paging)
+    return finishPage(rows.slice(0, pageSize + 1), paging, {
+        mode: 'buffer',
+        statement: paging.statement,
+        rows,
+        simple: null,
+        keys: null
+    })
+}
+
+export function continueBufferedAnalystPage(cursor, input, options = {}) {
+    const pagingBase = analystPagingBase(options)
+    const replay = replayCursor(cursor, input && typeof input === 'object' ? input : {}, pagingBase)
+    const pageSize = pageSizeOf(replay.paging)
+    const offset = pageStartOffset(replay.paging, pageSize)
+    const raw = (replay.plan.rows || []).slice(offset, offset + pageSize + 1)
+    if (!raw.length && replay.paging.page > 1) throw cursorError(ANALYST_CURSOR_ERRORS.past)
+    return finishPage(raw, replay.paging, replay.plan)
 }
 
 function replayCursor(token, input, pagingBase) {

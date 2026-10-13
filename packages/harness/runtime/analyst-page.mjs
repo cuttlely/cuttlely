@@ -19,9 +19,14 @@ export const ANALYST_CURSOR_ERRORS = {
     past: PAGE_PAST
 }
 
-export function rowPageSummary({ start, end, total, page, pages, more }) {
+export function rowPageSummary({ start, end, total, page, pages, more, hidePageNumber = false }) {
     const known = Number.isFinite(total)
     const range = known ? `rows ${start}-${end} of ${total}` : `rows ${start}-${end}`
+    // After a short page the cursor will not honor an arbitrary page number, so the line does not offer one.
+    if (hidePageNumber) {
+        if (more) return `${range} (more rows available, say "show more" for the next page)`
+        return `${range} (last page)`
+    }
     if (known && Number.isFinite(pages)) {
         if (more) return `${range} (page ${page} of ${pages}, say "show more" for the next page)`
         return `${range} (page ${page} of ${pages}, last page)`
@@ -375,7 +380,11 @@ export function pageKeyValue(row, key) {
 
 // `more` is the extra row from LIMIT pageSize+1. A count that is larger than
 // the rows in hand does not invent another page or a cursor.
-export function describeAnalystPage(keptCount, { page, pageSize, total, more, startOffset }) {
+// `walked` is how many pages the row cap and the handoff budget actually
+// produce. A short page makes that larger than ceil(total / pageSize), and
+// the aligned cursor refuses the extra index. State a count only when the
+// two numbers are the same.
+export function describeAnalystPage(keptCount, { page, pageSize, total, more, startOffset, cut = false, walked = null }) {
     if (!keptCount || (!more && page <= 1)) return { summary: '', truncated: false, multi: false }
     const uniformStart = (page - 1) * pageSize
     const startBase = Number.isInteger(startOffset) ? startOffset : uniformStart
@@ -384,10 +393,15 @@ export function describeAnalystPage(keptCount, { page, pageSize, total, more, st
     const fetchedThrough = end + (more ? 1 : 0)
     let known = Number.isFinite(total) ? total : null
     if (known != null && (known < fetchedThrough || (more && known <= pageSize && startBase === 0))) known = null
-    // A short page with more rows left is not a stable slice of the total, so the line names no count and no page total.
-    const shortAndMore = Boolean(more) && keptCount < pageSize
-    if (shortAndMore) known = null
-    const pages = !more ? page : known == null ? null : Math.max(page + 1, Math.ceil(known / pageSize))
+    const uniform = known != null && pageSize > 0 ? Math.ceil(known / pageSize) : null
+    const countAgrees = walked == null || (uniform != null && walked === uniform)
+    // A short earlier page means later page numbers are not stable indexes. Do not name a page or a page count.
+    const unaligned = startBase !== uniformStart || Boolean(cut) || !countAgrees
+    let pages = null
+    if (!unaligned) {
+        if (!more) pages = page
+        else if (uniform != null) pages = Math.max(page + 1, uniform)
+    }
     return {
         summary: rowPageSummary({
             start,
@@ -395,7 +409,8 @@ export function describeAnalystPage(keptCount, { page, pageSize, total, more, st
             total: known,
             page,
             pages,
-            more: Boolean(more)
+            more: Boolean(more),
+            hidePageNumber: unaligned
         }),
         truncated: Boolean(more),
         multi: true

@@ -36,6 +36,9 @@ import {
     analystToolSpec,
     queryAnalyst,
     queryPostgres,
+    probeAnalystCursor,
+    openBufferedAnalystPage,
+    continueBufferedAnalystPage,
     setAnalystPgClientForTests,
     queryAnalystUrl,
     pgPlaceholders,
@@ -45,7 +48,7 @@ import {
     rowPageSummary
 } from './analyst-store.mjs'
 import { ANALYST_CURSOR_ERRORS, analystPageRequest, parseSimpleSelect } from './analyst-page.mjs'
-import { presentAnalystToolResult } from '../packages/harness/context.mjs'
+import { analystShownRows, presentAnalystToolResult } from '../packages/harness/context.mjs'
 import { analystChipRows } from '../packages/harness/trace.mjs'
 import { queryAnalyst as runtimeQueryAnalyst } from '../packages/harness/runtime/analyst-store.mjs'
 import { analystPageRequest as runtimePageRequest } from '../packages/harness/runtime/analyst-page.mjs'
@@ -147,6 +150,70 @@ process.stdout.write('RESULT ' + JSON.stringify({ workspace, file: store.file, l
         fs.writeFileSync(go, '1')
         return Promise.all(children.map((child) => child.done))
     })
+}
+
+function mulberry32(seed) {
+    let state = seed >>> 0
+    return () => {
+        state = (state + 0x6d2b79f5) | 0
+        let mixed = Math.imul(state ^ (state >>> 15), 1 | state)
+        mixed = (mixed + Math.imul(mixed ^ (mixed >>> 7), 61 | mixed)) ^ mixed
+        return ((mixed ^ (mixed >>> 14)) >>> 0) / 4294967296
+    }
+}
+
+function noteWidthForWindow(start, shown) {
+    let lo = 1
+    let hi = 12000
+    let found = 0
+    while (lo <= hi) {
+        const width = (lo + hi) >> 1
+        const rows = []
+        for (let i = 0; i < shown; i += 1) rows.push({ n: start + i + 1, note: 'x'.repeat(width) })
+        rows.push({ n: start + shown + 1, note: '' })
+        const got = analystShownRows(rows).length
+        if (got === shown) {
+            found = width
+            break
+        }
+        if (got > shown) lo = width + 1
+        else hi = width - 1
+    }
+    return found
+}
+
+function walkedPageBounds(rows, cap) {
+    const bounds = []
+    let offset = 0
+    while (offset < rows.length && bounds.length <= rows.length) {
+        const shown = analystShownRows(rows.slice(offset, offset + cap))
+        const count = Math.max(1, shown.length)
+        bounds.push({ start: rows[offset].n, end: rows[offset + count - 1].n })
+        offset += count
+    }
+    return bounds
+}
+
+function rowsWithRandomCuts(total, cap, rand) {
+    const rows = []
+    let offset = 0
+    while (offset < total) {
+        const remaining = total - offset
+        const canCut = remaining > 1 && cap > 1 && rand() < 0.45
+        if (canCut) {
+            const shown = 1 + Math.floor(rand() * Math.min(cap - 1, remaining - 1))
+            const width = noteWidthForWindow(offset, shown)
+            if (width) {
+                for (let i = 0; i < shown; i += 1) rows.push({ n: offset + i + 1, note: 'x'.repeat(width) })
+                offset += shown
+                continue
+            }
+        }
+        const take = Math.min(cap, remaining)
+        for (let i = 0; i < take; i += 1) rows.push({ n: offset + i + 1, note: '' })
+        offset += take
+    }
+    return rows
 }
 
 function digest(value) {
@@ -724,9 +791,8 @@ describe('analyst sqlite storage', () => {
             )
             const first = await queryAnalyst('SELECT n, note FROM wide ORDER BY n', { env, sqliteOpen, scope })
             assert.ok(first.rows.length < 250)
-            assert.match(first.summary, /more rows available/)
-            assert.equal(first.summary.includes(' of '), false)
-            assert.equal(first.summary.includes('page 1 of'), false)
+            assert.match(first.summary, /rows \d+-\d+ of 600 \(more rows available/)
+            assert.equal(/page \d+/.test(first.summary), false)
             await assert.rejects(
                 queryAnalyst({ cursor: first.cursor, page: 3 }, { env, sqliteOpen, scope }),
                 (error) => error.message === ANALYST_CURSOR_ERRORS.page
@@ -762,6 +828,153 @@ describe('analyst sqlite storage', () => {
         } finally {
             resetAnalystStoreForTests()
             fs.rmSync(dir, { recursive: true, force: true })
+        }
+    })
+
+    it('a full page after a short one names the rows and not a page count', async () => {
+        const dir = tempDir()
+        const env = { ...sqliteEnv(dir), CUTTLELY_ANALYST_ROW_CAP: '250' }
+        const sqliteOpen = (file) => new DatabaseSync(file)
+        const scope = 'short-then-full'
+        const width = 1170
+        try {
+            const db = new DatabaseSync(analystSqliteFile(env))
+            db.exec('CREATE TABLE nums (n INTEGER PRIMARY KEY, note TEXT)')
+            const insert = db.prepare('INSERT INTO nums (n, note) VALUES (?, ?)')
+            for (let n = 1; n <= 600; n += 1) insert.run(n, n <= 10 ? 'x'.repeat(width) : '')
+            db.close()
+            const first = await queryAnalyst('SELECT n, note FROM nums ORDER BY n', { env, sqliteOpen, scope })
+            assert.equal(first.rows.length, 10)
+            assert.equal(first.rows[0].n, 1)
+            assert.match(first.summary, /^rows 1-10 of 600 \(more rows available, say "show more" for the next page\)$/)
+            await assert.rejects(queryAnalyst({ cursor: first.cursor, page: 3 }, { env, sqliteOpen, scope }), (error) => {
+                assert.equal(error.message, ANALYST_CURSOR_ERRORS.page)
+                return true
+            })
+            const second = await queryAnalyst({ cursor: first.cursor }, { env, sqliteOpen, scope })
+            assert.equal(second.rows.length, 250)
+            assert.equal(second.rows[0].n, 11)
+            assert.equal(second.rows.at(-1).n, 260)
+            assert.match(second.summary, /^rows 11-260 of 600 \(more rows available, say "show more" for the next page\)$/)
+            assert.equal(/page \d+/.test(second.summary), false)
+            await assert.rejects(queryAnalyst({ cursor: second.cursor, page: 4 }, { env, sqliteOpen, scope }), (error) => {
+                assert.equal(error.message, ANALYST_CURSOR_ERRORS.page)
+                return true
+            })
+            const third = await queryAnalyst({ cursor: second.cursor, page: 3 }, { env, sqliteOpen, scope })
+            assert.equal(third.rows[0].n, 261)
+        } finally {
+            resetAnalystStoreForTests()
+            fs.rmSync(dir, { recursive: true, force: true })
+        }
+    })
+
+    it('page lines stay true across thousands of random cut pages', () => {
+        const rand = mulberry32(20261013)
+        const cases = 3000
+        const fixedNow = 1_000_000
+        try {
+            for (let index = 0; index < cases; index += 1) {
+                const total = 1 + Math.floor(rand() * 36)
+                const cap = 1 + Math.floor(rand() * 10)
+                const rows = rowsWithRandomCuts(total, cap, rand)
+                assert.equal(rows.length, total)
+                const bounds = walkedPageBounds(rows, cap)
+                const env = {
+                    DATABASE_TYPE: 'sqlite',
+                    DATABASE_PATH: 'paging-property',
+                    SECRETKEY_PATH: 'paging-property',
+                    CUTTLELY_ANALYST_ROW_CAP: String(cap)
+                }
+                const options = { env, scope: `prop-${index}`, now: fixedNow, cursorTtlMs: 60 * 60 * 1000, rowCap: cap }
+                let page = openBufferedAnalystPage(rows, options)
+                let cursor = page.cursor
+                let prevEnd = page.rows.at(-1).n
+                let pageNumberNow = 1
+                let cut = false
+                const chain = new Set()
+                for (const row of page.rows) chain.add(row.n)
+                for (let step = 0; step < 6 && page; step += 1) {
+                    const summary = String(page.summary || '')
+                    const lastPage = !page.cursor || summary.includes('last page')
+                    if (pageNumberNow === 1) cut = page.rows.length < cap && !lastPage
+                    else if (page.rows.length < cap && !lastPage) cut = true
+                    const offered = [...summary.matchAll(/page (\d+)/g)].map((match) => Number(match[1]))
+                    const stated = summary.match(/page \d+ of (\d+)/)
+                    if (stated) {
+                        const count = Number(stated[1])
+                        assert.equal(count, bounds.length, summary)
+                        offered.push(count)
+                    }
+                    if (cut) {
+                        assert.equal(/page \d+/.test(summary), false, summary)
+                        assert.equal(offered.length, 0)
+                    }
+                    for (const offeredPage of offered) {
+                        try {
+                            probeAnalystCursor(cursor, { page: offeredPage }, options)
+                        } catch (error) {
+                            assert.fail(`${summary} offered page ${offeredPage}: ${error.message}`)
+                        }
+                    }
+                    const nums = page.rows.map((row) => row.n)
+                    for (let i = 1; i < nums.length; i += 1) assert.equal(nums[i], nums[i - 1] + 1)
+                    if (lastPage || !cursor) break
+                    const roll = rand()
+                    let requested = null
+                    if (roll < 0.35) requested = null
+                    else if (roll < 0.5) requested = 1
+                    else if (roll < 0.7) requested = pageNumberNow + 1
+                    else requested = 1 + Math.floor(rand() * (bounds.length + 3))
+                    const input = requested == null ? {} : { page: requested }
+                    let next
+                    try {
+                        next = continueBufferedAnalystPage(cursor, input, options)
+                    } catch (error) {
+                        assert.equal(error.rows, undefined)
+                        const invalid = error.message === ANALYST_CURSOR_ERRORS.page
+                        const past = error.message === ANALYST_CURSOR_ERRORS.past
+                        assert.equal(invalid || past, true, error.message)
+                        if (invalid) assert.equal(cut, true, `${summary} refused page ${requested}`)
+                        if (past) assert.equal(cut, false, summary)
+                        const again = continueBufferedAnalystPage(cursor, {}, options)
+                        assert.equal(again.rows[0].n, prevEnd + 1)
+                        for (const row of again.rows) {
+                            assert.equal(chain.has(row.n), false)
+                            chain.add(row.n)
+                        }
+                        page = again
+                        cursor = again.cursor
+                        prevEnd = again.rows.at(-1).n
+                        pageNumberNow += 1
+                        continue
+                    }
+                    assert.ok(next.rows.length > 0)
+                    if (requested === 1) {
+                        assert.equal(next.rows[0].n, 1)
+                        pageNumberNow = 1
+                        chain.clear()
+                        for (const row of next.rows) chain.add(row.n)
+                    } else if (requested == null || requested === pageNumberNow + 1) {
+                        assert.equal(next.rows[0].n, prevEnd + 1)
+                        pageNumberNow += 1
+                        for (const row of next.rows) {
+                            assert.equal(chain.has(row.n), false, `repeated row ${row.n}`)
+                            chain.add(row.n)
+                        }
+                    } else {
+                        assert.equal(next.rows[0].n, (requested - 1) * cap + 1)
+                        pageNumberNow = requested
+                        chain.clear()
+                        for (const row of next.rows) chain.add(row.n)
+                    }
+                    prevEnd = next.rows.at(-1).n
+                    page = next
+                    cursor = next.cursor
+                }
+            }
+        } finally {
+            resetAnalystStoreForTests()
         }
     })
 

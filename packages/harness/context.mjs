@@ -304,7 +304,7 @@ export function fitChiefMessages({ system, memory = '', history = [], user = '',
 export const ANALYST_ROW_HANDOFF_CHARS = 12000
 
 export const ANALYST_PAGE_SUMMARY =
-    /rows \d+-\d+(?: of \d+)? \((?:page \d+ of \d+, say "show more" for the next page|page \d+ of \d+, last page|more rows available, say "show more" for the next page|page \d+, last page)\)/
+    /rows \d+-\d+(?: of \d+)? \((?:page \d+ of \d+, say "show more" for the next page|page \d+ of \d+, last page|more rows available, say "show more" for the next page|page \d+, last page|last page)\)/
 export const ANALYST_SUMMARY_LINE = new RegExp(`${ANALYST_PAGE_SUMMARY.source}|returned \\d+ of \\d+\\+? rows \\(truncated\\)`)
 
 export function isAnalystCapSummary(summary) {
