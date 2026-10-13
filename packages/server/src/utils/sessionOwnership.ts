@@ -334,7 +334,7 @@ export function resolveOwnedSession(input: ResolveInput): OwnedSession {
 }
 
 /**
- * Memory and agentflow runs are keyed by the caller-owned chat id (D55).
+ * Memory and agentflow runs are keyed by the caller-owned chat id (D21).
  * A client `overrideConfig.sessionId` is kept only when it is that id.
  * Any other string is replaced, so a later allowlisted node input cannot open the other session.
  * A non-string is rejected. An empty value leaves the override alone.
