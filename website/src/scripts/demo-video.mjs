@@ -428,22 +428,23 @@ function bindHeroPlay(video, win) {
         } catch {
             // Leave the playhead. The button still returns.
         }
-        // A hero that has scrolled away stays paused. The play observer starts it again on the way back.
-        if (canAutoplay(win) && onScreen.has(video)) {
-            const pending = video.play?.()
-            if (pending && typeof pending.catch === 'function') pending.catch(() => {})
-        }
+        // The sound playback paused every on-screen loop. Resume the ones the queue has already
+        // admitted. A hero that has scrolled away stays paused until the play observer brings it back.
+        resumeMutedPreviews(video.ownerDocument, win)
     })
 }
 
-function resumeMutedPreviews(doc) {
-    const view = doc.defaultView
-    if (!view || !canAutoplay(view) || typeof doc.querySelectorAll !== 'function') return
+function resumeMutedPreviews(doc, win) {
+    const view = win || doc?.defaultView
+    if (!view || !canAutoplay(view) || typeof doc?.querySelectorAll !== 'function') return
     for (const preview of doc.querySelectorAll('[data-demo-video], [data-loop-video]')) {
         if (!preview?.dataset || sounding.has(preview) || parkedSources.has(preview) || !onScreen.has(preview)) continue
         preview.defaultMuted = true
         preview.muted = true
         preview.loop = true
+        // play() on a preload="none" element that has not started opens a fetch outside the two-at-a-time queue.
+        // wantsPlay is still set, so the pump plays it when a slot opens.
+        if (preview.preload !== 'auto' && !(preview.readyState > 0)) continue
         const pending = preview.play?.()
         if (pending && typeof pending.catch === 'function') pending.catch(() => {})
     }

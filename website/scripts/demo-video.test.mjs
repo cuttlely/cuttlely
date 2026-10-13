@@ -1049,6 +1049,151 @@ test('a sounding hero returns to the silent preview when a tile dialog pauses it
     assert.equal(heroButton.hidden, true)
 })
 
+test('closing a dialog plays only the previews the queue has already admitted', () => {
+    const previews = [0, 1, 2, 3].map(() => shellVideo({ loopVideo: '' }))
+    const calls = []
+    const handlers = {}
+    const full = {
+        currentTime: 0,
+        muted: true,
+        loop: false,
+        volume: 1,
+        controls: true,
+        paused: true,
+        dataset: {},
+        preload: 'none',
+        readyState: 0,
+        play: () => ((full.paused = false), Promise.resolve()),
+        pause: () => {
+            full.paused = true
+        }
+    }
+    const dialog = {
+        querySelector: () => full,
+        showModal: () => calls.push('open'),
+        close: () => (calls.push('close'), handlers.close()),
+        addEventListener: (type, fn) => (handlers[type] = fn)
+    }
+    const tileButton = control({ videoDialogOpen: 'v1' })
+    const observers = []
+    const win = {
+        matchMedia: () => ({ matches: false }),
+        navigator: { connection: {} },
+        addEventListener() {},
+        IntersectionObserver: class {
+            constructor(cb, options) {
+                this.cb = cb
+                this.options = options || {}
+                observers.push(this)
+            }
+            observe() {}
+        }
+    }
+    const doc = {
+        hidden: false,
+        visibilityState: 'visible',
+        defaultView: win,
+        addEventListener() {},
+        getElementById: (id) => (id === 'v1' ? dialog : null),
+        querySelectorAll: (selector) => {
+            if (selector === 'video') return [...previews, full]
+            if (String(selector).includes('data-video-dialog-open')) return [tileButton]
+            if (String(selector).includes('data-loop-video') || String(selector).includes('data-demo-video')) return previews
+            return []
+        }
+    }
+    for (const preview of previews) preview.ownerDocument = doc
+    full.ownerDocument = doc
+    assert.equal(initDemoVideo(doc, win), true)
+    const playObserver = observers.find((observer) => observer.options.threshold === 0.5)
+    playObserver.cb(previews.map((target) => ({ target, isIntersecting: true })))
+    assert.deepEqual(
+        previews.map((preview) => preview.preload),
+        ['auto', 'auto', 'none', 'none']
+    )
+    assert.deepEqual(
+        previews.map((preview) => preview.calls.filter((call) => call === 'load').length),
+        [1, 1, 0, 0]
+    )
+    for (const preview of previews) preview.calls.length = 0
+    assert.equal(initVideoDialogs(doc), 1)
+    tileButton.click()
+    assert.equal(
+        previews.every((preview) => preview.paused),
+        true
+    )
+    handlers.click({ target: dialog })
+    assert.deepEqual(
+        previews.map((preview) => preview.calls.includes('play')),
+        [true, true, false, false]
+    )
+    assert.equal(previews[2].preload, 'none')
+    assert.equal(previews[3].preload, 'none')
+    assert.equal(previews[2].readyState, 0)
+    assert.equal(previews[3].readyState, 0)
+})
+
+test('ending the hero narration resumes on-screen loops the queue has already admitted', () => {
+    const hero = shellVideo({ demoVideo: '' })
+    const heroButton = control({ playWithSound: '' })
+    hero.nextElementSibling = heroButton
+    const tiles = [0, 1, 2].map(() => shellVideo({ loopVideo: '' }))
+    const previews = [hero, ...tiles]
+    const observers = []
+    const win = {
+        matchMedia: () => ({ matches: false }),
+        navigator: { connection: {} },
+        addEventListener() {},
+        IntersectionObserver: class {
+            constructor(cb, options) {
+                this.cb = cb
+                this.options = options || {}
+                observers.push(this)
+            }
+            observe() {}
+        }
+    }
+    const doc = {
+        hidden: false,
+        visibilityState: 'visible',
+        defaultView: win,
+        addEventListener() {},
+        querySelectorAll: (selector) => {
+            if (selector === 'video') return previews
+            if (String(selector).includes('data-demo-video') || String(selector).includes('data-loop-video')) return previews
+            return []
+        }
+    }
+    for (const preview of previews) preview.ownerDocument = doc
+    assert.equal(initDemoVideo(doc, win), true)
+    const playObserver = observers.find((observer) => observer.options.threshold === 0.5)
+    playObserver.cb(previews.map((target) => ({ target, isIntersecting: true })))
+    assert.deepEqual(
+        previews.map((preview) => preview.preload),
+        ['auto', 'auto', 'none', 'none']
+    )
+    for (const preview of previews) preview.calls.length = 0
+    heroButton.click()
+    assert.equal(
+        tiles.every((tile) => tile.paused),
+        true
+    )
+    hero.emit('ended')
+    assert.equal(hero.muted, true)
+    assert.equal(hero.loop, true)
+    assert.equal(heroButton.hidden, false)
+    assert.equal(hero.calls.includes('play'), true)
+    assert.equal(tiles[0].calls.includes('play'), true)
+    assert.equal(tiles[0].muted, true)
+    assert.equal(tiles[0].loop, true)
+    assert.equal(tiles[1].calls.includes('play'), false)
+    assert.equal(tiles[2].calls.includes('play'), false)
+    assert.equal(tiles[1].paused, true)
+    assert.equal(tiles[2].paused, true)
+    assert.equal(tiles[1].preload, 'none')
+    assert.equal(tiles[2].preload, 'none')
+})
+
 test('after the hero ends on screen the silent preview returns with the play button', () => {
     const video = shellVideo({ demoVideo: '' })
     const button = control({ playWithSound: '' })
@@ -1068,6 +1213,8 @@ test('after the hero ends on screen the silent preview returns with the play but
             observe() {}
         }
     }
+    video.ownerDocument = doc
+    doc.defaultView = win
     assert.equal(initDemoVideo(doc, win), true)
     const playObserver = observers.find((observer) => observer.options.threshold === 0.5)
     playObserver.cb([{ target: video, isIntersecting: true }])
