@@ -88,7 +88,7 @@ Version-Name: Bakery helper
 
 -   The subject is the version name, at most 72 characters.
 -   The body has more lines about the change when there are any.
--   The trailers are `Version-Flow` (the flow id), `Version-Kind` (`create`, `save`, `restore`, `publish`, `rollback`, `promote`, or `delete`), and `Version-Name` (the flow's name). A `promote` version also has `Version-From`, the full id of the version from Dev it copies. `Version-Hidden` is how many secret-looking values the version holds as `[secret hidden]`, written only when there are any; the body then says so, for example `1 secret-looking value was hidden from history`.
+-   The trailers are `Version-Flow` (the flow id), `Version-Kind` (`create`, `save`, `restore`, `publish`, `rollback`, `promote`, or `delete`), and `Version-Name` (the flow's name). A `promote` version also has `Version-From`, the full id of the previous environment's version. On the saved Dev and Prod pair that version is Dev's. `Version-Hidden` is how many secret-looking values the version holds as `[secret hidden]`, written only when there are any; the body then says so, for example `1 secret-looking value was hidden from history`.
 -   The author is the person who saved it: their display name and `<user id>@users.versions.local`. An API key or system save is `Cuttlely <system@versions.local>`.
 -   The committer is always `Cuttlely <system@versions.local>`.
 

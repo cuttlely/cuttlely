@@ -14,7 +14,8 @@ import {
     versionsDir
 } from './index'
 import { authEnv, checkToken, classifyFailure, GithubSync, parseRepo, scrub } from './github'
-import { gitEnv, runGit } from './store'
+import { environmentListFingerprint } from './environments'
+import { gitEnv, runGit, VersionStore } from './store'
 import { useTestDeps, warnings } from './testDeps'
 
 // Never a real token. Built so no secret scanner sees a token shape in this file.
@@ -75,8 +76,88 @@ function bareMain(bare: string): string | null {
     }
 }
 
+function bareRef(bare: string, ref: string): string | null {
+    try {
+        return execFileSync('git', ['--git-dir', bare, 'rev-parse', '--verify', '-q', ref], {
+            encoding: 'utf8',
+            env: cleanEnv()
+        }).trim()
+    } catch {
+        return null
+    }
+}
+
+function noteAuthorEnv(): NodeJS.ProcessEnv {
+    return cleanEnv({
+        GIT_AUTHOR_NAME: 'Cuttlely',
+        GIT_AUTHOR_EMAIL: 'system@versions.local',
+        GIT_COMMITTER_NAME: 'Cuttlely',
+        GIT_COMMITTER_EMAIL: 'system@versions.local'
+    })
+}
+
+function refOf(dir: string, ref: string): string | null {
+    try {
+        return plainGit(dir, 'rev-parse', '--verify', '-q', `${ref}^{commit}`).trim() || null
+    } catch {
+        return null
+    }
+}
+
+function remoteNote(bare: string, sha: string, work: string): string {
+    fs.rmSync(work, { recursive: true, force: true })
+    fs.mkdirSync(work, { recursive: true })
+    const env = noteAuthorEnv()
+    execFileSync('git', ['init', '-q'], { cwd: work, env })
+    execFileSync('git', ['fetch', '-q', `file://${bare}`, 'refs/notes/commits:refs/notes/commits'], { cwd: work, env })
+    return execFileSync('git', ['notes', 'show', sha], { cwd: work, env, encoding: 'utf8' }).trim()
+}
+
 function bareLog(bare: string): string {
     return execFileSync('git', ['--git-dir', bare, 'log', '-p', '--all'], { encoding: 'utf8', env: cleanEnv() })
+}
+
+function seedRemote(ref: string) {
+    execFileSync('git', ['--git-dir', path.join(versionsDir(), '.git'), 'push', '-q', `file://${bare}`, `HEAD:${ref}`], {
+        env: cleanEnv()
+    })
+}
+
+// The previous environment copied: its branch and the recorded environment list, which is what a later server requires.
+function seedRecordedVersions(ref: string, environments: { name: string; branch: string; server: string }[]) {
+    seedRemote(ref)
+    const work = path.join(tmp, `seed-notes-${ref.replace(/[^\w]+/g, '-')}`)
+    fs.rmSync(work, { recursive: true, force: true })
+    fs.mkdirSync(work, { recursive: true })
+    const env = noteAuthorEnv()
+    execFileSync('git', ['init', '-q'], { cwd: work, env })
+    execFileSync('git', ['fetch', '-q', `file://${bare}`, `${ref}:refs/heads/seeded`], { cwd: work, env })
+    const sha = execFileSync('git', ['rev-parse', 'refs/heads/seeded'], { cwd: work, env, encoding: 'utf8' }).trim()
+    execFileSync('git', ['notes', 'add', '-f', '-m', environmentListFingerprint(environments), sha], { cwd: work, env })
+    execFileSync('git', ['push', '-q', `file://${bare}`, 'refs/notes/commits:refs/notes/commits'], { cwd: work, env })
+}
+
+// A new tip on a branch that already has versions. note is recorded on that tip; null leaves the existing record.
+function advancePrevious(branch: string, note: string | null): string {
+    const work = path.join(tmp, `advance-${branch.replace(/[^\w]+/g, '-')}`)
+    fs.rmSync(work, { recursive: true, force: true })
+    fs.mkdirSync(work, { recursive: true })
+    const env = noteAuthorEnv()
+    execFileSync('git', ['init', '-q'], { cwd: work, env })
+    execFileSync('git', ['fetch', '-q', `file://${bare}`, `${branch}:refs/heads/src`], { cwd: work, env })
+    if (bareRef(bare, 'refs/notes/commits')) {
+        execFileSync('git', ['fetch', '-q', `file://${bare}`, 'refs/notes/commits:refs/notes/commits'], { cwd: work, env })
+    }
+    execFileSync('git', ['symbolic-ref', 'HEAD', 'refs/heads/src'], { cwd: work, env })
+    execFileSync('git', ['commit', '-q', '--allow-empty', '-m', 'newer'], { cwd: work, env })
+    const sha = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: work, env, encoding: 'utf8' }).trim()
+    const args = ['push', '-q', `file://${bare}`, `HEAD:${branch}`]
+    if (note !== null) {
+        execFileSync('git', ['notes', 'add', '-f', '-m', note, sha], { cwd: work, env })
+        args.push('refs/notes/commits:refs/notes/commits')
+    }
+    execFileSync('git', args, { cwd: work, env })
+    return sha
 }
 
 function makeBare(dir: string): string {
@@ -719,8 +800,31 @@ describe('picking or creating a repository', () => {
         await sync.setEnvironment('prod')
         expect((await sync.listRepos({ token: TOKEN }, WS)).repos.map((r) => r.repo)).toEqual(['acme/flows'])
         const before = calls.length
-        await expect(sync.createRepo({ token: TOKEN, name: 'cuttlely-flows' }, WS)).rejects.toMatchObject({ status: 409 })
+        await expect(sync.createRepo({ token: TOKEN, name: 'cuttlely-flows' }, WS)).rejects.toMatchObject({
+            status: 409,
+            message: 'Pick the repository your Dev server copies to. A new one has nothing for this server to read.'
+        })
         expect(calls.length).toBe(before)
+    })
+
+    test('a middle environment is told to use the previous environment, and Prod names Staging', async () => {
+        const chain = [
+            { name: 'Dev', branch: 'main', server: 'dev' },
+            { name: 'Staging', branch: 'staging', server: 'staging' },
+            { name: 'Prod', branch: 'prod', server: 'prod' }
+        ]
+        sync.stop()
+        sync = makeSync({ fetch: (async () => ({ status: 500, json: async () => ({}) })) as unknown as typeof fetch })
+        await sync.setEnvironment('staging', chain)
+        await expect(sync.createRepo({ token: TOKEN, name: 'cuttlely-flows' }, WS)).rejects.toMatchObject({
+            status: 409,
+            message: 'Pick the repository your Dev server copies to. A new one has nothing for this server to read.'
+        })
+        await sync.setEnvironment('prod', chain)
+        await expect(sync.createRepo({ token: TOKEN, name: 'cuttlely-flows' }, WS)).rejects.toMatchObject({
+            status: 409,
+            message: 'Pick the repository your Staging server copies to. A new one has nothing for this server to read.'
+        })
     })
 
     test('reads every page of repositories', async () => {
@@ -822,6 +926,886 @@ describe('Dev or Prod label', () => {
         expect((await sync.setEnvironment('dev')).environment).toBe('dev')
         expect((await sync.setEnvironment(null)).environment).toBeNull()
         await expect(sync.setEnvironment('staging')).rejects.toMatchObject({ status: 400, message: 'Pick Dev or Prod.' })
+    })
+
+    test('a saved Dev or Prod label stays the old file and loads as dev then prod', async () => {
+        await sync.setEnvironment('prod')
+        const file = path.join(versionsDir(), '.git', 'versions-environment.json')
+        expect(JSON.parse(fs.readFileSync(file, 'utf8'))).toEqual({ environment: 'prod' })
+        expect(sync.environments()).toEqual([
+            { name: 'dev', branch: 'main', server: 'dev' },
+            { name: 'prod', branch: 'main', server: 'prod' }
+        ])
+        expect((await sync.status()).promotes).toBe(true)
+    })
+
+    test('an ordered list is saved beside the server identity', async () => {
+        const chain = [
+            { name: 'Dev', branch: 'main', server: 'dev' },
+            { name: 'Staging', branch: 'staging', server: 'staging' },
+            { name: 'Prod', branch: 'prod', server: 'prod' }
+        ]
+        const status = await sync.setEnvironment('staging', chain)
+        expect(status.environment).toBe('staging')
+        expect(status.environments.map((item) => item.server)).toEqual(['dev', 'staging', 'prod'])
+        expect(status.promotes).toBe(true)
+        expect(status.role).toBe('copy')
+        const file = path.join(versionsDir(), '.git', 'versions-environment.json')
+        expect(JSON.parse(fs.readFileSync(file, 'utf8'))).toEqual({ environment: 'staging', environments: chain })
+        await expect(sync.setEnvironment('nope')).rejects.toMatchObject({ status: 400, message: 'Pick an environment from the list.' })
+        expect((await sync.setEnvironment('prod')).environment).toBe('prod')
+        expect((await sync.status()).role).toBe('read')
+    })
+
+    test('a truncated environment file does not publish as the Dev and Prod pair', async () => {
+        const chain = [
+            { name: 'Dev', branch: 'main', server: 'dev' },
+            { name: 'Staging', branch: 'staging', server: 'staging' },
+            { name: 'Prod', branch: 'prod', server: 'prod' }
+        ]
+        await sync.setEnvironment('staging', chain)
+        await save('One')
+        seedRecordedVersions('refs/heads/main', chain)
+        const seededMain = bareMain(bare)
+        await sync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)
+        const stagingRef = execFileSync('git', ['--git-dir', bare, 'rev-parse', 'refs/heads/staging'], {
+            encoding: 'utf8',
+            env: cleanEnv()
+        }).trim()
+        const pushes = gitCalls.filter((call) => call.args[0] === 'push').length
+        fs.writeFileSync(path.join(versionsDir(), '.git', 'versions-environment.json'), '{')
+        await save('Two')
+        await settle()
+        const status = await sync.status()
+        expect(status.state).toBe('stopped')
+        expect(status.message).toContain('could not be read')
+        expect(sync.environment()).toBeNull()
+        expect(sync.environments()).toEqual([])
+        expect(gitCalls.filter((call) => call.args[0] === 'push').length).toBe(pushes)
+        expect(bareMain(bare)).toBe(seededMain)
+        expect(
+            execFileSync('git', ['--git-dir', bare, 'rev-parse', 'refs/heads/staging'], { encoding: 'utf8', env: cleanEnv() }).trim()
+        ).toBe(stagingRef)
+    })
+
+    test('a stopped copy on a middle environment is not retried by the next read', async () => {
+        sync.stop()
+        sync = makeSync({ checkEveryMs: 40 })
+        setGithubForTests(sync)
+        const chain = [
+            { name: 'Dev', branch: 'main', server: 'dev' },
+            { name: 'Staging', branch: 'staging', server: 'staging' },
+            { name: 'Prod', branch: 'prod', server: 'prod' }
+        ]
+        await sync.setEnvironment('staging', chain)
+        await save('One')
+        seedRecordedVersions('refs/heads/main', chain)
+        await sync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)
+        const work = path.join(tmp, 'elsewhere')
+        fs.mkdirSync(work)
+        const env = cleanEnv({
+            GIT_AUTHOR_NAME: 'someone',
+            GIT_AUTHOR_EMAIL: 'someone@example.invalid',
+            GIT_COMMITTER_NAME: 'someone',
+            GIT_COMMITTER_EMAIL: 'someone@example.invalid'
+        })
+        execFileSync('git', ['clone', '-q', '-b', 'staging', `file://${bare}`, '.'], { cwd: work, env })
+        fs.writeFileSync(path.join(work, 'README.md'), '# made on GitHub\n')
+        execFileSync('git', ['add', 'README.md'], { cwd: work, env })
+        execFileSync('git', ['commit', '-q', '-m', 'Initial commit'], { cwd: work, env })
+        execFileSync('git', ['push', '-q', `file://${bare}`, 'HEAD:refs/heads/staging'], { cwd: work, env })
+        await save('Two')
+        await settle()
+        const stopped = await sync.status()
+        expect(stopped.state).toBe('stopped')
+        expect(stopped.message).toContain('has changes that are not on this server')
+        const pushes = gitCalls.filter((call) => call.args[0] === 'push').length
+        const fetches = gitCalls.filter((call) => call.args[0] === 'fetch').length
+        await new Promise((resolve) => setTimeout(resolve, 80))
+        await sync.idle()
+        // Stop the next poll before reading status, so the assertion does not land mid-read.
+        sync.stop()
+        await sync.idle()
+        expect(gitCalls.filter((call) => call.args[0] === 'push').length).toBe(pushes)
+        expect(gitCalls.filter((call) => call.args[0] === 'fetch').length).toBeGreaterThan(fetches)
+        expect((await sync.status()).state).toBe('stopped')
+        expect((await sync.status()).message).toContain('has changes that are not on this server')
+        const retried = await sync.tryNow()
+        expect(gitCalls.filter((call) => call.args[0] === 'push').length).toBeGreaterThan(pushes)
+        expect(retried.state).toBe('stopped')
+    })
+
+    test('a bad environment file stays connected and can be saved again', async () => {
+        const chain = [
+            { name: 'Dev', branch: 'main', server: 'dev' },
+            { name: 'Staging', branch: 'staging', server: 'staging' },
+            { name: 'Prod', branch: 'prod', server: 'prod' }
+        ]
+        await sync.setEnvironment('prod', chain)
+        seedRecordedVersions('refs/heads/staging', chain)
+        await sync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)
+        fs.writeFileSync(path.join(versionsDir(), '.git', 'versions-environment.json'), '{')
+        const status = await sync.status()
+        expect(status.connected).toBe(true)
+        expect(status.repo).toBe(`file://${bare}`)
+        expect(status.state).toBe('stopped')
+        expect(status.message).toContain('could not be read')
+        const saved = await sync.setEnvironment('staging', chain)
+        expect(saved.environment).toBe('staging')
+        expect(saved.connected).toBe(true)
+        expect(saved.state).not.toBe('stopped')
+    })
+
+    test('a list change during a credential read or a fetch does not use main', async () => {
+        const chain = [
+            { name: 'Dev', branch: 'dev', server: 'dev' },
+            { name: 'Staging', branch: 'staging', server: 'staging' },
+            { name: 'Prod', branch: 'prod', server: 'prod' }
+        ]
+        const roleFile = path.join(versionsDir(), '.git', 'versions-environment.json')
+        let mode: 'off' | 'get' | 'fetch' = 'off'
+        sync.stop()
+        sync = makeSync({
+            checkEveryMs: 60_000,
+            credentials: {
+                async get(id: string, workspaceId: string) {
+                    if (mode === 'get') fs.writeFileSync(roleFile, '{')
+                    return credentialStore.get(id, workspaceId)
+                },
+                create: (input) => credentialStore.create(input)
+            },
+            onGit: (args, env) => {
+                gitCalls.push({ args, env })
+                if (mode === 'fetch' && args[0] === 'fetch') fs.writeFileSync(roleFile, '{')
+            }
+        })
+        setGithubForTests(sync)
+        await sync.setEnvironment('staging', chain)
+        await save('One')
+        seedRecordedVersions('refs/heads/dev', chain)
+        await sync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)
+        const touchesMain = (call: { args: string[] }) => call.args.some((arg) => arg.includes('refs/heads/main'))
+        mode = 'get'
+        const mark = gitCalls.length
+        await save('Two')
+        await settle()
+        expect((await sync.status()).state).toBe('stopped')
+        expect(gitCalls.slice(mark).some(touchesMain)).toBe(false)
+        expect(gitCalls.slice(mark).some((call) => call.args[0] === 'push' || call.args[0] === 'fetch')).toBe(false)
+        mode = 'off'
+        await sync.setEnvironment('staging', chain)
+        mode = 'fetch'
+        const again = gitCalls.length
+        await sync.sync()
+        await sync.idle()
+        const during = gitCalls.slice(again)
+        expect(during.some((call) => call.args[0] === 'fetch' && call.args.some((arg) => arg.includes('refs/heads/dev')))).toBe(true)
+        expect(during.some(touchesMain)).toBe(false)
+        expect(during.some((call) => call.args[0] === 'push' && call.args.some((arg) => arg.includes('refs/heads/')))).toBe(false)
+    })
+
+    test('a reader stops when the publisher recorded a different environment list', async () => {
+        const three = [
+            { name: 'Dev', branch: 'main', server: 'dev' },
+            { name: 'Staging', branch: 'staging', server: 'staging' },
+            { name: 'Prod', branch: 'prod', server: 'prod' }
+        ]
+        await sync.setEnvironment('dev', three)
+        await save('One')
+        await sync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)
+        expect(bareMain(bare)).toBeTruthy()
+        await sync.disconnect()
+        await sync.setEnvironment('prod', [
+            { name: 'dev', branch: 'main', server: 'dev' },
+            { name: 'prod', branch: 'main', server: 'prod' }
+        ])
+        await sync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)
+        const status = await sync.status()
+        expect(status.state).toBe('stopped')
+        expect(status.message).toContain('same list')
+        let incoming = ''
+        try {
+            incoming = plainGit(versionsDir(), 'rev-parse', '--verify', '-q', 'refs/versions/incoming')
+        } catch {
+            incoming = ''
+        }
+        expect(incoming.trim()).toBe('')
+    })
+
+    test('two publishers both record the environment list, and the second publish retries into a fast-forward', async () => {
+        const chain = [
+            { name: 'Dev', branch: 'dev', server: 'dev' },
+            { name: 'Staging', branch: 'staging', server: 'staging' },
+            { name: 'Prod', branch: 'prod', server: 'prod' }
+        ]
+        const devDir = versionsDir()
+        const devStore = new VersionStore(devDir)
+        sync.stop()
+        sync = makeSync({ store: () => devStore, checkEveryMs: 60_000, retryMs: [60_000] })
+        setGithubForTests(sync)
+        await sync.setEnvironment('dev', chain)
+        await save('One')
+        await sync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)
+        const devHead = plainGit(devDir, 'rev-parse', 'HEAD').trim()
+        expect(remoteNote(bare, devHead, path.join(tmp, 'note-dev'))).toBe(environmentListFingerprint(chain))
+
+        const stagingDir = path.join(tmp, 'staging-versions')
+        process.env.CUTTLELY_VERSIONS_DIR = stagingDir
+        resetForTests()
+        await save('Two')
+        const stagingStore = new VersionStore(stagingDir)
+        let notesPushes = 0
+        const staging = makeSync({
+            store: () => stagingStore,
+            checkEveryMs: 60_000,
+            retryMs: [60_000],
+            onGit: (args, env) => {
+                gitCalls.push({ args, env })
+                if (args[0] === 'push' && args.some((arg) => arg.includes('refs/notes/commits'))) {
+                    notesPushes += 1
+                    if (notesPushes === 1) {
+                        const racer = path.join(tmp, 'notes-racer')
+                        fs.mkdirSync(racer, { recursive: true })
+                        const envGit = noteAuthorEnv()
+                        execFileSync('git', ['init', '-q'], { cwd: racer, env: envGit })
+                        execFileSync('git', ['fetch', '-q', `file://${bare}`, 'refs/notes/commits:refs/notes/commits'], {
+                            cwd: racer,
+                            env: envGit
+                        })
+                        execFileSync('git', ['commit', '-q', '--allow-empty', '-m', 'racer'], { cwd: racer, env: envGit })
+                        const raced = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: racer, env: envGit, encoding: 'utf8' }).trim()
+                        execFileSync('git', ['notes', 'add', '-m', 'racer-note', raced], { cwd: racer, env: envGit })
+                        execFileSync('git', ['push', '-q', `file://${bare}`, 'refs/notes/commits:refs/notes/commits'], {
+                            cwd: racer,
+                            env: envGit
+                        })
+                    }
+                }
+            }
+        })
+        await staging.setEnvironment('staging', chain)
+        const status = await staging.connect({ repo: `file://${bare}`, token: TOKEN }, WS)
+        const stagingHead = plainGit(stagingDir, 'rev-parse', 'HEAD').trim()
+        expect(notesPushes).toBeGreaterThan(1)
+        expect(status.state).toBe('up-to-date')
+        const fingerprint = environmentListFingerprint(chain)
+        expect(remoteNote(bare, devHead, path.join(tmp, 'note-both-dev'))).toBe(fingerprint)
+        expect(remoteNote(bare, stagingHead, path.join(tmp, 'note-both-staging'))).toBe(fingerprint)
+        const notePushes = gitCalls.filter((call) => call.args[0] === 'push' && call.args.some((arg) => arg.includes('refs/notes/commits')))
+        expect(notePushes.length).toBeGreaterThan(1)
+        for (const call of notePushes) {
+            expect(call.args).not.toContain('--force')
+            expect(call.args.some((arg) => arg.startsWith('+'))).toBe(false)
+        }
+        staging.stop()
+    })
+
+    test('a reader stops when a notes record exists but this version has none, and does not move incoming', async () => {
+        sync = makeSync({ checkEveryMs: 60_000, retryMs: [60_000] })
+        setGithubForTests(sync)
+        await save('One')
+        await sync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)
+        const noted = plainGit(versionsDir(), 'rev-parse', 'HEAD').trim()
+        await sync.disconnect()
+        await sync.setEnvironment('prod')
+        await sync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)
+        expect(refOf(versionsDir(), 'refs/versions/incoming')).toBe(noted)
+        foreignCommit(bare, path.join(tmp, 'extra'), 'main')
+        expect(bareMain(bare)).not.toBe(noted)
+        await sync.sync()
+        await sync.idle()
+        const status = await sync.status()
+        expect(status.state).toBe('stopped')
+        expect(status.message).toContain('no environment list recorded')
+        expect(refOf(versionsDir(), 'refs/versions/incoming')).toBe(noted)
+    })
+
+    test('a notes fetch that cannot reach the repository stops, then succeeds on retry', async () => {
+        const hidden = path.join(tmp, 'remote-hidden.git')
+        let failNotes = false
+        sync.stop()
+        sync = makeSync({
+            checkEveryMs: 60_000,
+            retryMs: [60_000],
+            onGit: (args, env) => {
+                gitCalls.push({ args, env })
+                if (failNotes && args[0] === 'fetch' && args.some((arg) => arg.includes('refs/notes/commits'))) {
+                    fs.renameSync(bare, hidden)
+                    fs.mkdirSync(bare)
+                }
+            }
+        })
+        setGithubForTests(sync)
+        await save('One')
+        await sync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)
+        const head = plainGit(versionsDir(), 'rev-parse', 'HEAD').trim()
+        await sync.disconnect()
+        await sync.setEnvironment('prod')
+        failNotes = true
+        const stopped = await sync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)
+        expect(stopped.state).toBe('retrying')
+        expect(stopped.state).not.toBe('up-to-date')
+        expect(bareRef(hidden, 'refs/heads/main')).toBe(head)
+        let incoming = ''
+        try {
+            incoming = plainGit(versionsDir(), 'rev-parse', '--verify', '-q', 'refs/versions/incoming')
+        } catch {
+            incoming = ''
+        }
+        expect(incoming.trim()).toBe('')
+        failNotes = false
+        fs.rmSync(bare, { recursive: true, force: true })
+        fs.renameSync(hidden, bare)
+        await sync.sync()
+        await sync.idle()
+        const status = await sync.status()
+        expect(status.state).toBe('up-to-date')
+        expect(plainGit(versionsDir(), 'rev-parse', 'refs/versions/incoming').trim()).toBe(head)
+    })
+
+    test('a repository with no environment-list record still offers versions', async () => {
+        foreignCommit(bare, path.join(tmp, 'published'))
+        const head = bareMain(bare)
+        sync = makeSync({ checkEveryMs: 60_000, retryMs: [60_000] })
+        setGithubForTests(sync)
+        await sync.setEnvironment('prod')
+        const status = await sync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)
+        expect(bareRef(bare, 'refs/notes/commits')).toBeNull()
+        expect(status.state).toBe('up-to-date')
+        expect(plainGit(versionsDir(), 'rev-parse', 'refs/versions/incoming').trim()).toBe(head)
+    })
+
+    test('a stale Prod list does not take new versions once any environment list is recorded', async () => {
+        const chain = [
+            { name: 'Dev', branch: 'main', server: 'dev' },
+            { name: 'Staging', branch: 'staging', server: 'staging' },
+            { name: 'Prod', branch: 'prod', server: 'prod' }
+        ]
+        const devDir = versionsDir()
+        const devStore = new VersionStore(devDir)
+        sync.stop()
+        sync = makeSync({ store: () => devStore, checkEveryMs: 60_000, retryMs: [60_000] })
+        setGithubForTests(sync)
+        await sync.setEnvironment('dev', chain)
+        await save('One')
+        await sync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)
+        expect(bareRef(bare, 'refs/notes/commits')).toBeTruthy()
+        const first = bareMain(bare)
+        await save('Two')
+        await settle()
+        const second = bareMain(bare)
+        expect(second).not.toBe(first)
+
+        const prodDir = path.join(tmp, 'prod-versions')
+        process.env.CUTTLELY_VERSIONS_DIR = prodDir
+        resetForTests()
+        const prodStore = new VersionStore(prodDir)
+        const prod = makeSync({ store: () => prodStore, checkEveryMs: 60_000, retryMs: [60_000] })
+        await prod.setEnvironment('prod', [
+            { name: 'dev', branch: 'main', server: 'dev' },
+            { name: 'prod', branch: 'main', server: 'prod' }
+        ])
+        const status = await prod.connect({ repo: `file://${bare}`, token: TOKEN }, WS)
+        expect(status.state).toBe('stopped')
+        expect(status.message).toContain('same list')
+        expect(refOf(prodDir, 'refs/versions/incoming')).toBeNull()
+        process.env.CUTTLELY_VERSIONS_DIR = devDir
+        await save('Three')
+        await sync.sync()
+        await sync.idle()
+        expect(bareMain(bare)).not.toBe(second)
+        await prod.sync()
+        await prod.idle()
+        expect((await prod.status()).state).toBe('stopped')
+        expect(refOf(prodDir, 'refs/versions/incoming')).toBeNull()
+        prod.stop()
+    })
+
+    test('a failed environment-list publish leaves the copy not up to date', async () => {
+        const hook = path.join(bare, 'hooks', 'update')
+        fs.mkdirSync(path.dirname(hook), { recursive: true })
+        fs.writeFileSync(hook, '#!/bin/sh\nif [ "$1" = "refs/notes/commits" ]; then\n  echo "notes refused" >&2\n  exit 1\nfi\nexit 0\n', {
+            mode: 0o755
+        })
+        sync = makeSync({ checkEveryMs: 60_000, retryMs: [60_000] })
+        setGithubForTests(sync)
+        await save('One')
+        const status = await sync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)
+        expect(bareMain(bare)).toBe(plainGit(versionsDir(), 'rev-parse', 'HEAD').trim())
+        expect(bareRef(bare, 'refs/notes/commits')).toBeNull()
+        expect(status.state).not.toBe('up-to-date')
+        expect(status.message).toContain('environment list')
+        const notePushes = gitCalls.filter((call) => call.args[0] === 'push' && call.args.some((arg) => arg.includes('refs/notes/commits')))
+        expect(notePushes.length).toBeGreaterThan(1)
+    })
+
+    test('adding Staging while connected rewrites the fingerprint so Staging can promote that version', async () => {
+        const chain = [
+            { name: 'Dev', branch: 'main', server: 'dev' },
+            { name: 'Staging', branch: 'staging', server: 'staging' },
+            { name: 'Prod', branch: 'prod', server: 'prod' }
+        ]
+        sync = makeSync({ checkEveryMs: 60_000, retryMs: [60_000] })
+        setGithubForTests(sync)
+        await sync.setEnvironment('dev')
+        await save('One')
+        await sync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)
+        const head = plainGit(versionsDir(), 'rev-parse', 'HEAD').trim()
+        const before = remoteNote(bare, head, path.join(tmp, 'note-before'))
+        expect(before).not.toBe(environmentListFingerprint(chain))
+        const saved = await sync.setEnvironment('dev', chain)
+        expect(plainGit(versionsDir(), 'rev-parse', 'HEAD').trim()).toBe(head)
+        expect(saved.state).toBe('up-to-date')
+        expect(remoteNote(bare, head, path.join(tmp, 'note-after'))).toBe(environmentListFingerprint(chain))
+
+        const stagingDir = path.join(tmp, 'staging-versions')
+        process.env.CUTTLELY_VERSIONS_DIR = stagingDir
+        resetForTests()
+        const staging = makeSync({
+            store: () => new VersionStore(stagingDir),
+            checkEveryMs: 60_000,
+            retryMs: [60_000]
+        })
+        await staging.setEnvironment('staging', chain)
+        const read = await staging.connect({ repo: `file://${bare}`, token: TOKEN }, WS)
+        expect(read.state).toBe('up-to-date')
+        expect(refOf(stagingDir, 'refs/versions/incoming')).toBe(head)
+        staging.stop()
+    })
+
+    test('the next sync restores an environment list record that was removed', async () => {
+        sync = makeSync({ checkEveryMs: 60_000, retryMs: [60_000] })
+        setGithubForTests(sync)
+        await sync.setEnvironment('dev')
+        await save('One')
+        await sync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)
+        const head = plainGit(versionsDir(), 'rev-parse', 'HEAD').trim()
+        const fingerprint = remoteNote(bare, head, path.join(tmp, 'note-kept'))
+        execFileSync('git', ['--git-dir', bare, 'update-ref', '-d', 'refs/notes/commits'], { env: cleanEnv() })
+        expect(bareRef(bare, 'refs/notes/commits')).toBeNull()
+        await sync.sync()
+        await sync.idle()
+        const status = await sync.status()
+        expect(status.state).toBe('up-to-date')
+        expect(remoteNote(bare, head, path.join(tmp, 'note-restored'))).toBe(fingerprint)
+    })
+
+    test('repairing an unreadable list drops versions from the old source and clears the stopped message', async () => {
+        const chain = [
+            { name: 'Dev', branch: 'main', server: 'dev' },
+            { name: 'Staging', branch: 'staging', server: 'staging' },
+            { name: 'Prod', branch: 'prod', server: 'prod' }
+        ]
+        sync = makeSync({ checkEveryMs: 60_000, retryMs: [60_000] })
+        setGithubForTests(sync)
+        await save('One')
+        await sync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)
+        const head = plainGit(versionsDir(), 'rev-parse', 'HEAD').trim()
+        await sync.disconnect()
+        await sync.setEnvironment('prod')
+        await sync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)
+        expect(refOf(versionsDir(), 'refs/versions/incoming')).toBe(head)
+        const role = path.join(versionsDir(), '.git', 'versions-environment.json')
+        fs.writeFileSync(role, '{')
+        const broken = await sync.status()
+        expect(broken.state).toBe('stopped')
+        expect(broken.code).toBe('LIST_UNREADABLE')
+        expect(broken.environments).toEqual([])
+        expect(broken.message).toBe('The environment list could not be read. Save it again.')
+        const repaired = await sync.setEnvironment('prod', chain)
+        expect(refOf(versionsDir(), 'refs/versions/incoming')).toBeNull()
+        expect(repaired.message).not.toContain('could not be read')
+        expect(repaired.state).not.toBe('stopped')
+    })
+
+    test('repairing an unreadable list back to the same source clears the card and reads again', async () => {
+        sync = makeSync({ checkEveryMs: 60_000, retryMs: [60_000] })
+        setGithubForTests(sync)
+        await save('One')
+        await sync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)
+        const head = plainGit(versionsDir(), 'rev-parse', 'HEAD').trim()
+        await sync.disconnect()
+        await sync.setEnvironment('prod')
+        await sync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)
+        expect(refOf(versionsDir(), 'refs/versions/incoming')).toBe(head)
+        fs.writeFileSync(path.join(versionsDir(), '.git', 'versions-environment.json'), '{')
+        expect((await sync.status()).message).toContain('could not be read')
+        const repaired = await sync.setEnvironment('prod', [
+            { name: 'dev', branch: 'main', server: 'dev' },
+            { name: 'prod', branch: 'main', server: 'prod' }
+        ])
+        expect(repaired.message).not.toContain('could not be read')
+        expect(repaired.state).toBe('up-to-date')
+        expect(refOf(versionsDir(), 'refs/versions/incoming')).toBe(head)
+    })
+
+    test('the Prod repair body restores the saved pair and does not copy to main', async () => {
+        const body = {
+            environment: 'prod',
+            environments: [
+                { name: 'dev', branch: 'main', server: 'dev' },
+                { name: 'prod', branch: 'main', server: 'prod' }
+            ]
+        }
+        sync = makeSync({ checkEveryMs: 60_000, retryMs: [60_000] })
+        setGithubForTests(sync)
+        await save('One')
+        await sync.setEnvironment('prod')
+        await sync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)
+        expect(bareMain(bare)).toBeNull()
+        const role = path.join(versionsDir(), '.git', 'versions-environment.json')
+        fs.writeFileSync(role, '{')
+        expect((await sync.status()).message).toContain('could not be read')
+        const pushes = gitCalls.filter((call) => call.args[0] === 'push' && call.args.some((arg) => arg.includes('refs/heads/main'))).length
+        const repaired = await sync.setEnvironment(body.environment, body.environments)
+        expect(repaired.environment).toBe('prod')
+        expect(repaired.role).toBe('read')
+        expect(repaired.message).not.toContain('could not be read')
+        expect(JSON.parse(fs.readFileSync(role, 'utf8'))).toEqual({ environment: 'prod' })
+        expect(bareMain(bare)).toBeNull()
+        expect(gitCalls.filter((call) => call.args[0] === 'push' && call.args.some((arg) => arg.includes('refs/heads/main'))).length).toBe(
+            pushes
+        )
+    })
+
+    test('a corrupt connection keeps a valid list and a saved-pair save does not replace it', async () => {
+        const chain = [
+            { name: 'Dev', branch: 'main', server: 'dev' },
+            { name: 'Staging', branch: 'staging', server: 'staging' },
+            { name: 'Prod', branch: 'prod', server: 'prod' }
+        ]
+        sync = makeSync({ checkEveryMs: 60_000, retryMs: [60_000] })
+        setGithubForTests(sync)
+        await sync.setEnvironment('dev', chain)
+        await save('One')
+        await sync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)
+        const role = path.join(versionsDir(), '.git', 'versions-environment.json')
+        const savedList = fs.readFileSync(role, 'utf8')
+        fs.writeFileSync(path.join(versionsDir(), '.git', 'versions-github.json'), '{')
+        const status = await sync.status()
+        expect(status.code).toBe('CONNECTION_UNREADABLE')
+        expect(status.message).toBe('The saved GitHub connection could not be read. Disconnect and connect again.')
+        expect(status.environments).toEqual(chain)
+        expect(status.environment).toBe('dev')
+        await expect(
+            sync.setEnvironment('dev', [
+                { name: 'dev', branch: 'main', server: 'dev' },
+                { name: 'prod', branch: 'main', server: 'prod' }
+            ])
+        ).rejects.toMatchObject({
+            status: 409,
+            message: 'The environment list on this server is still valid, so it was not replaced.'
+        })
+        expect(fs.readFileSync(role, 'utf8')).toBe(savedList)
+        expect((await sync.status()).environments).toEqual(chain)
+    })
+
+    test('an environment-only save does not repair an unreadable list or publish a note', async () => {
+        const chain = [
+            { name: 'Dev', branch: 'main', server: 'dev' },
+            { name: 'Staging', branch: 'staging', server: 'staging' },
+            { name: 'Prod', branch: 'prod', server: 'prod' }
+        ]
+        sync = makeSync({ checkEveryMs: 60_000, retryMs: [60_000] })
+        setGithubForTests(sync)
+        await sync.setEnvironment('dev', chain)
+        await save('One')
+        await sync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)
+        const head = plainGit(versionsDir(), 'rev-parse', 'HEAD').trim()
+        const fingerprint = remoteNote(bare, head, path.join(tmp, 'note-named'))
+        const role = path.join(versionsDir(), '.git', 'versions-environment.json')
+        fs.writeFileSync(role, '{')
+        const broken = fs.readFileSync(role, 'utf8')
+        const calls = gitCalls.length
+        await expect(sync.setEnvironment('dev')).rejects.toMatchObject({
+            status: 409,
+            message: 'The environment list could not be read. Save it again.'
+        })
+        await expect(sync.setEnvironment(null)).rejects.toMatchObject({
+            status: 409,
+            message: 'The environment list could not be read. Save it again.'
+        })
+        expect(fs.readFileSync(role, 'utf8')).toBe(broken)
+        expect(gitCalls.length).toBe(calls)
+        expect(remoteNote(bare, head, path.join(tmp, 'note-still-named'))).toBe(fingerprint)
+        const status = await sync.status()
+        expect(status.state).toBe('stopped')
+        expect(status.message).toContain('could not be read')
+    })
+
+    test('a named list with no environment is not waiting and cannot connect', async () => {
+        const chain = [
+            { name: 'Dev', branch: 'main', server: 'dev' },
+            { name: 'Staging', branch: 'staging', server: 'staging' },
+            { name: 'Prod', branch: 'prod', server: 'prod' }
+        ]
+        await save('One')
+        const chosen = await sync.setEnvironment(null, chain)
+        expect(chosen.environment).toBeNull()
+        expect(chosen.waiting).toBeNull()
+        expect(chosen.state).toBe('stopped')
+        expect(chosen.message).toContain("Pick this server's environment")
+        expect(chosen.message).not.toContain('waiting to be copied')
+        await expect(sync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)).rejects.toMatchObject({
+            status: 409,
+            message: expect.stringContaining("Pick this server's environment")
+        })
+        expect(fs.existsSync(path.join(versionsDir(), '.git', 'versions-github.json'))).toBe(false)
+
+        await sync.setEnvironment('dev', chain)
+        await sync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)
+        fs.writeFileSync(path.join(versionsDir(), '.git', 'versions-environment.json'), JSON.stringify({ environments: chain }) + '\n')
+        const stuck = await sync.status()
+        expect(stuck.connected).toBe(true)
+        expect(stuck.waiting).toBeNull()
+        expect(stuck.state).toBe('stopped')
+        expect(stuck.message).toContain("Pick this server's environment")
+        expect(stuck.message).not.toContain('waiting to be copied')
+    })
+
+    test('a server that reads cannot connect until the previous environment has versions there', async () => {
+        const chain = [
+            { name: 'Dev', branch: 'main', server: 'dev' },
+            { name: 'Staging', branch: 'staging', server: 'staging' },
+            { name: 'Prod', branch: 'prod', server: 'prod' }
+        ]
+        const saved = path.join(versionsDir(), '.git', 'versions-github.json')
+        sync = makeSync({ checkEveryMs: 60_000, retryMs: [60_000] })
+        setGithubForTests(sync)
+        await sync.setEnvironment('staging', chain)
+        await save('One')
+        await expect(sync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)).rejects.toMatchObject({
+            status: 400,
+            message: 'Connect the repository your Dev server copies to. This one has no versions from Dev yet.'
+        })
+        expect(fs.existsSync(saved)).toBe(false)
+
+        await sync.setEnvironment('dev', chain)
+        await sync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)
+        await sync.disconnect()
+        await sync.setEnvironment('prod', chain)
+        await expect(sync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)).rejects.toMatchObject({
+            status: 400,
+            message: 'Connect the repository your Staging server copies to. This one has no versions from Staging yet.'
+        })
+        expect(fs.existsSync(saved)).toBe(false)
+
+        await sync.setEnvironment('staging', chain)
+        const status = await sync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)
+        expect(status.connected).toBe(true)
+        expect(status.state).not.toBe('stopped')
+    })
+
+    test('a README on main is not versions from the previous environment', async () => {
+        const chain = [
+            { name: 'Dev', branch: 'main', server: 'dev' },
+            { name: 'Staging', branch: 'staging', server: 'staging' },
+            { name: 'Prod', branch: 'prod', server: 'prod' }
+        ]
+        foreignCommit(bare, path.join(tmp, 'readme'))
+        const readme = bareMain(bare)
+        const saved = path.join(versionsDir(), '.git', 'versions-github.json')
+        sync = makeSync({ checkEveryMs: 60_000, retryMs: [60_000] })
+        setGithubForTests(sync)
+        await sync.setEnvironment('staging', chain)
+        await save('One')
+        const calls = gitCalls.length
+        await expect(sync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)).rejects.toMatchObject({
+            status: 400,
+            message: 'Connect the repository your Dev server copies to. This one has no versions from Dev yet.'
+        })
+        expect(fs.existsSync(saved)).toBe(false)
+        expect(gitCalls.slice(calls).some((call) => call.args[0] === 'push')).toBe(false)
+        expect(bareRef(bare, 'refs/heads/staging')).toBeNull()
+        expect(bareRef(bare, 'refs/notes/commits')).toBeNull()
+        expect(bareMain(bare)).toBe(readme)
+
+        const empty = makeBare(path.join(tmp, 'empty.git'))
+        await sync.setEnvironment('dev', chain)
+        const status = await sync.connect({ repo: `file://${empty}`, token: TOKEN }, WS)
+        expect(status.connected).toBe(true)
+        expect(bareMain(empty)).toBe(plainGit(versionsDir(), 'rev-parse', 'HEAD').trim())
+        expect(bareRef(bare, 'refs/heads/staging')).toBeNull()
+        expect(bareRef(bare, 'refs/notes/commits')).toBeNull()
+    })
+
+    test('selecting Staging while Dev is connecting does not save that list or copy there', async () => {
+        const chain = [
+            { name: 'Dev', branch: 'main', server: 'dev' },
+            { name: 'Staging', branch: 'staging', server: 'staging' },
+            { name: 'Prod', branch: 'prod', server: 'prod' }
+        ]
+        let switching: Promise<unknown> | null = null
+        sync = makeSync({
+            checkEveryMs: 60_000,
+            retryMs: [60_000],
+            onGit: (args, env) => {
+                gitCalls.push({ args, env })
+                if (args[0] === 'ls-remote' && !switching) switching = sync.setEnvironment('staging', chain)
+            }
+        })
+        setGithubForTests(sync)
+        await sync.setEnvironment('dev', chain)
+        await save('One')
+        const status = await sync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)
+        expect(switching).toBeTruthy()
+        await expect(switching).rejects.toMatchObject({
+            status: 409,
+            message: 'Disconnect GitHub before changing what this server reads or copies.'
+        })
+        expect(status.connected).toBe(true)
+        expect(status.environment).toBe('dev')
+        expect(bareRef(bare, 'refs/heads/staging')).toBeNull()
+        expect(bareMain(bare)).toBe(plainGit(versionsDir(), 'rev-parse', 'HEAD').trim())
+        const role = JSON.parse(fs.readFileSync(path.join(versionsDir(), '.git', 'versions-environment.json'), 'utf8'))
+        expect(role.environment).toBe('dev')
+    })
+
+    test('deleting the recorded list between the listing and the fetch saves nothing', async () => {
+        const chain = [
+            { name: 'Dev', branch: 'main', server: 'dev' },
+            { name: 'Staging', branch: 'staging', server: 'staging' },
+            { name: 'Prod', branch: 'prod', server: 'prod' }
+        ]
+        const saved = path.join(versionsDir(), '.git', 'versions-github.json')
+        sync = makeSync({ checkEveryMs: 60_000, retryMs: [60_000] })
+        setGithubForTests(sync)
+        await sync.setEnvironment('dev', chain)
+        await save('One')
+        await sync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)
+        await sync.disconnect()
+        await sync.setEnvironment('staging', chain)
+        let listed = false
+        const deps = (sync as unknown as { deps: { onGit?: (args: string[], env: Record<string, string>) => void } }).deps
+        deps.onGit = (args, env) => {
+            gitCalls.push({ args, env })
+            if (args[0] === 'ls-remote') listed = true
+            else if (listed && args[0] === 'fetch') {
+                listed = false
+                execFileSync('git', ['--git-dir', bare, 'update-ref', '-d', 'refs/notes/commits'], { env: cleanEnv() })
+            }
+        }
+        await expect(sync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)).rejects.toMatchObject({
+            status: 400,
+            message: 'Connect the repository your Dev server copies to. This one has no versions from Dev yet.'
+        })
+        expect(fs.existsSync(saved)).toBe(false)
+        expect(bareRef(bare, 'refs/heads/staging')).toBeNull()
+    })
+
+    test('a note on another commit, or a different list on the tip, is refused', async () => {
+        const chain = [
+            { name: 'Dev', branch: 'main', server: 'dev' },
+            { name: 'Staging', branch: 'staging', server: 'staging' },
+            { name: 'Prod', branch: 'prod', server: 'prod' }
+        ]
+        const saved = path.join(versionsDir(), '.git', 'versions-github.json')
+        foreignCommit(bare, path.join(tmp, 'readme-tip'))
+        const work = path.join(tmp, 'other-note')
+        fs.mkdirSync(work)
+        const env = noteAuthorEnv()
+        execFileSync('git', ['init', '-q'], { cwd: work, env })
+        execFileSync('git', ['fetch', '-q', `file://${bare}`, 'refs/heads/main:refs/heads/main'], { cwd: work, env })
+        execFileSync('git', ['commit', '-q', '--allow-empty', '-m', 'other'], { cwd: work, env })
+        const other = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: work, env, encoding: 'utf8' }).trim()
+        execFileSync('git', ['notes', 'add', '-m', environmentListFingerprint(chain), other], { cwd: work, env })
+        execFileSync('git', ['push', '-q', `file://${bare}`, 'HEAD:refs/heads/other', 'refs/notes/commits:refs/notes/commits'], {
+            cwd: work,
+            env
+        })
+        sync = makeSync({ checkEveryMs: 60_000, retryMs: [60_000] })
+        setGithubForTests(sync)
+        await sync.setEnvironment('staging', chain)
+        await save('One')
+        await expect(sync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)).rejects.toMatchObject({
+            status: 400,
+            message: 'Connect the repository your Dev server copies to. This one has no versions from Dev yet.'
+        })
+        expect(fs.existsSync(saved)).toBe(false)
+        expect(bareRef(bare, 'refs/heads/staging')).toBeNull()
+
+        execFileSync('git', ['notes', 'add', '-f', '-m', 'not-this-list', bareMain(bare) as string], { cwd: work, env })
+        execFileSync('git', ['push', '-q', `file://${bare}`, 'refs/notes/commits:refs/notes/commits'], { cwd: work, env })
+        await expect(sync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)).rejects.toMatchObject({
+            status: 400,
+            message: 'Connect the repository your Dev server copies to. This one has no versions from Dev yet.'
+        })
+        expect(fs.existsSync(saved)).toBe(false)
+        expect(bareRef(bare, 'refs/heads/staging')).toBeNull()
+    })
+
+    test('a newer tip with a matching note is installed and a middle environment copies on that pass', async () => {
+        const chain = [
+            { name: 'Dev', branch: 'main', server: 'dev' },
+            { name: 'Staging', branch: 'staging', server: 'staging' },
+            { name: 'Prod', branch: 'prod', server: 'prod' }
+        ]
+        const fingerprint = environmentListFingerprint(chain)
+        sync = makeSync({ checkEveryMs: 60_000, retryMs: [60_000] })
+        setGithubForTests(sync)
+        await sync.setEnvironment('staging', chain)
+        await save('One')
+        seedRecordedVersions('refs/heads/main', chain)
+        const listed = bareMain(bare)
+        let fetches = 0
+        let newer = ''
+        sync.stop()
+        sync = makeSync({
+            checkEveryMs: 60_000,
+            retryMs: [60_000],
+            onGit: (args, env) => {
+                gitCalls.push({ args, env })
+                if (args[0] !== 'fetch') return
+                fetches += 1
+                if (fetches === 2) newer = advancePrevious('refs/heads/main', fingerprint)
+            }
+        })
+        setGithubForTests(sync)
+        const status = await sync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)
+        expect(newer).not.toBe('')
+        expect(newer).not.toBe(listed)
+        expect(status.state).not.toBe('stopped')
+        expect(refOf(versionsDir(), 'refs/versions/incoming')).toBe(newer)
+        expect(bareRef(bare, 'refs/heads/staging')).toBe(plainGit(versionsDir(), 'rev-parse', 'HEAD').trim())
+    })
+
+    test.each([
+        ['mismatched', 'mismatch'],
+        ['missing', 'absent']
+    ] as const)('a newer tip with a %s note is not installed and is not copied', async (_label, mode) => {
+        const chain = [
+            { name: 'Dev', branch: 'main', server: 'dev' },
+            { name: 'Staging', branch: 'staging', server: 'staging' },
+            { name: 'Prod', branch: 'prod', server: 'prod' }
+        ]
+        sync = makeSync({ checkEveryMs: 60_000, retryMs: [60_000] })
+        setGithubForTests(sync)
+        await sync.setEnvironment('staging', chain)
+        await save('One')
+        seedRecordedVersions('refs/heads/main', chain)
+        const listed = bareMain(bare)
+        let fetches = 0
+        let newer = ''
+        sync.stop()
+        sync = makeSync({
+            checkEveryMs: 60_000,
+            retryMs: [60_000],
+            onGit: (args, env) => {
+                gitCalls.push({ args, env })
+                if (args[0] !== 'fetch') return
+                fetches += 1
+                if (fetches === 2) newer = advancePrevious('refs/heads/main', mode === 'mismatch' ? 'not-this-list' : null)
+                if (mode === 'absent' && fetches === 3) {
+                    execFileSync('git', ['--git-dir', bare, 'update-ref', '-d', 'refs/notes/commits'], { env: cleanEnv() })
+                }
+            }
+        })
+        setGithubForTests(sync)
+        const status = await sync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)
+        expect(newer).not.toBe(listed)
+        expect(status.state).toBe('stopped')
+        expect(refOf(versionsDir(), 'refs/versions/incoming')).toBeNull()
+        expect(bareRef(bare, 'refs/heads/staging')).toBeNull()
     })
 })
 
