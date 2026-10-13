@@ -10644,7 +10644,9 @@ await (async () => {
         loadNode
     })
     await gateway.close()
-    const detail = first.trace?.specialists?.[0]?.tools?.map((tool) => tool.detail).join('\n') || ''
+    const tools = first.trace?.specialists?.[0]?.tools || []
+    const detail = tools.map((tool) => tool.detail).join('\n')
+    const preview = JSON.stringify(tools.map((tool) => tool.preview || null))
     check(
         'a try turn keeps the analyst page on the saved harness, including the trace and the closed session',
         cursor?.token === 'cur-try-page' &&
@@ -10653,7 +10655,8 @@ await (async () => {
             !queryError &&
             !scopesAfter.includes(savedScope) &&
             !scopesAfter.some((scope) => scope.startsWith(`${tryProfile}:`)) &&
-            detail.includes('ROW_KEEP') &&
+            preview.includes('ROW_KEEP') &&
+            !detail.includes('ROW_KEEP') &&
             next.text !== ANALYST_PAGE_NONE &&
             inputs.some((input) => String(input).includes('cur-try-page')),
         JSON.stringify({
@@ -10662,7 +10665,7 @@ await (async () => {
             seenScope,
             queryError,
             scopesAfter,
-            detail: detail.slice(0, 240),
+            preview: preview.slice(0, 240),
             next: next.text,
             inputs
         })
