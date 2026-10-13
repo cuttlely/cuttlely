@@ -1346,16 +1346,7 @@ function countTraceHandlers(list: Array<{ name?: string }> | undefined): { step:
     }
 }
 
-function countingOtel(
-    BaseCallbackHandler: new () => {
-        name: string
-        chats: number
-        tools: number
-        handleChatModelStart: () => void
-        handleLLMStart: () => void
-        handleToolStart: () => void
-    }
-) {
+function countingOtel(BaseCallbackHandler: new () => { name: string }) {
     return new (class extends BaseCallbackHandler {
         name = 'cuttlely_otel'
         chats = 0
