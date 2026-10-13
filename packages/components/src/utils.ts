@@ -20,7 +20,7 @@ import { z } from 'zod/v3'
 import { customGet } from './customGet'
 import { DOCUMENT_UPLOAD_TYPES } from './documentUploadCapabilities'
 import { checkDenyList, secureAxiosRequest, secureFetch } from './httpSecurity'
-import { refreshStoredOAuth2Credential } from './oauthRefresh'
+import { credentialReadableInWorkspace, refreshStoredOAuth2Credential } from './oauthRefresh'
 import { ICommonObject, IDatabaseEntity, IFileUpload, IMessage, INodeData, IVariable, MessageContentImageUrl } from './Interface'
 import { getFileFromStorage } from './storageUtils'
 
@@ -666,11 +666,21 @@ export const getCredentialData = async (selectedCredentialId: string, options: I
             return {}
         }
 
+        const workspaceId = typeof options.workspaceId === 'string' ? options.workspaceId : ''
         const credential = await appDataSource.getRepository(databaseEntities['Credential']).findOneBy({
             id: selectedCredentialId
         })
 
-        if (!credential) return {}
+        if (!credential) {
+            if (workspaceId) throw new Error(`Credential ${selectedCredentialId} not found`)
+            return {}
+        }
+        // A flow passes its workspace. A key owned by that workspace or shared into it can be decrypted.
+        // A key that belongs only to some other workspace cannot. The repository is untyped, so the row is narrowed here.
+        const readable = credential as { id: string; workspaceId?: string }
+        if (workspaceId && !(await credentialReadableInWorkspace(appDataSource as any, readable, workspaceId))) {
+            throw new Error(`Credential ${selectedCredentialId} not found`)
+        }
 
         // Decrypt credentialData
         const decryptedCredentialData = await decryptCredentialData(credential.encryptedData)

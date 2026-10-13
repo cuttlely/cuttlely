@@ -790,7 +790,8 @@ export const clearSessionMemory = async (
     orgId?: string,
     sessionId?: string,
     memoryType?: string,
-    isClearFromViewMessageDialog?: string
+    isClearFromViewMessageDialog?: string,
+    workspaceId?: string
 ) => {
     for (const node of reactFlowNodes) {
         if (node.data.category !== 'Memory' && node.data.type !== 'OpenAIAssistant') continue
@@ -801,7 +802,7 @@ export const clearSessionMemory = async (
         const nodeInstanceFilePath = componentNodes[node.data.name].filePath as string
         const nodeModule = await import(nodeInstanceFilePath)
         const newNodeInstance = new nodeModule.nodeClass()
-        const options: ICommonObject = { orgId, chatId, appDataSource, databaseEntities, logger }
+        const options: ICommonObject = { orgId, workspaceId, chatId, appDataSource, databaseEntities, logger }
 
         // SessionId always take priority first because it is the sessionId used for 3rd party memory node
         if (sessionId && node.data.inputs) {
@@ -1632,7 +1633,7 @@ export const redactCredentialWithPasswordType = (
  * Get sessionId
  * Hierarchy of sessionId (top down)
  * API/Embed:
- * (1) overrideConfig.sessionId only when it equals the caller-owned chat id (D55)
+ * (1) overrideConfig.sessionId only when it equals the caller-owned chat id (D21)
  * (2) incomingInput.chatId only when it equals that same id
  *
  * API/Embed + UI:
@@ -1697,7 +1698,8 @@ export const getSessionChatHistory = async (
     appDataSource: DataSource,
     databaseEntities: IDatabaseEntity,
     logger: any,
-    prependMessages?: IMessage[]
+    prependMessages?: IMessage[],
+    workspaceId?: string
 ): Promise<IMessage[]> => {
     const nodeInstanceFilePath = componentNodes[memoryNode.data.name].filePath as string
     const nodeModule = await import(nodeInstanceFilePath)
@@ -1712,7 +1714,8 @@ export const getSessionChatHistory = async (
         chatflowid,
         appDataSource,
         databaseEntities,
-        logger
+        logger,
+        workspaceId
     })
 
     return (await initializedInstance.getChatMessages(sessionId, undefined, prependMessages)) as IMessage[]

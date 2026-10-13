@@ -19,7 +19,7 @@ const EMAIL = 'smoke-local@example.com'
 const BOOT_MS = 12 * 60 * 1000
 const PREDICT_MS = 3 * 60 * 1000
 
-function freePort() {
+export function freePort() {
     return new Promise((resolve, reject) => {
         const server = net.createServer()
         server.once('error', reject)
@@ -69,7 +69,7 @@ function cookieHeader(response) {
     return list.map((cookie) => cookie.split(';')[0]).join('; ')
 }
 
-async function request(url, { method = 'GET', cookie = '', body, timeoutMs = 30000 } = {}) {
+export async function request(url, { method = 'GET', cookie = '', body, timeoutMs = 30000 } = {}) {
     const headers = { 'x-request-from': 'internal' }
     if (cookie) headers.cookie = cookie
     if (body !== undefined) headers['content-type'] = 'application/json'
@@ -83,7 +83,7 @@ async function request(url, { method = 'GET', cookie = '', body, timeoutMs = 300
     return { status: response.status, text, cookie: cookieHeader(response) || cookie, retryAfter: response.headers.get('retry-after') }
 }
 
-function smokeFlow(credentialId) {
+export function smokeFlow(credentialId) {
     const modelType = 'ChatOpenAI | BaseChatModel | BaseLanguageModel | Runnable'
     const promptType = 'PromptTemplate | BaseStringPromptTemplate | BasePromptTemplate'
     return {
@@ -198,7 +198,7 @@ function smokeFlow(credentialId) {
     }
 }
 
-async function waitForPing(base, child, logs) {
+export async function waitForPing(base, child, logs) {
     const deadline = Date.now() + BOOT_MS
     let last = ''
     while (Date.now() < deadline) {
@@ -217,7 +217,7 @@ async function waitForPing(base, child, logs) {
     throw new Error(`server did not answer /api/v1/ping within ${BOOT_MS / 1000}s (${last})\n${logs.join('').slice(-4000)}`)
 }
 
-function startServer(dataDir, port, extra) {
+export function startServer(dataDir, port, extra) {
     const logs = []
     const child = spawn(process.execPath, ['-r', SSO_GUARD, '-r', PRELOAD, path.join(SERVER, 'bin', 'run'), 'start'], {
         cwd: SERVER,
