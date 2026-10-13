@@ -11,7 +11,7 @@ import MainCard from '@/ui-component/cards/MainCard'
 import { StyledPermissionButton } from '@/ui-component/button/RBACButtons'
 import { baseURL } from '@/store/constant'
 import { formatListDateTime } from '@/utils/formatDate'
-import HarnessRunTrace from '@/views/chatmessage/HarnessRunTrace'
+import HarnessRunTrace, { questionFromInputPreview, tryItTraceQuestion } from '@/views/chatmessage/HarnessRunTrace'
 import { harnessCanvasRunPath, harnessRunPath } from '@/utils/harnessCanvasChat'
 import { emptyTrace, failTrace, reduceHarnessEvent } from '../../../../../packages/harness/trace.mjs'
 
@@ -61,6 +61,7 @@ const HarnessHome = () => {
     const harnessApi = useApi(harnessesApi.getHarness)
     const runsApi = useApi(harnessesApi.listRuns)
     const [question, setQuestion] = useState('')
+    const [submittedQuestion, setSubmittedQuestion] = useState('')
     const [output, setOutput] = useState('')
     const [liveTrace, setLiveTrace] = useState(null)
     const [runError, setRunError] = useState('')
@@ -95,6 +96,7 @@ const HarnessHome = () => {
     const send = async () => {
         const prompt = question.trim()
         if (!prompt || !name || running) return
+        setSubmittedQuestion(prompt)
         setRunning(true)
         setOutput('')
         setRunError('')
@@ -216,7 +218,7 @@ const HarnessHome = () => {
                                 </Button>
                             )}
                         </Stack>
-                        {liveTrace && <HarnessRunTrace trace={liveTrace} />}
+                        {liveTrace && <HarnessRunTrace trace={liveTrace} question={tryItTraceQuestion(submittedQuestion)} />}
                         {runError && <Alert severity='error'>{runError}</Alert>}
                         {(output || running) && (
                             <Box
@@ -282,7 +284,7 @@ const HarnessHome = () => {
                             <Stack sx={{ gap: 1 }}>
                                 <Typography variant='h5'>Run</Typography>
                                 {selected.trace ? (
-                                    <HarnessRunTrace trace={selected.trace} />
+                                    <HarnessRunTrace trace={selected.trace} question={questionFromInputPreview(selected.inputPreview)} />
                                 ) : (
                                     <Typography variant='body2'>
                                         {selected.status} · {latencyLabel(selected)} · {tokenLabel(selected.tokens)}
