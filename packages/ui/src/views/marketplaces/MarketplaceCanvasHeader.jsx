@@ -9,10 +9,11 @@ import { StyledButton } from '@/ui-component/button/StyledButton'
 // icons
 import { IconCopy, IconChevronLeft } from '@tabler/icons-react'
 import { Available } from '@/ui-component/rbac/available'
+import { templateUsePermission } from './templateUsePermission'
 
 // ==============================|| CANVAS HEADER ||============================== //
 
-const MarketplaceCanvasHeader = ({ flowName, flowData, legacy, onChatflowCopy }) => {
+const MarketplaceCanvasHeader = ({ flowName, flowData, legacy, templateType, onChatflowCopy }) => {
     const theme = useTheme()
     const navigate = useNavigate()
 
@@ -58,7 +59,7 @@ const MarketplaceCanvasHeader = ({ flowName, flowData, legacy, onChatflowCopy })
                     Legacy agentflow template. You can look at it, but new flows can&apos;t be made from it.
                 </Typography>
             ) : (
-                <Available permission={'chatflows:create,agentflows.create'}>
+                <Available permission={templateUsePermission(templateType)}>
                     <Box>
                         <StyledButton
                             color='secondary'
@@ -80,6 +81,7 @@ MarketplaceCanvasHeader.propTypes = {
     flowName: PropTypes.string,
     flowData: PropTypes.object,
     legacy: PropTypes.bool,
+    templateType: PropTypes.string,
     onChatflowCopy: PropTypes.func
 }
 
