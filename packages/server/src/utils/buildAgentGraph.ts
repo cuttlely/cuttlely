@@ -50,7 +50,11 @@ import { Variable } from '../database/entities/Variable'
 import { getWorkspaceSearchOptions } from '../identity/workspaceScope'
 import { DataSource } from 'typeorm'
 import { CachePool } from '../CachePool'
+import { utilAddChatMessage } from './addChatMesage'
 import { applyCarriedUsage, ChatflowTokenUsage, recordCompletedRun, withCarriedUsage } from '../services/usage'
+
+const RESUME_READ_ERROR = 'Cannot resume this approval because the waiting usage could not be read.'
+const RESUME_MISSING_ERROR = 'Cannot resume this approval because the waiting usage was not saved.'
 
 // The canvas posts the action it was streamed. That copy can omit or invent priorUsage.
 // The saved chat message is the copy written by the server, so the resume reads that.
@@ -58,11 +62,15 @@ async function storedPriorUsage(
     appDataSource: DataSource,
     chatId: string,
     sessionId: string | undefined,
-    actionId: string | undefined
-): Promise<unknown> {
-    if (!actionId || typeof appDataSource?.getRepository !== 'function') return undefined
+    actionId: string
+): Promise<{ found: true; priorUsage: unknown } | { found: false }> {
+    if (typeof appDataSource?.getRepository !== 'function') {
+        throw new Error(RESUME_READ_ERROR)
+    }
     const repo = appDataSource.getRepository(ChatMessage)
-    if (typeof repo?.createQueryBuilder !== 'function') return undefined
+    if (typeof repo?.createQueryBuilder !== 'function') {
+        throw new Error(RESUME_READ_ERROR)
+    }
     let rows: Array<{ action?: string | null }> = []
     try {
         rows = await repo
@@ -72,18 +80,18 @@ async function storedPriorUsage(
             .orderBy('chat_message.createdDate', 'DESC')
             .getMany()
     } catch {
-        return undefined
+        throw new Error(RESUME_READ_ERROR)
     }
     for (const row of rows) {
         if (!row?.action || typeof row.action !== 'string') continue
         try {
             const saved = JSON.parse(row.action) as { id?: string; priorUsage?: unknown }
-            if (saved?.id === actionId) return saved.priorUsage
+            if (saved?.id === actionId) return { found: true, priorUsage: saved.priorUsage }
         } catch {
             // A message action that is not JSON is not this interrupt.
         }
     }
-    return undefined
+    return { found: false }
 }
 
 /**
@@ -141,13 +149,13 @@ export const buildAgentGraph = async ({
 
         const chatflowTokenUsage = new ChatflowTokenUsage()
         const requestedAction = incomingInput.action
-        const seededAction =
-            requestedAction && typeof requestedAction === 'object'
-                ? {
-                      ...requestedAction,
-                      priorUsage: await storedPriorUsage(appDataSource, chatId, sessionId, (requestedAction as { id?: string }).id)
-                  }
-                : undefined
+        let seededAction: unknown = requestedAction
+        const actionId = requestedAction && typeof requestedAction === 'object' ? (requestedAction as { id?: string }).id : undefined
+        if (requestedAction && typeof requestedAction === 'object' && actionId) {
+            const saved = await storedPriorUsage(appDataSource, chatId, sessionId, actionId)
+            if (!saved.found) throw new Error(RESUME_MISSING_ERROR)
+            seededAction = { ...requestedAction, priorUsage: saved.priorUsage }
+        }
         applyCarriedUsage(chatflowTokenUsage, seededAction)
         const options = {
             orgId,
@@ -430,6 +438,23 @@ export const buildAgentGraph = async ({
                                     ]
                                 },
                                 chatflowTokenUsage
+                            )
+                            // Save the action before it is streamed. A client can approve as soon as the event arrives.
+                            if (!flowConfig.apiMessageId) {
+                                throw new Error('Cannot save this approval because the chat message id is missing.')
+                            }
+                            await utilAddChatMessage(
+                                {
+                                    id: flowConfig.apiMessageId,
+                                    role: 'apiMessage',
+                                    content: finalResult || ' ',
+                                    chatflowid,
+                                    chatId,
+                                    sessionId,
+                                    chatType: 'INTERNAL',
+                                    action: JSON.stringify(finalAction)
+                                },
+                                appDataSource
                             )
                             if (shouldStreamResponse && sseStreamer) {
                                 sseStreamer.streamTokenEvent(chatId, finalResult)

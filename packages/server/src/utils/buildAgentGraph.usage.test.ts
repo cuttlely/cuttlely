@@ -242,37 +242,49 @@ const seqCanvas = () => {
 }
 
 function chatStore() {
-    const messages: Array<{ action?: string; chatId: string; sessionId: string }> = []
+    const messages: Array<{ id?: string; action?: string; chatId: string; sessionId: string }> = []
+    const chatRepo = {
+        create: (row: { id?: string; action?: string; chatId?: string; sessionId?: string }) => row,
+        save: async (row: { id?: string; action?: string; chatId?: string; sessionId?: string }) => {
+            const stored = { id: row.id, action: row.action, chatId: row.chatId || '', sessionId: row.sessionId || '' }
+            const index = messages.findIndex((message) => message.id && message.id === stored.id)
+            if (index >= 0) messages[index] = { ...messages[index], ...stored }
+            else messages.push(stored)
+            return stored
+        },
+        createQueryBuilder: () => {
+            const qb: any = {
+                where: () => qb,
+                orWhere: () => qb,
+                orderBy: () => qb,
+                getMany: async () => [...messages].reverse()
+            }
+            return qb
+        }
+    }
     const appDataSource = {
         options: { type: 'sqlite' },
         query: async () => undefined,
         getRepository: (entity: { name?: string }) => {
-            if (entity?.name === 'ChatMessage') {
-                return {
-                    createQueryBuilder: () => {
-                        const qb: any = {
-                            where: () => qb,
-                            orWhere: () => qb,
-                            orderBy: () => qb,
-                            getMany: async () => [...messages].reverse()
-                        }
-                        return qb
-                    }
-                }
-            }
+            if (entity?.name === 'ChatMessage') return chatRepo
             return { findBy: async () => [] }
         }
     }
     return { messages, appDataSource }
 }
 
-function streamer() {
+function streamer(onAction?: (data: any) => void) {
     const actions: any[] = []
     const sseStreamer = new Proxy(
         {},
         {
             get: (_target, name) => {
-                if (name === 'streamActionEvent') return (_chatId: string, data: unknown) => actions.push(data)
+                if (name === 'streamActionEvent') {
+                    return (_chatId: string, data: any) => {
+                        actions.push(data)
+                        if (onAction) onAction(data)
+                    }
+                }
                 return () => undefined
             }
         }
@@ -302,10 +314,6 @@ async function runSequential(appDataSource: any, sseStreamer: any, action?: Reco
         orgId: 'o1',
         workspaceId: 'w1'
     })
-}
-
-function saveInterrupt(messages: Array<{ action?: string; chatId: string; sessionId: string }>, action: unknown) {
-    messages.push({ action: JSON.stringify(action), chatId: 'c1', sessionId: 's1' })
 }
 
 async function storedTotal(usage: ChatflowTokenUsage) {
@@ -342,24 +350,34 @@ describe('Sequential Agents interrupt on the streaming path', () => {
         ;(global as any).__seqRound = 0
     })
 
-    it('streams the waiting lines, saves that action, and stores 60 in and 24 out after approval', async () => {
+    it('stores 60 in and 24 out when approval is posted on the action event', async () => {
         ;(global as any).__seqPlan = [
             { input: 50, output: 20, tools: true },
             { input: 10, output: 4, tools: false }
         ]
         const { messages, appDataSource } = chatStore()
-        const { actions, sseStreamer } = streamer()
+        const writes: unknown[][] = []
+        appDataSource.query = async (...args: unknown[]) => {
+            writes.push(args)
+        }
+        let approval: Promise<any> | undefined
+        const quiet = streamer().sseStreamer
+        const { actions, sseStreamer } = streamer((data) => {
+            expect(messages).toHaveLength(1)
+            expect(JSON.parse(messages[0].action || '').priorUsage).toEqual([
+                { model: 'gpt-4.1-mini', promptTokens: 50, completionTokens: 20 }
+            ])
+            approval = runSequential(appDataSource, quiet, { ...data, priorUsage: forged })
+        })
         const waiting = await runSequential(appDataSource, sseStreamer)
         expect(actions).toHaveLength(1)
         expect(actions[0]).toBe(waiting.finalAction)
-        expect(actions[0].priorUsage).toEqual([{ model: 'gpt-4.1-mini', promptTokens: 50, completionTokens: 20 }])
         expect(waitingForApproval(waiting.finalAction)).toBe(true)
-        saveInterrupt(messages, waiting.finalAction)
-        expect(JSON.parse(messages[0].action || '').priorUsage).toEqual(actions[0].priorUsage)
-
-        const finished = await runSequential(appDataSource, sseStreamer, { ...waiting.finalAction, priorUsage: forged })
+        expect(approval).toBeDefined()
+        const finished = await approval
         expect(waitingForApproval(finished.finalAction)).toBe(false)
         expect(await storedTotal(finished.tokenUsage)).toMatchObject({ input: 60, output: 24 })
+        expect(writes).toEqual([])
     })
 
     it('keeps every round across two interrupts', async () => {
@@ -368,17 +386,15 @@ describe('Sequential Agents interrupt on the streaming path', () => {
             { input: 10, output: 4, tools: true },
             { input: 8, output: 3, tools: false }
         ]
-        const { messages, appDataSource } = chatStore()
+        const { appDataSource } = chatStore()
         const { actions, sseStreamer } = streamer()
         const first = await runSequential(appDataSource, sseStreamer)
-        saveInterrupt(messages, first.finalAction)
         const second = await runSequential(appDataSource, sseStreamer, { ...first.finalAction, priorUsage: forged })
         expect(actions[1]).toBe(second.finalAction)
         expect(actions[1].priorUsage).toEqual([
             { model: 'gpt-4.1-mini', promptTokens: 50, completionTokens: 20 },
             { model: 'gpt-4.1-mini', promptTokens: 10, completionTokens: 4 }
         ])
-        saveInterrupt(messages, second.finalAction)
         const finished = await runSequential(appDataSource, sseStreamer, { ...second.finalAction, priorUsage: forged })
         expect(waitingForApproval(finished.finalAction)).toBe(false)
         expect(await storedTotal(finished.tokenUsage)).toMatchObject({ input: 68, output: 27 })
@@ -389,10 +405,9 @@ describe('Sequential Agents interrupt on the streaming path', () => {
             { input: 50, output: 20, tools: true },
             { input: 10, output: 4, tools: false }
         ]
-        const { messages, appDataSource } = chatStore()
+        const { appDataSource } = chatStore()
         const { sseStreamer } = streamer()
         const waiting = await runSequential(appDataSource, sseStreamer)
-        saveInterrupt(messages, waiting.finalAction)
         const finished = await runSequential(appDataSource, sseStreamer, {
             id: waiting.finalAction.id,
             mapping: waiting.finalAction.mapping,
@@ -402,5 +417,46 @@ describe('Sequential Agents interrupt on the streaming path', () => {
         const total = await storedTotal(finished.tokenUsage)
         expect(total).toMatchObject({ input: 60, output: 24 })
         expect(total.input).not.toBe(999)
+    })
+
+    it('fails the resume when the waiting usage cannot be read and stores nothing', async () => {
+        const writes: unknown[][] = []
+        const appDataSource = {
+            options: { type: 'sqlite' },
+            query: async (...args: unknown[]) => {
+                writes.push(args)
+            },
+            getRepository: () => ({
+                createQueryBuilder: () => {
+                    throw new Error('db down')
+                }
+            })
+        }
+        await expect(
+            runSequential(appDataSource, streamer().sseStreamer, {
+                id: 'action-1',
+                mapping: { approve: 'Yes', reject: 'No', toolCalls: [] },
+                elements: [],
+                priorUsage: forged
+            })
+        ).rejects.toThrow(/waiting usage could not be read/)
+        expect(writes).toEqual([])
+    })
+
+    it('fails the resume when the waiting action was not saved and stores nothing', async () => {
+        const writes: unknown[][] = []
+        const { appDataSource } = chatStore()
+        appDataSource.query = async (...args: unknown[]) => {
+            writes.push(args)
+        }
+        await expect(
+            runSequential(appDataSource, streamer().sseStreamer, {
+                id: 'missing-action',
+                mapping: { approve: 'Yes', reject: 'No', toolCalls: [] },
+                elements: [],
+                priorUsage: forged
+            })
+        ).rejects.toThrow(/waiting usage was not saved/)
+        expect(writes).toEqual([])
     })
 })

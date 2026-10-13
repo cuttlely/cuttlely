@@ -1440,19 +1440,30 @@ class Agent_Agentflow implements INode {
                 )
             }
 
-            // Keep the generation call. Structured output replaces response with the conversion call.
+            // Keep the generation call. The conversion call comes back on the raw message.
             const generationUsage = response?.usage_metadata
+            let structuredParsed: unknown
             // If is structured output, then invoke LLM again with structured output at the very end after all tool calls
             if (isStructuredOutput) {
-                const structuredllmNodeInstance = configureStructuredOutput(llmWithoutToolsBind, _agentStructuredOutput)
+                const structuredllmNodeInstance = configureStructuredOutput(llmWithoutToolsBind, _agentStructuredOutput, {
+                    includeRaw: true
+                })
                 const prompt = 'Convert the following response to the structured output format: ' + finalResponse
-                response = await structuredllmNodeInstance.invoke(prompt, { signal: abortController?.signal })
-
-                // Prefix the response with ```json and suffix with ``` to render as a code block
-                if (typeof response === 'object') {
-                    finalResponse = '```json\n' + JSON.stringify(response, null, 2) + '\n```'
-                } else {
-                    finalResponse = response
+                const structured = await structuredllmNodeInstance.invoke(prompt, { signal: abortController?.signal })
+                const raw =
+                    structured && typeof structured === 'object' && 'raw' in structured
+                        ? (structured as { raw?: AIMessageChunk }).raw
+                        : undefined
+                structuredParsed =
+                    structured && typeof structured === 'object' && 'parsed' in structured
+                        ? (structured as { parsed?: unknown }).parsed
+                        : structured
+                if (raw) response = raw
+                // The chat text stays the parsed fields, the same shape as before the raw message was kept.
+                if (structuredParsed !== undefined && typeof structuredParsed === 'object') {
+                    finalResponse = '```json\n' + JSON.stringify(structuredParsed, null, 2) + '\n```'
+                } else if (structuredParsed != null) {
+                    finalResponse = String(structuredParsed)
                 }
 
                 if (isLastNode && sseStreamer) {
@@ -1507,6 +1518,9 @@ class Agent_Agentflow implements INode {
                     ? { inputTokens: completed.inputTokens, outputTokens: completed.outputTokens }
                     : stepInputTokens > 0 || stepOutputTokens > 0
                     ? { inputTokens: stepInputTokens, outputTokens: stepOutputTokens }
+                    : undefined,
+                structuredParsed !== undefined && typeof structuredParsed === 'object'
+                    ? (structuredParsed as Record<string, unknown>)
                     : undefined
             )
 
@@ -1527,7 +1541,9 @@ class Agent_Agentflow implements INode {
 
             // Process template variables in state
             const outputForStateProcessing =
-                isStructuredOutput && typeof response === 'object' ? JSON.stringify(response, null, 2) : finalResponse
+                isStructuredOutput && structuredParsed !== undefined && typeof structuredParsed === 'object'
+                    ? JSON.stringify(structuredParsed, null, 2)
+                    : finalResponse
             newState = processTemplateVariables(newState, outputForStateProcessing)
 
             /**
@@ -2105,7 +2121,8 @@ class Agent_Agentflow implements INode {
             base_input_cost: number
             base_output_cost: number
         },
-        stepUsage?: { inputTokens: number; outputTokens: number }
+        stepUsage?: { inputTokens: number; outputTokens: number },
+        structuredFields?: Record<string, unknown>
     ): any {
         const output: any = {
             content: finalResponse,
@@ -2150,11 +2167,17 @@ class Agent_Agentflow implements INode {
             output.responseMetadata = response.response_metadata
         }
 
-        if (isStructuredOutput && typeof response === 'object') {
-            const structuredOutput = response as Record<string, any>
-            for (const key in structuredOutput) {
-                if (structuredOutput[key] !== undefined && structuredOutput[key] !== null) {
-                    output[key] = structuredOutput[key]
+        // The parsed fields used to be the response. The raw message now carries conversion usage, so copy the parsed object only.
+        const parsedFields =
+            structuredFields && typeof structuredFields === 'object'
+                ? structuredFields
+                : isStructuredOutput && typeof response === 'object' && !response.usage_metadata
+                ? (response as Record<string, any>)
+                : undefined
+        if (parsedFields) {
+            for (const key in parsedFields) {
+                if (parsedFields[key] !== undefined && parsedFields[key] !== null) {
+                    output[key] = parsedFields[key]
                 }
             }
         }

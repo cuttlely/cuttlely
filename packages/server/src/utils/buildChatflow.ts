@@ -729,7 +729,11 @@ export const executeFlow = async ({
                     apiMessage.followUpPrompts = JSON.stringify(generatedFollowUpPrompts.questions)
                 }
             }
-            const chatMessage = await utilAddChatMessage(apiMessage, appDataSource)
+            const messageRepo = appDataSource.getRepository(ChatMessage)
+            const existingMessage = typeof messageRepo.findOneBy === 'function' ? await messageRepo.findOneBy({ id: apiMessageId }) : null
+            const chatMessage = existingMessage
+                ? await messageRepo.save(Object.assign(existingMessage, apiMessage))
+                : await utilAddChatMessage(apiMessage, appDataSource)
 
             await telemetry.sendTelemetry(
                 'agentflow_prediction_sent',

@@ -400,3 +400,76 @@ describe('Agent calls outside the tool loop', () => {
         expect(usage.tool_call_tokens).toBe(80)
     })
 })
+
+const structuredModelFile = require('path').join(require('os').tmpdir(), `agent-structured-${process.pid}.js`)
+const structuredRequireFrom = JSON.stringify(require('path').join(__dirname, 'Agent.tokens.test.ts'))
+require('fs').writeFileSync(
+    structuredModelFile,
+    `
+const { createRequire } = require('module')
+const req = createRequire(${structuredRequireFrom})
+const { AIMessageChunk } = req('@langchain/core/messages')
+class Node {
+  constructor() { this.inputs = [] }
+  async init() {
+    return {
+      async invoke() {
+        return new AIMessageChunk({
+          content: 'rye loaf',
+          usage_metadata: { input_tokens: 40, output_tokens: 20, total_tokens: 60 }
+        })
+      },
+      withStructuredOutput(_schema, options) {
+        const includeRaw = !!(options && options.includeRaw === true)
+        return {
+          async invoke() {
+            if (!includeRaw) return { loaf: 'rye' }
+            return {
+              parsed: { loaf: 'rye' },
+              raw: new AIMessageChunk({
+                content: '',
+                usage_metadata: { input_tokens: 8, output_tokens: 4, total_tokens: 12 }
+              })
+            }
+          }
+        }
+      }
+    }
+  }
+}
+module.exports = { nodeClass: Node }
+`
+)
+
+describe('Agent structured output through invoke', () => {
+    it('stores the generation and conversion calls and keeps the parsed chat text', async () => {
+        const agent = new AgentNode()
+        const result = await agent.run(
+            {
+                id: 'agent_0',
+                inputs: {
+                    agentModel: 'stubModel',
+                    agentModelConfig: {},
+                    agentTools: [],
+                    agentStructuredOutput: [{ key: 'loaf', type: 'string', description: 'the loaf' }]
+                }
+            },
+            'bake',
+            {
+                chatId: 'c1',
+                chatflowid: 'f1',
+                prependedChatHistory: [],
+                abortController: new AbortController(),
+                componentNodes: { stubModel: { filePath: structuredModelFile, label: 'Stub' } }
+            }
+        )
+        const chatText = '```json\n{\n  "loaf": "rye"\n}\n```'
+        expect(result.output.content).toBe(chatText)
+        expect(result.output.loaf).toBe('rye')
+        expect(result.chatHistory[result.chatHistory.length - 1].content).toBe(chatText)
+        expect(result.output.usageMetadata.input_tokens).toBe(48)
+        expect(result.output.usageMetadata.output_tokens).toBe(24)
+        expect(result.output.usageMetadata.input_tokens + result.output.usageMetadata.output_tokens).toBe(72)
+        expect(result.output.usageMetadata.tool_call_tokens).toBe(72)
+    })
+})
