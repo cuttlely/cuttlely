@@ -56,6 +56,18 @@ Shown on the card: 0.4 s, 0.8 s, 0.4 s.
 -   Agentflows: the recorded canvas was not kept. The medians are from an equivalent flow with the same branches and questions, not the recorded canvas. The flow has the same four cards (Start, Classify Message, Order Agent, Care Agent) and the same two branches. Its prompts are not the video's prompts.
 -   The questions are the videos' exact turns.
 
+## Customer care demo
+
+The closing card shows the times from the run in the video.
+
+| Figure                 | Shown  |
+| ---------------------- | ------ |
+| Plan starts streaming  | 0.8 s  |
+| Team routed            | 1.9 s  |
+| Full researched answer | 19.8 s |
+
+The line under the figures states the same three times.
+
 ## Notes
 
 -   A new chat sends no chatId and uses the one the server returns, as the clients do.
