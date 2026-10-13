@@ -33,6 +33,7 @@ New here? Start with [Your first 10 minutes](../README.md#your-first-10-minutes)
 -   [Render](./how-to/render.md). A hosted install with Postgres.
 -   [Server settings](./how-to/server-settings.md). Change how the server runs from **Admin** > **Server settings**: sign-in and AuthKit, the database, storage, the analyst and more, with a review step, safe boot and History.
 -   [Sign in](./how-to/sign-in.md). Turn on the local account, create the first account in a terminal or the browser, and sign in. [Set up WorkOS AuthKit](./identity/workos-authkit-setup.md) when a team signs in.
+-   [Roles and permissions](./how-to/roles-and-permissions.md). Teams, the built-in roles, how to add a role and assign it, and every permission key with the pages and API routes that check it.
 
 ## Reference
 
