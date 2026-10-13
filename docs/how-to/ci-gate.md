@@ -30,6 +30,8 @@ The flow needs a draft. A flow with steps that act for real is refused, the same
 
 `pnpm dev` serves the API on port 3000. `scripts/start-cuttlely.sh` and `npx cuttlely start` listen on port 43117, which is already the default for `--server`. From a checkout of this repository, before the published package includes the command, run `node packages/cli/bin/cuttlely.js` with the same arguments.
 
+Scored mode and `--gate` need Cuttlely 1.1.0 or later, the next release. The published 1.0.3 package has no `--gate`. A job that runs `npx cuttlely check --gate` on 1.0.3 fails. Diff mode, including `--fail-on-changed`, is in 1.0.3.
+
 | Flag        | Meaning                                                                                                                                         |
 | ----------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
 | `--flow`    | The flow id from the canvas address bar. Required.                                                                                              |
@@ -65,8 +67,8 @@ The flow needs at least one past question.
 `--dataset` or `--gate` runs the dataset check instead of the four recent questions. The command exits on the server `verdict`. It does not score the answers, and it does not compare the pass rate itself.
 
 ```bash
-npx cuttlely check --flow <flow id> --dataset <dataset id> --evaluator <evaluator id> --threshold 80
-npx cuttlely check --flow <flow id> --gate
+npx cuttlely@^1.1.0 check --flow <flow id> --dataset <dataset id> --evaluator <evaluator id> --threshold 80
+npx cuttlely@^1.1.0 check --flow <flow id> --gate
 ```
 
 | Flag          | Meaning                                                                                                                                           |
@@ -121,6 +123,8 @@ Cancelling the job sends SIGTERM. After the server has returned a check id, the 
 
 Both files are valid workflow YAML. Neither prints the API key. Neither uses a GitHub Action. If you add a `uses` step, pin it to a version tag such as `actions/checkout@v4`.
 
+Scored mode and `--gate` need Cuttlely 1.1.0 or later, the next release. The diff workflow leaves `npx cuttlely` unpinned because `--fail-on-changed` is in the 1.0.3 package. The scored workflow pins `cuttlely@^1.1.0`, so a copied job does not install 1.0.3 and fail on `--gate`.
+
 ### Diff workflow
 
 A Changed answer fails the job. The file is [examples/ci/cuttlely-check.yml](../../examples/ci/cuttlely-check.yml).
@@ -169,7 +173,7 @@ jobs:
                   CUTTLELY_URL: ${{ vars.CUTTLELY_URL }}
                   CUTTLELY_FLOW_ID: ${{ vars.CUTTLELY_FLOW_ID }}
               run: |
-                  npx --yes cuttlely check \
+                  npx --yes cuttlely@^1.1.0 check \
                     --flow "$CUTTLELY_FLOW_ID" \
                     --server "$CUTTLELY_URL" \
                     --timeout 300 \

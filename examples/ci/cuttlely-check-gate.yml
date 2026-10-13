@@ -10,6 +10,8 @@
 # Repository variables: CUTTLELY_URL, CUTTLELY_FLOW_ID
 #   The server origin, and the flow id from the canvas address bar.
 #   The flow needs a draft and the passing test set saved. --gate reads that saved test set.
+# Scored mode and --gate need Cuttlely 1.1.0 or later (the next release).
+# npx installs cuttlely@^1.1.0. The 1.0.3 package has no --gate, so an unpinned npx cuttlely check --gate fails.
 #   pnpm dev serves the API on port 3000. scripts/start-cuttlely.sh and npx cuttlely start listen on port 43117.
 # See docs/how-to/ci-gate.md.
 # Cancelling this job stops the server-side check.
@@ -29,7 +31,7 @@ jobs:
                   CUTTLELY_URL: ${{ vars.CUTTLELY_URL }}
                   CUTTLELY_FLOW_ID: ${{ vars.CUTTLELY_FLOW_ID }}
               run: |
-                  npx --yes cuttlely check \
+                  npx --yes cuttlely@^1.1.0 check \
                     --flow "$CUTTLELY_FLOW_ID" \
                     --server "$CUTTLELY_URL" \
                     --timeout 300 \

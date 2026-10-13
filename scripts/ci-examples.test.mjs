@@ -35,7 +35,7 @@ function flattenCheck(text) {
     const lines = String(text).split('\n')
     const found = []
     for (let i = 0; i < lines.length; i++) {
-        if (!lines[i].includes('npx --yes cuttlely check')) continue
+        if (!/npx --yes cuttlely(?:@\^1\.1\.0)? check/.test(lines[i])) continue
         const chunk = [lines[i].trim()]
         while (chunk[chunk.length - 1].endsWith('\\')) {
             i += 1
@@ -84,7 +84,7 @@ function stepsOf(doc) {
 }
 
 function argvFromCommand(command, server) {
-    const body = command.replace(/^npx --yes cuttlely\s+/, '')
+    const body = command.replace(/^npx --yes cuttlely(?:@\^1\.1\.0)?\s+/, '')
     const tokens = body.match(/"[^"]*"|\S+/g).map((token) => token.replace(/^"|"$/g, ''))
     return tokens.map((token) => {
         if (token === '$CUTTLELY_FLOW_ID') return 'flow-1'
@@ -252,6 +252,7 @@ test('every example workflow matches the guide and keeps the key out of the step
     assert.match(guide, /summary\.changed/)
     assert.match(guide, /verdict\.result/)
     assert.match(guide, /The check was cancelled\./)
+    assert.match(guide, /Scored mode and `--gate` need Cuttlely 1\.1\.0 or later/)
 
     const examples = loadExamples()
     const documented = flattenCheck(guide).sort()
@@ -265,7 +266,12 @@ test('every example workflow matches the guide and keeps the key out of the step
     for (const example of examples) {
         assert.equal(example.command.includes('--fail-on-changed') && example.command.includes('--gate'), false)
         assert.doesNotMatch(example.raw, /\becho\b/)
+        assert.match(example.raw, /Scored mode and --gate need Cuttlely 1\.1\.0 or later/)
     }
+    const gate = examples.find((example) => example.command.includes('--gate'))
+    assert.match(gate.command, /^npx --yes cuttlely@\^1\.1\.0 check /)
+    const diff = examples.find((example) => example.command.includes('--fail-on-changed'))
+    assert.match(diff.command, /^npx --yes cuttlely check /)
 })
 
 test('each documented command exits 0, 1, and 2 against a stub server', async () => {

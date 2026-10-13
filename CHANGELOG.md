@@ -4,6 +4,10 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ## [Unreleased]
 
+### Added
+
+-   The scored CI example installs `cuttlely@^1.1.0`. Scored mode and `--gate` need Cuttlely 1.1.0 or later. The 1.0.3 package has no `--gate`. [Fail a build when answers change](./docs/how-to/ci-gate.md).
+
 ## [1.0.3] - 2026-10-13
 
 ### Added
