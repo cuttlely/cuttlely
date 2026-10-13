@@ -33,7 +33,7 @@ const MarketplaceCanvasV2 = () => {
     const customization = useSelector((state) => state.customization)
 
     const { state } = useLocation()
-    const { flowData, name } = state
+    const { flowData, name, type } = state
 
     // ==============================|| ReactFlow ||============================== //
 
@@ -97,6 +97,7 @@ const MarketplaceCanvasV2 = () => {
                         <MarketplaceCanvasHeader
                             flowName={name}
                             flowData={JSON.parse(flowData)}
+                            templateType={type || 'AgentflowV2'}
                             onChatflowCopy={(flowData) => onChatflowCopy(flowData)}
                         />
                     </Toolbar>
