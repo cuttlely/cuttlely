@@ -90,3 +90,93 @@ test('a real browser keeps at most two loop downloads in flight while responses 
         await new Promise((resolve) => server.close(resolve))
     }
 })
+
+function loopMarkup(i) {
+    return `<video data-loop-video muted loop playsinline preload="none" width="960" height="540">
+<source src="/media/${i}.webm" type="video/webm" />
+<source src="/media/${i}.mp4" type="video/mp4" />
+</video>`
+}
+
+test('a failed WebM and MP4 candidate frees the slot for the next loops', { skip: chrome ? false : 'no Chrome binary' }, async () => {
+    const requested = new Set()
+    const inflight = new Map()
+    let peak = 0
+    const note = () => {
+        const ids = new Set()
+        for (const [url, count] of inflight) {
+            if (count <= 0) continue
+            const id = url.match(/\/media\/(\d+)\./)?.[1]
+            if (id) ids.add(id)
+        }
+        peak = Math.max(peak, ids.size)
+    }
+    const server = createServer((req, res) => {
+        const url = req.url.split('?')[0]
+        if (url === '/ready') {
+            res.end('ok')
+            return
+        }
+        if (url === '/demo-video.mjs') {
+            res.setHeader('content-type', 'text/javascript')
+            res.end(readFileSync(path.join(root, 'src/scripts/demo-video.mjs')))
+            return
+        }
+        if (url === '/') {
+            res.setHeader('content-type', 'text/html')
+            res.end(`<!doctype html><meta charset="utf-8"><style>video{display:block;width:320px;height:8vh;background:#222}</style>
+${[0, 1, 2, 3, 4, 5].map(loopMarkup).join('')}
+<script type="module">import { initDemoVideo } from '/demo-video.mjs'; initDemoVideo(); fetch('/ready')</script>`)
+            return
+        }
+        const id = url.match(/\/media\/(\d+)\./)?.[1]
+        if (id) {
+            requested.add(id)
+            inflight.set(url, (inflight.get(url) || 0) + 1)
+            note()
+            req.on('close', () => {
+                inflight.set(url, (inflight.get(url) || 1) - 1)
+                note()
+            })
+            // The first two loops fail both candidates. Later loops are held so a third slot would show up.
+            if (id === '0' || id === '1') {
+                res.statusCode = 404
+                res.end('no')
+                return
+            }
+            return
+        }
+        res.statusCode = 404
+        res.end()
+    })
+    const port = await listen(server)
+    const dir = mkdtempSync(path.join(tmpdir(), 'loop-source-'))
+    const browser = spawn(
+        chrome,
+        [
+            '--headless=new',
+            '--no-sandbox',
+            '--disable-gpu',
+            '--disable-dev-shm-usage',
+            '--autoplay-policy=no-user-gesture-required',
+            '--window-size=1280,900',
+            `--user-data-dir=${dir}`,
+            `http://127.0.0.1:${port}/`
+        ],
+        { stdio: 'ignore' }
+    )
+    try {
+        const deadline = Date.now() + 8000
+        while (Date.now() < deadline && !(requested.has('2') && requested.has('3'))) {
+            await new Promise((resolve) => setTimeout(resolve, 50))
+        }
+        await new Promise((resolve) => setTimeout(resolve, 1000))
+        assert.ok(requested.has('2') && requested.has('3'), `later loops were not requested (${[...requested].join(' ')})`)
+        assert.equal(requested.has('4') || requested.has('5'), false, `cap exceeded (${[...requested].join(' ')})`)
+        assert.ok(peak <= 2, `peak in-flight loops ${peak}`)
+    } finally {
+        browser.kill('SIGKILL')
+        server.closeAllConnections()
+        await new Promise((resolve) => server.close(resolve))
+    }
+})

@@ -37,11 +37,12 @@ function fakes({ reduced = false, small = false, saveData = false, videos = 1, h
                 calls.push(`fetch ${i}`)
                 peak = Math.max(peak, open.size)
             },
-            addEventListener(type, fn) {
-                this.events[type] = fn
+            addEventListener(type, fn, capture) {
+                this.events[capture === true || capture?.capture ? `${type}:capture` : type] = fn
             },
-            removeEventListener(type, fn) {
-                if (this.events[type] === fn) delete this.events[type]
+            removeEventListener(type, fn, capture) {
+                const key = capture === true || capture?.capture ? `${type}:capture` : type
+                if (this.events[key] === fn) delete this.events[key]
             },
             events: {}
         }
@@ -218,6 +219,32 @@ test('a fetch already in progress is not restarted by the queue', () => {
     assert.equal(calls.includes('load 0'), false)
     assert.equal(list[0].currentTime, 0.2)
     assert.equal(typeof list[0].events.canplaythrough, 'function')
+})
+
+test('a source error frees the slot only when no candidate is left', () => {
+    const { doc, win, calls, list, approach } = fakes({ videos: 3 })
+    initDemoVideo(doc, win)
+    approach([0, 1, 2])
+    assert.deepEqual(
+        calls.filter((call) => call.startsWith('load')),
+        ['load 0', 'load 1']
+    )
+    // The WebM candidate failed and the MP4 candidate is still being tried.
+    list[0].networkState = 2
+    list[0].events['error:capture']()
+    assert.equal(calls.includes('load 2'), false)
+    list[0].networkState = 3
+    list[0].events['error:capture']()
+    assert.ok(calls.includes('load 2'))
+})
+
+test('a loop that has already run out of sources does not keep a slot', () => {
+    const { doc, win, calls, list, approach } = fakes({ videos: 2 })
+    list[0].networkState = 3
+    initDemoVideo(doc, win)
+    approach([0, 1])
+    assert.equal(calls.includes('load 0'), false)
+    assert.ok(calls.includes('load 1'))
 })
 
 test('a failed download frees its slot for the next loop', () => {

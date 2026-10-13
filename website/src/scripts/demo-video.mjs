@@ -14,9 +14,9 @@ export function canAutoplay(win = window) {
 
 /**
  * Downloads start about a viewport before a loop is played, two at a time.
- * play() is not used to start a fetch: on a preload="none" element it downloads immediately
- * and would ignore the cap. load() is the only start, and only when nothing has been fetched yet.
- * Calling it again aborts playback and sets currentTime back to 0. A loop that is half on screen
+ * In Chromium, setting preload="auto" is what opens the request. load() runs only when the
+ * element is still NETWORK_EMPTY, and a second load() would abort playback and set currentTime
+ * back to 0. play() waits until this slot has started the element. A loop that is half on screen
  * moves ahead of the ones that are only nearby, and plays when its download starts.
  */
 function watchLoops(videos, win) {
@@ -44,25 +44,35 @@ function watchLoops(videos, win) {
                 const video = pending.shift()
                 started.add(video)
                 active += 1
-                video.preload = 'auto'
                 let released = false
+                let onSourceError = () => {}
                 const done = () => {
                     if (released) return
                     released = true
                     video.removeEventListener('canplaythrough', done)
                     video.removeEventListener('error', done)
+                    // Source errors do not bubble. The capture listener is what sees them.
+                    video.removeEventListener('error', onSourceError, true)
                     active -= 1
                     pump()
                 }
+                // Earlier candidates fail while networkState is still LOADING (2). Only the last
+                // failure leaves NETWORK_NO_SOURCE (3), with no error event on the video itself.
+                onSourceError = () => {
+                    if (video.networkState === 3) done()
+                }
                 video.addEventListener('canplaythrough', done)
                 video.addEventListener('error', done)
+                video.addEventListener('error', onSourceError, true)
                 const readyState = video.readyState || 0
                 const networkState = video.networkState || 0
-                // HAVE_ENOUGH_DATA. canplaythrough can fire before this listener exists.
-                if (readyState >= 4) done()
-                // NETWORK_EMPTY and HAVE_NOTHING: nothing has fetched, so load() is safe.
-                else if (readyState === 0 && networkState === 0) video.load()
-                if (wantsPlay.has(video)) video.play().catch(() => {})
+                if (networkState === 3 || readyState >= 4) done()
+                else {
+                    // Chromium opens the request here. load() is only for an element that has not selected one.
+                    video.preload = 'auto'
+                    if ((video.readyState || 0) === 0 && (video.networkState || 0) === 0) video.load()
+                }
+                if (wantsPlay.has(video) && video.networkState !== 3) video.play().catch(() => {})
             }
         } finally {
             pumping = false
