@@ -200,14 +200,6 @@ function endPending(span: SpanLike | undefined): void {
     span.end()
 }
 
-function endDenied(span: SpanLike | undefined): void {
-    if (!span) return
-    span.setAttribute('status', 'denied')
-    span.setAttribute('error', 'denied')
-    span.setStatus({ code: api().SpanStatusCode.ERROR, message: 'denied' })
-    span.end()
-}
-
 function endError(span: SpanLike | undefined, error: unknown): void {
     if (!span) return
     const message = error instanceof Error ? error.message : String(error)
@@ -415,8 +407,20 @@ export async function withNodeSpan<T>(nodeId: string, nodeType: string, fn: () =
     const ctx = trace.setSpan(context.active(), span)
     try {
         const value = await context.with(ctx, fn)
-        span.setAttribute('status', 'ok')
-        span.setStatus({ code: SpanStatusCode.OK })
+        // A tool the executor caught never throws the node, but that step still failed.
+        if (failedSpans.has(span)) {
+            const message = String(span.attributes?.error ?? 'error')
+            span.setStatus({ code: SpanStatusCode.ERROR, message })
+            const parent = api().trace.getActiveSpan() as SpanLike | undefined
+            if (parent && parent !== span) {
+                parent.setAttribute('status', 'error')
+                if (typeof parent.attributes?.error !== 'string') parent.setAttribute('error', message)
+                failedSpans.add(parent)
+            }
+        } else {
+            span.setAttribute('status', 'ok')
+            span.setStatus({ code: SpanStatusCode.OK })
+        }
         span.end()
         return value
     } catch (error) {
@@ -675,7 +679,19 @@ export function releaseHeldToolsPending(traceId?: string): void {
 
 /** The caller rejected the approval. LangGraph will not resume the interrupted tool, so finish that span here. */
 export function denyHeldTools(): void {
-    endHeld(activeTraceId(), (span) => endDenied(span))
+    endHeld(activeTraceId(), (span) => endError(span, 'rejected by user'))
+}
+
+/** The active step caught a tool error. The node span, and then the run span, stay error. */
+function noteCaughtToolFailure(error: unknown): void {
+    const span = api().trace.getActiveSpan() as SpanLike | undefined
+    if (!span) return
+    const message = error instanceof Error ? error.message : String(error)
+    if (span.attributes?.status !== 'error') {
+        span.setAttribute('status', 'error')
+        span.setAttribute('error', message)
+    }
+    failedSpans.add(span)
 }
 
 function capHeldPendingTools(): void {
@@ -983,15 +999,19 @@ function emitGraphStep(
         if (held) {
             const id = tool.id || held.id
             if (id) usedIds.add(id)
-            if (tool.error) endError(held.span, tool.error)
-            else finishHeldOk(held, tool.name, id)
+            if (tool.error) {
+                endError(held.span, tool.error)
+                noteCaughtToolFailure(tool.error)
+            } else finishHeldOk(held, tool.name, id)
             continue
         }
         const span = openChild('tool', nodeId, nodeType, { 'tool.name': tool.name, ...(tool.id ? { 'tool.id': tool.id } : {}) })
         if (!span) continue
         writeContent(span, tool.inputText, tool.outputText)
-        if (tool.error) endError(span, tool.error)
-        else endOk(span)
+        if (tool.error) {
+            endError(span, tool.error)
+            noteCaughtToolFailure(tool.error)
+        } else endOk(span)
     }
     for (const call of pendingToolCalls(requestedToolCalls(messages), ran)) {
         const span = openChild('tool', nodeId, nodeType, { 'tool.name': call.name, ...(call.id ? { 'tool.id': call.id } : {}) })

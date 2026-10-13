@@ -684,20 +684,47 @@ describe('graph run traces', () => {
         expect(contentKeys(spans)).toEqual([])
     })
 
-    it('ends a rejected Sequential Agents tool span as denied', async () => {
+    it('exports no pending tool span after an approval or a rejection', async () => {
         process.env.CUTTLELY_OTEL_TRACES = 'true'
-        const chatId = 'c0ffee00-0000-4000-8000-00000000006a'
-        const source = dataSource()
-        const waiting = await runSeq('When is the loaf ready?', chatId, undefined, source, [])
-        const resumed = await runSeq('No', chatId, waiting.action as Record<string, unknown>, source, [])
-        expect(resumed.text).toBeTruthy()
-        const tools = memory.spans().filter((span) => span.name === 'tool')
-        expect(tools).toHaveLength(1)
-        expect(tools[0].attributes['status']).toBe('denied')
-        expect(tools[0].attributes['error']).toBe('denied')
-        expect(tools[0].attributes['tool.id']).toBe('call-oven')
-        expect(tools.filter((span) => span.attributes['status'] === 'pending')).toEqual([])
-        expect(tools.filter((span) => span.attributes['status'] === 'ok')).toEqual([])
+        const approvedSource = dataSource()
+        const waitingApprove = await runSeq(
+            'When is the loaf ready?',
+            'c0ffee00-0000-4000-8000-00000000006c',
+            undefined,
+            approvedSource,
+            []
+        )
+        const approved = await runSeq(
+            'Yes',
+            'c0ffee00-0000-4000-8000-00000000006c',
+            waitingApprove.action as Record<string, unknown>,
+            approvedSource,
+            []
+        )
+        expect(approved.text).toBeTruthy()
+        const approvedTools = memory.spans().filter((span) => span.name === 'tool')
+        expect(approvedTools.filter((span) => span.attributes['status'] === 'pending')).toEqual([])
+        expect(approvedTools.filter((span) => span.attributes['status'] === 'ok')).toHaveLength(1)
+        expect(approvedTools[0].attributes['tool.id']).toBe('call-oven')
+
+        memory.reset()
+        const rejectedSource = dataSource()
+        const waitingReject = await runSeq('When is the loaf ready?', 'c0ffee00-0000-4000-8000-00000000006d', undefined, rejectedSource, [])
+        const rejected = await runSeq(
+            'No',
+            'c0ffee00-0000-4000-8000-00000000006d',
+            waitingReject.action as Record<string, unknown>,
+            rejectedSource,
+            []
+        )
+        expect(rejected.text).toBeTruthy()
+        const rejectedTools = memory.spans().filter((span) => span.name === 'tool')
+        expect(rejectedTools).toHaveLength(1)
+        expect(rejectedTools[0].attributes['status']).toBe('error')
+        expect(rejectedTools[0].attributes['error']).toBe('rejected by user')
+        expect(rejectedTools[0].attributes['tool.id']).toBe('call-oven')
+        expect(rejectedTools.filter((span) => span.attributes['status'] === 'pending')).toEqual([])
+        expect(memory.spans().filter((span) => span.attributes['status'] === 'pending')).toEqual([])
     })
 
     it('ends the waiting tool span as pending when the approval is not saved', async () => {
@@ -1315,6 +1342,55 @@ describe('graph run traces', () => {
         expect(tools[0].attributes['tool.name']).toBe('oven')
         expect(tools[0].attributes['node.id']).toBe('worker_0')
         expect(tools[0].attributes['status']).toBe('ok')
+    })
+
+    it('marks the node and the run error when a tool throws and the executor still returns', async () => {
+        const lc = loadLangChain()
+        const throwingExecutor = () => {
+            const tool = new lc.DynamicTool({
+                name: 'oven',
+                description: 'Heat the oven',
+                func: async () => {
+                    throw new Error('oven exploded')
+                }
+            })
+            return lc.AgentExecutor.fromAgentAndTools({
+                agent: {
+                    inputKeys: ['input'],
+                    returnValues: ['output'],
+                    prepareForOutput: async () => ({}),
+                    plan: async (steps: unknown[]) =>
+                        steps.length ? { returnValues: { output: 'ready' }, log: '' } : { tool: 'oven', toolInput: '350', log: 'heat' }
+                },
+                tools: [tool],
+                maxIterations: 2
+            })
+        }
+        const run = async (traces: boolean) => {
+            if (traces) process.env.CUTTLELY_OTEL_TRACES = 'true'
+            else delete process.env.CUTTLELY_OTEL_TRACES
+            const executor = throwingExecutor()
+            const action = async (_state: unknown, config: unknown) => executor.invoke({ input: 'heat the oven' }, config)
+            const node = traceGraphNode('worker_0', 'worker', action)
+            const graph = compileGraph(lc, node)
+            const invoke = () => graph.invoke({ question: 'heat' })
+            if (!traces) return invoke()
+            return traceFlow('chatflow', 'c8d2b7a3-5555-4555-8555-5555555555c1', invoke)
+        }
+        const withoutTraces = await run(false)
+        memory.reset()
+        const withTraces = await run(true)
+        expect(withTraces).toEqual(withoutTraces)
+        const spans = memory.spans()
+        const toolSpan = spans.find((span) => span.name === 'tool')
+        const node = spans.find((span) => span.name === 'node' && span.attributes['node.id'] === 'worker_0')
+        const root = spans.find((span) => span.name === 'chatflow.prediction')
+        expect(toolSpan?.attributes['status']).toBe('error')
+        expect(toolSpan?.attributes['error']).toBe('oven exploded')
+        expect(node?.attributes['status']).toBe('error')
+        expect(node?.attributes['error']).toBe('oven exploded')
+        expect(root?.attributes['status']).toBe('error')
+        expect(root?.attributes['error']).toBe('oven exploded')
     })
 
     it('copies the tool call id when the callback name differs only by case', async () => {
