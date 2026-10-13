@@ -228,14 +228,14 @@ async function moveFromCardToButton(page, card, testId) {
 }
 
 // Hover an unselected card, cross onto Duplicate and click it, then do the same for Delete.
-async function dragCardVertically(page, card, targetTop) {
+async function dragCardTo(page, card, { top, left }) {
     const cardBox = await card.boundingBox()
     if (!cardBox) throw new Error('card has no box to drag')
-    const handleX = cardBox.x + Math.min(28, cardBox.width / 2)
-    const handleY = cardBox.y + Math.min(18, cardBox.height / 2)
-    await page.mouse.move(handleX, handleY)
+    const offsetX = Math.min(28, cardBox.width / 2)
+    const offsetY = Math.min(18, cardBox.height / 2)
+    await page.mouse.move(cardBox.x + offsetX, cardBox.y + offsetY)
     await page.mouse.down()
-    await page.mouse.move(handleX, targetTop + (handleY - cardBox.y), { steps: 12 })
+    await page.mouse.move((left ?? cardBox.x) + offsetX, top + offsetY, { steps: 16 })
     await page.mouse.up()
     await page.waitForTimeout(300)
 }
@@ -244,8 +244,10 @@ async function checkHoverClicks(page, nodeId, placement) {
     const card = page.locator(`.react-flow__node[data-id="${nodeId}"]`)
     await card.waitFor({ timeout: 10000 })
     const paneBox = await page.locator('.react-flow').first().boundingBox()
-    if (placement === 'below') await dragCardVertically(page, card, paneBox.y)
-    else await dragCardVertically(page, card, paneBox.y + paneBox.height * 0.45)
+    // A duplicate sits to the right of its original and can leave the view. Park the card in the pane first.
+    const left = paneBox.x + Math.min(280, paneBox.width * 0.28)
+    const top = placement === 'below' ? paneBox.y : paneBox.y + paneBox.height * 0.45
+    await dragCardTo(page, card, { top, left })
     await deselect(page)
     const probe = await card.boundingBox()
     await page.mouse.move(probe.x + probe.width / 2, probe.y + Math.min(20, probe.height / 2))
@@ -271,15 +273,9 @@ async function checkHoverClicks(page, nodeId, placement) {
 async function checkTopEdge(page, card, nodeId) {
     const pane = page.locator('.react-flow').first()
     const paneBox = await pane.boundingBox()
-    const cardBox = await card.boundingBox()
-    if (!paneBox || !cardBox) throw new Error(`${nodeId} could not be measured for the top-edge check`)
-    const handleX = cardBox.x + Math.min(28, cardBox.width / 2)
-    const handleY = cardBox.y + Math.min(18, cardBox.height / 2)
-    await page.mouse.move(handleX, handleY)
-    await page.mouse.down()
-    await page.mouse.move(handleX, paneBox.y + (handleY - cardBox.y), { steps: 12 })
-    await page.mouse.up()
-    await page.waitForTimeout(400)
+    if (!paneBox || !(await card.boundingBox())) throw new Error(`${nodeId} could not be measured for the top-edge check`)
+    await dragCardTo(page, card, { top: paneBox.y, left: paneBox.x + Math.min(280, paneBox.width * 0.28) })
+    await page.waitForTimeout(100)
     const before = await page.locator('.react-flow__node').count()
     for (const testId of ['card-duplicate', 'card-delete']) {
         const button = card.locator(`[data-testid="${testId}"]`)
@@ -291,7 +287,15 @@ async function checkTopEdge(page, card, nodeId) {
             box.y + box.height <= paneBox.y + paneBox.height + 1 &&
             box.x >= paneBox.x - 1 &&
             box.x + box.width <= paneBox.x + paneBox.width + 1
-        if (!fullyInside) throw new Error(`${nodeId} ${testId} is not fully inside the canvas`)
+        if (!fullyInside) {
+            throw new Error(
+                `${nodeId} ${testId} is not fully inside the canvas (button ${Math.round(box.x)},${Math.round(box.y)} ${Math.round(
+                    box.width
+                )}x${Math.round(box.height)}; pane ${Math.round(paneBox.x)},${Math.round(paneBox.y)} ${Math.round(
+                    paneBox.width
+                )}x${Math.round(paneBox.height)})`
+            )
+        }
         const topmost = await page.evaluate(
             ({ x, y, testId }) => {
                 const hit = document.elementFromPoint(x, y)
