@@ -21,7 +21,9 @@ import { apiErrorMessage } from '@/utils/flowDrafts'
 import {
     checkKind,
     checkTitle,
+    compareListLabel,
     countPickerLabel,
+    loadFailureMessage,
     loadingText,
     CHECK_VARY_NOTE,
     CHECK_WORDS,
@@ -106,7 +108,7 @@ export const CheckResults = ({ check, words = CHECK_WORDS.publish, replayInputs 
             {running && (
                 <Box>
                     <Typography variant='body2' data-testid='check-progress'>
-                        {progressText(check)}
+                        {progressText(check, replayInputs ? 'run' : 'question')}
                     </Typography>
                     <LinearProgress
                         variant='determinate'
@@ -119,7 +121,7 @@ export const CheckResults = ({ check, words = CHECK_WORDS.publish, replayInputs 
             {!running && (
                 <Box data-testid='check-summary'>
                     <Typography variant='body2' sx={{ fontWeight: 600 }}>
-                        {summaryText(check, words)}
+                        {summaryText(check, words, replayInputs ? 'run' : 'question')}
                     </Typography>
                     {usageText(check, words) && (
                         <Typography variant='body2' color='text.secondary'>
@@ -128,7 +130,7 @@ export const CheckResults = ({ check, words = CHECK_WORDS.publish, replayInputs 
                     )}
                 </Box>
             )}
-            {check.stopReason && <Alert severity='info'>{stopReasonText(check.stopReason)}</Alert>}
+            {check.stopReason && <Alert severity='info'>{stopReasonText(check.stopReason, replayInputs ? 'run' : 'question')}</Alert>}
             {check.status === 'failed' && <Alert severity='error'>{check.error || 'The check could not run.'}</Alert>}
             {check.draftChanged && !running && <Alert severity='warning'>{words.changed}</Alert>}
             {cases.map((c, index) => {
@@ -236,8 +238,19 @@ export const PublishCheckView = ({
     const risky = setup?.riskySteps || []
     const unavailable = setup?.unavailable || null
     const replayInputs = Boolean(setup?.replayInputs)
-    // While the setup request is in flight, the canvas hint is all we have. Setup and loading clear together.
-    const shownKind = loading ? hintedKind : replayInputs ? 'runs' : setup ? 'questions' : hintedKind
+    // 'questions' only after a chat check is available. A refusal keeps the canvas hint, so an unknown
+    // start stays Check instead of switching to Check recent questions.
+    const shownKind = loading
+        ? hintedKind
+        : unavailable
+        ? hintedKind === 'runs'
+            ? 'runs'
+            : null
+        : replayInputs
+        ? 'runs'
+        : setup
+        ? 'questions'
+        : hintedKind
     const past = (setup?.questions || []).filter((q) => !q.starter)
     const pastCount = Number.isFinite(Number(setup?.pastCount)) ? Number(setup.pastCount) : past.length
     const used = pastCount > 0 ? Math.min(count, pastCount) : 0
@@ -291,7 +304,7 @@ export const PublishCheckView = ({
                         </Typography>
                     )}
                     {pastCount > 0 && (
-                        <Stack sx={{ mt: 1 }} aria-label='Questions to compare'>
+                        <Stack sx={{ mt: 1 }} aria-label={compareListLabel(replayInputs)}>
                             {past
                                 .slice(0, used)
                                 .slice(0, previewShown)
@@ -547,7 +560,7 @@ const PublishCheck = ({ chatflowId, variant = 'publish', api = flowDraftsApi, fl
                     if (state.running) poll(previous.id)
                 }
             })
-            .catch((err) => !cancelled && setLoadError(apiErrorMessage(err, 'Recent questions could not be loaded.')))
+            .catch((err) => !cancelled && setLoadError(apiErrorMessage(err, loadFailureMessage(hintedKind))))
             .finally(() => !cancelled && setLoading(false))
         return () => {
             cancelled = true
@@ -556,7 +569,7 @@ const PublishCheck = ({ chatflowId, variant = 'publish', api = flowDraftsApi, fl
             // Closing the dialog (or publishing) stops a check that is still running, so it stops costing tokens.
             if (state.running && state.checkId) api.stopCheck(chatflowId, state.checkId).catch(() => {})
         }
-    }, [chatflowId, poll, api])
+    }, [chatflowId, poll, api, hintedKind])
 
     const pastCount = () => {
         const reported = Number(setup?.pastCount)

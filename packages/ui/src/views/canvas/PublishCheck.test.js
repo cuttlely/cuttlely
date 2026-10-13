@@ -103,6 +103,8 @@ describe('PublishCheckView', () => {
         })
         expect(html).toContain('Check recent runs')
         expect(html).not.toContain('Check recent questions')
+        expect(html).toContain('Runs to compare')
+        expect(html).not.toContain('Questions to compare')
         expect(html).toContain('Run recent inputs again on Live and on your draft')
         expect(html).toContain('Requested runs')
         expect(html).toContain('Only 1 past run available. Comparing that run.')
@@ -311,6 +313,69 @@ describe('PublishCheckView', () => {
         expect(html).toContain('Changed')
         expect(html).toContain('Run check again')
         expect(html).not.toContain('Unasked')
+        expect(html).toContain('Stopped at the token limit. These are the questions answered so far.')
+    })
+
+    test('a runs check uses runs and recorded-input wording for progress, stop, and an empty summary', () => {
+        const running = render({
+            setup: { unavailable: null, replayInputs: true, replaySource: 'webhook', questions: [], pastCount: 0, riskySteps: [], limits },
+            check: {
+                id: 'c1',
+                status: 'running',
+                total: 2,
+                completed: 1,
+                stopReason: null,
+                draftChanged: false,
+                liveEmpty: false,
+                cases: [{ question: '{"webhook":{"body":{}}}', live, draft, same: false }],
+                summary: { ran: 0 }
+            }
+        })
+        expect(running).toContain('Ran 1 of 2…')
+        expect(running).not.toContain('Asked 1 of 2…')
+        const stopped = render({
+            setup: { unavailable: null, replayInputs: true, replaySource: 'form', questions: [], pastCount: 0, riskySteps: [], limits },
+            check: {
+                id: 'c2',
+                status: 'stopped',
+                stopReason: 'stopped',
+                total: 2,
+                completed: 0,
+                draftChanged: false,
+                liveEmpty: false,
+                cases: [],
+                summary: { ran: 0 }
+            }
+        })
+        expect(stopped).toContain('You stopped the check. These are the runs answered so far.')
+        expect(stopped).toContain('No recorded input was answered by both versions.')
+        expect(stopped).not.toContain('questions answered so far')
+        expect(stopped).not.toContain('No question was answered')
+        const emptyLive = render({
+            setup: {
+                unavailable: null,
+                replayInputs: true,
+                replaySource: 'schedule',
+                questions: [],
+                pastCount: 0,
+                riskySteps: [],
+                limits,
+                liveEmpty: true
+            },
+            check: {
+                id: 'c3',
+                status: 'done',
+                stopReason: 'time',
+                total: 1,
+                completed: 0,
+                draftChanged: false,
+                liveEmpty: true,
+                cases: [],
+                summary: { ran: 0 }
+            }
+        })
+        expect(emptyLive).toContain('Stopped at the time limit. These are the runs answered so far.')
+        expect(emptyLive).toContain('No recorded input was answered on your draft.')
     })
 
     test('unavailable flows say why; drafts off shows nothing', () => {
@@ -323,7 +388,28 @@ describe('PublishCheckView', () => {
             }
         })
         expect(type).toContain('The check works on chatflows and agentflows.')
+        expect(type).toContain('>Check<')
+        expect(type).not.toContain('Check recent questions')
         expect(type).not.toContain('data-testid="check-run"')
+        const settled = render({
+            loading: false,
+            checkKind: null,
+            setup: {
+                unavailable: {
+                    code: 'start',
+                    message: 'The check asks questions, so it works on agentflows that start with a chat message.'
+                },
+                replayInputs: false,
+                questions: [],
+                riskySteps: [],
+                limits,
+                check: null
+            }
+        })
+        expect(settled).toContain('The check asks questions, so it works on agentflows that start with a chat message.')
+        expect(settled).toContain('>Check<')
+        expect(settled).not.toContain('Check recent questions')
+        expect(settled).not.toContain('Check recent runs')
         expect(render({ setup: { unavailable: { code: 'off', message: 'Drafts are off on this server.' }, limits } })).toBe('')
     })
 
@@ -363,6 +449,8 @@ describe('PublishCheckView', () => {
             list: []
         })
         expect(html).toContain('data-testid="compare-count"')
+        expect(html).toContain('Questions to compare')
+        expect(html).not.toContain('Runs to compare')
         expect(html).toContain('Requested questions')
         expect(html).not.toContain('Past questions')
         for (const n of [4, 10, 25, 50, 100]) expect(html).toContain(`value="${n}"`)

@@ -60,6 +60,15 @@ export const loadingText = (kind) => {
     return LOADING_UNKNOWN
 }
 
+// The setup request failed. An unknown start (From Dev, before the canvas says) does not say questions.
+export const loadFailureMessage = (kind) => {
+    if (kind === 'runs') return 'Recent runs could not be loaded.'
+    if (kind === 'questions') return 'Recent questions could not be loaded.'
+    return 'The check could not be loaded.'
+}
+
+export const compareListLabel = (replayInputs) => (replayInputs ? 'Runs to compare' : 'Questions to compare')
+
 // The number in the picker is a request. When fewer runs or questions exist, the label says so,
 // so "4" is not read as "4 past runs" next to "Only 2 past runs available".
 export const countPickerLabel = ({ replayInputs = false, requested = 0, available = 0 } = {}) => {
@@ -312,10 +321,11 @@ export const caseBadge = (c, liveEmpty = false) => {
     return c.same ? { label: 'Same', color: 'success' } : { label: 'Changed', color: 'warning' }
 }
 
-export const progressText = (check) => {
+export const progressText = (check, unit = 'question') => {
     if (!check) return ''
     const done = Math.min(Number(check.completed) || 0, Number(check.total) || 0)
-    return `Asked ${done} of ${check.total}…`
+    const verb = unit === 'run' ? 'Ran' : 'Asked'
+    return `${verb} ${done} of ${check.total}…`
 }
 
 const tokenChange = (live, draft, side) => {
@@ -334,21 +344,23 @@ const timeChange = (live, draft, side) => {
     return delta < 0 ? ` (${side} was ${amount} faster)` : ` (${side} was ${amount} slower)`
 }
 
-export const stopReasonText = (reason) => {
-    if (reason === 'tokens') return 'Stopped at the token limit. These are the questions answered so far.'
-    if (reason === 'time') return 'Stopped at the time limit. These are the questions answered so far.'
-    if (reason === 'stopped') return 'You stopped the check. These are the questions answered so far.'
+export const stopReasonText = (reason, unit = 'question') => {
+    const answered = unit === 'run' ? 'runs' : 'questions'
+    if (reason === 'tokens') return `Stopped at the token limit. These are the ${answered} answered so far.`
+    if (reason === 'time') return `Stopped at the time limit. These are the ${answered} answered so far.`
+    if (reason === 'stopped') return `You stopped the check. These are the ${answered} answered so far.`
     return ''
 }
 
-export const summaryText = (check, words = CHECK_WORDS.publish) => {
+export const summaryText = (check, words = CHECK_WORDS.publish, unit = 'question') => {
     const s = check?.summary
+    const none = unit === 'run' ? 'recorded input' : 'question'
     if (check?.liveEmpty) {
-        if (!s || !s.ran) return check.status === 'running' ? '' : `No question was answered on ${words.yours}.`
+        if (!s || !s.ran) return check.status === 'running' ? '' : `No ${none} was answered on ${words.yours}.`
         const answered = s.ran - (s.errors || 0)
         return `${answered} of ${s.ran} answered on ${words.yours}${s.errors ? `, ${s.errors} had an error` : ''}.`
     }
-    if (!s || !s.ran) return check?.status === 'running' ? '' : 'No question was answered by both versions.'
+    if (!s || !s.ran) return check?.status === 'running' ? '' : `No ${none} was answered by both versions.`
     const parts = []
     if (s.changed) parts.push(`${s.changed} of ${s.ran} answered differently`)
     if (s.same) parts.push(`${s.same} of ${s.ran} answered the same`)

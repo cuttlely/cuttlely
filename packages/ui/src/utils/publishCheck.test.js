@@ -13,6 +13,8 @@ import {
     addQuestion,
     canRunCheck,
     capMessage,
+    compareListLabel,
+    loadFailureMessage,
     inputMeta,
     inputPreview,
     NO_PAST_RUNS,
@@ -223,7 +225,9 @@ describe('results', () => {
             ]
         }
         expect(progressText(running)).toBe('Asked 1 of 4…')
+        expect(progressText(running, 'run')).toBe('Ran 1 of 4…')
         expect(progressText({ status: 'running', total: 2, completed: 2 })).toBe('Asked 2 of 2…')
+        expect(progressText({ status: 'running', total: 2, completed: 2 }, 'run')).toBe('Ran 2 of 2…')
         expect(visibleCases(running)).toHaveLength(2)
         const done = {
             status: 'done',
@@ -239,14 +243,26 @@ describe('results', () => {
             'Tokens: Live 1,840, draft 188 (Draft used 1,652 fewer). Typical time: Live 0.6 s, draft 0.5 s (Draft was 0.1 s faster).'
         )
         expect(summaryText({ status: 'stopped', summary: { ran: 0 } })).toBe('No question was answered by both versions.')
+        expect(summaryText({ status: 'stopped', summary: { ran: 0 } }, CHECK_WORDS.publish, 'run')).toBe(
+            'No recorded input was answered by both versions.'
+        )
         expect(usageText({ summary: { ran: 0 } })).toBe('')
         expect(usageText(done, CHECK_WORDS.promote)).toBe(
             'Tokens: Live 1,840, from Dev 188 (From Dev used 1,652 fewer). Typical time: Live 0.6 s, from Dev 0.5 s (From Dev was 0.1 s faster).'
         )
-        expect(stopReasonText('tokens')).toContain('token limit')
-        expect(stopReasonText('time')).toContain('time limit')
-        expect(stopReasonText('stopped')).toContain('You stopped the check')
+        expect(stopReasonText('tokens')).toBe('Stopped at the token limit. These are the questions answered so far.')
+        expect(stopReasonText('time')).toBe('Stopped at the time limit. These are the questions answered so far.')
+        expect(stopReasonText('stopped')).toBe('You stopped the check. These are the questions answered so far.')
+        expect(stopReasonText('tokens', 'run')).toBe('Stopped at the token limit. These are the runs answered so far.')
+        expect(stopReasonText('time', 'run')).toBe('Stopped at the time limit. These are the runs answered so far.')
+        expect(stopReasonText('stopped', 'run')).toBe('You stopped the check. These are the runs answered so far.')
         expect(stopReasonText(null)).toBe('')
+        expect(stopReasonText(null, 'run')).toBe('')
+        expect(compareListLabel(false)).toBe('Questions to compare')
+        expect(compareListLabel(true)).toBe('Runs to compare')
+        expect(loadFailureMessage('questions')).toBe('Recent questions could not be loaded.')
+        expect(loadFailureMessage('runs')).toBe('Recent runs could not be loaded.')
+        expect(loadFailureMessage(null)).toBe('The check could not be loaded.')
     })
 
     test('a flow never published runs each question once, on the draft', () => {
@@ -264,6 +280,12 @@ describe('results', () => {
         expect(caseBadge({ live: null, draft: { error: 'boom' } }, true)).toEqual({ label: 'Error', color: 'error' })
         expect(caseBadge({ live: null, draft: null }, true)).toEqual({ label: 'Waiting', color: 'default' })
         expect(summaryText({ status: 'done', liveEmpty: true, summary: { ran: 0 } })).toBe('No question was answered on your draft.')
+        expect(summaryText({ status: 'done', liveEmpty: true, summary: { ran: 0 } }, CHECK_WORDS.publish, 'run')).toBe(
+            'No recorded input was answered on your draft.'
+        )
+        expect(summaryText({ status: 'done', liveEmpty: true, summary: { ran: 0 } }, CHECK_WORDS.promote, 'run')).toBe(
+            'No recorded input was answered on the version from Dev.'
+        )
     })
 
     test('copy is plain words, with no section mark and no engineering terms', () => {

@@ -68,6 +68,42 @@ describe('PublishCheck while getCheckSetup is still pending', () => {
         renderer.unmount()
     })
 
+    const fail = async (props) => {
+        flowDraftsApi.getCheckSetup.mockRejectedValue(new Error('offline'))
+        let renderer
+        await TestRenderer.act(async () => {
+            renderer = TestRenderer.create(
+                createElement(ThemeProvider, { theme: createTheme() }, createElement(PublishCheck, { chatflowId: 'flow-1', ...props }))
+            )
+        })
+        return renderer
+    }
+
+    test('a failed webhook setup says runs could not be loaded', async () => {
+        const renderer = await fail({ flowType: 'AGENTFLOW', canvases: [agentCanvas('webhookTrigger'), agentCanvas('webhookTrigger')] })
+        const text = JSON.stringify(renderer.toJSON())
+        expect(text).toContain('Recent runs could not be loaded.')
+        expect(text).not.toContain('Recent questions could not be loaded.')
+        renderer.unmount()
+    })
+
+    test('a failed chat setup says questions could not be loaded', async () => {
+        const renderer = await fail({ flowType: 'AGENTFLOW', canvases: [agentCanvas('chatInput')] })
+        const text = JSON.stringify(renderer.toJSON())
+        expect(text).toContain('Recent questions could not be loaded.')
+        expect(text).not.toContain('Recent runs could not be loaded.')
+        renderer.unmount()
+    })
+
+    test('a failed setup with no canvas uses a neutral line', async () => {
+        const renderer = await fail({})
+        const text = JSON.stringify(renderer.toJSON())
+        expect(text).toContain('The check could not be loaded.')
+        expect(text).not.toContain('Recent questions could not be loaded.')
+        expect(text).not.toContain('Recent runs could not be loaded.')
+        renderer.unmount()
+    })
+
     test('a chat start says questions during the wait', async () => {
         const renderer = await mount('AGENTFLOW', 'chatInput')
         expect(flowDraftsApi.getCheckSetup).toHaveBeenCalledWith('flow-1')
