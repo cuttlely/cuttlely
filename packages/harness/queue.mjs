@@ -258,6 +258,16 @@ export function callerWorkspaceForJob(name) {
     return caller
 }
 
+function savedRunId(row) {
+    const id = row && typeof row.id === 'string' ? row.id : ''
+    return /^run_[A-Za-z0-9-]{8,80}$/.test(id) ? id : ''
+}
+
+function resultWithRunId(result, runId) {
+    if (!runId || !result || typeof result !== 'object' || Array.isArray(result)) return result
+    return { ...result, runId }
+}
+
 export async function executeJob(job) {
     if (cancelRequested(job.id) || job.cancelRequested) {
         finishJob(job.id, { status: 'cancelled', errorCode: 'aborted', errorMessage: 'Client disconnected' })
@@ -275,6 +285,7 @@ export async function executeJob(job) {
         if (cancelRequested(job.id) || local?.signal?.aborted) controller.abort()
     }, 25)
     if (typeof timer.unref === 'function') timer.unref()
+    let savedId = ''
     try {
         // No localRuns entry means another process claimed the job. Refuse before runHarness so no history row is written.
         if (!local) {
@@ -286,6 +297,8 @@ export async function executeJob(job) {
         }
         const { runHarness } = await import('./run.mjs')
         const runtime = await jobRuntime(job, local)
+        // The waiter is another process when the queue is external, so its onRecorded never runs.
+        // The saved history id rides on the job result. The waiter reads it and then drops the field.
         const result = await runHarness({
             name: job.payload.name,
             chatId: job.payload.chatId,
@@ -293,7 +306,11 @@ export async function executeJob(job) {
             images: job.payload.images,
             source: local?.source || job.payload.source,
             traceId: local?.traceId || job.payload.traceId,
-            onRecorded: local?.onRecorded,
+            onRecorded: (row) => {
+                const id = savedRunId(row)
+                if (id) savedId = id
+                local?.onRecorded?.(row)
+            },
             budgetMs: local?.budgetMs ?? job.payload.budgetMs ?? undefined,
             timeoutMs: local?.timeoutMs ?? job.payload.timeoutMs ?? undefined,
             baseUrl: local?.baseUrl,
@@ -307,16 +324,18 @@ export async function executeJob(job) {
             signal: controller.signal,
             onEvent: (event) => appendEvent(job.id, event)
         })
-        finishJob(job.id, { status: 'succeeded', result })
+        const stored = resultWithRunId(result, savedId)
+        finishJob(job.id, { status: 'succeeded', result: stored })
         console.info(`[harness] worker ${process.pid} job ${job.id} ${job.payload.name} succeeded`)
-        return result
+        return stored
     } catch (error) {
         const code = controller.signal.aborted ? 'aborted' : error?.code || 'harness_failed'
         const message = code === 'aborted' ? 'Client disconnected' : error?.message || 'The harness job failed.'
         finishJob(job.id, {
             status: code === 'aborted' ? 'cancelled' : 'failed',
             errorCode: code,
-            errorMessage: message
+            errorMessage: message,
+            result: savedId ? { runId: savedId } : undefined
         })
         console.info(`[harness] worker ${process.pid} job ${job.id} ${job.payload.name} ${code}`)
         throw error
@@ -372,7 +391,10 @@ export async function waitForJob(id, { onEvent, signal, timeoutMs } = {}) {
             }
             if (job.status === 'failed' || job.status === 'cancelled') {
                 const { HarnessError } = await import('./errors.mjs')
-                throw new HarnessError(job.errorCode || 'harness_failed', job.errorMessage || 'The harness job failed.')
+                const error = new HarnessError(job.errorCode || 'harness_failed', job.errorMessage || 'The harness job failed.')
+                const saved = savedRunId({ id: job.result?.runId })
+                if (saved) error.runId = saved
+                throw error
             }
             const stale = staleAfter()
             if (stale && job.status === 'running' && Date.now() - job.updatedAt > stale) {

@@ -13,6 +13,7 @@ import { getRunningExpressApp } from '../../utils/getRunningExpressApp'
 import logger from '../../utils/logger'
 import { orgIdForWorkspace } from '../etl'
 import flowDraftsService from '../flow-drafts'
+import { openHarnessRunTrace } from '../../metrics/tracing'
 import { recordCompletedRun } from '../usage'
 import { chatImages } from './chatImages'
 
@@ -338,6 +339,19 @@ const assertRunRequest = async (name: string, body: Record<string, unknown>, wor
     return { harness, question, chatId: typeof rawChatId === 'string' && rawChatId ? rawChatId : `playground-${randomUUID()}` }
 }
 
+function recordedId(row: Record<string, unknown> | null): string | undefined {
+    return row && typeof row.id === 'string' ? row.id : undefined
+}
+
+// The queue worker copies the saved history id onto the job result. It is not part of the public payload.
+function takeJobRunId(payload: unknown): string | undefined {
+    if (!payload || typeof payload !== 'object' || Array.isArray(payload) || !('runId' in payload)) return undefined
+    const record = payload as { runId?: unknown }
+    const runId = typeof record.runId === 'string' ? record.runId : undefined
+    delete record.runId
+    return runId
+}
+
 const startRun = async (
     name: string,
     body: Record<string, unknown>,
@@ -365,11 +379,22 @@ const startRun = async (
     const queued = engine.runQueuedHarness
     // A draft roster exists only in this process. The queue worker would load the saved harness instead.
     const run = !opts.record && process.env.CUTTLELY_HARNESS_QUEUE !== 'off' && typeof queued === 'function' ? queued : engine.runHarness
+    const traceWorkspaceId = typeof prepared.harness.workspaceId === 'string' ? prepared.harness.workspaceId : undefined
+    let harnessTrace: ReturnType<typeof openHarnessRunTrace> | undefined
     let recorded: Record<string, unknown> | null = null
     const flowOptions = { ...(runtime?.flowOptions || {}) }
     // The server context copies the harness file. The run compares the caller's team.
     if (typeof opts.workspaceId === 'string' && opts.workspaceId) flowOptions.workspaceId = opts.workspaceId
     try {
+        // A cross-team refusal happens before a span is opened.
+        if (typeof engine.assertHarnessWorkspace === 'function') engine.assertHarnessWorkspace(name, flowOptions, opts.record)
+        harnessTrace = openHarnessRunTrace({
+            name,
+            workspaceId: traceWorkspaceId,
+            question: prepared.question,
+            replay: opts.replay === true,
+            draft: Boolean(opts.record)
+        })
         const payload = await run({
             name,
             chatId: prepared.chatId,
@@ -377,7 +402,10 @@ const startRun = async (
             source: opts.source === 'playground' || opts.source === 'api' ? opts.source : 'api',
             componentNodes: runtime?.componentNodes,
             flowOptions,
-            onEvent: opts.onEvent,
+            onEvent: (event: { type: string }) => {
+                harnessTrace?.event(event as Record<string, unknown>)
+                opts.onEvent?.(event)
+            },
             signal: opts.signal,
             record: opts.record,
             replay: opts.replay === true,
@@ -385,10 +413,15 @@ const startRun = async (
                 recorded = row
             }
         })
-        if (!recorded && !opts.replay) {
-            const history = await loadHarness('history.mjs')
-            recorded = history.listRuns(name, { limit: 20 }).find((row: { chatId?: string }) => row.chatId === prepared.chatId) || null
-        }
+        // An external worker writes history in its own process, so onRecorded does not run here.
+        // The worker puts that saved id on the job result. Drop it before the response is returned.
+        const jobRunId = takeJobRunId(payload)
+        if (!recorded && jobRunId) recorded = { id: jobRunId }
+        const runId = recordedId(recorded)
+        harnessTrace?.finish({
+            text: typeof (payload as { text?: unknown } | undefined)?.text === 'string' ? (payload as { text: string }).text : undefined,
+            runId
+        })
         // Public runs, a canvas draft try, and a publish-check replay all finish here.
         // startCanvasRun and replayCheck call startRun, so this is the only usage write.
         const workspaceId = prepared.harness.workspaceId
@@ -405,6 +438,11 @@ const startRun = async (
         }
         return { payload, run: recorded, chatId: prepared.chatId }
     } catch (error) {
+        if (!recorded) {
+            const carried = error && typeof error === 'object' ? (error as { runId?: unknown }).runId : undefined
+            if (typeof carried === 'string') recorded = { id: carried }
+        }
+        if ((error as { code?: string }).code !== 'wrong_workspace') harnessTrace?.fail(error, { runId: recordedId(recorded) })
         const wrapped = httpHarnessError(error) as AppError & { harnessRun?: unknown }
         wrapped.harnessRun = recorded
         throw wrapped
