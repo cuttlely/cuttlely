@@ -8,12 +8,12 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
-import { main } from '../lib/cli.js'
+import { main } from '../packages/cli/lib/cli.js'
 
 const require = createRequire(import.meta.url)
 const yaml = require('js-yaml')
 
-const ROOT = fileURLToPath(new URL('../../..', import.meta.url))
+const ROOT = fileURLToPath(new URL('..', import.meta.url))
 const EXAMPLES = join(ROOT, 'examples', 'ci')
 const GUIDE = join(ROOT, 'docs', 'how-to', 'ci-gate.md')
 const CLI = join(ROOT, 'packages', 'cli', 'bin', 'cuttlely.js')
