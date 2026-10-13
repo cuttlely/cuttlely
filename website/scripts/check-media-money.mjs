@@ -27,9 +27,15 @@ const UNIT = '(?:dollars?|cents?|euros?|pounds?)'
 const NAMED_SRC = `\\b(?:${AMOUNT}\\s+${UNIT}|${UNIT}\\s+${AMOUNT})\\b`
 const USD_SRC = String.raw`\b(?:USD\s*\d[\d,]*(?:\.\d+)?|\d[\d,]*(?:\.\d+)?\s*USD)\b`
 
-/** Punctuation before "in" or "out" is a space, so "$33,out" reads like "$33 out". */
+/**
+ * Token counts are not amounts. Punctuation before "in" or "out" is a space, so "$33,out" reads like "$33 out".
+ * A symbol glued to a thousands group, or to the three-digit tail of one, is the same kind of count:
+ * "$5,541 in", "$5,541in", and "$541 in" (read from "5,541 in").
+ */
 function softenTracePunctuation(text) {
-    return String(text).replace(/[^\s\w$€£.]+(?=\s*(?:in|out)\b)/gi, ' ')
+    return String(text)
+        .replace(/[^\s\w$€£.]+(?=\s*(?:in|out)\b)/gi, ' ')
+        .replace(/(?<![A-Za-z0-9])[$€£]\s*(?:\d{1,3}(?:,\d{3})+|\d{3})(?:,?\s*)?(?=(?:in|out)\b)/gi, ' ')
 }
 
 /**

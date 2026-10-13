@@ -36,7 +36,9 @@ const negatives = [
     'a pound of flour',
     'a dollar bill',
     '$33,out',
-    '$541 in'
+    '$541 in',
+    '$5,541 in',
+    '$5,541in'
 ]
 
 test('currency matcher flags amounts and leaves plain figures alone', () => {

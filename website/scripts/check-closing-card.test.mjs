@@ -1,8 +1,7 @@
-// OCRs sampled frames of each homepage closing card. A figure that is not the
-// sourced value fails the test. The customer-care card is sampled from its
-// first appearance through the end of the hold, and each sourced figure has
-// to be read, in card order. A listed file that is not on disk fails the test.
-// Without tesseract or ffmpeg the OCR portion skips.
+// Product closing cards are sampled. The customer-care card is read on every
+// frame from the fade (frame 2110) through the end, by check-closing-card.mjs.
+// A listed file that is not on disk fails the test. Without tesseract or
+// ffmpeg the OCR portion skips.
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
 import fs from 'node:fs'
@@ -10,6 +9,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
+import { CUSTOMER_CARE_FILES, scanCustomerCareFile } from './check-closing-card.mjs'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const media = path.join(root, 'public', 'media')
@@ -20,9 +20,6 @@ function tool(name) {
 
 /** @type {{file: string, from: number, to: number, allow: number[], require?: number[]}[]} */
 const cards = [
-    // The home page serves both sources (website/src/pages/index.astro). The card holds to the end of the 78.4 s recording.
-    { file: 'customer-care-demo.mp4', from: 71.0, to: 78.2, allow: [0.8, 1.9, 19.8], require: [0.8, 1.9, 19.8] },
-    { file: 'customer-care-demo.webm', from: 71.0, to: 78.2, allow: [0.8, 1.9, 19.8], require: [0.8, 1.9, 19.8] },
     { file: 'products/chatflows-loop.mp4', from: 32.0, to: 34.2, allow: [1.1, 1.3] },
     { file: 'products/chatflows.mp4', from: 32.0, to: 34.2, allow: [1.1, 1.3] },
     { file: 'products/agentflows-loop.mp4', from: 26.8, to: 29.2, allow: [0.9, 1.2, 0.8] },
@@ -105,8 +102,9 @@ function ocrFrame(file, at, dest) {
     return figuresIn(read.stdout)
 }
 
-test('closing card samples show only the sourced figures', () => {
-    const missing = cards.filter((card) => !fs.existsSync(path.join(media, card.file))).map((card) => `${card.file} is missing`)
+test('closing card samples show only the sourced figures', async () => {
+    const listed = [...CUSTOMER_CARE_FILES, ...cards.map((card) => card.file)]
+    const missing = listed.filter((name) => !fs.existsSync(path.join(media, name))).map((name) => `${name} is missing`)
     assert.deepEqual(missing, [], missing.join('\n'))
     if (!tool('tesseract') || !tool('ffmpeg')) {
         console.log('tesseract or ffmpeg is not installed, so the closing-card check was skipped')
@@ -115,6 +113,9 @@ test('closing card samples show only the sourced figures', () => {
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'closing-card-'))
     const bad = []
     try {
+        for (const name of CUSTOMER_CARE_FILES) {
+            bad.push(...(await scanCustomerCareFile(path.join(media, name))))
+        }
         for (const card of cards) {
             const file = path.join(media, card.file)
             const seen = new Map()

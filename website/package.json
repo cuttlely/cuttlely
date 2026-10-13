@@ -14,7 +14,7 @@
         "build": "node scripts/sync-docs.mjs && astro build && node scripts/check-site.mjs",
         "preview": "astro preview",
         "check": "node scripts/check-site.mjs",
-        "test": "node --test scripts/*.test.mjs"
+        "test": "node --test --test-concurrency=1 scripts/*.test.mjs"
     },
     "dependencies": {
         "@astrojs/starlight": "0.42.6",
