@@ -348,6 +348,8 @@ const startRun = async (
         // Set only for the canvas and Try it. The external runs route leaves this unset and reads the saved harness.
         record?: Record<string, unknown>
         workspaceId?: string | null
+        // Publish check. The try profile is still used. History, the session and captured analyst rows are not.
+        replay?: boolean
     } = {}
 ) => {
     const prepared = await assertRunRequest(name, body, opts.workspaceId)
@@ -364,6 +366,9 @@ const startRun = async (
     // A draft roster exists only in this process. The queue worker would load the saved harness instead.
     const run = !opts.record && process.env.CUTTLELY_HARNESS_QUEUE !== 'off' && typeof queued === 'function' ? queued : engine.runHarness
     let recorded: Record<string, unknown> | null = null
+    const flowOptions = { ...(runtime?.flowOptions || {}) }
+    // The server context copies the harness file. The run compares the caller's team.
+    if (typeof opts.workspaceId === 'string' && opts.workspaceId) flowOptions.workspaceId = opts.workspaceId
     try {
         const payload = await run({
             name,
@@ -371,19 +376,21 @@ const startRun = async (
             input: prepared.question,
             source: opts.source === 'playground' || opts.source === 'api' ? opts.source : 'api',
             componentNodes: runtime?.componentNodes,
-            flowOptions: runtime?.flowOptions,
+            flowOptions,
             onEvent: opts.onEvent,
             signal: opts.signal,
             record: opts.record,
+            replay: opts.replay === true,
             onRecorded: (row: Record<string, unknown>) => {
                 recorded = row
             }
         })
-        if (!recorded) {
+        if (!recorded && !opts.replay) {
             const history = await loadHarness('history.mjs')
             recorded = history.listRuns(name, { limit: 20 }).find((row: { chatId?: string }) => row.chatId === prepared.chatId) || null
         }
-        // Public runs and a canvas draft try both finish here. startCanvasRun calls startRun, so this is the only write.
+        // Public runs, a canvas draft try, and a publish-check replay all finish here.
+        // startCanvasRun and replayCheck call startRun, so this is the only usage write.
         const workspaceId = prepared.harness.workspaceId
         if (workspaceId) {
             try {
@@ -428,6 +435,34 @@ const startCanvasRun = async (
     })
 }
 
+// Publish check. Live and the draft each get their own try profile, the same one the canvas uses.
+// Nothing is written to run history, the session, or the analyst capture for this chat.
+const replayCheck = async (
+    chatflow: { id: string; name: string; flowData: string; workspaceId: string },
+    flowData: string,
+    body: Record<string, unknown>,
+    opts: { signal?: AbortSignal } = {}
+) => {
+    // Another team's harness is a 404 before the canvas is read, so that file's credentials are not copied.
+    await assertRunRequest(chatflow.name, body, chatflow.workspaceId)
+    const sync = await loadHarness('sync-from-flow.mjs')
+    const appServer = getRunningExpressApp()
+    const roster = sync.rosterFromFlow({
+        name: chatflow.name,
+        chatflowId: chatflow.id,
+        flowData,
+        workspaceId: chatflow.workspaceId,
+        componentNodes: appServer.nodesPool?.componentNodes
+    })
+    return await startRun(chatflow.name, body, {
+        source: 'playground',
+        signal: opts.signal,
+        workspaceId: chatflow.workspaceId,
+        replay: true,
+        record: { ...roster, tryId: randomBytes(8).toString('hex') }
+    })
+}
+
 export default {
     startHarnessRuntime,
     backfillHarnessWorkspaces,
@@ -442,5 +477,6 @@ export default {
     assertRunRequest,
     startRun,
     startCanvasRun,
+    replayCheck,
     chatImages
 }

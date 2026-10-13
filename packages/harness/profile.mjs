@@ -869,7 +869,7 @@ function removeOneTryDir(entry) {
     try {
         if (fs.lstatSync(dir).isDirectory()) fs.rmSync(dir, { recursive: true, force: true })
     } catch {
-        // ENOTEMPTY and any other failure stay on this directory. A tombstone file is left in place.
+        // The runtime can still hold logs/errors.log or logs/gateway.log. The caller retries, then logs once.
     }
     try {
         fs.rmSync(path.join(dataRoot(), 'workspaces', entry), { recursive: true, force: true })
@@ -920,6 +920,31 @@ function clearTryTombstones(files) {
 }
 
 const TRY_SETTLE_MS = 250
+const TRY_REMOVE_ATTEMPTS = 4
+const TRY_REMOVE_BACKOFF_MS = 40
+
+function tryDirectoriesLeft(entries) {
+    return [...new Set(entries)].filter((entry) => tryDirIsDirectory(entry)).sort()
+}
+
+// A few passes after the settle window. A handle released just after the first delete still goes away here.
+async function retryBusyTryDirectories(scope) {
+    for (let attempt = 0; attempt < TRY_REMOVE_ATTEMPTS; attempt += 1) {
+        const owned = tryScopeEntries(scope)
+        if (tryDirectoriesLeft(owned).length === 0) return []
+        for (const entry of owned) removeOneTryDir(entry)
+        const left = tryDirectoriesLeft(tryScopeEntries(scope))
+        if (left.length === 0) return []
+        if (attempt + 1 < TRY_REMOVE_ATTEMPTS) await delay(TRY_REMOVE_BACKOFF_MS)
+    }
+    return tryDirectoriesLeft(tryScopeEntries(scope))
+}
+
+function warnTryDirectoriesLeft(entries) {
+    const left = tryDirectoriesLeft(entries)
+    if (!left.length) return
+    console.warn(`[harness] try profile directories still on disk after close: ${left.join(', ')}`)
+}
 
 async function settleTryDirectories(scope, names) {
     const owned = new Set(names)
@@ -1008,14 +1033,15 @@ async function closeTryRuntime(names) {
     await closeProfiles(names)
 }
 
-// Close the runtime profile before deleting it. Tokens are forgotten first. A close can recreate log
-// directories after it answers, so removal retries until those directories stay gone.
+// Close the runtime for this try and every specialist profile before any directory is removed.
+// Tokens leave the map before the unlink. A close can recreate log directories after it answers,
+// so removal retries until those directories stay gone. A directory that is still there is logged once.
 export async function discardTryProfile(tryId) {
     const scope = tryProfileName(tryId)
     try {
         const names = tryProfileNames(scope)
-        await closeTryRuntime(names.length ? names : [scope])
         const owned = names.length ? names : [scope]
+        await closeTryRuntime(owned)
         forgetTryTokens(scope)
         for (const entry of owned) removeOneTryDir(entry)
         if (typeof tryRuntime.afterFirstRemoval === 'function') {
@@ -1026,6 +1052,8 @@ export async function discardTryProfile(tryId) {
             }
         }
         await settleTryDirectories(scope, owned)
+        const left = await retryBusyTryDirectories(scope)
+        warnTryDirectoriesLeft(left)
     } finally {
         compiledProfiles.delete(scope)
         endLiveTry(scope)

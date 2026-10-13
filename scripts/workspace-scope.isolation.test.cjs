@@ -733,6 +733,45 @@ describe('workspace isolation', () => {
             fs.rmSync(dataDir, { recursive: true, force: true })
         }
     })
+
+    it('refuses a publish-check replay from another team', async () => {
+        const dataDir = fs.mkdtempSync(path.join(tmpdir(), 'cuttlely-harness-replay-'))
+        const previous = {
+            data: process.env.CUTTLELY_DATA_DIR,
+            hermes: process.env.CUTTLELY_HERMES_HOME,
+            warm: process.env.CUTTLELY_WARM_HERMES,
+            fallback: process.env.CUTTLELY_ETL_DEFAULT_WORKSPACE_ID
+        }
+        process.env.CUTTLELY_DATA_DIR = dataDir
+        process.env.CUTTLELY_HERMES_HOME = path.join(dataDir, 'hermes')
+        process.env.CUTTLELY_WARM_HERMES = 'false'
+        delete process.env.CUTTLELY_ETL_DEFAULT_WORKSPACE_ID
+        const harnessDir = path.join(dataDir, 'harnesses')
+        fs.mkdirSync(harnessDir, { recursive: true })
+        const record = {
+            name: 'ReplayTeam',
+            workspaceId: WS2,
+            description: 'theirs',
+            chief: { instructions: 'Answer.', model: { nodeName: 'chatOpenAI', inputs: { modelName: 'gpt-4.1-mini' } } },
+            specialists: [{ name: 'reader', instructions: 'Read.', modules: [], mcpServers: [] }]
+        }
+        fs.writeFileSync(path.join(harnessDir, 'ReplayTeam.json'), JSON.stringify(record, null, 2))
+        const before = fs.readFileSync(path.join(harnessDir, 'ReplayTeam.json'), 'utf8')
+        try {
+            const harnesses = loadService('./src/services/harnesses/index.ts')
+            const canvas = {
+                id: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+                name: 'ReplayTeam',
+                flowData: '{}',
+                workspaceId: WS1
+            }
+            await missingHarness(() => harnesses.replayCheck(canvas, '{}', { question: 'hello from the other team' }))
+            assert.equal(fs.readFileSync(path.join(harnessDir, 'ReplayTeam.json'), 'utf8'), before)
+        } finally {
+            restoreEnv(previous)
+            fs.rmSync(dataDir, { recursive: true, force: true })
+        }
+    })
 })
 
 async function missingHarness(run) {
