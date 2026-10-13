@@ -1,8 +1,57 @@
 // The home page videos: the narrated demo and the short loops on the product tiles. Loaded from the footer script, a
-// same-origin module, so the site CSP needs no new hash. The controls always work.
+// same-origin module, so the site CSP needs no new hash. A centred play button starts each preview from the beginning
+// with sound. The loading queue below is unchanged: a tap seeks, it does not call load() again.
 
 /** How many loop downloads may run at once. More than this and they fight for the connection. */
 const MAX_LOADING = 2
+
+/** Heroes the visitor is watching with sound, so a click on the picture does not jump back to the start. */
+const sounding = new WeakSet()
+
+/** Previews the play observer currently has on screen. */
+const onScreen = new WeakSet()
+
+const heroBound = new WeakSet()
+const previewBound = new WeakSet()
+const narrationErrorBound = new WeakSet()
+
+/** Source elements lifted off a hero so load() can paint the poster without fetching the file again. */
+const parkedSources = new WeakMap()
+
+/** The video currently playing with sound, one per document. Queue and observer play() wait for it. */
+const narrating = new WeakMap()
+
+function narrationBlocks(video) {
+    const doc = video?.ownerDocument
+    if (!doc) return false
+    const current = narrating.get(doc)
+    return !!current && current !== video
+}
+
+function beginNarration(video) {
+    const doc = video?.ownerDocument
+    if (doc) narrating.set(doc, video)
+}
+
+function endNarration(video) {
+    const doc = video?.ownerDocument
+    if (doc && narrating.get(doc) === video) narrating.delete(doc)
+}
+
+/**
+ * A media error after play() resolved never fires ended, so the button would stay hidden and
+ * previews would stay blocked. Only the video that is still narrating settles. A stale error
+ * from a video that another narration already replaced does nothing.
+ */
+function bindNarrationError(video) {
+    if (!video || narrationErrorBound.has(video) || typeof video.addEventListener !== 'function') return
+    narrationErrorBound.add(video)
+    video.addEventListener('error', () => {
+        const doc = video.ownerDocument
+        if (!doc || narrating.get(doc) !== video) return
+        settleNarration(video, doc.defaultView)
+    })
+}
 
 /** Narrow screens, navigator.connection.saveData and reduced motion get the poster and play only when tapped. */
 export function canAutoplay(win = window) {
@@ -98,7 +147,8 @@ function watchLoops(videos, win, doc) {
                     video.preload = 'auto'
                     if ((video.readyState || 0) === 0 && (video.networkState || 0) === 0) video.load()
                 }
-                if (wantsPlay.has(video) && video.networkState !== 3) video.play().catch(() => {})
+                // A narration holds play() only. The download still takes the slot.
+                if (wantsPlay.has(video) && video.networkState !== 3 && !narrationBlocks(video)) video.play().catch(() => {})
             }
         } finally {
             pumping = false
@@ -117,12 +167,29 @@ function watchLoops(videos, win, doc) {
                 const video = entry.target
                 if (entry.isIntersecting) {
                     wantsPlay.add(video)
+                    onScreen.add(video)
                     // Already downloading or ready: play does not open another fetch.
-                    if (started.has(video)) video.play().catch(() => {})
-                    else enqueue(video)
+                    // Held while a narration is running, so the preview does not move behind it.
+                    if (started.has(video)) {
+                        if (!narrationBlocks(video)) video.play().catch(() => {})
+                    } else enqueue(video)
                 } else {
                     wantsPlay.delete(video)
-                    video.pause()
+                    onScreen.delete(video)
+                    const doc = video.ownerDocument
+                    const endedNarration = !!(doc && narrating.get(doc) === video)
+                    try {
+                        video.pause()
+                    } catch {
+                        // Already idle.
+                    }
+                    // Scrolling the sounding video away never fires ended, so the hold would stay forever.
+                    // Coming back plays the silent preview, not the narration.
+                    if (endedNarration) {
+                        endNarration(video)
+                        if (sounding.has(video)) leaveSoundMode(video)
+                        resumeMutedPreviews(doc, win)
+                    }
                 }
             }
             sortPending()
@@ -222,7 +289,7 @@ function watchLoops(videos, win, doc) {
                     // reads the live playhead instead of seeking back to 0.
                     else if (!(saved > 0)) stop()
                 }
-                if (wantsPlay.has(video)) video.play().catch(() => {})
+                if (wantsPlay.has(video) && !narrationBlocks(video)) video.play().catch(() => {})
             }
             const onBuffered = () => {
                 if (settled || !(saved > 0)) return
@@ -274,15 +341,232 @@ function watchLoops(videos, win, doc) {
     })
 }
 
+function nextPlayButton(video) {
+    let sibling = video?.nextElementSibling
+    while (sibling) {
+        if (sibling.dataset && 'playWithSound' in sibling.dataset) return sibling
+        if (sibling.dataset && ('demoVideo' in sibling.dataset || 'loopVideo' in sibling.dataset)) return null
+        sibling = sibling.nextElementSibling
+    }
+    return null
+}
+
+function previousLoop(node) {
+    let sibling = node?.previousElementSibling
+    while (sibling) {
+        if (sibling.dataset && 'loopVideo' in sibling.dataset) return sibling
+        sibling = sibling.previousElementSibling
+    }
+    return null
+}
+
+function parkSources(video) {
+    if (parkedSources.has(video) || typeof video.querySelectorAll !== 'function') return false
+    const sources = [...video.querySelectorAll('source')]
+    if (!sources.length) return false
+    parkedSources.set(video, sources)
+    for (const source of sources) source.remove()
+    return true
+}
+
+function restoreSources(video) {
+    const sources = parkedSources.get(video)
+    if (!sources?.length) return
+    for (const source of sources) video.appendChild(source)
+    parkedSources.delete(video)
+}
+
+/** The silent preview: button back, muted, looping, no native controls. Muting does not change volume. */
+function leaveSoundMode(video) {
+    sounding.delete(video)
+    const button = nextPlayButton(video)
+    if (button) button.hidden = false
+    video.defaultMuted = true
+    video.muted = true
+    video.loop = true
+    video.controls = false
+}
+
+/**
+ * Seek to the start, then play with sound. load() is not used on this element: it would abort the preview
+ * download and drop bytes that are already buffered. Other videos are only paused, so a dialog does not
+ * talk over them and the download queue keeps its slots. A hero that was playing with sound leaves that
+ * mode first, or the close path cannot resume its silent preview. Volume is left alone: muting does not
+ * change it, and a level the visitor set on the controls must survive the next play. Pausing first matters
+ * once the preview has moved, because a play() issued while the element is still playing can keep the old position.
+ */
+function playFromStart(video) {
+    // A refused hero parks its sources. They have to be back before play(), including a replay.
+    // A dialog is not parked, so this leaves that file attached for the next open.
+    restoreSources(video)
+    bindNarrationError(video)
+    const doc = video.ownerDocument
+    if (doc && typeof doc.querySelectorAll === 'function') {
+        for (const other of doc.querySelectorAll('video')) {
+            if (other === video) continue
+            if (sounding.has(other)) leaveSoundMode(other)
+            try {
+                other.pause()
+            } catch {
+                // Already idle.
+            }
+        }
+    }
+    beginNarration(video)
+    video.loop = false
+    video.defaultMuted = false
+    video.muted = false
+    video.controls = true
+    let time = 0
+    try {
+        time = video.currentTime || 0
+    } catch {
+        time = 0
+    }
+    if (time > 0.05) {
+        try {
+            video.pause()
+        } catch {
+            // Already idle.
+        }
+    }
+    try {
+        video.currentTime = 0
+    } catch {
+        // HAVE_NOTHING cannot seek. Nothing has played, so playback still starts at the beginning.
+    }
+    const pending = video.play?.()
+    if (pending && typeof pending.catch === 'function') {
+        pending.catch(() => {
+            const doc = video.ownerDocument
+            // pause() rejects the play that this narration already replaced. That catch must not
+            // resume previews behind the video that is narrating now.
+            if (doc && narrating.get(doc) !== video) return
+            settleNarration(video, doc?.defaultView)
+        })
+    }
+    return pending
+}
+
+/**
+ * End a sound session. With autoplay off, the in-place hero drops its sources and loads the empty
+ * element so the poster paints. A dialog keeps its sources: prefetch will not call load() again,
+ * and parking them would make every later open play an empty element. Otherwise return to the
+ * silent preview and resume loops the queue has already started.
+ */
+function settleNarration(video, win) {
+    endNarration(video)
+    try {
+        video.pause()
+    } catch {
+        // Already idle.
+    }
+    if (sounding.has(video)) leaveSoundMode(video)
+    const view = win || video.ownerDocument?.defaultView
+    const hero = 'demoVideo' in (video.dataset ?? {})
+    if (view && !canAutoplay(view) && hero && parkSources(video)) {
+        video.load()
+        return
+    }
+    try {
+        video.currentTime = 0
+    } catch {
+        // Leave the playhead. The button still returns.
+    }
+    resumeMutedPreviews(video.ownerDocument, view)
+}
+
+function bindHeroPlay(video, win) {
+    if (!video?.dataset || !('demoVideo' in video.dataset) || heroBound.has(video)) return
+    const button = nextPlayButton(video)
+    if (!button) return
+    heroBound.add(video)
+    // The silent preview keeps the button. Native controls come back with the sound.
+    video.controls = false
+    const start = () => {
+        sounding.add(video)
+        button.hidden = true
+        // Sources come back before play(). load() while they are attached would fetch the file twice.
+        restoreSources(video)
+        playFromStart(video)
+    }
+    button.addEventListener('click', start)
+    video.addEventListener('click', () => {
+        if (sounding.has(video)) return
+        start()
+    })
+    video.addEventListener('ended', () => {
+        if (!sounding.has(video)) return
+        // Seeking to 0 paints frame 0. On this file that frame is empty, so with autoplay off the
+        // poster is loaded only after the sources are detached.
+        settleNarration(video, win)
+    })
+}
+
+function resumeMutedPreviews(doc, win) {
+    const view = win || doc?.defaultView
+    if (!view || !canAutoplay(view) || typeof doc?.querySelectorAll !== 'function') return
+    if (narrating.has(doc)) return
+    for (const preview of doc.querySelectorAll('[data-demo-video], [data-loop-video]')) {
+        if (!preview?.dataset || sounding.has(preview) || parkedSources.has(preview) || !onScreen.has(preview)) continue
+        preview.defaultMuted = true
+        preview.muted = true
+        preview.loop = true
+        // play() on a preload="none" element that has not started opens a fetch outside the two-at-a-time queue.
+        // wantsPlay is still set, so the pump plays it when a slot opens.
+        if (preview.preload !== 'auto' && !(preview.readyState > 0)) continue
+        const pending = preview.play?.()
+        if (pending && typeof pending.catch === 'function') pending.catch(() => {})
+    }
+}
+
+/**
+ * Ends a hero narration when that video leaves the screen. Installed whether or not previews
+ * autoplay. It does not enqueue a download or call load(): coming back does not resume the sound.
+ */
+function watchNarrationScroll(videos, win) {
+    if (!('IntersectionObserver' in win)) return
+    const heroes = videos.filter((video) => 'demoVideo' in (video.dataset ?? {}))
+    if (!heroes.length) return
+    const observer = new win.IntersectionObserver(
+        (entries) => {
+            for (const entry of entries) {
+                if (entry.isIntersecting) continue
+                const video = entry.target
+                const owner = video.ownerDocument
+                if (!owner || narrating.get(owner) !== video) continue
+                try {
+                    video.pause()
+                } catch {
+                    // Already idle.
+                }
+                // ended never fires when the hero scrolls away, so the sound session would stay open.
+                endNarration(video)
+                if (sounding.has(video)) leaveSoundMode(video)
+                resumeMutedPreviews(owner, win)
+            }
+        },
+        { threshold: 0.5 }
+    )
+    for (const video of heroes) observer.observe(video)
+}
+
 /** Plays the demo video and the tile loops while they are on screen, when autoplay is fine for this visitor. */
 export function initDemoVideo(doc = document, win = window) {
     const videos = [...doc.querySelectorAll('[data-demo-video], [data-loop-video]')]
+    for (const video of videos) {
+        bindHeroPlay(video, win)
+        bindNarrationError(video)
+    }
     if (!videos.length || !('IntersectionObserver' in win) || !canAutoplay(win)) {
         // Nothing starts on its own, so a tap on the narrated demo should play it with its sound.
         for (const video of videos) if ('demoVideo' in (video.dataset ?? {})) video.muted = false
+        // A tap can still start the hero. Scrolling it away has to end that narration.
+        watchNarrationScroll(videos, win)
         return false
     }
     watchLoops(videos, win, doc)
+    watchNarrationScroll(videos, win)
     return true
 }
 
@@ -303,12 +587,39 @@ export function initVideoDialogs(doc = document) {
         const video = dialog?.querySelector('video')
         if (!video || typeof dialog.showModal !== 'function') continue
         count++
-        link.addEventListener('click', (event) => {
-            event.preventDefault()
+        bindNarrationError(video)
+        const open = (event) => {
+            event?.preventDefault?.()
             dialog.showModal()
-            video.play().catch(() => {})
+            // Every open starts at the beginning. Closing only pauses, so the next open has to seek.
+            const pending = playFromStart(video)
+            // playFromStart already ends the narration if this play is rejected. Pause the dialog video too.
+            if (pending && typeof pending.then === 'function') {
+                pending.catch(() => {
+                    try {
+                        video.pause()
+                    } catch {
+                        // Already idle.
+                    }
+                })
+            }
+        }
+        link.addEventListener('click', open)
+        const preview = previousLoop(link)
+        if (preview && !previewBound.has(preview)) {
+            previewBound.add(preview)
+            preview.addEventListener('click', open)
+        }
+        dialog.addEventListener('close', () => {
+            endNarration(video)
+            try {
+                video.pause()
+            } catch {
+                // Already idle.
+            }
+            // The open paused every other video. On-screen silent loops start again when autoplay is allowed.
+            resumeMutedPreviews(doc)
         })
-        dialog.addEventListener('close', () => video.pause())
         // A click on the backdrop lands on the dialog itself.
         dialog.addEventListener('click', (event) => {
             if (event.target === dialog) dialog.close()
