@@ -22,6 +22,8 @@ import { CHANGE_COLORS } from '@/utils/versionHistory'
 import {
     STALE_DRAFT_WARNING,
     apiErrorMessage,
+    canvasAfterDiscard,
+    canvasAfterPublish,
     publishBody,
     publishChangeLines,
     publishResultMessage,
@@ -93,8 +95,9 @@ const PublishDialog = ({ open, chatflow, draftStatus, isDirty, onClose, onDraftS
 
     const finish = (data) => {
         if (data?.status) onDraftStatus(data.status)
-        if (data?.chatflow) onChatflowUpdated(data.chatflow)
-        if (data?.status?.draft?.flowData) onApplyCanvas(data.status.draft.flowData)
+        const next = canvasAfterPublish(chatflow, data, draftStatus?.draft?.flowData)
+        if (data?.chatflow || next.chatflow?.flowData) onChatflowUpdated(next.chatflow)
+        if (next.apply) onApplyCanvas(next.apply)
         const { message, variant } = publishResultMessage(data)
         dispatch(
             enqueueSnackbarAction({
@@ -135,7 +138,8 @@ const PublishDialog = ({ open, chatflow, draftStatus, isDirty, onClose, onDraftS
         try {
             const res = await flowDraftsApi.discardDraft(chatflow.id)
             if (res.data) onDraftStatus(res.data)
-            onApplyCanvas(chatflow.flowData || '')
+            const live = canvasAfterDiscard(chatflow)
+            if (live) onApplyCanvas(live)
             dispatch(
                 enqueueSnackbarAction({
                     message: 'Draft discarded. Live is unchanged.',

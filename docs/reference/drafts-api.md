@@ -76,7 +76,13 @@ When the draft is `stale` (Live changed after it started), publishing would repl
 
 ```json
 {
-    "chatflow": { "id": "<flow id>", "name": "Bakery helper", "type": "CHATFLOW", "updatedDate": "2026-10-08T17:05:40.000Z" },
+    "chatflow": {
+        "id": "<flow id>",
+        "name": "Bakery helper",
+        "type": "CHATFLOW",
+        "updatedDate": "2026-10-08T17:05:40.000Z",
+        "flowData": "<Live canvas JSON>"
+    },
     "version": {
         "sha": "afc07f3…",
         "kind": "publish",
@@ -110,7 +116,7 @@ When the draft is `stale` (Live changed after it started), publishing would repl
 
 Sets Live to that version at once, with its name, type and category, the same way [Restore](./versioning-api.md#restore) does. History gains a version of kind `rollback`, titled `Rolled back Live to: <title> (<short sha>)`. An open draft is kept and is not marked stale, because this Live was chosen. While the flow has unpublished changes, a version of another kind of flow is refused with 409; see below.
 
-The response is the [Restore](./versioning-api.md#restore) response plus `status`, the draft status afterwards. The write lands only while Live is still the canvas that was read; a Live update in between returns 409 `Live changed while this was being saved, so nothing was changed. Try again.` 400 when `sha` is not 7 to 40 lowercase hex characters, 404 when the version is not in this flow's history, 409 when drafts or history are off, 403 without the update permission for the flow's type and the version's type.
+The response is the [Restore](./versioning-api.md#restore) response plus `status`, the draft status afterwards. `chatflow.flowData` is the canvas that is Live after the roll back. The write lands only while Live is still the canvas that was read; a Live update in between returns 409 `Live changed while this was being saved, so nothing was changed. Try again.` 400 when `sha` is not 7 to 40 lowercase hex characters, 404 when the version is not in this flow's history, 409 when drafts or history are off, 403 without the update permission for the flow's type and the version's type.
 
 ## Publish check
 

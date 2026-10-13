@@ -224,7 +224,7 @@ The canvas loads that version. Nothing is saved yet: an asterisk appears before 
 
 ![The Versions tab after the save and the run. Version 3 has latest and serving chips. Versions 2 and 1 each have a Restore button.](../images/etl/etl-versions-after.png)
 
-The ETL Retriever serves the version of the last `succeeded` or `partial` run, not the last save. A version without a run is never served. A row marked `incomplete` is a version with a problem in its graph, such as a missing source, store, or embeddings connection. Fix the canvas and save. **Version history** at the top right is the same history for the whole canvas. See [Version history](./versioning.md).
+The ETL Retriever serves the version of the last `succeeded` or `partial` run, not the last save. A version without a run is never served. A row marked `incomplete` is a version with a problem in its graph, such as a missing source, store, or embeddings connection. Fix the canvas, save the draft, and **Publish**. **Version history** at the top right is the same history for the whole canvas. See [Version history](./versioning.md).
 
 ## Look at earlier runs
 

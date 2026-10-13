@@ -79,7 +79,7 @@ import { panelNode, panToKeepInView } from '@/utils/canvasLook'
 import { flowiseCanvasJson } from '@/utils/flowiseImport'
 import { hydrateLangflowFlow, isLangflowExport, langflowToFlowise } from '@/utils/langflowImport'
 import { hydrateRawCanvasNodes, normalizeCanvasFlow, repairFlowEdges, specsByName, stripRawCanvasMarker } from '@/utils/normalizeCanvasFlow'
-import { apiErrorMessage, canvasFlowText, planCanvasSave } from '@/utils/flowDrafts'
+import { apiErrorMessage, canvasFlowText, canvasTextToApply, planCanvasSave } from '@/utils/flowDrafts'
 import { canvasSaveDocument } from '@/utils/canvasSave'
 import {
     asSavedCards,
@@ -695,13 +695,13 @@ const Canvas = () => {
     }
 
     const applyCanvasText = (text) => {
+        if (!canvasTextToApply(text)) return
         try {
             const flow = readGraph(text)
             setNodes(flow.nodes || [])
             setEdges(flow.edges || [])
         } catch {
-            setNodes([])
-            setEdges([])
+            return
         }
         dispatch({ type: REMOVE_DIRTY })
     }
