@@ -2,7 +2,7 @@ import { randomUUID } from 'crypto'
 import { Request } from 'express'
 import { StatusCodes } from 'http-status-codes'
 import { Readable } from 'stream'
-import { In, MoreThanOrEqual } from 'typeorm'
+import { In, Repository } from 'typeorm'
 import { ChatFlow, EnumChatflowType } from '../../database/entities/ChatFlow'
 import { ChatMessage } from '../../database/entities/ChatMessage'
 import { ChatMessageFeedback } from '../../database/entities/ChatMessageFeedback'
@@ -25,6 +25,51 @@ export const RATING_SCAN_CAP = 1000
 const RATING_PREVIEW_ROWS = 5
 const RATING_PREVIEW_CHARS = 160
 const RATING_DAY_MS = 24 * 60 * 60 * 1000
+
+type RatingCursor = { createdDate: Date; id: string }
+
+function ratingCursorStamp(value: Date | string): string {
+    const date = value instanceof Date ? value : new Date(value)
+    return date.toISOString()
+}
+
+// The next call passes this back and the scan starts strictly older than this rating.
+function parseRatingCursor(value: unknown): RatingCursor | null {
+    if (value === undefined || value === null) return null
+    if (typeof value !== 'object' || Array.isArray(value)) {
+        throw new AppError(StatusCodes.BAD_REQUEST, 'cursor must be a createdDate and an id.')
+    }
+    const cursor = value as { createdDate?: unknown; id?: unknown }
+    if (typeof cursor.id !== 'string' || cursor.id.length === 0) {
+        throw new AppError(StatusCodes.BAD_REQUEST, 'cursor must be a createdDate and an id.')
+    }
+    if (typeof cursor.createdDate !== 'string' && !(cursor.createdDate instanceof Date)) {
+        throw new AppError(StatusCodes.BAD_REQUEST, 'cursor must be a createdDate and an id.')
+    }
+    const createdDate = cursor.createdDate instanceof Date ? cursor.createdDate : new Date(cursor.createdDate)
+    if (Number.isNaN(createdDate.getTime())) {
+        throw new AppError(StatusCodes.BAD_REQUEST, 'cursor must be a createdDate and an id.')
+    }
+    return { createdDate, id: cursor.id }
+}
+
+function loadRatingFeedback(
+    repo: Repository<ChatMessageFeedback>,
+    args: { flowId: string; rating: string; since: Date; before: RatingCursor | null; skip: number; take: number }
+) {
+    const query = repo
+        .createQueryBuilder('feedback')
+        .where('feedback.chatflowid = :flowId', { flowId: args.flowId })
+        .andWhere('feedback.rating = :rating', { rating: args.rating })
+        .andWhere('feedback.createdDate >= :since', { since: args.since })
+    if (args.before) {
+        query.andWhere('(feedback.createdDate < :beforeDate OR (feedback.createdDate = :beforeDate AND feedback.id < :beforeId))', {
+            beforeDate: args.before.createdDate,
+            beforeId: args.before.id
+        })
+    }
+    return query.orderBy('feedback.createdDate', 'DESC').addOrderBy('feedback.id', 'DESC').skip(args.skip).take(args.take).getMany()
+}
 
 function viewPermissionForFlow(type: string | undefined): string {
     if (type === EnumChatflowType.AGENTFLOW || type === EnumChatflowType.MULTIAGENT) return 'agentflows:view'
@@ -560,29 +605,31 @@ const addDatasetRowFromChatMessage = async (
         const existing = await rows.findOneBy({ datasetId: dataset.id, sourceMessageId: message.id })
         if (existing) return existing
 
-        const maxValueEntity = await rows.find({
-            where: { datasetId: dataset.id },
-            order: { sequenceNo: 'DESC' },
-            take: 1
-        })
-        let sequenceNo = 0
-        if (maxValueEntity && maxValueEntity.length > 0) {
-            sequenceNo = maxValueEntity[0].sequenceNo + 1
-        }
-        const created = new DatasetRow()
-        created.datasetId = dataset.id
-        created.input = input
-        created.output = output
-        created.sequenceNo = sequenceNo
-        created.sourceType = CHAT_MESSAGE_SOURCE
-        created.sourceMessageId = message.id
-        created.sourceFlowId = flow.id
-        created.sourceDate = message.createdDate
         try {
             // The same turn as a bulk import. Sqlite cannot start a second transaction on its one connection.
             return await writeRatingsInTurn(dataset.id, () =>
                 appServer.AppDataSource.transaction(async (manager) => {
-                    const saved = await manager.getRepository(DatasetRow).save(created)
+                    const rowRepo = manager.getRepository(DatasetRow)
+                    // Same write lock as a bulk import. The next sequence is read only after it.
+                    await manager.getRepository(Dataset).update({ id: dataset.id, workspaceId }, { updatedDate: new Date() })
+                    const already = await rowRepo.findOneBy({ datasetId: dataset.id, sourceMessageId: message.id })
+                    if (already) return already
+                    const maxValueEntity = await rowRepo.find({
+                        where: { datasetId: dataset.id },
+                        order: { sequenceNo: 'DESC' },
+                        take: 1
+                    })
+                    const sequenceNo = maxValueEntity.length > 0 ? maxValueEntity[0].sequenceNo + 1 : 0
+                    const created = new DatasetRow()
+                    created.datasetId = dataset.id
+                    created.input = input
+                    created.output = output
+                    created.sequenceNo = sequenceNo
+                    created.sourceType = CHAT_MESSAGE_SOURCE
+                    created.sourceMessageId = message.id
+                    created.sourceFlowId = flow.id
+                    created.sourceDate = message.createdDate
+                    const saved = await rowRepo.save(created)
                     await changeUpdateOnDataset(dataset.id, workspaceId, manager)
                     return saved
                 })
@@ -613,6 +660,7 @@ const addDatasetRowsFromRatings = async (
         days?: unknown
         limit?: unknown
         dryRun?: unknown
+        cursor?: unknown
     },
     workspaceId: string,
     req: Request
@@ -662,6 +710,7 @@ const addDatasetRowsFromRatings = async (
             throw new AppError(StatusCodes.FORBIDDEN, 'You do not have permission to view this flow.')
         }
 
+        const before = parseRatingCursor(body.cursor)
         const feedbackRepo = appServer.AppDataSource.getRepository(ChatMessageFeedback)
         const messageRepo = appServer.AppDataSource.getRepository(ChatMessage)
         const rowRepo = appServer.AppDataSource.getRepository(DatasetRow)
@@ -670,26 +719,22 @@ const addDatasetRowsFromRatings = async (
         let skipped = 0
         let offset = 0
         let scanned = 0
-        let truncated = false
+        let lastScanned: ChatMessageFeedback | null = null
         while (planned.length < limit) {
-            if (scanned >= RATING_SCAN_CAP) {
-                truncated = true
-                break
-            }
+            if (scanned >= RATING_SCAN_CAP) break
             const take = Math.min(RATING_PAGE, RATING_SCAN_CAP - scanned)
-            const page = await feedbackRepo.find({
-                where: {
-                    chatflowid: flow.id,
-                    rating,
-                    createdDate: MoreThanOrEqual(since)
-                },
-                order: { createdDate: 'DESC', id: 'DESC' },
-                take,
-                skip: offset
+            const page = await loadRatingFeedback(feedbackRepo, {
+                flowId: flow.id,
+                rating,
+                since,
+                before,
+                skip: offset,
+                take
             })
             if (!page.length) break
             scanned += page.length
             offset += page.length
+            lastScanned = page[page.length - 1]
             const messageIds = [...new Set(page.map((item) => item.messageId).filter((id) => typeof id === 'string' && id.length > 0))]
             const messages = messageIds.length ? await messageRepo.find({ where: { id: In(messageIds) } }) : []
             const messageById = new Map(messages.map((item) => [item.id, item]))
@@ -740,6 +785,21 @@ const addDatasetRowsFromRatings = async (
             if (page.length < take) break
         }
 
+        // A full cap is not truncated until one older rating is still in the window.
+        let truncated = false
+        if (scanned >= RATING_SCAN_CAP && lastScanned) {
+            const more = await loadRatingFeedback(feedbackRepo, {
+                flowId: flow.id,
+                rating,
+                since,
+                before: { createdDate: new Date(lastScanned.createdDate), id: lastScanned.id },
+                skip: 0,
+                take: 1
+            })
+            truncated = more.length > 0
+        }
+        const cursor = truncated && lastScanned ? { createdDate: ratingCursorStamp(lastScanned.createdDate), id: lastScanned.id } : null
+
         const toPreview = (items: RatingPlan[]) =>
             items.slice(0, RATING_PREVIEW_ROWS).map((item) => ({
                 input: clipRatingPreview(item.input),
@@ -750,7 +810,7 @@ const addDatasetRowsFromRatings = async (
                 needsExpectedAnswer: item.needsExpectedAnswer
             }))
         if (dryRun || !planned.length) {
-            return { dryRun, count: planned.length, skipped, preview: toPreview(planned), truncated }
+            return { dryRun, count: planned.length, skipped, preview: toPreview(planned), truncated, cursor }
         }
 
         const writeOnce = () =>
@@ -837,7 +897,7 @@ const addDatasetRowsFromRatings = async (
                 }
             }
         })
-        return { dryRun: false, count: written.length, skipped, preview: toPreview(written), truncated }
+        return { dryRun: false, count: written.length, skipped, preview: toPreview(written), truncated, cursor }
     } catch (error) {
         if (error instanceof AppError) throw error
         throw new AppError(StatusCodes.INTERNAL_SERVER_ERROR, `Error: datasetService.addDatasetRowsFromRatings - ${getErrorMessage(error)}`)

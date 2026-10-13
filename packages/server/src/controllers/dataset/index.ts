@@ -152,7 +152,8 @@ const addDatasetRowsFromRatings = async (req: Request, res: Response, next: Next
                 rating: body.rating,
                 days: body.days,
                 limit: body.limit,
-                dryRun: body.dryRun
+                dryRun: body.dryRun,
+                cursor: body.cursor
             },
             workspaceId,
             req

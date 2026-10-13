@@ -41,6 +41,7 @@ export function AddRatedAnswersForm({
     adding,
     preview,
     onCheck,
+    onContinue,
     onAdd,
     onCancel
 }) {
@@ -132,7 +133,14 @@ export function AddRatedAnswersForm({
                     </Typography>
                     <Typography>{preview.skipped} already in this test set.</Typography>
                     {preview.truncated ? (
-                        <Typography>The scan stopped before the whole window was read. Run it again to continue.</Typography>
+                        <Box>
+                            <Typography>The scan stopped before the whole window was read. Scan older ratings to continue.</Typography>
+                            {preview.cursor ? (
+                                <Button variant='outlined' sx={{ textTransform: 'none', mt: 1 }} disabled={!ready} onClick={onContinue}>
+                                    Scan older ratings
+                                </Button>
+                            ) : null}
+                        </Box>
                     ) : null}
                     {preview.preview.map((item) => (
                         <Typography key={item.feedbackId || item.messageId} variant='body2' sx={{ mt: 1 }}>
@@ -181,6 +189,7 @@ AddRatedAnswersForm.propTypes = {
     adding: PropTypes.bool,
     preview: PropTypes.object,
     onCheck: PropTypes.func,
+    onContinue: PropTypes.func,
     onAdd: PropTypes.func,
     onCancel: PropTypes.func
 }
@@ -202,6 +211,8 @@ const AddRatedAnswersDialog = ({ show, flowId, rating, canCreate, canView = true
     const [adding, setAdding] = useState(false)
     const [preview, setPreview] = useState(null)
     const [loadError, setLoadError] = useState('')
+    // The cursor that produced the current preview. Add sends it so the write matches that scan.
+    const [activeCursor, setActiveCursor] = useState(null)
     // Bumped whenever days, limit, dataset, or rating change, so a late dry run cannot restore an old count.
     const fieldsGeneration = useRef(0)
     const previewGeneration = useRef(-1)
@@ -212,6 +223,7 @@ const AddRatedAnswersDialog = ({ show, flowId, rating, canCreate, canView = true
         fieldsGeneration.current += 1
         previewGeneration.current = -1
         setPreview(null)
+        setActiveCursor(null)
     }
 
     useEffect(() => {
@@ -224,6 +236,7 @@ const AddRatedAnswersDialog = ({ show, flowId, rating, canCreate, canView = true
         setShowNew(false)
         setNewName('')
         setPreview(null)
+        setActiveCursor(null)
         setLoadError('')
     }, [show, flowId, rating])
 
@@ -279,6 +292,35 @@ const AddRatedAnswersDialog = ({ show, flowId, rating, canCreate, canView = true
         return payload
     }
 
+    const onCheck = async (cursor) => {
+        if (!datasetId || !flowId || !rating) return
+        const generation = fieldsGeneration.current
+        const ticket = ++checkTicket.current
+        const requestedCursor = cursor || null
+        setChecking(true)
+        try {
+            const payload = body()
+            if (requestedCursor) payload.cursor = requestedCursor
+            const response = await datasetApi.addDatasetRowsFromRatings(payload)
+            if (generation !== fieldsGeneration.current || ticket !== checkTicket.current) return
+            previewGeneration.current = generation
+            setActiveCursor(requestedCursor)
+            setPreview(response.data)
+        } catch (error) {
+            if (generation !== fieldsGeneration.current || ticket !== checkTicket.current) return
+            setActiveCursor(null)
+            setPreview(null)
+            report(error?.response?.data?.message || 'Could not count the rated answers')
+        } finally {
+            if (ticket === checkTicket.current) setChecking(false)
+        }
+    }
+
+    const onContinue = () => {
+        if (!preview?.cursor) return
+        onCheck(preview.cursor)
+    }
+
     const onCreate = async () => {
         const name = newName.trim()
         if (!name) return
@@ -300,32 +342,15 @@ const AddRatedAnswersDialog = ({ show, flowId, rating, canCreate, canView = true
         }
     }
 
-    const onCheck = async () => {
-        if (!datasetId || !flowId || !rating) return
-        const generation = fieldsGeneration.current
-        const ticket = ++checkTicket.current
-        setChecking(true)
-        try {
-            const response = await datasetApi.addDatasetRowsFromRatings(body())
-            if (generation !== fieldsGeneration.current) return
-            previewGeneration.current = generation
-            setPreview(response.data)
-        } catch (error) {
-            if (generation !== fieldsGeneration.current) return
-            setPreview(null)
-            report(error?.response?.data?.message || 'Could not count the rated answers')
-        } finally {
-            if (ticket === checkTicket.current) setChecking(false)
-        }
-    }
-
     const onAdd = async () => {
         if (addingRef.current || !preview || preview.count < 1) return
         if (fieldsGeneration.current !== previewGeneration.current) return
         addingRef.current = true
         setAdding(true)
         try {
-            const response = await datasetApi.addDatasetRowsFromRatings({ ...body(), dryRun: false })
+            const payload = { ...body(), dryRun: false }
+            if (activeCursor) payload.cursor = activeCursor
+            const response = await datasetApi.addDatasetRowsFromRatings(payload)
             const added = response.data?.count ?? 0
             enqueueSnackbar({
                 message: added === 1 ? 'Added 1 rated answer to the test set' : `Added ${added} rated answers to the test set`,
@@ -377,7 +402,8 @@ const AddRatedAnswersDialog = ({ show, flowId, rating, canCreate, canView = true
                     checking={checking}
                     adding={adding}
                     preview={preview}
-                    onCheck={onCheck}
+                    onCheck={() => onCheck(null)}
+                    onContinue={onContinue}
                     onAdd={onAdd}
                     onCancel={onCancel}
                 />

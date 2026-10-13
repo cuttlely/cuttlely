@@ -41,6 +41,7 @@ function markup(props) {
                 onNewName: noop,
                 onCreate: noop,
                 onCheck: noop,
+                onContinue: noop,
                 onAdd: noop,
                 onCancel: noop,
                 ...props
@@ -98,6 +99,22 @@ describe('AddRatedAnswersForm', () => {
         expect(html).toContain('Why was the loaf late?')
         expect(html).toContain('needs expected answer')
         expect(html).toContain('Add rated answers')
+    })
+
+    test('offers to scan older ratings when the preview stopped early', () => {
+        const html = markup({
+            ...base,
+            preview: {
+                count: 0,
+                skipped: 0,
+                truncated: true,
+                cursor: { createdDate: '2026-10-01T00:00:00.000Z', id: 'fb-old' },
+                preview: []
+            }
+        })
+        expect(html).toContain('Scan older ratings to continue.')
+        expect(html).toContain('Scan older ratings')
+        expect(html).not.toContain('Run it again to continue.')
     })
 
     test('disables add while the add request is in flight', () => {
@@ -194,6 +211,89 @@ describe('AddRatedAnswersDialog', () => {
         const add = [...document.body.querySelectorAll('button')].find((button) => button.textContent === 'Add rated answers')
         expect(add).toBeTruthy()
         expect(add.disabled).toBe(false)
+        act(() => root.unmount())
+        container.remove()
+    })
+
+    test('scan older ratings sends the cursor from the stopped scan', async () => {
+        const cursor = { createdDate: '2026-10-01T00:00:00.000Z', id: 'fb-old' }
+        let releaseFirst
+        let releaseSecond
+        datasetApi.addDatasetRowsFromRatings
+            .mockImplementationOnce(
+                () =>
+                    new Promise((resolve) => {
+                        releaseFirst = resolve
+                    })
+            )
+            .mockImplementationOnce(
+                () =>
+                    new Promise((resolve) => {
+                        releaseSecond = resolve
+                    })
+            )
+        const container = document.createElement('div')
+        document.body.appendChild(container)
+        const root = createRoot(container)
+        await act(async () => {
+            root.render(
+                createElement(
+                    ThemeProvider,
+                    { theme: createTheme() },
+                    createElement(AddRatedAnswersDialog, {
+                        show: true,
+                        flowId: 'flow-1',
+                        rating: 'THUMBS_DOWN',
+                        canCreate: true,
+                        canView: true,
+                        onCancel: () => {},
+                        onSaved: () => {}
+                    })
+                )
+            )
+        })
+        const select = document.body.querySelector('[aria-label="Dataset"]')
+        await act(async () => {
+            fireEvent.change(select, { target: { value: 'ds-1' } })
+        })
+        const seeHowMany = [...document.body.querySelectorAll('button')].find((button) => button.textContent === 'See how many')
+        await act(async () => {
+            fireEvent.click(seeHowMany)
+        })
+        expect(datasetApi.addDatasetRowsFromRatings.mock.calls[0][0].cursor).toBeUndefined()
+        await act(async () => {
+            releaseFirst({ data: { count: 0, skipped: 0, preview: [], truncated: true, cursor } })
+        })
+        const older = [...document.body.querySelectorAll('button')].find((button) => button.textContent === 'Scan older ratings')
+        expect(older).toBeTruthy()
+        expect(older.disabled).toBe(false)
+        await act(async () => {
+            fireEvent.click(older)
+        })
+        expect(datasetApi.addDatasetRowsFromRatings.mock.calls[1][0].cursor).toEqual(cursor)
+        await act(async () => {
+            releaseSecond({
+                data: {
+                    count: 1,
+                    skipped: 0,
+                    preview: [{ feedbackId: 'fb-2', messageId: 'm-2', input: 'The older question', needsExpectedAnswer: true }],
+                    truncated: false,
+                    cursor: null
+                }
+            })
+        })
+        expect(document.body.textContent).toContain('1 rated answer will be added.')
+        expect(document.body.textContent).not.toContain('Scan older ratings to continue.')
+        const add = [...document.body.querySelectorAll('button')].find((button) => button.textContent === 'Add rated answers')
+        datasetApi.addDatasetRowsFromRatings.mockResolvedValueOnce({
+            data: { count: 1, skipped: 0, preview: [], truncated: false, cursor: null }
+        })
+        await act(async () => {
+            fireEvent.click(add)
+        })
+        const added = datasetApi.addDatasetRowsFromRatings.mock.calls[2][0]
+        expect(added.cursor).toEqual(cursor)
+        expect(added.dryRun).toBe(false)
         act(() => root.unmount())
         container.remove()
     })

@@ -1856,6 +1856,8 @@ describe('evaluation routes', () => {
             assert.equal(dry.body.preview[0].needsExpectedAnswer, true)
             assert.equal(dry.body.preview[0].feedbackId, recentDown.feedback.id)
             assert.equal(dry.body.preview[0].rating, 'THUMBS_DOWN')
+            assert.equal(dry.body.truncated, false)
+            assert.equal(dry.body.cursor, null)
             assert.equal(await dataSource.getRepository(DatasetRow).count({ where: { datasetId: dataset.id } }), beforeRows)
             assert.equal((await dataSource.getRepository(Dataset).findOneBy({ id: dataset.id })).updatedDate.toISOString(), beforeUpdated)
 
@@ -1897,6 +1899,15 @@ describe('evaluation routes', () => {
                 dryRun: 'true'
             })
             assert.equal(badDry.status, 400, JSON.stringify(badDry.body))
+            const badCursor = await api.post('/datasets/rows/from-ratings').send({
+                datasetId: dataset.id,
+                flowId: flow.id,
+                rating: 'THUMBS_DOWN',
+                days: 7,
+                dryRun: true,
+                cursor: { createdDate: 'not-a-date', id: 'fb' }
+            })
+            assert.equal(badCursor.status, 400, JSON.stringify(badCursor.body))
             assert.equal(await dataSource.getRepository(DatasetRow).count({ where: { datasetId: dataset.id } }), beforeRows)
 
             const capped = await api.post('/datasets/rows/from-ratings').send({
@@ -2314,6 +2325,100 @@ describe('evaluation routes', () => {
             assert.equal(after.length, 2)
             assert.equal(new Set(after.map((row) => row.sourceMessageId)).size, 2)
             assert.equal(new Set(after.map((row) => row.sequenceNo)).size, 2)
+
+            const other = await dataSource.getRepository(Dataset).save({
+                name: 'Separate sequence',
+                description: 'Made-up rows',
+                workspaceId: WORKSPACE
+            })
+            const loneQuestionAt = new Date(when.getTime() + 10 * 1000)
+            await dataSource.getRepository(ChatMessage).save({
+                role: 'userMessage',
+                chatflowid: flow.id,
+                content: 'A different question',
+                chatType: 'INTERNAL',
+                chatId: 'chat-lone',
+                createdDate: new Date(loneQuestionAt.getTime() - 500)
+            })
+            const lone = await dataSource.getRepository(ChatMessage).save({
+                role: 'apiMessage',
+                chatflowid: flow.id,
+                content: 'A different answer',
+                chatType: 'INTERNAL',
+                chatId: 'chat-lone',
+                createdDate: loneQuestionAt
+            })
+            const [singleOther, bulkOther] = await Promise.all([
+                api.post('/datasets/rows/from-message').send({
+                    datasetId: other.id,
+                    messageId: lone.id,
+                    output: 'The corrected answer.'
+                }),
+                api.post('/datasets/rows/from-ratings').send({
+                    datasetId: other.id,
+                    flowId: flow.id,
+                    rating: 'THUMBS_DOWN',
+                    days: 1
+                })
+            ])
+            assert.equal(singleOther.status, 200, JSON.stringify(singleOther.body))
+            assert.equal(bulkOther.status, 200, JSON.stringify(bulkOther.body))
+            const separate = await dataSource.getRepository(DatasetRow).find({ where: { datasetId: other.id } })
+            assert.equal(separate.length, 3)
+            assert.equal(new Set(separate.map((row) => row.sourceMessageId)).size, 3)
+            assert.equal(new Set(separate.map((row) => row.sequenceNo)).size, 3)
+        } finally {
+            asOwner()
+            await cleanup()
+        }
+    })
+
+    it('does not call an exact scan cap truncated when nothing older remains', async () => {
+        const { dataSource, api, cleanup } = await openSqlite()
+        const now = Date.now()
+        try {
+            asOwner()
+            const dataset = await dataSource.getRepository(Dataset).save({
+                name: 'Exact window',
+                description: 'Made-up rows',
+                workspaceId: WORKSPACE
+            })
+            const flow = await dataSource.getRepository(ChatFlow).save({
+                name: 'Bakery desk',
+                flowData: '{}',
+                type: 'CHATFLOW',
+                workspaceId: WORKSPACE
+            })
+            for (let index = 0; index < RATING_SCAN_CAP; index += 1) {
+                const at = new Date(now - index)
+                const answer = await dataSource.getRepository(ChatMessage).save({
+                    role: 'apiMessage',
+                    chatflowid: flow.id,
+                    content: `No question ${index}`,
+                    chatType: 'INTERNAL',
+                    chatId: `chat-exact-${index}`,
+                    createdDate: at
+                })
+                await dataSource.getRepository(ChatMessageFeedback).save({
+                    chatflowid: flow.id,
+                    chatId: `chat-exact-${index}`,
+                    messageId: answer.id,
+                    rating: 'THUMBS_DOWN',
+                    createdDate: at
+                })
+            }
+            const result = await api.post('/datasets/rows/from-ratings').send({
+                datasetId: dataset.id,
+                flowId: flow.id,
+                rating: 'THUMBS_DOWN',
+                days: 1,
+                dryRun: true
+            })
+            assert.equal(result.status, 200, JSON.stringify(result.body))
+            assert.equal(result.body.count, 0)
+            assert.equal(result.body.truncated, false)
+            assert.equal(result.body.cursor, null)
+            assert.equal(await dataSource.getRepository(DatasetRow).count({ where: { datasetId: dataset.id } }), 0)
         } finally {
             asOwner()
             await cleanup()
@@ -2389,7 +2494,50 @@ describe('evaluation routes', () => {
             assert.equal(result.status, 200, JSON.stringify(result.body))
             assert.equal(result.body.truncated, true)
             assert.equal(result.body.count, 0)
+            assert.equal(typeof result.body.cursor?.id, 'string')
+            assert.ok(result.body.cursor.createdDate)
             assert.equal(await dataSource.getRepository(DatasetRow).count({ where: { datasetId: dataset.id } }), 0)
+
+            const continued = await api.post('/datasets/rows/from-ratings').send({
+                datasetId: dataset.id,
+                flowId: flow.id,
+                rating: 'THUMBS_DOWN',
+                days: 1,
+                dryRun: true,
+                cursor: result.body.cursor
+            })
+            assert.equal(continued.status, 200, JSON.stringify(continued.body))
+            assert.equal(continued.body.truncated, false)
+            assert.equal(continued.body.cursor, null)
+            assert.equal(continued.body.count, 1)
+            assert.equal(continued.body.preview[0].messageId, olderAnswer.id)
+            assert.equal(continued.body.preview[0].input, 'The question past the scan')
+            const written = await api.post('/datasets/rows/from-ratings').send({
+                datasetId: dataset.id,
+                flowId: flow.id,
+                rating: 'THUMBS_DOWN',
+                days: 1,
+                cursor: result.body.cursor
+            })
+            assert.equal(written.status, 200, JSON.stringify(written.body))
+            assert.equal(written.body.count, 1)
+            const stored = await dataSource.getRepository(DatasetRow).findOneBy({
+                datasetId: dataset.id,
+                sourceMessageId: olderAnswer.id
+            })
+            assert.ok(stored)
+            assert.equal(stored.input, 'The question past the scan')
+
+            const again = await api.post('/datasets/rows/from-ratings').send({
+                datasetId: dataset.id,
+                flowId: flow.id,
+                rating: 'THUMBS_DOWN',
+                days: 1,
+                dryRun: true
+            })
+            assert.equal(again.status, 200, JSON.stringify(again.body))
+            assert.equal(again.body.count, 0)
+            assert.equal(again.body.truncated, true)
         } finally {
             asOwner()
             await cleanup()
