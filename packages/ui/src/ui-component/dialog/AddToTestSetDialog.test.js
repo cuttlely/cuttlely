@@ -16,7 +16,7 @@ import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { ThemeProvider, createTheme } from '@mui/material/styles'
 
-import { AddToTestSetForm, questionBeforeAnswer } from './AddToTestSetDialog'
+import { AddToTestSetForm, canAddAnswerToDataset, questionBeforeAnswer } from './AddToTestSetDialog'
 
 const theme = createTheme()
 const noop = () => {}
@@ -54,6 +54,42 @@ describe('questionBeforeAnswer', () => {
         const first = { id: 'a0', type: 'apiMessage', message: 'Earlier.' }
         expect(questionBeforeAnswer([user, first, answer], answer)).toBe('')
     })
+
+    test('stays inside the same chat session and memory', () => {
+        const own = {
+            id: 'u-own',
+            type: 'userMessage',
+            message: 'own session question',
+            chatId: 'chat-1',
+            sessionId: 'sess-1',
+            memoryType: 'buffer'
+        }
+        const otherSession = {
+            id: 'u-other',
+            type: 'userMessage',
+            message: 'other session question',
+            chatId: 'chat-1',
+            sessionId: 'sess-2',
+            memoryType: 'buffer'
+        }
+        const otherMemory = {
+            id: 'u-window',
+            type: 'userMessage',
+            message: 'window question',
+            chatId: 'chat-1',
+            sessionId: 'sess-1',
+            memoryType: 'window'
+        }
+        const sessionAnswer = {
+            id: 'a-session',
+            type: 'apiMessage',
+            message: 'yes',
+            chatId: 'chat-1',
+            sessionId: 'sess-1',
+            memoryType: 'buffer'
+        }
+        expect(questionBeforeAnswer([own, otherSession, otherMemory, sessionAnswer], sessionAnswer)).toBe('own session question')
+    })
 })
 
 describe('AddToTestSetForm', () => {
@@ -86,11 +122,64 @@ describe('AddToTestSetForm', () => {
             datasets,
             datasetId: '',
             canCreate: false,
+            canView: true,
             showNew: false,
             newName: '',
             creating: false,
             saving: false
         })
         expect(html).not.toContain('New dataset')
+        expect(html).toContain('Bakery questions')
+    })
+
+    test('create without view keeps New dataset and hides the existing list', () => {
+        const html = markup({
+            question: 'Where is the rye?',
+            expected: 'In the back.',
+            datasets,
+            datasetId: '',
+            canCreate: true,
+            canView: false,
+            showNew: false,
+            newName: '',
+            creating: false,
+            saving: false
+        })
+        expect(html).toContain('New dataset')
+        expect(html).not.toContain('Bakery questions')
+        expect(html).not.toContain('Choose a dataset')
+    })
+
+    test('shows a visible error when the dataset list fails to load', () => {
+        const html = markup({
+            question: 'Where is the rye?',
+            expected: 'In the back.',
+            datasets: [],
+            datasetId: '',
+            canCreate: false,
+            canView: true,
+            loadError: 'Could not load datasets',
+            showNew: false,
+            newName: '',
+            creating: false,
+            saving: false
+        })
+        expect(html).toContain('Could not load datasets')
+    })
+})
+
+describe('canAddAnswerToDataset', () => {
+    const allow =
+        (...keys) =>
+        (permissionId) =>
+            String(permissionId)
+                .split(',')
+                .some((key) => keys.includes(key))
+
+    test('create can open the dialog without view, and update needs view', () => {
+        expect(canAddAnswerToDataset(allow('datasets:create'))).toBe(true)
+        expect(canAddAnswerToDataset(allow('datasets:update'))).toBe(false)
+        expect(canAddAnswerToDataset(allow('datasets:update', 'datasets:view'))).toBe(true)
+        expect(canAddAnswerToDataset(allow('datasets:view'))).toBe(false)
     })
 })

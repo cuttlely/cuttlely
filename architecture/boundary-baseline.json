@@ -73,6 +73,11 @@
         },
         {
             "from": "packages/components/nodes/harness/Harness/Harness.ts",
+            "to": "packages/components/src/otelRunSpans.ts",
+            "reason": "The harness API and the Harness node build run traces from harness events with the existing tracer."
+        },
+        {
+            "from": "packages/components/nodes/harness/Harness/Harness.ts",
             "to": "packages/components/src/storageUtils.ts"
         },
         {
@@ -634,6 +639,11 @@
         {
             "from": "packages/server/src/services/harnesses/index.ts",
             "to": "packages/server/src/errors/utils.ts"
+        },
+        {
+            "from": "packages/server/src/services/harnesses/index.ts",
+            "to": "packages/server/src/metrics/tracing.ts",
+            "reason": "The harness API and the Harness node build run traces from harness events with the existing tracer."
         },
         {
             "from": "packages/server/src/services/harnesses/index.ts",
@@ -2463,6 +2473,10 @@
         {
             "path": "packages/server/src/errors/appError/index.ts",
             "reason": "Shared server error class has its own module. Core callers import that module."
+        },
+        {
+            "path": "packages/server/src/metrics/harnessTraces.test.ts",
+            "reason": "The harness API and the Harness node build run traces from harness events with the existing tracer."
         },
         {
             "path": "packages/server/src/metrics/Prometheus.test.ts",

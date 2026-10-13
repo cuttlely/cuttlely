@@ -29,6 +29,8 @@ export function AddRatedAnswersForm({
     datasetId,
     onDatasetChange,
     canCreate,
+    canView = true,
+    loadError,
     showNew,
     onShowNew,
     newName,
@@ -75,23 +77,28 @@ export function AddRatedAnswersForm({
                     inputProps={{ 'aria-label': 'Limit', min: 1, max: 500 }}
                 />
             </Box>
-            <Box>
-                <Typography variant='subtitle2'>Dataset</Typography>
-                <TextField
-                    select
-                    fullWidth
-                    value={datasetId}
-                    onChange={(event) => onDatasetChange(event.target.value)}
-                    SelectProps={{ native: true, inputProps: { 'aria-label': 'Dataset' } }}
-                >
-                    <option value=''>Choose a dataset</option>
-                    {datasets.map((item) => (
-                        <option key={item.id} value={item.id}>
-                            {item.name}
-                        </option>
-                    ))}
-                </TextField>
-            </Box>
+            {loadError ? <Alert severity='error'>{loadError}</Alert> : null}
+            {canView ? (
+                <Box>
+                    <Typography variant='subtitle2'>Dataset</Typography>
+                    <TextField
+                        select
+                        fullWidth
+                        value={datasetId}
+                        onChange={(event) => onDatasetChange(event.target.value)}
+                        SelectProps={{ native: true, inputProps: { 'aria-label': 'Dataset' } }}
+                    >
+                        <option value=''>Choose a dataset</option>
+                        {datasets.map((item) => (
+                            <option key={item.id} value={item.id}>
+                                {item.name}
+                            </option>
+                        ))}
+                    </TextField>
+                </Box>
+            ) : datasetId ? (
+                <Typography>Dataset: {(datasets.find((item) => item.id === datasetId) || {}).name || 'New dataset'}</Typography>
+            ) : null}
             {canCreate ? (
                 <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
                     <Button variant='text' sx={{ textTransform: 'none', width: 'max-content' }} onClick={() => onShowNew(true)}>
@@ -159,6 +166,8 @@ AddRatedAnswersForm.propTypes = {
     datasetId: PropTypes.string,
     onDatasetChange: PropTypes.func,
     canCreate: PropTypes.bool,
+    canView: PropTypes.bool,
+    loadError: PropTypes.string,
     showNew: PropTypes.bool,
     onShowNew: PropTypes.func,
     newName: PropTypes.string,
@@ -173,7 +182,7 @@ AddRatedAnswersForm.propTypes = {
     onCancel: PropTypes.func
 }
 
-const AddRatedAnswersDialog = ({ show, flowId, rating, canCreate, onCancel, onSaved }) => {
+const AddRatedAnswersDialog = ({ show, flowId, rating, canCreate, canView = true, onCancel, onSaved }) => {
     const dispatch = useDispatch()
     useNotifier()
     const enqueueSnackbar = (...args) => dispatch(enqueueSnackbarAction(...args))
@@ -189,6 +198,7 @@ const AddRatedAnswersDialog = ({ show, flowId, rating, canCreate, onCancel, onSa
     const [checking, setChecking] = useState(false)
     const [adding, setAdding] = useState(false)
     const [preview, setPreview] = useState(null)
+    const [loadError, setLoadError] = useState('')
 
     useEffect(() => {
         if (!show) return
@@ -198,11 +208,16 @@ const AddRatedAnswersDialog = ({ show, flowId, rating, canCreate, onCancel, onSa
         setShowNew(false)
         setNewName('')
         setPreview(null)
+        setLoadError('')
     }, [show, flowId, rating])
 
     useEffect(() => {
-        if (!show) return undefined
+        if (!show || !canView) {
+            if (!canView) setDatasets([])
+            return undefined
+        }
         let cancelled = false
+        setLoadError('')
         datasetApi
             .getAllDatasets()
             .then((response) => {
@@ -210,13 +225,15 @@ const AddRatedAnswersDialog = ({ show, flowId, rating, canCreate, onCancel, onSa
                 const list = Array.isArray(response.data) ? response.data : response.data?.data || []
                 setDatasets(list)
             })
-            .catch(() => {
-                if (!cancelled) setDatasets([])
+            .catch((error) => {
+                if (cancelled) return
+                setDatasets([])
+                setLoadError(error?.response?.data?.message || 'Could not load datasets')
             })
         return () => {
             cancelled = true
         }
-    }, [show])
+    }, [show, canView])
 
     const report = (message) => {
         enqueueSnackbar({
@@ -325,6 +342,8 @@ const AddRatedAnswersDialog = ({ show, flowId, rating, canCreate, onCancel, onSa
                         setPreview(null)
                     }}
                     canCreate={canCreate}
+                    canView={canView}
+                    loadError={loadError}
                     showNew={showNew}
                     onShowNew={setShowNew}
                     newName={newName}
@@ -348,6 +367,7 @@ AddRatedAnswersDialog.propTypes = {
     flowId: PropTypes.string,
     rating: PropTypes.string,
     canCreate: PropTypes.bool,
+    canView: PropTypes.bool,
     onCancel: PropTypes.func,
     onSaved: PropTypes.func
 }

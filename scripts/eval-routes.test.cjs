@@ -1393,6 +1393,125 @@ describe('evaluation routes', () => {
                 chatId: 'chat-1',
                 createdDate: new Date('2026-04-02T15:04:00.000Z')
             })
+            await dataSource.getRepository(ChatMessage).save({
+                role: 'userMessage',
+                chatflowid: flow.id,
+                content: 'other session question',
+                chatType: 'INTERNAL',
+                chatId: 'chat-1',
+                sessionId: 'other-session',
+                createdDate: new Date('2026-04-02T15:04:02.000Z')
+            })
+            const sessionUser = await dataSource.getRepository(ChatMessage).save({
+                role: 'userMessage',
+                chatflowid: flow.id,
+                content: 'own session question',
+                chatType: 'INTERNAL',
+                chatId: 'chat-session',
+                sessionId: 'sess-1',
+                memoryType: 'buffer',
+                createdDate: new Date('2026-04-02T15:06:00.000Z')
+            })
+            await dataSource.getRepository(ChatMessage).save({
+                role: 'userMessage',
+                chatflowid: flow.id,
+                content: 'other session question',
+                chatType: 'INTERNAL',
+                chatId: 'chat-session',
+                sessionId: 'sess-2',
+                memoryType: 'buffer',
+                createdDate: new Date('2026-04-02T15:06:01.000Z')
+            })
+            const sessionAnswer = await dataSource.getRepository(ChatMessage).save({
+                role: 'apiMessage',
+                chatflowid: flow.id,
+                content: 'In this session.',
+                chatType: 'INTERNAL',
+                chatId: 'chat-session',
+                sessionId: 'sess-1',
+                memoryType: 'buffer',
+                createdDate: new Date('2026-04-02T15:06:02.000Z')
+            })
+            const memoryUser = await dataSource.getRepository(ChatMessage).save({
+                role: 'userMessage',
+                chatflowid: flow.id,
+                content: 'own memory question',
+                chatType: 'INTERNAL',
+                chatId: 'chat-memory',
+                sessionId: 'shared',
+                memoryType: 'buffer',
+                createdDate: new Date('2026-04-02T15:07:00.000Z')
+            })
+            await dataSource.getRepository(ChatMessage).save({
+                role: 'userMessage',
+                chatflowid: flow.id,
+                content: 'window question',
+                chatType: 'INTERNAL',
+                chatId: 'chat-memory',
+                sessionId: 'shared',
+                memoryType: 'window',
+                createdDate: new Date('2026-04-02T15:07:01.000Z')
+            })
+            const memoryAnswer = await dataSource.getRepository(ChatMessage).save({
+                role: 'apiMessage',
+                chatflowid: flow.id,
+                content: 'In this memory.',
+                chatType: 'INTERNAL',
+                chatId: 'chat-memory',
+                sessionId: 'shared',
+                memoryType: 'buffer',
+                createdDate: new Date('2026-04-02T15:07:02.000Z')
+            })
+            const nullUser = await dataSource.getRepository(ChatMessage).save({
+                role: 'userMessage',
+                chatflowid: flow.id,
+                content: 'null session question',
+                chatType: 'INTERNAL',
+                chatId: 'chat-null',
+                sessionId: null,
+                memoryType: null,
+                createdDate: new Date('2026-04-02T15:08:00.000Z')
+            })
+            await dataSource.getRepository(ChatMessage).save({
+                role: 'userMessage',
+                chatflowid: flow.id,
+                content: 'other session question',
+                chatType: 'INTERNAL',
+                chatId: 'chat-null',
+                sessionId: 'somewhere',
+                memoryType: 'buffer',
+                createdDate: new Date('2026-04-02T15:08:01.000Z')
+            })
+            const nullAnswer = await dataSource.getRepository(ChatMessage).save({
+                role: 'apiMessage',
+                chatflowid: flow.id,
+                content: 'No session.',
+                chatType: 'INTERNAL',
+                chatId: 'chat-null',
+                sessionId: null,
+                memoryType: null,
+                createdDate: new Date('2026-04-02T15:08:02.000Z')
+            })
+            await dataSource.getRepository(ChatMessage).save({
+                role: 'userMessage',
+                chatflowid: flow.id,
+                content: 'other session question',
+                chatType: 'INTERNAL',
+                chatId: 'chat-lonely',
+                sessionId: 'somewhere',
+                memoryType: 'buffer',
+                createdDate: new Date('2026-04-02T15:08:50.000Z')
+            })
+            const lonelyAnswer = await dataSource.getRepository(ChatMessage).save({
+                role: 'apiMessage',
+                chatflowid: flow.id,
+                content: 'No question here.',
+                chatType: 'INTERNAL',
+                chatId: 'chat-lonely',
+                sessionId: null,
+                memoryType: null,
+                createdDate: new Date('2026-04-02T15:09:00.000Z')
+            })
             const answer = await dataSource.getRepository(ChatMessage).save({
                 role: 'apiMessage',
                 chatflowid: flow.id,
@@ -1400,6 +1519,14 @@ describe('evaluation routes', () => {
                 chatType: 'INTERNAL',
                 chatId: 'chat-1',
                 createdDate: answerDate
+            })
+            const secondAnswer = await dataSource.getRepository(ChatMessage).save({
+                role: 'apiMessage',
+                chatflowid: flow.id,
+                content: 'Still in the back.',
+                chatType: 'INTERNAL',
+                chatId: 'chat-1',
+                createdDate: new Date('2026-04-02T15:04:10.000Z')
             })
             const foreignAnswer = await dataSource.getRepository(ChatMessage).save({
                 role: 'apiMessage',
@@ -1468,6 +1595,37 @@ describe('evaluation routes', () => {
 
             const plain = await api.post('/datasets/rows/from-message').send({ datasetId: dataset.id, messageId: userMessage.id })
             assert.equal(plain.status, 400, JSON.stringify(plain.body))
+            const followed = await api.post('/datasets/rows/from-message').send({ datasetId: dataset.id, messageId: secondAnswer.id })
+            assert.equal(followed.status, 400, JSON.stringify(followed.body))
+            assert.match(followed.body.message, /No question was found/)
+            assert.equal(
+                await dataSource.getRepository(DatasetRow).count({ where: { datasetId: dataset.id, sourceMessageId: secondAnswer.id } }),
+                0
+            )
+
+            const sameChatOtherSession = await api
+                .post('/datasets/rows/from-message')
+                .send({ datasetId: dataset.id, messageId: sessionAnswer.id })
+            assert.equal(sameChatOtherSession.status, 200, JSON.stringify(sameChatOtherSession.body))
+            assert.equal(sameChatOtherSession.body.input, sessionUser.content)
+            assert.notEqual(sameChatOtherSession.body.input, 'other session question')
+
+            const sameSessionOtherMemory = await api
+                .post('/datasets/rows/from-message')
+                .send({ datasetId: dataset.id, messageId: memoryAnswer.id })
+            assert.equal(sameSessionOtherMemory.status, 200, JSON.stringify(sameSessionOtherMemory.body))
+            assert.equal(sameSessionOtherMemory.body.input, memoryUser.content)
+            assert.notEqual(sameSessionOtherMemory.body.input, 'window question')
+
+            const nullSession = await api.post('/datasets/rows/from-message').send({ datasetId: dataset.id, messageId: nullAnswer.id })
+            assert.equal(nullSession.status, 200, JSON.stringify(nullSession.body))
+            assert.equal(nullSession.body.input, nullUser.content)
+            assert.notEqual(nullSession.body.input, 'other session question')
+
+            const noQuestionInSession = await api
+                .post('/datasets/rows/from-message')
+                .send({ datasetId: dataset.id, messageId: lonelyAnswer.id })
+            assert.equal(noQuestionInSession.status, 400, JSON.stringify(noQuestionInSession.body))
 
             const missingDataset = await api.post('/datasets/rows/from-message').send({
                 datasetId: foreignDataset.id,
@@ -1519,7 +1677,14 @@ describe('evaluation routes', () => {
             const cases = await casesFromDataset(dataset.id, WORKSPACE)
             assert.deepEqual(
                 cases.map((item) => item.question),
-                ['Typed in', 'Where is the rye?', 'When does the oven start?']
+                [
+                    'Typed in',
+                    'Where is the rye?',
+                    'own session question',
+                    'own memory question',
+                    'null session question',
+                    'When does the oven start?'
+                ]
             )
             assert.equal(cases[1].expected, 'On the left in the back.')
 
@@ -1917,6 +2082,154 @@ describe('evaluation routes', () => {
             assert.equal(already.status, 200, JSON.stringify(already.body))
             assert.equal(already.body.id, upRow.id)
             assert.equal(already.body.output, 'Yes, two loaves.')
+        } finally {
+            asOwner()
+            await cleanup()
+        }
+    })
+
+    it('uses the same chat session and memory as a single answer, and skips an answer with no question', async () => {
+        const { dataSource, api, cleanup } = await openSqlite()
+        const when = new Date(Date.now() - 20 * 60 * 1000)
+        try {
+            asOwner()
+            const dataset = await dataSource.getRepository(Dataset).save({
+                name: 'Session ratings',
+                description: 'Made-up rows',
+                workspaceId: WORKSPACE
+            })
+            const flow = await dataSource.getRepository(ChatFlow).save({
+                name: 'Bakery desk',
+                flowData: '{}',
+                type: 'CHATFLOW',
+                workspaceId: WORKSPACE
+            })
+            await dataSource.getRepository(ChatMessage).save({
+                role: 'userMessage',
+                chatflowid: flow.id,
+                content: 'other session question',
+                chatType: 'INTERNAL',
+                chatId: 'chat-session',
+                sessionId: 'other-session',
+                memoryType: 'buffer',
+                createdDate: new Date(when.getTime() - 500)
+            })
+            await dataSource.getRepository(ChatMessage).save({
+                role: 'userMessage',
+                chatflowid: flow.id,
+                content: 'own session question',
+                chatType: 'INTERNAL',
+                chatId: 'chat-session',
+                sessionId: 'sess-1',
+                memoryType: 'buffer',
+                createdDate: new Date(when.getTime() - 2000)
+            })
+            const sessionAnswer = await dataSource.getRepository(ChatMessage).save({
+                role: 'apiMessage',
+                chatflowid: flow.id,
+                content: 'The rye is on the left.',
+                chatType: 'INTERNAL',
+                chatId: 'chat-session',
+                sessionId: 'sess-1',
+                memoryType: 'buffer',
+                createdDate: when
+            })
+            await dataSource.getRepository(ChatMessageFeedback).save({
+                chatflowid: flow.id,
+                chatId: 'chat-session',
+                messageId: sessionAnswer.id,
+                rating: 'THUMBS_DOWN',
+                content: 'Wrong side.',
+                createdDate: when
+            })
+            const followed = await dataSource.getRepository(ChatMessage).save({
+                role: 'apiMessage',
+                chatflowid: flow.id,
+                content: 'Still on the left.',
+                chatType: 'INTERNAL',
+                chatId: 'chat-session',
+                sessionId: 'sess-1',
+                memoryType: 'buffer',
+                createdDate: new Date(when.getTime() + 1000)
+            })
+            await dataSource.getRepository(ChatMessageFeedback).save({
+                chatflowid: flow.id,
+                chatId: 'chat-session',
+                messageId: followed.id,
+                rating: 'THUMBS_DOWN',
+                content: 'Still wrong.',
+                createdDate: new Date(when.getTime() + 1000)
+            })
+            await dataSource.getRepository(ChatMessage).save({
+                role: 'userMessage',
+                chatflowid: flow.id,
+                content: 'null session question',
+                chatType: 'INTERNAL',
+                chatId: 'chat-null',
+                sessionId: null,
+                memoryType: null,
+                createdDate: new Date(when.getTime() - 3000)
+            })
+            await dataSource.getRepository(ChatMessage).save({
+                role: 'userMessage',
+                chatflowid: flow.id,
+                content: 'somewhere else',
+                chatType: 'INTERNAL',
+                chatId: 'chat-null',
+                sessionId: 'somewhere',
+                memoryType: 'buffer',
+                createdDate: new Date(when.getTime() - 100)
+            })
+            const nullAnswer = await dataSource.getRepository(ChatMessage).save({
+                role: 'apiMessage',
+                chatflowid: flow.id,
+                content: 'The shop opens at four.',
+                chatType: 'INTERNAL',
+                chatId: 'chat-null',
+                sessionId: null,
+                memoryType: null,
+                createdDate: new Date(when.getTime() + 2000)
+            })
+            await dataSource.getRepository(ChatMessageFeedback).save({
+                chatflowid: flow.id,
+                chatId: 'chat-null',
+                messageId: nullAnswer.id,
+                rating: 'THUMBS_UP',
+                content: 'Right.',
+                createdDate: new Date(when.getTime() + 2000)
+            })
+
+            const down = await api.post('/datasets/rows/from-ratings').send({
+                datasetId: dataset.id,
+                flowId: flow.id,
+                rating: 'THUMBS_DOWN',
+                days: 1
+            })
+            assert.equal(down.status, 200, JSON.stringify(down.body))
+            assert.equal(down.body.count, 1)
+            assert.equal(down.body.skipped, 0)
+            const stored = await dataSource.getRepository(DatasetRow).find({ where: { datasetId: dataset.id } })
+            assert.equal(stored.length, 1)
+            assert.equal(stored[0].input, 'own session question')
+            assert.equal(stored[0].sourceMessageId, sessionAnswer.id)
+            assert.equal(stored[0].output, '')
+            assert.notEqual(stored[0].input, 'other session question')
+
+            const up = await api.post('/datasets/rows/from-ratings').send({
+                datasetId: dataset.id,
+                flowId: flow.id,
+                rating: 'THUMBS_UP',
+                days: 1
+            })
+            assert.equal(up.status, 200, JSON.stringify(up.body))
+            assert.equal(up.body.count, 1)
+            const nullRow = await dataSource.getRepository(DatasetRow).findOneBy({
+                datasetId: dataset.id,
+                sourceMessageId: nullAnswer.id
+            })
+            assert.equal(nullRow.input, 'null session question')
+            assert.equal(nullRow.output, 'The shop opens at four.')
+            assert.notEqual(nullRow.input, 'somewhere else')
         } finally {
             asOwner()
             await cleanup()

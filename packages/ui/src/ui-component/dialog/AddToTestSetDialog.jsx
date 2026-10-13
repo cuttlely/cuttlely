@@ -9,11 +9,30 @@ import datasetApi from '@/api/dataset'
 import useNotifier from '@/utils/useNotifier'
 import { closeSnackbar as closeSnackbarAction, enqueueSnackbar as enqueueSnackbarAction } from '@/store/actions'
 
+// Create can open the dialog and name a new dataset. Update can open it only when the role can also list datasets.
+export function canAddAnswerToDataset(hasPermission) {
+    if (typeof hasPermission !== 'function') return false
+    if (hasPermission('datasets:create')) return true
+    return hasPermission('datasets:update') && hasPermission('datasets:view')
+}
+
+function sameChatSession(left, right) {
+    const key = (message) => ({
+        chatId: message?.chatId ?? null,
+        memoryType: message?.memoryType ?? null,
+        sessionId: message?.sessionId ?? null
+    })
+    const a = key(left)
+    const b = key(right)
+    return a.chatId === b.chatId && a.memoryType === b.memoryType && a.sessionId === b.sessionId
+}
+
 export function questionBeforeAnswer(messages, answer) {
     if (!answer || !Array.isArray(messages)) return ''
     const index = messages.findIndex((item) => item === answer || (answer.id && item.id === answer.id))
     if (index < 0) return ''
     for (let i = index - 1; i >= 0; i -= 1) {
+        if (!sameChatSession(messages[i], answer)) continue
         const role = messages[i].type || messages[i].role
         if (role === 'timeMessage') continue
         if (role === 'userMessage') return String(messages[i].message ?? messages[i].content ?? '')
@@ -30,6 +49,8 @@ export function AddToTestSetForm({
     datasetId,
     onDatasetChange,
     canCreate,
+    canView = true,
+    loadError,
     showNew,
     onShowNew,
     newName,
@@ -63,23 +84,28 @@ export function AddToTestSetForm({
                     inputProps={{ 'aria-label': 'Expected answer' }}
                 />
             </Box>
-            <Box>
-                <Typography variant='subtitle2'>Dataset</Typography>
-                <TextField
-                    select
-                    fullWidth
-                    value={datasetId}
-                    onChange={(event) => onDatasetChange(event.target.value)}
-                    SelectProps={{ native: true, inputProps: { 'aria-label': 'Dataset' } }}
-                >
-                    <option value=''>Choose a dataset</option>
-                    {datasets.map((item) => (
-                        <option key={item.id} value={item.id}>
-                            {item.name}
-                        </option>
-                    ))}
-                </TextField>
-            </Box>
+            {loadError ? <Alert severity='error'>{loadError}</Alert> : null}
+            {canView ? (
+                <Box>
+                    <Typography variant='subtitle2'>Dataset</Typography>
+                    <TextField
+                        select
+                        fullWidth
+                        value={datasetId}
+                        onChange={(event) => onDatasetChange(event.target.value)}
+                        SelectProps={{ native: true, inputProps: { 'aria-label': 'Dataset' } }}
+                    >
+                        <option value=''>Choose a dataset</option>
+                        {datasets.map((item) => (
+                            <option key={item.id} value={item.id}>
+                                {item.name}
+                            </option>
+                        ))}
+                    </TextField>
+                </Box>
+            ) : datasetId ? (
+                <Typography>Dataset: {(datasets.find((item) => item.id === datasetId) || {}).name || 'New dataset'}</Typography>
+            ) : null}
             {canCreate ? (
                 <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
                     <Button variant='text' sx={{ textTransform: 'none', width: 'max-content' }} onClick={() => onShowNew(true)}>
@@ -126,6 +152,8 @@ AddToTestSetForm.propTypes = {
     datasetId: PropTypes.string,
     onDatasetChange: PropTypes.func,
     canCreate: PropTypes.bool,
+    canView: PropTypes.bool,
+    loadError: PropTypes.string,
     showNew: PropTypes.bool,
     onShowNew: PropTypes.func,
     newName: PropTypes.string,
@@ -137,7 +165,7 @@ AddToTestSetForm.propTypes = {
     onCancel: PropTypes.func
 }
 
-const AddToTestSetDialog = ({ show, messageId, question, answer, canCreate, onCancel, onSaved }) => {
+const AddToTestSetDialog = ({ show, messageId, question, answer, canCreate, canView = true, onCancel, onSaved }) => {
     const dispatch = useDispatch()
     useNotifier()
     const enqueueSnackbar = (...args) => dispatch(enqueueSnackbarAction(...args))
@@ -150,6 +178,7 @@ const AddToTestSetDialog = ({ show, messageId, question, answer, canCreate, onCa
     const [newName, setNewName] = useState('')
     const [creating, setCreating] = useState(false)
     const [saving, setSaving] = useState(false)
+    const [loadError, setLoadError] = useState('')
 
     useEffect(() => {
         if (!show) return
@@ -157,11 +186,16 @@ const AddToTestSetDialog = ({ show, messageId, question, answer, canCreate, onCa
         setDatasetId('')
         setShowNew(false)
         setNewName('')
+        setLoadError('')
     }, [show, messageId, answer])
 
     useEffect(() => {
-        if (!show) return undefined
+        if (!show || !canView) {
+            if (!canView) setDatasets([])
+            return undefined
+        }
         let cancelled = false
+        setLoadError('')
         datasetApi
             .getAllDatasets()
             .then((response) => {
@@ -169,13 +203,15 @@ const AddToTestSetDialog = ({ show, messageId, question, answer, canCreate, onCa
                 const list = Array.isArray(response.data) ? response.data : response.data?.data || []
                 setDatasets(list)
             })
-            .catch(() => {
-                if (!cancelled) setDatasets([])
+            .catch((error) => {
+                if (cancelled) return
+                setDatasets([])
+                setLoadError(error?.response?.data?.message || 'Could not load datasets')
             })
         return () => {
             cancelled = true
         }
-    }, [show])
+    }, [show, canView])
 
     const report = (message) => {
         enqueueSnackbar({
@@ -251,6 +287,8 @@ const AddToTestSetDialog = ({ show, messageId, question, answer, canCreate, onCa
                     datasetId={datasetId}
                     onDatasetChange={setDatasetId}
                     canCreate={canCreate}
+                    canView={canView}
+                    loadError={loadError}
                     showNew={showNew}
                     onShowNew={setShowNew}
                     newName={newName}
@@ -272,6 +310,7 @@ AddToTestSetDialog.propTypes = {
     question: PropTypes.string,
     answer: PropTypes.string,
     canCreate: PropTypes.bool,
+    canView: PropTypes.bool,
     onCancel: PropTypes.func,
     onSaved: PropTypes.func
 }

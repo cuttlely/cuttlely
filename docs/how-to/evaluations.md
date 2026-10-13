@@ -56,9 +56,9 @@ The same rules as the recent-question check apply: nothing is written down, resu
 There is a path from an answer someone already received back to a dataset. On an answer in the message viewer, **Add to test set** saves that question and answer as one row.
 
 1. Open the message viewer for the flow.
-2. On an answer, select **Add to test set**. The button is hidden when the role cannot create or update datasets.
-3. Read the question. The expected answer starts as the real answer. Edit it when the check should expect something else.
-4. Choose a dataset, or select **New dataset**, name it, and create it. Creating a dataset needs `datasets:create`. Choosing one that already exists needs `datasets:create` or `datasets:update`.
+2. On an answer, select **Add to test set**. The button is shown when the role can create a dataset, or when it can update a dataset and view datasets. A role that can only update datasets does not see it, because the list of datasets needs `datasets:view`.
+3. Read the question. It is the message immediately before that answer in the same chat session. A question from another session, or another memory in that session, is not used. A second answer in a row has no question, and saving it is refused. The expected answer starts as the real answer. Edit it when the check should expect something else.
+4. Choose a dataset when the role can view datasets, or select **New dataset**, name it, and create it. Creating a dataset needs `datasets:create`. A role that can create a dataset but cannot view datasets still gets **New dataset**, and does not get the existing list. If the list cannot be loaded, the dialog shows the error.
 5. The dialog warns that a real message can contain personal data. Check the question and the expected answer, then save.
 
 The row records where it came from: source `chat_message`, the message id, the flow id, and the date of the answer. Saving that same answer into the same dataset again returns the row already stored and does not add a second one. The flow and the dataset both have to belong to the current team. A flow or a dataset from another team is not found. The role also needs permission to view that kind of flow: `chatflows:view` for a chatflow, a harness, or a pipeline, `agentflows:view` for an agentflow, and `assistants:view` for an assistant.
@@ -69,16 +69,16 @@ That dataset can be the one the Publish dialog checks. See [Check a dataset befo
 
 A rating on an answer can become a row without saving each one by hand. In the message viewer, set **Feedback** to **Positive** or **Negative** only. **Add rated answers to test set** is hidden when both are selected, or when neither is.
 
-1. Select **Add rated answers to test set**. The button is hidden when the role cannot create or update datasets.
-2. Choose how many days to look back, from 1 to 90, and a dataset. The limit defaults to 500 and cannot add more than 500 new rows in one call.
+1. Select **Add rated answers to test set**. The button uses the same permission as **Add to test set**: create, or update together with view.
+2. Choose how many days to look back, from 1 to 90, and a dataset. The limit defaults to 500 and cannot add more than 500 new rows in one call. The existing-dataset list needs `datasets:view`. Create without that view still offers **New dataset**.
 3. Select **See how many**. That is a dry run: it shows how many rows would be added, how many are already in the dataset, and a short preview. It does not write.
 4. Select **Add rated answers**.
 
-The window is the rating's date, not the date of the answer. Newest ratings are taken first. A message already stored in that dataset, including one saved with **Add to test set**, is skipped and counted. An answer with no question is left out.
+The window is the rating's date, not the date of the answer. Newest ratings are taken first. The question is the message immediately before that answer in the same chat session, the same rule as **Add to test set**. A null session or memory matches only a null session or memory. An answer with no question of its own is left out. A message already stored in that dataset, including one saved with **Add to test set**, is skipped and counted.
 
 A thumbs-up row uses the answer as the expected output. A thumbs-down row does not: the question is stored, the expected answer stays empty, and the row is marked **needs expected answer**. The rejected answer and any feedback text stay on the row, with the feedback id, the rating, the message, the flow, and the date of the rating. Open the row on the dataset and type the expected answer. Saving a non-empty expected answer clears the marker.
 
-The same team and permission rules as **Add to test set** apply. The flow and the dataset have to belong to the current team. A flow or a dataset from another team is not found. The role needs `datasets:create` or `datasets:update`, and permission to view that kind of flow.
+The flow and the dataset both have to belong to the current team. A flow or a dataset from another team is not found. The role also needs permission to view that kind of flow.
 
 That dataset can drive the Publish check. A row that still needs an expected answer is asked like any other row. Text, JSON, and numeric evaluators score the answer. A model evaluator scores Error and the grading model is not called, because it compares the answer with the expected one. Fill in the expected answer and run the check again. See [Check a dataset before you publish](#check-a-dataset-before-you-publish).
 

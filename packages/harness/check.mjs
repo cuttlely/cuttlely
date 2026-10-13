@@ -8316,7 +8316,10 @@ try {
 }
 check(
     'an external worker process executes the harness job',
-    externalRun?.text?.startsWith('answer:') && externalRun?.harness === 'queue-worker',
+    externalRun?.text?.startsWith('answer:') &&
+        externalRun?.harness === 'queue-worker' &&
+        typeof externalRun?.runId === 'string' &&
+        externalRun.runId.startsWith('run_'),
     JSON.stringify({ text: externalRun?.text, harness: externalRun?.harness, err: workerErr.slice(0, 400) })
 )
 check(

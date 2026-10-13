@@ -1,7 +1,7 @@
 import { Request } from 'express'
 import { StatusCodes } from 'http-status-codes'
 import { Readable } from 'stream'
-import { In, LessThanOrEqual, MoreThanOrEqual } from 'typeorm'
+import { In, MoreThanOrEqual } from 'typeorm'
 import { ChatFlow, EnumChatflowType } from '../../database/entities/ChatFlow'
 import { ChatMessage } from '../../database/entities/ChatMessage'
 import { ChatMessageFeedback } from '../../database/entities/ChatMessageFeedback'
@@ -346,19 +346,15 @@ const addDatasetRow = async (body: any) => {
 }
 
 const changeUpdateOnDataset = async (id: string, workspaceId: string, entityManager?: any) => {
-    const appServer = getRunningExpressApp()
-    const dataset = await appServer.AppDataSource.getRepository(Dataset).findOneBy({
+    const repo = entityManager ? entityManager.getRepository(Dataset) : getRunningExpressApp().AppDataSource.getRepository(Dataset)
+    const dataset = await repo.findOneBy({
         id: id,
         workspaceId: workspaceId
     })
     if (!dataset) throw new AppError(StatusCodes.NOT_FOUND, `Dataset ${id} not found`)
 
     dataset.updatedDate = new Date()
-    if (entityManager) {
-        await entityManager.getRepository(Dataset).save(dataset)
-    } else {
-        await appServer.AppDataSource.getRepository(Dataset).save(dataset)
-    }
+    await repo.save(dataset)
 }
 
 // Update row for a dataset
@@ -448,22 +444,26 @@ const patchDeleteRows = async (ids: string[] = [], workspaceId: string) => {
     }
 }
 
-// The nearest earlier user message in the same chat. Empty when that question is missing.
+// The message immediately before this answer in the same chat session.
+// A null session or memory matches only a null session or memory. Another session is a different conversation.
 async function questionBeforeAnswer(message: ChatMessage): Promise<string | null> {
     const appServer = getRunningExpressApp()
-    const questions = await appServer.AppDataSource.getRepository(ChatMessage).find({
-        where: {
-            chatflowid: message.chatflowid,
-            chatId: message.chatId,
-            role: 'userMessage',
-            createdDate: LessThanOrEqual(message.createdDate)
-        },
-        order: { createdDate: 'DESC', id: 'DESC' },
-        take: 1
-    })
-    const question = questions[0]
-    const input = String(question?.content ?? '')
-    if (!question || input.trim().length === 0) return null
+    const previousQuery = appServer.AppDataSource.getRepository(ChatMessage)
+        .createQueryBuilder('m')
+        .where('m.chatflowid = :chatflowid', { chatflowid: message.chatflowid })
+        .andWhere('m.chatId = :chatId', { chatId: message.chatId })
+        .andWhere('m.id != :id', { id: message.id })
+        .andWhere('(m.createdDate < :createdDate OR (m.createdDate = :createdDate AND m.id < :id))', {
+            createdDate: message.createdDate,
+            id: message.id
+        })
+    if (message.sessionId == null) previousQuery.andWhere('m.sessionId IS NULL')
+    else previousQuery.andWhere('m.sessionId = :sessionId', { sessionId: message.sessionId })
+    if (message.memoryType == null) previousQuery.andWhere('m.memoryType IS NULL')
+    else previousQuery.andWhere('m.memoryType = :memoryType', { memoryType: message.memoryType })
+    const previous = await previousQuery.orderBy('m.createdDate', 'DESC').addOrderBy('m.id', 'DESC').getOne()
+    const input = previous?.role === 'userMessage' ? String(previous.content ?? '') : ''
+    if (!previous || previous.role !== 'userMessage' || input.trim().length === 0) return null
     return input
 }
 
@@ -478,7 +478,7 @@ type RatingPlan = {
     messageId: string
     input: string
     output: string
-    rating: 'THUMBS_UP' | 'THUMBS_DOWN'
+    rating: ChatMessageRatingType
     needsExpectedAnswer: boolean
     row: DatasetRow
 }
@@ -554,10 +554,13 @@ const addDatasetRowFromChatMessage = async (
         created.sourceFlowId = flow.id
         created.sourceDate = message.createdDate
         try {
-            const saved = await rows.save(created)
-            await changeUpdateOnDataset(dataset.id, workspaceId)
-            return saved
+            return await appServer.AppDataSource.transaction(async (manager) => {
+                const saved = await manager.getRepository(DatasetRow).save(created)
+                await changeUpdateOnDataset(dataset.id, workspaceId, manager)
+                return saved
+            })
         } catch (error) {
+            if (error instanceof AppError) throw error
             if (!isUniqueViolation(error)) throw error
             const again = await rows.findOneBy({ datasetId: dataset.id, sourceMessageId: message.id })
             if (again) return again
@@ -672,7 +675,7 @@ const addDatasetRowsFromRatings = async (
                 const input = await questionBeforeAnswer(message)
                 if (!input) continue
                 seenMessages.add(message.id)
-                const thumbsDown = rating === 'THUMBS_DOWN'
+                const thumbsDown = rating === ChatMessageRatingType.THUMBS_DOWN
                 const answer = String(message.content ?? '')
                 const row = new DatasetRow()
                 row.datasetId = dataset.id
@@ -709,11 +712,8 @@ const addDatasetRowsFromRatings = async (
             messageId: item.messageId,
             needsExpectedAnswer: item.needsExpectedAnswer
         }))
-        if (dryRun) {
-            return { dryRun: true, count: planned.length, skipped, preview }
-        }
-        if (!planned.length) {
-            return { dryRun: false, count: 0, skipped, preview }
+        if (dryRun || !planned.length) {
+            return { dryRun, count: planned.length, skipped, preview }
         }
 
         await appServer.AppDataSource.transaction(async (entityManager) => {
