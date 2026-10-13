@@ -50,6 +50,10 @@ const componentsStub = {
             return {
                 getLoggerTransports() {
                     return []
+                },
+                getMulterStorage() {
+                    const multer = serverRequire('multer')
+                    return multer({ storage: multer.memoryStorage() })
                 }
             }
         }
@@ -815,6 +819,250 @@ describe('evaluation routes', () => {
             assert.equal(await dataSource.getRepository(Evaluation).count(), before)
         } finally {
             asOwner()
+            await cleanup()
+        }
+    })
+
+    it('run again returns 404 and writes no row when the evaluation is missing or in another workspace', async () => {
+        const { dataSource, api, cleanup } = await openSqlite()
+        try {
+            asOwner()
+            const missing = await api.post('/evaluations/run-again/00000000-0000-4000-8000-000000000000')
+            assert.equal(missing.status, 404, JSON.stringify(missing.body))
+            assert.equal(await dataSource.getRepository(Evaluation).count(), 0)
+
+            await dataSource.getRepository(Workspace).save({
+                id: WORKSPACE_B,
+                name: 'Other Team',
+                organizationId: ORG,
+                createdBy: USER,
+                updatedBy: USER
+            })
+            await dataSource.getRepository(Evaluation).save({
+                name: 'Elsewhere',
+                evaluationType: 'benchmarking',
+                chatflowId: '[]',
+                chatflowName: '[]',
+                datasetId: 'dataset-b',
+                datasetName: 'Elsewhere',
+                status: 'completed',
+                average_metrics: '{}',
+                additionalConfig: '{}',
+                workspaceId: WORKSPACE_B
+            })
+            const saved = await dataSource.getRepository(Evaluation).findOneBy({ workspaceId: WORKSPACE_B })
+            const otherTeam = await api.post(`/evaluations/run-again/${saved.id}`)
+            assert.equal(otherTeam.status, 404, JSON.stringify(otherTeam.body))
+            assert.equal(await dataSource.getRepository(Evaluation).count(), 1)
+            assert.equal((await dataSource.getRepository(Evaluation).find())[0].workspaceId, WORKSPACE_B)
+        } finally {
+            asOwner()
+            await cleanup()
+        }
+    })
+
+    it('rejects another team memory credential on history load, clear, and an evaluation run', async () => {
+        const fs = require('node:fs')
+        const { dataSource, cleanup } = await openSqlite()
+        const previousKey = process.env.CUTTLELY_SECRETKEY_OVERWRITE
+        const previousAlias = process.env.FLOWISE_SECRETKEY_OVERWRITE
+        const dir = await mkdtemp(path.join(tmpdir(), 'cuttlely-memory-node-'))
+        const file = path.join(dir, 'memory-node.mjs')
+        process.env.CUTTLELY_SECRETKEY_OVERWRITE = 'cuttlely-test-credential-key'
+        delete process.env.FLOWISE_SECRETKEY_OVERWRITE
+        const { getSessionChatHistory, clearSessionMemory } = serverRequire('./src/utils/index.ts')
+        const { executeFlow } = serverRequire('./src/utils/buildChatflow.ts')
+        const { getCredentialData } = serverRequire('../components/src/utils.ts')
+        fs.writeFileSync(
+            file,
+            [
+                'export class nodeClass {',
+                '    async init(nodeData, _input, options) {',
+                '        const data = await globalThis.__memoryCredential(nodeData.credential, options)',
+                '        globalThis.__memorySecrets.push(data.password || "")',
+                '        return {',
+                '            async getChatMessages() { return [] },',
+                '            async clearChatMessages() {}',
+                '        }',
+                '    }',
+                '}',
+                ''
+            ].join('\n')
+        )
+        const fileUrl = file
+        globalThis.__memoryCredential = getCredentialData
+        globalThis.__memorySecrets = []
+        try {
+            const { AES } = serverRequire('crypto-js')
+            const seal = (secret) => AES.encrypt(JSON.stringify({ password: secret }), process.env.CUTTLELY_SECRETKEY_OVERWRITE).toString()
+            const WORKSPACE_C = '99999999-9999-4999-8999-999999999999'
+            for (const [id, name] of [
+                [WORKSPACE_B, 'Other Team'],
+                [WORKSPACE_C, 'Unrelated Team']
+            ]) {
+                await dataSource.getRepository(Workspace).save({
+                    id,
+                    name,
+                    organizationId: ORG,
+                    createdBy: USER,
+                    updatedBy: USER
+                })
+            }
+            const saveKey = (name, secret, workspaceId) =>
+                dataSource.getRepository(Credential).save({
+                    name,
+                    credentialName: 'postgresApi',
+                    encryptedData: seal(secret),
+                    workspaceId
+                })
+            const owned = await saveKey('Owned', 'owned-secret', WORKSPACE)
+            const shared = await saveKey('Shared', 'shared-secret', WORKSPACE_B)
+            await dataSource.getRepository(WorkspaceShared).save({
+                workspaceId: WORKSPACE,
+                sharedItemId: shared.id,
+                itemType: 'credential'
+            })
+            const foreign = await saveKey('Foreign', 'foreign-secret', WORKSPACE_C)
+            const componentNodes = {
+                seqStart: { filePath: fileUrl },
+                seqAgent: { filePath: fileUrl },
+                postgresAgentMemory: { filePath: fileUrl }
+            }
+            const memoryNode = (credentialId) => ({
+                id: 'postgresAgentMemory_0',
+                data: {
+                    id: 'postgresAgentMemory_0',
+                    name: 'postgresAgentMemory',
+                    label: 'Postgres Agent Memory',
+                    category: 'Memory',
+                    type: 'PostgresAgentMemory',
+                    credential: credentialId,
+                    inputs: {}
+                }
+            })
+            const history = (credentialId) =>
+                getSessionChatHistory(
+                    'flow-memory',
+                    'session-1',
+                    memoryNode(credentialId),
+                    componentNodes,
+                    dataSource,
+                    { Credential },
+                    { info() {}, warn() {}, error() {} },
+                    [],
+                    WORKSPACE
+                )
+            globalThis.__memorySecrets = []
+            await assert.rejects(() => history(foreign.id), /not found/)
+            assert.deepEqual(globalThis.__memorySecrets, [])
+
+            globalThis.__memorySecrets = []
+            assert.deepEqual(await history(owned.id), [])
+            assert.deepEqual(globalThis.__memorySecrets, ['owned-secret'])
+
+            globalThis.__memorySecrets = []
+            assert.deepEqual(await history(shared.id), [])
+            assert.deepEqual(globalThis.__memorySecrets, ['shared-secret'])
+
+            const clear = (credentialId) =>
+                clearSessionMemory(
+                    [memoryNode(credentialId)],
+                    componentNodes,
+                    'chat-1',
+                    dataSource,
+                    ORG,
+                    'session-1',
+                    undefined,
+                    undefined,
+                    WORKSPACE
+                )
+            globalThis.__memorySecrets = []
+            await assert.rejects(() => clear(foreign.id), /not found/)
+            assert.deepEqual(globalThis.__memorySecrets, [])
+
+            globalThis.__memorySecrets = []
+            await clear(owned.id)
+            assert.deepEqual(globalThis.__memorySecrets, ['owned-secret'])
+
+            globalThis.__memorySecrets = []
+            await clear(shared.id)
+            assert.deepEqual(globalThis.__memorySecrets, ['shared-secret'])
+
+            const run = (credentialId) => {
+                const nodes = [
+                    {
+                        id: 'seqStart_0',
+                        data: {
+                            id: 'seqStart_0',
+                            name: 'seqStart',
+                            label: 'Start',
+                            category: 'Sequential Agents',
+                            inputs: { agentMemory: '{{postgresAgentMemory_0.data.instance}}' }
+                        }
+                    },
+                    memoryNode(credentialId),
+                    {
+                        id: 'seqAgent_0',
+                        data: {
+                            id: 'seqAgent_0',
+                            name: 'seqAgent',
+                            label: 'Agent',
+                            category: 'Sequential Agents',
+                            inputs: {}
+                        }
+                    }
+                ]
+                const edges = [{ source: 'seqStart_0', target: 'seqAgent_0', id: 'e1' }]
+                return executeFlow({
+                    incomingInput: { question: 'hello', history: [] },
+                    chatflow: {
+                        id: 'flow-memory',
+                        name: 'Memory flow',
+                        type: 'MULTIAGENT',
+                        workspaceId: WORKSPACE,
+                        flowData: JSON.stringify({ nodes, edges })
+                    },
+                    chatId: 'chat-eval',
+                    orgId: ORG,
+                    workspaceId: WORKSPACE,
+                    subscriptionId: 'sub',
+                    productId: 'oss',
+                    baseURL: 'http://127.0.0.1:3000',
+                    isInternal: true,
+                    isEvaluation: true,
+                    evaluationRunId: 'eval-run-1',
+                    appDataSource: dataSource,
+                    componentNodes,
+                    sseStreamer: {},
+                    telemetry: { sendTelemetry() {} },
+                    cachePool: {},
+                    usageCacheManager: {}
+                })
+            }
+            globalThis.__memorySecrets = []
+            await assert.rejects(() => run(foreign.id), /not found/)
+            assert.deepEqual(globalThis.__memorySecrets, [])
+
+            for (const [credentialId, secret] of [
+                [owned.id, 'owned-secret'],
+                [shared.id, 'shared-secret']
+            ]) {
+                globalThis.__memorySecrets = []
+                try {
+                    await run(credentialId)
+                } catch (error) {
+                    assert.doesNotMatch(String(error && error.message), /not found/)
+                }
+                assert.deepEqual(globalThis.__memorySecrets, [secret])
+            }
+        } finally {
+            delete globalThis.__memoryCredential
+            delete globalThis.__memorySecrets
+            if (previousKey === undefined) delete process.env.CUTTLELY_SECRETKEY_OVERWRITE
+            else process.env.CUTTLELY_SECRETKEY_OVERWRITE = previousKey
+            if (previousAlias === undefined) delete process.env.FLOWISE_SECRETKEY_OVERWRITE
+            else process.env.FLOWISE_SECRETKEY_OVERWRITE = previousAlias
+            await rm(dir, { recursive: true, force: true })
             await cleanup()
         }
     })

@@ -53,7 +53,7 @@ const runAgain = async (id: string, baseURL: string, orgId: string, workspaceId:
             id: id,
             workspaceId: workspaceId
         })
-        if (!evaluation) throw new Error(`Evaluation ${id} not found`)
+        if (!evaluation) throw new AppError(StatusCodes.NOT_FOUND, `Evaluation ${id} not found`)
         const additionalConfig = evaluation.additionalConfig ? JSON.parse(evaluation.additionalConfig) : {}
         const data: ICommonObject = {
             chatflowId: evaluation.chatflowId,
