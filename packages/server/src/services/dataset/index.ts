@@ -1,7 +1,7 @@
 import { Request } from 'express'
 import { StatusCodes } from 'http-status-codes'
 import { Readable } from 'stream'
-import { In, LessThanOrEqual } from 'typeorm'
+import { In } from 'typeorm'
 import { ChatFlow, EnumChatflowType } from '../../database/entities/ChatFlow'
 import { ChatMessage } from '../../database/entities/ChatMessage'
 import { Dataset } from '../../database/entities/Dataset'
@@ -476,19 +476,21 @@ const addDatasetRowFromChatMessage = async (
             throw new AppError(StatusCodes.BAD_REQUEST, 'This message is not an answer.')
         }
 
-        const questions = await appServer.AppDataSource.getRepository(ChatMessage).find({
-            where: {
-                chatflowid: message.chatflowid,
-                chatId: message.chatId,
-                role: 'userMessage',
-                createdDate: LessThanOrEqual(message.createdDate)
-            },
-            order: { createdDate: 'DESC', id: 'DESC' },
-            take: 1
-        })
-        const question = questions[0]
-        const input = String(question?.content ?? '')
-        if (!question || input.trim().length === 0) {
+        // The turn is the message immediately before this answer. An earlier question does not belong to a later answer.
+        const previous = await appServer.AppDataSource.getRepository(ChatMessage)
+            .createQueryBuilder('m')
+            .where('m.chatflowid = :chatflowid', { chatflowid: message.chatflowid })
+            .andWhere('m.chatId = :chatId', { chatId: message.chatId })
+            .andWhere('m.id != :id', { id: message.id })
+            .andWhere('(m.createdDate < :createdDate OR (m.createdDate = :createdDate AND m.id < :id))', {
+                createdDate: message.createdDate,
+                id: message.id
+            })
+            .orderBy('m.createdDate', 'DESC')
+            .addOrderBy('m.id', 'DESC')
+            .getOne()
+        const input = previous?.role === 'userMessage' ? String(previous.content ?? '') : ''
+        if (!previous || previous.role !== 'userMessage' || input.trim().length === 0) {
             throw new AppError(StatusCodes.BAD_REQUEST, 'No question was found for this answer.')
         }
         const output = typeof body.output === 'string' ? body.output : String(message.content ?? '')

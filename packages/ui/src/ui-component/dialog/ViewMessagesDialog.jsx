@@ -64,7 +64,7 @@ import exportImportApi from '@/api/exportimport'
 import useApi from '@/hooks/useApi'
 import useConfirm from '@/hooks/useConfirm'
 import { useAuth } from '@/hooks/useAuth'
-import AddToTestSetDialog, { questionBeforeAnswer } from '@/ui-component/dialog/AddToTestSetDialog'
+import AddToTestSetDialog, { canAddAnswerToDataset, questionBeforeAnswer } from '@/ui-component/dialog/AddToTestSetDialog'
 
 // Utils
 import { isValidURL, removeDuplicateURL } from '@/utils/genericHelper'
@@ -186,8 +186,9 @@ const ViewMessagesDialog = ({ show, dialogProps, onCancel }) => {
     const customization = useSelector((state) => state.customization)
     const { confirm } = useConfirm()
     const { hasPermission } = useAuth()
-    const canAddToTestSet = hasPermission('datasets:create,datasets:update')
+    const canAddToTestSet = canAddAnswerToDataset(hasPermission)
     const canCreateDataset = hasPermission('datasets:create')
+    const canViewDatasets = hasPermission('datasets:view')
 
     useNotifier()
     const enqueueSnackbar = (...args) => dispatch(enqueueSnackbarAction(...args))
@@ -1659,6 +1660,7 @@ const ViewMessagesDialog = ({ show, dialogProps, onCancel }) => {
                         question={addToTestSet?.question || ''}
                         answer={addToTestSet?.answer || ''}
                         canCreate={canCreateDataset}
+                        canView={canViewDatasets}
                         onCancel={() => setAddToTestSet(null)}
                         onSaved={() => setAddToTestSet(null)}
                     />

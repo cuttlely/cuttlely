@@ -33,6 +33,8 @@ export class DatasetRow implements IDatasetRow {
     @Column({ nullable: true, type: 'varchar', length: 36 })
     sourceFlowId?: string | null
 
-    @Column({ nullable: true, type: 'datetime' })
+    // Date, not a string type. sqlite rejects "timestamp" and postgres rejects "datetime".
+    // Each driver maps Date to its own date column, which is what the migration created.
+    @Column({ nullable: true, type: Date })
     sourceDate?: Date | null
 }

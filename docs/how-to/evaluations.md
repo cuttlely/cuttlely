@@ -56,9 +56,9 @@ The same rules as the recent-question check apply: nothing is written down, resu
 There is a path from an answer someone already received back to a dataset. On an answer in the message viewer, **Add to test set** saves that question and answer as one row.
 
 1. Open the message viewer for the flow.
-2. On an answer, select **Add to test set**. The button is hidden when the role cannot create or update datasets.
-3. Read the question. The expected answer starts as the real answer. Edit it when the check should expect something else.
-4. Choose a dataset, or select **New dataset**, name it, and create it. Creating a dataset needs `datasets:create`. Choosing one that already exists needs `datasets:create` or `datasets:update`.
+2. On an answer, select **Add to test set**. The button is shown when the role can create a dataset, or when it can update a dataset and view datasets. A role that can only update datasets does not see it, because the list of datasets needs `datasets:view`.
+3. Read the question. It is the message immediately before that answer. A second answer in a row has no question, and saving it is refused. The expected answer starts as the real answer. Edit it when the check should expect something else.
+4. Choose a dataset when the role can view datasets, or select **New dataset**, name it, and create it. Creating a dataset needs `datasets:create`. A role that can create a dataset but cannot view datasets still gets **New dataset**, and does not get the existing list. If the list cannot be loaded, the dialog shows the error.
 5. The dialog warns that a real message can contain personal data. Check the question and the expected answer, then save.
 
 The row records where it came from: source `chat_message`, the message id, the flow id, and the date of the answer. Saving that same answer into the same dataset again returns the row already stored and does not add a second one. The flow and the dataset both have to belong to the current team. A flow or a dataset from another team is not found. The role also needs permission to view that kind of flow: `chatflows:view` for a chatflow, a harness, or a pipeline, `agentflows:view` for an agentflow, and `assistants:view` for an assistant.

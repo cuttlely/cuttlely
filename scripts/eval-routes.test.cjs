@@ -1389,6 +1389,14 @@ describe('evaluation routes', () => {
                 chatId: 'chat-1',
                 createdDate: answerDate
             })
+            const secondAnswer = await dataSource.getRepository(ChatMessage).save({
+                role: 'apiMessage',
+                chatflowid: flow.id,
+                content: 'Still in the back.',
+                chatType: 'INTERNAL',
+                chatId: 'chat-1',
+                createdDate: new Date('2026-04-02T15:04:10.000Z')
+            })
             const foreignAnswer = await dataSource.getRepository(ChatMessage).save({
                 role: 'apiMessage',
                 chatflowid: foreignFlow.id,
@@ -1456,6 +1464,13 @@ describe('evaluation routes', () => {
 
             const plain = await api.post('/datasets/rows/from-message').send({ datasetId: dataset.id, messageId: userMessage.id })
             assert.equal(plain.status, 400, JSON.stringify(plain.body))
+            const followed = await api.post('/datasets/rows/from-message').send({ datasetId: dataset.id, messageId: secondAnswer.id })
+            assert.equal(followed.status, 400, JSON.stringify(followed.body))
+            assert.match(followed.body.message, /No question was found/)
+            assert.equal(
+                await dataSource.getRepository(DatasetRow).count({ where: { datasetId: dataset.id, sourceMessageId: secondAnswer.id } }),
+                0
+            )
 
             const missingDataset = await api.post('/datasets/rows/from-message').send({
                 datasetId: foreignDataset.id,
