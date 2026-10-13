@@ -9,9 +9,11 @@ import { executeFlow } from '../utils/buildChatflow'
 import { executeAgentFlow } from '../utils/buildAgentflow'
 import { PredictionQueue } from '../queue/PredictionQueue'
 import { ChatflowTokenUsage } from '../services/usage'
+import logger from '../utils/logger'
 import {
     installInMemoryTraces,
     rememberTraceContinuation,
+    resetHeldToolsForTests,
     setTraceParentClock,
     shutdownCuttlelyTraces,
     TRACE_PARENT_TTL_MS,
@@ -281,6 +283,7 @@ describe('graph run traces', () => {
 
     beforeEach(() => {
         clearTraceEnv()
+        resetHeldToolsForTests()
         memory.reset()
         ;(global as { __cuttlelySeqRound?: number }).__cuttlelySeqRound = 0
         ;(global as { __leadRound?: number }).__leadRound = 0
@@ -478,7 +481,8 @@ describe('graph run traces', () => {
         sourceHandle: string,
         flowId: string,
         chatId: string,
-        route = 'Yes'
+        route = 'Yes',
+        moreHandles: string[] = []
     ) {
         const chainFile = path.join(dir, `chain-gate-${chatId.slice(-4)}.js`)
         fs.writeFileSync(chainFile, chainNodeSource(route))
@@ -499,13 +503,13 @@ describe('graph run traces', () => {
             edges: [
                 { id: 'e1', source: 'seqStart_0', target: 'seqLLM_0', targetHandle: 'seqLLM_0-input-sequentialNode' },
                 { id: 'e2', source: 'seqLLM_0', target: 'seqConditionAgent_0', targetHandle: 'seqConditionAgent_0-input-sequentialNode' },
-                {
-                    id: 'e3',
+                ...[sourceHandle, ...moreHandles].map((handle, index) => ({
+                    id: `e3-${index}`,
                     source: 'seqConditionAgent_0',
                     target: 'seqEnd_0',
-                    sourceHandle,
+                    sourceHandle: handle,
                     targetHandle: 'seqEnd_0-input-sequentialNode'
-                }
+                }))
             ]
         })
         await executeFlow({
@@ -678,6 +682,46 @@ describe('graph run traces', () => {
         expect(ran[0].attributes['tool.id']).toBe('call-oven')
         expect(spans.filter((span) => span.name === 'tool' && String(span.attributes['node.id']).startsWith('tool_'))).toEqual([])
         expect(contentKeys(spans)).toEqual([])
+    })
+
+    it('ends a rejected Sequential Agents tool span as denied', async () => {
+        process.env.CUTTLELY_OTEL_TRACES = 'true'
+        const chatId = 'c0ffee00-0000-4000-8000-00000000006a'
+        const source = dataSource()
+        const waiting = await runSeq('When is the loaf ready?', chatId, undefined, source, [])
+        const resumed = await runSeq('No', chatId, waiting.action as Record<string, unknown>, source, [])
+        expect(resumed.text).toBeTruthy()
+        const tools = memory.spans().filter((span) => span.name === 'tool')
+        expect(tools).toHaveLength(1)
+        expect(tools[0].attributes['status']).toBe('denied')
+        expect(tools[0].attributes['error']).toBe('denied')
+        expect(tools[0].attributes['tool.id']).toBe('call-oven')
+        expect(tools.filter((span) => span.attributes['status'] === 'pending')).toEqual([])
+        expect(tools.filter((span) => span.attributes['status'] === 'ok')).toEqual([])
+    })
+
+    it('ends the waiting tool span as pending when the approval is not saved', async () => {
+        process.env.CUTTLELY_OTEL_TRACES = 'true'
+        const chatId = 'c0ffee00-0000-4000-8000-00000000006b'
+        const source = dataSource()
+        const repo = source.getRepository.bind(source)
+        source.getRepository = (entity: { name?: string } | string) => {
+            const inner = repo(entity)
+            const table = typeof entity === 'function' ? entity.name : String(entity)
+            if (table !== 'ChatMessage') return inner
+            return {
+                ...inner,
+                save: async (value: Record<string, any>) => {
+                    if (value.action) throw new Error('approval was not saved')
+                    return inner.save(value)
+                }
+            }
+        }
+        await expect(runSeq('When is the loaf ready?', chatId, undefined, source, [])).rejects.toThrow(/approval was not saved/)
+        const tools = memory.spans().filter((span) => span.name === 'tool')
+        expect(tools).toHaveLength(1)
+        expect(tools[0].attributes['status']).toBe('pending')
+        expect(tools[0].attributes['tool.id']).toBe('call-oven')
     })
 
     it('ignores a forged trace id on a chatflow approval and still continues the stored trace', async () => {
@@ -1611,20 +1655,108 @@ describe('graph run traces', () => {
     })
 
     it.each([
-        ['missing anchors', undefined],
-        ['empty options', [{ name: 'output', label: 'Output', options: [] }]],
-        ['null options', [{ name: 'output', label: 'Output', options: [null] }]],
-        ['no options key', [{ name: 'output', label: 'Output', type: 'options' }]]
-    ])('routes a Condition Agent like a saved canvas with %s', async (_label, anchors) => {
+        ['yes', 'seqConditionAgent_0-output-yes-Condition', 'c8d2b7a3-5555-4555-8555-555555555591', 'c0ffee00-0000-4000-8000-000000000091'],
+        ['YES', 'seqConditionAgent_0-output-yes-Condition', 'c8d2b7a3-5555-4555-8555-555555555592', 'c0ffee00-0000-4000-8000-000000000092'],
+        ['OK', 'seqConditionAgent_0-output-ok-Condition', 'c8d2b7a3-5555-4555-8555-555555555593', 'c0ffee00-0000-4000-8000-000000000093'],
+        [
+            'foo_bar',
+            'seqConditionAgent_0-output-foo_bar-Condition',
+            'c8d2b7a3-5555-4555-8555-555555555594',
+            'c0ffee00-0000-4000-8000-000000000094'
+        ],
+        [
+            'well-known',
+            'seqConditionAgent_0-output-well-known-Condition',
+            'c8d2b7a3-5555-4555-8555-555555555595',
+            'c0ffee00-0000-4000-8000-000000000095'
+        ]
+    ])('does not guess a condition route for %s', async (route, handle, flowId, chatId) => {
         process.env.CUTTLELY_OTEL_TRACES = 'true'
-        const handle = 'seqConditionAgent_0-output-concierge-Condition'
+        const warnBefore = (logger.warn as unknown as jest.Mock).mock.calls.length
+        await expect(runConditionCanvas(undefined, handle, flowId, chatId, route)).rejects.toThrow(/dead-end/)
+        const warnings = (logger.warn as unknown as jest.Mock).mock.calls.slice(warnBefore).map((call: unknown[]) => String(call[0]))
+        expect(warnings.filter((line: string) => line.includes('condition route'))).toEqual([
+            'Skipped a condition route because its label is not stored on the canvas.'
+        ])
+        expect(memory.spans().filter((span) => span.name === 'model' && span.attributes['node.id'] === 'seqConditionAgent_0')).toEqual([])
+    })
+
+    it('logs one skipped condition route when several edges have no stored label', async () => {
+        process.env.CUTTLELY_OTEL_TRACES = 'true'
+        const warnBefore = (logger.warn as unknown as jest.Mock).mock.calls.length
+        await expect(
+            runConditionCanvas(
+                undefined,
+                'seqConditionAgent_0-output-yes-Condition',
+                'c8d2b7a3-5555-4555-8555-555555555596',
+                'c0ffee00-0000-4000-8000-000000000096',
+                'yes',
+                ['seqConditionAgent_0-output-foo_bar-Condition', 'seqConditionAgent_0-output-well-known-Condition']
+            )
+        ).rejects.toThrow(/dead-end/)
+        const warnings = (logger.warn as unknown as jest.Mock).mock.calls
+            .slice(warnBefore)
+            .map((call: unknown[]) => String(call[0]))
+            .filter((line: string) => line.includes('condition route'))
+        expect(warnings).toHaveLength(1)
+    })
+
+    it.each([
+        ['yes', 'yes', 'c8d2b7a3-5555-4555-8555-5555555555a1', 'c0ffee00-0000-4000-8000-0000000000a1'],
+        ['YES', 'yes', 'c8d2b7a3-5555-4555-8555-5555555555a2', 'c0ffee00-0000-4000-8000-0000000000a2'],
+        ['OK', 'ok', 'c8d2b7a3-5555-4555-8555-5555555555a3', 'c0ffee00-0000-4000-8000-0000000000a3'],
+        ['foo_bar', 'foo_bar', 'c8d2b7a3-5555-4555-8555-5555555555a4', 'c0ffee00-0000-4000-8000-0000000000a4'],
+        ['well-known', 'well-known', 'c8d2b7a3-5555-4555-8555-5555555555a5', 'c0ffee00-0000-4000-8000-0000000000a5'],
+        ['Yes', 'yes', 'c8d2b7a3-5555-4555-8555-5555555555a6', 'c0ffee00-0000-4000-8000-0000000000a6'],
+        ['Ok', 'ok', 'c8d2b7a3-5555-4555-8555-5555555555a7', 'c0ffee00-0000-4000-8000-0000000000a7'],
+        ['No', 'no', 'c8d2b7a3-5555-4555-8555-5555555555a8', 'c0ffee00-0000-4000-8000-0000000000a8'],
+        ['Concierge', 'concierge', 'c8d2b7a3-5555-4555-8555-5555555555a9', 'c0ffee00-0000-4000-8000-0000000000a9']
+    ])('routes a saved condition option for %s', async (route, name, flowId, chatId) => {
+        process.env.CUTTLELY_OTEL_TRACES = 'true'
+        const handle = `seqConditionAgent_0-output-${name}-Condition`
+        const warnBefore = (logger.warn as unknown as jest.Mock).mock.calls.length
         await runConditionCanvas(
-            anchors as unknown[] | undefined,
+            [
+                {
+                    name: 'output',
+                    label: 'Output',
+                    type: 'options',
+                    options: [{ id: handle, name, label: route, type: 'Condition', isAnchor: true }]
+                }
+            ],
             handle,
-            `c8d2b7a3-5555-4555-8555-55555555${_label.length.toString(16).padStart(4, '0')}`,
-            `c0ffee00-0000-4000-8000-0000000000${_label.length.toString(16).padStart(2, '0')}`,
-            'Concierge'
+            flowId,
+            chatId,
+            route
         )
+        const warnings = (logger.warn as unknown as jest.Mock).mock.calls
+            .slice(warnBefore)
+            .map((call: unknown[]) => String(call[0]))
+            .filter((line: string) => line.includes('condition route'))
+        expect(warnings).toEqual([])
+        const condition = memory.spans().filter((span) => span.name === 'model' && span.attributes['node.id'] === 'seqConditionAgent_0')
+        expect(condition).toHaveLength(1)
+    })
+
+    it.each([
+        ['yes', 'seqConditionAgent_0-output-yes-Condition', 'c8d2b7a3-5555-4555-8555-5555555555b1', 'c0ffee00-0000-4000-8000-0000000000b1'],
+        ['YES', 'seqConditionAgent_0-output-yes-Condition', 'c8d2b7a3-5555-4555-8555-5555555555b2', 'c0ffee00-0000-4000-8000-0000000000b2'],
+        ['OK', 'seqConditionAgent_0-output-ok-Condition', 'c8d2b7a3-5555-4555-8555-5555555555b3', 'c0ffee00-0000-4000-8000-0000000000b3'],
+        [
+            'foo_bar',
+            'seqConditionAgent_0-output-foo_bar-Condition',
+            'c8d2b7a3-5555-4555-8555-5555555555b4',
+            'c0ffee00-0000-4000-8000-0000000000b4'
+        ],
+        [
+            'well-known',
+            'seqConditionAgent_0-output-well-known-Condition',
+            'c8d2b7a3-5555-4555-8555-5555555555b5',
+            'c0ffee00-0000-4000-8000-0000000000b5'
+        ]
+    ])('routes a condition anchor whose stored label is %s', async (route, handle, flowId, chatId) => {
+        process.env.CUTTLELY_OTEL_TRACES = 'true'
+        await runConditionCanvas([{ id: handle, label: route }], handle, flowId, chatId, route)
         const condition = memory.spans().filter((span) => span.name === 'model' && span.attributes['node.id'] === 'seqConditionAgent_0')
         expect(condition).toHaveLength(1)
     })

@@ -200,6 +200,14 @@ function endPending(span: SpanLike | undefined): void {
     span.end()
 }
 
+function endDenied(span: SpanLike | undefined): void {
+    if (!span) return
+    span.setAttribute('status', 'denied')
+    span.setAttribute('error', 'denied')
+    span.setStatus({ code: api().SpanStatusCode.ERROR, message: 'denied' })
+    span.end()
+}
+
 function endError(span: SpanLike | undefined, error: unknown): void {
     if (!span) return
     const message = error instanceof Error ? error.message : String(error)
@@ -255,13 +263,24 @@ function parentExpired(entry: TraceParent, now: number): boolean {
 
 function pruneTraceParents(now: number): void {
     for (const [key, entry] of traceParents) {
-        if (parentExpired(entry, now)) traceParents.delete(key)
+        if (parentExpired(entry, now)) dropTraceParent(key)
     }
     while (traceParents.size > TRACE_PARENT_CAP) {
         const oldest = traceParents.keys().next().value
         if (oldest === undefined) break
-        traceParents.delete(oldest)
+        dropTraceParent(oldest)
     }
+}
+
+/** Drop one continuation. Waiting tool spans for that trace end pending once no record remains. */
+function dropTraceParent(key: string): void {
+    const entry = traceParents.get(key)
+    if (!entry) return
+    traceParents.delete(key)
+    for (const other of traceParents.values()) {
+        if (other.traceId === entry.traceId) return
+    }
+    releaseHeldToolsPending(entry.traceId)
 }
 
 /**
@@ -275,12 +294,13 @@ export function rememberTraceContinuation(flowId: string, chatId: string, action
     if (!parent) return
     const now = traceParentClock()
     const key = continuationKey(flowId, chatId, actionId)
+    // Replacing this same key is a refresh, not a drop, so the waiting tool span stays open.
     if (traceParents.has(key)) traceParents.delete(key)
     pruneTraceParents(now)
     while (traceParents.size >= TRACE_PARENT_CAP) {
         const oldest = traceParents.keys().next().value
         if (oldest === undefined) break
-        traceParents.delete(oldest)
+        dropTraceParent(oldest)
     }
     traceParents.set(key, { ...parent, storedAt: now })
 }
@@ -290,9 +310,10 @@ export function traceContinuationFor(flowId: string, chatId: string, actionId: s
     if (!flowId || !chatId || !actionId) return undefined
     const now = traceParentClock()
     pruneTraceParents(now)
-    const entry = traceParents.get(continuationKey(flowId, chatId, actionId))
+    const key = continuationKey(flowId, chatId, actionId)
+    const entry = traceParents.get(key)
     if (!entry || parentExpired(entry, now)) {
-        if (entry) traceParents.delete(continuationKey(flowId, chatId, actionId))
+        if (entry) dropTraceParent(key)
         return undefined
     }
     return { traceId: entry.traceId, spanId: entry.spanId }
@@ -631,10 +652,45 @@ function activeTraceId(): string | undefined {
     return traceId || undefined
 }
 
-/** The run stopped for approval. Pending tool spans stay open until that call runs or this trace ends without a resume. */
+/** The approval was saved. Pending tool spans stay open so the resume can finish them. */
 export function keepPendingToolsForApproval(): void {
     const traceId = activeTraceId()
     if (traceId) approvalHolds.add(traceId)
+}
+
+function endHeld(traceId: string | undefined, finish: (span: SpanLike) => void): void {
+    if (!traceId) return
+    approvalHolds.delete(traceId)
+    for (let index = heldPendingTools.length - 1; index >= 0; index -= 1) {
+        if (heldPendingTools[index].traceId !== traceId) continue
+        finish(heldPendingTools[index].span)
+        heldPendingTools.splice(index, 1)
+    }
+}
+
+/** The approval was not saved, or its continuation record is gone. Export the waiting tool spans as pending. */
+export function releaseHeldToolsPending(traceId?: string): void {
+    endHeld(traceId || activeTraceId(), (span) => endPending(span))
+}
+
+/** The caller rejected the approval. LangGraph will not resume the interrupted tool, so finish that span here. */
+export function denyHeldTools(): void {
+    endHeld(activeTraceId(), (span) => endDenied(span))
+}
+
+function capHeldPendingTools(): void {
+    while (heldPendingTools.length > TRACE_PARENT_CAP) {
+        const oldest = heldPendingTools.shift()
+        if (!oldest) break
+        endPending(oldest.span)
+    }
+}
+
+/** Tests start from an empty hold list. */
+export function resetHeldToolsForTests(): void {
+    for (const held of heldPendingTools) endPending(held.span)
+    heldPendingTools.length = 0
+    approvalHolds.clear()
 }
 
 function claimHeldTool(traceId: string | undefined, tool: GraphToolCall, usedIds: Set<string>): HeldPendingTool | undefined {
@@ -943,6 +999,7 @@ function emitGraphStep(
         if (traceId && call.id) {
             span.setAttribute('status', 'pending')
             heldPendingTools.push({ span, traceId, name: call.name, id: call.id })
+            capHeldPendingTools()
             continue
         }
         endPending(span)

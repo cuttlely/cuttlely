@@ -12,8 +12,10 @@ import {
     finishTraceContinuation,
     flushCuttlelyTraces,
     installInMemoryTraces,
+    keepPendingToolsForApproval,
     registerCuttlelyTraces,
     rememberTraceContinuation,
+    resetHeldToolsForTests,
     setTraceParentClock,
     shutdownCuttlelyTraces,
     TRACE_PARENT_CAP,
@@ -21,6 +23,7 @@ import {
     TRACE_PARENT_TTL_MS,
     traceContinuationFor,
     traceFlow,
+    traceGraphNode,
     tracedNode,
     tracesInstalled,
     withNodeSpan,
@@ -1569,20 +1572,24 @@ describe('OTLP HTTP export', () => {
 
 describe('approval trace retention', () => {
     let now = 1_700_000_000_000
+    let memory: { spans: () => FinishedTraceSpan[]; reset: () => void }
 
     beforeAll(() => {
-        installInMemoryTraces()
+        memory = installInMemoryTraces()
     })
 
     beforeEach(() => {
         process.env.CUTTLELY_OTEL_TRACES = 'true'
         now = 1_700_000_000_000
         setTraceParentClock(() => now)
+        resetHeldToolsForTests()
+        memory.reset()
     })
 
     afterEach(() => {
         delete process.env.CUTTLELY_OTEL_TRACES
         setTraceParentClock()
+        resetHeldToolsForTests()
     })
 
     async function remember(actionId: string): Promise<void> {
@@ -1617,4 +1624,39 @@ describe('approval trace retention', () => {
         expect(traceContinuationFor('flow-keep', 'chat-keep', 'action-0')).toBeUndefined()
         expect(traceContinuationFor('flow-keep', 'chat-keep', `action-${TRACE_PARENT_CAP}`)?.traceId).toBeTruthy()
     })
+
+    async function holdTool(flowId: string, chatId: string, actionId: string, count: number): Promise<void> {
+        await traceFlow('chatflow', flowId, async () => {
+            for (let index = 0; index < count; index += 1) {
+                const node = traceGraphNode(`node_${index}`, 'worker', async () => ({
+                    messages: [{ tool_calls: [{ id: `call-${index}`, name: 'oven', type: 'tool_call' }] }]
+                })) as (state: unknown, config: unknown) => Promise<unknown>
+                await node({}, {})
+            }
+            rememberTraceContinuation(flowId, chatId, actionId)
+            keepPendingToolsForApproval()
+        })
+    }
+
+    it('ends a waiting tool span as pending when the continuation expires', async () => {
+        const flowId = 'flow-held-expire'
+        const chatId = 'chat-held-expire'
+        await holdTool(flowId, chatId, 'action-held-expire', 1)
+        expect(memory.spans().filter((span) => span.name === 'tool')).toEqual([])
+        now += TRACE_PARENT_TTL_MS
+        expect(traceContinuationFor(flowId, chatId, 'action-held-expire')).toBeUndefined()
+        const tools = memory.spans().filter((span) => span.name === 'tool')
+        expect(tools).toHaveLength(1)
+        expect(tools[0].attributes['status']).toBe('pending')
+        expect(tools[0].attributes['tool.id']).toBe('call-0')
+    })
+
+    it('ends the oldest waiting tool span as pending when a thousand are already held', async () => {
+        await holdTool('flow-held-cap', 'chat-held-cap', 'action-held-cap', TRACE_PARENT_CAP + 1)
+        const tools = memory.spans().filter((span) => span.name === 'tool')
+        expect(tools).toHaveLength(1)
+        expect(tools[0].attributes['status']).toBe('pending')
+        expect(tools[0].attributes['tool.id']).toBe('call-0')
+        expect(traceContinuationFor('flow-held-cap', 'chat-held-cap', 'action-held-cap')?.traceId).toBeTruthy()
+    }, 120000)
 })

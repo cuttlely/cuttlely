@@ -50,7 +50,13 @@ import { Variable } from '../database/entities/Variable'
 import { getWorkspaceSearchOptions } from '../identity/workspaceScope'
 import { DataSource } from 'typeorm'
 import { CachePool } from '../CachePool'
-import { keepPendingToolsForApproval, rememberTraceContinuation, traceGraphNode } from '../metrics/tracing'
+import {
+    denyHeldTools,
+    keepPendingToolsForApproval,
+    releaseHeldToolsPending,
+    rememberTraceContinuation,
+    traceGraphNode
+} from '../metrics/tracing'
 import { utilAddChatMessage } from './addChatMesage'
 import { applyCarriedUsage, ChatflowTokenUsage, recordCompletedRun, withCarriedUsage } from '../services/usage'
 
@@ -460,21 +466,27 @@ export const buildAgentGraph = async ({
                             }
                             // The action the client sees has no trace ids. The server keeps the parent for this action.
                             rememberTraceContinuation(chatflowid, chatId, actionId)
-                            // The waiting tool span stays open so the resume can finish it instead of adding another.
+                            try {
+                                await utilAddChatMessage(
+                                    {
+                                        id: flowConfig.apiMessageId,
+                                        role: 'apiMessage',
+                                        content: finalResult || ' ',
+                                        chatflowid,
+                                        chatId,
+                                        sessionId,
+                                        chatType: 'INTERNAL',
+                                        action: JSON.stringify(finalAction)
+                                    },
+                                    appDataSource
+                                )
+                            } catch (error) {
+                                // The span was held while the node ran. Without a saved approval it cannot be resumed.
+                                releaseHeldToolsPending()
+                                throw error
+                            }
+                            // The waiting tool span stays open only after the approval is stored.
                             keepPendingToolsForApproval()
-                            await utilAddChatMessage(
-                                {
-                                    id: flowConfig.apiMessageId,
-                                    role: 'apiMessage',
-                                    content: finalResult || ' ',
-                                    chatflowid,
-                                    chatId,
-                                    sessionId,
-                                    chatType: 'INTERNAL',
-                                    action: JSON.stringify(finalAction)
-                                },
-                                appDataSource
-                            )
                             if (shouldStreamResponse && sseStreamer) {
                                 sseStreamer.streamTokenEvent(chatId, finalResult)
                                 sseStreamer.streamActionEvent(chatId, finalAction)
@@ -829,19 +841,12 @@ function routeText(value: unknown): string {
     return typeof value === 'string' && value.trim() ? value : ''
 }
 
-/** The canvas id is `${nodeId}-output-${camelCase(label)}-Condition`. A one-word label round-trips. */
-function labelFromGeneratedHandle(handle: string): string {
-    const match = /-output-([A-Za-z0-9]+)-Condition$/.exec(handle)
-    if (!match) return ''
-    const name = match[1]
-    return name.charAt(0).toUpperCase() + name.slice(1)
-}
-
 /**
- * The path-map key is the string the condition returns: the option label, or the one-word label
- * encoded in the canvas handle. The handle itself is not a route.
+ * The path-map key is the option label stored on the canvas, which is what the condition returns.
+ * A generated handle is not inverted into a label: `yes`, `YES`, and `OK` would not round-trip,
+ * and `foo_bar` or `well-known` do not decode. An edge without that stored label is skipped.
  */
-function conditionRouteLabel(outputAnchors: unknown, sourceHandle: string | null | undefined): string {
+function conditionRouteLabel(outputAnchors: unknown, sourceHandle: string | null | undefined, onUnrecoverable?: () => void): string {
     const handle = typeof sourceHandle === 'string' ? sourceHandle : ''
     if (!handle) return ''
     const anchors = Array.isArray(outputAnchors) ? outputAnchors : []
@@ -867,7 +872,8 @@ function conditionRouteLabel(outputAnchors: unknown, sourceHandle: string | null
             if (label && label !== 'Output') return label
         }
     }
-    return labelFromGeneratedHandle(handle)
+    onUnrecoverable?.()
+    return ''
 }
 
 const compileSeqAgentsGraph = async (params: SeqAgentsGraphParams) => {
@@ -960,6 +966,13 @@ const compileSeqAgentsGraph = async (params: SeqAgentsGraphParams) => {
         return seqAgentNode
     }
 
+    let loggedSkippedConditionRoute = false
+    const noteSkippedConditionRoute = () => {
+        if (loggedSkippedConditionRoute) return
+        loggedSkippedConditionRoute = true
+        logger.warn('Skipped a condition route because its label is not stored on the canvas.')
+    }
+
     /*
      *  Two objectives we want to achieve here:
      *  1.) Prepare the mapping of conditional outputs to next nodes. This mapping will ONLY be used to add conditional edges to the Interrupted Agent connected next to Condition/ConditionAgent Node.
@@ -982,7 +995,11 @@ const compileSeqAgentsGraph = async (params: SeqAgentsGraphParams) => {
             const conditionNode = reactFlowNodes.find((node) => node.id === conditionNodeId)
             if (!conditionNode) continue
 
-            const conditionOutputAnchorLabel = conditionRouteLabel(conditionNode?.data.outputAnchors, conditionNodeOutputAnchorId)
+            const conditionOutputAnchorLabel = conditionRouteLabel(
+                conditionNode?.data.outputAnchors,
+                conditionNodeOutputAnchorId,
+                noteSkippedConditionRoute
+            )
             if (!conditionOutputAnchorLabel) continue
 
             if (Object.prototype.hasOwnProperty.call(interruptedRouteMapping, conditionNodeId)) {
@@ -1014,7 +1031,11 @@ const compileSeqAgentsGraph = async (params: SeqAgentsGraphParams) => {
 
             const conditionNode = reactFlowNodes.find((node) => node.id === conditionNodeId)
             if (!conditionNode) continue
-            const conditionOutputAnchorLabel = conditionRouteLabel(conditionNode.data.outputAnchors, conditionNodeOutputAnchorId)
+            const conditionOutputAnchorLabel = conditionRouteLabel(
+                conditionNode.data.outputAnchors,
+                conditionNodeOutputAnchorId,
+                noteSkippedConditionRoute
+            )
 
             if (!conditionOutputAnchorLabel) continue
 
@@ -1270,6 +1291,8 @@ const compileSeqAgentsGraph = async (params: SeqAgentsGraphParams) => {
         if (action && action.mapping && question === action.mapping.approve) {
             humanMsg = null
         } else if (action && action.mapping && question === action.mapping.reject) {
+            // The denial message replaces the interrupted tool task, so that task never finishes the span.
+            denyHeldTools()
             humanMsg = {
                 messages: action.mapping.toolCalls.map((toolCall) => {
                     return new ToolMessage({
