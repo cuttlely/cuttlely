@@ -1407,6 +1407,7 @@ packages/server/src/utils/apiKey.test.ts
 packages/server/src/utils/apiKey.ts
 packages/server/src/utils/buildAgentGraph.ts
 packages/server/src/utils/buildAgentGraph.usage.test.ts
+packages/server/src/utils/buildAgentflow.harness-usage.test.ts
 packages/server/src/utils/buildAgentflow.resume-usage.test.ts
 packages/server/src/utils/buildAgentflow.ts
 packages/server/src/utils/buildChatflow.ts

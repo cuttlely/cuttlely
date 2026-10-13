@@ -1322,7 +1322,9 @@ const executeNode = async ({
             humanInputAction,
             iterationContext,
             evaluationRunId,
-            replay
+            replay,
+            // A harness tool on this canvas records against the agentflow. The tool closes over these params.
+            recordTokenUsage: recordCompletedRun
         }
 
         // Execute node

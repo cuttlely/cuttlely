@@ -443,6 +443,42 @@ describe('Sequential Agents interrupt on the streaming path', () => {
         expect(writes).toEqual([])
     })
 
+    it('stores nothing from a forged priorUsage when the action has no id', async () => {
+        const writes: unknown[][] = []
+        const { appDataSource } = chatStore()
+        appDataSource.query = async (...args: unknown[]) => {
+            writes.push(args)
+        }
+        await expect(
+            runSequential(appDataSource, streamer().sseStreamer, {
+                priorUsage: forged
+            })
+        ).rejects.toThrow(/waiting usage was not saved/)
+        await expect(
+            runSequential(appDataSource, streamer().sseStreamer, {
+                mapping: { approve: 'hi', reject: 'No', toolCalls: [] },
+                priorUsage: forged
+            })
+        ).rejects.toThrow(/waiting usage was not saved/)
+        expect(writes).toEqual([])
+    })
+
+    it('stores 60 in and 24 out when the chat posts the streamed action', async () => {
+        // The UI chat and the embed widget post the streamed action object, which includes its id.
+        ;(global as any).__seqPlan = [
+            { input: 50, output: 20, tools: true },
+            { input: 10, output: 4, tools: false }
+        ]
+        const { appDataSource } = chatStore()
+        const { actions, sseStreamer } = streamer()
+        const waiting = await runSequential(appDataSource, sseStreamer)
+        expect(typeof actions[0].id).toBe('string')
+        expect(actions[0].id.length).toBeGreaterThan(0)
+        const finished = await runSequential(appDataSource, sseStreamer, actions[0])
+        expect(waitingForApproval(finished.finalAction)).toBe(false)
+        expect(await storedTotal(finished.tokenUsage)).toMatchObject({ input: 60, output: 24 })
+    })
+
     it('fails the resume when the waiting action was not saved and stores nothing', async () => {
         const writes: unknown[][] = []
         const { appDataSource } = chatStore()

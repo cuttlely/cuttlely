@@ -58,6 +58,7 @@ const RESUME_MISSING_ERROR = 'Cannot resume this approval because the waiting us
 
 // The canvas posts the action it was streamed. That copy can omit or invent priorUsage.
 // The saved chat message is the copy written by the server, so the resume reads that.
+// An action with no id is not a resume the shipped clients send. It fails and writes nothing.
 async function storedPriorUsage(
     appDataSource: DataSource,
     chatId: string,
@@ -149,12 +150,25 @@ export const buildAgentGraph = async ({
 
         const chatflowTokenUsage = new ChatflowTokenUsage()
         const requestedAction = incomingInput.action
-        let seededAction: unknown = requestedAction
-        const actionId = requestedAction && typeof requestedAction === 'object' ? (requestedAction as { id?: string }).id : undefined
-        if (requestedAction && typeof requestedAction === 'object' && actionId) {
+        // priorUsage on the request is ignored. The saved interrupted message is the only source.
+        const actionObject =
+            requestedAction && typeof requestedAction === 'object' && !Array.isArray(requestedAction)
+                ? (requestedAction as Record<string, unknown>)
+                : undefined
+        const withoutRequestUsage = (action: Record<string, unknown>) => {
+            const { priorUsage: _requestUsage, ...rest } = action
+            return rest
+        }
+        let seededAction: unknown = actionObject ? withoutRequestUsage(actionObject) : requestedAction
+        if (actionObject && Object.keys(actionObject).length > 0) {
+            const actionId = typeof actionObject.id === 'string' ? actionObject.id : ''
+            if (!actionId) throw new Error(RESUME_MISSING_ERROR)
             const saved = await storedPriorUsage(appDataSource, chatId, sessionId, actionId)
             if (!saved.found) throw new Error(RESUME_MISSING_ERROR)
-            seededAction = { ...requestedAction, priorUsage: saved.priorUsage }
+            seededAction =
+                saved.priorUsage === undefined
+                    ? withoutRequestUsage(actionObject)
+                    : { ...withoutRequestUsage(actionObject), priorUsage: saved.priorUsage }
         }
         applyCarriedUsage(chatflowTokenUsage, seededAction)
         const options = {
