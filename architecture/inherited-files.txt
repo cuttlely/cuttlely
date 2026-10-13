@@ -1824,9 +1824,11 @@ packages/ui/src/views/canvas/ButtonEdge.jsx
 packages/ui/src/views/canvas/CanvasHeader.jsx
 packages/ui/src/views/canvas/CanvasNode.jsx
 packages/ui/src/views/canvas/CredentialInputHandler.jsx
+packages/ui/src/views/canvas/NodeActionBar.jsx
 packages/ui/src/views/canvas/NodeInputHandler.jsx
 packages/ui/src/views/canvas/NodeOutputHandler.jsx
 packages/ui/src/views/canvas/StickyNote.jsx
+packages/ui/src/views/canvas/cardActions.test.js
 packages/ui/src/views/canvas/index.css
 packages/ui/src/views/canvas/index.jsx
 packages/ui/src/views/chatbot/index.jsx

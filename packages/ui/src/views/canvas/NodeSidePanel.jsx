@@ -1,5 +1,5 @@
 import PropTypes from 'prop-types'
-import { useContext, useEffect, useRef } from 'react'
+import { useEffect, useRef } from 'react'
 
 // material-ui
 import { useTheme } from '@mui/material/styles'
@@ -10,31 +10,17 @@ import NodeInputHandler from './NodeInputHandler'
 import NodePanelHeader from './NodePanelHeader'
 import { baseURL } from '@/store/constant'
 import { panelSections } from '@/utils/canvasLook'
-import { flowContext } from '@/store/context/ReactFlowContext'
-import { CanvasPanelContext } from '@/store/context/CanvasPanelContext'
 
 export const NODE_SIDE_PANEL_WIDTH = 400
 
 // ===========================|| NODE SIDE PANEL ||=========================== //
 
-const NodeSidePanel = ({ node, onClose, readOnly = false }) => {
+const NodeSidePanel = ({ node, onClose, onDuplicate, onDelete, readOnly = false }) => {
     const theme = useTheme()
     const panelRef = useRef(null)
     const data = node.data
     const { main, more } = panelSections(data)
-    const { deleteNode, duplicateNode, readOnly: canvasReadOnly } = useContext(flowContext)
-    const { onDuplicated } = useContext(CanvasPanelContext)
-    const locked = readOnly || canvasReadOnly
-
-    const duplicate = () => {
-        const created = duplicateNode(data.id)
-        if (created?.id) onDuplicated(created)
-    }
-
-    const remove = () => {
-        deleteNode(data.id)
-        onClose()
-    }
+    const locked = readOnly || !onDelete
 
     // Move focus into the panel when it opens on a card, so Escape and Tab work from the keyboard.
     useEffect(() => {
@@ -84,8 +70,11 @@ const NodeSidePanel = ({ node, onClose, readOnly = false }) => {
                 subtitle={locked ? `${data.id}, read only` : data.id}
                 nodeName={data.name}
                 readOnly={locked}
-                onDuplicate={duplicate}
-                onDelete={remove}
+                onDuplicate={onDuplicate}
+                onDelete={() => {
+                    onDelete()
+                    onClose()
+                }}
                 onClose={onClose}
                 icon={
                     <Box
@@ -140,6 +129,8 @@ const NodeSidePanel = ({ node, onClose, readOnly = false }) => {
 NodeSidePanel.propTypes = {
     node: PropTypes.object.isRequired,
     onClose: PropTypes.func.isRequired,
+    onDuplicate: PropTypes.func,
+    onDelete: PropTypes.func,
     readOnly: PropTypes.bool
 }
 

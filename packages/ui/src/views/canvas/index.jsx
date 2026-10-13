@@ -166,7 +166,7 @@ const Canvas = () => {
     const pendingLangflow = useRef(null)
     const dragOrigin = useRef(new Map())
     chatflowRef.current = chatflow
-    const { reactFlowInstance, setReactFlowInstance } = useContext(flowContext)
+    const { reactFlowInstance, setReactFlowInstance, deleteNode, duplicateNode } = useContext(flowContext)
 
     // ==============================|| Snackbar ||============================== //
 
@@ -1398,7 +1398,17 @@ const Canvas = () => {
                                         </Box>
                                     )}
                                 </div>
-                                {openPanelNode && <NodeSidePanel node={openPanelNode} onClose={() => setPanelNodeId(null)} />}
+                                {openPanelNode && (
+                                    <NodeSidePanel
+                                        node={openPanelNode}
+                                        onClose={() => setPanelNodeId(null)}
+                                        onDuplicate={() => {
+                                            const created = duplicateNode(openPanelNode.id)
+                                            if (created?.id) onDuplicated(created)
+                                        }}
+                                        onDelete={() => deleteNode(openPanelNode.id)}
+                                    />
+                                )}
                             </div>
                         </CanvasPanelContext.Provider>
                     </ReactFlowProvider>
