@@ -129,6 +129,9 @@ const createEvaluation = async (body: ICommonObject, baseURL: string, orgId: str
         if (chatflowIds.some((id) => typeof id !== 'string' || id.length === 0)) {
             throw new AppError(StatusCodes.BAD_REQUEST, 'chatflowId must be an array of flow ids')
         }
+        // The column and the runner both read a JSON string. A raw array body is the same list.
+        body.chatflowId = JSON.stringify(chatflowIds)
+        row.chatflowId = body.chatflowId
         if (typeof body.datasetId !== 'string' || body.datasetId.length === 0) {
             throw new AppError(StatusCodes.BAD_REQUEST, 'Dataset is required')
         }

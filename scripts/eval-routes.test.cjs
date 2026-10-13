@@ -657,6 +657,32 @@ describe('evaluation routes', () => {
             assert.match(emptyArray.body.message, /at least one chatflow or agentflow/i)
             assert.equal(await dataSource.getRepository(Evaluation).count(), 0)
 
+            const blank = await api.post('/evaluations').send({
+                name: 'Blank list',
+                evaluationType: 'benchmarking',
+                datasetId: dataset.body.id,
+                datasetName: 'Questions',
+                chatflowId: '',
+                chatflowName: '[]',
+                chatflowType: '[]'
+            })
+            assert.equal(blank.status, 400, JSON.stringify(blank.body))
+            assert.match(blank.body.message, /at least one chatflow or agentflow/i)
+            assert.equal(await dataSource.getRepository(Evaluation).count(), 0)
+
+            const nullList = await api.post('/evaluations').send({
+                name: 'Null list',
+                evaluationType: 'benchmarking',
+                datasetId: dataset.body.id,
+                datasetName: 'Questions',
+                chatflowId: null,
+                chatflowName: '[]',
+                chatflowType: '[]'
+            })
+            assert.equal(nullList.status, 400, JSON.stringify(nullList.body))
+            assert.match(nullList.body.message, /at least one chatflow or agentflow/i)
+            assert.equal(await dataSource.getRepository(Evaluation).count(), 0)
+
             const assistant = await dataSource.getRepository(Assistant).save({
                 details: JSON.stringify({ name: 'Helper' }),
                 credential: '88888888-8888-4888-8888-888888888888',
@@ -675,6 +701,48 @@ describe('evaluation routes', () => {
             assert.match(custom.body.message, /Custom assistants/i)
             assert.equal(await dataSource.getRepository(Evaluation).count(), 0)
         } finally {
+            await cleanup()
+        }
+    })
+
+    it('stores a raw flow id array as the JSON string the runner parses', async () => {
+        const { dataSource, api, cleanup } = await openSqlite()
+        const Previous = componentsStub.EvaluationRunner
+        try {
+            const { EvaluationRunner } = serverRequire('../components/evaluation/EvaluationRunner.ts')
+            componentsStub.EvaluationRunner = EvaluationRunner
+            asOwner()
+            const dataset = await api.post('/datasets/set').send({ name: 'Questions', description: 'rows' })
+            assert.equal(dataset.status, 200, JSON.stringify(dataset.body))
+            const chat = await dataSource.getRepository(ChatFlow).save({
+                name: 'Support',
+                flowData: '{}',
+                type: 'CHATFLOW',
+                workspaceId: WORKSPACE
+            })
+            const created = await api.post('/evaluations').send({
+                name: 'Raw list',
+                evaluationType: 'benchmarking',
+                datasetId: dataset.body.id,
+                datasetName: 'Questions',
+                chatflowId: [chat.id],
+                chatflowName: JSON.stringify(['Support']),
+                chatflowType: JSON.stringify(['Chatflow'])
+            })
+            assert.ok(created.status >= 200 && created.status < 300, JSON.stringify(created.body))
+            const saved = await dataSource.getRepository(Evaluation).findOneBy({ name: 'Raw list' })
+            assert.equal(typeof saved.chatflowId, 'string')
+            assert.equal(saved.chatflowId, JSON.stringify([chat.id]))
+            const started = Date.now()
+            let status = saved.status
+            while (status === 'pending' && Date.now() - started < 5000) {
+                await new Promise((resolve) => setTimeout(resolve, 20))
+                status = (await dataSource.getRepository(Evaluation).findOneBy({ id: saved.id })).status
+            }
+            assert.equal(status, 'completed', JSON.stringify(await dataSource.getRepository(Evaluation).findOneBy({ id: saved.id })))
+            assert.deepEqual(JSON.parse(saved.chatflowId), [chat.id])
+        } finally {
+            componentsStub.EvaluationRunner = Previous
             await cleanup()
         }
     })
