@@ -110,19 +110,25 @@ function profileHash(value) {
 
 // A try id is "try" plus 16 hex characters, so a long specialist slug no longer fits in 64.
 // Ids that already fit stay as they are. A fitted id keeps a hash of the full slug so two long names cannot collide.
+// When the harness name itself leaves no room, the directory is tryx plus 16 hex. That is not a savable harness
+// name and it has no "--", so it cannot equal some other harness's specialist profile.
+function fittedProfileId(harness, slug) {
+    const hash = crypto.createHash('sha256').update(`${harness}\0${slug}`).digest('hex').slice(0, 16)
+    return `tryx${hash}`
+}
+
 function fitSpecialistProfile(harness, slug) {
     const suffix = `-${profileHash(slug)}`
-    let harnessPart = harness
-    let slugRoom = PROFILE_MAX - harnessPart.length - '--'.length - suffix.length
+    const slugRoom = PROFILE_MAX - harness.length - '--'.length - suffix.length
     if (slugRoom < 1) {
-        const harnessSuffix = `-${profileHash(harness)}`
-        const harnessRoom = PROFILE_MAX - '--'.length - suffix.length - harnessSuffix.length
-        const kept = trimDashEnds(harness.slice(0, Math.max(1, harnessRoom))) || 'h'
-        harnessPart = `${kept}${harnessSuffix}`
-        slugRoom = PROFILE_MAX - harnessPart.length - '--'.length - suffix.length
+        const fitted = fittedProfileId(harness, slug)
+        if (!PROFILE_ID_RE.test(fitted)) {
+            throw new HarnessError('bad_name', `Specialist "${slug}" cannot get its own model profile.`)
+        }
+        return fitted
     }
-    const slugKept = trimDashEnds(slug.slice(0, Math.max(0, slugRoom)))
-    const fitted = slugKept ? `${harnessPart}--${slugKept}${suffix}` : `${harnessPart}--${profileHash(slug)}`
+    const slugKept = trimDashEnds(slug.slice(0, slugRoom))
+    const fitted = slugKept ? `${harness}--${slugKept}${suffix}` : `${harness}--${profileHash(slug)}`
     if (fitted.length > PROFILE_MAX || !PROFILE_ID_RE.test(fitted)) {
         throw new HarnessError('bad_name', `Specialist "${slug}" cannot get its own model profile.`)
     }
@@ -699,16 +705,17 @@ function compileSpecialistProfile(record, specialist, profileName, tryProfile) {
 function forgetRetiredSpecialistProfiles(harnessName, keep) {
     const root = path.join(hermesHome(), 'profiles')
     if (!fs.existsSync(root)) return
-    const prefix = `${String(harnessName).toLowerCase()}--`
+    const parent = String(harnessName)
     for (const entry of fs.readdirSync(root)) {
-        if (!entry.startsWith(prefix) || keep.has(entry)) continue
+        if (entry === parent || keep.has(entry)) continue
         const dir = path.join(root, entry)
         const marker = path.join(dir, 'harness-parent')
         if (!fs.existsSync(marker)) continue
-        if (fs.readFileSync(marker, 'utf8').trim() !== harnessName) continue
+        if (fs.readFileSync(marker, 'utf8').trim() !== parent) continue
         const retired = readEnvFile(path.join(dir, '.env'))
         forgetProfileToken(retired.OPENAI_API_KEY)
         fs.rmSync(dir, { recursive: true, force: true })
+        fs.rmSync(specialistWorkspace(entry), { recursive: true, force: true })
     }
 }
 

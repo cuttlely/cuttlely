@@ -65,8 +65,9 @@ export function routingSummaryText(value) {
 }
 
 const NAME_RE = /^[A-Za-z][A-Za-z0-9_-]{0,63}$/
-// Draft tries compile into profiles/try<8-32 hex>. That shape is not a savable harness name.
-const TRY_PROFILE_NAME = /^try[a-f0-9]{8,32}$/i
+// Draft tries compile into profiles/try<8-32 hex>. A harness name that does not fit beside its specialist
+// compiles into profiles/tryx<16 hex>. Neither shape is a savable harness name.
+const TRY_PROFILE_NAME = /^(?:try[a-f0-9]{8,32}|tryx[a-f0-9]{16})$/i
 
 export function reservedTryProfileName(name) {
     return TRY_PROFILE_NAME.test(String(name || ''))

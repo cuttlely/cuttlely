@@ -10364,7 +10364,8 @@ await (async () => {
             left.length <= 64 &&
             right.length <= 64 &&
             longPublic.length <= 64 &&
-            /^[a-z0-9][a-z0-9_-]{0,63}$/.test(longPublic),
+            /^tryx[a-f0-9]{16}$/.test(longPublic) &&
+            longPublic !== `${longHarness}--${longName}`,
         JSON.stringify({ tryId, left, right, longPublic })
     )
     const stubModel = nodeModel('scriptedChat', { credential: 'cred-team', label: 'Stub', inputs: { modelName: 'gpt-4.1' } })
@@ -10434,6 +10435,98 @@ await (async () => {
             canvasRun.text === 'STUB_ANSWER' &&
             !String(canvasRun.text).includes('cannot get its own model profile'),
         JSON.stringify({ publishedProfile, canvasProfile, seen: canvasProfileSeen, public: publicRun.text, canvas: canvasRun.text })
+    )
+})()
+
+await (async () => {
+    const { specialistProfileName } = await import('./profile.mjs')
+    const { assertSavedHarnessName } = await import('./store.mjs')
+    const harness = `h${'n'.repeat(59)}`
+    const specialist = 'accounts-payable-invoice-exception-handler-2'
+    const otherName = `n${'a'.repeat(52)}`
+    const otherSpec = 'abcdef12'
+    const model = nodeModel('scriptedChat', { credential: 'cred-team', label: 'Stub', inputs: { modelName: 'gpt-4.1' } })
+    const specialistOf = (name, instructions) => ({
+        name,
+        instructions,
+        shell: true,
+        modules: [],
+        mcpServers: []
+    })
+    saveHarness(
+        {
+            name: harness,
+            chief: { instructions: 'Answer from the specialist.', model },
+            specialists: [specialistOf(specialist, 'LONG-SPECIALIST')]
+        },
+        { overwrite: true }
+    )
+    const first = compileProfile(getHarness(harness))
+    const fitted = first.roster.specialists[0].profileName
+    const fittedDir = path.join(process.env.CUTTLELY_HERMES_HOME, 'profiles', fitted)
+    const fittedEnv = readProfileEnv(fitted)
+    const marker = fs.readFileSync(path.join(fittedDir, 'harness-parent'), 'utf8').trim()
+    let reserved = null
+    try {
+        assertSavedHarnessName(fitted)
+    } catch (error) {
+        reserved = error
+    }
+    const otherId = specialistProfileName(otherName, otherSpec)
+    saveHarness(
+        {
+            name: otherName,
+            chief: { instructions: 'Other chief.', model },
+            specialists: [specialistOf(otherSpec, 'OTHER-SPECIALIST')]
+        },
+        { overwrite: true }
+    )
+    const other = compileProfile(getHarness(otherName))
+    const soulAfterOther = fs.readFileSync(path.join(fittedDir, 'SOUL.md'), 'utf8')
+    const gateway = await openGateway()
+    const status = async (token) => (await localRequest({ port: gateway.port, method: 'GET', path: '/v1/models', token })).status
+    const before = await status(fittedEnv.OPENAI_API_KEY)
+    const still = await status(fittedEnv.OPENAI_API_KEY)
+    saveHarness(
+        {
+            name: harness,
+            chief: { instructions: 'Answer from the specialist.', model },
+            specialists: [specialistOf('ab', 'RENAMED-SPECIALIST')]
+        },
+        { overwrite: true }
+    )
+    const renamed = compileProfile(getHarness(harness))
+    const after = await status(fittedEnv.OPENAI_API_KEY)
+    await gateway.close()
+    const workspace = path.join(process.env.CUTTLELY_DATA_DIR, 'workspaces', fitted)
+    check(
+        'a shortened specialist profile is reserved, distinct, and removed with its token',
+        harness.length === 60 &&
+            otherName.length === 53 &&
+            /^tryx[a-f0-9]{16}$/.test(fitted) &&
+            marker === harness &&
+            reserved?.code === 'bad_name' &&
+            otherId === `${otherName}--${otherSpec}` &&
+            other.roster.specialists[0].profileName === otherId &&
+            otherId !== fitted &&
+            soulAfterOther.includes('LONG-SPECIALIST') &&
+            !soulAfterOther.includes('OTHER-SPECIALIST') &&
+            before === 200 &&
+            still === 200 &&
+            after === 401 &&
+            !fs.existsSync(fittedDir) &&
+            !fs.existsSync(workspace) &&
+            renamed.roster.specialists[0].profileName === `${harness}--ab` &&
+            fs.existsSync(path.join(process.env.CUTTLELY_HERMES_HOME, 'profiles', `${harness}--ab`)),
+        JSON.stringify({
+            fitted,
+            otherId,
+            reserved: reserved?.message,
+            before,
+            still,
+            after,
+            renamed: renamed.roster.specialists[0].profileName
+        })
     )
 })()
 

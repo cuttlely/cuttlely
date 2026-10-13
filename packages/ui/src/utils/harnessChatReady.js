@@ -47,11 +47,15 @@ export function harnessChatBlock({ saved, flowReady, nodes, edges, nodeDefinitio
     return ''
 }
 
-// Draft tries compile into a profile named try plus 8 to 32 hex characters. That shape cannot be saved.
+// Draft tries compile into a profile named try plus 8 to 32 hex characters.
+// A harness name that does not fit beside its specialist compiles into tryx plus 16 hex.
+// Neither shape can be saved.
 const TRY_PROFILE_NAME = /^try[a-f0-9]{8,32}$/i
+const FITTED_PROFILE_NAME = /^tryx[a-f0-9]{16}$/i
 
 export function reservedHarnessNameMessage(name) {
     const text = String(name || '').trim()
-    if (!TRY_PROFILE_NAME.test(text)) return ''
-    return `Harness name "${text}" is reserved for a draft try. Choose a different name.`
+    if (TRY_PROFILE_NAME.test(text)) return `Harness name "${text}" is reserved for a draft try. Choose a different name.`
+    if (FITTED_PROFILE_NAME.test(text)) return `Harness name "${text}" is reserved. Choose a different name.`
+    return ''
 }
