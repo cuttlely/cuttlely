@@ -48,7 +48,7 @@ node packages/etl/check.mjs --stress   # adds a generated 1,000,000-row CSV and 
 ## Local verify
 
 ```bash
-pnpm verify                   # the full gate; `pnpm verify --help` lists the 24 steps
+pnpm verify                   # the full gate; `pnpm verify --help` lists the 25 steps
 pnpm verify --fast            # lint, boundaries, typecheck, verify-test, website-docs, chat-widget, versioning, hermes-vendor, unit, server-settings-ui, handoff-test, render-blueprint, identity-migration
 node scripts/check-boundaries.mjs   # zone crossings; --update only shrinks the baseline
 node scripts/health-report.mjs       # health table; exits 0. --image <ref> adds the image size

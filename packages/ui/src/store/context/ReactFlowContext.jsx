@@ -1,7 +1,8 @@
-import { createContext, useState } from 'react'
+import { createContext, useRef, useState } from 'react'
 import { useDispatch } from 'react-redux'
 import PropTypes from 'prop-types'
 import { getUniqueNodeId, showHideInputParams } from '@/utils/genericHelper'
+import { canvasAfterDelete } from '@/views/canvas/cardActions'
 import { cloneDeep, isEqual } from 'lodash'
 import { SET_DIRTY } from '@/store/actions'
 
@@ -90,95 +91,50 @@ export const ReactFlowContext = ({ children }) => {
         }
     }
 
-    const deleteNode = (nodeid) => {
-        deleteConnectedInput(nodeid, 'node')
-
-        // Gather all nodes to be deleted (parent and all descendants)
-        const nodesToDelete = new Set()
-
-        // Helper function to collect all descendant nodes recursively
-        const collectDescendants = (parentId) => {
-            const childNodes = reactFlowInstance.getNodes().filter((node) => node.parentNode === parentId)
-
-            childNodes.forEach((childNode) => {
-                nodesToDelete.add(childNode.id)
-                collectDescendants(childNode.id)
-            })
-        }
-
-        // Collect all descendants first
-        collectDescendants(nodeid)
-
-        // Add the parent node itself last
-        nodesToDelete.add(nodeid)
-
-        // Clean up inputs for all nodes to be deleted
-        nodesToDelete.forEach((id) => {
-            if (id !== nodeid) {
-                // Skip parent node as it's already processed at the beginning
-                deleteConnectedInput(id, 'node')
-            }
+    // React Flow 11 turns setNodes / setEdges into a reset of whatever getNodes() still holds, which is the
+    // pre-delete list until this handler returns. The canvas state setters write the cleaned list directly.
+    const applyingDelete = useRef(false)
+    const commitNodes = useRef(null)
+    const commitEdges = useRef(null)
+    const bindCanvasState = (setNodes, setEdges) => {
+        commitNodes.current = setNodes
+        commitEdges.current = setEdges
+    }
+    // The React setters do not update getNodes or getEdges until the next render. A loop of deleteEdge
+    // calls has to see the graph this function just wrote, or every edge but the last comes back.
+    const writtenGraph = useRef(null)
+    const deleteSelection = ({ nodeIds = [], edgeIds = [] } = {}) => {
+        if (!reactFlowInstance) return
+        if (!nodeIds.length && !edgeIds.length) return
+        const next = canvasAfterDelete({
+            nodes: writtenGraph.current ? writtenGraph.current.nodes : reactFlowInstance.getNodes(),
+            edges: writtenGraph.current ? writtenGraph.current.edges : reactFlowInstance.getEdges(),
+            nodeIds,
+            edgeIds
         })
-
-        // Filter out all nodes and edges in a single operation
-        reactFlowInstance.setNodes((nodes) => nodes.filter((node) => !nodesToDelete.has(node.id)))
-
-        // Remove all edges connected to any of the deleted nodes
-        reactFlowInstance.setEdges((edges) => edges.filter((edge) => !nodesToDelete.has(edge.source) && !nodesToDelete.has(edge.target)))
-
-        dispatch({ type: SET_DIRTY })
-    }
-
-    const deleteEdge = (edgeid) => {
-        deleteConnectedInput(edgeid, 'edge')
-        reactFlowInstance.setEdges(reactFlowInstance.getEdges().filter((edge) => edge.id !== edgeid))
-        dispatch({ type: SET_DIRTY })
-    }
-
-    const deleteConnectedInput = (id, type) => {
-        const connectedEdges =
-            type === 'node'
-                ? reactFlowInstance.getEdges().filter((edge) => edge.source === id)
-                : reactFlowInstance.getEdges().filter((edge) => edge.id === id)
-
-        for (const edge of connectedEdges) {
-            const targetNodeId = edge.target
-            const sourceNodeId = edge.source
-            const targetInput = edge.targetHandle.split('-')[2]
-
-            reactFlowInstance.setNodes((nds) =>
-                nds.map((node) => {
-                    if (node.id === targetNodeId) {
-                        let value
-                        const inputAnchor = node.data.inputAnchors.find((ancr) => ancr.name === targetInput)
-                        const inputParam = node.data.inputParams.find((param) => param.name === targetInput)
-
-                        if (inputAnchor && inputAnchor.list) {
-                            const values = node.data.inputs[targetInput] || []
-                            value = values.filter((item) => !item.includes(sourceNodeId))
-                        } else if (inputParam && inputParam.acceptVariable) {
-                            value = node.data.inputs[targetInput].replace(`{{${sourceNodeId}.data.instance}}`, '') || ''
-                        } else {
-                            value = ''
-                        }
-                        node.data = {
-                            ...node.data,
-                            inputs: {
-                                ...node.data.inputs,
-                                [targetInput]: value
-                            }
-                        }
-                    }
-                    return node
-                })
-            )
+        writtenGraph.current = next
+        queueMicrotask(() => {
+            if (writtenGraph.current === next) writtenGraph.current = null
+        })
+        applyingDelete.current = true
+        try {
+            if (commitNodes.current) commitNodes.current(next.nodes)
+            if (commitEdges.current) commitEdges.current(next.edges)
+        } finally {
+            applyingDelete.current = false
         }
+        dispatch({ type: SET_DIRTY })
     }
+
+    const deleteNode = (nodeid) => deleteSelection({ nodeIds: [nodeid] })
+
+    const deleteEdge = (edgeid) => deleteSelection({ edgeIds: [edgeid] })
 
     const duplicateNode = (id, distance = 50) => {
         const nodes = reactFlowInstance.getNodes()
         const originalNode = nodes.find((n) => n.id === id)
-        if (originalNode) {
+        // The start card of a workflow cannot be copied.
+        if (originalNode && originalNode.data?.name !== 'startAgentflow') {
             const newNodeId = getUniqueNodeId(originalNode.data, nodes)
             const clonedNode = cloneDeep(originalNode)
 
@@ -239,9 +195,20 @@ export const ReactFlowContext = ({ children }) => {
                 }
             }
 
-            reactFlowInstance.setNodes([...nodes, duplicatedNode])
+            duplicatedNode.selected = true
+            duplicatedNode.data.selected = true
+            // Select the copy so Delete from the keyboard hits the new card, not the one it was copied from.
+            const rest = nodes.map((node) => ({
+                ...node,
+                selected: false,
+                data: node.data ? { ...node.data, selected: false } : node.data
+            }))
+            reactFlowInstance.setNodes([...rest, duplicatedNode])
             dispatch({ type: SET_DIRTY })
+            // The id and the card data. The canvas list may not include the copy until the next render.
+            return { id: newNodeId, data: duplicatedNode.data }
         }
+        return null
     }
 
     return (
@@ -251,6 +218,9 @@ export const ReactFlowContext = ({ children }) => {
                 setReactFlowInstance,
                 deleteNode,
                 deleteEdge,
+                deleteSelection,
+                applyingDelete,
+                bindCanvasState,
                 duplicateNode,
                 onAgentflowNodeStatusUpdate,
                 clearAgentflowNodeStatus,
