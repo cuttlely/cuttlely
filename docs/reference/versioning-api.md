@@ -451,4 +451,4 @@ On a server labeled Prod, these routes list the flows with a new version from De
 
 ### Behavior check
 
-The check routes work like the publish check in the [Drafts API](./drafts-api.md), with the version from Dev in place of the draft: recent questions from this server's chats are replayed against Live and the version from Dev, mapped to this server's credentials. The same `count` chooses how many, from 1 to 100. It writes nothing. It is a separate check from a draft check of the same flow.
+The check routes work like the publish check in the [Drafts API](./drafts-api.md), with the version from Dev in place of the draft. A chatflow or a chat-started agentflow replays recent questions from this server's chats. A form, webhook or schedule agentflow replays recorded inputs from this server's executions, not from Dev. When this server has none, setup stays available and starting with `count` answers 400 with how to create a run here. The same `count` chooses how many, from 1 to 100. It writes nothing. It is a separate check from a draft check of the same flow.
