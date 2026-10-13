@@ -1,6 +1,13 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
-import { documentedPermissionKeys, permissionKeyDiff, permissionKeys, readGuideKeys } from './permission-keys.mjs'
+import {
+    documentedPermissionKeys,
+    permissionKeyDiff,
+    permissionKeys,
+    permissionLiteralProblems,
+    readGuideKeys,
+    readPermissionLiteralProblems
+} from './permission-keys.mjs'
 import { documentedRouteChecks, readGuideRouteMismatches, routeCheckMismatches } from './permission-routes.mjs'
 
 describe('roles and permissions guide', () => {
@@ -36,6 +43,24 @@ describe('roles and permissions guide', () => {
         assert.deepEqual(documented, [{ key: 'tools:view', method: 'GET', path: '/api/v1/tools' }])
         const problems = readGuideRouteMismatches()
         assert.deepEqual(problems, [], problems.join('\n'))
+    })
+
+    it('fails when a permission literal is not in the catalog', () => {
+        const catalog = new Set(['chatflows:create', 'agentflows:create'])
+        const prefixes = new Set(['chatflows', 'agentflows'])
+        const dotted = permissionLiteralProblems("hasPermission('chatflows:create,agentflows.create')", {
+            catalog,
+            outside: [],
+            prefixes
+        })
+        assert.equal(dotted.length, 1)
+        assert.match(dotted[0], /agentflows\.create uses a dot/)
+        const unknown = permissionLiteralProblems("requirePermission('nope:view')", { catalog, outside: [], prefixes })
+        assert.deepEqual(unknown, ['nope:view is not in the permission catalog'])
+        const known = permissionLiteralProblems("permission={'agentflows:create'}", { catalog, outside: [], prefixes })
+        assert.deepEqual(known, [])
+        const live = readPermissionLiteralProblems()
+        assert.deepEqual(live, [], live.join('\n'))
     })
 
     it('reads keys from the permission table', () => {

@@ -158,7 +158,8 @@ const STEPS = [
             'src/views/evaluations/evaluationFlows.test.js',
             'src/views/roles/rolePermissions.test.js',
             'src/views/docstore/chunkPermissions.test.js',
-            'src/views/canvas/canvasSavePermission.test.js'
+            'src/views/canvas/canvasSavePermission.test.js',
+            'src/views/marketplaces/templateUsePermission.test.js'
         ],
         env: { CI: 'true' }
     },

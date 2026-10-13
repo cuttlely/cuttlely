@@ -1896,6 +1896,8 @@ packages/ui/src/views/marketplaces/MarketplaceCanvas.jsx
 packages/ui/src/views/marketplaces/MarketplaceCanvasHeader.jsx
 packages/ui/src/views/marketplaces/MarketplaceCanvasNode.jsx
 packages/ui/src/views/marketplaces/index.jsx
+packages/ui/src/views/marketplaces/templateUsePermission.js
+packages/ui/src/views/marketplaces/templateUsePermission.test.js
 packages/ui/src/views/organization/index.jsx
 packages/ui/src/views/roles/CreateEditRoleDialog.css
 packages/ui/src/views/roles/CreateEditRoleDialog.jsx

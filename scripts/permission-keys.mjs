@@ -232,6 +232,126 @@ export function readGuideKeys(guidePath = GUIDE) {
     return documentedPermissionKeys(fs.readFileSync(guidePath, 'utf8'))
 }
 
+// The role dialog does not offer these. The UI or a route still checks them, and the guide names each one.
+const CHECKED_OUTSIDE_CATALOG = [
+    'credentials:share',
+    'templates:custom-share',
+    'workspace:export',
+    'workspace:import',
+    'sso:manage',
+    'executions:update',
+    'server:owner'
+]
+
+function quotedList(source, constName) {
+    const match = source.match(new RegExp(`(?:const|let)\\s+${constName}\\s*=\\s*(?:new Set\\()?\\[([\\s\\S]*?)\\]`))
+    if (!match) return []
+    return [...match[1].matchAll(/'([^']+)'/g)].map((item) => item[1])
+}
+
+export function grantableCatalogKeys(root = ROOT) {
+    const schema = fs.readFileSync(path.join(root, 'packages/server/src/database/identitySchema.ts'), 'utf8')
+    const catalog = fs.readFileSync(path.join(root, 'packages/server/src/identity/permissionsCatalog.ts'), 'utf8')
+    const stored = schema.match(/PERSONAL_WORKSPACE_PERMISSIONS\s*=\s*'([^']*)'/)
+    const fromStore = stored ? keysInText(stored[1].replace(/\\"/g, '"')) : []
+    const dropped = new Set(quotedList(catalog, 'DROPPED_KEYS'))
+    const droppedPrefixes = new Set(quotedList(catalog, 'DROPPED_PREFIXES'))
+    const allowed = new Set(quotedList(catalog, 'ALLOWED_PREFIXES'))
+    const keys = [...fromStore, ...quotedList(catalog, 'ADMIN_KEYS'), ...quotedList(catalog, 'LOG_KEYS')]
+    return [
+        ...new Set(
+            keys.filter((key) => {
+                const prefix = key.split(':')[0] || ''
+                if (dropped.has(key) || droppedPrefixes.has(prefix)) return false
+                return allowed.has(prefix)
+            })
+        )
+    ].sort()
+}
+
+export function permissionPrefixes(root = ROOT) {
+    const catalog = fs.readFileSync(path.join(root, 'packages/server/src/identity/permissionsCatalog.ts'), 'utf8')
+    return new Set([...quotedList(catalog, 'ALLOWED_PREFIXES'), ...quotedList(catalog, 'DROPPED_PREFIXES')])
+}
+
+function permissionRegions(source) {
+    const includeBodies = []
+    const includeRe = /\bpermissions(?:Ids)?\.includes\s*\(/g
+    let includeMatch
+    while ((includeMatch = includeRe.exec(source))) {
+        includeBodies.push(callBodies(source.slice(includeMatch.index), ['includes'])[0] || '')
+    }
+    return [
+        ...callBodies(source, ['requirePermission', 'requireAnyPermission', 'hasAnyPermission', 'hasPermission']),
+        ...propValues(source),
+        ...includeBodies
+    ]
+}
+
+function quotedTokens(region) {
+    const tokens = []
+    const re = /['"`]([^'"`]*)['"`]/g
+    for (const match of String(region).matchAll(re)) {
+        for (const part of match[1].split(',')) {
+            const token = part.trim()
+            if (token && !token.includes('${')) tokens.push(token)
+        }
+    }
+    return tokens
+}
+
+function dottedPermissionTokens(source, prefixes) {
+    const found = []
+    for (const token of quotedTokens(source)) {
+        const match = token.match(/^([A-Za-z][A-Za-z0-9]*)\.([A-Za-z][A-Za-z0-9]+(?:-[A-Za-z0-9]+)*)$/)
+        if (match && prefixes.has(match[1])) found.push(token)
+    }
+    return found
+}
+
+export function permissionLiteralProblems(source, { catalog, outside, prefixes }) {
+    const catalogSet = catalog instanceof Set ? catalog : new Set(catalog)
+    const outsideSet = outside instanceof Set ? outside : new Set(outside || [])
+    const prefixSet = prefixes instanceof Set ? prefixes : new Set(prefixes || [])
+    const problems = []
+    const seen = new Set()
+    const consider = (token) => {
+        if (!token || seen.has(token)) return
+        seen.add(token)
+        const dotted = token.match(/^([A-Za-z][A-Za-z0-9]*)\.([A-Za-z][A-Za-z0-9]+(?:-[A-Za-z0-9]+)*)$/)
+        if (dotted && prefixSet.has(dotted[1])) {
+            problems.push(`${token} uses a dot; permission keys use a colon`)
+            return
+        }
+        if (!KEY.test(token) || token.startsWith('feat:')) return
+        if (catalogSet.has(token) || outsideSet.has(token)) return
+        problems.push(`${token} is not in the permission catalog`)
+    }
+    for (const region of permissionRegions(source)) {
+        for (const token of quotedTokens(region)) consider(token)
+    }
+    for (const token of dottedPermissionTokens(source, prefixSet)) consider(token)
+    return problems
+}
+
+export function readPermissionLiteralProblems(root = ROOT) {
+    const catalog = new Set(grantableCatalogKeys(root))
+    const outside = new Set(CHECKED_OUTSIDE_CATALOG)
+    const prefixes = permissionPrefixes(root)
+    const files = []
+    const roots = root === ROOT ? SOURCE_ROOTS : SOURCE_ROOTS.map((item) => path.join(root, path.relative(ROOT, item)))
+    for (const dir of roots) walk(dir, files)
+    const problems = []
+    for (const file of files) {
+        const source = fs.readFileSync(file, 'utf8')
+        const rel = path.relative(root, file).replace(/\\/g, '/')
+        for (const problem of permissionLiteralProblems(source, { catalog, outside, prefixes })) {
+            problems.push(`${rel}: ${problem}`)
+        }
+    }
+    return problems
+}
+
 function main() {
     const keys = permissionKeys()
     if (process.argv.includes('--json')) {
