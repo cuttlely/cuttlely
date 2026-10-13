@@ -387,9 +387,24 @@ To switch a server between Dev and Prod, disconnect GitHub first.
 
 ### Add Staging between Dev and Prod
 
-The same repository can hold more than two environments. List them in promotion order. Each one has a name, the branch it publishes to, and a server identity. An existing Dev and Prod setup is already that list: dev, then prod, and you do not have to change it.
+The same repository can hold more than two environments. List them in promotion order. Each one has a name (the label on screen), a branch (where that environment publishes), and a server identity (the value you set for **This server is**). An existing Dev and Prod setup is already that list: dev, then prod, both on `main`, and you do not have to change it. The promote page for that pair does not show a chain, and the behavior check column stays **From Dev**.
 
-To add Staging, save this on each server with `PUT /api/v1/flow-versions/environment`, and set `environment` to that server's identity (`dev`, `staging` or `prod`). The list is stored on that server only. Save the same list on every server. Once a server has recorded a fingerprint of that list with a copy, a Prod server whose list still leaves Staging out reads Dev's versions and then stops: nothing new is offered to promote, and versions already offered stay as they are. Until that fingerprint exists, Prod can still read the place its own list names. Disconnect GitHub first if the server is already connected and this changes what it reads or copies.
+#### Three environments
+
+Do this once, as the owner. Use one empty repository. Dev connects first.
+
+1. Pick the labels, branches, and identities, and write them down. The example below is Dev on `main`, Staging on `staging`, and Prod on `prod`. Names, identities, and branches have to be different. The saved pair is the only list whose two branches are both `main`.
+2. Save the same list on every server with `PUT /api/v1/flow-versions/environment`. Set `environment` to that server's identity. The list is stored on that server only. The servers do not copy the list from each other.
+3. On Dev, set `environment` to `dev` and connect the repository, as in [Keep a copy in GitHub](#keep-a-copy-in-github). Dev publishes to `main` and records a fingerprint of the list with that copy. The copy is not finished until the fingerprint is on the repository.
+4. On Staging, set `environment` to `staging` and connect the same repository. Staging reads `main`. Connect is refused unless the tip of that branch carries this server's list. A branch with no fingerprint, a fingerprint on some other commit, or a different list is refused, and nothing is saved or copied.
+5. Promote the flow you want onto Staging. Staging then publishes its own versions, including that promotion, to `staging`.
+6. On Prod, set `environment` to `prod` and connect the same repository. Prod reads `staging`, not `main`. Promote from Staging the same way Staging promoted from Dev: the behavior check, the credential names, and **Promote to Live**.
+
+Prod does not take a version straight from Dev while Staging is in between. A promote that names Dev as the source is refused with `Promotion only moves to the next environment.`
+
+On Staging and on Prod the page shows the chain Dev, Staging, Prod. Open one flow and **Where this version is** names the version of that flow on each environment, so you can see where the change sits. Dev's version is the one Dev published. Staging's version is the one Staging published, which is what Prod is asked to promote. Prod's own version is what is Live on Prod. The last environment does not publish, so a server earlier in the chain cannot see Prod's version and says it is only on that server. With only Dev and Prod, the page does not show a chain or that list, and it works as before.
+
+The behavior check on a longer list titles the new version's column **From** plus the previous environment's name (**From Staging** on Prod). The saved Dev and Prod pair keeps **From Dev**.
 
 ```json
 {
@@ -402,11 +417,52 @@ To add Staging, save this on each server with `PUT /api/v1/flow-versions/environ
 }
 ```
 
-Dev still publishes to the repository. Staging reads those versions, and you promote the ones you want to Live on Staging. Staging then publishes its own versions, including what you promoted, for Prod to read. Prod promotes from Staging the same way it used to promote from Dev: the behavior check, the credential names, and **Promote to Live**. Prod does not take a version straight from Dev while Staging is in between.
-
-On Staging and on Prod the page shows the chain Dev, Staging, Prod, and says promotion moves a version to the next environment. Staging's versions are the ones Dev published. Prod's versions are the ones Staging published. With only Dev and Prod, the page does not show a chain and works as before.
-
 The fields are in [History settings](../reference/versioning-settings.md#environments).
+
+#### The fingerprint
+
+Each server that publishes records a fingerprint of its list with the copy. A server that reads offers a new version only when the fingerprint on that version matches the list saved on the reading server. The servers never compare lists by talking to each other.
+
+When they differ, the Version History card stops and says:
+
+> This server's environment list does not match the list used to publish these versions. Save the same list on every server, then select Try again.
+
+Nothing new is offered to promote. Versions already offered stay as they are. Save the same list, then select **Try again**.
+
+A named list also stops when a fingerprint record already exists and this version has none:
+
+> These versions have no environment list recorded yet, so nothing new is offered.
+
+The saved Dev and Prod pair is the one case that still offers versions when the repository has no fingerprint record at all. Once any fingerprint is recorded, a Prod server left on only dev then prod stops, even if it used to read Dev.
+
+#### Add an environment to a chain that is already running
+
+Dev can already be connected and copying as the saved pair.
+
+1. On Dev, save the longer list with `environment` still `dev` and Dev's branch still `main`. That does not change what Dev reads or copies, so you can save it while GitHub is connected. Dev rewrites the fingerprint on the versions already copied. Staging can read those versions without waiting for a new publish.
+2. On Staging, save the same list with `environment` `staging`, then connect. Staging reads Dev.
+3. Prod was reading Dev. Its source is now Staging, which changes what it reads. Disconnect GitHub on Prod first, save the same list with `environment` `prod`, then connect. Prod reads Staging.
+4. Promote on Staging, then on Prod.
+
+Saving the saved Dev and Prod pair back over a named list that still parses, when that save would not change what this server reads or copies, is refused. The named list stays. Disconnect first if you mean to change what the server reads or copies.
+
+#### When a promote or a connect is refused
+
+| What you see                                                                                                                                        | Why                                                                                                                                                                                                               | What to do                                                                                                                                                                                      |
+| --------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Promotion only moves to the next environment.`                                                                                                     | The promote named an environment that is not the previous one. Dev to Prod while Staging is between them does this.                                                                                               | Promote to the next environment. Staging first, then Prod.                                                                                                                                      |
+| `This server's environment list does not match the list used to publish these versions. Save the same list on every server, then select Try again.` | The fingerprint on the copied version is a different list from the one saved here.                                                                                                                                | Save the same list on this server, then **Try again**. Versions already offered stay. Nothing new is offered until the lists match.                                                             |
+| `These versions have no environment list recorded yet, so nothing new is offered.`                                                                  | A fingerprint record exists, and this version has none. A named list does not offer it.                                                                                                                           | On the server that publishes, select **Try again** so the list is recorded with the copy, then look again here.                                                                                 |
+| `Could not record the environment list with this copy.`                                                                                             | The versions were copied, and the fingerprint was not. The copy stays unfinished.                                                                                                                                 | Select **Try again**. The publisher tries again, including when another server records a fingerprint at the same time.                                                                          |
+| `The environment list could not be read. Save it again.`                                                                                            | The list file on this server cannot be read.                                                                                                                                                                      | Save the full list again on **Version History**. Sending only this server's environment does not repair it.                                                                                     |
+| `The saved GitHub connection could not be read. Disconnect and connect again.`                                                                      | The connection file cannot be read. The list is still there.                                                                                                                                                      | Disconnect, then connect again.                                                                                                                                                                 |
+| `The environment list on this server is still valid, so it was not replaced.`                                                                       | A save tried to put the saved Dev and Prod pair in place of a named list that still parses, without changing what this server reads or copies.                                                                    | Send the named list you want to keep. Disconnect first if the goal is to change what this server reads or copies.                                                                               |
+| `Pick this server's environment. Nothing is copied until you do.`                                                                                   | A named list is saved, and this server is not one of the identities in it.                                                                                                                                        | Set `environment` to one of those identities, then connect. Versions are not counted as waiting until you do.                                                                                   |
+| `Pick an environment from the list.`                                                                                                                | The identity is not in the named list. On the saved pair the same mistake says `Pick Dev or Prod.`                                                                                                                | Choose one of the identities in the list.                                                                                                                                                       |
+| `Disconnect GitHub before changing what this server reads or copies.`                                                                               | The new list would change the branch this server reads or the branch it copies to, and a repository is connected.                                                                                                 | Disconnect, save the list, then connect again. A list change that keeps the same read and the same copy does not need a disconnect. It rewrites the fingerprint on the versions already copied. |
+| `Connect the repository your Staging server copies to. This one has no versions from Staging yet.`                                                  | The name in the sentence is the previous environment. Its branch is missing, or the tip does not carry this server's list. A branch by itself, a note on another commit, or a different list is the same refusal. | Publish from the previous environment with the same list, then connect. Nothing is saved on the refused connect.                                                                                |
+
+The routes are in the [History API](../reference/versioning-api.md#promote-from-dev-to-prod).
 
 ### See what is new
 
@@ -425,7 +481,8 @@ Select a flow to open its review page:
 -   **What changes on this server** compares the version from the previous environment with what is Live here now. On the saved Dev and Prod pair that version is Dev's.
 -   **What changed on** the previous environment lists the versions it published since the last promote, newest first. On the saved pair the heading is **What changed on Dev**.
 -   **Credentials** says whether this server has every credential the flow uses. See [Credentials stay on each server](#credentials-stay-on-each-server).
--   **Check recent questions** runs the questions this server's users asked lately on Live and on the version from the previous environment, side by side, the same way as [Check recent questions before you publish](#check-recent-questions-before-you-publish), including the past-question count. A form, webhook or schedule agentflow instead replays inputs recorded on this server, not on the previous environment. That box is titled **Check recent runs** and uses the same **Past runs** choices. When fewer runs exist than the choice, the picker is labeled **Requested runs**. If this server has no such run yet, the box says no past runs exist yet and how to create one here. It is optional. On the saved pair that version is Dev's.
+-   **Check recent questions** runs the questions this server's users asked lately on Live and on the version from the previous environment, side by side, the same way as [Check recent questions before you publish](#check-recent-questions-before-you-publish), including the past-question count. A form, webhook or schedule agentflow instead replays inputs recorded on this server, not on the previous environment. That box is titled **Check recent runs** and uses the same **Past runs** choices. When fewer runs exist than the choice, the picker is labeled **Requested runs**. If this server has no such run yet, the box says no past runs exist yet and how to create one here. It is optional. On the saved pair the new version's column is **From Dev**. On a longer list that column is **From** plus the previous environment's name.
+-   **Where this version is**, on a longer list, shows the version of this flow on each environment in the chain. The saved Dev and Prod pair does not show it.
 
 ![The review page for Bakery helper, marked New version available from Dev. What changes on this server lists Changed ChatOpenAI: temperature and Changed Conversation Chain: system message prompt. What changed on Dev lists two versions by Rosa Diaz. Credentials says Every credential it uses is on this server. Below is Check recent questions with two recent questions picked and a Run Check button.](../images/versioning/promote-review.png)
 

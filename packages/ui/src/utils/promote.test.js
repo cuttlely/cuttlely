@@ -10,6 +10,7 @@ import {
     incomingLabel,
     incomingSummary,
     missingIntro,
+    placementLine,
     previousEnvironmentTitle,
     promoteLoadError,
     promotePageDescription,
@@ -116,6 +117,13 @@ describe('promote helpers', () => {
         expect(sourceTitleOf(pair)).toBe('Dev')
         expect(showEnvironmentChain(chain)).toBe(true)
         expect(sourceTitleOf(chain)).toBe('Staging')
+        expect(placementLine({ state: 'seen', version: { title: 'Published: Answer', shortSha: 'aaaaaaa' } })).toBe(
+            'Published: Answer · Version aaaaaaa'
+        )
+        expect(placementLine({ state: 'none', place: 'here' })).toBe('Not on this server yet')
+        expect(placementLine({ state: 'none', place: 'earlier' })).toBe('Not there yet')
+        expect(placementLine({ state: 'local-only', place: 'later' })).toBe('Only on that server')
+        expect(placementLine({ state: 'unseen', place: 'earlier' })).toBe('Could not be read from here')
         expect(incomingSummary([{}], 'Staging')).toBe('1 flow has a new version from Staging')
         expect(incomingLabel({ status: 'update' }, 'Staging')).toBe('New version available from Staging')
     })

@@ -78,6 +78,18 @@ export interface IncomingList {
     target: string | null
 }
 
+// Where the selected flow sits on a named list. The saved Dev and Prod pair leaves this empty.
+export interface EnvironmentPlacement {
+    server: string
+    name: string
+    // here: this server. previous: the one this server promotes from. earlier: before that. later: after this server.
+    place: 'here' | 'previous' | 'earlier' | 'later'
+    // seen: a version was read. none: that environment has not published this flow.
+    // unseen: the read failed. local-only: the last environment does not publish, and this server is not it.
+    state: 'seen' | 'none' | 'unseen' | 'local-only'
+    version: DevVersion | null
+}
+
 export interface IncomingDetail extends IncomingFlow {
     diff: VersionDiff
     missingCredentials: Array<{ name: string; credentialName: string }>
@@ -89,6 +101,7 @@ export interface IncomingDetail extends IncomingFlow {
     environments: NamedEnvironment[]
     source: string | null
     target: string | null
+    placements: EnvironmentPlacement[]
 }
 
 export interface PromoteDeps {
@@ -138,6 +151,64 @@ function noVersion(from: string): string {
 
 function devVersion(entry: VersionEntry): DevVersion {
     return { sha: entry.sha, shortSha: entry.shortSha, date: entry.date, author: entry.author, title: entry.title }
+}
+
+async function latestOn(rev: string, flowId: string): Promise<DevVersion | null> {
+    try {
+        const history = await listAllVersions(getStore(), rev, 50, trailerGrep('Flow', flowId))
+        const latest = history.find((entry) => entry.flowId === flowId && entry.kind !== 'delete' && entry.kind !== 'unknown')
+        return latest ? devVersion(latest) : null
+    } catch {
+        return null
+    }
+}
+
+// The version of this flow on one publishing environment this server does not already have locally.
+// A missing publish name is "not there". A failed read stays unseen so the page does not claim the flow is absent.
+async function readPublished(branch: string, flowId: string): Promise<Pick<EnvironmentPlacement, 'state' | 'version'>> {
+    let peeked: { ok: true; ref: string; sha: string } | { ok: false; reason: 'missing' | 'unread' }
+    try {
+        peeked = await getGithub().peekBranch(branch)
+    } catch {
+        return { state: 'unseen', version: null }
+    }
+    if (!peeked.ok) return { state: peeked.reason === 'missing' ? 'none' : 'unseen', version: null }
+    try {
+        const version = await latestOn(peeked.ref, flowId)
+        return version ? { state: 'seen', version } : { state: 'none', version: null }
+    } finally {
+        await getGithub().releasePeek(peeked.ref)
+    }
+}
+
+async function placementsFor(flowId: string, deps: PromoteDeps): Promise<EnvironmentPlacement[]> {
+    const hop = hopOf(deps)
+    if (isLegacyChain(hop.chain) || hop.slot.index < 0) return []
+    const placements: EnvironmentPlacement[] = []
+    for (let i = 0; i < hop.chain.length; i++) {
+        const env = hop.chain[i]
+        const place: EnvironmentPlacement['place'] =
+            i === hop.slot.index ? 'here' : i === hop.slot.index - 1 ? 'previous' : i < hop.slot.index ? 'earlier' : 'later'
+        const publishes = i < hop.chain.length - 1
+        let state: EnvironmentPlacement['state']
+        let version: DevVersion | null
+        if (place === 'here') {
+            version = await latestOn('refs/heads/main', flowId)
+            state = version ? 'seen' : 'none'
+        } else if (place === 'previous') {
+            version = await latestOn(INCOMING_REF, flowId)
+            state = version ? 'seen' : 'none'
+        } else if (!publishes) {
+            version = null
+            state = 'local-only'
+        } else {
+            const read = await readPublished(env.branch, flowId)
+            version = read.version
+            state = read.state
+        }
+        placements.push({ server: env.server, name: env.name, place, state, version })
+    }
+    return placements
 }
 
 async function incomingHead(): Promise<string | null> {
@@ -292,7 +363,8 @@ export async function getIncoming(flowId: string, workspaceId: string, deps: Pro
         checkUnavailable,
         environments: hopOf(deps).environments,
         source: hopOf(deps).source,
-        target: hopOf(deps).target
+        target: hopOf(deps).target,
+        placements: await placementsFor(flowId, deps)
     }
 }
 
