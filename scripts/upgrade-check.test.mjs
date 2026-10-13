@@ -8,6 +8,11 @@ import {
     compareVersions,
     fixtureProblems,
     harnessMigrationProblems,
+    SEEDED_DRAFT_COLLECTION,
+    SEEDED_LIVE_COLLECTION,
+    pipelineMigrationProblems,
+    seededPipelineUpgradeProblems,
+    upgradePipelineCanvas,
     keyAliasEnv,
     nodeCount,
     readFixture,
@@ -106,4 +111,78 @@ test('a 1.0.2 harness stays Live version 1 until the first edit creates a draft'
     assert.match(edited.join('\n'), /changed the Live canvas/)
     assert.match(edited.join('\n'), /changed the roster/)
     assert.match(edited.join('\n'), /did not create a draft/)
+})
+
+test('a pipeline stays Live version 1 until the first edit creates a draft', () => {
+    const live = '{"nodes":[{"data":{"name":"etlFileSource","inputs":{"paths":"/data/catalog.csv"}}}],"edges":[]}'
+    const sha = 'a'.repeat(40)
+    const ok = pipelineMigrationProblems({
+        status: { mode: 'draft', draft: null },
+        history: { liveSha: sha, versions: [{ sha }] },
+        liveBefore: live,
+        liveAfter: live,
+        servedBefore: 1,
+        servedAfter: 1,
+        draft: { draft: { flowData: `${live} draft` } }
+    })
+    assert.deepEqual(ok, [])
+    const missingRow = pipelineMigrationProblems({
+        status: { mode: 'draft', draft: null },
+        history: { liveSha: sha, versions: [{ sha }] },
+        liveBefore: live,
+        liveAfter: live,
+        servedBefore: null,
+        servedAfter: null,
+        draft: { draft: { flowData: `${live} draft` } }
+    })
+    assert.deepEqual(missingRow, [])
+    const edited = pipelineMigrationProblems({
+        status: { mode: 'live', draft: { flowData: 'x' } },
+        history: { liveSha: 'nope', versions: [] },
+        liveBefore: live,
+        liveAfter: '{"nodes":[],"edges":[]}',
+        servedBefore: 1,
+        servedAfter: 2,
+        draft: { draft: null }
+    })
+    assert.match(edited.join('\n'), /not Live with no draft/)
+    assert.match(edited.join('\n'), /not Live version 1/)
+    assert.match(edited.join('\n'), /changed the Live canvas/)
+    assert.match(edited.join('\n'), /changed the pipeline runs serve/)
+    assert.match(edited.join('\n'), /did not create a draft/)
+})
+
+test('a seeded pipeline stays Live until Publish, and a run keeps reading it', () => {
+    const live = upgradePipelineCanvas('/tmp/catalog.csv', SEEDED_LIVE_COLLECTION)
+    const draft = upgradePipelineCanvas('/tmp/catalog.csv', SEEDED_DRAFT_COLLECTION)
+    const ok = seededPipelineUpgradeProblems({
+        statusBefore: { mode: 'draft', draft: null },
+        liveBefore: live,
+        liveAfterEdit: live,
+        servedBefore: 1,
+        servedAfterEdit: 1,
+        runBefore: live,
+        runAfterEdit: live,
+        draft: { draft: { flowData: draft } },
+        runAfterPublish: draft
+    })
+    assert.deepEqual(ok, [])
+    const edited = seededPipelineUpgradeProblems({
+        statusBefore: { mode: 'live', draft: { flowData: 'x' } },
+        liveBefore: live,
+        liveAfterEdit: draft,
+        servedBefore: 1,
+        servedAfterEdit: 2,
+        runBefore: 'other',
+        runAfterEdit: draft,
+        draft: { draft: null },
+        runAfterPublish: live
+    })
+    assert.match(edited.join('\n'), /not Live with no draft/)
+    assert.match(edited.join('\n'), /changed the Live canvas/)
+    assert.match(edited.join('\n'), /changed the pipeline runs serve/)
+    assert.match(edited.join('\n'), /did not create a draft/)
+    assert.match(edited.join('\n'), /did not read the Live pipeline/)
+    assert.match(edited.join('\n'), /did not keep reading the Live pipeline/)
+    assert.match(edited.join('\n'), /did not read the published draft/)
 })
