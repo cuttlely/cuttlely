@@ -734,6 +734,115 @@ describe('workspace isolation', () => {
         }
     })
 
+    it('refuses another team harness canvas before a chatflow row is saved', async () => {
+        const dataDir = fs.mkdtempSync(path.join(tmpdir(), 'cuttlely-harness-canvas-'))
+        const previous = {
+            data: process.env.CUTTLELY_DATA_DIR,
+            hermes: process.env.CUTTLELY_HERMES_HOME,
+            warm: process.env.CUTTLELY_WARM_HERMES
+        }
+        process.env.CUTTLELY_DATA_DIR = dataDir
+        process.env.CUTTLELY_HERMES_HOME = path.join(dataDir, 'hermes')
+        process.env.CUTTLELY_WARM_HERMES = 'false'
+        const harnessDir = path.join(dataDir, 'harnesses')
+        fs.mkdirSync(harnessDir, { recursive: true })
+        const canvas = (instructions) =>
+            JSON.stringify({
+                nodes: [
+                    {
+                        id: 'chief_0',
+                        data: { name: 'harnessChief', label: 'Harness Prime', category: 'Harness', inputs: { instructions } }
+                    },
+                    {
+                        id: 'model_0',
+                        data: { name: 'demoChat', label: 'Demo chat', category: 'Chat Models', inputs: { modelName: 'demo' } }
+                    },
+                    {
+                        id: 'spec_0',
+                        data: {
+                            name: 'harnessSpecialist',
+                            label: 'Harness Specialist',
+                            category: 'Harness',
+                            inputs: { specialistName: 'reader', instructions: 'Read.' }
+                        }
+                    }
+                ],
+                edges: [
+                    { id: 'e1', source: 'model_0', target: 'chief_0' },
+                    { id: 'e2', source: 'spec_0', target: 'chief_0' }
+                ]
+            })
+        const original = JSON.stringify(
+            {
+                name: 'payroll',
+                workspaceId: WS1,
+                description: 'team a',
+                chief: { instructions: 'TEAM-A-ORIGINAL', model: { nodeName: 'demoChat', inputs: { modelName: 'demo' } } },
+                specialists: [{ name: 'reader', instructions: 'Read.', modules: [], mcpServers: [] }]
+            },
+            null,
+            2
+        )
+        const file = path.join(harnessDir, 'payroll.json')
+        fs.writeFileSync(file, original)
+        const repo = ds.getRepository(ChatFlow)
+        const before = await repo.count()
+        const harnessFlow = (name, workspaceId, instructions) =>
+            Object.assign(new ChatFlow(), {
+                name,
+                type: 'HARNESS',
+                flowData: canvas(instructions),
+                workspaceId
+            })
+        try {
+            await assert.rejects(
+                () => chatflows.saveChatflow(harnessFlow('payroll', WS2, 'taken'), ORG, WS2, '', app.usageCacheManager),
+                (error) => {
+                    assert.equal(error.statusCode, 409)
+                    return true
+                }
+            )
+            assert.equal(await repo.count(), before)
+            assert.equal(await repo.count({ where: { name: 'payroll' } }), 0)
+            assert.equal(fs.readFileSync(file, 'utf8'), original)
+
+            const owned = await chatflows.saveChatflow(harnessFlow('payroll', WS1, 'TEAM-A-SAVED'), ORG, WS1, '', app.usageCacheManager)
+            assert.equal(typeof owned.id, 'string')
+            assert.equal(await repo.count(), before + 1)
+            assert.equal((await repo.findOneBy({ id: owned.id })).workspaceId, WS1)
+            assert.match(fs.readFileSync(file, 'utf8'), /TEAM-A-SAVED/)
+
+            const theirs = await chatflows.saveChatflow(harnessFlow('bakery-b', WS2, 'TEAM-B'), ORG, WS2, '', app.usageCacheManager)
+            const stored = await repo.findOneBy({ id: theirs.id })
+            const payrollAfterOwn = fs.readFileSync(file, 'utf8')
+            await assert.rejects(
+                () =>
+                    chatflows.updateChatflow(
+                        stored,
+                        Object.assign(new ChatFlow(), { name: 'payroll', type: 'HARNESS', flowData: canvas('stolen') }),
+                        ORG,
+                        WS2,
+                        ''
+                    ),
+                (error) => {
+                    assert.equal(error.statusCode, 409)
+                    return true
+                }
+            )
+            assert.equal((await repo.findOneBy({ id: theirs.id })).name, 'bakery-b')
+            assert.equal(fs.readFileSync(file, 'utf8'), payrollAfterOwn)
+            assert.equal(await repo.count({ where: { name: 'payroll' } }), 1)
+        } finally {
+            if (previous.data === undefined) delete process.env.CUTTLELY_DATA_DIR
+            else process.env.CUTTLELY_DATA_DIR = previous.data
+            if (previous.hermes === undefined) delete process.env.CUTTLELY_HERMES_HOME
+            else process.env.CUTTLELY_HERMES_HOME = previous.hermes
+            if (previous.warm === undefined) delete process.env.CUTTLELY_WARM_HERMES
+            else process.env.CUTTLELY_WARM_HERMES = previous.warm
+            fs.rmSync(dataDir, { recursive: true, force: true })
+        }
+    })
+
     it('refuses a publish-check replay from another team', async () => {
         const dataDir = fs.mkdtempSync(path.join(tmpdir(), 'cuttlely-harness-replay-'))
         const previous = {
