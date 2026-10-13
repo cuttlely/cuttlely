@@ -123,6 +123,20 @@ function seedRemote(ref: string) {
     })
 }
 
+// The previous environment copied: its branch and the recorded environment list, which is what a later server requires.
+function seedRecordedVersions(ref: string, environments: { name: string; branch: string; server: string }[]) {
+    seedRemote(ref)
+    const work = path.join(tmp, `seed-notes-${ref.replace(/[^\w]+/g, '-')}`)
+    fs.rmSync(work, { recursive: true, force: true })
+    fs.mkdirSync(work, { recursive: true })
+    const env = noteAuthorEnv()
+    execFileSync('git', ['init', '-q'], { cwd: work, env })
+    execFileSync('git', ['fetch', '-q', `file://${bare}`, `${ref}:refs/heads/seeded`], { cwd: work, env })
+    const sha = execFileSync('git', ['rev-parse', 'refs/heads/seeded'], { cwd: work, env, encoding: 'utf8' }).trim()
+    execFileSync('git', ['notes', 'add', '-f', '-m', environmentListFingerprint(environments), sha], { cwd: work, env })
+    execFileSync('git', ['push', '-q', `file://${bare}`, 'refs/notes/commits:refs/notes/commits'], { cwd: work, env })
+}
+
 function makeBare(dir: string): string {
     execFileSync('git', ['init', '-q', '--bare', dir], { env: cleanEnv() })
     return dir
@@ -928,7 +942,7 @@ describe('Dev or Prod label', () => {
         ]
         await sync.setEnvironment('staging', chain)
         await save('One')
-        seedRemote('refs/heads/main')
+        seedRecordedVersions('refs/heads/main', chain)
         const seededMain = bareMain(bare)
         await sync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)
         const stagingRef = execFileSync('git', ['--git-dir', bare, 'rev-parse', 'refs/heads/staging'], {
@@ -962,7 +976,7 @@ describe('Dev or Prod label', () => {
         ]
         await sync.setEnvironment('staging', chain)
         await save('One')
-        seedRemote('refs/heads/main')
+        seedRecordedVersions('refs/heads/main', chain)
         await sync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)
         const work = path.join(tmp, 'elsewhere')
         fs.mkdirSync(work)
@@ -1005,7 +1019,7 @@ describe('Dev or Prod label', () => {
             { name: 'Prod', branch: 'prod', server: 'prod' }
         ]
         await sync.setEnvironment('prod', chain)
-        seedRemote('refs/heads/staging')
+        seedRecordedVersions('refs/heads/staging', chain)
         await sync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)
         fs.writeFileSync(path.join(versionsDir(), '.git', 'versions-environment.json'), '{')
         const status = await sync.status()
@@ -1045,7 +1059,7 @@ describe('Dev or Prod label', () => {
         setGithubForTests(sync)
         await sync.setEnvironment('staging', chain)
         await save('One')
-        seedRemote('refs/heads/dev')
+        seedRecordedVersions('refs/heads/dev', chain)
         await sync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)
         const touchesMain = (call: { args: string[] }) => call.args.some((arg) => arg.includes('refs/heads/main'))
         mode = 'get'
@@ -1494,6 +1508,39 @@ describe('Dev or Prod label', () => {
         const status = await sync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)
         expect(status.connected).toBe(true)
         expect(status.state).not.toBe('stopped')
+    })
+
+    test('a README on main is not versions from the previous environment', async () => {
+        const chain = [
+            { name: 'Dev', branch: 'main', server: 'dev' },
+            { name: 'Staging', branch: 'staging', server: 'staging' },
+            { name: 'Prod', branch: 'prod', server: 'prod' }
+        ]
+        foreignCommit(bare, path.join(tmp, 'readme'))
+        const readme = bareMain(bare)
+        const saved = path.join(versionsDir(), '.git', 'versions-github.json')
+        sync = makeSync({ checkEveryMs: 60_000, retryMs: [60_000] })
+        setGithubForTests(sync)
+        await sync.setEnvironment('staging', chain)
+        await save('One')
+        const calls = gitCalls.length
+        await expect(sync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)).rejects.toMatchObject({
+            status: 400,
+            message: 'Connect the repository your Dev server copies to. This one has no versions from Dev yet.'
+        })
+        expect(fs.existsSync(saved)).toBe(false)
+        expect(gitCalls.slice(calls).some((call) => call.args[0] === 'push')).toBe(false)
+        expect(bareRef(bare, 'refs/heads/staging')).toBeNull()
+        expect(bareRef(bare, 'refs/notes/commits')).toBeNull()
+        expect(bareMain(bare)).toBe(readme)
+
+        const empty = makeBare(path.join(tmp, 'empty.git'))
+        await sync.setEnvironment('dev', chain)
+        const status = await sync.connect({ repo: `file://${empty}`, token: TOKEN }, WS)
+        expect(status.connected).toBe(true)
+        expect(bareMain(empty)).toBe(plainGit(versionsDir(), 'rev-parse', 'HEAD').trim())
+        expect(bareRef(bare, 'refs/heads/staging')).toBeNull()
+        expect(bareRef(bare, 'refs/notes/commits')).toBeNull()
     })
 })
 

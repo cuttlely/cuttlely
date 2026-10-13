@@ -1022,9 +1022,9 @@ export class GithubSync {
             // A later environment reads the previous one's versions. An empty repository is not that repository.
             if (plan.reads && plan.sourceBranch) {
                 const sourceMark = `refs/heads/${plan.sourceBranch}`
-                const remoteSource =
-                    (refs.find((line) => line.endsWith(` ${sourceMark}`) || line.endsWith(`\t${sourceMark}`)) || '').split(/\s/)[0] || ''
-                if (!remoteSource) {
+                const hasRef = (mark: string) => refs.some((line) => line.endsWith(` ${mark}`) || line.endsWith(`\t${mark}`))
+                // The previous branch alone is not a copy. A repository created with only a README has that branch and no recorded versions.
+                if (!hasRef(sourceMark) || !hasRef(ENVIRONMENT_NOTE_REMOTE)) {
                     const from = this.fromLabel()
                     throw new GithubError(
                         400,
