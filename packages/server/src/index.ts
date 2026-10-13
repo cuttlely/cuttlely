@@ -16,6 +16,7 @@ import { MODE, Platform } from './Interface'
 import { IMetricsProvider } from './Interface.Metrics'
 import { OpenTelemetry } from './metrics/OpenTelemetry'
 import { Prometheus } from './metrics/Prometheus'
+import { registerCuttlelyTraces, shutdownCuttlelyTraces } from './metrics/tracing'
 import errorHandlerMiddleware from './middlewares/errors'
 import { NodesPool } from './NodesPool'
 import type { QueueManager } from './queue/QueueManager'
@@ -270,6 +271,8 @@ export class App {
             }
         }
 
+        registerCuttlelyTraces()
+
         this.app.use('/api/v1', flowiseApiV1Router)
 
         // ----------------------------------------
@@ -442,6 +445,7 @@ export async function shutdown(limitMs: number = drainTimeoutMs()): Promise<void
     if (closedInTime) logger.info(`🛑 [server]: Open requests finished in ${Math.round((Date.now() - started) / 100) / 10}s.`)
     else logger.warn(`🛑 [server]: Drain time is up: ended ${endedRuns} run(s) still answering and closed the remaining connections.`)
     if (serverApp) await serverApp.stopApp()
+    await shutdownCuttlelyTraces()
     try {
         if (serverApp?.AppDataSource.isInitialized) await serverApp.AppDataSource.destroy()
     } catch (error) {
