@@ -10,7 +10,8 @@ import { executeSpecialistTool, isFlowiseMcpBinding, prepareModule, readyToolSpe
 import { HarnessError } from './errors.mjs'
 import { withModelFallback } from './fallback.mjs'
 import { cachedPromptTokens, invokeChat, resolveModel } from './model.mjs'
-import { hermesHome } from './paths.mjs'
+import { dataRoot, hermesHome } from './paths.mjs'
+import { tryLockIsLive } from './try-live.mjs'
 import { sessionChat } from './specialist-run.mjs'
 import { getHarness } from './store.mjs'
 
@@ -47,12 +48,23 @@ export function gatewayUrl() {
     return `${gatewayOrigin()}/v1`
 }
 
-export function registerProfileToken({ token, harnessName, specialistName, modelKey, profileName }) {
+export function registerProfileToken({ token, harnessName, specialistName, modelKey, profileName, tryProfile = false }) {
     loadTokensOnce()
-    for (const [existing, meta] of [...tokens]) {
-        if (meta.harnessName === harnessName && meta.specialistName === specialistName && existing !== token) tokens.delete(existing)
+    // One token per profile directory. Recompiling bakery--shell replaces only that token.
+    // A try profile (try{id}--shell) never evicts the published one, or another try.
+    const directory = profileName || ''
+    if (directory) {
+        for (const [existing, meta] of [...tokens]) {
+            if (meta.profileName === directory && existing !== token) tokens.delete(existing)
+        }
     }
-    tokens.set(token, { harnessName, specialistName, modelKey: modelKey || '', profileName: profileName || '' })
+    tokens.set(token, {
+        harnessName,
+        specialistName,
+        modelKey: modelKey || '',
+        profileName: directory,
+        tryProfile: Boolean(tryProfile)
+    })
 }
 
 export function forgetProfileToken(token) {
@@ -162,28 +174,142 @@ function trackServer(server, port) {
     return item
 }
 
-function loadTokensOnce() {
-    if (tokensLoaded) return
-    tokensLoaded = true
+const TRY_HOME = /^try[a-f0-9]{8,32}$/
+const TRYX_HOME = /^tryx[a-f0-9]{16}$/
+
+function tryHomeOf(entry) {
+    if (TRY_HOME.test(entry)) return entry
+    const split = entry.indexOf('--')
+    if (split === -1) return ''
+    const parent = entry.slice(0, split)
+    return TRY_HOME.test(parent) ? parent : ''
+}
+
+function tryMarkerMatches(home) {
+    const marker = path.join(hermesHome(), 'profiles', home, 'harness-try')
+    if (!fs.existsSync(marker)) return false
+    return fs.readFileSync(marker, 'utf8').trim() === home
+}
+
+// 'saved' stays. 'unknown' (the store threw) stays. Only a confirmed miss can be removed.
+function savedHarnessState(name) {
+    try {
+        return getHarness(name) ? 'saved' : 'absent'
+    } catch {
+        return 'unknown'
+    }
+}
+
+// A canvas try home is removable only when it carries the try marker, is not a saved harness,
+// and has no live lock.
+function abandonedTryHome(home) {
+    if (!TRY_HOME.test(home || '')) return false
+    if (savedHarnessState(home) !== 'absent') return false
+    if (!tryMarkerMatches(home)) return false
+    if (tryLockIsLive(home)) return false
+    return true
+}
+
+// A specialist or fitted profile follows its try home. It is also a leftover when that home's
+// directory or try marker is already gone, as long as the home is not a saved harness and not locked.
+function abandonedChild(home) {
+    if (!TRY_HOME.test(home || '')) return false
+    if (tryLockIsLive(home)) return false
+    if (savedHarnessState(home) !== 'absent') return false
+    if (tryMarkerMatches(home)) return true
+    const dir = path.join(hermesHome(), 'profiles', home)
+    return !fs.existsSync(dir) || !fs.existsSync(path.join(dir, 'harness-try'))
+}
+
+function abandonedTryEntry(entry, parentMarker) {
+    const home = tryHomeOf(entry)
+    if (home && entry === home) return abandonedTryHome(home)
+    if (home) return abandonedChild(home)
+    if (!TRYX_HOME.test(entry)) return false
+    return abandonedChild(parentMarker)
+}
+
+function removeProfileTree(entry) {
+    const dir = path.join(hermesHome(), 'profiles', entry)
+    try {
+        const env = readEnvFile(path.join(dir, '.env'))
+        if (env.OPENAI_API_KEY) forgetProfileToken(env.OPENAI_API_KEY)
+    } catch {
+        // This entry can still be deleted. The others are a separate call.
+    }
+    try {
+        fs.rmSync(dir, { recursive: true, force: true })
+    } catch {
+        // EBUSY on this directory does not stop the rest of the sweep.
+    }
+    try {
+        fs.rmSync(path.join(dataRoot(), 'workspaces', entry), { recursive: true, force: true })
+    } catch {
+        // The profile removal above already finished or failed on its own.
+    }
+}
+
+// Leftover canvas tries (and fitted profiles that belonged to one) are not a live run after a crash.
+// A saved harness whose name looks like a try, and a try with a live lock file, stay.
+// Returns every entry this sweep decided is abandoned, including one whose removal failed.
+export function sweepAbandonedTryProfiles() {
+    const abandoned = new Set()
+    const root = path.join(hermesHome(), 'profiles')
+    if (!fs.existsSync(root)) return abandoned
+    const drop = []
+    for (const entry of fs.readdirSync(root)) {
+        const marker = readParent(path.join(root, entry))
+        if (!abandonedTryEntry(entry, marker)) continue
+        drop.push(entry)
+        abandoned.add(entry)
+    }
+    for (const entry of drop) {
+        try {
+            removeProfileTree(entry)
+        } catch {
+            // One entry must not abort the sweep. Its token stays out of the map.
+        }
+    }
+    return abandoned
+}
+
+function ingestProfileTokens(abandoned = new Set()) {
     const root = path.join(hermesHome(), 'profiles')
     if (!fs.existsSync(root)) return
     for (const entry of fs.readdirSync(root)) {
-        const env = readEnvFile(path.join(root, entry, '.env'))
+        if (abandoned.has(entry)) continue
+        const dir = path.join(root, entry)
+        const env = readEnvFile(path.join(dir, '.env'))
         const token = env.OPENAI_API_KEY || ''
         const base = String(env.OPENAI_BASE_URL || '')
             .trim()
             .replace(/\/$/, '')
         if (!TOKEN_RE.test(token) || !/^http:\/\/127\.0\.0\.1:\d+\/v1$/.test(base)) continue
-        const harnessName = env.CUTTLELY_GATEWAY_HARNESS || readParent(path.join(root, entry))
+        const harnessName = env.CUTTLELY_GATEWAY_HARNESS || readParent(dir)
         const specialistName = env.CUTTLELY_GATEWAY_SPECIALIST || ''
         if (!harnessName || !specialistName) continue
+        if (abandonedTryEntry(entry, harnessName) || abandonedTryEntry(entry, readParent(dir))) continue
         tokens.set(token, {
             harnessName,
             specialistName,
             modelKey: env.CUTTLELY_MODEL_KEY || '',
-            profileName: entry
+            profileName: entry,
+            tryProfile: env.CUTTLELY_GATEWAY_TRY === '1'
         })
     }
+}
+
+// A process start loads tokens only after abandoned tries are gone.
+export function bootHarnessGateway() {
+    tokensLoaded = false
+    const abandoned = sweepAbandonedTryProfiles()
+    tokensLoaded = true
+    ingestProfileTokens(abandoned)
+}
+
+function loadTokensOnce() {
+    if (tokensLoaded) return
+    bootHarnessGateway()
 }
 
 function readParent(dir) {
@@ -290,9 +416,9 @@ async function onRequest(req, res) {
             return
         }
         if (req.method === 'POST' && pathName === '/harness/tools/list') {
-            const record = requireHarness(meta.harnessName)
+            const record = requireHarness(meta)
             const ctx = await ownerContext(record)
-            sendJson(res, 200, { tools: await toolSpecs(record, meta.specialistName, ctx) })
+            sendJson(res, 200, { tools: await toolSpecs(record, meta.specialistName, ctx, meta.profileName) })
             return
         }
         if (req.method === 'POST' && pathName === '/harness/tools/call') {
@@ -315,10 +441,36 @@ function unixNow() {
     return Math.floor(Date.now() / 1000)
 }
 
-function requireHarness(name) {
-    const record = getHarness(name)
-    if (!record) throw new HarnessError('not_found', `Harness "${name}" was not found.`)
-    return record
+const PROFILE_NAME = /^[A-Za-z][A-Za-z0-9_-]{0,63}$/
+
+function requireHarness(meta) {
+    const name = meta?.harnessName || ''
+    if (!PROFILE_NAME.test(name)) throw new HarnessError('not_found', `Harness "${name}" was not found.`)
+    // A try token carries the flag. The profile directory must also have the try marker.
+    // A saved harness of the same name is never used for that token, and a try directory is never used for a published token.
+    if (meta.tryProfile) {
+        const roster = readTryRoster(name)
+        if (!roster) throw new HarnessError('not_found', `Harness "${name}" was not found.`)
+        return roster
+    }
+    const saved = getHarness(name)
+    if (!saved) throw new HarnessError('not_found', `Harness "${name}" was not found.`)
+    return saved
+}
+
+function readTryRoster(name) {
+    const dir = path.join(hermesHome(), 'profiles', name)
+    const marker = path.join(dir, 'harness-try')
+    if (!fs.existsSync(marker) || fs.readFileSync(marker, 'utf8').trim() !== name) return null
+    const file = path.join(dir, 'harness-roster.json')
+    if (!fs.existsSync(file)) return null
+    try {
+        const parsed = JSON.parse(fs.readFileSync(file, 'utf8'))
+        if (!parsed || typeof parsed !== 'object' || !Array.isArray(parsed.specialists)) return null
+        return parsed
+    } catch {
+        return null
+    }
 }
 
 function specialistOf(record, name) {
@@ -390,7 +542,7 @@ async function completeChat(req, res, meta) {
         sendJson(res, 400, { error: { message: 'tools must be an array.', type: 'invalid_request_error' } })
         return
     }
-    const record = requireHarness(meta.harnessName)
+    const record = requireHarness(meta)
     const ctx = await ownerContext(record)
     const primary = modelBinding(record, meta.specialistName)
     const fallback = fallbackBinding(record, meta.specialistName)
@@ -497,7 +649,7 @@ function writeStream(res, { id, created, model, content, toolCalls, reason, usag
     res.end()
 }
 
-async function toolSpecs(record, specialistName, ctx) {
+async function toolSpecs(record, specialistName, ctx, profileName) {
     const specialist = specialistOf(record, specialistName)
     if (!specialist) return []
     const tools = []
@@ -512,12 +664,13 @@ async function toolSpecs(record, specialistName, ctx) {
             nodeCache: ctx.nodeCache
         })
         const ready = readyToolSpecs(prepared)
-        const specs = refuseSqlTools(record, specialistName, binding, ready, refused)
+        const specs = refuseSqlTools(profileName, specialistName, binding, ready, refused)
         if (specs.length) tools.push(...specs)
         else if (ready.length) continue
         else tools.push(toolSpec(binding, 'Connected MCP server'))
     }
-    refusedSqlTools.set(refusedKey(record.name, specialistName), refused)
+    // The set belongs to this specialist profile. A try must not replace the published profile's set.
+    if (profileName) refusedSqlTools.set(refusalKey(profileName), refused)
     if (!tools.length && !refused.size) tools.push(toolSpec({}, 'Bound Flowise module'))
     return tools
 }
@@ -525,13 +678,13 @@ async function toolSpecs(record, specialistName, ctx) {
 // SQL tools from an MCP server that cannot limit its tables are not offered, and a call to one is refused.
 const refusedSqlTools = new Map()
 
-function refusedKey(harnessName, specialistName) {
-    return `${harnessName}\0${specialistName}`
+function refusalKey(profileName) {
+    return String(profileName || '')
 }
 
-function refuseSqlTools(record, specialistName, binding, specs, refused) {
+function refuseSqlTools(profileName, specialistName, binding, specs, refused) {
     if (enforcesTables(binding)) return specs
-    const before = refusedSqlTools.get(refusedKey(record.name, specialistName))
+    const before = refusedSqlTools.get(refusalKey(profileName))
     const kept = []
     for (const spec of specs) {
         if (!runsSql(spec)) {
@@ -539,7 +692,7 @@ function refuseSqlTools(record, specialistName, binding, specs, refused) {
             continue
         }
         if (!before?.has(spec.name)) {
-            console.warn(`[harness] ${record.name}/${specialistName}: refused SQL tool ${spec.name}. ${SQL_TOOL_REFUSED}`)
+            console.warn(`[harness] ${profileName}/${specialistName}: refused SQL tool ${spec.name}. ${SQL_TOOL_REFUSED}`)
         }
         refused.add(spec.name)
     }
@@ -550,8 +703,8 @@ function refuseSqlTools(record, specialistName, binding, specs, refused) {
     return kept
 }
 
-export function isRefusedSqlTool(harnessName, specialistName, toolName) {
-    return Boolean(refusedSqlTools.get(refusedKey(harnessName, specialistName))?.has(toolName))
+export function isRefusedSqlTool(profileName, toolName) {
+    return Boolean(refusedSqlTools.get(refusalKey(profileName))?.has(toolName))
 }
 
 function toolSpec(binding, kind) {
@@ -571,24 +724,25 @@ async function callTool(req, res, meta) {
         sendJson(res, 400, { error: { message: 'Tool name is required.', type: 'invalid_request_error' } })
         return
     }
-    const record = requireHarness(meta.harnessName)
+    const record = requireHarness(meta)
     const ctx = await ownerContext(record)
-    const scope = callScope(body.scope, meta.harnessName)
+    // The page cursor and the analyst session use the saved harness name. meta.harnessName is the try profile.
+    const scope = callScope(body.scope, record.name)
     const args = body.arguments && typeof body.arguments === 'object' && !Array.isArray(body.arguments) ? { ...body.arguments } : {}
     const callId = hermesToolCallId(body, args)
     delete args._cuttlelyCallId
     // A call can come before any tool list in this process, after a restart for example.
-    if (!refusedSqlTools.has(refusedKey(meta.harnessName, meta.specialistName))) {
-        await toolSpecs(record, meta.specialistName, ctx)
+    if (meta.profileName && !refusedSqlTools.has(refusalKey(meta.profileName))) {
+        await toolSpecs(record, meta.specialistName, ctx, meta.profileName)
     }
-    if (isRefusedSqlTool(meta.harnessName, meta.specialistName, body.name)) {
+    if (isRefusedSqlTool(meta.profileName, body.name)) {
         sendJson(res, 200, { result: JSON.stringify({ error: SQL_TOOL_REFUSED, cuttlelyOutcome: 'expected' }) })
         return
     }
     const result = await withAnalystScope(
         scope,
         () =>
-            executeSpecialistTool(meta.harnessName, meta.specialistName, body.name, args, {
+            executeSpecialistTool(record.name, meta.specialistName, body.name, args, {
                 harness: record,
                 componentNodes: ctx.componentNodes,
                 loadNode: ctx.loadNode,
@@ -597,7 +751,7 @@ async function callTool(req, res, meta) {
             }),
         { workspace: record.workspaceId }
     )
-    rememberAnalystResult(meta, result, scope, body.name, args, callId)
+    rememberAnalystResult(record.name, meta.specialistName, result, scope, body.name, args, callId)
     sendJson(res, 200, { result })
 }
 
@@ -633,15 +787,15 @@ function analystStatement(args) {
     return { sql, cursor }
 }
 
-function rememberAnalystResult(meta, result, scope, toolName, args, callId) {
-    const prefix = `${meta.harnessName}:`
+function rememberAnalystResult(savedName, specialistName, result, scope, toolName, args, callId) {
+    const prefix = `${savedName}:`
     const chatId = typeof scope === 'string' && scope.startsWith(prefix) ? scope.slice(prefix.length) : ''
     const statement = analystStatement(args)
     // Count every analyst call, including CREATE and INSERT, so a later SELECT keeps its own sequence.
     const id = isAnalystQueryTool(toolName)
         ? noteAnalystGatewayCall({
-              harness: meta.harnessName,
-              specialist: meta.specialistName,
+              harness: savedName,
+              specialist: specialistName,
               chatId,
               callId,
               sql: statement.sql,
@@ -658,7 +812,7 @@ function rememberAnalystResult(meta, result, scope, toolName, args, callId) {
     }
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return
     if (!Array.isArray(parsed.rows) && typeof parsed.summary !== 'string' && !parsed.cuttlelyOutcome && !parsed.cursor) return
-    recordAnalystResult({ harness: meta.harnessName, specialist: meta.specialistName, chatId, callId: id, result: parsed })
+    recordAnalystResult({ harness: savedName, specialist: specialistName, chatId, callId: id, result: parsed })
 }
 
 async function parseJson(req) {

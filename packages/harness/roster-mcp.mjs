@@ -1,11 +1,19 @@
 import fs from 'node:fs'
 import path from 'node:path'
+import { pathToFileURL } from 'node:url'
 import { createRun, hermesBaseUrl, waitForRun } from './client.mjs'
 import { profileDir } from './paths.mjs'
 import { rosterSpecialistBody } from './specialist-run.mjs'
 
 const harnessName = flag('--harness')
 const roster = readRoster(harnessName)
+
+// The profile directory run_specialist would launch for this specialist, or '' when it is not on that roster.
+export function specialistLaunch(harnessArg, specialistName) {
+    const found = readRoster(harnessArg)
+    const specialist = (found?.specialists || []).find((item) => item.name === specialistName)
+    return specialist?.profileName || ''
+}
 
 function flag(name) {
     const index = process.argv.indexOf(name)
@@ -39,27 +47,29 @@ const tools = [
 ]
 
 let buffer = Buffer.alloc(0)
-process.stdin.on('data', (chunk) => {
-    buffer = Buffer.concat([buffer, chunk])
-    while (true) {
-        const headerEnd = buffer.indexOf('\r\n\r\n')
-        if (headerEnd === -1) return
-        const header = buffer.slice(0, headerEnd).toString('utf8')
-        const match = header.match(/Content-Length:\s*(\d+)/i)
-        if (!match) {
-            buffer = buffer.slice(headerEnd + 4)
-            continue
+const isMain = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href
+if (isMain)
+    process.stdin.on('data', (chunk) => {
+        buffer = Buffer.concat([buffer, chunk])
+        while (true) {
+            const headerEnd = buffer.indexOf('\r\n\r\n')
+            if (headerEnd === -1) return
+            const header = buffer.slice(0, headerEnd).toString('utf8')
+            const match = header.match(/Content-Length:\s*(\d+)/i)
+            if (!match) {
+                buffer = buffer.slice(headerEnd + 4)
+                continue
+            }
+            const length = Number(match[1])
+            const start = headerEnd + 4
+            if (buffer.length < start + length) return
+            const body = buffer.slice(start, start + length).toString('utf8')
+            buffer = buffer.slice(start + length)
+            handle(body).catch((error) => {
+                send(null, { content: [{ type: 'text', text: error.message }], isError: true })
+            })
         }
-        const length = Number(match[1])
-        const start = headerEnd + 4
-        if (buffer.length < start + length) return
-        const body = buffer.slice(start, start + length).toString('utf8')
-        buffer = buffer.slice(start + length)
-        handle(body).catch((error) => {
-            send(null, { content: [{ type: 'text', text: error.message }], isError: true })
-        })
-    }
-})
+    })
 
 async function handle(body) {
     let message
