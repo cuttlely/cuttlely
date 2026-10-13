@@ -196,6 +196,8 @@ export interface IUsedTool {
     toolOutput: string | object
     sourceDocuments?: ICommonObject[]
     error?: string
+    /** Model tool-call id. A later request for the same tool name is a different call. */
+    id?: string
 }
 
 export interface IMultiAgentNode {
