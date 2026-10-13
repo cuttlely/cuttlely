@@ -41,8 +41,18 @@ function analystDetail(): string {
     })
 }
 
+// The settled chip the runtime emits. publicToolStep drops detail once the query has rows.
+function analystChip(): { name: string; status: string; rowCount: number; preview: { columns: string[]; rows: string[][] } } {
+    return {
+        name: 'mcp__analyst__query',
+        status: 'done',
+        rowCount: 2,
+        preview: { columns: ['loaf'], rows: [[ROW_TEXT], ['wheat']] }
+    }
+}
+
 function bakeryEvents(): Record<string, unknown>[] {
-    const detail = analystDetail()
+    const chip = analystChip()
     return [
         { type: 'route', phase: 'start', harness: 'bakery', at: T0 },
         {
@@ -58,7 +68,7 @@ function bakeryEvents(): Record<string, unknown>[] {
         },
         { type: 'specialist', phase: 'start', name: 'analyst', task: TASK, model: 'analyst-model', at: T0 + 41 },
         { type: 'tool', phase: 'start', specialist: 'analyst', name: 'mcp__analyst__query', at: T0 + 50 },
-        { type: 'tool', phase: 'done', specialist: 'analyst', name: 'mcp__analyst__query', at: T0 + 70, detail },
+        { type: 'tool', phase: 'done', specialist: 'analyst', name: 'mcp__analyst__query', at: T0 + 70, detail: 'rows ready' },
         {
             type: 'specialist',
             phase: 'done',
@@ -69,7 +79,7 @@ function bakeryEvents(): Record<string, unknown>[] {
             tokens: { prompt: 20, completion: 5 },
             task: TASK,
             at: T0 + 81,
-            tools: [{ name: 'mcp__analyst__query', status: 'done', detail }],
+            tools: [chip],
             calls: [{ model: 'analyst-model', startedAt: T0 + 42, endedAt: T0 + 48, tokens: { prompt: 20, completion: 5 } }]
         },
         { type: 'handoff', phase: 'start', model: 'prime', at: T0 + 82 },
@@ -92,7 +102,7 @@ function bakeryEvents(): Record<string, unknown>[] {
                 harness: 'bakery',
                 tokens: { prompt: 62, completion: 16 },
                 route: { status: 'done', steps: [{ specialist: 'analyst', task: TASK }] },
-                specialists: [{ name: 'analyst', tools: [{ name: 'mcp__analyst__query', status: 'done', detail }] }],
+                specialists: [{ name: 'analyst', tools: [chip] }],
                 handoff: { status: 'done' }
             }
         }
@@ -233,7 +243,7 @@ describe('harness run spans', () => {
         expect(dumped).not.toContain(TASK)
     })
 
-    it('adds question, answer, SQL, and rows only when content is on', async () => {
+    it('adds question, answer, the analyst preview, and SQL only when content is on', async () => {
         process.env.CUTTLELY_OTEL_TRACES = 'true'
         process.env.CUTTLELY_OTEL_TRACES_CONTENT = 'true'
         const session = openHarnessRunTrace({ name: 'bakery', workspaceId: WORKSPACE, question: QUESTION })
@@ -244,10 +254,29 @@ describe('harness run spans', () => {
         const specialist = spans.find((span) => span.name === 'harness.specialist')
         expect(root?.attributes['content.input']).toBe(QUESTION)
         expect(root?.attributes['content.output']).toBe(ANSWER)
-        expect(tool?.attributes['content.input']).toBe(SQL)
+        expect(tool?.attributes['content.input']).toBeUndefined()
         expect(String(tool?.attributes['content.output'])).toContain(ROW_TEXT)
+        expect(String(tool?.attributes['content.output'])).not.toContain('rows ready')
         expect(specialist?.attributes['content.input']).toBe(TASK)
         expect(tool?.attributes['tool.rows']).toBe(2)
+
+        memory.reset()
+        const withSql = openHarnessRunTrace({ name: 'bakery', question: QUESTION })
+        withSql?.event({ type: 'specialist', phase: 'start', name: 'analyst', at: T0 })
+        withSql?.event({ type: 'tool', phase: 'start', specialist: 'analyst', name: 'mcp__analyst__query', at: T0 + 1 })
+        withSql?.event({
+            type: 'specialist',
+            phase: 'done',
+            name: 'analyst',
+            at: T0 + 2,
+            tools: [{ ...analystChip(), detail: analystDetail() }]
+        })
+        withSql?.finish({ text: ANSWER })
+        const sqlTool = memory.spans().find((span) => span.name === 'tool')
+        expect(sqlTool?.attributes['content.input']).toBe(SQL)
+        expect(String(sqlTool?.attributes['content.output'])).toContain(ROW_TEXT)
+        expect(String(sqlTool?.attributes['content.output'])).not.toContain(SQL)
+        expect(sqlTool?.attributes['tool.rows']).toBe(2)
     })
 
     it('does not put a non-id workspace value on the span', () => {
@@ -312,7 +341,7 @@ describe('harness run spans', () => {
             specialist: 'analyst',
             name: 'mcp__analyst__query',
             at: T0 + 40,
-            detail: analystDetail()
+            detail: 'rows ready'
         })
         session?.event({
             type: 'specialist',
@@ -322,7 +351,7 @@ describe('harness run spans', () => {
             model: 'analyst-model',
             tokens: { prompt: 20, completion: 5 },
             at: T0 + 100,
-            tools: [{ name: 'mcp__analyst__query', status: 'done', detail: analystDetail() }],
+            tools: [analystChip()],
             calls: [
                 {
                     model: 'analyst-model',

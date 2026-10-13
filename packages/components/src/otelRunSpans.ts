@@ -488,7 +488,7 @@ class HarnessTraceSessionImpl implements HarnessTraceSession {
                 settled && settled[index] && typeof settled[index] === 'object' ? (settled[index] as Record<string, unknown>) : undefined
             const status = typeof chip?.status === 'string' ? chip.status : hold.failed ? 'failed' : 'done'
             const detail = typeof chip?.detail === 'string' ? chip.detail : hold.detail
-            decorateTool(hold.span, hold.name, detail)
+            decorateTool(hold.span, hold.name, detail, chip)
             const spanStatus = status === 'failed' ? 'error' : status === 'running' ? 'pending' : 'ok'
             endHarnessSpan(hold.span, hold.endAt ?? at, spanStatus, spanStatus === 'error' ? toolErrorText(detail) : undefined)
         })
@@ -675,11 +675,37 @@ function toolErrorText(detail: string | undefined): string {
     return text.slice(0, 300)
 }
 
-function decorateTool(span: TraceSpan, name: string, detail: string | undefined): void {
+function finiteRowCount(value: unknown): number | undefined {
+    return typeof value === 'number' && Number.isFinite(value) ? value : undefined
+}
+
+function previewText(preview: unknown): string | undefined {
+    if (typeof preview === 'string') {
+        const trimmed = preview.trim()
+        return trimmed ? trimmed : undefined
+    }
+    if (preview && typeof preview === 'object') {
+        try {
+            return JSON.stringify(preview)
+        } catch {
+            return undefined
+        }
+    }
+    return undefined
+}
+
+function decorateTool(span: TraceSpan, name: string, detail: string | undefined, chip?: Record<string, unknown>): void {
     const facts = analystFacts(name, detail)
-    if (facts.rows !== undefined) span.setAttribute('tool.rows', facts.rows)
+    // The settled chip drops detail once it has rows. The count on that chip is what the run card shows.
+    const rows = finiteRowCount(chip?.rowCount) ?? facts.rows
+    if (rows !== undefined) span.setAttribute('tool.rows', rows)
     if (!traceContentOn()) return
     if (facts.sql) span.setAttribute('content.input', capTraceText(facts.sql))
+    const preview = previewText(chip?.preview)
+    if (preview) {
+        span.setAttribute('content.output', capTraceText(preview))
+        return
+    }
     if (facts.rowText) span.setAttribute('content.output', capTraceText(facts.rowText))
     else if (detail && facts.rows === undefined && !detail.trim().startsWith('{') && !looksLikeSql(detail)) {
         span.setAttribute('content.output', capTraceText(detail))
