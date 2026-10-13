@@ -12,7 +12,7 @@ A dataset is a named list of rows. Each row is an input and the output you expec
 
 1. Select **Datasets**.
 2. Select **Add**. Give it a name and a description.
-3. Open the dataset to add rows, edit them, change their order, or delete them.
+3. Open the dataset to add rows, edit them, change their order, or delete them. A row saved from a chat answer says where it came from. See [Add a real answer to a test set](#add-a-real-answer-to-a-test-set).
 
 A CSV upload uses the first two columns as the input and the expected output. The first row can be a header.
 
@@ -50,6 +50,20 @@ On a chatflow, an agentflow that starts with a chat message, or a harness, the P
 Each row runs in the order saved on the dataset. The row input is the question and the row output is the expected answer, shown under the question. At most 100 rows are asked, and a row with an empty question or a question longer than 2,000 characters is skipped. Each side shows Pass, Fail or Error for every evaluator, and a pass rate. An answer that failed to run scores Error. A model grade that is only a number stays Error, because this check does not turn that number into Pass or Fail. A yes or no in the grade is Pass or Fail. A numeric evaluator uses the tokens and the time the check already records. A numeric check of prompt tokens, completion tokens, or a token total the run did not report scores Error, not Fail. A model evaluator uses the model credential saved on the flow, and only a credential this workspace can use. If that model cannot be started, the text, JSON and numeric scores stay, and each model score is Error. A provider that reports grading usage nowhere does not move the token cap, so that check is bounded only by the time limit. The pass rate does not block Publish. A check with no evaluators still shows the expected answer and compares the two answers as before.
 
 The same rules as the recent-question check apply: nothing is written down, results stay in memory for 30 minutes, and a flow that starts with a form, a webhook or a schedule cannot use a dataset. The steps are in [Check recent questions before you publish](./versioning.md#check-recent-questions-before-you-publish). The request fields are in [Start a check](../reference/drafts-api.md#start-a-check).
+
+## Add a real answer to a test set
+
+There is a path from an answer someone already received back to a dataset. On an answer in the message viewer, **Add to test set** saves that question and answer as one row.
+
+1. Open the message viewer for the flow.
+2. On an answer, select **Add to test set**. The button is hidden when the role cannot create or update datasets.
+3. Read the question. The expected answer starts as the real answer. Edit it when the check should expect something else.
+4. Choose a dataset, or select **New dataset**, name it, and create it. Creating a dataset needs `datasets:create`. Choosing one that already exists needs `datasets:create` or `datasets:update`.
+5. The dialog warns that a real message can contain personal data. Check the question and the expected answer, then save.
+
+The row records where it came from: source `chat_message`, the message id, the flow id, and the date of the answer. Saving that same answer into the same dataset again returns the row already stored and does not add a second one. The flow and the dataset both have to belong to the current team. A flow or a dataset from another team is not found. The role also needs permission to view that kind of flow: `chatflows:view` for a chatflow, a harness, or a pipeline, `agentflows:view` for an agentflow, and `assistants:view` for an assistant.
+
+That dataset can be the one the Publish dialog checks. See [Check a dataset before you publish](#check-a-dataset-before-you-publish).
 
 ## What a run calls
 

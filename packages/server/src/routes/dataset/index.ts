@@ -14,6 +14,8 @@ router.put(['/set', '/set/:id'], requireAnyPermission('datasets:create,datasets:
 // Delete dataset via id
 router.delete(['/set', '/set/:id'], requirePermission('datasets:delete'), datasetController.deleteDataset)
 
+// Save one chat answer into a dataset. Registered before /rows/:id so "from-message" is not read as a row id.
+router.post('/rows/from-message', requireAnyPermission('datasets:create,datasets:update'), datasetController.addDatasetRowFromChatMessage)
 // Create new row in a given dataset
 router.post(['/rows', '/rows/:id'], requirePermission('datasets:create'), datasetController.addDatasetRow)
 // Update row for a dataset

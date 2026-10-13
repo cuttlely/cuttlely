@@ -1,11 +1,28 @@
+import { Request } from 'express'
 import { StatusCodes } from 'http-status-codes'
 import { Readable } from 'stream'
-import { In } from 'typeorm'
+import { In, LessThanOrEqual } from 'typeorm'
+import { ChatFlow, EnumChatflowType } from '../../database/entities/ChatFlow'
+import { ChatMessage } from '../../database/entities/ChatMessage'
 import { Dataset } from '../../database/entities/Dataset'
 import { DatasetRow } from '../../database/entities/DatasetRow'
 import { AppError } from '../../errors/appError'
 import { getErrorMessage } from '../../errors/utils'
+import { hasAnyPermission } from '../../identity/rbac'
 import { getRunningExpressApp } from '../../utils/getRunningExpressApp'
+
+const CHAT_MESSAGE_SOURCE = 'chat_message'
+
+function viewPermissionForFlow(type: string | undefined): string {
+    if (type === EnumChatflowType.AGENTFLOW || type === EnumChatflowType.MULTIAGENT) return 'agentflows:view'
+    if (type === EnumChatflowType.ASSISTANT) return 'assistants:view'
+    return 'chatflows:view'
+}
+
+function isUniqueViolation(error: unknown): boolean {
+    const message = getErrorMessage(error).toLowerCase()
+    return message.includes('unique') || message.includes('duplicate')
+}
 
 import csv from 'csv-parser'
 
@@ -417,6 +434,106 @@ const patchDeleteRows = async (ids: string[] = [], workspaceId: string) => {
     }
 }
 
+// Save one chat answer as a dataset row. The input is the question that led to that answer.
+// output defaults to the answer. A second save of the same answer into the same dataset returns the row already stored.
+const addDatasetRowFromChatMessage = async (
+    body: { datasetId?: unknown; messageId?: unknown; output?: unknown },
+    workspaceId: string,
+    req: Request
+) => {
+    try {
+        if (typeof workspaceId !== 'string' || workspaceId.length === 0) {
+            throw new AppError(StatusCodes.NOT_FOUND, 'Dataset not found')
+        }
+        if (typeof body?.datasetId !== 'string' || body.datasetId.length === 0) {
+            throw new AppError(StatusCodes.BAD_REQUEST, 'datasetId is required')
+        }
+        if (typeof body?.messageId !== 'string' || body.messageId.length === 0) {
+            throw new AppError(StatusCodes.BAD_REQUEST, 'messageId is required')
+        }
+        if (body.output !== undefined && body.output !== null && typeof body.output !== 'string') {
+            throw new AppError(StatusCodes.BAD_REQUEST, 'output must be text')
+        }
+        const appServer = getRunningExpressApp()
+        const dataset = await appServer.AppDataSource.getRepository(Dataset).findOneBy({
+            id: body.datasetId,
+            workspaceId
+        })
+        if (!dataset) throw new AppError(StatusCodes.NOT_FOUND, `Dataset ${body.datasetId} not found`)
+
+        const message = await appServer.AppDataSource.getRepository(ChatMessage).findOneBy({ id: body.messageId })
+        // A missing message and a message whose flow is in another team are the same answer.
+        if (!message) throw new AppError(StatusCodes.NOT_FOUND, `Chat message ${body.messageId} not found`)
+        const flow = await appServer.AppDataSource.getRepository(ChatFlow).findOneBy({
+            id: message.chatflowid,
+            workspaceId
+        })
+        if (!flow) throw new AppError(StatusCodes.NOT_FOUND, `Chat message ${body.messageId} not found`)
+        if (!(await hasAnyPermission(req, viewPermissionForFlow(flow.type)))) {
+            throw new AppError(StatusCodes.FORBIDDEN, 'You do not have permission to view this flow.')
+        }
+        if (message.role !== 'apiMessage') {
+            throw new AppError(StatusCodes.BAD_REQUEST, 'This message is not an answer.')
+        }
+
+        const questions = await appServer.AppDataSource.getRepository(ChatMessage).find({
+            where: {
+                chatflowid: message.chatflowid,
+                chatId: message.chatId,
+                role: 'userMessage',
+                createdDate: LessThanOrEqual(message.createdDate)
+            },
+            order: { createdDate: 'DESC', id: 'DESC' },
+            take: 1
+        })
+        const question = questions[0]
+        const input = String(question?.content ?? '')
+        if (!question || input.trim().length === 0) {
+            throw new AppError(StatusCodes.BAD_REQUEST, 'No question was found for this answer.')
+        }
+        const output = typeof body.output === 'string' ? body.output : String(message.content ?? '')
+
+        const rows = appServer.AppDataSource.getRepository(DatasetRow)
+        const existing = await rows.findOneBy({ datasetId: dataset.id, sourceMessageId: message.id })
+        if (existing) return existing
+
+        const maxValueEntity = await rows.find({
+            where: { datasetId: dataset.id },
+            order: { sequenceNo: 'DESC' },
+            take: 1
+        })
+        let sequenceNo = 0
+        if (maxValueEntity && maxValueEntity.length > 0) {
+            sequenceNo = maxValueEntity[0].sequenceNo + 1
+        }
+        const created = new DatasetRow()
+        created.datasetId = dataset.id
+        created.input = input
+        created.output = output
+        created.sequenceNo = sequenceNo
+        created.sourceType = CHAT_MESSAGE_SOURCE
+        created.sourceMessageId = message.id
+        created.sourceFlowId = flow.id
+        created.sourceDate = message.createdDate
+        try {
+            const saved = await rows.save(created)
+            await changeUpdateOnDataset(dataset.id, workspaceId)
+            return saved
+        } catch (error) {
+            if (!isUniqueViolation(error)) throw error
+            const again = await rows.findOneBy({ datasetId: dataset.id, sourceMessageId: message.id })
+            if (again) return again
+            throw error
+        }
+    } catch (error) {
+        if (error instanceof AppError) throw error
+        throw new AppError(
+            StatusCodes.INTERNAL_SERVER_ERROR,
+            `Error: datasetService.addDatasetRowFromChatMessage - ${getErrorMessage(error)}`
+        )
+    }
+}
+
 export default {
     getAllDatasets,
     getDataset,
@@ -424,6 +541,7 @@ export default {
     updateDataset,
     deleteDataset,
     addDatasetRow,
+    addDatasetRowFromChatMessage,
     updateDatasetRow,
     deleteDatasetRow,
     patchDeleteRows,

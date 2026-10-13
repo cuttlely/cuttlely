@@ -17,6 +17,10 @@ export interface IDatasetRow {
     output: string
     updatedDate: Date
     sequenceNo: number
+    sourceType?: string | null
+    sourceMessageId?: string | null
+    sourceFlowId?: string | null
+    sourceDate?: Date | null
 }
 
 export enum EvaluationStatus {

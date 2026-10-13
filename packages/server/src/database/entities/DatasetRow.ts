@@ -22,4 +22,17 @@ export class DatasetRow implements IDatasetRow {
 
     @Column({ name: 'sequence_no' })
     sequenceNo: number
+
+    // Null on a row typed in or uploaded. A chat answer records where it was saved from.
+    @Column({ nullable: true, type: 'varchar', length: 32 })
+    sourceType?: string | null
+
+    @Column({ nullable: true, type: 'varchar', length: 36 })
+    sourceMessageId?: string | null
+
+    @Column({ nullable: true, type: 'varchar', length: 36 })
+    sourceFlowId?: string | null
+
+    @Column({ nullable: true, type: 'datetime' })
+    sourceDate?: Date | null
 }

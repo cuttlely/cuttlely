@@ -63,6 +63,8 @@ import feedbackApi from '@/api/feedback'
 import exportImportApi from '@/api/exportimport'
 import useApi from '@/hooks/useApi'
 import useConfirm from '@/hooks/useConfirm'
+import { useAuth } from '@/hooks/useAuth'
+import AddToTestSetDialog, { questionBeforeAnswer } from '@/ui-component/dialog/AddToTestSetDialog'
 
 // Utils
 import { isValidURL, removeDuplicateURL } from '@/utils/genericHelper'
@@ -183,6 +185,9 @@ const ViewMessagesDialog = ({ show, dialogProps, onCancel }) => {
     const theme = useTheme()
     const customization = useSelector((state) => state.customization)
     const { confirm } = useConfirm()
+    const { hasPermission } = useAuth()
+    const canAddToTestSet = hasPermission('datasets:create,datasets:update')
+    const canCreateDataset = hasPermission('datasets:create')
 
     useNotifier()
     const enqueueSnackbar = (...args) => dispatch(enqueueSnackbarAction(...args))
@@ -203,6 +208,7 @@ const ViewMessagesDialog = ({ show, dialogProps, onCancel }) => {
     const [endDate, setEndDate] = useState(new Date())
     const [leadEmail, setLeadEmail] = useState('')
     const [anchorEl, setAnchorEl] = useState(null)
+    const [addToTestSet, setAddToTestSet] = useState(null)
     const open = Boolean(anchorEl)
 
     const getChatmessageApi = useApi(chatmessageApi.getAllChatmessageFromChatflow)
@@ -1540,6 +1546,22 @@ const ViewMessagesDialog = ({ show, dialogProps, onCancel }) => {
                                                                         {message.message}
                                                                     </MemoizedReactMarkdown>
                                                                 </div>
+                                                                {message.type === 'apiMessage' && canAddToTestSet ? (
+                                                                    <Button
+                                                                        size='small'
+                                                                        variant='outlined'
+                                                                        sx={{ mt: 1, textTransform: 'none', width: 'max-content' }}
+                                                                        onClick={() =>
+                                                                            setAddToTestSet({
+                                                                                messageId: message.id,
+                                                                                question: questionBeforeAnswer(chatMessages, message),
+                                                                                answer: message.message || ''
+                                                                            })
+                                                                        }
+                                                                    >
+                                                                        Add to test set
+                                                                    </Button>
+                                                                ) : null}
                                                                 {message.fileAnnotations && (
                                                                     <div style={{ display: 'block', flexDirection: 'row', width: '100%' }}>
                                                                         {message.fileAnnotations.map((fileAnnotation, index) => {
@@ -1628,6 +1650,15 @@ const ViewMessagesDialog = ({ show, dialogProps, onCancel }) => {
                         )}
                     </div>
                     <SourceDocDialog show={sourceDialogOpen} dialogProps={sourceDialogProps} onCancel={() => setSourceDialogOpen(false)} />
+                    <AddToTestSetDialog
+                        show={Boolean(addToTestSet)}
+                        messageId={addToTestSet?.messageId || ''}
+                        question={addToTestSet?.question || ''}
+                        answer={addToTestSet?.answer || ''}
+                        canCreate={canCreateDataset}
+                        onCancel={() => setAddToTestSet(null)}
+                        onSaved={() => setAddToTestSet(null)}
+                    />
                     <ConfirmDeleteMessageDialog
                         show={hardDeleteDialogOpen}
                         dialogProps={hardDeleteDialogProps}

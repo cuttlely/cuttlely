@@ -10,6 +10,7 @@ const deleteDataset = (id) => client.delete(`/datasets/set/${id}`)
 
 //rows
 const createDatasetRow = (body) => client.post(`/datasets/rows`, body)
+const addDatasetRowFromChatMessage = (body) => client.post(`/datasets/rows/from-message`, body)
 const updateDatasetRow = (id, body) => client.put(`/datasets/rows/${id}`, body)
 const deleteDatasetRow = (id) => client.delete(`/datasets/rows/${id}`)
 const deleteDatasetItems = (ids) => client.patch(`/datasets/rows`, { ids })
@@ -23,6 +24,7 @@ export default {
     updateDataset,
     deleteDataset,
     createDatasetRow,
+    addDatasetRowFromChatMessage,
     updateDatasetRow,
     deleteDatasetRow,
     deleteDatasetItems,
