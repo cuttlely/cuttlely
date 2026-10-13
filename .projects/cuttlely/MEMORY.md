@@ -60,6 +60,7 @@ Conventions, do and don't, and lessons a newcomer would otherwise relearn. Add a
 
 ## Lessons
 
+-   **A look at another environment's versions must not use the incoming ref.** That ref is what this server offers to promote. A temporary ref, dropped after the read, keeps the offer on the previous environment.
 -   **A failed try-directory delete is not a finished cleanup.** The runtime can keep `logs/errors.log` and `logs/gateway.log` open in the try directory and in each specialist directory. Close those profiles before deleting, then retry. A directory that is still there is logged once and removed on the next start, and only when it carries the try marker. A saved harness is left in place.
 -   **A remembered environment-list fingerprint is not enough.** Read it back from the shared repository before treating the copy as finished. A list change that keeps the same read and copy still has to rewrite the fingerprint on the versions already copied.
 -   **A missing environment-list fingerprint is not a match.** If a fingerprint record exists and this version has none, or reading that record fails, do not offer the new versions. A fingerprint publish that does not land must not be marked up to date. The only case that still offers versions with no fingerprint is the saved Dev and Prod pair, when the repository has no fingerprint record at all. A named list installs a tip only when the note on it matches.
