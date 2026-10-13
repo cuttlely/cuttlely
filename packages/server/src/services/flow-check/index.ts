@@ -8,23 +8,27 @@
 // It does not refuse the flow. Legacy multi-agent flows stay out of this check.
 //
 // A replay runs the canvas in memory through executeFlow with replay on: a new chat id, so memory starts
-// empty; no chat messages, follow-ups, telemetry, usage counts or tracing are written; Live is never saved.
+// empty; no chat messages, follow-ups, telemetry or tracing are written. The daily token total is written.
+// Live is never saved.
 // Chatflows, agentflows and harnesses can be checked. An agentflow replay also writes no execution record.
 // A harness replay uses the canvas try profile (Live roster and draft roster, each in its own directory).
 // It writes no chat message, no run history, no session and no analyst capture. The tokens it shows are
-// the route, specialist and handoff tokens that run already summed. It does not add a second usage count.
+// the route, specialist and handoff tokens that run already summed. The estimate uses those lines,
+// grouped by model, the same lines the usage write stores under the harness name. It does not add a second usage count.
 // Results stay in this server's memory for a short while and are never written to the database or logged.
 // The check is optional and never blocks Publish.
 import crypto from 'crypto'
 import { StatusCodes } from 'http-status-codes'
 import { v4 as uuidv4 } from 'uuid'
-import { EvaluationRunner } from '@cuttlely/components'
+import { EvaluationRunner, getRawModelFile } from '@cuttlely/components'
 import { ChatMessage } from '../../database/entities/ChatMessage'
 import { Organization, Workspace } from '../../database/entities/identity'
 import { AppError } from '../../errors/appError'
 import { ChatType, IChatFlow } from '../../Interface'
 import { OSS_PRODUCT_ID } from '../../identity/ossPlatform'
 import { getRunningExpressApp } from '../../utils/getRunningExpressApp'
+import { estimateTokenLines, priceBookForWorkspace, usageLinesFromMetrics, usageLinesFromRun } from '../usage'
+import type { PriceBook, UsageLine } from '../usage'
 import logger from '../../utils/logger'
 import executionsService from '../executions'
 import flowDraftsService, { canvasHash, DraftFlow } from '../flow-drafts'
@@ -54,7 +58,7 @@ import {
     triggerStart,
     typeUnavailable
 } from './kinds'
-import { harnessQuestionsFor, harnessQuestionsToRun, replayHarnessQuestion } from './harness'
+import { harnessCheckHooks, harnessQuestionsFor, harnessQuestionsToRun, replayHarnessQuestion } from './harness'
 import { casesFromDataset, CheckEvaluator, loadEvaluators, readDatasetId, readEvaluatorIds, scoreAnswer } from './score'
 
 // A question list sent without `count` stays capped at 10, which is what this route accepted before.
@@ -172,6 +176,8 @@ interface CheckRecord {
     spentTokens: number
     inflight: Set<AbortController>
     stopRequested: boolean
+    // Loaded once per check so every side uses the same prices.
+    priceBook?: Promise<PriceBook | null>
 }
 
 // One check per flow, kept in memory. Test seam: tests reset it.
@@ -179,8 +185,51 @@ export const checks = new Map<string, CheckRecord>()
 
 // Test seam: tests replace the runner so no model is called.
 export const replayHooks: {
-    run: null | ((input: ReplayInput) => Promise<{ text: string; metrics?: unknown[] }>)
+    run: null | ((input: ReplayInput) => Promise<{ text: string; metrics?: unknown[]; lines?: UsageLine[] }>)
 } = { run: null }
+
+// Test seam: the check prices each side from this book instead of the database.
+export const priceHooks: {
+    load: null | ((workspaceId: string) => Promise<PriceBook | null>)
+} = { load: null }
+
+function bookOnce(record: CheckRecord): Promise<PriceBook | null> {
+    if (!record.priceBook) record.priceBook = bookFor(record.workspaceId)
+    return record.priceBook
+}
+
+async function bookFor(workspaceId: string): Promise<PriceBook | null> {
+    if (priceHooks.load) return priceHooks.load(workspaceId)
+    // Tests replace the components module and do not load a price book.
+    if (typeof getRawModelFile !== 'function') return null
+    try {
+        const app = getRunningExpressApp()
+        const list = await getRawModelFile()
+        return await priceBookForWorkspace(app.AppDataSource, workspaceId, list)
+    } catch {
+        return null
+    }
+}
+
+function sideCost(lines: UsageLine[] | undefined, tokens: number | null, book: PriceBook | null) {
+    if ((!lines || !lines.length) && tokens == null) return { estimatedCostUsd: null, price: null, unpricedModels: [] as string[] }
+    if (!lines || !lines.length) return { estimatedCostUsd: null, price: 'no price' as const, unpricedModels: [] as string[] }
+    return estimateTokenLines(lines, book)
+}
+
+// Rates travel with the lines so the summary can price each model once, without the book.
+function ratedLines(lines: UsageLine[], book: PriceBook | null) {
+    return lines.map((line) => {
+        const rate = book ? book.rateFor(line.model) : null
+        return {
+            model: line.model,
+            inputTokens: line.inputTokens,
+            outputTokens: line.outputTokens,
+            inputUsdPerMillion: rate ? rate.inputUsdPerMillion : null,
+            outputUsdPerMillion: rate ? rate.outputUsdPerMillion : null
+        }
+    })
+}
 
 export interface ReplayInput {
     flow: IChatFlow
@@ -214,7 +263,15 @@ function shownScores(scores: CheckScore[] | undefined, showEvaluators: boolean):
 
 function shownSide(side: SideResult | null, showEvaluators: boolean): SideResult | null {
     if (!side) return null
-    const shown: SideResult = { text: clip(side.text), error: side.error, tokens: side.tokens, ms: side.ms }
+    const shown: SideResult = {
+        text: clip(side.text),
+        error: side.error,
+        tokens: side.tokens,
+        ms: side.ms,
+        estimatedCostUsd: side.estimatedCostUsd ?? null,
+        price: side.price ?? null,
+        unpricedModels: side.unpricedModels || []
+    }
     const scores = shownScores(side.scores, showEvaluators)
     if (scores) shown.scores = scores
     return shown
@@ -418,7 +475,9 @@ export async function getCheckSetup(
             : kind
             ? await inputsFor(flow, kind)
             : flow.type === 'HARNESS'
-            ? await harnessQuestionsFor(flow)
+            ? (await harnessInWorkspace(flow))
+                ? await harnessQuestionsFor(flow)
+                : { questions: [], pastCount: 0, pastTruncated: false }
             : await questionsFor(flow)
     return {
         unavailable,
@@ -431,6 +490,22 @@ export async function getCheckSetup(
         replayInputs: Boolean(kind),
         replaySource: kind ? sourceOf(kind) : null,
         check: record ? view(record, draft ? canvasHash(draft) : null, reveal) : null
+    }
+}
+
+// The same ownership check replay uses. A canvas left in another team does not open that harness session.
+async function harnessInWorkspace(flow: { name?: string | null; workspaceId?: string | null }): Promise<boolean> {
+    const name = String(flow.name || '').trim()
+    if (!name) return false
+    if (harnessCheckHooks.inWorkspace) return Boolean(await harnessCheckHooks.inWorkspace(name, flow.workspaceId))
+    const harnesses = (await import('../harnesses')).default
+    try {
+        await harnesses.getHarness(name, flow.workspaceId)
+        return true
+    } catch (error) {
+        const status = (error as { statusCode?: number })?.statusCode
+        if (status === StatusCodes.NOT_FOUND || status === StatusCodes.BAD_REQUEST) return false
+        throw error
     }
 }
 
@@ -603,9 +678,15 @@ export async function startCheck(
         sources = resolved.sources
         dates = resolved.dates
     } else if (flow.type === 'HARNESS') {
-        const resolved = await harnessQuestionsToRun(flow, body || {})
-        questions = resolved.questions
-        selection = resolved.selection
+        // The harness file has to be in this canvas's team. Otherwise the session is not opened.
+        if (await harnessInWorkspace(flow)) {
+            const resolved = await harnessQuestionsToRun(flow, body || {})
+            questions = resolved.questions
+            selection = resolved.selection
+        } else {
+            questions = []
+            selection = null
+        }
     } else {
         const resolved = await questionsToRun(flow.id, request)
         questions = resolved.questions
@@ -682,8 +763,19 @@ async function runOne(record: CheckRecord, flow: IChatFlow, flowData: string, qu
     const started = Date.now()
     try {
         const run = replayHooks.run || replayFlow
-        const { text, metrics } = await run({ flow, flowData, question, signal: controller, baseURL })
-        return { text: String(text ?? ''), error: null, tokens: totalTokens(metrics), ms: Date.now() - started }
+        const { text, metrics, lines } = await run({ flow, flowData, question, signal: controller, baseURL })
+        const tokens = totalTokens(metrics)
+        const usage = lines ?? usageLinesFromMetrics(metrics)
+        const book = await bookOnce(record)
+        const estimate = sideCost(usage, tokens, book)
+        return {
+            text: String(text ?? ''),
+            error: null,
+            tokens,
+            ms: Date.now() - started,
+            ...estimate,
+            usageLines: ratedLines(usage, book)
+        }
     } catch (error) {
         const timedOut = controller.signal.aborted && !record.stopRequested
         const message = record.stopRequested
@@ -844,7 +936,13 @@ async function runCheck(record: CheckRecord, flow: IChatFlow, draft: string, bas
 // Runs one question through a canvas without saving anything. For a chatflow the token counter is Cuttlely's
 // evaluation tracer, the only analytics provider on the copy, so the flow's own tracing providers are not called.
 // An agentflow replay calls no tracing provider and keeps its run in memory; its steps report their tokens.
-async function replayFlow({ flow, flowData, question, signal, baseURL }: ReplayInput): Promise<{ text: string; metrics?: unknown[] }> {
+async function replayFlow({
+    flow,
+    flowData,
+    question,
+    signal,
+    baseURL
+}: ReplayInput): Promise<{ text: string; metrics?: unknown[]; lines?: UsageLine[] }> {
     if (flow.type === 'HARNESS') return replayHarnessQuestion({ flow, flowData, question, signal })
     // Imported here so loading this module does not load the whole prediction path.
     const { executeFlow } = await import('../../utils/buildChatflow')
@@ -879,9 +977,13 @@ async function replayFlow({ flow, flowData, question, signal, baseURL }: ReplayI
             signal,
             replay: true
         })
-        // An agentflow reports tokens on each step; a chatflow through the evaluation tracer.
+        // An agentflow reports tokens on each step. A chatflow prices the lines the usage write keeps.
         const metrics = flow.type === 'AGENTFLOW' ? stepTokens(result?.agentFlowExecutedData) : EvaluationRunner.metrics.get(runId)
-        return { text: result?.text ?? '', metrics }
+        const lines =
+            flow.type === 'AGENTFLOW'
+                ? usageLinesFromRun({ agentFlowExecutedData: result?.agentFlowExecutedData })
+                : usageLinesFromRun(result?.usage)
+        return { text: result?.text ?? '', metrics, lines }
     } finally {
         EvaluationRunner.metrics.delete(runId)
     }

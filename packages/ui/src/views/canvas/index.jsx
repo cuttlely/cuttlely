@@ -76,10 +76,11 @@ import { CHATFLOW_NEEDS_ENDING_NODE, chatflowCanChat } from '@/utils/chatflowRea
 import { harnessChatBlock, reservedHarnessNameMessage } from '@/utils/harnessChatReady'
 import { nodeMoved } from '@/utils/canvasDirty'
 import { panelNode, panToKeepInView } from '@/utils/canvasLook'
+import { createCanvasDeleteQueue, panelStateWhenNodesChange } from '@/views/canvas/cardActions'
 import { flowiseCanvasJson } from '@/utils/flowiseImport'
 import { hydrateLangflowFlow, isLangflowExport, langflowToFlowise } from '@/utils/langflowImport'
 import { hydrateRawCanvasNodes, normalizeCanvasFlow, repairFlowEdges, specsByName, stripRawCanvasMarker } from '@/utils/normalizeCanvasFlow'
-import { apiErrorMessage, canvasFlowText, planCanvasSave } from '@/utils/flowDrafts'
+import { apiErrorMessage, canvasFlowText, canvasTextToApply, planCanvasSave } from '@/utils/flowDrafts'
 import { canvasSaveDocument } from '@/utils/canvasSave'
 import {
     asSavedCards,
@@ -166,7 +167,8 @@ const Canvas = () => {
     const pendingLangflow = useRef(null)
     const dragOrigin = useRef(new Map())
     chatflowRef.current = chatflow
-    const { reactFlowInstance, setReactFlowInstance } = useContext(flowContext)
+    const { reactFlowInstance, setReactFlowInstance, deleteNode, deleteSelection, applyingDelete, bindCanvasState, duplicateNode } =
+        useContext(flowContext)
 
     // ==============================|| Snackbar ||============================== //
 
@@ -178,6 +180,26 @@ const Canvas = () => {
 
     const [nodes, setNodes, onNodesChange] = useNodesState()
     const [edges, setEdges, onEdgesChange] = useEdgesState()
+    bindCanvasState(setNodes, setEdges)
+    // Keyboard Delete and Backspace emit remove changes for every selected card and its lines. One pass deletes
+    // that whole set. Drag and select still go through the React Flow handler. The pipeline canvas uses this too.
+    const deleteSelectionRef = useRef(deleteSelection)
+    deleteSelectionRef.current = deleteSelection
+    const deleteQueue = useMemo(() => createCanvasDeleteQueue((batch) => deleteSelectionRef.current?.(batch)), [])
+    const handleNodesChange = useCallback(
+        (changes) => {
+            if (applyingDelete?.current) onNodesChange(changes)
+            else deleteQueue.nodes(changes, onNodesChange)
+        },
+        [applyingDelete, deleteQueue, onNodesChange]
+    )
+    const handleEdgesChange = useCallback(
+        (changes) => {
+            if (applyingDelete?.current) onEdgesChange(changes)
+            else deleteQueue.edges(changes, onEdgesChange)
+        },
+        [applyingDelete, deleteQueue, onEdgesChange]
+    )
 
     const [selectedNode, setSelectedNode] = useState(null)
     const [canvasLook, setCanvasLook] = useCanvasLook()
@@ -695,13 +717,13 @@ const Canvas = () => {
     }
 
     const applyCanvasText = (text) => {
+        if (!canvasTextToApply(text)) return
         try {
             const flow = readGraph(text)
             setNodes(flow.nodes || [])
             setEdges(flow.edges || [])
         } catch {
-            setNodes([])
-            setEdges([])
+            return
         }
         dispatch({ type: REMOVE_DIRTY })
     }
@@ -896,12 +918,8 @@ const Canvas = () => {
             }
             const built = takeSavedBuild(loaded.id)
             if (built) builtNotice(built)
-            // Pipeline canvases still save straight to Live. A harness canvas loads draft status
-            // with the other canvases: the canvas shows the draft, and runs keep serving Live until Publish.
-            if (isEtlCanvas) {
-                paint(null)
-                return
-            }
+            // Chatflow, agentflow, harness and pipeline canvases load draft status the same way.
+            // The canvas shows the draft. Harness runs and pipeline runs keep serving Live until Publish.
             flowDraftsApi
                 .getStatus(loaded.id)
                 .then((res) => paint(res.data))
@@ -937,7 +955,7 @@ const Canvas = () => {
             } else {
                 saveChatflowSuccess()
             }
-            if (!draft && !isEtlCanvas) {
+            if (!draft) {
                 flowDraftsApi
                     .getStatus(chatflow.id)
                     .then((res) => setDraftStatus(res.data))
@@ -1164,7 +1182,22 @@ const Canvas = () => {
     // New look: with the switch on, cards are compact and clicking a card opens its settings in a side panel on the right.
     const openPanelNode = panelNode(nodes, sidePanelOn ? panelNodeId : null)
     const openPanelNodeId = openPanelNode?.id ?? null
-    const panelContext = useMemo(() => ({ panelNodeId: openPanelNodeId, compact: sidePanelOn }), [openPanelNodeId, sidePanelOn])
+    const panelOpenRef = useRef(false)
+    panelOpenRef.current = Boolean(openPanelNodeId)
+    // Duplicating while the panel is open selects the copy and moves the panel onto it.
+    const onDuplicated = useCallback((created) => {
+        const newId = created?.id
+        if (newId && panelOpenRef.current) setPanelNodeId(newId)
+    }, [])
+    const panelContext = useMemo(
+        () => ({ panelNodeId: openPanelNodeId, compact: sidePanelOn, onDuplicated }),
+        [openPanelNodeId, sidePanelOn, onDuplicated]
+    )
+    // A deleted card must not leave its id open. The next card of that type reuses the id.
+    useEffect(() => {
+        const next = panelStateWhenNodesChange({ panelNodeId, nodes })
+        if (next.panelNodeId !== panelNodeId) setPanelNodeId(null)
+    }, [nodes, panelNodeId])
 
     // The panel narrows the canvas. Pan so the card you clicked does not end up behind it.
     useEffect(() => {
@@ -1229,10 +1262,10 @@ const Canvas = () => {
                                     <ReactFlow
                                         nodes={nodes}
                                         edges={edges}
-                                        onNodesChange={onNodesChange}
+                                        onNodesChange={handleNodesChange}
                                         onNodeClick={onNodeClick}
                                         onPaneClick={() => setPanelNodeId(null)}
-                                        onEdgesChange={onEdgesChange}
+                                        onEdgesChange={handleEdgesChange}
                                         onDrop={onDrop}
                                         onDragOver={onDragOver}
                                         onNodeDragStart={onNodeDragStart}
@@ -1242,7 +1275,7 @@ const Canvas = () => {
                                         onConnect={onConnect}
                                         onInit={setReactFlowInstance}
                                         fitView
-                                        deleteKeyCode={canvas.canvasDialogShow ? null : ['Delete']}
+                                        deleteKeyCode={canvas.canvasDialogShow ? null : ['Delete', 'Backspace']}
                                         minZoom={0.1}
                                         snapGrid={[25, 25]}
                                         snapToGrid={isSnappingEnabled}
@@ -1334,6 +1367,7 @@ const Canvas = () => {
                                                 chatflowId={chatflow?.id}
                                                 getFlowData={getEtlFlowData}
                                                 isDirty={Boolean(canvasDataStore.isDirty)}
+                                                hasDraft={Boolean(draftStatus?.draft)}
                                                 onRestore={restoreEtlVersion}
                                                 savedAt={chatflow?.updatedDate}
                                                 starters={starterQuestionsOf(chatflow?.chatbotConfig)}
@@ -1388,7 +1422,17 @@ const Canvas = () => {
                                         </Box>
                                     )}
                                 </div>
-                                {openPanelNode && <NodeSidePanel node={openPanelNode} onClose={() => setPanelNodeId(null)} />}
+                                {openPanelNode && (
+                                    <NodeSidePanel
+                                        node={openPanelNode}
+                                        onClose={() => setPanelNodeId(null)}
+                                        onDuplicate={() => {
+                                            const created = duplicateNode(openPanelNode.id)
+                                            if (created?.id) onDuplicated(created)
+                                        }}
+                                        onDelete={() => deleteNode(openPanelNode.id)}
+                                    />
+                                )}
                             </div>
                         </CanvasPanelContext.Provider>
                     </ReactFlowProvider>

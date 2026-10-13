@@ -1,4 +1,5 @@
 import { randomUUID } from 'crypto'
+import { CostAccumulator, PriceBook, addModelCost, costView, emptyCost } from './cost'
 import { UsageLine, eachUtcDay, usageLinesFromRun, utcDay } from './lines'
 
 // Structural on purpose: recording must not import the server logger or the entity registry.
@@ -15,13 +16,19 @@ export interface UsageQuery {
     model?: string
 }
 
+export interface UsageCostFields {
+    estimatedCostUsd: number | null
+    price: 'known' | 'partial' | 'no price'
+}
+
 export interface UsageReport {
     startDate: string
     endDate: string
-    days: Array<{ day: string; inputTokens: number; outputTokens: number }>
-    flows: Array<{ flowId: string; inputTokens: number; outputTokens: number }>
-    models: Array<{ model: string; inputTokens: number; outputTokens: number }>
-    totals: { inputTokens: number; outputTokens: number }
+    estimates?: true
+    days: Array<{ day: string; inputTokens: number; outputTokens: number } & Partial<UsageCostFields>>
+    flows: Array<{ flowId: string; inputTokens: number; outputTokens: number } & Partial<UsageCostFields>>
+    models: Array<{ model: string; inputTokens: number; outputTokens: number } & Partial<UsageCostFields>>
+    totals: { inputTokens: number; outputTokens: number; unpricedModels?: string[] } & Partial<UsageCostFields>
 }
 
 interface BucketRow {
@@ -108,7 +115,27 @@ function asRows(value: unknown): BucketRow[] {
     })
 }
 
-export async function queryTokenUsage(dataSource: UsageWriter, query: UsageQuery): Promise<UsageReport> {
+function bucket(): { inputTokens: number; outputTokens: number; cost: CostAccumulator } {
+    return { inputTokens: 0, outputTokens: 0, cost: emptyCost() }
+}
+
+function priced<T extends { inputTokens: number; outputTokens: number }>(
+    row: T,
+    cost: CostAccumulator,
+    book: PriceBook | null | undefined,
+    extra?: { unpricedModels?: boolean }
+): T & Partial<UsageCostFields & { unpricedModels: string[] }> {
+    if (!book) return row
+    const view = costView(cost)
+    return {
+        ...row,
+        estimatedCostUsd: view.estimatedCostUsd,
+        price: view.price,
+        ...(extra?.unpricedModels ? { unpricedModels: view.unpricedModels } : {})
+    }
+}
+
+export async function queryTokenUsage(dataSource: UsageWriter, query: UsageQuery, book?: PriceBook | null): Promise<UsageReport> {
     const type = driver(dataSource)
     const table = quote(type, 'token_usage_day')
     const params: unknown[] = [query.workspaceId, query.startDate, query.endDate]
@@ -129,38 +156,52 @@ export async function queryTokenUsage(dataSource: UsageWriter, query: UsageQuery
         sql += ` AND ${quote(type, 'model')} = ${placeholders(type, params.length).at(-1)}`
     }
     const rows = asRows(await dataSource.query(sql, params))
-    const byDay = new Map<string, { inputTokens: number; outputTokens: number }>()
-    const byFlow = new Map<string, { inputTokens: number; outputTokens: number }>()
-    const byModel = new Map<string, { inputTokens: number; outputTokens: number }>()
-    let inputTokens = 0
-    let outputTokens = 0
+    const byDay = new Map<string, { inputTokens: number; outputTokens: number; cost: CostAccumulator }>()
+    const byFlow = new Map<string, { inputTokens: number; outputTokens: number; cost: CostAccumulator }>()
+    const byModel = new Map<string, { inputTokens: number; outputTokens: number; cost: CostAccumulator }>()
+    const totals = bucket()
     for (const row of rows) {
-        inputTokens += row.inputTokens
-        outputTokens += row.outputTokens
-        const day = byDay.get(row.day) || { inputTokens: 0, outputTokens: 0 }
+        totals.inputTokens += row.inputTokens
+        totals.outputTokens += row.outputTokens
+        const day = byDay.get(row.day) || bucket()
         day.inputTokens += row.inputTokens
         day.outputTokens += row.outputTokens
         byDay.set(row.day, day)
-        const flow = byFlow.get(row.flowId) || { inputTokens: 0, outputTokens: 0 }
+        const flow = byFlow.get(row.flowId) || bucket()
         flow.inputTokens += row.inputTokens
         flow.outputTokens += row.outputTokens
         byFlow.set(row.flowId, flow)
-        const modelRow = byModel.get(row.model) || { inputTokens: 0, outputTokens: 0 }
+        const modelRow = byModel.get(row.model) || bucket()
         modelRow.inputTokens += row.inputTokens
         modelRow.outputTokens += row.outputTokens
         byModel.set(row.model, modelRow)
+        if (book) {
+            const rate = book.rateFor(row.model)
+            addModelCost(totals.cost, row.model, row.inputTokens, row.outputTokens, rate)
+            addModelCost(day.cost, row.model, row.inputTokens, row.outputTokens, rate)
+            addModelCost(flow.cost, row.model, row.inputTokens, row.outputTokens, rate)
+            addModelCost(modelRow.cost, row.model, row.inputTokens, row.outputTokens, rate)
+        }
     }
     return {
         startDate: query.startDate,
         endDate: query.endDate,
-        days: eachUtcDay(query.startDate, query.endDate).map((day) => ({
-            day,
-            inputTokens: byDay.get(day)?.inputTokens || 0,
-            outputTokens: byDay.get(day)?.outputTokens || 0
-        })),
-        flows: [...byFlow.entries()].map(([id, totals]) => ({ flowId: id, ...totals })).sort((a, b) => a.flowId.localeCompare(b.flowId)),
-        models: [...byModel.entries()].map(([name, totals]) => ({ model: name, ...totals })).sort((a, b) => a.model.localeCompare(b.model)),
-        totals: { inputTokens, outputTokens }
+        ...(book ? { estimates: true as const } : {}),
+        days: eachUtcDay(query.startDate, query.endDate).map((day) => {
+            const found = byDay.get(day) || bucket()
+            return priced({ day, inputTokens: found.inputTokens, outputTokens: found.outputTokens }, found.cost, book)
+        }),
+        flows: [...byFlow.entries()]
+            .map(([id, found]) =>
+                priced({ flowId: id, inputTokens: found.inputTokens, outputTokens: found.outputTokens }, found.cost, book)
+            )
+            .sort((a, b) => a.flowId.localeCompare(b.flowId)),
+        models: [...byModel.entries()]
+            .map(([name, found]) =>
+                priced({ model: name, inputTokens: found.inputTokens, outputTokens: found.outputTokens }, found.cost, book)
+            )
+            .sort((a, b) => a.model.localeCompare(b.model)),
+        totals: priced({ inputTokens: totals.inputTokens, outputTokens: totals.outputTokens }, totals.cost, book, { unpricedModels: true })
     }
 }
 

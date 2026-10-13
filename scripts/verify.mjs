@@ -77,6 +77,7 @@ const STEPS = [
             path.join(ROOT, 'scripts', 'flowise-migration.test.mjs'),
             path.join(ROOT, 'scripts', 'api-key-hash.test.cjs'),
             path.join(ROOT, 'scripts', 'usage-storage.test.cjs'),
+            path.join(ROOT, 'scripts', 'model-prices.test.cjs'),
             path.join(ROOT, 'scripts', 'harness-callback-usage.test.mjs'),
             path.join(ROOT, 'scripts', 'harness-draft-usage.test.mjs'),
             path.join(ROOT, 'scripts', 'analyst-postgres.test.mjs'),
@@ -159,13 +160,18 @@ const STEPS = [
             'src/views/serversetup',
             'src/layout/MainLayout/Sidebar/MenuList/activeRoute.test.js',
             'src/views/evaluations/evaluationFlows.test.js',
+            'src/views/canvas/cardActions.test.js',
+            'src/views/marketplaces/templatePreview.test.js',
             'src/views/roles/rolePermissions.test.js',
             'src/views/docstore/chunkPermissions.test.js',
             'src/views/canvas/canvasSavePermission.test.js',
             'src/views/marketplaces/templateUsePermission.test.js',
             'src/utils/publishCheck.test.js',
             'src/utils/promote.test.js',
-            'src/views/promote/PromoteViews.test.js'
+            'src/views/promote/PromoteViews.test.js',
+            'src/views/usage/query.test.js',
+            'src/views/usage/route.test.js',
+            'src/views/usage/UsagePage.test.js'
         ],
         env: { CI: 'true' }
     },
@@ -228,6 +234,13 @@ const STEPS = [
         fast: false,
         command: process.execPath,
         args: [path.join(ROOT, 'scripts', 'handoff-paths.mjs')]
+    },
+    {
+        // Duplicate, delete, and close on the chatflow and workflow canvases, in a real browser.
+        name: 'canvas-actions',
+        fast: false,
+        command: process.execPath,
+        args: [path.join(ROOT, 'scripts', 'canvas-actions-e2e.mjs')]
     },
     {
         name: 'smoke',

@@ -6,6 +6,8 @@
 import { randomUUID } from 'crypto'
 import { StatusCodes } from 'http-status-codes'
 import { AppError } from '../../errors/appError'
+import { usageLinesFromRun } from '../usage'
+import type { UsageLine } from '../usage'
 import { COMPARE_COUNT_MAX, pickQuestions, parseCompareCount } from './compare'
 
 // The same character cap the chat question check uses.
@@ -19,7 +21,9 @@ export interface UserTurn {
 // Tests stand in for the session transcript. Production reads the harness session messages.
 export const harnessCheckHooks: {
     listUserTurns: null | ((name: string, opts?: { limit?: number }) => UserTurn[])
-} = { listUserTurns: null }
+    // Tests stand in for the harness file check. Production uses requireHarness.
+    inWorkspace: null | ((name: string, workspaceId?: string | null) => boolean | Promise<boolean>)
+} = { listUserTurns: null, inWorkspace: null }
 
 // Newest user turns read from the session file. Past that, older questions may exist.
 const TURN_SCAN_CAP = 2000
@@ -35,7 +39,11 @@ export interface ReplayCall {
 export const harnessReplayHooks: {
     run:
         | null
-        | ((call: ReplayCall) => Promise<{ text?: string; report?: { tokens?: { prompt?: number | null; completion?: number | null } } }>)
+        | ((call: ReplayCall) => Promise<{
+              text?: string
+              report?: { tokens?: { prompt?: number | null; completion?: number | null } }
+              trace?: unknown
+          }>)
 } = { run: null }
 
 // The same replacements as a run-history preview. Whitespace is left as the person typed it.
@@ -169,12 +177,19 @@ function abortSignalOf(signal: AbortSignal | AbortController): AbortSignal {
 
 // One side of one question. A new chat id, the canvas roster, and the canvas try profile.
 // The caller passes Live's canvas or the draft's. Cleanup of the try profile happens inside the run.
+// The usage write stores the run payload under the harness name. The trace is the route, specialist,
+// and handoff lines. A report total with no model is the token cap, not a second priced line.
+function harnessPriceLines(result: { trace?: unknown; report?: unknown } | null | undefined): UsageLine[] {
+    if (!result?.trace) return []
+    return usageLinesFromRun(result)
+}
+
 export async function replayHarnessQuestion(args: {
     flow: { id: string; name: string; workspaceId?: string | null; flowData?: string }
     flowData: string
     question: string
     signal: AbortSignal | AbortController
-}): Promise<{ text: string; metrics?: unknown[] }> {
+}): Promise<{ text: string; metrics?: unknown[]; lines?: UsageLine[] }> {
     const signal = abortSignalOf(args.signal)
     if (harnessReplayHooks.run) {
         const outcome = await harnessReplayHooks.run({
@@ -183,7 +198,11 @@ export async function replayHarnessQuestion(args: {
             question: args.question,
             signal
         })
-        return { text: String(outcome?.text ?? ''), metrics: harnessReplayMetrics(outcome?.report) }
+        return {
+            text: String(outcome?.text ?? ''),
+            metrics: harnessReplayMetrics(outcome?.report),
+            lines: harnessPriceLines(outcome)
+        }
     }
     const harnesses = (await import('../harnesses')).default
     const outcome = await harnesses.replayCheck(
@@ -198,7 +217,7 @@ export async function replayHarnessQuestion(args: {
         { signal }
     )
     const payload = outcome?.payload as
-        | { text?: string; report?: { tokens?: { prompt?: number | null; completion?: number | null } } }
+        | { text?: string; trace?: unknown; report?: { tokens?: { prompt?: number | null; completion?: number | null } } }
         | undefined
-    return { text: String(payload?.text ?? ''), metrics: harnessReplayMetrics(payload?.report) }
+    return { text: String(payload?.text ?? ''), metrics: harnessReplayMetrics(payload?.report), lines: harnessPriceLines(payload) }
 }

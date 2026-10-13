@@ -12,6 +12,7 @@ import {
     fitSpecialistPrompt,
     groundAnalystSpecialistText,
     isAnalystCapSummary,
+    wantsAnalystRows,
     stripTrailingAnalystStatus,
     isAnalystQueryTool,
     sourceNames,
@@ -31,7 +32,7 @@ import {
     latestAnalystCursor,
     takeAnalystResults
 } from './analyst-capture.mjs'
-import { abortGatewayProfile, setGatewayContext } from './gateway.mjs'
+import { abortGatewayProfile, clearCallerWorkspace, noteCallerWorkspace, setGatewayContext } from './gateway.mjs'
 import { analystToolsMissing } from './runtime/analyst-mcp-status.mjs'
 import { ANALYST_CURSOR_ERRORS, analystPageRequest, analystPageTask } from './runtime/analyst-page.mjs'
 import { analystScopeKey, endAnalystRun, withAnalystScope } from './runtime/analyst-store.mjs'
@@ -78,11 +79,28 @@ export function configureHarnessRuntime({ contextFor } = {}) {
     setGatewayContext(runtimeContextFor)
 }
 
+// Before a run row is opened. A harness with no team is not in the caller's team.
+// Both empty is an offline run with no team on either side.
+export function assertHarnessWorkspace(name, flowOptions, record) {
+    let harness = record
+    if (!harness) {
+        try {
+            harness = getHarness(name)
+        } catch {
+            return
+        }
+    }
+    if (!harness) return
+    const caller = typeof flowOptions?.workspaceId === 'string' ? flowOptions.workspaceId : ''
+    const owner = typeof harness.workspaceId === 'string' ? harness.workspaceId : ''
+    if (caller !== owner) {
+        throw new HarnessError('wrong_workspace', `Harness "${harness.name || name}" belongs to another workspace.`)
+    }
+}
+
 function ownerFlowOptions(record, callerOptions) {
     const flowOptions = { ...(callerOptions || {}) }
-    if (record.workspaceId && flowOptions.workspaceId !== record.workspaceId) {
-        throw new HarnessError('wrong_workspace', `Harness "${record.name}" belongs to another workspace.`)
-    }
+    assertHarnessWorkspace(record?.name, flowOptions, record)
     if (flowOptions.callerChatflowId == null && flowOptions.chatflowid != null) {
         flowOptions.callerChatflowId = flowOptions.chatflowid
     }
@@ -156,6 +174,8 @@ export function harnessForTurn(name, record) {
 
 export async function runHarness(args = {}) {
     const started = Date.now()
+    // A wrong team must not open a run row. Inline and off both reach this function.
+    assertHarnessWorkspace(args.name, args.flowOptions, args.record)
     // A publish-check replay keeps no run history. The try profile is still removed below.
     const replay = args.replay === true
     let pending = null
@@ -289,6 +309,55 @@ async function runTurn(
     }
 ) {
     const flowOptions = ownerFlowOptions(harness, callerFlowOptions)
+    const callerWorkspace = typeof flowOptions.workspaceId === 'string' ? flowOptions.workspaceId : ''
+    if (callerWorkspace) noteCallerWorkspace(harness.name, callerWorkspace)
+    try {
+        return await runTurnBody(harness, {
+            name,
+            chatId,
+            input,
+            baseUrl,
+            fetchImpl,
+            componentNodes,
+            loadNode,
+            forceSpecialistFailure,
+            metadata,
+            timeoutMs,
+            modelBaseUrl,
+            flowOptions,
+            onEvent,
+            signal,
+            budgetMs,
+            images,
+            replay
+        })
+    } finally {
+        if (callerWorkspace) clearCallerWorkspace(harness.name)
+    }
+}
+
+async function runTurnBody(
+    harness,
+    {
+        name,
+        chatId,
+        input,
+        baseUrl,
+        fetchImpl,
+        componentNodes,
+        loadNode,
+        forceSpecialistFailure,
+        metadata,
+        timeoutMs,
+        modelBaseUrl,
+        flowOptions,
+        onEvent,
+        signal,
+        budgetMs,
+        images,
+        replay
+    }
+) {
     assertCurrentRecord(harness)
     const profileStarted = Date.now()
     const needsHermes = (harness.specialists || []).some((specialist) => needsAgentLoop(specialist))
@@ -527,7 +596,8 @@ async function runRoster(context, input) {
         handoffModel: handoffLast?.model || '',
         handoffTokens: sumCallTokens(handoffCalls),
         handoffFallback: handoffLast?.fallback || '',
-        handoffStatus: handoffCalls.length ? 'done' : 'skipped'
+        handoffStatus: handoffCalls.length ? 'done' : 'skipped',
+        question
     })
     console.info(
         `[harness] ${context.name} route ${timings.routeMs}ms, specialists ${timings.specialistsMs}ms (` +
@@ -1431,14 +1501,6 @@ function specialistPrompt(context, specialist, task, instructions, history = con
     return fitted.messages
 }
 
-function wantsAnalystRows(question) {
-    const text = String(question || '')
-    const aggregate = /\b(how many|count|number of|total|sum|average|avg|mean)\b/i.test(text)
-    const listing = /\b(list|show|select\s+\*|all rows|every row|each row)\b/i.test(text)
-    if (aggregate && !listing) return false
-    return true
-}
-
 function isAnalystStatusLine(line) {
     const text = String(line || '').trim()
     if (!text) return false
@@ -1902,7 +1964,8 @@ async function runDirectTool(context, specialist, input) {
             fillMs: timings.fillMs,
             toolMs: timings.toolMs,
             input: publicTask(filledInput)
-        }
+        },
+        question
     })
     const payload = { text, harness: name, agents, sources: output.documents, artifacts: [], timings, report, trace }
     emit(context, 'final', { text, agents, sources: output.documents, artifacts: [], timings, report, trace })

@@ -21,7 +21,7 @@
 | 15  | Release tooling, changelog, upgrade tests and Compose image fallback (D30, D31)                  | Done                                                                                     |
 | 16  | Brand, theme and screenshots (D38)                                                               | Done                                                                                     |
 | 17  | Fix the open issues                                                                              | Done. Closed issues stay in the tracker                                                  |
-| 18  | First public release, v1.0.0                                                                     | Done. 1.0.1 and 1.0.2 followed: image, GitHub release and npm all from each tag          |
+| 18  | First public release, v1.0.0                                                                     | Done. 1.0.1, 1.0.2 and 1.0.3 followed: image, GitHub release and npm all from each tag   |
 | 19  | Builder UI for harness credentials and MCP servers                                               | Later                                                                                    |
 | 20  | Convert remaining `adapt` catalog rows when a harness needs them (D5)                            | Later, never blocking                                                                    |
 | 21  | Project website with the docs (`website/`)                                                       | Built. Publishing it is a maintainer step                                                |
@@ -30,4 +30,4 @@
 
 1. **After v1.0.1.** Check whether GitHub Actions runs on pull requests, and if it does, decide whether it joins the merge gate (OPEN). Repository settings for the release are still to turn on (OPEN).
 2. **Live checks that need real credentials.** A live credentialed run on `CUTTLELY_HARNESS_QUEUE=external` before switching its default; a live ETL run against a hosted vector store; a live upload-harness turn on a large file. Never invent keys; use a maintainer's test credentials.
-3. **Later.** The canvas card look: both compact and classic cards are offered (`CANVAS_CARD_LOOK`); decide after the first release whether classic stays. The dedicated analyst node. A builder UI for harness credentials and MCP servers. Prices and a usage page on top of `GET /api/v1/stats/usage` are not built.
+3. **Later.** The canvas card look: both compact and classic cards are offered (`CANVAS_CARD_LOOK`); decide after the first release whether classic stays. The dedicated analyst node. A builder UI for harness credentials and MCP servers. The Usage page shows daily tokens and estimated cost per flow. Estimated cost is on that route, on the page, and on the Publish check (D62).

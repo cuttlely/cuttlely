@@ -86,12 +86,52 @@ import { OSS_PRODUCT_ID } from '../identity/ossPlatform'
 import { getWorkspaceSearchOptions } from '../identity/workspaceScope'
 import { OMIT_QUEUE_JOB_DATA } from './constants'
 import { executeAgentFlow } from './buildAgentflow'
-import { traceChatflowPrediction, withNodeSpan } from '../metrics/tracing'
+import { finishTraceContinuation, traceChatflowPrediction, traceContinuationFor, withNodeSpan } from '../metrics/tracing'
 import { getClientAbortSignal, onAbort, runWithAbortSignal } from './clientAbort'
 import { isStreamingValue } from './streaming'
 import { Workspace } from '../database/entities/identity'
 import { Organization } from '../database/entities/identity'
 import flowDraftsService from '../services/flow-drafts'
+
+/**
+ * The parent trace for an approval this server stored for this chat and flow.
+ * traceId and spanId on the request are ignored.
+ */
+const parentFromStoredAction = async (
+    appDataSource: DataSource,
+    flowId: string,
+    chatId: string,
+    action: IncomingInput['action']
+): Promise<{ traceId: string; spanId: string } | undefined> => {
+    if (process.env.CUTTLELY_OTEL_TRACES !== 'true') return undefined
+    const actionId = action && typeof action === 'object' ? action.id : undefined
+    if (typeof actionId !== 'string' || !actionId || !flowId || !chatId) return undefined
+    let rows: Array<{ chatId?: string; sessionId?: string; chatflowid?: string; action?: string | null }> = []
+    try {
+        rows = await appDataSource
+            .getRepository(ChatMessage)
+            .createQueryBuilder('chat_message')
+            .where('chat_message.chatId = :chatId', { chatId })
+            .andWhere('chat_message.chatflowid = :flowId', { flowId })
+            .orderBy('chat_message.createdDate', 'DESC')
+            .getMany()
+    } catch {
+        return undefined
+    }
+    const stored = rows.some((row) => {
+        if (row.chatflowid && row.chatflowid !== flowId) return false
+        if (row.chatId !== chatId && row.sessionId !== chatId) return false
+        if (!row.action || typeof row.action !== 'string') return false
+        try {
+            const saved = JSON.parse(row.action) as { id?: string }
+            return saved?.id === actionId
+        } catch {
+            return false
+        }
+    })
+    if (!stored) return undefined
+    return traceContinuationFor(flowId, chatId, actionId)
+}
 
 const shouldAutoPlayTTS = (textToSpeechConfig: string | undefined | null): boolean => {
     if (!textToSpeechConfig) return false
@@ -566,7 +606,10 @@ export const executeFlow = async ({
         })
     }
 
-    return traceChatflowPrediction(
+    const continuedFrom =
+        replay === true ? undefined : await parentFromStoredAction(appDataSource, chatflow.id, chatId, incomingInput.action)
+    const actionId = incomingInput.action?.id
+    const result = await traceChatflowPrediction(
         replay === true,
         chatflow.id,
         () => incomingInput.question,
@@ -993,12 +1036,14 @@ export const executeFlow = async ({
                 if (replay) {
                     // Only the answer: no saved message, follow-up prompts, telemetry or speech.
                     // The check still spent tokens, so the daily total includes them.
+                    // `usage` is that same write, so the check prices the callback sink and not the tracer.
+                    const usage = chatflowUsageResult(result, chatflowTokenUsage)
                     void recordCompletedRun(appDataSource, {
                         workspaceId,
                         flowId: chatflowid,
-                        result: chatflowUsageResult(result, chatflowTokenUsage)
+                        result: usage
                     })
-                    return { text: resultText, sourceDocuments: result?.sourceDocuments, usedTools: result?.usedTools }
+                    return { text: resultText, sourceDocuments: result?.sourceDocuments, usedTools: result?.usedTools, usage }
                 }
                 if (chatflow.followUpPrompts) {
                     const followUpPromptsConfig = JSON.parse(chatflow.followUpPrompts)
@@ -1072,8 +1117,11 @@ export const executeFlow = async ({
 
                 return result
             }
-        }
+        },
+        continuedFrom
     )
+    if (continuedFrom && typeof actionId === 'string') finishTraceContinuation(chatflow.id, chatId, actionId)
+    return result
 }
 
 // Ordinary chatflows do not put token counts on the result. The copy is only for the usage write,

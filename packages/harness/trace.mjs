@@ -1,4 +1,4 @@
-import { sourceName } from './context.mjs'
+import { isAnalystCapSummary, sourceName, wantsAnalystRows } from './context.mjs'
 
 const TASK_LIMIT = 500
 
@@ -16,6 +16,60 @@ const SPECIALIST_PARTS = {
     task: (name) => `The task for ${name} was shortened to fit the specialist context budget.`,
     toolResult: (name) => `Tool text from ${name} was shortened before Harness Prime read it.`,
     sources: (name) => `Source snippets from ${name} were shortened before Harness Prime read them.`
+}
+
+// history.mjs drops a trace whose JSON is longer than this. The question is the part that shrinks.
+export const TRACE_JSON_LIMIT = 20000
+
+// The same replacements previewText uses, with no length cut. A secret past the
+// first 240 or 500 characters is still a secret.
+export function redactSecrets(value) {
+    return String(value ?? '')
+        .replace(/\bsk-[A-Za-z0-9_-]{8,}\b/g, '[redacted]')
+        .replace(/\bxai-[A-Za-z0-9_-]{8,}\b/g, '[redacted]')
+        .replace(/Bearer\s+\S+/gi, 'Bearer [redacted]')
+        .replace(/\bpostgres(?:ql)?:\/\/\S+/gi, '[redacted]')
+}
+
+function redactTraceQuestion(value) {
+    return redactSecrets(
+        String(value ?? '')
+            .replace(/\s+/g, ' ')
+            .trim()
+    )
+}
+
+function traceJsonFits(trace) {
+    return JSON.stringify(trace).length <= TRACE_JSON_LIMIT
+}
+
+// A question that does not fit is cut, and marked so the caption does not treat
+// the remaining words as the question the run asked. The row count and preview stay.
+function fitTraceQuestion(trace, question) {
+    const redacted = redactTraceQuestion(question)
+    if (!redacted) return trace
+    const full = { ...trace, question: redacted }
+    if (traceJsonFits(full)) return full
+    let lo = 0
+    let hi = redacted.length
+    let best = -1
+    while (lo <= hi) {
+        const mid = (lo + hi) >> 1
+        const cut = `${redacted.slice(0, mid)}…`
+        if (traceJsonFits({ ...trace, question: cut, questionCut: true })) {
+            best = mid
+            lo = mid + 1
+        } else hi = mid - 1
+    }
+    if (best < 0) return trace
+    return { ...trace, question: `${redacted.slice(0, best)}…`, questionCut: true }
+}
+
+// A cut question is not evidence that the answer has the rows. Callers that still
+// have the sent prompt, the previous chat message, or an uncut preview pass that instead.
+export function traceQuestionForCaption(trace) {
+    if (!trace || trace.questionCut) return ''
+    return typeof trace.question === 'string' ? trace.question.trim() : ''
 }
 
 export function publicTask(task) {
@@ -115,6 +169,15 @@ export function toolChipLabel(tool) {
 // Matches the analyst row-cap maximum. The query already returns only the rows this page shows.
 export const TRACE_ROW_LIMIT = 1000
 
+// A new query step stores a short preview, not the page. These caps keep that preview small.
+// The row cap below is the same ceiling the analyst uses: 100 unless the admin setting says otherwise, never above 1000.
+export const TRACE_PREVIEW_ROWS = 5
+export const TRACE_PREVIEW_COLUMNS = 4
+export const TRACE_PREVIEW_CELL_CHARS = 40
+export const TRACE_PREVIEW_BYTES = 1024
+export const TRACE_ROW_CAP_DEFAULT = 100
+export const TRACE_ROW_CAP_MAX = 1000
+
 function isAnalystQueryChip(name) {
     const value = String(name || '')
     return value === 'query' || value.endsWith('__query')
@@ -126,19 +189,142 @@ function rowCell(value) {
     return String(value)
 }
 
-// The rows an analyst query returned, from the result the trace keeps on that query's chip. Harness Prime gets a
-// short handoff and the answer may show only the top rows. The run card shows the whole list, up to the row cap.
-export function analystChipRows(tool) {
-    if (!tool?.detail || !isAnalystQueryChip(tool.name)) return null
-    let body
+function readEnv(env) {
+    if (env && typeof env === 'object') return env
+    const proc = globalThis.process
+    if (proc && proc.env) return proc.env
+    return {}
+}
+
+function parseAnalystResult(detail) {
     try {
-        body = JSON.parse(String(tool.detail))?.result
+        let body = JSON.parse(String(detail))?.result
         if (typeof body === 'string') body = JSON.parse(body)
+        if (!body || typeof body !== 'object' || Array.isArray(body)) return null
+        return body
     } catch {
         return null
     }
-    if (!body || typeof body !== 'object' || !Array.isArray(body.rows)) return null
-    const rows = body.rows.slice(0, TRACE_ROW_LIMIT).filter((row) => row && typeof row === 'object' && !Array.isArray(row))
+}
+
+function plainRows(rows) {
+    return (Array.isArray(rows) ? rows : []).filter((row) => row && typeof row === 'object' && !Array.isArray(row))
+}
+
+function finiteCount(value) {
+    const n = Number(value)
+    return Number.isFinite(n) && n >= 0 ? Math.floor(n) : null
+}
+
+// Unset keeps previews on. false, 0, off, and no turn them off. Any other value stays on.
+export function analystTracePreviewsEnabled(env) {
+    const raw = readEnv(env).CUTTLELY_ANALYST_TRACE_PREVIEW
+    if (raw == null || String(raw).trim() === '') return true
+    const value = String(raw).trim().toLowerCase()
+    return value !== 'false' && value !== '0' && value !== 'off' && value !== 'no'
+}
+
+// Matches the admin row cap: unset or unusable stays at 100, and nothing above 1000 is kept.
+// A fraction between 0 and 1 is one row, so a small override cannot fall through to the default.
+export function analystTraceRowCap(env) {
+    const raw = readEnv(env).CUTTLELY_ANALYST_ROW_CAP
+    if (raw == null || String(raw).trim() === '') return TRACE_ROW_CAP_DEFAULT
+    const n = Number(String(raw).trim())
+    if (!Number.isFinite(n) || n <= 0) return TRACE_ROW_CAP_DEFAULT
+    if (n < 1) return 1
+    return Math.min(Math.floor(n), TRACE_ROW_CAP_MAX)
+}
+
+function clipText(value, limit) {
+    const text = rowCell(value)
+    if (text.length <= limit) return text
+    if (limit <= 1) return '…'
+    return `${text.slice(0, limit - 1)}…`
+}
+
+function previewBytes(preview) {
+    const json = JSON.stringify(preview)
+    if (typeof TextEncoder !== 'undefined') return new TextEncoder().encode(json).length
+    return json.length
+}
+
+function clipSummary(summary) {
+    const text = typeof summary === 'string' ? summary.trim() : ''
+    if (text.length <= 180) return text
+    return `${text.slice(0, 179)}…`
+}
+
+// Rows past the cap are dropped before the preview is built. The preview then keeps the first few rows and
+// columns, cuts each value short, and shrinks until the JSON fits in the byte cap.
+export function analystQueryPreview(body, env) {
+    if (!body || typeof body !== 'object' || Array.isArray(body) || !Array.isArray(body.rows)) return null
+    const cap = analystTraceRowCap(env)
+    const available = plainRows(body.rows)
+    const source = available.slice(0, cap)
+    const rowCount = source.length
+    // A next page exists only when the analyst marked the result truncated. A short preview of a finished page is not one.
+    const nextPage = body.truncated === true
+    if (!analystTracePreviewsEnabled(env) || !rowCount) return { rowCount, preview: null }
+    const columns = []
+    for (const row of source) {
+        for (const key of Object.keys(row)) if (!columns.includes(key)) columns.push(key)
+    }
+    let rowTake = Math.min(TRACE_PREVIEW_ROWS, source.length)
+    let colTake = Math.min(TRACE_PREVIEW_COLUMNS, columns.length)
+    let cellLimit = TRACE_PREVIEW_CELL_CHARS
+    let summaryText = clipSummary(body.summary)
+    const columnCount = columns.length
+    for (let guard = 0; guard < 80; guard += 1) {
+        const shownColumns = columns.slice(0, colTake).map((name) => clipText(name, cellLimit))
+        const shownRows = source.slice(0, rowTake).map((row) => columns.slice(0, colTake).map((key) => clipText(row[key], cellLimit)))
+        const preview = {
+            columns: shownColumns,
+            rows: shownRows,
+            moreRows: source.length > shownRows.length,
+            nextPage,
+            moreColumns: columnCount > shownColumns.length,
+            columnCount,
+            ...(summaryText ? { summary: summaryText } : {})
+        }
+        if (previewBytes(preview) <= TRACE_PREVIEW_BYTES) return { rowCount, preview }
+        if (rowTake > 1) {
+            rowTake -= 1
+            continue
+        }
+        if (colTake > 1) {
+            colTake -= 1
+            continue
+        }
+        if (cellLimit > 8) {
+            cellLimit = Math.max(8, Math.floor(cellLimit / 2))
+            continue
+        }
+        if (summaryText) {
+            summaryText = ''
+            continue
+        }
+        break
+    }
+    return {
+        rowCount,
+        preview: {
+            columns: columns.slice(0, 1).map((name) => clipText(name, 8)),
+            rows: [[clipText(source[0]?.[columns[0]], 8)]],
+            moreRows: source.length > 1,
+            nextPage,
+            moreColumns: columnCount > 1,
+            columnCount
+        }
+    }
+}
+
+// The rows an analyst query returned, from the result an older trace kept on that query's chip.
+// A new trace stores analystQueryPreview instead, so this stays for runs saved before that.
+export function analystChipRows(tool) {
+    if (!tool?.detail || !isAnalystQueryChip(tool.name)) return null
+    const body = parseAnalystResult(tool.detail)
+    if (!body || !Array.isArray(body.rows)) return null
+    const rows = plainRows(body.rows).slice(0, TRACE_ROW_LIMIT)
     if (!rows.length) return null
     const columns = []
     for (const row of rows) {
@@ -150,6 +336,99 @@ export function analystChipRows(tool) {
         summary: typeof body.summary === 'string' ? body.summary.trim() : '',
         truncated: body.truncated === true
     }
+}
+
+// What the run card draws for one query chip. A recorded preview wins. An older chip that still has its
+// rows in detail falls back to that list. A chip with neither still returns null so the step renders.
+export function analystStepView(tool) {
+    if (!tool || !isAnalystQueryChip(tool.name)) return null
+    const preview = tool.preview
+    if (preview && typeof preview === 'object' && Array.isArray(preview.columns) && Array.isArray(preview.rows)) {
+        const rows = preview.rows.filter((row) => Array.isArray(row)).map((row) => row.map((cell) => (cell == null ? '' : String(cell))))
+        const rowCount = finiteCount(tool.rowCount) ?? rows.length
+        if (rows.length || rowCount > 0) {
+            return {
+                rowCount,
+                columns: preview.columns.map((column) => String(column)),
+                rows,
+                summary: typeof preview.summary === 'string' ? preview.summary : '',
+                moreRows: preview.moreRows === true || rowCount > rows.length,
+                nextPage: preview.nextPage === true,
+                moreColumns: preview.moreColumns === true,
+                columnCount: finiteCount(preview.columnCount) ?? preview.columns.length,
+                legacy: false
+            }
+        }
+    }
+    const legacy = analystChipRows(tool)
+    if (legacy) {
+        return {
+            rowCount: legacy.rows.length,
+            columns: legacy.columns,
+            rows: legacy.rows,
+            summary: legacy.summary,
+            moreRows: false,
+            nextPage: legacy.truncated === true,
+            moreColumns: false,
+            columnCount: legacy.columns.length,
+            legacy: true
+        }
+    }
+    const rowCount = finiteCount(tool.rowCount)
+    if (rowCount == null) return null
+    return {
+        rowCount,
+        columns: [],
+        rows: [],
+        summary: '',
+        moreRows: false,
+        nextPage: false,
+        moreColumns: false,
+        columnCount: 0,
+        legacy: false
+    }
+}
+
+// The public query step keeps the row count and, when previews are on, the short preview.
+// The full page stays out of the trace. A create or a failure keeps its short detail.
+export function publicToolStep(tool, env) {
+    const base = { name: tool?.name, status: tool?.status }
+    if (!tool?.detail || !isAnalystQueryChip(tool.name)) {
+        return tool?.detail ? { ...base, detail: String(tool.detail) } : base
+    }
+    const body = parseAnalystResult(tool.detail)
+    if (!body || !Array.isArray(body.rows)) return { ...base, detail: String(tool.detail) }
+    const shaped = analystQueryPreview(body, env)
+    const next = { ...base, rowCount: shaped.rowCount }
+    if (shaped.preview) next.preview = shaped.preview
+    return next
+}
+
+// Rows are written back only when the summary is a page line AND the question asks for the rows.
+// That is the same pair of tests preserveAnalystRows uses. A missing question is not that case.
+function rowsRestoredInAnswer(view, question) {
+    if (!view) return false
+    const asked = typeof question === 'string' ? question.trim() : ''
+    if (!asked || !wantsAnalystRows(asked)) return false
+    return isAnalystCapSummary(view.summary)
+}
+
+// The caption under a query preview. "Say show more" follows truncated.
+// The in-chat sentence follows the page line and the same question the handoff used.
+export function analystPreviewCaption(view, question) {
+    if (!view) return ''
+    const shown = view.rows.length
+    const total = view.rowCount
+    const parts = []
+    if (shown < total) parts.push(`Showing ${shown} of ${total} rows.`)
+    else parts.push(`${total} row${total === 1 ? '' : 's'}.`)
+    if (view.moreColumns && view.columnCount > view.columns.length) {
+        parts.push(`Showing ${view.columns.length} of ${view.columnCount} columns.`)
+    }
+    if (rowsRestoredInAnswer(view, question)) parts.push('The rest of these rows are in the answer in this chat.')
+    else if (shown < total) parts.push('The answer can show fewer rows than the query returned.')
+    if (view.nextPage) parts.push('Say show more for the next page.')
+    return parts.join(' ')
 }
 
 // A batched local tool_call is rejected, then the model sends one call at a time.
@@ -166,17 +445,22 @@ export function settleToolChips(tools) {
     return list
 }
 
-export function snapshotSpecialist({ calls, tools, name, configuredModel, failed = false }) {
+export function snapshotSpecialist({ calls, tools, name, configuredModel, failed = false, env } = {}) {
     const related = (calls || []).filter((call) => call.name === name && (call.role === 'specialist' || call.role === 'fill'))
     const last = [...related].reverse().find((call) => call.model)
     const ownTools = settleToolChips(
         (tools || [])
             .filter((tool) => tool.specialist === name)
-            .map((tool) => ({
-                name: tool.name,
-                status: tool.status === 'running' && failed ? 'failed' : tool.status,
-                ...(tool.detail ? { detail: tool.detail } : {})
-            }))
+            .map((tool) =>
+                publicToolStep(
+                    {
+                        name: tool.name,
+                        status: tool.status === 'running' && failed ? 'failed' : tool.status,
+                        ...(tool.detail ? { detail: tool.detail } : {})
+                    },
+                    env
+                )
+            )
     )
     return {
         model: last?.model || configuredModel || '',
@@ -398,13 +682,14 @@ export function buildRunTrace({
     handoffTokens = null,
     handoffFallback = '',
     handoffStatus = '',
-    directDetail = null
+    directDetail = null,
+    question = ''
 } = {}) {
     const routeMs = timings.routeMs ?? 0
     const specialistsMs = timings.specialistsMs ?? timings.toolMs ?? 0
     const handoffMs = direct ? 0 : timings.handoffMs ?? 0
     const truncated = (report?.truncated || []).filter(Boolean).map((field) => ({ field, reason: explainTruncation(field) }))
-    return {
+    const body = {
         harness: harness || '',
         status: (agents || []).some((agent) => agent.status === 'failed') ? 'partial' : 'completed',
         direct: Boolean(direct),
@@ -459,6 +744,7 @@ export function buildRunTrace({
                   },
         ...(direct && directDetail ? { directDetail } : {})
     }
+    return fitTraceQuestion(body, question)
 }
 
 export function traceFromPayload(payload) {

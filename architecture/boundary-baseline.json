@@ -317,6 +317,11 @@
         },
         {
             "from": "packages/server/src/identity/rbac.routes.test.ts",
+            "to": "packages/server/src/routes/model-prices/index.ts",
+            "reason": "The permission test imports the model price router so it can check the owner gate."
+        },
+        {
+            "from": "packages/server/src/identity/rbac.routes.test.ts",
             "to": "packages/server/src/routes/stats/index.ts",
             "reason": "The permission test imports the stats router so it can check the view gate."
         },
@@ -1060,6 +1065,11 @@
             "to": "packages/ui/src/store/constant.js"
         },
         {
+            "from": "packages/ui/src/api/usage.js",
+            "to": "packages/ui/src/api/client.js",
+            "reason": "The Usage page uses the shared page header, card, and API client."
+        },
+        {
             "from": "packages/ui/src/hooks/useCanvasLook.js",
             "to": "packages/ui/src/store/context/ConfigContext.jsx"
         },
@@ -1318,6 +1328,16 @@
         {
             "from": "packages/ui/src/views/setup/GithubStep.jsx",
             "to": "packages/ui/src/ui-component/extended/Logo.jsx"
+        },
+        {
+            "from": "packages/ui/src/views/usage/UsagePage.jsx",
+            "to": "packages/ui/src/layout/MainLayout/ViewHeader.jsx",
+            "reason": "The Usage page uses the shared page header, card, and API client."
+        },
+        {
+            "from": "packages/ui/src/views/usage/UsagePage.jsx",
+            "to": "packages/ui/src/ui-component/cards/MainCard.jsx",
+            "reason": "The Usage page uses the shared page header, card, and API client."
         },
         {
             "from": "packages/ui/src/views/versions/VersionCanvas.jsx",
@@ -2421,12 +2441,16 @@
             "reason": "The node list and pack index sign-in test stays with the inherited nodes routes."
         },
         {
+            "path": "packages/server/src/services/evaluations/grader-node-fixture.js",
+            "reason": "The publish check test counts grader tokens with the runner's reader, and the grader tests sit beside that runner."
+        },
+        {
             "path": "packages/server/src/services/evaluations/LLMEvaluationRunner.test.ts",
             "reason": "The publish check test counts grader tokens with the runner's reader, and the grader tests sit beside that runner."
         },
         {
-            "path": "packages/server/src/services/evaluations/grader-node-fixture.js",
-            "reason": "The publish check test counts grader tokens with the runner's reader, and the grader tests sit beside that runner."
+            "path": "packages/server/src/services/executions/index.test.ts",
+            "reason": "The executions paging test lives next to the service it checks."
         },
         {
             "path": "packages/server/src/utils/buildAgentflow.harness-usage.test.ts",
@@ -2439,10 +2463,6 @@
         {
             "path": "packages/server/src/utils/buildAgentGraph.usage.test.ts",
             "reason": "The Agent token test and the multi-agent usage test stay next to the inherited nodes they exercise."
-        },
-        {
-            "path": "packages/server/src/services/executions/index.test.ts",
-            "reason": "The executions paging test lives next to the service it checks."
         },
         {
             "path": "packages/server/src/utils/telemetry-geoip-missing.test.ts",
