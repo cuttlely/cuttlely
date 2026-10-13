@@ -10045,6 +10045,295 @@ await (async () => {
     )
 })()
 
+await (async () => {
+    class RefusedSqlMcp {
+        static calls = []
+        async init() {
+            const tool = (name, description, properties) => ({
+                name,
+                description,
+                schema: { type: 'object', properties },
+                async invoke(args) {
+                    RefusedSqlMcp.calls.push(name)
+                    return `${name}-ok ${JSON.stringify(args)}`
+                }
+            })
+            return [
+                tool('execute_sql', 'Run any SQL statement', { sql: { type: 'string' } }),
+                tool('search_docs', 'Search the help pages', { query: { type: 'string' } })
+            ]
+        }
+    }
+    const sqlModel = nodeModel('echoChat', { credential: 'cred-xai', label: 'Echo', inputs: { modelName: 'gpt-4.1' } })
+    saveHarness(
+        {
+            name: 'sqlrefuse',
+            workspaceId: 'w1',
+            chatflowId: 'flow-sqlrefuse',
+            chief: { instructions: 'Route the work.', model: sqlModel },
+            specialists: [
+                {
+                    name: 'operator',
+                    instructions: 'Use the database tools.',
+                    shell: false,
+                    modules: [],
+                    mcpServers: [
+                        {
+                            nodeName: 'customMCP',
+                            label: 'db_tools',
+                            category: 'Tools (MCP)',
+                            inputs: { mcpServerConfig: JSON.stringify({ command: 'do-not-launch', args: ['--raw-mcp'] }) }
+                        }
+                    ]
+                }
+            ]
+        },
+        { overwrite: true }
+    )
+    compileProfile(getHarness('sqlrefuse'))
+    const publishedToken = readProfileEnv('sqlrefuse--operator').OPENAI_API_KEY
+    const tryId = 'e'.repeat(16)
+    compileTryProfile({ ...getHarness('sqlrefuse'), tryId }, tryId)
+    const tryToken = readProfileEnv(`try${tryId}--operator`).OPENAI_API_KEY
+    await maybeConfigure(
+        flowContext({
+            workspaceId: 'w1',
+            loadNode: async (nodeName) => {
+                if (nodeName === 'customMCP') return RefusedSqlMcp
+                throw new Error(`unexpected node ${nodeName}`)
+            }
+        })
+    )
+    const gateway = await openGateway()
+    const list = async (token) => {
+        const response = await localRequest({ port: gateway.port, method: 'POST', path: '/harness/tools/list', token, body: {} })
+        const parsed = JSON.parse(response.body)
+        return (parsed.tools || []).map((tool) => tool.name)
+    }
+    const call = async (token, name) => {
+        const response = await localRequest({
+            port: gateway.port,
+            method: 'POST',
+            path: '/harness/tools/call',
+            token,
+            body: { name, arguments: { sql: 'select 1', query: 'hours' } }
+        })
+        return JSON.parse(response.body)
+    }
+    const refused = (reply) => String(reply.result).includes(SQL_TOOL_REFUSED)
+    const publishedList = await list(publishedToken)
+    const publishedEarly = await call(publishedToken, 'execute_sql')
+    const publishedServer = await call(publishedToken, 'customMCP')
+    const tryEarly = await call(tryToken, 'execute_sql')
+    const tryAgain = await call(tryToken, 'execute_sql')
+    const tryServer = await call(tryToken, 'customMCP')
+    const tryList = await list(tryToken)
+    const publishedAfter = await call(publishedToken, 'execute_sql')
+    const tryAfter = await call(tryToken, 'execute_sql')
+    const tryDocs = await call(tryToken, 'search_docs')
+    await gateway.close()
+    discardTryProfile(tryId)
+    check(
+        'a try refuses the same SQL tools as the published profile, and neither list replaces the other',
+        !publishedList.includes('execute_sql') &&
+            publishedList.includes('search_docs') &&
+            !tryList.includes('execute_sql') &&
+            tryList.includes('search_docs') &&
+            [publishedEarly, publishedServer, tryEarly, tryAgain, tryServer, publishedAfter, tryAfter].every(refused) &&
+            String(tryDocs.result).includes('search_docs-ok') &&
+            !RefusedSqlMcp.calls.includes('execute_sql'),
+        JSON.stringify({
+            publishedList,
+            tryList,
+            calls: RefusedSqlMcp.calls,
+            publishedAfter: publishedAfter.result,
+            tryEarly: tryEarly.result
+        })
+    )
+})()
+
+await (async () => {
+    const { specialistSessionId } = await import('./specialist-run.mjs')
+    const { currentAnalystScope, openAnalystRunScopes, queryAnalyst } = await import('./runtime/analyst-store.mjs')
+    const { latestAnalystCursor } = await import('./analyst-capture.mjs')
+    const chatId = 'chat-try-page'
+    const pageLine = 'rows 1-1 of 2 (page 1 of 2, say "show more" for the next page)'
+    let seenScope = ''
+    let queryError = ''
+    class PageAnalyst {
+        async init() {
+            return [
+                {
+                    name: 'query',
+                    description: 'Run one SQL statement',
+                    schema: { type: 'object', properties: { sql: { type: 'string' } } },
+                    async invoke() {
+                        seenScope = currentAnalystScope()
+                        try {
+                            await queryAnalyst('SELECT 1')
+                        } catch (error) {
+                            queryError = error.message
+                        }
+                        return JSON.stringify({
+                            rows: [{ id: 1, note: 'ROW_KEEP' }],
+                            cursor: 'cur-try-page',
+                            truncated: true,
+                            summary: pageLine
+                        })
+                    }
+                }
+            ]
+        }
+    }
+    saveHarness(
+        {
+            name: 'sqlgate',
+            chatflowId: 'flow-sqlgate',
+            chief: {
+                instructions: 'Database questions go to the analyst.',
+                model: nodeModel('scriptedChat', { credential: 'cred-team', label: 'Team', inputs: { modelName: 'gpt-4.1' } })
+            },
+            specialists: [
+                {
+                    name: 'analyst',
+                    instructions: 'Query the analyst database.',
+                    mcpServers: [{ nodeName: 'postgreSQLMCP', label: 'PostgreSQL MCP', category: 'Tools (MCP)', inputs: {} }]
+                }
+            ]
+        },
+        { overwrite: true }
+    )
+    const gatewayApi = await import('./gateway.mjs')
+    gatewayApi.setGatewayContext(async (record) => ({
+        componentNodes: {},
+        loadNode: async (nodeName) => {
+            if (nodeName === 'postgreSQLMCP') return PageAnalyst
+            throw new Error(`unexpected node ${nodeName}`)
+        },
+        flowOptions: flowContext({ workspaceId: record.workspaceId || 'w1', chatflowid: record.chatflowId }).flowOptions
+    }))
+    const gateway = await openGateway()
+    const tryId = 'b'.repeat(16)
+    const tryProfile = `try${tryId}`
+    const inputs = []
+    const runs = new Map()
+    let runCount = 0
+    const json = (status, body) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } })
+    const fetchImpl = async (url, init = {}) => {
+        const parsed = new URL(url)
+        const method = init.method || 'GET'
+        if (method === 'POST' && /\/v1\/runs$/.test(parsed.pathname)) {
+            const body = JSON.parse(init.body || '{}')
+            inputs.push(body.input)
+            runCount += 1
+            const id = `run-${runCount}`
+            const paging = String(body.input || '').includes('cur-try-page')
+            if (!paging) {
+                const token = readProfileEnv(`${tryProfile}--analyst`).OPENAI_API_KEY
+                await localRequest({
+                    port: gateway.port,
+                    method: 'POST',
+                    path: '/harness/tools/call',
+                    token,
+                    body: {
+                        name: 'query',
+                        scope: specialistSessionId(`${tryProfile}--analyst`, chatId, 'turn-1'),
+                        tool_call_id: 'call-try-page',
+                        arguments: { sql: 'SELECT id FROM tickets' }
+                    }
+                })
+            }
+            runs.set(
+                id,
+                paging
+                    ? {
+                          output: 'Listed the next page.',
+                          events: [{ event: 'tool.completed', tool: 'mcp__analyst__query', preview: 'next' }]
+                      }
+                    : {
+                          output: 'Listed the first page.',
+                          events: [
+                              {
+                                  event: 'tool.completed',
+                                  tool: 'mcp__analyst__query',
+                                  tool_call_id: 'call-try-page',
+                                  preview: '{"rows":[{"id":1}]}'
+                              }
+                          ]
+                      }
+            )
+            return json(202, { run_id: id, status: 'started' })
+        }
+        const events = parsed.pathname.match(/\/v1\/runs\/([^/]+)\/events$/)
+        if (events) {
+            const plan = runs.get(decodeURIComponent(events[1])) || { events: [] }
+            const frames = (plan.events || []).map((event) => `data: ${JSON.stringify(event)}\n\n`).join('')
+            return new Response(`${frames}: stream closed\n\n`, { status: 200, headers: { 'content-type': 'text/event-stream' } })
+        }
+        const match = parsed.pathname.match(/\/v1\/runs\/([^/]+)$/)
+        if (match && method === 'GET') {
+            const plan = runs.get(decodeURIComponent(match[1])) || { output: '' }
+            return json(200, { status: 'completed', output: plan.output || 'done' })
+        }
+        if (parsed.pathname.endsWith('/stop')) return json(200, { status: 'stopping' })
+        return json(404, { message: 'not found' })
+    }
+    const loadNode = async (nodeName) => {
+        if (nodeName !== 'scriptedChat') throw new Error(`unexpected ${nodeName}`)
+        return recordingChat([], (messages) => {
+            const plain = plainChatMessages(messages)
+            const user = String(plain.at(-1)?.content || '')
+            if (user.includes('cur-try-page') || user.includes('show more')) return { content: 'NEXT_PAGE_ROW' }
+            return { content: 'FIRST_PAGE' }
+        })
+    }
+    const first = await runHarness({
+        name: 'sqlgate',
+        chatId,
+        input: 'Use the analyst database. Select the tickets.',
+        baseUrl: 'http://127.0.0.1:9',
+        fetchImpl,
+        loadNode,
+        record: { ...getHarness('sqlgate'), tryId }
+    })
+    const cursor = latestAnalystCursor({ harness: 'sqlgate', chatId })
+    const tryCursor = latestAnalystCursor({ harness: tryProfile, chatId })
+    const scopesAfter = openAnalystRunScopes()
+    const savedScope = `sqlgate:${chatId}`
+    const next = await runHarness({
+        name: 'sqlgate',
+        chatId,
+        input: 'show more',
+        baseUrl: 'http://127.0.0.1:9',
+        fetchImpl,
+        loadNode
+    })
+    await gateway.close()
+    const detail = first.trace?.specialists?.[0]?.tools?.map((tool) => tool.detail).join('\n') || ''
+    check(
+        'a try turn keeps the analyst page on the saved harness, including the trace and the closed session',
+        cursor?.token === 'cur-try-page' &&
+            !tryCursor &&
+            seenScope === savedScope &&
+            !queryError &&
+            !scopesAfter.includes(savedScope) &&
+            !scopesAfter.some((scope) => scope.startsWith(`${tryProfile}:`)) &&
+            detail.includes('ROW_KEEP') &&
+            next.text !== ANALYST_PAGE_NONE &&
+            inputs.some((input) => String(input).includes('cur-try-page')),
+        JSON.stringify({
+            cursor,
+            tryCursor,
+            seenScope,
+            queryError,
+            scopesAfter,
+            detail: detail.slice(0, 240),
+            next: next.text,
+            inputs
+        })
+    )
+})()
+
 if (failures.length) {
     console.error(`\n${failures.length} check(s) failed`)
     process.exit(1)

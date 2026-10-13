@@ -304,7 +304,7 @@ async function onRequest(req, res) {
         if (req.method === 'POST' && pathName === '/harness/tools/list') {
             const record = requireHarness(meta)
             const ctx = await ownerContext(record)
-            sendJson(res, 200, { tools: await toolSpecs(record, meta.specialistName, ctx) })
+            sendJson(res, 200, { tools: await toolSpecs(record, meta.specialistName, ctx, meta.profileName) })
             return
         }
         if (req.method === 'POST' && pathName === '/harness/tools/call') {
@@ -535,7 +535,7 @@ function writeStream(res, { id, created, model, content, toolCalls, reason, usag
     res.end()
 }
 
-async function toolSpecs(record, specialistName, ctx) {
+async function toolSpecs(record, specialistName, ctx, profileName) {
     const specialist = specialistOf(record, specialistName)
     if (!specialist) return []
     const tools = []
@@ -550,12 +550,13 @@ async function toolSpecs(record, specialistName, ctx) {
             nodeCache: ctx.nodeCache
         })
         const ready = readyToolSpecs(prepared)
-        const specs = refuseSqlTools(record, specialistName, binding, ready, refused)
+        const specs = refuseSqlTools(profileName, specialistName, binding, ready, refused)
         if (specs.length) tools.push(...specs)
         else if (ready.length) continue
         else tools.push(toolSpec(binding, 'Connected MCP server'))
     }
-    refusedSqlTools.set(refusedKey(record.name, specialistName), refused)
+    // The set belongs to this specialist profile. A try must not replace the published profile's set.
+    if (profileName) refusedSqlTools.set(refusalKey(profileName), refused)
     if (!tools.length && !refused.size) tools.push(toolSpec({}, 'Bound Flowise module'))
     return tools
 }
@@ -563,13 +564,13 @@ async function toolSpecs(record, specialistName, ctx) {
 // SQL tools from an MCP server that cannot limit its tables are not offered, and a call to one is refused.
 const refusedSqlTools = new Map()
 
-function refusedKey(harnessName, specialistName) {
-    return `${harnessName}\0${specialistName}`
+function refusalKey(profileName) {
+    return String(profileName || '')
 }
 
-function refuseSqlTools(record, specialistName, binding, specs, refused) {
+function refuseSqlTools(profileName, specialistName, binding, specs, refused) {
     if (enforcesTables(binding)) return specs
-    const before = refusedSqlTools.get(refusedKey(record.name, specialistName))
+    const before = refusedSqlTools.get(refusalKey(profileName))
     const kept = []
     for (const spec of specs) {
         if (!runsSql(spec)) {
@@ -577,7 +578,7 @@ function refuseSqlTools(record, specialistName, binding, specs, refused) {
             continue
         }
         if (!before?.has(spec.name)) {
-            console.warn(`[harness] ${record.name}/${specialistName}: refused SQL tool ${spec.name}. ${SQL_TOOL_REFUSED}`)
+            console.warn(`[harness] ${profileName}/${specialistName}: refused SQL tool ${spec.name}. ${SQL_TOOL_REFUSED}`)
         }
         refused.add(spec.name)
     }
@@ -588,8 +589,8 @@ function refuseSqlTools(record, specialistName, binding, specs, refused) {
     return kept
 }
 
-export function isRefusedSqlTool(harnessName, specialistName, toolName) {
-    return Boolean(refusedSqlTools.get(refusedKey(harnessName, specialistName))?.has(toolName))
+export function isRefusedSqlTool(profileName, toolName) {
+    return Boolean(refusedSqlTools.get(refusalKey(profileName))?.has(toolName))
 }
 
 function toolSpec(binding, kind) {
@@ -611,22 +612,23 @@ async function callTool(req, res, meta) {
     }
     const record = requireHarness(meta)
     const ctx = await ownerContext(record)
-    const scope = callScope(body.scope, meta.harnessName)
+    // The page cursor and the analyst session use the saved harness name. meta.harnessName is the try profile.
+    const scope = callScope(body.scope, record.name)
     const args = body.arguments && typeof body.arguments === 'object' && !Array.isArray(body.arguments) ? { ...body.arguments } : {}
     const callId = hermesToolCallId(body, args)
     delete args._cuttlelyCallId
     // A call can come before any tool list in this process, after a restart for example.
-    if (!refusedSqlTools.has(refusedKey(meta.harnessName, meta.specialistName))) {
-        await toolSpecs(record, meta.specialistName, ctx)
+    if (meta.profileName && !refusedSqlTools.has(refusalKey(meta.profileName))) {
+        await toolSpecs(record, meta.specialistName, ctx, meta.profileName)
     }
-    if (isRefusedSqlTool(meta.harnessName, meta.specialistName, body.name)) {
+    if (isRefusedSqlTool(meta.profileName, body.name)) {
         sendJson(res, 200, { result: JSON.stringify({ error: SQL_TOOL_REFUSED, cuttlelyOutcome: 'expected' }) })
         return
     }
     const result = await withAnalystScope(
         scope,
         () =>
-            executeSpecialistTool(meta.harnessName, meta.specialistName, body.name, args, {
+            executeSpecialistTool(record.name, meta.specialistName, body.name, args, {
                 harness: record,
                 componentNodes: ctx.componentNodes,
                 loadNode: ctx.loadNode,
@@ -635,7 +637,7 @@ async function callTool(req, res, meta) {
             }),
         { workspace: record.workspaceId }
     )
-    rememberAnalystResult(meta, result, scope, body.name, args, callId)
+    rememberAnalystResult(record.name, meta.specialistName, result, scope, body.name, args, callId)
     sendJson(res, 200, { result })
 }
 
@@ -671,15 +673,15 @@ function analystStatement(args) {
     return { sql, cursor }
 }
 
-function rememberAnalystResult(meta, result, scope, toolName, args, callId) {
-    const prefix = `${meta.harnessName}:`
+function rememberAnalystResult(savedName, specialistName, result, scope, toolName, args, callId) {
+    const prefix = `${savedName}:`
     const chatId = typeof scope === 'string' && scope.startsWith(prefix) ? scope.slice(prefix.length) : ''
     const statement = analystStatement(args)
     // Count every analyst call, including CREATE and INSERT, so a later SELECT keeps its own sequence.
     const id = isAnalystQueryTool(toolName)
         ? noteAnalystGatewayCall({
-              harness: meta.harnessName,
-              specialist: meta.specialistName,
+              harness: savedName,
+              specialist: specialistName,
               chatId,
               callId,
               sql: statement.sql,
@@ -696,7 +698,7 @@ function rememberAnalystResult(meta, result, scope, toolName, args, callId) {
     }
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return
     if (!Array.isArray(parsed.rows) && typeof parsed.summary !== 'string' && !parsed.cuttlelyOutcome && !parsed.cursor) return
-    recordAnalystResult({ harness: meta.harnessName, specialist: meta.specialistName, chatId, callId: id, result: parsed })
+    recordAnalystResult({ harness: savedName, specialist: specialistName, chatId, callId: id, result: parsed })
 }
 
 async function parseJson(req) {

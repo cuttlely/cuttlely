@@ -1204,6 +1204,14 @@ function queryPostgresRun(scope, store, statement, replay, ms) {
 }
 
 // The harness calls this when a turn ends. The run's TEMP tables go with its connection.
+export function openAnalystRunScopes() {
+    return [...sqliteWorkers.keys(), ...pgRunSessions.keys()]
+}
+
+export function currentAnalystScope() {
+    return clean(analystCall.getStore()?.scope || '')
+}
+
 export async function endAnalystRun(scope) {
     const key = clean(scope)
     if (!key) return
