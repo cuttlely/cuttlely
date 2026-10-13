@@ -448,6 +448,19 @@ const EvalDatasetRows = () => {
                                                                 onMouseUp={() => setDraggable(true)}
                                                             >
                                                                 {item.input}
+                                                                {item.sourceType === 'chat_message' ? (
+                                                                    <Typography
+                                                                        variant='caption'
+                                                                        display='block'
+                                                                        sx={{ color: theme.palette.grey[600] }}
+                                                                    >
+                                                                        From a chat answer
+                                                                        {item.sourceDate &&
+                                                                        !Number.isNaN(new Date(item.sourceDate).getTime())
+                                                                            ? ` on ${new Date(item.sourceDate).toLocaleDateString()}`
+                                                                            : ''}
+                                                                    </Typography>
+                                                                ) : null}
                                                             </StyledTableCell>
                                                             <StyledTableCell
                                                                 onClick={() => edit(item)}

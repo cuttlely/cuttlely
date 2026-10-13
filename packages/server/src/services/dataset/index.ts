@@ -1,11 +1,28 @@
+import { Request } from 'express'
 import { StatusCodes } from 'http-status-codes'
 import { Readable } from 'stream'
 import { In } from 'typeorm'
+import { ChatFlow, EnumChatflowType } from '../../database/entities/ChatFlow'
+import { ChatMessage } from '../../database/entities/ChatMessage'
 import { Dataset } from '../../database/entities/Dataset'
 import { DatasetRow } from '../../database/entities/DatasetRow'
 import { AppError } from '../../errors/appError'
 import { getErrorMessage } from '../../errors/utils'
+import { hasAnyPermission } from '../../identity/rbac'
 import { getRunningExpressApp } from '../../utils/getRunningExpressApp'
+
+const CHAT_MESSAGE_SOURCE = 'chat_message'
+
+function viewPermissionForFlow(type: string | undefined): string {
+    if (type === EnumChatflowType.AGENTFLOW || type === EnumChatflowType.MULTIAGENT) return 'agentflows:view'
+    if (type === EnumChatflowType.ASSISTANT) return 'assistants:view'
+    return 'chatflows:view'
+}
+
+function isUniqueViolation(error: unknown): boolean {
+    const message = getErrorMessage(error).toLowerCase()
+    return message.includes('unique') || message.includes('duplicate')
+}
 
 import csv from 'csv-parser'
 
@@ -319,19 +336,15 @@ const addDatasetRow = async (body: any) => {
 }
 
 const changeUpdateOnDataset = async (id: string, workspaceId: string, entityManager?: any) => {
-    const appServer = getRunningExpressApp()
-    const dataset = await appServer.AppDataSource.getRepository(Dataset).findOneBy({
+    const repo = entityManager ? entityManager.getRepository(Dataset) : getRunningExpressApp().AppDataSource.getRepository(Dataset)
+    const dataset = await repo.findOneBy({
         id: id,
         workspaceId: workspaceId
     })
     if (!dataset) throw new AppError(StatusCodes.NOT_FOUND, `Dataset ${id} not found`)
 
     dataset.updatedDate = new Date()
-    if (entityManager) {
-        await entityManager.getRepository(Dataset).save(dataset)
-    } else {
-        await appServer.AppDataSource.getRepository(Dataset).save(dataset)
-    }
+    await repo.save(dataset)
 }
 
 // Update row for a dataset
@@ -417,6 +430,114 @@ const patchDeleteRows = async (ids: string[] = [], workspaceId: string) => {
     }
 }
 
+// Save one chat answer as a dataset row. The input is the question that led to that answer.
+// output defaults to the answer. A second save of the same answer into the same dataset returns the row already stored.
+const addDatasetRowFromChatMessage = async (
+    body: { datasetId?: unknown; messageId?: unknown; output?: unknown },
+    workspaceId: string,
+    req: Request
+) => {
+    try {
+        if (typeof workspaceId !== 'string' || workspaceId.length === 0) {
+            throw new AppError(StatusCodes.NOT_FOUND, 'Dataset not found')
+        }
+        if (typeof body?.datasetId !== 'string' || body.datasetId.length === 0) {
+            throw new AppError(StatusCodes.BAD_REQUEST, 'datasetId is required')
+        }
+        if (typeof body?.messageId !== 'string' || body.messageId.length === 0) {
+            throw new AppError(StatusCodes.BAD_REQUEST, 'messageId is required')
+        }
+        if (body.output !== undefined && body.output !== null && typeof body.output !== 'string') {
+            throw new AppError(StatusCodes.BAD_REQUEST, 'output must be text')
+        }
+        const appServer = getRunningExpressApp()
+        const dataset = await appServer.AppDataSource.getRepository(Dataset).findOneBy({
+            id: body.datasetId,
+            workspaceId
+        })
+        if (!dataset) throw new AppError(StatusCodes.NOT_FOUND, `Dataset ${body.datasetId} not found`)
+
+        const message = await appServer.AppDataSource.getRepository(ChatMessage).findOneBy({ id: body.messageId })
+        // A missing message and a message whose flow is in another team are the same answer.
+        if (!message) throw new AppError(StatusCodes.NOT_FOUND, `Chat message ${body.messageId} not found`)
+        const flow = await appServer.AppDataSource.getRepository(ChatFlow).findOneBy({
+            id: message.chatflowid,
+            workspaceId
+        })
+        if (!flow) throw new AppError(StatusCodes.NOT_FOUND, `Chat message ${body.messageId} not found`)
+        if (!(await hasAnyPermission(req, viewPermissionForFlow(flow.type)))) {
+            throw new AppError(StatusCodes.FORBIDDEN, 'You do not have permission to view this flow.')
+        }
+        if (message.role !== 'apiMessage') {
+            throw new AppError(StatusCodes.BAD_REQUEST, 'This message is not an answer.')
+        }
+
+        // The turn is the message immediately before this answer in the same chat session.
+        // Another session or memory on the same chatId is a different conversation.
+        const previousQuery = appServer.AppDataSource.getRepository(ChatMessage)
+            .createQueryBuilder('m')
+            .where('m.chatflowid = :chatflowid', { chatflowid: message.chatflowid })
+            .andWhere('m.chatId = :chatId', { chatId: message.chatId })
+            .andWhere('m.id != :id', { id: message.id })
+            .andWhere('(m.createdDate < :createdDate OR (m.createdDate = :createdDate AND m.id < :id))', {
+                createdDate: message.createdDate,
+                id: message.id
+            })
+        if (message.sessionId == null) previousQuery.andWhere('m.sessionId IS NULL')
+        else previousQuery.andWhere('m.sessionId = :sessionId', { sessionId: message.sessionId })
+        if (message.memoryType == null) previousQuery.andWhere('m.memoryType IS NULL')
+        else previousQuery.andWhere('m.memoryType = :memoryType', { memoryType: message.memoryType })
+        const previous = await previousQuery.orderBy('m.createdDate', 'DESC').addOrderBy('m.id', 'DESC').getOne()
+        const input = previous?.role === 'userMessage' ? String(previous.content ?? '') : ''
+        if (!previous || previous.role !== 'userMessage' || input.trim().length === 0) {
+            throw new AppError(StatusCodes.BAD_REQUEST, 'No question was found for this answer.')
+        }
+        const output = typeof body.output === 'string' ? body.output : String(message.content ?? '')
+
+        const rows = appServer.AppDataSource.getRepository(DatasetRow)
+        const existing = await rows.findOneBy({ datasetId: dataset.id, sourceMessageId: message.id })
+        if (existing) return existing
+
+        const maxValueEntity = await rows.find({
+            where: { datasetId: dataset.id },
+            order: { sequenceNo: 'DESC' },
+            take: 1
+        })
+        let sequenceNo = 0
+        if (maxValueEntity && maxValueEntity.length > 0) {
+            sequenceNo = maxValueEntity[0].sequenceNo + 1
+        }
+        const created = new DatasetRow()
+        created.datasetId = dataset.id
+        created.input = input
+        created.output = output
+        created.sequenceNo = sequenceNo
+        created.sourceType = CHAT_MESSAGE_SOURCE
+        created.sourceMessageId = message.id
+        created.sourceFlowId = flow.id
+        created.sourceDate = message.createdDate
+        try {
+            return await appServer.AppDataSource.transaction(async (manager) => {
+                const saved = await manager.getRepository(DatasetRow).save(created)
+                await changeUpdateOnDataset(dataset.id, workspaceId, manager)
+                return saved
+            })
+        } catch (error) {
+            if (error instanceof AppError) throw error
+            if (!isUniqueViolation(error)) throw error
+            const again = await rows.findOneBy({ datasetId: dataset.id, sourceMessageId: message.id })
+            if (again) return again
+            throw error
+        }
+    } catch (error) {
+        if (error instanceof AppError) throw error
+        throw new AppError(
+            StatusCodes.INTERNAL_SERVER_ERROR,
+            `Error: datasetService.addDatasetRowFromChatMessage - ${getErrorMessage(error)}`
+        )
+    }
+}
+
 export default {
     getAllDatasets,
     getDataset,
@@ -424,6 +545,7 @@ export default {
     updateDataset,
     deleteDataset,
     addDatasetRow,
+    addDatasetRowFromChatMessage,
     updateDatasetRow,
     deleteDatasetRow,
     patchDeleteRows,
