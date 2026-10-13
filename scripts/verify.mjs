@@ -69,6 +69,7 @@ const STEPS = [
             path.join(ROOT, 'scripts', 'check-static-ui-image.test.mjs'),
             path.join(ROOT, 'scripts', 'proprietary-paths.test.mjs'),
             path.join(ROOT, 'scripts', 'etl-list-sqlite.test.mjs'),
+            path.join(ROOT, 'scripts', 'eval-routes.test.cjs'),
             path.join(ROOT, 'scripts', 'start-local-admin.test.mjs'),
             path.join(ROOT, 'scripts', 'start-restart-loop.test.mjs'),
             path.join(ROOT, 'scripts', 'etl-delete-vectors.test.mjs'),
@@ -145,7 +146,17 @@ const STEPS = [
         name: 'server-settings-ui',
         fast: true,
         command: 'pnpm',
-        args: ['--dir', 'packages/ui', 'exec', 'jest', '--watchAll=false', 'src/views/serversettings', 'src/views/serversetup'],
+        args: [
+            '--dir',
+            'packages/ui',
+            'exec',
+            'jest',
+            '--watchAll=false',
+            'src/views/serversettings',
+            'src/views/serversetup',
+            'src/layout/MainLayout/Sidebar/MenuList/activeRoute.test.js',
+            'src/views/evaluations/evaluationFlows.test.js'
+        ],
         env: { CI: 'true' }
     },
     {

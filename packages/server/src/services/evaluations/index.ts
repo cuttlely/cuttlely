@@ -1,9 +1,11 @@
 import { EvaluationRunner, ICommonObject } from '@cuttlely/components'
+import { Request } from 'express'
 import { StatusCodes } from 'http-status-codes'
 import { In } from 'typeorm'
 import { v4 as uuidv4 } from 'uuid'
 import { Assistant } from '../../database/entities/Assistant'
-import { ChatFlow } from '../../database/entities/ChatFlow'
+import { ChatFlow, EnumChatflowType } from '../../database/entities/ChatFlow'
+import { hasAnyPermission } from '../../identity/rbac'
 import { Credential } from '../../database/entities/Credential'
 import { Dataset } from '../../database/entities/Dataset'
 import { DatasetRow } from '../../database/entities/DatasetRow'
@@ -21,14 +23,48 @@ import { calculateCost, formatCost } from './CostCalculator'
 import { runAdditionalEvaluators } from './EvaluatorRunner'
 import { LLMEvaluationRunner } from './LLMEvaluationRunner'
 
-const runAgain = async (id: string, baseURL: string, orgId: string, workspaceId: string) => {
+function chatflowIdList(value: unknown): unknown[] {
+    if (value === undefined || value === null || value === '') {
+        throw new AppError(StatusCodes.BAD_REQUEST, 'Select at least one chatflow or agentflow')
+    }
+    const parsed = Array.isArray(value) ? value : jsonArray(value, 'chatflowId')
+    if (parsed.length === 0) {
+        throw new AppError(StatusCodes.BAD_REQUEST, 'Select at least one chatflow or agentflow')
+    }
+    return parsed
+}
+
+function jsonArray(value: unknown, label: string): unknown[] {
+    if (typeof value !== 'string') {
+        throw new AppError(StatusCodes.BAD_REQUEST, `${label} must be a JSON array`)
+    }
+    let parsed: unknown
+    try {
+        parsed = JSON.parse(value)
+    } catch {
+        throw new AppError(StatusCodes.BAD_REQUEST, `${label} must be a JSON array`)
+    }
+    if (!Array.isArray(parsed)) {
+        throw new AppError(StatusCodes.BAD_REQUEST, `${label} must be a JSON array`)
+    }
+    return parsed
+}
+
+const VIEWABLE_FLOW_TYPES = new Set<string>([EnumChatflowType.CHATFLOW, EnumChatflowType.AGENTFLOW, EnumChatflowType.MULTIAGENT])
+
+function viewPermissionForFlow(type: string | undefined): string {
+    if (type === EnumChatflowType.AGENTFLOW || type === EnumChatflowType.MULTIAGENT) return 'agentflows:view'
+    return 'chatflows:view'
+}
+
+const runAgain = async (id: string, baseURL: string, orgId: string, workspaceId: string, req: Request) => {
     try {
         const appServer = getRunningExpressApp()
         const evaluation = await appServer.AppDataSource.getRepository(Evaluation).findOneBy({
             id: id,
             workspaceId: workspaceId
         })
-        if (!evaluation) throw new Error(`Evaluation ${id} not found`)
+        if (!evaluation) throw new AppError(StatusCodes.NOT_FOUND, `Evaluation ${id} not found`)
         const additionalConfig = evaluation.additionalConfig ? JSON.parse(evaluation.additionalConfig) : {}
         const data: ICommonObject = {
             chatflowId: evaluation.chatflowId,
@@ -56,15 +92,27 @@ const runAgain = async (id: string, baseURL: string, orgId: string, workspaceId:
             }
         }
         data.version = true
-        return await createEvaluation(data, baseURL, orgId, workspaceId)
+        return await createEvaluation(data, baseURL, orgId, workspaceId, req)
     } catch (error) {
+        if (error instanceof AppError) throw error
         throw new AppError(StatusCodes.INTERNAL_SERVER_ERROR, `Error: EvalsService.runAgain - ${getErrorMessage(error)}`)
     }
 }
 
-const createEvaluation = async (body: ICommonObject, baseURL: string, orgId: string, workspaceId: string) => {
+const createEvaluation = async (body: ICommonObject, baseURL: string, orgId: string, workspaceId: string, req: Request) => {
     try {
         const appServer = getRunningExpressApp()
+        // A grading credential has to belong to this workspace before any row is saved or any run starts.
+        if (body.evaluationType === 'llm') {
+            if (typeof body.credentialId !== 'string' || body.credentialId.length === 0) {
+                throw new AppError(StatusCodes.BAD_REQUEST, 'Credential is required')
+            }
+            const ownedCredential = await appServer.AppDataSource.getRepository(Credential).findOneBy({
+                id: body.credentialId,
+                workspaceId
+            })
+            if (!ownedCredential) throw new AppError(StatusCodes.NOT_FOUND, `Credential ${body.credentialId} not found`)
+        }
         const newEval = new Evaluation()
         Object.assign(newEval, stripProtectedFields(body))
         newEval.workspaceId = workspaceId
@@ -73,9 +121,39 @@ const createEvaluation = async (body: ICommonObject, baseURL: string, orgId: str
         const row = appServer.AppDataSource.getRepository(Evaluation).create(newEval)
         row.average_metrics = JSON.stringify({})
 
-        const chatflowTypes = body.chatflowType ? JSON.parse(body.chatflowType) : []
-        if (!Array.isArray(chatflowTypes)) {
-            throw new Error('chatflowType must be a valid array')
+        const chatflowTypes = body.chatflowType ? jsonArray(body.chatflowType, 'chatflowType') : []
+        if (chatflowTypes.some((type) => type === 'Custom Assistant')) {
+            throw new AppError(StatusCodes.BAD_REQUEST, 'Custom assistants cannot be evaluated')
+        }
+        const chatflowIds = chatflowIdList(body.chatflowId)
+        if (chatflowIds.some((id) => typeof id !== 'string' || id.length === 0)) {
+            throw new AppError(StatusCodes.BAD_REQUEST, 'chatflowId must be an array of flow ids')
+        }
+        // The column and the runner both read a JSON string. A raw array body is the same list.
+        body.chatflowId = JSON.stringify(chatflowIds)
+        row.chatflowId = body.chatflowId
+        if (typeof body.datasetId !== 'string' || body.datasetId.length === 0) {
+            throw new AppError(StatusCodes.BAD_REQUEST, 'Dataset is required')
+        }
+        const dataset = await appServer.AppDataSource.getRepository(Dataset).findOneBy({
+            id: body.datasetId,
+            workspaceId: workspaceId
+        })
+        if (!dataset) throw new AppError(StatusCodes.NOT_FOUND, `Dataset ${body.datasetId} not found`)
+        const ids = chatflowIds as string[]
+        const flows = await appServer.AppDataSource.getRepository(ChatFlow).find({
+            where: { id: In(ids), workspaceId }
+        })
+        const byId = new Map(flows.map((flow) => [flow.id, flow]))
+        for (const id of ids) {
+            const flow = byId.get(id)
+            // Unknown, another workspace, an assistant, or a type this caller cannot view: same answer, no row.
+            if (!flow || !VIEWABLE_FLOW_TYPES.has(String(flow.type || ''))) {
+                throw new AppError(StatusCodes.NOT_FOUND, `Flow ${id} not found`)
+            }
+            if (!(await hasAnyPermission(req, viewPermissionForFlow(flow.type)))) {
+                throw new AppError(StatusCodes.NOT_FOUND, `Flow ${id} not found`)
+            }
         }
 
         const simpleEvaluators =
@@ -102,7 +180,8 @@ const createEvaluation = async (body: ICommonObject, baseURL: string, orgId: str
             additionalConfig.llmConfig = {
                 credentialId: body.credentialId,
                 llm: body.llm,
-                model: body.model
+                model: body.model,
+                workspaceId
             }
         }
         row.additionalConfig = JSON.stringify(additionalConfig)
@@ -115,12 +194,6 @@ const createEvaluation = async (body: ICommonObject, baseURL: string, orgId: str
             },
             orgId
         )
-
-        const dataset = await appServer.AppDataSource.getRepository(Dataset).findOneBy({
-            id: body.datasetId,
-            workspaceId: workspaceId
-        })
-        if (!dataset) throw new Error(`Dataset ${body.datasetId} not found`)
 
         const items = await appServer.AppDataSource.getRepository(DatasetRow).find({
             where: { datasetId: dataset.id },
@@ -141,20 +214,7 @@ const createEvaluation = async (body: ICommonObject, baseURL: string, orgId: str
 
         // Chatflow API keys are stored as a hash. The evaluation runner calls the
         // public prediction route and cannot recover the bearer token.
-        const chatflowIds = JSON.parse(body.chatflowId)
-        if (!Array.isArray(chatflowIds)) {
-            throw new Error('chatflowId must be a valid array')
-        }
-
-        // save the evaluation with status as pending
         const evalRunner = new EvaluationRunner(baseURL)
-        if (body.evaluationType === 'llm') {
-            const credential = await appServer.AppDataSource.getRepository(Credential).findOneBy({
-                id: body.credentialId
-            })
-
-            if (!credential) throw new Error(`Credential ${body.credentialId} not found`)
-        }
 
         let evalMetrics = { passCount: 0, failCount: 0, errorCount: 0 }
         evalRunner
@@ -336,6 +396,7 @@ const createEvaluation = async (body: ICommonObject, baseURL: string, orgId: str
 
         return getAllEvaluations(body.workspaceId)
     } catch (error) {
+        if (error instanceof AppError) throw error
         throw new AppError(StatusCodes.INTERNAL_SERVER_ERROR, `Error: EvalsService.createEvaluation - ${getErrorMessage(error)}`)
     }
 }

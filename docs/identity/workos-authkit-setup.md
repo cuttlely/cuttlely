@@ -266,7 +266,7 @@ Never leave `CUTTLELY_LOCAL_ADMIN=true` on a public deploy. It puts a password f
 
 ## 9. Troubleshooting
 
-**Where to look.** On Render: your web service **Logs** tab. Locally: the terminal running the start script, and `LOG_PATH` if set (the Blueprint sets `/var/cuttlely/logs`). On the WorkOS side: the dashboard's **Events** or **Logs** pages for the environment, which show failed authorizations and the reason.
+**Where to look.** On Render: your web service **Logs** tab. Locally: the terminal running the start script, and `LOG_PATH` if set (the Blueprint sets `/var/cuttlely/logs`). The same files are under **Admin** > **Logs** in the app for an owner or a role with `logs:view`. On the WorkOS side: the dashboard's **Events** or **Logs** pages for the environment, which show failed authorizations and the reason.
 
 | Symptom                                                                                                                                              | Cause and fix                                                                                                                                                                                                                                                                                                      |
 | ---------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
@@ -303,4 +303,4 @@ Never leave `CUTTLELY_LOCAL_ADMIN=true` on a public deploy. It puts a password f
 -   The password button is **Sign in with password** when WorkOS is on, and **Sign in** when it is the only way in. It appears only when `CUTTLELY_LOCAL_ADMIN=true`.
 -   Add User takes a name and an email. It does not ask for a password.
 -   With AuthKit unset and the local-admin flag off, sign-in answers 404.
--   Other single sign-on providers, Stripe billing, invite mail, datasets, and evaluations are not part of this install. The routes in this guide are the sign-in contract.
+-   Other single sign-on providers, Stripe billing, and invite mail are not part of this install. The routes in this guide are the sign-in contract. Datasets, evaluators, and evaluations are in [Evaluations](../how-to/evaluations.md).

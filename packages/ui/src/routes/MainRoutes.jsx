@@ -42,6 +42,11 @@ const Variables = Loadable(lazy(() => import('@/views/variables')))
 
 // documents routing
 const Documents = Loadable(lazy(() => import('@/views/docstore')))
+const Datasets = Loadable(lazy(() => import('@/views/datasets')))
+const DatasetItems = Loadable(lazy(() => import('@/views/datasets/DatasetItems')))
+const Evaluators = Loadable(lazy(() => import('@/views/evaluators')))
+const Evaluations = Loadable(lazy(() => import('@/views/evaluations')))
+const EvaluationResult = Loadable(lazy(() => import('@/views/evaluations/EvaluationResult')))
 const DocumentStoreDetail = Loadable(lazy(() => import('@/views/docstore/DocumentStoreDetail')))
 const ShowStoredChunks = Loadable(lazy(() => import('@/views/docstore/ShowStoredChunks')))
 const LoaderConfigPreviewChunks = Loadable(lazy(() => import('@/views/docstore/LoaderConfigPreviewChunks')))
@@ -57,6 +62,7 @@ const RolesPage = Loadable(lazy(() => import('@/views/roles')))
 const Workspaces = Loadable(lazy(() => import('@/views/workspace')))
 const WorkspaceDetails = Loadable(lazy(() => import('@/views/workspace/WorkspaceUsers')))
 const VersionSettings = Loadable(lazy(() => import('@/views/versionsettings')))
+const ServerLogs = Loadable(lazy(() => import('@/views/serverlogs')))
 const NotFound = Loadable(lazy(() => import('@/views/notfound')))
 
 // ==============================|| MAIN ROUTING ||============================== //
@@ -246,6 +252,46 @@ const MainRoutes = {
             )
         },
         {
+            path: '/datasets',
+            element: (
+                <RequireAuth permission={'datasets:view'}>
+                    <Datasets />
+                </RequireAuth>
+            )
+        },
+        {
+            path: '/dataset_rows/:id',
+            element: (
+                <RequireAuth permission={'datasets:view'}>
+                    <DatasetItems />
+                </RequireAuth>
+            )
+        },
+        {
+            path: '/evaluators',
+            element: (
+                <RequireAuth permission={'evaluators:view'}>
+                    <Evaluators />
+                </RequireAuth>
+            )
+        },
+        {
+            path: '/evaluations',
+            element: (
+                <RequireAuth permission={'evaluations:view'}>
+                    <Evaluations />
+                </RequireAuth>
+            )
+        },
+        {
+            path: '/evaluation_results/:id',
+            element: (
+                <RequireAuth permission={'evaluations:view'}>
+                    <EvaluationResult />
+                </RequireAuth>
+            )
+        },
+        {
             path: '/users',
             element: (
                 <RequireAuth permission={'users:manage'} display={'feat:users'}>
@@ -283,6 +329,14 @@ const MainRoutes = {
             element: (
                 <RequireAuth permission={'server:owner'}>
                     <ServerSettings />
+                </RequireAuth>
+            )
+        },
+        {
+            path: '/logs',
+            element: (
+                <RequireAuth permission={'logs:view'}>
+                    <ServerLogs />
                 </RequireAuth>
             )
         },

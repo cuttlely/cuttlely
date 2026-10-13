@@ -1360,7 +1360,9 @@ packages/server/src/services/fetch-links/index.ts
 packages/server/src/services/flow-configs/index.ts
 packages/server/src/services/leads/index.ts
 packages/server/src/services/load-prompts/index.ts
+packages/server/src/services/log/index.test.ts
 packages/server/src/services/log/index.ts
+packages/server/src/services/log/pem-cut.test.ts
 packages/server/src/services/marketplaces/index.ts
 packages/server/src/services/mcp-endpoint/index.test.ts
 packages/server/src/services/mcp-endpoint/index.ts
@@ -1873,6 +1875,8 @@ packages/ui/src/views/evaluations/EvaluationResult.jsx
 packages/ui/src/views/evaluations/EvaluationResultSideDrawer.jsx
 packages/ui/src/views/evaluations/EvaluationResultVersionsSideDrawer.jsx
 packages/ui/src/views/evaluations/MetricsItemCard.jsx
+packages/ui/src/views/evaluations/evaluationFlows.js
+packages/ui/src/views/evaluations/evaluationFlows.test.js
 packages/ui/src/views/evaluations/index.jsx
 packages/ui/src/views/evaluators/AddEditEvaluatorDialog.jsx
 packages/ui/src/views/evaluators/SamplePromptDialog.jsx
@@ -1891,6 +1895,8 @@ packages/ui/src/views/roles/index.jsx
 packages/ui/src/views/schedule/ScheduleHistoryDrawer.jsx
 packages/ui/src/views/schedule/ScheduleHistoryFAB.jsx
 packages/ui/src/views/serverlogs/index.jsx
+packages/ui/src/views/serverlogs/query.js
+packages/ui/src/views/serverlogs/query.test.js
 packages/ui/src/views/settings/index.jsx
 packages/ui/src/views/tools/CustomMcpServerDialog.jsx
 packages/ui/src/views/tools/HowToUseFunctionDialog.jsx

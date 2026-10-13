@@ -16,9 +16,13 @@ import {
     IconLockCheck,
     IconListCheck,
     IconDatabaseImport,
+    IconDatabase,
+    IconClipboardCheck,
+    IconChartHistogram,
     IconShield,
     IconHistory,
-    IconServerCog
+    IconServerCog,
+    IconFileText
 } from '@tabler/icons-react'
 
 // constant
@@ -37,9 +41,13 @@ const icons = {
     IconLockCheck,
     IconListCheck,
     IconDatabaseImport,
+    IconDatabase,
+    IconClipboardCheck,
+    IconChartHistogram,
     IconShield,
     IconHistory,
-    IconServerCog
+    IconServerCog,
+    IconFileText
 }
 
 // ==============================|| DASHBOARD MENU ITEMS ||============================== //
@@ -161,6 +169,35 @@ const dashboard = {
                     icon: icons.IconFiles,
                     breadcrumbs: true,
                     permission: 'documentStores:view'
+                },
+                {
+                    id: 'datasets',
+                    title: 'Datasets',
+                    type: 'item',
+                    url: '/datasets',
+                    activeRoutes: ['/dataset_rows'],
+                    icon: icons.IconDatabase,
+                    breadcrumbs: true,
+                    permission: 'datasets:view'
+                },
+                {
+                    id: 'evaluators',
+                    title: 'Evaluators',
+                    type: 'item',
+                    url: '/evaluators',
+                    icon: icons.IconClipboardCheck,
+                    breadcrumbs: true,
+                    permission: 'evaluators:view'
+                },
+                {
+                    id: 'evaluations',
+                    title: 'Evaluations',
+                    type: 'item',
+                    url: '/evaluations',
+                    activeRoutes: ['/evaluation_results'],
+                    icon: icons.IconChartHistogram,
+                    breadcrumbs: true,
+                    permission: 'evaluations:view'
                 }
             ]
         },
@@ -199,6 +236,15 @@ const dashboard = {
                     icon: icons.IconServerCog,
                     breadcrumbs: true,
                     permission: 'server:owner'
+                },
+                {
+                    id: 'serverLogs',
+                    title: 'Logs',
+                    type: 'item',
+                    url: '/logs',
+                    icon: icons.IconFileText,
+                    breadcrumbs: true,
+                    permission: 'logs:view'
                 },
                 {
                     // Server-wide: only the organization owner sees it (no role holds this permission).
