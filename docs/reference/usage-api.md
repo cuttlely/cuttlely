@@ -12,7 +12,7 @@ A finished chatflow, agentflow, Multi Agents canvas, or Sequential Agents canvas
 
 The daily total is written only when the run finishes. A run that errors after the model has already answered is not included. A chatflow whose run throws, a harness run that throws, and an agentflow that ends in an error or is cancelled leave those tokens off the total. A knowledge pipeline run is not added.
 
-The caller needs `chatflows:view` or `agentflows:view`. Without either, the route returns 403. The organization owner is allowed without those keys. A missing session returns 401. The same permission gates `GET /api/v1/stats/:id`.
+The caller needs `chatflows:view` or `agentflows:view`. Without either, the route returns 403. The organization owner is allowed without those keys. A request with neither a signed-in session nor a valid API key returns 401. The same permission gates `GET /api/v1/stats/:id`.
 
 A publish check counts toward usage. Replaying a question before you publish spends tokens, and those tokens are added to that flow's daily total.
 
@@ -147,14 +147,27 @@ A workspace with no organization returns 400, `This workspace has no organizatio
 
 The `output` messages use the word `output` in place of `input`.
 
+An API key is refused on these three routes, including a key that would be allowed to read usage. Call them from a signed-in organization owner session. A bearer API key on `GET`, `PUT`, or `DELETE /api/v1/model-prices` returns 403. A request with neither a signed-in session nor a valid API key returns 401. The usage route above still accepts an API key that has `chatflows:view` or `agentflows:view`.
+
+Sign in with the local owner account, which exists when `CUTTLELY_LOCAL_ADMIN=true`, and keep the cookie. `POST /api/v1/auth/login` takes `{ "email", "password" }`. That sign-in, and every later write that sends the cookie, also needs the header `x-request-from: internal`. Without that header the cookie is not accepted on `PUT` or `DELETE`, and the route returns 401.
+
 ```bash
-curl -s -X PUT "$CUTTLELY_URL/api/v1/model-prices" \
+curl -s -c "$COOKIE_JAR" -X POST "$CUTTLELY_URL/api/v1/auth/login" \
   -H "Content-Type: application/json" \
+  -H "x-request-from: internal" \
+  -d "{\"email\":\"$CUTTLELY_OWNER_EMAIL\",\"password\":\"$CUTTLELY_OWNER_PASSWORD\"}"
+```
+
+```bash
+curl -s -b "$COOKIE_JAR" -X PUT "$CUTTLELY_URL/api/v1/model-prices" \
+  -H "Content-Type: application/json" \
+  -H "x-request-from: internal" \
   -d '{"model":"gpt-4.1-mini","input":0.5,"output":2}'
 ```
 
 ```bash
-curl -s -X DELETE "$CUTTLELY_URL/api/v1/model-prices?model=gpt-4.1-mini"
+curl -s -b "$COOKIE_JAR" -X DELETE "$CUTTLELY_URL/api/v1/model-prices?model=gpt-4.1-mini" \
+  -H "x-request-from: internal"
 ```
 
-An API key is refused on these three routes, including a key that would be allowed to read usage. Call them from a signed-in organization owner session. A bearer API key on `GET`, `PUT`, or `DELETE /api/v1/model-prices` returns 403. The usage route above still accepts an API key that has `chatflows:view` or `agentflows:view`.
+`$CUTTLELY_OWNER_EMAIL` and `$CUTTLELY_OWNER_PASSWORD` are the organization owner's own values. `$COOKIE_JAR` is a file path for the session cookie.
