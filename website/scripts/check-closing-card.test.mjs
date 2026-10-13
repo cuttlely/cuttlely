@@ -38,7 +38,8 @@ const DECIMAL = /^(\d+\.\d+)\s*(s|x)?$/i
 const MILLIS = /^(\d+)\s*ms$/i
 
 function closeEnough(value, allow) {
-    return allow.some((ok) => Math.abs(value - ok) < 0.05)
+    // A last-digit OCR wobble (19.85 for 19.8) still matches. The old medians do not.
+    return allow.some((ok) => Math.abs(value - ok) <= 0.08)
 }
 
 function figuresIn(tsv) {
