@@ -11,7 +11,7 @@ import { HarnessError } from './errors.mjs'
 import { withModelFallback } from './fallback.mjs'
 import { cachedPromptTokens, invokeChat, resolveModel } from './model.mjs'
 import { dataRoot, hermesHome } from './paths.mjs'
-import { isLiveTry } from './try-live.mjs'
+import { tryLockIsLive } from './try-live.mjs'
 import { sessionChat } from './specialist-run.mjs'
 import { getHarness } from './store.mjs'
 
@@ -185,11 +185,35 @@ function tryHomeOf(entry) {
     return TRY_HOME.test(parent) ? parent : ''
 }
 
+function tryMarkerMatches(home) {
+    const marker = path.join(hermesHome(), 'profiles', home, 'harness-try')
+    if (!fs.existsSync(marker)) return false
+    return fs.readFileSync(marker, 'utf8').trim() === home
+}
+
+function harnessIsSaved(name) {
+    try {
+        return Boolean(getHarness(name))
+    } catch {
+        return false
+    }
+}
+
+// A canvas try home is removable only when it carries the try marker, is not a saved harness,
+// and has no live lock. A fitted specialist uses that same home (its parent).
+function abandonedTryHome(home) {
+    if (!TRY_HOME.test(home || '')) return false
+    if (harnessIsSaved(home)) return false
+    if (!tryMarkerMatches(home)) return false
+    if (tryLockIsLive(home)) return false
+    return true
+}
+
 function abandonedTryEntry(entry, parentMarker) {
     const home = tryHomeOf(entry)
-    if (home) return !isLiveTry(home)
+    if (home) return abandonedTryHome(home)
     if (!TRYX_HOME.test(entry)) return false
-    return TRY_HOME.test(parentMarker) && !isLiveTry(parentMarker)
+    return abandonedTryHome(parentMarker)
 }
 
 function removeProfileTree(entry) {
@@ -201,6 +225,7 @@ function removeProfileTree(entry) {
 }
 
 // Leftover canvas tries (and fitted profiles that belonged to one) are not a live run after a crash.
+// A saved harness whose name looks like a try, and a try with a live lock file, stay.
 export function sweepAbandonedTryProfiles() {
     const root = path.join(hermesHome(), 'profiles')
     if (!fs.existsSync(root)) return

@@ -834,26 +834,107 @@ function readMarker(file) {
     return fs.readFileSync(file, 'utf8').trim()
 }
 
-function removeTryScope(scope) {
-    const root = path.join(hermesHome(), 'profiles')
+function tryScopeEntries(scope) {
     const names = new Set(tryProfileNames(scope))
+    const root = path.join(hermesHome(), 'profiles')
     if (fs.existsSync(root)) {
         for (const entry of fs.readdirSync(root)) {
             if (entry === scope || entry.startsWith(`${scope}--`)) names.add(entry)
         }
-        for (const entry of names) {
-            const dir = path.join(root, entry)
-            const env = readEnvFile(path.join(dir, '.env'))
-            if (env.OPENAI_API_KEY) forgetProfileToken(env.OPENAI_API_KEY)
-            fs.rmSync(dir, { recursive: true, force: true })
-        }
     }
     const workRoot = path.join(dataRoot(), 'workspaces')
-    if (!fs.existsSync(workRoot)) return
-    for (const entry of fs.readdirSync(workRoot)) {
-        if (!names.has(entry) && entry !== scope && !entry.startsWith(`${scope}--`)) continue
-        fs.rmSync(path.join(workRoot, entry), { recursive: true, force: true })
+    if (fs.existsSync(workRoot)) {
+        for (const entry of fs.readdirSync(workRoot)) {
+            if (entry === scope || entry.startsWith(`${scope}--`) || names.has(entry)) names.add(entry)
+        }
     }
+    return [...names]
+}
+
+// Tokens leave the map before any directory is unlinked. One failed removal does not skip the rest.
+function forgetTryTokens(scope) {
+    const root = path.join(hermesHome(), 'profiles')
+    for (const entry of tryScopeEntries(scope)) {
+        try {
+            const env = readEnvFile(path.join(root, entry, '.env'))
+            if (env.OPENAI_API_KEY) forgetProfileToken(env.OPENAI_API_KEY)
+        } catch {
+            // This directory can be unreadable. The others still lose their tokens.
+        }
+    }
+}
+
+function removeOneTryDir(entry) {
+    const dir = path.join(hermesHome(), 'profiles', entry)
+    try {
+        if (fs.lstatSync(dir).isDirectory()) fs.rmSync(dir, { recursive: true, force: true })
+    } catch {
+        // ENOTEMPTY and any other failure stay on this directory. A tombstone file is left in place.
+    }
+    try {
+        fs.rmSync(path.join(dataRoot(), 'workspaces', entry), { recursive: true, force: true })
+    } catch {
+        // The profile directory above already moved on, and so does the next entry.
+    }
+}
+
+function tryDirIsDirectory(entry) {
+    try {
+        return fs.lstatSync(path.join(hermesHome(), 'profiles', entry)).isDirectory()
+    } catch {
+        return false
+    }
+}
+
+function delay(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+// A file standing in for the directory makes a late logs/ mkdir fail until the settle window ends.
+function placeTryTombstones(names) {
+    const placed = []
+    for (const entry of names) {
+        const dir = path.join(hermesHome(), 'profiles', entry)
+        try {
+            if (fs.existsSync(dir)) {
+                if (fs.lstatSync(dir).isFile()) placed.push(dir)
+                continue
+            }
+            fs.writeFileSync(dir, '')
+            placed.push(dir)
+        } catch {
+            // The next pass removes a directory that appeared instead.
+        }
+    }
+    return placed
+}
+
+function clearTryTombstones(files) {
+    for (const file of files) {
+        try {
+            if (fs.lstatSync(file).isFile()) fs.rmSync(file, { force: true })
+        } catch {
+            // Already gone.
+        }
+    }
+}
+
+const TRY_SETTLE_MS = 250
+
+async function settleTryDirectories(scope, names) {
+    const owned = new Set(names)
+    const deadline = Date.now() + TRY_SETTLE_MS
+    let tombstones = []
+    while (Date.now() < deadline) {
+        for (const entry of tryScopeEntries(scope)) owned.add(entry)
+        for (const entry of owned) removeOneTryDir(entry)
+        if ([...owned].some((entry) => tryDirIsDirectory(entry))) clearTryTombstones(tombstones)
+        else tombstones = placeTryTombstones([...owned])
+        await delay(40)
+    }
+    for (const entry of tryScopeEntries(scope)) owned.add(entry)
+    clearTryTombstones(tombstones)
+    for (const entry of owned) removeOneTryDir(entry)
 }
 
 function gatewaySocketPath() {
@@ -866,28 +947,56 @@ function gatewaySocketPath() {
     return target && fs.existsSync(target) ? target : ''
 }
 
-function unserveRuntimeProfile(name) {
-    const sock = gatewaySocketPath()
-    if (!sock || !name) return Promise.resolve()
+const UNSERVE_ATTEMPTS = 5
+const UNSERVE_TIMEOUT_MS = 2000
+const UNSERVE_RETRY_MS = 150
+
+function unserveOnce(name, sock) {
     return new Promise((resolve) => {
         const socket = net.createConnection(sock)
-        const timer = setTimeout(() => {
-            socket.destroy()
-            resolve()
-        }, 2000)
-        const done = () => {
+        let buf = ''
+        let settled = false
+        let timer
+        const finish = (value) => {
+            if (settled) return
+            settled = true
             clearTimeout(timer)
             socket.destroy()
-            resolve()
+            resolve(value)
         }
-        socket.on('error', done)
+        timer = setTimeout(() => finish('timeout'), UNSERVE_TIMEOUT_MS)
+        socket.on('error', () => finish('error'))
         socket.on('data', (chunk) => {
-            if (String(chunk).includes('\n')) done()
+            buf += String(chunk)
+            const split = buf.indexOf('\n')
+            if (split === -1) return
+            let parsed
+            try {
+                parsed = JSON.parse(buf.slice(0, split))
+            } catch {
+                finish('error')
+                return
+            }
+            const result = parsed?.ok === true ? parsed.result : null
+            if (result && result.pending !== true && result.unserved === name) finish('unserved')
+            else finish('pending')
         })
         socket.on('connect', () => {
             socket.write(`${JSON.stringify({ verb: 'unserve-profile', id: 1, protocol: 1, params: { name } })}\n`)
         })
     })
+}
+
+// Pending, a timeout, or a socket error is not a finished close. Poll until the runtime reports this profile unserved.
+async function unserveRuntimeProfile(name) {
+    const sock = gatewaySocketPath()
+    if (!sock || !name) return false
+    for (let attempt = 0; attempt < UNSERVE_ATTEMPTS; attempt += 1) {
+        const outcome = await unserveOnce(name, sock)
+        if (outcome === 'unserved') return true
+        if (attempt + 1 < UNSERVE_ATTEMPTS) await delay(UNSERVE_RETRY_MS)
+    }
+    return false
 }
 
 async function closeTryRuntime(names) {
@@ -899,15 +1008,24 @@ async function closeTryRuntime(names) {
     await closeProfiles(names)
 }
 
-// Close the runtime profile before deleting it. A close can recreate log directories, so delete again after it.
+// Close the runtime profile before deleting it. Tokens are forgotten first. A close can recreate log
+// directories after it answers, so removal retries until those directories stay gone.
 export async function discardTryProfile(tryId) {
     const scope = tryProfileName(tryId)
     try {
         const names = tryProfileNames(scope)
         await closeTryRuntime(names.length ? names : [scope])
-        removeTryScope(scope)
-        if (typeof tryRuntime.afterFirstRemoval === 'function') tryRuntime.afterFirstRemoval(scope)
-        removeTryScope(scope)
+        const owned = names.length ? names : [scope]
+        forgetTryTokens(scope)
+        for (const entry of owned) removeOneTryDir(entry)
+        if (typeof tryRuntime.afterFirstRemoval === 'function') {
+            try {
+                tryRuntime.afterFirstRemoval(scope)
+            } catch {
+                // A recreate during the hook is removed by the settle loop.
+            }
+        }
+        await settleTryDirectories(scope, owned)
     } finally {
         compiledProfiles.delete(scope)
         endLiveTry(scope)
