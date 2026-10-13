@@ -63,6 +63,7 @@ import { AppError } from '../errors/appError'
 import { StatusCodes } from 'http-status-codes'
 import { getFlowNodeLabels, replaceInputsWithConfig, warnUnmatchedAllowlistLabels } from './replaceInputsWithConfig'
 import { pinOwnedMemorySession } from './sessionOwnership'
+import { recordCompletedRun } from '../services/usage'
 import { escapeForCodeInput, getCodeInputNames, varNameOfPath } from './codeInputLiteral'
 import type { SecretsManagerClient, SecretsManagerClientConfig } from '@aws-sdk/client-secrets-manager'
 
@@ -676,6 +677,8 @@ export const buildFlow = async ({
                         componentNodes,
                         updateStorageUsage,
                         checkStorage,
+                        // A Harness tool closes over this object. The ending-node path does not use it.
+                        recordTokenUsage: recordCompletedRun,
                         ...(cuttlelyReplay ? { cuttlelyReplay: true } : {})
                     })
                 let outputResult = isUpsert

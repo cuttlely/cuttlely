@@ -107,6 +107,19 @@ jest.mock('../controllers/flow-promote', () => ({
     )
 }))
 
+jest.mock('../controllers/stats', () => ({
+    __esModule: true,
+    default: new Proxy(
+        {},
+        {
+            get: () => (_req: Request, res: express.Response) => {
+                hits.n += 1
+                res.status(200).json({ ok: true })
+            }
+        }
+    )
+}))
+
 jest.mock('../controllers/flow-drafts', () => ({
     __esModule: true,
     default: new Proxy(
@@ -120,6 +133,7 @@ jest.mock('../controllers/flow-drafts', () => ({
     )
 }))
 
+import statsRouter from '../routes/stats'
 import apikeyRouter from '../routes/apikey'
 import chatflowsRouter from '../routes/chatflows'
 import credentialsRouter from '../routes/credentials'
@@ -209,6 +223,18 @@ const groups: Group[] = [
         router: etlRouter,
         allow: { method: 'get', path: '/pipelines', permission: 'chatflows:view' },
         anyOf: { method: 'post', path: '/pipelines/pipe-1/runs', permission: 'chatflows:update' }
+    },
+    {
+        name: 'stats usage',
+        router: statsRouter,
+        allow: { method: 'get', path: '/usage', permission: 'chatflows:view' },
+        anyOf: { method: 'get', path: '/usage', permission: 'agentflows:view' }
+    },
+    {
+        name: 'stats chatflow',
+        router: statsRouter,
+        allow: { method: 'get', path: '/0b5c3a1e-1111-2222-3333-444455556666', permission: 'chatflows:view' },
+        anyOf: { method: 'get', path: '/0b5c3a1e-1111-2222-3333-444455556666', permission: 'agentflows:view' }
     },
     {
         name: 'chatflows',
@@ -387,6 +413,25 @@ describe('switched route groups', () => {
         const user = { id: 'user-1', activeWorkspaceId: 'team-a', permissions: [], isOrganizationAdmin: false }
         expect((await call(group.router, user, group.anyOf)).status).toBe(200)
         expect(hits.n).toBe(1)
+    })
+
+    it('stats refuses tools:view and still loads for chatflows:view and the owner', async () => {
+        memberships.set('user-1|team-a', grant(['tools:view']))
+        const deniedSession = { id: 'user-1', activeWorkspaceId: 'team-a', permissions: ['chatflows:view'], isOrganizationAdmin: false }
+        expect((await call(statsRouter, deniedSession, { method: 'get', path: '/usage', permission: 'tools:view' })).status).toBe(403)
+        const deniedKey = { permissions: ['tools:view'], activeWorkspaceId: 'team-a' }
+        expect((await call(statsRouter, deniedKey, { method: 'get', path: '/usage', permission: 'tools:view' })).status).toBe(403)
+        expect((await call(statsRouter, deniedKey, { method: 'get', path: '/flow-1', permission: 'tools:view' })).status).toBe(403)
+
+        memberships.set('user-1|team-a', grant(['chatflows:view']))
+        const viewer = { id: 'user-1', activeWorkspaceId: 'team-a', permissions: [], isOrganizationAdmin: false }
+        expect((await call(statsRouter, viewer, { method: 'get', path: '/flow-1', permission: 'chatflows:view' })).status).toBe(200)
+        const viewKey = { permissions: ['chatflows:view'], activeWorkspaceId: 'team-a' }
+        expect((await call(statsRouter, viewKey, { method: 'get', path: '/usage', permission: 'chatflows:view' })).status).toBe(200)
+
+        memberships.set('owner|team-b', grant(null, true))
+        const owner = { id: 'owner', activeWorkspaceId: 'team-b', permissions: [], isOrganizationAdmin: false }
+        expect((await call(statsRouter, owner, { method: 'get', path: '/flow-1', permission: '' })).status).toBe(200)
     })
 
     it('answers 401 when the caller is missing, on each switched group', async () => {

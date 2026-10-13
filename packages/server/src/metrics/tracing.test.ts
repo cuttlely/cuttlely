@@ -97,7 +97,7 @@ describe('run trace spans', () => {
                 chatClass(`
                     const { additionalCallbacks } = require('@cuttlely/components')
                     const callbacks = await additionalCallbacks(nodeData, options)
-                    const handler = callbacks[0]
+                    const handler = callbacks.find((item) => item && typeof item.handleToolStart === 'function')
                     if (!handler) return { text: 'At 7.' }
                     await handler.handleLLMStart({ kwargs: { modelName: 'gpt-4o-mini' } }, ['When is the sourdough ready?'], 'model-1')
                     await handler.handleLLMEnd({
@@ -1001,7 +1001,14 @@ describe('run trace spans', () => {
         const rows = typeof raw === 'string' ? JSON.parse(raw) : []
         const agent = rows.find((row: { nodeId?: string }) => row.nodeId === 'agentAgentflow_0')
         return agent?.data?.output?.usageMetadata as
-            | { input_tokens?: number; output_tokens?: number; input_cost?: number; output_cost?: number; tool_call_tokens?: number }
+            | {
+                  input_tokens?: number
+                  output_tokens?: number
+                  total_tokens?: number
+                  input_cost?: number
+                  output_cost?: number
+                  tool_call_tokens?: number
+              }
             | undefined
     }
 
@@ -1192,7 +1199,7 @@ describe('run trace spans', () => {
         expect(model?.attributes['status']).toBe('error')
     })
 
-    it('records summed tokens for a two-call run and leaves cost on the final call', async () => {
+    it('records summed tokens for a two-call run and prices that stored split', async () => {
         process.env.CUTTLELY_OTEL_TRACES = 'true'
         process.env.CUTTLELY_OTEL_TRACES_CONTENT = 'false'
         const captured = helperSource()
@@ -1227,13 +1234,15 @@ describe('run trace spans', () => {
         expect(model?.attributes['status']).toBe('ok')
         expect(usage?.input_tokens).toBe(22)
         expect(usage?.output_tokens).toBe(9)
+        expect(usage?.total_tokens).toBe(31)
+        expect(usage?.tool_call_tokens).toBe(31)
         const inputRate = 0.00000015
         const outputRate = 0.0000006
-        expect(usage?.input_cost).toBeCloseTo(12 * inputRate, 12)
-        expect(usage?.output_cost).toBeCloseTo((5 + (usage?.tool_call_tokens ?? 0)) * outputRate, 12)
+        expect(usage?.input_cost).toBeCloseTo(22 * inputRate, 12)
+        expect(usage?.output_cost).toBeCloseTo(9 * outputRate, 12)
     })
 
-    it('records summed tokens for a three-call run and leaves cost on the final call', async () => {
+    it('records summed tokens for a three-call run and prices that stored split', async () => {
         process.env.CUTTLELY_OTEL_TRACES = 'true'
         process.env.CUTTLELY_OTEL_TRACES_CONTENT = 'false'
         const captured = helperSource()
@@ -1280,10 +1289,12 @@ describe('run trace spans', () => {
         expect(model?.attributes['status']).toBe('ok')
         expect(usage?.input_tokens).toBe(30)
         expect(usage?.output_tokens).toBe(12)
+        expect(usage?.total_tokens).toBe(42)
+        expect(usage?.tool_call_tokens).toBe(42)
         const inputRate = 0.00000015
         const outputRate = 0.0000006
-        expect(usage?.input_cost).toBeCloseTo(8 * inputRate, 12)
-        expect(usage?.output_cost).toBeCloseTo((3 + (usage?.tool_call_tokens ?? 0)) * outputRate, 12)
+        expect(usage?.input_cost).toBeCloseTo(30 * inputRate, 12)
+        expect(usage?.output_cost).toBeCloseTo(12 * outputRate, 12)
     })
 
     it('keeps a second approval wait for the same tool pending', async () => {
@@ -1323,7 +1334,7 @@ describe('run trace spans', () => {
                     global.__cuttlelyReplayInit.replay = options && options.cuttlelyReplay === true
                     const { additionalCallbacks } = require('@cuttlely/components')
                     const callbacks = await additionalCallbacks(nodeData, options || {})
-                    const handler = callbacks && callbacks[0]
+                    const handler = callbacks && callbacks.find((item) => item && typeof item.handleToolStart === 'function')
                     if (handler) {
                         await handler.handleLLMStart({ kwargs: { modelName: 'gpt-4o-mini' } }, ['When is the sourdough ready?'], 'pred-model')
                         await handler.handleLLMEnd({ generations: [[{ text: 'At 7.' }]], llmOutput: { tokenUsage: { promptTokens: 3, completionTokens: 1 } } }, 'pred-model')

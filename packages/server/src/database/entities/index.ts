@@ -30,6 +30,7 @@ import { WorkspaceUser } from './identity/WorkspaceUser'
 import { ScheduleRecord } from './ScheduleRecord'
 import { ScheduleTriggerLog } from './ScheduleTriggerLog'
 import { FlowVersionState } from './FlowVersionState'
+import { TokenUsageDay } from './TokenUsageDay'
 
 export const entities = {
     ChatFlow,
@@ -63,5 +64,6 @@ export const entities = {
     LoginMethod,
     ScheduleRecord,
     ScheduleTriggerLog,
-    FlowVersionState
+    FlowVersionState,
+    TokenUsageDay
 }
