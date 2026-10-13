@@ -1,4 +1,5 @@
 import PropTypes from 'prop-types'
+import { useSelector } from 'react-redux'
 
 // material-ui
 import { useTheme } from '@mui/material/styles'
@@ -8,6 +9,7 @@ import { Divider, List, Typography } from '@mui/material'
 import NavItem from '../NavItem'
 import NavCollapse from '../NavCollapse'
 import AdminSection from '../AdminSection'
+import { menuItemAllowed } from '../activeRoute'
 import { useAuth } from '@/hooks/useAuth'
 import { Available } from '@/ui-component/rbac/available'
 
@@ -15,7 +17,9 @@ import { Available } from '@/ui-component/rbac/available'
 
 const NavGroup = ({ item }) => {
     const theme = useTheme()
-    const { hasPermission, hasDisplay } = useAuth()
+    const { hasDisplay } = useAuth()
+    const permissions = useSelector((state) => state.auth.permissions)
+    const isGlobal = useSelector((state) => state.auth.isGlobal)
 
     const listItems = (menu, level = 1) => {
         // Filter based on display and permission
@@ -37,10 +41,7 @@ const NavGroup = ({ item }) => {
     }
 
     const shouldDisplayMenu = (menu) => {
-        // Handle permission check
-        if (menu.permission && !hasPermission(menu.permission)) {
-            return false // Do not render if permission is lacking
-        }
+        if (!menuItemAllowed(menu, permissions, isGlobal)) return false
 
         // If `display` is defined, check against cloud/enterprise conditions
         if (menu.display) {

@@ -167,6 +167,18 @@ export async function exchangeOAuth2Refresh(decrypted: Record<string, any>): Pro
     return updated
 }
 
+/** Owned by this workspace, or shared into it. No workspace id means the caller did not scope the read. */
+export async function credentialReadableInWorkspace(
+    appDataSource: RefreshStore,
+    credential: { id: string; workspaceId?: string } | null | undefined,
+    workspaceId?: string
+): Promise<boolean> {
+    if (!credential) return false
+    if (!workspaceId) return true
+    if (credential.workspaceId === workspaceId) return true
+    return sharedIntoWorkspace(appDataSource, workspaceId, credential.id)
+}
+
 async function sharedIntoWorkspace(appDataSource: RefreshStore, workspaceId: string, credentialId: string): Promise<boolean> {
     try {
         const meta = (appDataSource.entityMetadatas || []).find((row) => row.name === 'WorkspaceShared')
@@ -201,9 +213,8 @@ export async function refreshStoredOAuth2Credential(input: {
     const repo = appDataSource.getRepository(credentialEntity)
     const credential = await repo.findOneBy({ id: credentialId })
     if (!credential) throw new Error(OAUTH2_REFRESH_FAILED)
-    if (workspaceId && credential.workspaceId !== workspaceId) {
-        const shared = await sharedIntoWorkspace(appDataSource, workspaceId, credentialId)
-        if (!shared) throw new Error(OAUTH2_REFRESH_FAILED)
+    if (workspaceId && !(await credentialReadableInWorkspace(appDataSource, credential, workspaceId))) {
+        throw new Error(OAUTH2_REFRESH_FAILED)
     }
     const updated = await exchangeOAuth2Refresh(input.credentialData)
     const encryptedData = await input.encrypt(updated)

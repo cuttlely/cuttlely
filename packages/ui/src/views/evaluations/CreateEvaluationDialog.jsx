@@ -43,7 +43,8 @@ import useApi from '@/hooks/useApi'
 import datasetsApi from '@/api/dataset'
 import evaluatorsApi from '@/api/evaluators'
 import nodesApi from '@/api/nodes'
-import assistantsApi from '@/api/assistants'
+import { useAuth } from '@/hooks/useAuth'
+import { EVALUATION_FLOW_CHOICES, evaluationFlows, requestsForRole } from './evaluationFlows'
 
 // utils
 import useNotifier from '@/utils/useNotifier'
@@ -58,6 +59,7 @@ const CreateEvaluationDialog = ({ show, dialogProps, onCancel, onConfirm }) => {
     const theme = useTheme()
     useNotifier()
 
+    const { hasPermission } = useAuth()
     const getAllChatflowsApi = useApi(chatflowsApi.getAllChatflows)
     const getAllAgentflowsApi = useApi(chatflowsApi.getAllAgentflows)
 
@@ -65,7 +67,6 @@ const CreateEvaluationDialog = ({ show, dialogProps, onCancel, onConfirm }) => {
     const getAllEvaluatorsApi = useApi(evaluatorsApi.getAllEvaluators)
     const getNodesByCategoryApi = useApi(nodesApi.getNodesByCategory)
     const getModelsApi = useApi(nodesApi.executeNodeLoadMethod)
-    const getAssistantsApi = useApi(assistantsApi.getAllAssistants)
 
     const [chatflow, setChatflow] = useState([])
     const [dataset, setDataset] = useState('')
@@ -226,9 +227,9 @@ const CreateEvaluationDialog = ({ show, dialogProps, onCancel, onConfirm }) => {
     useEffect(() => {
         getNodesByCategoryApi.request('Chat Models')
         if (flows.length === 0) {
-            getAllChatflowsApi.request()
-            getAssistantsApi.request('CUSTOM')
-            getAllAgentflowsApi.request('AGENTFLOW')
+            const wanted = requestsForRole(hasPermission)
+            if (wanted.chatflows) getAllChatflowsApi.request()
+            if (wanted.agentflows) getAllAgentflowsApi.request('AGENTFLOW')
         }
         if (datasets.length === 0) {
             getAllDatasetsApi.request()
@@ -238,18 +239,20 @@ const CreateEvaluationDialog = ({ show, dialogProps, onCancel, onConfirm }) => {
     }, [])
 
     useEffect(() => {
-        if (getAllAgentflowsApi.data && getAllChatflowsApi.data && getAssistantsApi.data) {
-            try {
-                const agentFlows = populateFlowNames(getAllAgentflowsApi.data, 'Agentflow v2')
-                const chatFlows = populateFlowNames(getAllChatflowsApi.data, 'Chatflow')
-                const assistants = populateAssistants(getAssistantsApi.data)
-                setFlows([...agentFlows, ...chatFlows, ...assistants])
-                setFlowTypes(['Agentflow v2', 'Chatflow', 'Custom Assistant'])
-            } catch (e) {
-                console.error(e)
-            }
+        try {
+            const merged = evaluationFlows(hasPermission, {
+                chatflows: getAllChatflowsApi.data,
+                agentflows: getAllAgentflowsApi.data
+            })
+            if (!merged.ready) return
+            setFlows(merged.flows)
+            setFlowTypes(merged.flowTypes)
+        } catch (e) {
+            console.error(e)
         }
-    }, [getAllAgentflowsApi.data, getAllChatflowsApi.data, getAssistantsApi.data])
+        // hasPermission is read from the render that owns this data. Listing it retriggers the effect every render.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [getAllAgentflowsApi.data, getAllChatflowsApi.data])
 
     useEffect(() => {
         if (getNodesByCategoryApi.data) {
@@ -351,34 +354,6 @@ const CreateEvaluationDialog = ({ show, dialogProps, onCancel, onConfirm }) => {
         } else {
             setFlowTypes(flowTypes.filter((f) => f !== flowTypeValue))
         }
-    }
-
-    const populateFlowNames = (data, type) => {
-        let flowNames = []
-        for (let i = 0; i < data.length; i += 1) {
-            const flow = data[i]
-            flowNames.push({
-                label: flow.name,
-                name: flow.id,
-                type: type,
-                description: type
-            })
-        }
-        return flowNames
-    }
-
-    const populateAssistants = (assistants) => {
-        let assistantNames = []
-        for (let i = 0; i < assistants.length; i += 1) {
-            const assistant = assistants[i]
-            assistantNames.push({
-                label: JSON.parse(assistant.details).name || '',
-                name: assistant.id,
-                type: 'Custom Assistant',
-                description: 'Custom Assistant'
-            })
-        }
-        return assistantNames
     }
 
     const component = show ? (
@@ -533,24 +508,18 @@ const CreateEvaluationDialog = ({ show, dialogProps, onCancel, onConfirm }) => {
                                         <span style={{ color: 'red' }}>&nbsp;*</span>
                                     </Typography>
                                     <Typography variant='overline'>
-                                        <Checkbox defaultChecked size='small' label='All' value='Chatflow' onChange={onChangeFlowType} />{' '}
-                                        Chatflows
-                                        <Checkbox
-                                            defaultChecked
-                                            size='small'
-                                            label='All'
-                                            value='Agentflow v2'
-                                            onChange={onChangeFlowType}
-                                        />{' '}
-                                        Agentflows (v2)
-                                        <Checkbox
-                                            defaultChecked
-                                            size='small'
-                                            label='All'
-                                            value='Custom Assistant'
-                                            onChange={onChangeFlowType}
-                                        />{' '}
-                                        Custom Assistants
+                                        {EVALUATION_FLOW_CHOICES.filter((choice) => hasPermission(choice.permission)).map((choice) => (
+                                            <span key={choice.type}>
+                                                <Checkbox
+                                                    defaultChecked
+                                                    size='small'
+                                                    label='All'
+                                                    value={choice.type}
+                                                    onChange={onChangeFlowType}
+                                                />{' '}
+                                                {choice.label}
+                                            </span>
+                                        ))}
                                     </Typography>
                                 </div>
                                 <MultiDropdown

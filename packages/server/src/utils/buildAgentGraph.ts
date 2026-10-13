@@ -414,7 +414,7 @@ export const buildAgentGraph = async ({
             }
         } catch (e) {
             // clear agent memory because checkpoints were saved during runtime
-            await clearSessionMemory(nodes, componentNodes, chatId, appDataSource, orgId, sessionId)
+            await clearSessionMemory(nodes, componentNodes, chatId, appDataSource, orgId, sessionId, undefined, undefined, workspaceId)
             if (getErrorMessage(e).includes('Aborted')) {
                 if (shouldStreamResponse && sseStreamer) {
                     sseStreamer.streamAbortEvent(chatId)

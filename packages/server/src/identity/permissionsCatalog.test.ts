@@ -40,6 +40,9 @@ describe('permission catalogs', () => {
         expect(rows.length).toBeGreaterThan(0)
         expect(visible.chatflows?.map((row) => row.key)).toContain('chatflows:view')
         expect(visible.workspace?.map((row) => row.key)).toContain('workspace:view')
+        expect(visible.datasets?.map((row) => row.key)).toContain('datasets:view')
+        expect(visible.evaluators?.map((row) => row.key)).toContain('evaluators:create')
+        expect(visible.evaluations?.map((row) => row.key)).toContain('evaluations:run')
         expect(rows.every((row) => row.isOpenSource === true)).toBe(true)
     })
 

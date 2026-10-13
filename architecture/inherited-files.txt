@@ -1876,6 +1876,8 @@ packages/ui/src/views/evaluations/EvaluationResult.jsx
 packages/ui/src/views/evaluations/EvaluationResultSideDrawer.jsx
 packages/ui/src/views/evaluations/EvaluationResultVersionsSideDrawer.jsx
 packages/ui/src/views/evaluations/MetricsItemCard.jsx
+packages/ui/src/views/evaluations/evaluationFlows.js
+packages/ui/src/views/evaluations/evaluationFlows.test.js
 packages/ui/src/views/evaluations/index.jsx
 packages/ui/src/views/evaluators/AddEditEvaluatorDialog.jsx
 packages/ui/src/views/evaluators/SamplePromptDialog.jsx

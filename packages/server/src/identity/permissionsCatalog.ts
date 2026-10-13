@@ -9,13 +9,14 @@
  *
  * Checkbox keys are the personal-workspace permission list stored
  * by the identity schema, plus the users, roles, and team keys the UI
- * already sends. Share, export, import, datasets, evaluations, and SSO are
- * left out.
+ * already sends. Share, export, import, and SSO are left out.
+ * Datasets, evaluators, and evaluations stay, matching the routes (D55).
+ * Server logs are `logs:view` on a role and are not offered on an API key (D56).
  */
 
 import { PERSONAL_WORKSPACE_PERMISSIONS } from '../database/identitySchema'
 
-const DROPPED_PREFIXES = ['datasets', 'evaluators', 'evaluations', 'sso', 'loginActivity']
+const DROPPED_PREFIXES = ['sso', 'loginActivity']
 const DROPPED_KEYS = new Set(['credentials:share', 'templates:custom-share', 'workspace:export', 'workspace:import'])
 
 /** Category name is the permission prefix. The role dialog compares it to `chatflows` and `workspace`. */
@@ -30,6 +31,9 @@ const ALLOWED_PREFIXES = new Set([
     'documentStores',
     'templates',
     'executions',
+    'datasets',
+    'evaluators',
+    'evaluations',
     'users',
     'roles',
     'workspace',
