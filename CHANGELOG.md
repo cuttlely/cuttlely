@@ -4,18 +4,51 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ## [Unreleased]
 
+## [1.0.3] - 2026-10-13
+
 ### Added
 
+-   Drafts and Publish for harness canvases. After the first save, **Save Harness** writes a draft, and the canvas chat and **Try it** run that draft. Chatflows and `POST /api/v1/harnesses/:name/runs` keep using the Live team until you select **Publish**. An existing harness stays Live until its next edit on the canvas.
+-   Drafts and Publish for pipeline canvases. Scheduled runs, a run you start and a full rebuild keep reading the published pipeline until Publish or Roll back. Preview runs the canvas, including edits not saved yet, and writes nothing to the store. The Publish dialog lists what changed in the same words as version history. An existing pipeline stays Live until its first canvas edit.
+-   The Publish check runs on harness drafts. It asks recent prompts from that harness's saved chats on the Live team and on the draft team, and shows the answers, tokens and time side by side.
+-   The Publish check can ask the rows of a saved dataset instead of recent questions, and score each answer with the evaluators you pick. Each side gets Pass, Fail or Error per answer and a pass rate.
+-   The Publish check replays recorded inputs for agentflows that start from a form, a webhook or a schedule. The dialog calls this **Check recent runs**, shows a short preview of each input, and writes sensitive header and query values as `[REDACTED]`.
+-   `cuttlely check --flow <id>` runs the Publish check on a flow's draft from a terminal or a CI job. `--fail-on-changed` exits 1 when any answer changed. The API key is read from `CUTTLELY_API_KEY`. See [Check answers in CI](./docs/how-to/ci-gate.md).
+-   Datasets, Evaluators and Evaluations are in the sidebar for the organization owner and for roles that hold their permissions.
+-   **Admin** > **Logs** shows recent server logs in the app, with a level filter and time ranges. The organization owner can open it, and so can a role with the new `logs:view` permission. An API key cannot hold that permission.
+-   Token usage is recorded per flow, model and day for chatflows, agentflows, Multi Agents, Sequential Agents and harnesses. `GET /api/v1/stats/usage` returns the daily totals, plus totals per flow and per model, for 7, 30 or 90 days or a custom range.
 -   Usage totals and the Publish check include an estimated cost. Defaults come from the model list. An organization owner can set or clear a model's price, in US dollars per million tokens. A model with no price is shown as no price, not as zero. The check total for a side prices each model once across that side's answers. A harness check prices the route, specialist, and handoff lines stored under the harness name. A line stored as the node label and a catalog id uses an override on that full string, or the catalog price. On MySQL and MariaDB the daily usage model name keeps case, so two names that differ only by case stay separate and are priced apart. The figure under one answer can differ from that total by one hundred-millionth of a dollar. The figures are estimates.
--   A Docker build can leave out Chromium. `INCLUDE_BROWSER=0` builds that image. The default image still includes Chromium. Puppeteer and Playwright document loaders in the smaller image fail with `this image has no browser`. The agent runtime's browser tool also cannot browse there: it returns success: false, and the server keeps running.
+-   A **Usage** page in the sidebar shows daily input and output tokens and an estimated cost per flow, for 7, 30 or 90 days or a custom range, with flow and model filters. Models with no price are marked, and the organization owner can set or clear a model's price on the same page. People need `chatflows:view` or `agentflows:view` to see it.
+-   Named environments for promotion. Version history can list more than two environments in promotion order, for example dev, staging and prod. A version moves one step at a time, the behavior check and the credential check run on each step, and the promote page shows the chain. An existing Dev and Prod setup keeps working as it is. [Versioning](./docs/how-to/versioning.md) has the setup guide.
+-   Optional OpenTelemetry traces for chatflow, agentflow, Multi Agents and Sequential Agents runs, with a span for each step, model call and tool call, including token counts. Traces are off until `CUTTLELY_OTEL_TRACES=true` and `CUTTLELY_OTEL_TRACES_ENDPOINT` are set. Questions and answers stay out of traces unless `CUTTLELY_OTEL_TRACES_CONTENT=true`. See [Run traces](./docs/how-to/observability.md).
+-   The analyst's row cap and query timeout can be changed in **Admin** > **Server settings** > **Analyst** (`CUTTLELY_ANALYST_ROW_CAP`, 1 to 1000 rows, and `CUTTLELY_ANALYST_STATEMENT_TIMEOUT_MS`, up to 120 seconds). The defaults stay 100 rows and 15 seconds. A PostgreSQL MCP card can set lower values for itself.
+-   Optional node packs. Vector stores, outside-service tools and MCP servers, caches and memory backends, and the older completion model and chain cards now ship as node packs. Every install still loads them, so the card list is the same. `CUTTLELY_NODE_PACKS` loads more packs. A saved flow that uses a card that is not installed opens with a placeholder card that names its pack, keeps its lines, and answers 422 with a plain message if it is run. See [Node packs](./docs/how-to/node-packs.md).
+-   Smaller Docker builds. `INCLUDE_BROWSER=0` builds an image without Chromium, `INCLUDE_NODE_PACKS=0` leaves the shipped node packs out, and `CUTTLELY_OMIT_GEOIP=true` leaves out the IP location database, so audit events have no country or region. The published image still includes all of them. In an image without Chromium, the Puppeteer and Playwright document loaders fail with `this image has no browser`, and the agent runtime's browser tool returns success: false while the server keeps running.
+-   Product-named settings next to the existing ones: `CUTTLELY_SECRETKEY_OVERWRITE`, `CUTTLELY_FILE_SIZE_LIMIT` and `DISABLE_CUTTLELY_TELEMETRY`. If both encryption key variables are set to different values, Cuttlely refuses to start instead of picking one. Webhook callbacks also send an `X-Cuttlely-Signature` header with the same signature, and `METRICS_PREFIX` can prefix metric names.
+-   [Roles and permissions](./docs/how-to/roles-and-permissions.md) explains teams, the built-in roles, and every permission key with the pages and API routes it opens.
+
+### Changed
+
+-   The image installs less. The server serves the prebuilt web app without installing the web app's libraries, the server drops dependencies it never loads, and the bundled agent runtime keeps only the code Cuttlely runs.
 
 ### Fixed
 
+-   Cards on the chatflow, agentflow, harness and pipeline canvases show Duplicate and Delete on hover and while the card is selected, also while its settings panel is open. The card settings and edit panel has a Close button that stays visible in light and dark mode. Deleting a card or a line clears references to it on other cards, so nothing in the saved flow still points at it.
 -   A model grade keeps text, JSON and numeric scores when the grading model cannot be started. Each model score is Error. Grading tokens count when a provider reports them only as an estimate. A provider that reports usage nowhere leaves the check bounded by the time limit. A model grade that is aborted still counts tokens already reported, and does not start another model evaluator.
+-   A second row added to a dataset gets the next sequence number instead of repeating the first.
+-   In the role dialog, Delete Chunk and Edit Chunk check the same permissions as the API routes they call, and checking Users or Roles no longer adds a view permission you did not pick.
 
 ### Security
 
+-   Harness routes are scoped to the caller's workspace. Another team's harness, its runs and its run previews answer 404, the same as a missing name, and cannot be run or overwritten: saving a name that belongs to another team returns 409 and changes nothing. An API key is limited to the workspace bound to that key.
+-   The agent runtime's automatic git calls no longer run commands that a repository's own git config names, such as an fsmonitor command, filters or hooks.
 -   Reading a publish check no longer includes dataset row inputs, expected outputs, or evaluator ids and names unless the caller can view datasets and evaluators.
+-   The usage and flow stats routes need `chatflows:view` or `agentflows:view`, and the evaluation outdated check needs `evaluations:view`.
+
+### Upgrade notes / breaking changes
+
+-   **Harness and pipeline drafts.** After the upgrade, the next edit to an existing harness or pipeline canvas saves a draft. Runs, schedules and the API keep using the published version until you select **Publish**. `CUTTLELY_DRAFTS=off` still turns drafts off for the whole server.
+-   **Harness teams.** At startup, a harness saved before harnesses stored a team takes its canvas chat flow's team, otherwise the team named by `CUTTLELY_ETL_DEFAULT_WORKSPACE_ID`, otherwise the only team. A single-team install needs no action. On an install with several teams, a harness that still has no team is not run by a chatflow, webhook, schedule or embed. Set `CUTTLELY_ETL_DEFAULT_WORKSPACE_ID` to the team that should own such harnesses and restart.
 
 ## [1.0.2] - 2026-10-11
 
@@ -193,7 +226,8 @@ Back up your data directory, including its encryption key, before any upgrade. [
 -   **Node 24.** Running from source needs Node 24 (`.nvmrc`).
 -   **Data directory.** Data lives in `~/.cuttlely`, or `/var/cuttlely/data` in Docker and on Render. Keep the encryption key with the database.
 
-[Unreleased]: https://github.com/cuttlely/cuttlely/compare/v1.0.2...HEAD
+[Unreleased]: https://github.com/cuttlely/cuttlely/compare/v1.0.3...HEAD
+[1.0.3]: https://github.com/cuttlely/cuttlely/compare/v1.0.2...v1.0.3
 [1.0.2]: https://github.com/cuttlely/cuttlely/compare/v1.0.1...v1.0.2
 [1.0.1]: https://github.com/cuttlely/cuttlely/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/cuttlely/cuttlely/releases/tag/v1.0.0
