@@ -73,7 +73,7 @@ import { templateKeyNote, templateWithYourKey } from '@/utils/yourKey'
 import useNotifier from '@/utils/useNotifier'
 import { usePrompt } from '@/utils/usePrompt'
 import { CHATFLOW_NEEDS_ENDING_NODE, chatflowCanChat } from '@/utils/chatflowReady'
-import { harnessChatBlock } from '@/utils/harnessChatReady'
+import { harnessChatBlock, reservedHarnessNameMessage } from '@/utils/harnessChatReady'
 import { nodeMoved } from '@/utils/canvasDirty'
 import { panelNode, panToKeepInView } from '@/utils/canvasLook'
 import { flowiseCanvasJson } from '@/utils/flowiseImport'
@@ -896,7 +896,9 @@ const Canvas = () => {
             }
             const built = takeSavedBuild(loaded.id)
             if (built) builtNotice(built)
-            if (isHarnessCanvas || isEtlCanvas) {
+            // Pipeline canvases still save straight to Live. A harness canvas loads draft status
+            // with the other canvases: the canvas shows the draft, and runs keep serving Live until Publish.
+            if (isEtlCanvas) {
                 paint(null)
                 return
             }
@@ -935,7 +937,7 @@ const Canvas = () => {
             } else {
                 saveChatflowSuccess()
             }
-            if (!draft && !isHarnessCanvas && !isEtlCanvas) {
+            if (!draft && !isEtlCanvas) {
                 flowDraftsApi
                     .getStatus(chatflow.id)
                     .then((res) => setDraftStatus(res.data))
@@ -1029,6 +1031,10 @@ const Canvas = () => {
                 }
                 handleLoadFlow(storedFlow)
                 setTimeout(() => localStorage.removeItem('duplicatedFlowData'), 0)
+                if (isHarnessCanvas && reservedHarnessNameMessage(importedName)) {
+                    showImportError(reservedHarnessNameMessage(importedName))
+                    importedName = ''
+                }
                 const landing = isChatCanvas ? takeLanding() : null
                 if (landing) {
                     builderStartersRef.current = landing.starterQuestions

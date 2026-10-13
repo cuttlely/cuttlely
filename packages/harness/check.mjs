@@ -1,5 +1,6 @@
 import fs from 'node:fs'
 import http from 'node:http'
+import net from 'node:net'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -12,12 +13,24 @@ process.env.CUTTLELY_HERMES_HOME = path.join(dataDir, 'hermes')
 delete process.env.HERMES_API_URL
 
 const { saveHarness } = await import('./store.mjs')
-const { compileProfile, modelConfigured, readProfileEnv, CHIEF_TOOLSETS, routerDialectNote, specialistSoul, specialistSummary } =
-    await import('./profile.mjs')
+const {
+    compileProfile,
+    compileProfileCached,
+    compileTryProfile,
+    discardTryProfile,
+    modelConfigured,
+    readProfileEnv,
+    CHIEF_TOOLSETS,
+    routerDialectNote,
+    specialistSoul,
+    specialistSummary
+} = await import('./profile.mjs')
 const { appendMessage, readMessages, readPromptContext, sessionKey } = await import('./session.mjs')
 const { chiefContextTokens, estimateTokens, specialistContextTokens, DEFAULT_CHIEF_CONTEXT_TOKENS, DEFAULT_SPECIALIST_CONTEXT_TOKENS } =
     await import('./context.mjs')
 const {
+    harnessForTurn,
+    runHooks,
     runHarness: runHarnessRaw,
     warmHarnessProfiles,
     ROUTE_WHOLE_TASK,
@@ -156,6 +169,24 @@ function check(name, ok, detail) {
     failures.push(name)
     console.error(`FAIL ${name}${detail ? `: ${detail}` : ''}`)
 }
+
+saveHarness(
+    {
+        name: 'draft-probe',
+        chief: { instructions: 'live', model: { nodeName: 'demoChat', nodeId: 'm', inputs: {} } },
+        specialists: [{ name: 'math', instructions: 'live specialist' }]
+    },
+    { overwrite: true }
+)
+const draftProbe = {
+    ...getHarness('draft-probe'),
+    chief: { ...getHarness('draft-probe').chief, instructions: 'draft' }
+}
+check(
+    'a draft run uses the record it was given and leaves the saved harness',
+    harnessForTurn('draft-probe', draftProbe).chief.instructions === 'draft' && getHarness('draft-probe').chief.instructions === 'live'
+)
+check('a run without a record reads the saved harness', harnessForTurn('draft-probe').chief.instructions === 'live')
 
 function readJson(file) {
     return JSON.parse(fs.readFileSync(path.join(root, file), 'utf8'))
@@ -553,7 +584,7 @@ check(
     check(
         'the run card lists every row an analyst query returned, up to the cap',
         view &&
-            TRACE_ROW_LIMIT === 100 &&
+            TRACE_ROW_LIMIT === 1000 &&
             view.rows.length === 100 &&
             view.columns.join(',') === 'account,arr,note' &&
             view.rows[0].join('|') === 'Account 1|1000|{"tier":"gold"}' &&
@@ -627,7 +658,7 @@ check(
 {
     // Playbooks: long rules a specialist loads on demand. They become read-only Hermes skills in its profile.
     const { playbookList, PLAYBOOK_LIMITS } = await import('./store.mjs')
-    const { PLAYBOOK_TOOLSET, SPECIALIST_PLAYBOOKS, playbookLines } = await import('./profile.mjs')
+    const { PLAYBOOK_TOOLSET, SPECIALIST_PLAYBOOKS, playbookLines, specialistProfileName } = await import('./profile.mjs')
     const refundRules = `# Refund rules\nA refund needs the order id. ${'Check the delivery date before you approve. '.repeat(
         40
     )}PLAYBOOK_TAIL_44`
@@ -668,6 +699,16 @@ check(
             playbookList([{ name: 'long', description: 'd'.repeat(900), content: 'x'.repeat(PLAYBOOK_LIMITS.content + 10) }])[0].content
                 .length === PLAYBOOK_LIMITS.content &&
             playbookList('not json').length === 0
+    )
+    const dashName = '-'.repeat(100000)
+    const dashStarted = Date.now()
+    const dashedProfile = specialistProfileName('bakery', dashName)
+    const dashedPlaybook = playbookList([{ name: dashName, content: 'rules' }])
+    const dashMs = Date.now() - dashStarted
+    check(
+        'a 100k-dash name slugs without a polynomial trim',
+        dashMs < 1000 && dashedProfile === 'bakery--' && dashedPlaybook[0]?.name === 'playbook-1',
+        `${dashMs}ms profile=${dashedProfile} playbook=${dashedPlaybook[0]?.name}`
     )
     compileProfile(playbookRecord)
     const playbookProfile = 'playbook-demo--orders'
@@ -9680,10 +9721,1389 @@ else process.env.FLOWISE_SECRETKEY_OVERWRITE = savedSecretOverwrite
 fs.rmSync(dataDir, { recursive: true, force: true })
 fs.rmSync(credDir, { recursive: true, force: true })
 
+function profileTree(dir) {
+    if (!fs.existsSync(dir)) return ''
+    const files = []
+    const walk = (current) => {
+        for (const name of fs.readdirSync(current).sort()) {
+            const file = path.join(current, name)
+            if (fs.statSync(file).isDirectory()) walk(file)
+            else files.push(`${path.relative(dir, file)}\0${fs.readFileSync(file)}`)
+        }
+    }
+    walk(dir)
+    return files.join('\n')
+}
+
+const tryLiveModel = nodeModel('echoChat', { credential: 'cred-xai', label: 'Echo Chat', inputs: { modelName: 'gpt-4.1' } })
+saveHarness(
+    {
+        name: 'try-live',
+        chief: { instructions: 'LIVE-INSTRUCTIONS', model: tryLiveModel },
+        specialists: [
+            {
+                name: 'shell',
+                instructions: 'LIVE-SPECIALIST',
+                shell: true,
+                browser: false,
+                codeExecution: false,
+                fileAccess: false,
+                modules: [],
+                mcpServers: []
+            }
+        ]
+    },
+    { overwrite: true }
+)
+compileProfileCached(getHarness('try-live'))
+const publishedProfile = path.join(process.env.CUTTLELY_HERMES_HOME, 'profiles', 'try-live')
+const publishedSpecialist = path.join(process.env.CUTTLELY_HERMES_HOME, 'profiles', 'try-live--shell')
+const publishedBytes = profileTree(publishedProfile)
+const publishedSpecialistBytes = profileTree(publishedSpecialist)
+const tryA = 'a'.repeat(16)
+const tryB = 'b'.repeat(16)
+const draftOf = (tryId, instructions) => ({
+    ...getHarness('try-live'),
+    tryId,
+    chief: { ...getHarness('try-live').chief, instructions }
+})
+const compiledA = compileTryProfile(draftOf(tryA, 'DRAFT-A'), tryA)
+const compiledB = compileTryProfile(draftOf(tryB, 'DRAFT-B'), tryB)
+check(
+    'two draft tries compile into different profiles',
+    compiledA.dir !== compiledB.dir &&
+        !compiledA.dir.endsWith(`${path.sep}try-live`) &&
+        !compiledB.dir.endsWith(`${path.sep}try-live`) &&
+        fs.readFileSync(path.join(compiledA.dir, 'SOUL.md'), 'utf8').includes('DRAFT-A') &&
+        fs.readFileSync(path.join(compiledB.dir, 'SOUL.md'), 'utf8').includes('DRAFT-B')
+)
+check(
+    'draft tries do not change the published profile',
+    profileTree(publishedProfile) === publishedBytes && profileTree(publishedSpecialist) === publishedSpecialistBytes
+)
+await discardTryProfile(tryA)
+await discardTryProfile(tryB)
+check(
+    'discarding a try removes only that profile',
+    !fs.existsSync(compiledA.dir) &&
+        !fs.existsSync(compiledB.dir) &&
+        profileTree(publishedProfile) === publishedBytes &&
+        profileTree(publishedSpecialist) === publishedSpecialistBytes
+)
+
+const tryC = 'c'.repeat(16)
+const soulFetch = async (_url, init) => {
+    const body = JSON.parse(init?.body || '{}')
+    const soulFile = path.join(process.env.CUTTLELY_HERMES_HOME, 'profiles', body.model || '', 'SOUL.md')
+    const soul = fs.existsSync(soulFile) ? fs.readFileSync(soulFile, 'utf8') : ''
+    return { ok: true, status: 200, statusText: 'OK', text: async () => JSON.stringify({ output: soul, status: 'completed' }) }
+}
+const echoReply = (messages) => {
+    const plain = plainChatMessages(messages)
+    const system = String(plain[0]?.content || '')
+    const user = String(plain.at(-1)?.content || '')
+    if (system.includes('You route work')) {
+        return { content: JSON.stringify({ steps: [{ specialist: 'shell', task: user }] }) }
+    }
+    return { content: user }
+}
+let externalDuringTry = null
+let duringTry = { untouched: false, profile: '', specialist: '' }
+runHooks.afterProfile = async ({ tryId }) => {
+    if (tryId !== tryC) return
+    duringTry.untouched = profileTree(publishedProfile) === publishedBytes && profileTree(publishedSpecialist) === publishedSpecialistBytes
+    externalDuringTry = await runHarnessRaw({
+        name: 'try-live',
+        chatId: 'published-while-draft',
+        input: 'What are the rules?',
+        loadNode: async () => recordingChat([], echoReply),
+        fetchImpl: soulFetch,
+        baseUrl: 'http://127.0.0.1:8642'
+    })
+    duringTry.profile = profileTree(publishedProfile)
+    duringTry.specialist = profileTree(publishedSpecialist)
+    throw new Error('mid-try')
+}
+let midTry = null
+try {
+    await runHarnessRaw({
+        name: 'try-live',
+        chatId: 'draft-try',
+        input: 'What are the rules?',
+        record: draftOf(tryC, 'DRAFT-C'),
+        loadNode: async () => recordingChat([], echoReply),
+        fetchImpl: soulFetch,
+        baseUrl: 'http://127.0.0.1:8642'
+    })
+} catch (error) {
+    midTry = error
+} finally {
+    runHooks.afterProfile = null
+}
+check(
+    'a published run during a draft try uses the published roster and output',
+    externalDuringTry?.text?.includes('LIVE-SPECIALIST') &&
+        !externalDuringTry.text.includes('DRAFT-C') &&
+        getHarness('try-live').chief.instructions === 'LIVE-INSTRUCTIONS'
+)
+const tryGone = !fs.existsSync(path.join(process.env.CUTTLELY_HERMES_HOME, 'profiles', `try${tryC}`))
+const sameAfterError = profileTree(publishedProfile) === duringTry.profile && profileTree(publishedSpecialist) === duringTry.specialist
+check(
+    'an error mid-try leaves the published profile byte-identical and removes the try profile',
+    duringTry.untouched && midTry?.message === 'mid-try' && sameAfterError && tryGone,
+    `mid=${midTry?.message} untouched=${duringTry.untouched} same=${sameAfterError} gone=${tryGone}`
+)
+
+await (async () => {
+    const liveModel = nodeModel('echoChat', { credential: 'cred-xai', label: 'Echo', inputs: { modelName: 'gpt-4.1' } })
+    const draftModel = nodeModel('draftChat', { credential: 'cred-xai', label: 'Draft', inputs: { modelName: 'gpt-4.1-mini' } })
+    const addedModel = nodeModel('addedChat', { credential: 'cred-xai', label: 'Added', inputs: { modelName: 'gpt-4.1-nano' } })
+    const shellOf = (instructions, model, moduleName) => ({
+        name: 'shell',
+        instructions,
+        shell: true,
+        browser: false,
+        codeExecution: false,
+        fileAccess: false,
+        ...(model ? { model } : {}),
+        modules: [{ nodeName: moduleName, label: moduleName, category: 'Tools', inputs: {} }],
+        mcpServers: []
+    })
+    saveHarness(
+        {
+            name: 'try-gate',
+            workspaceId: 'w1',
+            chatflowId: 'flow-gate',
+            chief: { instructions: 'LIVE-INSTRUCTIONS', model: liveModel },
+            specialists: [shellOf('LIVE-SPECIALIST', null, 'calculator')]
+        },
+        { overwrite: true }
+    )
+    compileProfileCached(getHarness('try-gate'))
+    const publishedToken = readProfileEnv('try-gate--shell').OPENAI_API_KEY
+    const draftRoster = (tryId) => ({
+        ...getHarness('try-gate'),
+        tryId,
+        chief: { ...getHarness('try-gate').chief, instructions: 'DRAFT-CHIEF' },
+        specialists: [
+            shellOf('DRAFT-SPECIALIST', draftModel, 'draftTool'),
+            {
+                name: 'added',
+                instructions: 'ADDED-SPECIALIST',
+                shell: true,
+                browser: false,
+                codeExecution: false,
+                fileAccess: false,
+                model: addedModel,
+                modules: [{ nodeName: 'extraTool', label: 'extraTool', category: 'Tools', inputs: {} }],
+                mcpServers: []
+            }
+        ]
+    })
+    const tryD = 'd'.repeat(16)
+    const tryE = 'e'.repeat(16)
+    const compiledD = compileTryProfile(draftRoster(tryD), tryD)
+    const tokenD = readProfileEnv(`try${tryD}--shell`).OPENAI_API_KEY
+    compileProfileCached(getHarness('try-gate'))
+    const compiledE = compileTryProfile(draftRoster(tryE), tryE)
+    const tokenE = readProfileEnv(`try${tryE}--shell`).OPENAI_API_KEY
+    const gatewayApi = await import('./gateway.mjs')
+    const seen = []
+    gatewayApi.setGatewayContext(async (record) => {
+        seen.push(record)
+        return {
+            componentNodes: {},
+            loadNode: async () =>
+                class {
+                    async init() {
+                        return {}
+                    }
+                },
+            flowOptions: { workspaceId: record.workspaceId || 'w1', chatflowid: record.chatflowId }
+        }
+    })
+    const gateway = await openGateway()
+    const status = async (token) => (await localRequest({ port: gateway.port, method: 'GET', path: '/v1/models', token })).status
+    const toolNames = async (token) => {
+        const response = await localRequest({ port: gateway.port, method: 'POST', path: '/harness/tools/list', token, body: {} })
+        const parsed = JSON.parse(response.body)
+        return { status: response.status, names: (parsed.tools || []).map((tool) => tool.name) }
+    }
+    const publishedStatus = await status(publishedToken)
+    const duringD = await status(tokenD)
+    const duringE = await status(tokenE)
+    const draftTools = await toolNames(tokenD)
+    const liveTools = await toolNames(publishedToken)
+    const draftSeen = seen.find((record) => (record.specialists || []).some((item) => item.instructions === 'DRAFT-SPECIALIST'))
+    const liveSeen = seen.find((record) => (record.specialists || []).some((item) => item.instructions === 'LIVE-SPECIALIST'))
+    const rosterFile = JSON.parse(fs.readFileSync(path.join(compiledD.dir, 'harness-roster.json'), 'utf8'))
+    const rosterYaml = fs.readFileSync(path.join(compiledD.dir, 'config.yaml'), 'utf8')
+    const { specialistLaunch } = await import('./roster-mcp.mjs')
+    const addedDuringTry = specialistLaunch(`try${tryD}`, 'added')
+    const addedOnLive = specialistLaunch('try-gate', 'added')
+    const shellOnLive = specialistLaunch('try-gate', 'shell')
+    await discardTryProfile(tryD)
+    const afterDiscardD = await status(tokenD)
+    const stillE = await status(tokenE)
+    const stillPublished = await status(publishedToken)
+    await discardTryProfile(tryE)
+    const afterDiscardE = await status(tokenE)
+    const publishedAfter = await status(publishedToken)
+    const reserved = `try${'c'.repeat(16)}`
+    const planted = {
+        name: reserved,
+        workspaceId: 'w1',
+        chatflowId: 'flow-reserved',
+        chief: { instructions: 'LIVE-INSTRUCTIONS', model: liveModel },
+        specialists: [shellOf('LIVE-SPECIALIST', null, 'calculator')]
+    }
+    let saveError = null
+    try {
+        saveHarness(planted)
+    } catch (error) {
+        saveError = error
+    }
+    const { harnessStoreDir } = await import('./paths.mjs')
+    fs.mkdirSync(harnessStoreDir(), { recursive: true })
+    fs.writeFileSync(path.join(harnessStoreDir(), `${reserved}.json`), JSON.stringify(planted))
+    const shadowed = compileTryProfile(draftRoster('c'.repeat(16)), 'c'.repeat(16))
+    const shadowedToken = readProfileEnv(`${reserved}--shell`).OPENAI_API_KEY
+    const plantedToken = 'P'.repeat(43)
+    gatewayApi.registerProfileToken({
+        token: plantedToken,
+        harnessName: reserved,
+        specialistName: 'shell',
+        modelKey: 'live',
+        profileName: `${reserved}--published`,
+        tryProfile: false
+    })
+    const seenBefore = seen.length
+    const shadowedTools = await toolNames(shadowedToken)
+    const plantedTools = await toolNames(plantedToken)
+    const shadowedSeen = seen[seenBefore]
+    const plantedSeen = seen[seenBefore + 1]
+    const marker = fs.readFileSync(path.join(shadowed.dir, 'harness-try'), 'utf8').trim()
+    const tryEnv = readProfileEnv(`${reserved}--shell`).CUTTLELY_GATEWAY_TRY
+    await gateway.close()
+    check(
+        'a published gateway token stays valid during a try, after a cache hit, and beside another try',
+        publishedStatus === 200 && duringD === 200 && duringE === 200 && stillPublished === 200 && publishedAfter === 200,
+        `published ${publishedStatus} tryD ${duringD} tryE ${duringE} still ${stillPublished} after ${publishedAfter}`
+    )
+    check(
+        'discarding a try revokes only that token',
+        afterDiscardD === 401 && stillE === 200 && afterDiscardE === 401,
+        `discarded D ${afterDiscardD} E while D discarded ${stillE} E after ${afterDiscardE}`
+    )
+    const draftShell = rosterFile.specialists.find((item) => item.name === 'shell')
+    let importError = null
+    try {
+        const canvas = JSON.parse(fs.readFileSync(path.join(root, 'samples/harnesses/research.canvas.json'), 'utf8'))
+        const { syncHarnessFromFlow } = await import('./sync-from-flow.mjs')
+        await syncHarnessFromFlow({ name: reserved, chatflowId: 'canvas-reserved', flowData: canvas.flowData })
+    } catch (error) {
+        importError = error
+    }
+    check(
+        'saving or importing a harness named like a try id is rejected',
+        saveError?.code === 'bad_name' &&
+            saveError.message.includes('reserved for a draft try') &&
+            importError?.code === 'bad_name' &&
+            importError.message.includes('reserved for a draft try'),
+        `save ${saveError?.message} import ${importError?.message}`
+    )
+    check(
+        'a try token reads the marked try roster even when a saved harness has that name',
+        marker === reserved &&
+            tryEnv === '1' &&
+            shadowedTools.status === 200 &&
+            shadowedTools.names.includes('draftTool') &&
+            !shadowedTools.names.includes('calculator') &&
+            plantedTools.status === 200 &&
+            plantedTools.names.includes('calculator') &&
+            !plantedTools.names.includes('draftTool') &&
+            shadowedSeen?.specialists?.some((item) => item.instructions === 'DRAFT-SPECIALIST') &&
+            plantedSeen?.specialists?.some((item) => item.instructions === 'LIVE-SPECIALIST'),
+        `try ${shadowedTools.status} ${shadowedTools.names} saved ${plantedTools.status} ${plantedTools.names} marker ${marker}`
+    )
+    check(
+        'a draft try roster, its MCP args, and the gateway read the draft specialists and tools',
+        draftShell?.instructions === 'DRAFT-SPECIALIST' &&
+            draftShell.modules?.[0]?.nodeName === 'draftTool' &&
+            rosterYaml.includes(`"--harness"`) &&
+            rosterYaml.includes(`"try${tryD}"`) &&
+            draftTools.status === 200 &&
+            draftTools.names.includes('draftTool') &&
+            !draftTools.names.includes('calculator') &&
+            draftSeen?.specialists?.some((item) => item.instructions === 'DRAFT-SPECIALIST') &&
+            liveTools.status === 200 &&
+            liveTools.names.includes('calculator') &&
+            !liveTools.names.includes('draftTool') &&
+            liveSeen?.specialists?.some((item) => item.instructions === 'LIVE-SPECIALIST') &&
+            addedDuringTry === `try${tryD}--added` &&
+            addedOnLive === '' &&
+            shellOnLive === 'try-gate--shell' &&
+            compiledE.dir !== compiledD.dir,
+        `draft ${draftTools.status} ${draftTools.names} live ${liveTools.status} ${liveTools.names} launch ${addedDuringTry}`
+    )
+})()
+
+await (async () => {
+    class RefusedSqlMcp {
+        static calls = []
+        async init() {
+            const tool = (name, description, properties) => ({
+                name,
+                description,
+                schema: { type: 'object', properties },
+                async invoke(args) {
+                    RefusedSqlMcp.calls.push(name)
+                    return `${name}-ok ${JSON.stringify(args)}`
+                }
+            })
+            return [
+                tool('execute_sql', 'Run any SQL statement', { sql: { type: 'string' } }),
+                tool('search_docs', 'Search the help pages', { query: { type: 'string' } })
+            ]
+        }
+    }
+    const sqlModel = nodeModel('echoChat', { credential: 'cred-xai', label: 'Echo', inputs: { modelName: 'gpt-4.1' } })
+    saveHarness(
+        {
+            name: 'sqlrefuse',
+            workspaceId: 'w1',
+            chatflowId: 'flow-sqlrefuse',
+            chief: { instructions: 'Route the work.', model: sqlModel },
+            specialists: [
+                {
+                    name: 'operator',
+                    instructions: 'Use the database tools.',
+                    shell: false,
+                    modules: [],
+                    mcpServers: [
+                        {
+                            nodeName: 'customMCP',
+                            label: 'db_tools',
+                            category: 'Tools (MCP)',
+                            inputs: { mcpServerConfig: JSON.stringify({ command: 'do-not-launch', args: ['--raw-mcp'] }) }
+                        }
+                    ]
+                }
+            ]
+        },
+        { overwrite: true }
+    )
+    compileProfile(getHarness('sqlrefuse'))
+    const publishedToken = readProfileEnv('sqlrefuse--operator').OPENAI_API_KEY
+    const tryId = 'e'.repeat(16)
+    compileTryProfile({ ...getHarness('sqlrefuse'), tryId }, tryId)
+    const tryToken = readProfileEnv(`try${tryId}--operator`).OPENAI_API_KEY
+    await maybeConfigure(
+        flowContext({
+            workspaceId: 'w1',
+            loadNode: async (nodeName) => {
+                if (nodeName === 'customMCP') return RefusedSqlMcp
+                throw new Error(`unexpected node ${nodeName}`)
+            }
+        })
+    )
+    const gateway = await openGateway()
+    const list = async (token) => {
+        const response = await localRequest({ port: gateway.port, method: 'POST', path: '/harness/tools/list', token, body: {} })
+        const parsed = JSON.parse(response.body)
+        return (parsed.tools || []).map((tool) => tool.name)
+    }
+    const call = async (token, name) => {
+        const response = await localRequest({
+            port: gateway.port,
+            method: 'POST',
+            path: '/harness/tools/call',
+            token,
+            body: { name, arguments: { sql: 'select 1', query: 'hours' } }
+        })
+        return JSON.parse(response.body)
+    }
+    const refused = (reply) => String(reply.result).includes(SQL_TOOL_REFUSED)
+    const publishedList = await list(publishedToken)
+    const publishedEarly = await call(publishedToken, 'execute_sql')
+    const publishedServer = await call(publishedToken, 'customMCP')
+    const tryEarly = await call(tryToken, 'execute_sql')
+    const tryAgain = await call(tryToken, 'execute_sql')
+    const tryServer = await call(tryToken, 'customMCP')
+    const tryList = await list(tryToken)
+    const publishedAfter = await call(publishedToken, 'execute_sql')
+    const tryAfter = await call(tryToken, 'execute_sql')
+    const tryDocs = await call(tryToken, 'search_docs')
+    await gateway.close()
+    await discardTryProfile(tryId)
+    check(
+        'a try refuses the same SQL tools as the published profile, and neither list replaces the other',
+        !publishedList.includes('execute_sql') &&
+            publishedList.includes('search_docs') &&
+            !tryList.includes('execute_sql') &&
+            tryList.includes('search_docs') &&
+            [publishedEarly, publishedServer, tryEarly, tryAgain, tryServer, publishedAfter, tryAfter].every(refused) &&
+            String(tryDocs.result).includes('search_docs-ok') &&
+            !RefusedSqlMcp.calls.includes('execute_sql'),
+        JSON.stringify({
+            publishedList,
+            tryList,
+            calls: RefusedSqlMcp.calls,
+            publishedAfter: publishedAfter.result,
+            tryEarly: tryEarly.result
+        })
+    )
+})()
+
+await (async () => {
+    const { specialistSessionId } = await import('./specialist-run.mjs')
+    const { currentAnalystScope, openAnalystRunScopes, queryAnalyst } = await import('./runtime/analyst-store.mjs')
+    const { latestAnalystCursor } = await import('./analyst-capture.mjs')
+    const chatId = 'chat-try-page'
+    const pageLine = 'rows 1-1 of 2 (page 1 of 2, say "show more" for the next page)'
+    let seenScope = ''
+    let queryError = ''
+    class PageAnalyst {
+        async init() {
+            return [
+                {
+                    name: 'query',
+                    description: 'Run one SQL statement',
+                    schema: { type: 'object', properties: { sql: { type: 'string' } } },
+                    async invoke() {
+                        seenScope = currentAnalystScope()
+                        try {
+                            await queryAnalyst('SELECT 1')
+                        } catch (error) {
+                            queryError = error.message
+                        }
+                        return JSON.stringify({
+                            rows: [{ id: 1, note: 'ROW_KEEP' }],
+                            cursor: 'cur-try-page',
+                            truncated: true,
+                            summary: pageLine
+                        })
+                    }
+                }
+            ]
+        }
+    }
+    saveHarness(
+        {
+            name: 'sqlgate',
+            chatflowId: 'flow-sqlgate',
+            chief: {
+                instructions: 'Database questions go to the analyst.',
+                model: nodeModel('scriptedChat', { credential: 'cred-team', label: 'Team', inputs: { modelName: 'gpt-4.1' } })
+            },
+            specialists: [
+                {
+                    name: 'analyst',
+                    instructions: 'Query the analyst database.',
+                    mcpServers: [{ nodeName: 'postgreSQLMCP', label: 'PostgreSQL MCP', category: 'Tools (MCP)', inputs: {} }]
+                }
+            ]
+        },
+        { overwrite: true }
+    )
+    const gatewayApi = await import('./gateway.mjs')
+    gatewayApi.setGatewayContext(async (record) => ({
+        componentNodes: {},
+        loadNode: async (nodeName) => {
+            if (nodeName === 'postgreSQLMCP') return PageAnalyst
+            throw new Error(`unexpected node ${nodeName}`)
+        },
+        flowOptions: flowContext({ workspaceId: record.workspaceId || 'w1', chatflowid: record.chatflowId }).flowOptions
+    }))
+    const gateway = await openGateway()
+    const tryId = 'b'.repeat(16)
+    const tryProfile = `try${tryId}`
+    const inputs = []
+    const runs = new Map()
+    let runCount = 0
+    const json = (status, body) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } })
+    const fetchImpl = async (url, init = {}) => {
+        const parsed = new URL(url)
+        const method = init.method || 'GET'
+        if (method === 'POST' && /\/v1\/runs$/.test(parsed.pathname)) {
+            const body = JSON.parse(init.body || '{}')
+            inputs.push(body.input)
+            runCount += 1
+            const id = `run-${runCount}`
+            const paging = String(body.input || '').includes('cur-try-page')
+            if (!paging) {
+                const token = readProfileEnv(`${tryProfile}--analyst`).OPENAI_API_KEY
+                await localRequest({
+                    port: gateway.port,
+                    method: 'POST',
+                    path: '/harness/tools/call',
+                    token,
+                    body: {
+                        name: 'query',
+                        scope: specialistSessionId(`${tryProfile}--analyst`, chatId, 'turn-1'),
+                        tool_call_id: 'call-try-page',
+                        arguments: { sql: 'SELECT id FROM tickets' }
+                    }
+                })
+            }
+            runs.set(
+                id,
+                paging
+                    ? {
+                          output: 'Listed the next page.',
+                          events: [{ event: 'tool.completed', tool: 'mcp__analyst__query', preview: 'next' }]
+                      }
+                    : {
+                          output: 'Listed the first page.',
+                          events: [
+                              {
+                                  event: 'tool.completed',
+                                  tool: 'mcp__analyst__query',
+                                  tool_call_id: 'call-try-page',
+                                  preview: '{"rows":[{"id":1}]}'
+                              }
+                          ]
+                      }
+            )
+            return json(202, { run_id: id, status: 'started' })
+        }
+        const events = parsed.pathname.match(/\/v1\/runs\/([^/]+)\/events$/)
+        if (events) {
+            const plan = runs.get(decodeURIComponent(events[1])) || { events: [] }
+            const frames = (plan.events || []).map((event) => `data: ${JSON.stringify(event)}\n\n`).join('')
+            return new Response(`${frames}: stream closed\n\n`, { status: 200, headers: { 'content-type': 'text/event-stream' } })
+        }
+        const match = parsed.pathname.match(/\/v1\/runs\/([^/]+)$/)
+        if (match && method === 'GET') {
+            const plan = runs.get(decodeURIComponent(match[1])) || { output: '' }
+            return json(200, { status: 'completed', output: plan.output || 'done' })
+        }
+        if (parsed.pathname.endsWith('/stop')) return json(200, { status: 'stopping' })
+        return json(404, { message: 'not found' })
+    }
+    const loadNode = async (nodeName) => {
+        if (nodeName !== 'scriptedChat') throw new Error(`unexpected ${nodeName}`)
+        return recordingChat([], (messages) => {
+            const plain = plainChatMessages(messages)
+            const user = String(plain.at(-1)?.content || '')
+            if (user.includes('cur-try-page') || user.includes('show more')) return { content: 'NEXT_PAGE_ROW' }
+            return { content: 'FIRST_PAGE' }
+        })
+    }
+    const first = await runHarness({
+        name: 'sqlgate',
+        chatId,
+        input: 'Use the analyst database. Select the tickets.',
+        baseUrl: 'http://127.0.0.1:9',
+        fetchImpl,
+        loadNode,
+        record: { ...getHarness('sqlgate'), tryId }
+    })
+    const cursor = latestAnalystCursor({ harness: 'sqlgate', chatId })
+    const tryCursor = latestAnalystCursor({ harness: tryProfile, chatId })
+    const scopesAfter = openAnalystRunScopes()
+    const savedScope = `sqlgate:${chatId}`
+    const next = await runHarness({
+        name: 'sqlgate',
+        chatId,
+        input: 'show more',
+        baseUrl: 'http://127.0.0.1:9',
+        fetchImpl,
+        loadNode
+    })
+    await gateway.close()
+    const detail = first.trace?.specialists?.[0]?.tools?.map((tool) => tool.detail).join('\n') || ''
+    check(
+        'a try turn keeps the analyst page on the saved harness, including the trace and the closed session',
+        cursor?.token === 'cur-try-page' &&
+            !tryCursor &&
+            seenScope === savedScope &&
+            !queryError &&
+            !scopesAfter.includes(savedScope) &&
+            !scopesAfter.some((scope) => scope.startsWith(`${tryProfile}:`)) &&
+            detail.includes('ROW_KEEP') &&
+            next.text !== ANALYST_PAGE_NONE &&
+            inputs.some((input) => String(input).includes('cur-try-page')),
+        JSON.stringify({
+            cursor,
+            tryCursor,
+            seenScope,
+            queryError,
+            scopesAfter,
+            detail: detail.slice(0, 240),
+            next: next.text,
+            inputs
+        })
+    )
+})()
+
+await (async () => {
+    const { specialistProfileName, tryProfileName } = await import('./profile.mjs')
+    const longName = 'accounts-payable-invoice-exception-handler-2'
+    const publishedId = `finance--${longName}`
+    check(
+        'a specialist profile id that already fits is unchanged',
+        longName.length === 44 &&
+            publishedId.length === 53 &&
+            specialistProfileName('finance', longName) === publishedId &&
+            specialistProfileName('bakery', 'orders') === 'bakery--orders',
+        specialistProfileName('finance', longName)
+    )
+    const tryName = tryProfileName('f'.repeat(16))
+    const tryId = specialistProfileName(tryName, longName)
+    const shared = 'p' + 'a'.repeat(42)
+    const left = specialistProfileName(tryName, `${shared}-alpha`)
+    const right = specialistProfileName(tryName, `${shared}-beta`)
+    const longHarness = `h${'n'.repeat(59)}`
+    const longPublic = specialistProfileName(longHarness, longName)
+    check(
+        'a long specialist slug fits under a try id and stays distinct',
+        tryName.length === 19 &&
+            tryId.length <= 64 &&
+            /^[a-z0-9][a-z0-9_-]{0,63}$/.test(tryId) &&
+            tryId.startsWith(`${tryName}--`) &&
+            tryId !== `${tryName}--${longName}` &&
+            left !== right &&
+            left.length <= 64 &&
+            right.length <= 64 &&
+            longPublic.length <= 64 &&
+            /^tryx[a-f0-9]{16}$/.test(longPublic) &&
+            longPublic !== `${longHarness}--${longName}`,
+        JSON.stringify({ tryId, left, right, longPublic })
+    )
+    const stubModel = nodeModel('scriptedChat', { credential: 'cred-team', label: 'Stub', inputs: { modelName: 'gpt-4.1' } })
+    saveHarness(
+        {
+            name: 'finance',
+            chief: { instructions: 'Answer from the specialist.', model: stubModel },
+            specialists: [
+                {
+                    name: longName,
+                    instructions: 'Handle the invoice exception.',
+                    shell: true,
+                    modules: [],
+                    mcpServers: []
+                }
+            ]
+        },
+        { overwrite: true }
+    )
+    const published = compileProfile(getHarness('finance'))
+    const tryFit = 'ab'.repeat(8)
+    const drafted = compileTryProfile({ ...getHarness('finance'), tryId: tryFit }, tryFit)
+    let canvasProfileSeen = false
+    const stubFetch = async (_url, init) => {
+        const body = JSON.parse(init?.body || '{}')
+        if (String(body.model || '').startsWith('try')) {
+            canvasProfileSeen = fs.existsSync(path.join(process.env.CUTTLELY_HERMES_HOME, 'profiles', body.model))
+        }
+        return {
+            ok: true,
+            status: 200,
+            statusText: 'OK',
+            text: async () => JSON.stringify({ output: 'STUB_ANSWER', status: 'completed' })
+        }
+    }
+    const loadNode = async (nodeName) => {
+        if (nodeName !== 'scriptedChat') throw new Error(`unexpected ${nodeName}`)
+        return recordingChat([], () => ({ content: 'STUB_ANSWER' }))
+    }
+    const publicRun = await runHarnessRaw({
+        name: 'finance',
+        chatId: 'public-long',
+        input: 'Review the invoice exception.',
+        loadNode,
+        fetchImpl: stubFetch,
+        baseUrl: 'http://127.0.0.1:8643'
+    })
+    const canvasRun = await runHarnessRaw({
+        name: 'finance',
+        chatId: 'canvas-long',
+        input: 'Review the invoice exception.',
+        loadNode,
+        fetchImpl: stubFetch,
+        baseUrl: 'http://127.0.0.1:8643',
+        record: { ...getHarness('finance'), tryId: tryFit }
+    })
+    const publishedProfile = published.roster.specialists[0].profileName
+    const canvasProfile = drafted.roster.specialists[0].profileName
+    check(
+        'a 44-character specialist runs on the public route and on a canvas try',
+        publishedProfile === publishedId &&
+            fs.existsSync(path.join(process.env.CUTTLELY_HERMES_HOME, 'profiles', publishedProfile)) &&
+            publicRun.text === 'STUB_ANSWER' &&
+            canvasProfile === specialistProfileName(tryProfileName(tryFit), longName) &&
+            canvasProfile.length <= 64 &&
+            canvasProfileSeen &&
+            canvasRun.text === 'STUB_ANSWER' &&
+            !String(canvasRun.text).includes('cannot get its own model profile'),
+        JSON.stringify({ publishedProfile, canvasProfile, seen: canvasProfileSeen, public: publicRun.text, canvas: canvasRun.text })
+    )
+})()
+
+await (async () => {
+    const { specialistProfileName } = await import('./profile.mjs')
+    const { assertSavedHarnessName } = await import('./store.mjs')
+    const harness = `h${'n'.repeat(59)}`
+    const specialist = 'accounts-payable-invoice-exception-handler-2'
+    const otherName = `n${'a'.repeat(52)}`
+    const otherSpec = 'abcdef12'
+    const model = nodeModel('scriptedChat', { credential: 'cred-team', label: 'Stub', inputs: { modelName: 'gpt-4.1' } })
+    const specialistOf = (name, instructions) => ({
+        name,
+        instructions,
+        shell: true,
+        modules: [],
+        mcpServers: []
+    })
+    saveHarness(
+        {
+            name: harness,
+            chief: { instructions: 'Answer from the specialist.', model },
+            specialists: [specialistOf(specialist, 'LONG-SPECIALIST')]
+        },
+        { overwrite: true }
+    )
+    const first = compileProfile(getHarness(harness))
+    const fitted = first.roster.specialists[0].profileName
+    const fittedDir = path.join(process.env.CUTTLELY_HERMES_HOME, 'profiles', fitted)
+    const fittedEnv = readProfileEnv(fitted)
+    const marker = fs.readFileSync(path.join(fittedDir, 'harness-parent'), 'utf8').trim()
+    let reserved = null
+    try {
+        assertSavedHarnessName(fitted)
+    } catch (error) {
+        reserved = error
+    }
+    const otherId = specialistProfileName(otherName, otherSpec)
+    saveHarness(
+        {
+            name: otherName,
+            chief: { instructions: 'Other chief.', model },
+            specialists: [specialistOf(otherSpec, 'OTHER-SPECIALIST')]
+        },
+        { overwrite: true }
+    )
+    const other = compileProfile(getHarness(otherName))
+    const soulAfterOther = fs.readFileSync(path.join(fittedDir, 'SOUL.md'), 'utf8')
+    const gateway = await openGateway()
+    const status = async (token) => (await localRequest({ port: gateway.port, method: 'GET', path: '/v1/models', token })).status
+    const before = await status(fittedEnv.OPENAI_API_KEY)
+    const still = await status(fittedEnv.OPENAI_API_KEY)
+    saveHarness(
+        {
+            name: harness,
+            chief: { instructions: 'Answer from the specialist.', model },
+            specialists: [specialistOf('ab', 'RENAMED-SPECIALIST')]
+        },
+        { overwrite: true }
+    )
+    const renamed = compileProfile(getHarness(harness))
+    const after = await status(fittedEnv.OPENAI_API_KEY)
+    await gateway.close()
+    const workspace = path.join(process.env.CUTTLELY_DATA_DIR, 'workspaces', fitted)
+    check(
+        'a shortened specialist profile is reserved, distinct, and removed with its token',
+        harness.length === 60 &&
+            otherName.length === 53 &&
+            /^tryx[a-f0-9]{16}$/.test(fitted) &&
+            marker === harness &&
+            reserved?.code === 'bad_name' &&
+            otherId === `${otherName}--${otherSpec}` &&
+            other.roster.specialists[0].profileName === otherId &&
+            otherId !== fitted &&
+            soulAfterOther.includes('LONG-SPECIALIST') &&
+            !soulAfterOther.includes('OTHER-SPECIALIST') &&
+            before === 200 &&
+            still === 200 &&
+            after === 401 &&
+            !fs.existsSync(fittedDir) &&
+            !fs.existsSync(workspace) &&
+            renamed.roster.specialists[0].profileName === `${harness}--ab` &&
+            fs.existsSync(path.join(process.env.CUTTLELY_HERMES_HOME, 'profiles', `${harness}--ab`)),
+        JSON.stringify({
+            fitted,
+            otherId,
+            reserved: reserved?.message,
+            before,
+            still,
+            after,
+            renamed: renamed.roster.specialists[0].profileName
+        })
+    )
+})()
+
+await (async () => {
+    const { tryRuntime } = await import('./profile.mjs')
+    const { noteLiveTry } = await import('./try-live.mjs')
+    const { bootHarnessGateway } = await import('./gateway.mjs')
+    const profiles = path.join(process.env.CUTTLELY_HERMES_HOME, 'profiles')
+    const tryDir = (name) => path.join(profiles, name)
+    tryRuntime.closeProfiles = async (names) => {
+        for (const name of names) fs.mkdirSync(path.join(tryDir(name), 'logs'), { recursive: true })
+    }
+    tryRuntime.afterFirstRemoval = (scope) => {
+        fs.mkdirSync(path.join(tryDir(scope), 'logs'), { recursive: true })
+        fs.mkdirSync(path.join(tryDir(`${scope}--clerk`), 'logs'), { recursive: true })
+    }
+    const fetchImpl = async () => ({
+        ok: true,
+        status: 200,
+        statusText: 'OK',
+        text: async () => JSON.stringify({ output: 'STUB_ANSWER', status: 'completed' })
+    })
+    const loadNode = async () => recordingChat([], () => ({ content: 'STUB_ANSWER' }))
+    for (let n = 0; n < 3; n += 1) {
+        const tryId = `${n + 1}`.repeat(16)
+        await runHarnessRaw({
+            name: 'try-live',
+            chatId: `cleanup-${n}`,
+            input: 'Hello',
+            loadNode,
+            fetchImpl,
+            baseUrl: 'http://127.0.0.1:8644',
+            record: { ...getHarness('try-live'), tryId }
+        })
+    }
+    tryRuntime.closeProfiles = null
+    tryRuntime.afterFirstRemoval = null
+    const tryHomes = () => fs.readdirSync(profiles).filter((name) => /^try[a-f0-9]{8,32}$/.test(name))
+    const dead = `try${'d'.repeat(16)}`
+    const deadToken = 'D'.repeat(43)
+    const { TRY_LOCK_NAME, TRY_LOCK_MAX_AGE_MS } = await import('./try-live.mjs')
+    fs.mkdirSync(tryDir(dead), { recursive: true })
+    fs.writeFileSync(path.join(tryDir(dead), 'harness-try'), `${dead}\n`)
+    fs.writeFileSync(
+        path.join(tryDir(dead), TRY_LOCK_NAME),
+        JSON.stringify({ pid: process.pid, at: Date.now() - TRY_LOCK_MAX_AGE_MS - 1000 })
+    )
+    fs.writeFileSync(path.join(tryDir(dead), 'harness-roster.json'), '{"name":"dead","specialists":[]}\n')
+    fs.writeFileSync(path.join(tryDir(dead), 'state.db'), Buffer.alloc(64))
+    fs.writeFileSync(
+        path.join(tryDir(dead), '.env'),
+        `OPENAI_API_KEY=${deadToken}\nOPENAI_BASE_URL=http://127.0.0.1:43118/v1\nCUTTLELY_GATEWAY_HARNESS=${dead}\nCUTTLELY_GATEWAY_SPECIALIST=clerk\nCUTTLELY_GATEWAY_TRY=1\n`
+    )
+    const deadFit = `tryx${'ef'.repeat(8)}`
+    fs.mkdirSync(tryDir(deadFit), { recursive: true })
+    fs.writeFileSync(path.join(tryDir(deadFit), 'harness-parent'), `${dead}\n`)
+    fs.writeFileSync(path.join(tryDir(deadFit), 'SOUL.md'), 'DEAD-FIT\n')
+    const { registerProfileToken } = await import('./gateway.mjs')
+    registerProfileToken({
+        token: deadToken,
+        harnessName: dead,
+        specialistName: 'clerk',
+        modelKey: 'k',
+        profileName: `${dead}--clerk`,
+        tryProfile: true
+    })
+    const live = `try${'e'.repeat(16)}`
+    const liveToken = 'E'.repeat(43)
+    noteLiveTry(live)
+    fs.mkdirSync(tryDir(live), { recursive: true })
+    fs.mkdirSync(path.join(tryDir(`${live}--clerk`)), { recursive: true })
+    fs.writeFileSync(path.join(tryDir(live), 'harness-try'), `${live}\n`)
+    fs.writeFileSync(path.join(tryDir(live), 'SOUL.md'), 'IN-FLIGHT\n')
+    fs.writeFileSync(path.join(tryDir(`${live}--clerk`), 'harness-parent'), `${live}\n`)
+    fs.writeFileSync(
+        path.join(tryDir(`${live}--clerk`), '.env'),
+        `OPENAI_API_KEY=${liveToken}\nOPENAI_BASE_URL=http://127.0.0.1:43118/v1\nCUTTLELY_GATEWAY_HARNESS=${live}\nCUTTLELY_GATEWAY_SPECIALIST=clerk\nCUTTLELY_GATEWAY_TRY=1\n`
+    )
+    const kept = `tryx${'ab'.repeat(8)}`
+    fs.mkdirSync(tryDir(kept), { recursive: true })
+    fs.writeFileSync(path.join(tryDir(kept), 'harness-parent'), 'finance\n')
+    fs.writeFileSync(path.join(tryDir(kept), 'SOUL.md'), 'PUBLISHED-FIT\n')
+    const savedName = 'try12345678'
+    const savedToken = 'S'.repeat(43)
+    fs.mkdirSync(path.join(process.env.CUTTLELY_DATA_DIR, 'harnesses'), { recursive: true })
+    fs.writeFileSync(
+        path.join(process.env.CUTTLELY_DATA_DIR, 'harnesses', `${savedName}.json`),
+        JSON.stringify({ name: savedName, specialists: [{ name: 'clerk' }] })
+    )
+    const savedDir = tryDir(savedName)
+    const savedSpec = `${savedName}--clerk`
+    const savedFit = `tryx${'cd'.repeat(8)}`
+    fs.mkdirSync(path.join(savedDir, 'memory'), { recursive: true })
+    fs.writeFileSync(path.join(savedDir, 'memory', 'MEMORY.md'), 'SAVED-MEMORY\n')
+    fs.writeFileSync(path.join(savedDir, 'harness-try'), `${savedName}\n`)
+    fs.writeFileSync(path.join(savedDir, 'SOUL.md'), 'SAVED-HARNESS\n')
+    fs.mkdirSync(tryDir(savedSpec), { recursive: true })
+    fs.writeFileSync(path.join(tryDir(savedSpec), 'harness-parent'), `${savedName}\n`)
+    fs.writeFileSync(
+        path.join(tryDir(savedSpec), '.env'),
+        `OPENAI_API_KEY=${savedToken}\nOPENAI_BASE_URL=http://127.0.0.1:43118/v1\nCUTTLELY_GATEWAY_HARNESS=${savedName}\nCUTTLELY_GATEWAY_SPECIALIST=clerk\n`
+    )
+    const savedWork = path.join(process.env.CUTTLELY_DATA_DIR, 'workspaces', savedName)
+    fs.mkdirSync(savedWork, { recursive: true })
+    fs.writeFileSync(path.join(savedWork, 'keep.txt'), 'SAVED-WORKSPACE\n')
+    fs.mkdirSync(tryDir(savedFit), { recursive: true })
+    fs.writeFileSync(path.join(tryDir(savedFit), 'harness-parent'), `${savedName}\n`)
+    fs.writeFileSync(path.join(tryDir(savedFit), 'SOUL.md'), 'SAVED-FIT\n')
+    const publishedDir = tryDir('finance')
+    const publishedThere = fs.existsSync(publishedDir)
+    bootHarnessGateway()
+    const gateway = await openGateway()
+    const status = async (token) => (await localRequest({ port: gateway.port, method: 'GET', path: '/v1/models', token })).status
+    const deadStatus = await status(deadToken)
+    const liveStatus = await status(liveToken)
+    const savedStatus = await status(savedToken)
+    await gateway.close()
+    const { endLiveTry } = await import('./try-live.mjs')
+    endLiveTry(live)
+    const savedMemory = fs.readFileSync(path.join(savedDir, 'memory', 'MEMORY.md'), 'utf8')
+    const savedWorkspace = fs.readFileSync(path.join(savedWork, 'keep.txt'), 'utf8')
+    check(
+        'finished tries leave no directories, and a crash leftover is dropped on the next start',
+        tryHomes().includes(live) &&
+            tryHomes().includes(savedName) &&
+            !tryHomes().includes(dead) &&
+            !fs.existsSync(tryDir(dead)) &&
+            !fs.existsSync(tryDir(deadFit)) &&
+            !fs.existsSync(tryDir(`try${'1'.repeat(16)}`)) &&
+            !fs.existsSync(path.join(tryDir(`try${'1'.repeat(16)}--shell`), 'logs')) &&
+            !fs.existsSync(path.join(tryDir(`try${'1'.repeat(16)}--clerk`), 'logs')) &&
+            deadStatus === 401 &&
+            liveStatus === 200 &&
+            fs.existsSync(tryDir(live)) &&
+            fs.existsSync(tryDir(`${live}--clerk`)) &&
+            fs.readFileSync(path.join(tryDir(kept), 'SOUL.md'), 'utf8').includes('PUBLISHED-FIT') &&
+            publishedThere &&
+            fs.existsSync(publishedDir),
+        JSON.stringify({ homes: tryHomes(), deadStatus, liveStatus })
+    )
+    check(
+        'a saved harness whose name matches a try profile survives startup with its token',
+        getHarness(savedName)?.name === savedName &&
+            savedStatus === 200 &&
+            fs.existsSync(savedDir) &&
+            fs.existsSync(tryDir(savedSpec)) &&
+            savedMemory.includes('SAVED-MEMORY') &&
+            savedWorkspace.includes('SAVED-WORKSPACE') &&
+            fs.readFileSync(path.join(tryDir(savedFit), 'SOUL.md'), 'utf8').includes('SAVED-FIT'),
+        JSON.stringify({ savedStatus, saved: getHarness(savedName)?.name })
+    )
+})()
+
+await (async () => {
+    const profiles = path.join(process.env.CUTTLELY_HERMES_HOME, 'profiles')
+    const { noteLiveTry } = await import('./try-live.mjs')
+    const { registerProfileToken } = await import('./gateway.mjs')
+    const tryId = 'a1'.repeat(8)
+    const name = `try${tryId}`
+    const token = 'A'.repeat(43)
+    const dir = path.join(profiles, name)
+    const spec = `${name}--clerk`
+    const fitted = `tryx${'12'.repeat(8)}`
+    noteLiveTry(name)
+    fs.writeFileSync(path.join(dir, 'harness-try'), `${name}\n`)
+    fs.writeFileSync(path.join(dir, 'SOUL.md'), 'LIVE-PROCESS\n')
+    fs.mkdirSync(path.join(dir, 'memory'), { recursive: true })
+    fs.mkdirSync(path.join(profiles, spec), { recursive: true })
+    fs.writeFileSync(path.join(profiles, spec, 'harness-parent'), `${name}\n`)
+    fs.writeFileSync(
+        path.join(profiles, spec, '.env'),
+        `OPENAI_API_KEY=${token}\nOPENAI_BASE_URL=http://127.0.0.1:43118/v1\nCUTTLELY_GATEWAY_HARNESS=${name}\nCUTTLELY_GATEWAY_SPECIALIST=clerk\nCUTTLELY_GATEWAY_TRY=1\n`
+    )
+    fs.mkdirSync(path.join(profiles, fitted), { recursive: true })
+    fs.writeFileSync(path.join(profiles, fitted, 'harness-parent'), `${name}\n`)
+    fs.writeFileSync(path.join(profiles, fitted, 'SOUL.md'), 'LIVE-FIT\n')
+    registerProfileToken({
+        token,
+        harnessName: name,
+        specialistName: 'clerk',
+        modelKey: 'k',
+        profileName: spec,
+        tryProfile: true
+    })
+    const script = path.join(process.env.CUTTLELY_DATA_DIR, 'sweep-once.mjs')
+    fs.writeFileSync(
+        script,
+        `import { bootHarnessGateway } from ${JSON.stringify(path.join(root, 'packages/harness/gateway.mjs'))}\nbootHarnessGateway()\n`
+    )
+    const child = spawn(process.execPath, [script], { env: process.env, stdio: ['ignore', 'pipe', 'pipe'] })
+    const stderr = []
+    child.stderr.on('data', (chunk) => stderr.push(chunk))
+    const code = await new Promise((resolve) => child.on('close', resolve))
+    const gateway = await openGateway()
+    const during = (await localRequest({ port: gateway.port, method: 'GET', path: '/v1/models', token })).status
+    const duringDirs = fs.existsSync(dir) && fs.existsSync(path.join(profiles, spec)) && fs.existsSync(path.join(profiles, fitted))
+    await discardTryProfile(tryId)
+    const after = (await localRequest({ port: gateway.port, method: 'GET', path: '/v1/models', token })).status
+    await gateway.close()
+    check(
+        'a try running in one process survives a sweep in another, then is removed when it ends',
+        code === 0 &&
+            during === 200 &&
+            duringDirs &&
+            after === 401 &&
+            !fs.existsSync(dir) &&
+            !fs.existsSync(path.join(profiles, spec)) &&
+            !fs.existsSync(path.join(profiles, fitted)),
+        JSON.stringify({ code, during, after, duringDirs, stderr: Buffer.concat(stderr).toString('utf8').slice(0, 500) })
+    )
+})()
+
+await (async () => {
+    const profiles = path.join(process.env.CUTTLELY_HERMES_HOME, 'profiles')
+    const { processStartTicks, TRY_LOCK_NAME, tryLockIsLive } = await import('./try-live.mjs')
+    const { bootHarnessGateway, registerProfileToken } = await import('./gateway.mjs')
+    const started = processStartTicks(process.pid)
+    const envFor = (token, harness) =>
+        `OPENAI_API_KEY=${token}\nOPENAI_BASE_URL=http://127.0.0.1:43118/v1\nCUTTLELY_GATEWAY_HARNESS=${harness}\nCUTTLELY_GATEWAY_SPECIALIST=clerk\nCUTTLELY_GATEWAY_TRY=1\n`
+    const plant = (name, token, lock) => {
+        const dir = path.join(profiles, name)
+        const spec = `${name}--clerk`
+        fs.mkdirSync(path.join(dir, 'memory'), { recursive: true })
+        fs.mkdirSync(path.join(profiles, spec), { recursive: true })
+        fs.writeFileSync(path.join(dir, 'harness-try'), `${name}\n`)
+        fs.writeFileSync(path.join(dir, TRY_LOCK_NAME), JSON.stringify(lock))
+        fs.writeFileSync(path.join(dir, 'SOUL.md'), `${name}\n`)
+        fs.writeFileSync(path.join(profiles, spec, 'harness-parent'), `${name}\n`)
+        fs.writeFileSync(path.join(profiles, spec, '.env'), envFor(token, name))
+        fs.mkdirSync(path.join(process.env.CUTTLELY_DATA_DIR, 'workspaces', spec), { recursive: true })
+        fs.writeFileSync(path.join(process.env.CUTTLELY_DATA_DIR, 'workspaces', spec, 'keep.txt'), `${name}\n`)
+        return { dir, spec }
+    }
+    const aged30Name = `try${'31'.repeat(8)}`
+    const aged61Name = `try${'61'.repeat(8)}`
+    const recycledName = `try${'4c'.repeat(8)}`
+    const deadName = `try${'4d'.repeat(8)}`
+    const aged30Token = 'M'.repeat(43)
+    const aged61Token = 'N'.repeat(43)
+    const recycledToken = 'Q'.repeat(43)
+    const deadToken = 'R'.repeat(43)
+    const owner = { pid: process.pid, startedAt: started }
+    const aged30 = plant(aged30Name, aged30Token, { ...owner, at: Date.now() - 31 * 60 * 1000 })
+    const aged61 = plant(aged61Name, aged61Token, { ...owner, at: Date.now() - 61 * 60 * 1000 })
+    const recycled = plant(recycledName, recycledToken, { pid: process.pid, startedAt: `${started}9`, at: Date.now() })
+    const exited = spawnSync(process.execPath, ['-e', 'process.exit(0)'])
+    const dead = plant(deadName, deadToken, { pid: exited.pid, startedAt: '0', at: Date.now() })
+    const liveBefore = {
+        aged30: tryLockIsLive(aged30Name),
+        aged61: tryLockIsLive(aged61Name),
+        recycled: tryLockIsLive(recycledName),
+        dead: tryLockIsLive(deadName)
+    }
+    bootHarnessGateway()
+    const gateway = await openGateway()
+    const status = async (token) => (await localRequest({ port: gateway.port, method: 'GET', path: '/v1/models', token })).status
+    const aged30Status = await status(aged30Token)
+    const aged61Status = await status(aged61Token)
+    const recycledStatus = await status(recycledToken)
+    const deadStatus = await status(deadToken)
+    await gateway.close()
+    check(
+        'a long-lived lock stays while the owner process matches, and a dead or reused pid does not',
+        Boolean(started) &&
+            liveBefore.aged30 === true &&
+            liveBefore.aged61 === true &&
+            liveBefore.recycled === false &&
+            liveBefore.dead === false &&
+            aged30Status === 200 &&
+            aged61Status === 200 &&
+            fs.existsSync(aged30.dir) &&
+            fs.existsSync(path.join(profiles, aged30.spec)) &&
+            fs.existsSync(aged61.dir) &&
+            fs.existsSync(path.join(process.env.CUTTLELY_DATA_DIR, 'workspaces', aged61.spec)) &&
+            recycledStatus === 401 &&
+            deadStatus === 401 &&
+            !fs.existsSync(recycled.dir) &&
+            !fs.existsSync(dead.dir) &&
+            !fs.existsSync(path.join(profiles, recycled.spec)) &&
+            !fs.existsSync(path.join(process.env.CUTTLELY_DATA_DIR, 'workspaces', dead.spec)),
+        JSON.stringify({ started, liveBefore, aged30Status, aged61Status, recycledStatus, deadStatus, exited: exited.pid })
+    )
+
+    const longId = '6b'.repeat(8)
+    const longName = `try${longId}`
+    const longToken = 'T'.repeat(43)
+    const longDir = path.join(profiles, longName)
+    const longSpec = `${longName}--clerk`
+    const longFit = `tryx${'56'.repeat(8)}`
+    plant(longName, longToken, { ...owner, at: Date.now() - 61 * 60 * 1000 })
+    fs.mkdirSync(path.join(profiles, longFit), { recursive: true })
+    fs.writeFileSync(path.join(profiles, longFit, 'harness-parent'), `${longName}\n`)
+    fs.writeFileSync(path.join(profiles, longFit, 'SOUL.md'), 'LONG-FIT\n')
+    registerProfileToken({
+        token: longToken,
+        harnessName: longName,
+        specialistName: 'clerk',
+        modelKey: 'k',
+        profileName: longSpec,
+        tryProfile: true
+    })
+    const script = path.join(process.env.CUTTLELY_DATA_DIR, 'sweep-long.mjs')
+    fs.writeFileSync(
+        script,
+        `import { bootHarnessGateway } from ${JSON.stringify(path.join(root, 'packages/harness/gateway.mjs'))}\nbootHarnessGateway()\n`
+    )
+    const child = spawn(process.execPath, [script], { env: process.env, stdio: ['ignore', 'pipe', 'pipe'] })
+    const stderr = []
+    child.stderr.on('data', (chunk) => stderr.push(chunk))
+    const code = await new Promise((resolve) => child.on('close', resolve))
+    const again = await openGateway()
+    const during = (await localRequest({ port: again.port, method: 'GET', path: '/v1/models', token: longToken })).status
+    const duringDirs =
+        fs.existsSync(longDir) &&
+        fs.existsSync(path.join(profiles, longSpec)) &&
+        fs.readFileSync(path.join(profiles, longFit, 'SOUL.md'), 'utf8').includes('LONG-FIT')
+    await discardTryProfile(longId)
+    const after = (await localRequest({ port: again.port, method: 'GET', path: '/v1/models', token: longToken })).status
+    await again.close()
+    check(
+        'a worker that starts during a long try leaves that try in place',
+        code === 0 && during === 200 && duringDirs && after === 401 && !fs.existsSync(longDir),
+        JSON.stringify({ code, during, after, duringDirs, stderr: Buffer.concat(stderr).toString('utf8').slice(0, 400) })
+    )
+})()
+
+await (async () => {
+    const profiles = path.join(process.env.CUTTLELY_HERMES_HOME, 'profiles')
+    const { bootHarnessGateway } = await import('./gateway.mjs')
+    const parent = `try${'b'.repeat(16)}`
+    const child = `${parent}--clerk`
+    const fitted = `tryx${'34'.repeat(8)}`
+    const childToken = 'C'.repeat(43)
+    const fittedToken = 'L'.repeat(43)
+    const parentDir = path.join(profiles, parent)
+    const childDir = path.join(profiles, child)
+    const fittedDir = path.join(profiles, fitted)
+    const parentWork = path.join(process.env.CUTTLELY_DATA_DIR, 'workspaces', parent)
+    const childWork = path.join(process.env.CUTTLELY_DATA_DIR, 'workspaces', child)
+    const envFor = (token, harness) =>
+        `OPENAI_API_KEY=${token}\nOPENAI_BASE_URL=http://127.0.0.1:43118/v1\nCUTTLELY_GATEWAY_HARNESS=${harness}\nCUTTLELY_GATEWAY_SPECIALIST=clerk\nCUTTLELY_GATEWAY_TRY=1\n`
+    fs.mkdirSync(parentDir, { recursive: true })
+    fs.writeFileSync(path.join(parentDir, 'harness-try'), `${parent}\n`)
+    fs.writeFileSync(path.join(parentDir, 'SOUL.md'), 'ORPHAN-PARENT\n')
+    fs.mkdirSync(parentWork, { recursive: true })
+    fs.writeFileSync(path.join(parentWork, 'keep.txt'), 'PARENT-WORK\n')
+    fs.mkdirSync(childDir, { recursive: true })
+    fs.writeFileSync(path.join(childDir, 'harness-parent'), `${parent}\n`)
+    fs.writeFileSync(path.join(childDir, '.env'), envFor(childToken, parent))
+    fs.mkdirSync(childWork, { recursive: true })
+    fs.writeFileSync(path.join(childWork, 'keep.txt'), 'CHILD-WORK\n')
+    fs.mkdirSync(fittedDir, { recursive: true })
+    fs.writeFileSync(path.join(fittedDir, 'harness-parent'), `${parent}\n`)
+    fs.writeFileSync(path.join(fittedDir, '.env'), envFor(fittedToken, parent))
+    fs.writeFileSync(path.join(fittedDir, 'SOUL.md'), 'ORPHAN-FIT\n')
+    const unknown = `try${'8'.repeat(16)}`
+    const unknownToken = 'U'.repeat(43)
+    const unknownDir = path.join(profiles, unknown)
+    fs.mkdirSync(path.join(process.env.CUTTLELY_DATA_DIR, 'harnesses'), { recursive: true })
+    fs.writeFileSync(path.join(process.env.CUTTLELY_DATA_DIR, 'harnesses', `${unknown}.json`), '{')
+    fs.mkdirSync(unknownDir, { recursive: true })
+    fs.writeFileSync(path.join(unknownDir, 'harness-try'), `${unknown}\n`)
+    fs.writeFileSync(path.join(unknownDir, '.env'), envFor(unknownToken, unknown))
+    const financeId = 'finance--accounts-payable-invoice-exception-handler-2'
+    const financeToken = readProfileEnv(financeId).OPENAI_API_KEY
+    const financeEnv = path.join(profiles, financeId, '.env')
+    const savedName = 'try12345678'
+    const savedToken = 'S'.repeat(43)
+    const savedEnv = path.join(profiles, `${savedName}--clerk`, '.env')
+    const realRm = fs.rmSync
+    let armed = true
+    fs.rmSync = function rmSync(target, options) {
+        const text = String(target)
+        if (armed && (text === parentWork || text === childDir || text === fittedDir)) {
+            const error = new Error('EBUSY')
+            error.code = 'EBUSY'
+            throw error
+        }
+        return realRm.call(fs, target, options)
+    }
+    let failed = null
+    try {
+        try {
+            bootHarnessGateway()
+        } catch (error) {
+            failed = error
+        }
+        armed = false
+        const gateway = await openGateway()
+        const status = async (token) => (await localRequest({ port: gateway.port, method: 'GET', path: '/v1/models', token })).status
+        const first = {
+            child: await status(childToken),
+            fitted: await status(fittedToken),
+            finance: await status(financeToken),
+            saved: await status(savedToken),
+            unknown: await status(unknownToken)
+        }
+        const childLeft = fs.existsSync(childDir)
+        const fittedLeft = fs.existsSync(fittedDir)
+        bootHarnessGateway()
+        const second = {
+            child: await status(childToken),
+            fitted: await status(fittedToken),
+            finance: await status(financeToken),
+            saved: await status(savedToken),
+            unknown: await status(unknownToken)
+        }
+        await gateway.close()
+        check(
+            'a busy parent workspace does not keep a specialist token, and the next start removes that specialist',
+            !failed &&
+                childLeft &&
+                fittedLeft &&
+                first.child === 401 &&
+                first.fitted === 401 &&
+                first.finance === 200 &&
+                first.saved === 200 &&
+                first.unknown === 200 &&
+                fs.existsSync(financeEnv) &&
+                fs.existsSync(savedEnv) &&
+                fs.existsSync(unknownDir) &&
+                second.child === 401 &&
+                second.fitted === 401 &&
+                second.finance === 200 &&
+                second.saved === 200 &&
+                second.unknown === 200 &&
+                !fs.existsSync(childDir) &&
+                !fs.existsSync(childWork) &&
+                !fs.existsSync(fittedDir) &&
+                fs.existsSync(financeEnv) &&
+                fs.existsSync(savedEnv) &&
+                fs.readFileSync(savedEnv, 'utf8').includes(savedToken),
+            JSON.stringify({ failed: failed?.message, first, second, childLeft, fittedLeft })
+        )
+    } finally {
+        fs.rmSync = realRm
+    }
+})()
+
+await (async () => {
+    const profiles = path.join(process.env.CUTTLELY_HERMES_HOME, 'profiles')
+    const { tryRuntime } = await import('./profile.mjs')
+    const tryId = '9'.repeat(16)
+    const name = `try${tryId}`
+    const spec = `${name}--clerk`
+    const dir = path.join(profiles, name)
+    fs.mkdirSync(dir, { recursive: true })
+    fs.mkdirSync(path.join(profiles, spec), { recursive: true })
+    fs.writeFileSync(path.join(dir, 'harness-try'), `${name}\n`)
+    fs.writeFileSync(path.join(dir, 'SOUL.md'), 'DELAYED\n')
+    fs.writeFileSync(path.join(profiles, spec, 'harness-parent'), `${name}\n`)
+    const sock = path.join(os.tmpdir(), `cuttlely-gw-${process.pid}-delayed.sock`)
+    fs.rmSync(sock, { force: true })
+    const pointer = path.join(process.env.CUTTLELY_HERMES_HOME, 'gateway.sock.path')
+    fs.writeFileSync(pointer, `${sock}\n`)
+    let hits = 0
+    let removedDuringPending = false
+    const server = net.createServer((socket) => {
+        let buf = ''
+        socket.on('data', (chunk) => {
+            buf += chunk
+            if (!String(buf).includes('\n')) return
+            const profile = JSON.parse(String(buf).slice(0, String(buf).indexOf('\n')))?.params?.name
+            hits += 1
+            const seen = server.seen.get(profile) || 0
+            server.seen.set(profile, seen + 1)
+            if (seen === 0) {
+                socket.end(`${JSON.stringify({ ok: true, result: { pending: true, served_profiles: [profile] } })}\n`)
+                setTimeout(() => {
+                    if (!fs.existsSync(path.join(profiles, profile))) removedDuringPending = true
+                }, 40)
+                return
+            }
+            socket.end(`${JSON.stringify({ ok: true, result: { unserved: profile, served_profiles: [] } })}\n`)
+            setTimeout(() => {
+                try {
+                    fs.mkdirSync(path.join(profiles, profile, 'logs'), { recursive: true })
+                } catch {
+                    // A tombstone file makes a late logs directory fail.
+                }
+            }, 40)
+        })
+    })
+    server.seen = new Map()
+    tryRuntime.closeProfiles = null
+    await new Promise((resolve, reject) => {
+        server.once('error', reject)
+        server.listen(sock, () => resolve())
+    })
+    let failed = null
+    try {
+        await discardTryProfile(tryId)
+    } catch (error) {
+        failed = error
+    } finally {
+        await new Promise((resolve) => server.close(() => resolve()))
+        fs.rmSync(sock, { force: true })
+        fs.rmSync(pointer, { force: true })
+    }
+    const left = [name, spec].filter((entry) => fs.existsSync(path.join(profiles, entry)))
+    check(
+        'a delayed runtime close after the unserved response leaves no try directories',
+        !failed && hits >= 4 && !removedDuringPending && left.length === 0,
+        JSON.stringify({ hits, removedDuringPending, left, failed: failed?.message })
+    )
+})()
+
+await (async () => {
+    const profiles = path.join(process.env.CUTTLELY_HERMES_HOME, 'profiles')
+    const { registerProfileToken } = await import('./gateway.mjs')
+    const tryId = 'f'.repeat(16)
+    const scope = `try${tryId}`
+    const dirs = [scope, `${scope}--alpha`, `${scope}--beta`]
+    const tokens = ['F', 'G', 'H'].map((letter) => letter.repeat(43))
+    fs.mkdirSync(path.join(profiles, scope), { recursive: true })
+    fs.writeFileSync(path.join(profiles, scope, 'harness-try'), `${scope}\n`)
+    for (const [index, entry] of dirs.entries()) {
+        fs.mkdirSync(path.join(profiles, entry), { recursive: true })
+        if (entry !== scope) fs.writeFileSync(path.join(profiles, entry, 'harness-parent'), `${scope}\n`)
+        fs.writeFileSync(
+            path.join(profiles, entry, '.env'),
+            `OPENAI_API_KEY=${tokens[index]}\nOPENAI_BASE_URL=http://127.0.0.1:43118/v1\nCUTTLELY_GATEWAY_HARNESS=${scope}\nCUTTLELY_GATEWAY_SPECIALIST=clerk\nCUTTLELY_GATEWAY_TRY=1\n`
+        )
+        registerProfileToken({
+            token: tokens[index],
+            harnessName: scope,
+            specialistName: 'clerk',
+            modelKey: 'k',
+            profileName: entry,
+            tryProfile: true
+        })
+    }
+    const realRm = fs.rmSync
+    let thrown = false
+    let thrownPath = ''
+    fs.rmSync = function rmSync(target, options) {
+        const text = String(target)
+        if (!thrown && text.includes(`${path.sep}profiles${path.sep}`)) {
+            thrown = true
+            thrownPath = text
+            const error = new Error('ENOTEMPTY')
+            error.code = 'ENOTEMPTY'
+            throw error
+        }
+        return realRm.call(fs, target, options)
+    }
+    let failed = null
+    try {
+        await discardTryProfile(tryId)
+    } catch (error) {
+        failed = error
+    } finally {
+        fs.rmSync = realRm
+    }
+    const gateway = await openGateway()
+    const statuses = []
+    for (const token of tokens) {
+        statuses.push((await localRequest({ port: gateway.port, method: 'GET', path: '/v1/models', token })).status)
+    }
+    await gateway.close()
+    const thrownName = path.basename(thrownPath)
+    const remaining = dirs.filter((entry) => entry !== thrownName && fs.existsSync(path.join(profiles, entry)))
+    check(
+        'a failed directory removal still forgets every try token and removes the other directories',
+        thrown && !failed && statuses.every((status) => status === 401) && remaining.length === 0,
+        JSON.stringify({ thrown, thrownName, remaining, statuses, failed: failed?.message })
+    )
+})()
+
 if (failures.length) {
     console.error(`\n${failures.length} check(s) failed`)
     process.exit(1)
 }
+
 console.log('\nAll harness checks passed')
 
 function messageContent(message) {

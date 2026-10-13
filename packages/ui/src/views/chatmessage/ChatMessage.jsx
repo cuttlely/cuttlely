@@ -83,7 +83,7 @@ import { flowContext } from '@/store/context/ReactFlowContext'
 
 // Const
 import { baseURL, maxScroll } from '@/store/constant'
-import { acceptChatSubmit, harnessRunPath } from '@/utils/harnessCanvasChat'
+import { acceptChatSubmit, harnessCanvasRunPath } from '@/utils/harnessCanvasChat'
 import { harnessMessageText } from '@/utils/harnessStream'
 import { enqueueSnackbar as enqueueSnackbarAction, closeSnackbar as closeSnackbarAction } from '@/store/actions'
 
@@ -1099,7 +1099,7 @@ const ChatMessage = ({ open, chatflowid, isAgentCanvas, isDialog, previews, setP
             if (humanInput) params.humanInput = humanInput
 
             if (harnessName) {
-                await fetchHarnessRun(harnessName, input)
+                await fetchHarnessRun(chatflowid, input)
             } else if (fullFiles.length) {
                 const formData = predictionFormData(params, fullFiles)
                 if (isChatFlowAvailableToStream) {
@@ -1197,13 +1197,13 @@ const ChatMessage = ({ open, chatflowid, isAgentCanvas, isDialog, previews, setP
         }
     }
 
-    const fetchHarnessRun = async (name, input) => {
+    const fetchHarnessRun = async (chatflowId, input) => {
         stopNoticeRef.current = false
         const generation = ++streamGenerationRef.current
         predictionAbortRef.current?.abort()
         const controller = new AbortController()
         predictionAbortRef.current = controller
-        await fetchEventSource(`${baseURL}${harnessRunPath(name)}`, {
+        await fetchEventSource(`${baseURL}${harnessCanvasRunPath(chatflowId)}`, {
             openWhenHidden: true,
             signal: controller.signal,
             method: 'POST',

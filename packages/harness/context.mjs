@@ -304,7 +304,7 @@ export function fitChiefMessages({ system, memory = '', history = [], user = '',
 export const ANALYST_ROW_HANDOFF_CHARS = 12000
 
 export const ANALYST_PAGE_SUMMARY =
-    /rows \d+-\d+(?: of \d+)? \((?:page \d+ of \d+, say "show more" for the next page|page \d+ of \d+, last page|more rows available, say "show more" for the next page|page \d+, last page)\)/
+    /rows \d+-\d+(?: of \d+)? \((?:page \d+ of \d+, say "show more" for the next page|page \d+ of \d+, last page|more rows available, say "show more" for the next page|page \d+, last page|last page)\)/
 export const ANALYST_SUMMARY_LINE = new RegExp(`${ANALYST_PAGE_SUMMARY.source}|returned \\d+ of \\d+\\+? rows \\(truncated\\)`)
 
 export function isAnalystCapSummary(summary) {
@@ -388,12 +388,73 @@ function formatAnalystDataRow(row) {
         .join(', ')
 }
 
+export function analystHandoffLine(row) {
+    return formatAnalystDataRow(row)
+}
+
+// Room left for the page line, so a full page of rows plus that line still fits the handoff budget.
+const ANALYST_PAGE_LINE_RESERVE = 160
+
+// The rows that fit in the handoff budget. The store returns this prefix and advances the cursor by
+// the same count, so a later page starts at the next row instead of skipping the ones the budget cut.
+export function analystShownRows(rows, budget = ANALYST_ROW_HANDOFF_CHARS) {
+    const list = Array.isArray(rows) ? rows : []
+    const room = Math.max(0, Math.floor(Number(budget) || 0))
+    const kept = []
+    let used = 0
+    for (const row of list) {
+        const line = formatAnalystDataRow(row)
+        const extra = (kept.length ? 1 : 0) + line.length
+        const limit = kept.length === 0 ? room : Math.max(0, room - ANALYST_PAGE_LINE_RESERVE)
+        if (used + extra > limit) {
+            if (!kept.length && line.length) kept.push(row)
+            break
+        }
+        kept.push(row)
+        used += extra
+    }
+    return kept
+}
+
+// How many of these line lengths fit in one page. The rules match analystShownRows.
+function shownLineCount(lengths, budget) {
+    const room = Math.max(0, Math.floor(Number(budget) || 0))
+    let used = 0
+    let kept = 0
+    for (const raw of lengths) {
+        const lineLength = Math.max(0, Number(raw) || 0)
+        const extra = (kept ? 1 : 0) + lineLength
+        const limit = kept === 0 ? room : Math.max(0, room - ANALYST_PAGE_LINE_RESERVE)
+        if (used + extra > limit) {
+            if (!kept && lineLength) kept = 1
+            break
+        }
+        kept += 1
+        used += extra
+    }
+    return kept
+}
+
+// Page count for a length-only pass. The row text itself is not required.
+export function analystPagesFromLineLengths(lengths, pageSize, budget = ANALYST_ROW_HANDOFF_CHARS) {
+    const list = Array.isArray(lengths) ? lengths : []
+    const size = Math.max(1, Math.floor(Number(pageSize)) || 1)
+    let offset = 0
+    let count = 0
+    while (offset < list.length && count <= list.length) {
+        count += 1
+        const shown = shownLineCount(list.slice(offset, offset + size), budget)
+        offset += Math.max(1, shown)
+    }
+    return count
+}
+
 export function presentAnalystToolResult(result, sql = '') {
     const body = unwrapToolPayload(result) || (result && typeof result === 'object' && !Array.isArray(result) ? result : null)
     if (!body) return ''
     if (typeof body.error === 'string' && body.error.trim()) return body.error.trim()
     if (Array.isArray(body.rows)) {
-        const lines = body.rows.slice(0, 100).map((row) => formatAnalystDataRow(row))
+        const lines = analystShownRows(body.rows).map((row) => formatAnalystDataRow(row))
         const summary = isAnalystCapSummary(body.summary) ? String(body.summary).trim() : ''
         return [...lines, summary].filter(Boolean).join('\n')
     }
@@ -416,7 +477,7 @@ export function cappedAnalystRowLines(payloads) {
         const summary = typeof body.summary === 'string' ? body.summary.trim() : ''
         if (!isAnalystCapSummary(summary)) continue
         found = true
-        for (const row of body.rows.slice(0, 100)) {
+        for (const row of analystShownRows(body.rows)) {
             const line = formatAnalystDataRow(row).trim()
             if (line) lines.push(line)
         }

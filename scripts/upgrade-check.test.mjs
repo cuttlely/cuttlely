@@ -7,6 +7,7 @@ import {
     compareNames,
     compareVersions,
     fixtureProblems,
+    harnessMigrationProblems,
     keyAliasEnv,
     nodeCount,
     readFixture,
@@ -76,4 +77,33 @@ test('comparisons report a lost flow, a renamed flow, lost cards, lost versions 
     assert.deepEqual(versionList({ json: { versions: [{ sha: 'x' }] } }), [{ sha: 'x' }])
     assert.deepEqual(versionList({ json: [{ sha: 'y' }] }), [{ sha: 'y' }])
     assert.deepEqual(versionList({ json: null }), [])
+})
+
+test('a 1.0.2 harness stays Live version 1 until the first edit creates a draft', () => {
+    const live = '{"nodes":[{"data":{"name":"harnessChief"}}],"edges":[]}'
+    const sha = '3973d3913ec88133cd769a7a049ef2715690655b'
+    const roster = { chief: { instructions: 'Route the bakery.' }, specialists: [{ name: 'baker' }, { name: 'orders' }] }
+    const ok = harnessMigrationProblems({
+        status: { mode: 'draft', draft: null },
+        history: { liveSha: sha, versions: [{ sha }] },
+        liveBefore: live,
+        liveAfter: live,
+        rosterBefore: roster,
+        rosterAfter: { ...roster, specialists: [{ name: 'baker' }, { name: 'orders' }] },
+        draft: { draft: { flowData: `${live} draft` } }
+    })
+    assert.deepEqual(ok, [])
+    const edited = harnessMigrationProblems({
+        status: { mode: 'draft', draft: null },
+        history: { liveSha: sha, versions: [{ sha }] },
+        liveBefore: live,
+        liveAfter: '{"nodes":[],"edges":[]}',
+        rosterBefore: roster,
+        rosterAfter: { chief: { instructions: 'changed' }, specialists: [{ name: 'baker' }] },
+        draft: { draft: null }
+    })
+    assert.match(edited.join('\n'), /not Live version 1|changed the Live canvas|changed the roster|did not create a draft/)
+    assert.match(edited.join('\n'), /changed the Live canvas/)
+    assert.match(edited.join('\n'), /changed the roster/)
+    assert.match(edited.join('\n'), /did not create a draft/)
 })

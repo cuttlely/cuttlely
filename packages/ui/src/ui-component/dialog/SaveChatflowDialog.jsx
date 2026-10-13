@@ -2,7 +2,7 @@ import { createPortal } from 'react-dom'
 import { useState, useEffect } from 'react'
 import PropTypes from 'prop-types'
 
-import { Button, Dialog, DialogActions, DialogContent, OutlinedInput, DialogTitle } from '@mui/material'
+import { Button, Dialog, DialogActions, DialogContent, OutlinedInput, DialogTitle, Typography } from '@mui/material'
 import { StyledButton } from '@/ui-component/button/StyledButton'
 import { DEFAULT_SAVE_PLACEHOLDER } from '@/utils/saveFlowPlaceholder'
 
@@ -11,6 +11,7 @@ const SaveChatflowDialog = ({ show, dialogProps, onCancel, onConfirm }) => {
 
     const [chatflowName, setChatflowName] = useState('')
     const [isReadyToSave, setIsReadyToSave] = useState(false)
+    const nameError = typeof dialogProps?.nameError === 'function' ? dialogProps.nameError(chatflowName) : ''
 
     // A built chatflow arrives named after its title; the box starts with that name.
     useEffect(() => {
@@ -47,13 +48,18 @@ const SaveChatflowDialog = ({ show, dialogProps, onCancel, onConfirm }) => {
                     value={chatflowName}
                     onChange={(e) => setChatflowName(e.target.value)}
                     onKeyDown={(e) => {
-                        if (isReadyToSave && e.key === 'Enter') onConfirm(e.target.value)
+                        if (isReadyToSave && !nameError && e.key === 'Enter') onConfirm(e.target.value)
                     }}
                 />
+                {nameError ? (
+                    <Typography color='error' variant='body2' sx={{ mt: 1 }} data-testid='harness-name-error'>
+                        {nameError}
+                    </Typography>
+                ) : null}
             </DialogContent>
             <DialogActions>
                 <Button onClick={onCancel}>{dialogProps.cancelButtonName}</Button>
-                <StyledButton disabled={!isReadyToSave} variant='contained' onClick={() => onConfirm(chatflowName)}>
+                <StyledButton disabled={!isReadyToSave || Boolean(nameError)} variant='contained' onClick={() => onConfirm(chatflowName)}>
                     {dialogProps.confirmButtonName}
                 </StyledButton>
             </DialogActions>

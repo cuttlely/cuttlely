@@ -1,4 +1,4 @@
-import { randomUUID } from 'crypto'
+import { randomBytes, randomUUID } from 'crypto'
 import fs from 'fs'
 import path from 'path'
 import { pathToFileURL } from 'url'
@@ -9,6 +9,8 @@ import { databaseEntities } from '../../utils'
 import { getRunningExpressApp } from '../../utils/getRunningExpressApp'
 import logger from '../../utils/logger'
 import { orgIdForWorkspace } from '../etl'
+import flowDraftsService from '../flow-drafts'
+import { chatImages } from './chatImages'
 
 // The server build targets CommonJS, and tsc rewrites import() into require().
 // require() cannot load the ESM harness package, so keep a real dynamic import.
@@ -182,7 +184,13 @@ const assertRunRequest = async (name: string, body: Record<string, unknown>) => 
 const startRun = async (
     name: string,
     body: Record<string, unknown>,
-    opts: { source?: string; signal?: AbortSignal; onEvent?: (event: { type: string }) => void } = {}
+    opts: {
+        source?: string
+        signal?: AbortSignal
+        onEvent?: (event: { type: string }) => void
+        // Set only for the canvas and Try it. The external runs route leaves this unset and reads the saved harness.
+        record?: Record<string, unknown>
+    } = {}
 ) => {
     const prepared = await assertRunRequest(name, body)
     await configureRuntime()
@@ -195,7 +203,8 @@ const startRun = async (
     }
     const engine = await loadHarness('run.mjs')
     const queued = engine.runQueuedHarness
-    const run = process.env.CUTTLELY_HARNESS_QUEUE !== 'off' && typeof queued === 'function' ? queued : engine.runHarness
+    // A draft roster exists only in this process. The queue worker would load the saved harness instead.
+    const run = !opts.record && process.env.CUTTLELY_HARNESS_QUEUE !== 'off' && typeof queued === 'function' ? queued : engine.runHarness
     let recorded: Record<string, unknown> | null = null
     try {
         const payload = await run({
@@ -207,6 +216,7 @@ const startRun = async (
             flowOptions: runtime?.flowOptions,
             onEvent: opts.onEvent,
             signal: opts.signal,
+            record: opts.record,
             onRecorded: (row: Record<string, unknown>) => {
                 recorded = row
             }
@@ -223,6 +233,26 @@ const startRun = async (
     }
 }
 
+// Canvas chat and Try it. The draft canvas when one exists, otherwise the Live canvas. The saved harness and its
+// profile are not written. The try compiles under its own id and is removed when the run ends.
+const startCanvasRun = async (
+    chatflow: { id: string; name: string; type?: string | null; flowData: string; workspaceId: string },
+    body: Record<string, unknown>,
+    opts: { source?: string; signal?: AbortSignal; onEvent?: (event: { type: string }) => void } = {}
+) => {
+    const flowData = await flowDraftsService.flowDataForTestChat(chatflow)
+    const sync = await loadHarness('sync-from-flow.mjs')
+    const appServer = getRunningExpressApp()
+    const roster = sync.rosterFromFlow({
+        name: chatflow.name,
+        chatflowId: chatflow.id,
+        flowData,
+        workspaceId: chatflow.workspaceId,
+        componentNodes: appServer.nodesPool?.componentNodes
+    })
+    return await startRun(chatflow.name, body, { ...opts, record: { ...roster, tryId: randomBytes(8).toString('hex') } })
+}
+
 export default {
     startHarnessRuntime,
     listHarnesses,
@@ -233,5 +263,7 @@ export default {
     listRuns,
     getRun,
     assertRunRequest,
-    startRun
+    startRun,
+    startCanvasRun,
+    chatImages
 }
