@@ -1266,6 +1266,7 @@ packages/server/src/metrics/OpenTelemetry.ts
 packages/server/src/metrics/Prometheus.test.ts
 packages/server/src/metrics/Prometheus.ts
 packages/server/src/metrics/graphTraces.test.ts
+packages/server/src/metrics/harnessTraces.test.ts
 packages/server/src/metrics/tracing.test.ts
 packages/server/src/metrics/tracing.ts
 packages/server/src/middlewares/errors/index.ts
