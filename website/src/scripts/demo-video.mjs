@@ -17,6 +17,26 @@ const previewBound = new WeakSet()
 /** Source elements lifted off a hero so load() can paint the poster without fetching the file again. */
 const parkedSources = new WeakMap()
 
+/** The video currently playing with sound, one per document. Queue and observer play() wait for it. */
+const narrating = new WeakMap()
+
+function narrationBlocks(video) {
+    const doc = video?.ownerDocument
+    if (!doc) return false
+    const current = narrating.get(doc)
+    return !!current && current !== video
+}
+
+function beginNarration(video) {
+    const doc = video?.ownerDocument
+    if (doc) narrating.set(doc, video)
+}
+
+function endNarration(video) {
+    const doc = video?.ownerDocument
+    if (doc && narrating.get(doc) === video) narrating.delete(doc)
+}
+
 /** Narrow screens, navigator.connection.saveData and reduced motion get the poster and play only when tapped. */
 export function canAutoplay(win = window) {
     if (win.matchMedia('(prefers-reduced-motion: reduce)').matches) return false
@@ -110,7 +130,8 @@ function watchLoops(videos, win, doc) {
                     video.preload = 'auto'
                     if ((video.readyState || 0) === 0 && (video.networkState || 0) === 0) video.load()
                 }
-                if (wantsPlay.has(video) && video.networkState !== 3) video.play().catch(() => {})
+                // A narration holds play() only. The download still takes the slot.
+                if (wantsPlay.has(video) && video.networkState !== 3 && !narrationBlocks(video)) video.play().catch(() => {})
             }
         } finally {
             pumping = false
@@ -131,8 +152,10 @@ function watchLoops(videos, win, doc) {
                     wantsPlay.add(video)
                     onScreen.add(video)
                     // Already downloading or ready: play does not open another fetch.
-                    if (started.has(video)) video.play().catch(() => {})
-                    else enqueue(video)
+                    // Held while a narration is running, so the preview does not move behind it.
+                    if (started.has(video)) {
+                        if (!narrationBlocks(video)) video.play().catch(() => {})
+                    } else enqueue(video)
                 } else {
                     wantsPlay.delete(video)
                     onScreen.delete(video)
@@ -236,7 +259,7 @@ function watchLoops(videos, win, doc) {
                     // reads the live playhead instead of seeking back to 0.
                     else if (!(saved > 0)) stop()
                 }
-                if (wantsPlay.has(video)) video.play().catch(() => {})
+                if (wantsPlay.has(video) && !narrationBlocks(video)) video.play().catch(() => {})
             }
             const onBuffered = () => {
                 if (settled || !(saved > 0)) return
@@ -355,6 +378,7 @@ function playFromStart(video) {
             }
         }
     }
+    beginNarration(video)
     video.loop = false
     video.defaultMuted = false
     video.muted = false
@@ -378,7 +402,14 @@ function playFromStart(video) {
         // HAVE_NOTHING cannot seek. Nothing has played, so playback still starts at the beginning.
     }
     const pending = video.play?.()
-    if (pending && typeof pending.catch === 'function') pending.catch(() => {})
+    if (pending && typeof pending.catch === 'function') {
+        pending.catch(() => {
+            // A rejected play must not leave this video narrating, or the previews stay paused.
+            endNarration(video)
+            if (sounding.has(video)) leaveSoundMode(video)
+            resumeMutedPreviews(video.ownerDocument, video.ownerDocument?.defaultView)
+        })
+    }
     return pending
 }
 
@@ -394,15 +425,7 @@ function bindHeroPlay(video, win) {
         button.hidden = true
         // Sources come back before play(). load() while they are attached would fetch the file twice.
         restoreSources(video)
-        const pending = playFromStart(video)
-        if (pending && typeof pending.then === 'function') {
-            pending.catch(() => {
-                if (!sounding.has(video)) return
-                sounding.delete(video)
-                button.hidden = false
-                video.controls = false
-            })
-        }
+        playFromStart(video)
     }
     button.addEventListener('click', start)
     video.addEventListener('click', () => {
@@ -411,6 +434,7 @@ function bindHeroPlay(video, win) {
     })
     video.addEventListener('ended', () => {
         if (!sounding.has(video)) return
+        endNarration(video)
         try {
             video.pause()
         } catch {
@@ -484,7 +508,17 @@ export function initVideoDialogs(doc = document) {
             event?.preventDefault?.()
             dialog.showModal()
             // Every open starts at the beginning. Closing only pauses, so the next open has to seek.
-            playFromStart(video)
+            const pending = playFromStart(video)
+            // playFromStart already restores previews if this play is rejected. Pause the dialog video too.
+            if (pending && typeof pending.then === 'function') {
+                pending.catch(() => {
+                    try {
+                        video.pause()
+                    } catch {
+                        // Already idle.
+                    }
+                })
+            }
         }
         link.addEventListener('click', open)
         const preview = previousLoop(link)
@@ -493,6 +527,7 @@ export function initVideoDialogs(doc = document) {
             preview.addEventListener('click', open)
         }
         dialog.addEventListener('close', () => {
+            endNarration(video)
             try {
                 video.pause()
             } catch {
