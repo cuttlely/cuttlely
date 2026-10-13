@@ -2,7 +2,7 @@ import { CHIEF_MODEL_REQUIRED, HarnessError } from './errors.mjs'
 import { NODE_REF, inputNameOf, parseFlow, plainInputs } from './flow-graph.mjs'
 import { compileProfileCached } from './profile.mjs'
 import { specialistHandoffChars } from './context.mjs'
-import { getHarness, playbookList, routingSummaryText, saveHarness } from './store.mjs'
+import { assertSavedHarnessName, getHarness, playbookList, routingSummaryText, saveHarness } from './store.mjs'
 import { toolCallingWarnings } from './tool-fallback.mjs'
 
 function boolInput(value) {
@@ -136,6 +136,7 @@ function parseMaybeJson(value) {
 }
 
 export function rosterFromFlow({ name, chatflowId, flowData, componentNodes, workspaceId }) {
+    assertSavedHarnessName(name)
     const flow = parseFlow(flowData)
     const nodes = flow.nodes || []
     const edges = flow.edges || []

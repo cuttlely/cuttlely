@@ -42,6 +42,7 @@ import flowDraftsApi from '@/api/flowDrafts'
 import flowVersionsApi from '@/api/flowVersions'
 import { exactTime, lastEditedText, lastEditedVersion } from '@/utils/versionHistory'
 import { STALE_DRAFT_WARNING, apiErrorMessage, badgeText, draftBadge, showDraftChrome } from '@/utils/flowDrafts'
+import { reservedHarnessNameMessage } from '@/utils/harnessChatReady'
 
 // Hooks
 import useApi from '@/hooks/useApi'
@@ -310,8 +311,28 @@ const CanvasHeader = ({
 
     const submitFlowName = () => {
         if (chatflow.id) {
+            const next = flowNameRef.current.value
+            if (isHarnessCanvas) {
+                const message = reservedHarnessNameMessage(next)
+                if (message) {
+                    enqueueSnackbar({
+                        message,
+                        options: {
+                            key: new Date().getTime() + Math.random(),
+                            variant: 'error',
+                            persist: true,
+                            action: (key) => (
+                                <Button style={{ color: 'white' }} onClick={() => closeSnackbar(key)}>
+                                    <IconX />
+                                </Button>
+                            )
+                        }
+                    })
+                    return
+                }
+            }
             const updateBody = {
-                name: flowNameRef.current.value
+                name: next
             }
             updateChatflowApi.request(chatflow.id, updateBody)
         }
@@ -398,6 +419,24 @@ const CanvasHeader = ({
 
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [updateChatflowApi.data])
+
+    useEffect(() => {
+        if (!updateChatflowApi.error) return
+        enqueueSnackbar({
+            message: apiErrorMessage(updateChatflowApi.error, 'Save failed'),
+            options: {
+                key: new Date().getTime() + Math.random(),
+                variant: 'error',
+                persist: true,
+                action: (key) => (
+                    <Button style={{ color: 'white' }} onClick={() => closeSnackbar(key)}>
+                        <IconX />
+                    </Button>
+                )
+            }
+        })
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [updateChatflowApi.error])
 
     useEffect(() => {
         if (chatflow) {
@@ -918,7 +957,8 @@ const CanvasHeader = ({
                     placeholder: saveFlowPlaceholder({ isHarnessCanvas }),
                     defaultName: chatflow?.id ? '' : chatflow?.name || '',
                     confirmButtonName: 'Save',
-                    cancelButtonName: 'Cancel'
+                    cancelButtonName: 'Cancel',
+                    nameError: isHarnessCanvas ? reservedHarnessNameMessage : undefined
                 }}
                 onCancel={() => setFlowDialogOpen(false)}
                 onConfirm={onConfirmSaveName}
