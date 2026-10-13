@@ -12,6 +12,7 @@ The command reads the API key from `CUTTLELY_API_KEY`. It does not take the key 
 | --------- | ----------------------------------------- |
 | Chatflow  | `chatflows:view` and `chatflows:update`   |
 | Agentflow | `agentflows:view` and `agentflows:update` |
+| Harness   | `chatflows:view` and `chatflows:update`   |
 
 ```bash
 export CUTTLELY_API_KEY=<key>

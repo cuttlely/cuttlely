@@ -480,6 +480,11 @@
             "to": "packages/server/src/errors/utils.ts"
         },
         {
+            "from": "packages/server/src/services/flow-check/harness.ts",
+            "to": "packages/server/src/errors/appError/index.ts",
+            "reason": "The harness publish check reports bad questions through the shared server error class."
+        },
+        {
             "from": "packages/server/src/services/flow-check/index.test.ts",
             "to": "packages/server/src/services/evaluations/LLMEvaluationRunner.ts",
             "reason": "The publish check test counts grader tokens with the runner's reader, and the grader tests sit beside that runner."

@@ -10,7 +10,10 @@
 // A replay runs the canvas in memory through executeFlow with replay on: a new chat id, so memory starts
 // empty; no chat messages, follow-ups, telemetry or tracing are written. The daily token total is written.
 // Live is never saved.
-// Chatflows and agentflows can be checked. An agentflow replay also writes no execution record.
+// Chatflows, agentflows and harnesses can be checked. An agentflow replay also writes no execution record.
+// A harness replay uses the canvas try profile (Live roster and draft roster, each in its own directory).
+// It writes no chat message, no run history, no session and no analyst capture. The tokens it shows are
+// the route, specialist and handoff tokens that run already summed. It does not add a second usage count.
 // Results stay in this server's memory for a short while and are never written to the database or logged.
 // The check is optional and never blocks Publish.
 import crypto from 'crypto'
@@ -54,6 +57,7 @@ import {
     triggerStart,
     typeUnavailable
 } from './kinds'
+import { harnessQuestionsFor, harnessQuestionsToRun, replayHarnessQuestion } from './harness'
 import { casesFromDataset, CheckEvaluator, loadEvaluators, readDatasetId, readEvaluatorIds, scoreAnswer } from './score'
 
 // A question list sent without `count` stays capped at 10, which is what this route accepted before.
@@ -469,6 +473,8 @@ export async function getCheckSetup(
             ? { questions: [], pastCount: 0, pastTruncated: false }
             : kind
             ? await inputsFor(flow, kind)
+            : flow.type === 'HARNESS'
+            ? await harnessQuestionsFor(flow)
             : await questionsFor(flow)
     return {
         unavailable,
@@ -628,6 +634,7 @@ export async function startCheck(
     // and do not stop a check this request did not create.
     if (closed()) throw new AppError(StatusCodes.BAD_REQUEST, 'The check was cancelled before it started.')
     if (fromDataset) {
+        // A harness accepts datasetId. This refusal is only a form, webhook, or schedule start.
         const refusal = datasetStartRefusal(flow.type, [flow.flowData, draft])
         if (refusal) throw new AppError(StatusCodes.BAD_REQUEST, refusal)
     }
@@ -651,6 +658,10 @@ export async function startCheck(
         previews = resolved.previews
         sources = resolved.sources
         dates = resolved.dates
+    } else if (flow.type === 'HARNESS') {
+        const resolved = await harnessQuestionsToRun(flow, body || {})
+        questions = resolved.questions
+        selection = resolved.selection
     } else {
         const resolved = await questionsToRun(flow.id, request)
         questions = resolved.questions
@@ -907,6 +918,7 @@ async function replayFlow({
     signal,
     baseURL
 }: ReplayInput): Promise<{ text: string; metrics?: unknown[]; lines?: UsageLine[] }> {
+    if (flow.type === 'HARNESS') return replayHarnessQuestion({ flow, flowData, question, signal })
     // Imported here so loading this module does not load the whole prediction path.
     const { executeFlow } = await import('../../utils/buildChatflow')
     const app = getRunningExpressApp()
