@@ -6,6 +6,7 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ### Added
 
+-   Usage totals and the Publish check include an estimated cost. Defaults come from the model list. An organization owner can set or clear a model's price, in US dollars per million tokens. A model with no price is shown as no price, not as zero. The figures are estimates.
 -   A Docker build can leave out Chromium. `INCLUDE_BROWSER=0` builds that image. The default image still includes Chromium. Puppeteer and Playwright document loaders in the smaller image fail with `this image has no browser`. The agent runtime's browser tool also cannot browse there: it returns success: false, and the server keeps running.
 
 ## [1.0.2] - 2026-10-11

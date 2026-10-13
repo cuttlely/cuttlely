@@ -56,7 +56,9 @@
             "packages/server/src/database/migrations/*/1784000000000-AddFlowVersionState.ts",
             "packages/server/src/services/usage/**",
             "packages/server/src/database/entities/TokenUsageDay.ts",
+            "packages/server/src/database/entities/ModelPriceOverride.ts",
             "packages/server/src/database/migrations/*/1791900000000-AddTokenUsageDay.ts",
+            "packages/server/src/database/migrations/*/1792000000000-AddModelPriceOverride.ts",
             "packages/ui/src/ui-component/extended/PublishInstantly.jsx",
             "packages/server/src/services/flow-promote/**",
             "packages/server/src/controllers/flow-promote/**",
@@ -680,15 +682,22 @@
             "paths": [
                 "packages/server/src/services/usage/**",
                 "packages/server/src/database/entities/TokenUsageDay.ts",
-                "packages/server/src/database/migrations/*/1791900000000-AddTokenUsageDay.ts"
+                "packages/server/src/database/entities/ModelPriceOverride.ts",
+                "packages/server/src/database/migrations/*/1791900000000-AddTokenUsageDay.ts",
+                "packages/server/src/database/migrations/*/1792000000000-AddModelPriceOverride.ts"
             ],
             "entryPoints": [
                 "packages/server/src/services/usage/index.ts",
                 "packages/server/src/database/entities/TokenUsageDay.ts",
+                "packages/server/src/database/entities/ModelPriceOverride.ts",
                 "packages/server/src/database/migrations/mariadb/1791900000000-AddTokenUsageDay.ts",
+                "packages/server/src/database/migrations/mariadb/1792000000000-AddModelPriceOverride.ts",
                 "packages/server/src/database/migrations/mysql/1791900000000-AddTokenUsageDay.ts",
+                "packages/server/src/database/migrations/mysql/1792000000000-AddModelPriceOverride.ts",
                 "packages/server/src/database/migrations/postgres/1791900000000-AddTokenUsageDay.ts",
-                "packages/server/src/database/migrations/sqlite/1791900000000-AddTokenUsageDay.ts"
+                "packages/server/src/database/migrations/postgres/1792000000000-AddModelPriceOverride.ts",
+                "packages/server/src/database/migrations/sqlite/1791900000000-AddTokenUsageDay.ts",
+                "packages/server/src/database/migrations/sqlite/1792000000000-AddModelPriceOverride.ts"
             ]
         },
         {

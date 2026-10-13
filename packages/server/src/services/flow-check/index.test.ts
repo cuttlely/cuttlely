@@ -55,7 +55,7 @@ jest.mock('../../database/entities/identity', () => ({ Workspace: class Workspac
 jest.mock('@cuttlely/components', () => ({ EvaluationRunner: { metrics: new Map() } }))
 jest.mock('../../utils/logger', () => ({ __esModule: true, default: { error: jest.fn(), debug: jest.fn() } }))
 
-import { checks, getCheck, getCheckSetup, replayHooks, startCheck, stopCheck } from './index'
+import { checks, getCheck, getCheckSetup, priceHooks, replayHooks, startCheck, stopCheck } from './index'
 
 const canvas = (word: string, extra: any[] = []) =>
     JSON.stringify({
@@ -97,6 +97,7 @@ beforeEach(() => {
     delete process.env.CUTTLELY_CHECK_CONCURRENCY
     states.set('flow-1', { chatflowId: 'flow-1', draftFlowData: DRAFT, publishInstantly: false })
     replayHooks.run = async ({ flowData }) => ({ text: wordOf(flowData), metrics: [JSON.stringify({ totalTokens: 50 })] })
+    priceHooks.load = null
     jest.clearAllMocks()
 })
 
@@ -203,7 +204,40 @@ describe('running', () => {
             ['MANGO', 'PAPAYA', false]
         ])
         expect(done.summary).toMatchObject({ ran: 2, changed: 2, same: 0, errors: 0, liveTokens: 100, draftTokens: 100 })
+        expect(done.cases[0].live?.price).toBe('no price')
+        expect(done.cases[0].live?.estimatedCostUsd).toBeNull()
         expect(done.draftChanged).toBe(false)
+    })
+
+    test('prices each side from the model tokens, and an unknown model is not zero', async () => {
+        priceHooks.load = async () => ({
+            unit: 'usd_per_million_tokens',
+            rateFor(model: string) {
+                if (model === 'gpt-4.1-mini') return { inputUsdPerMillion: 0.4, outputUsdPerMillion: 1.6 }
+                return null
+            }
+        })
+        replayHooks.run = async ({ flowData }) => ({
+            text: wordOf(flowData),
+            metrics: [
+                JSON.stringify({ model: 'gpt-4.1-mini', promptTokens: 1000, completionTokens: 500, totalTokens: 1500 }),
+                JSON.stringify({ model: 'custom-bakery', promptTokens: 100, completionTokens: 50, totalTokens: 150 })
+            ]
+        })
+        const started = await startCheck(flow() as any, { questions: ['How much is a loaf?'] }, 'http://x')
+        await settle()
+        const done = await getCheck(flow(), started.id)
+        // 1000 * $0.40 / 1,000,000 + 500 * $1.60 / 1,000,000 = $0.0012. custom-bakery is not priced at zero.
+        expect(done.cases[0].live).toMatchObject({
+            tokens: 1650,
+            estimatedCostUsd: 0.0012,
+            price: 'partial',
+            unpricedModels: ['custom-bakery']
+        })
+        expect(done.cases[0].draft).toMatchObject({ estimatedCostUsd: 0.0012, price: 'partial' })
+        expect(done.summary.liveEstimatedCostUsd).toBe(0.0012)
+        expect(done.summary.draftEstimatedCostUsd).toBe(0.0012)
+        expect(done.summary.livePrice).toBe('partial')
     })
 
     test('writes nothing: no chat messages, no state, no Live save', async () => {

@@ -36,9 +36,35 @@ test('the summary counts same, changed and errors, sums tokens and takes the med
         liveTokens: 35,
         draftTokens: 20,
         liveMedianMs: 100,
-        draftMedianMs: 200
+        draftMedianMs: 200,
+        liveEstimatedCostUsd: null,
+        draftEstimatedCostUsd: null,
+        livePrice: null,
+        draftPrice: null
     })
     expect(median([])).toBeNull()
+})
+
+test('estimated cost is summed per side, and a missing price stays missing', () => {
+    const summary = summarize([
+        {
+            question: 'a',
+            live: side('x', { tokens: 1500, estimatedCostUsd: 0.0012, price: 'known', unpricedModels: [] }),
+            draft: side('y', { tokens: 150, estimatedCostUsd: null, price: 'no price', unpricedModels: ['custom-bakery'] }),
+            same: false
+        },
+        {
+            question: 'b',
+            live: side('x', { tokens: 10, estimatedCostUsd: 0.0004, price: 'partial', unpricedModels: ['custom-bakery'] }),
+            draft: side('y', { tokens: 10, estimatedCostUsd: 0.0004, price: 'known' }),
+            same: true
+        }
+    ])
+    expect(summary.liveEstimatedCostUsd).toBe(0.0016)
+    expect(summary.livePrice).toBe('partial')
+    expect(summary.draftEstimatedCostUsd).toBe(0.0004)
+    expect(summary.draftPrice).toBe('partial')
+    expect(summary.draftTokens).toBe(160)
 })
 
 test('token totals come from the tracer metrics, and nothing counted is null', () => {

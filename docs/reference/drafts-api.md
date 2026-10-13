@@ -240,8 +240,24 @@ A pipeline runs the same call with [`cuttlely check`](../how-to/ci-gate.md). The
     "cases": [
         {
             "question": "Do you have gluten-free bread today?",
-            "live": { "text": "Yes, we bake it on Tuesdays.", "error": null, "tokens": 44, "ms": 657 },
-            "draft": { "text": "Yes, every day.", "error": null, "tokens": 45, "ms": 525 },
+            "live": {
+                "text": "Yes, we bake it on Tuesdays.",
+                "error": null,
+                "tokens": 44,
+                "ms": 657,
+                "estimatedCostUsd": 0.000018,
+                "price": "known",
+                "unpricedModels": []
+            },
+            "draft": {
+                "text": "Yes, every day.",
+                "error": null,
+                "tokens": 45,
+                "ms": 525,
+                "estimatedCostUsd": null,
+                "price": "no price",
+                "unpricedModels": ["custom-bakery"]
+            },
             "same": false
         }
     ],
@@ -253,22 +269,26 @@ A pipeline runs the same call with [`cuttlely check`](../how-to/ci-gate.md). The
         "liveTokens": 44,
         "draftTokens": 45,
         "liveMedianMs": 657,
-        "draftMedianMs": 525
+        "draftMedianMs": 525,
+        "liveEstimatedCostUsd": 0.000018,
+        "draftEstimatedCostUsd": null,
+        "livePrice": "known",
+        "draftPrice": "no price"
     }
 }
 ```
 
-| Field          | Meaning                                                                                                                                                                                                                                                                                                                                      |
-| -------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `status`       | `running`, `done`, `stopped` (a limit or Stop ended it early) or `failed` (it could not run; `error` says so).                                                                                                                                                                                                                               |
-| `stopReason`   | `tokens`, `time` or `stopped`, when `status` is `stopped`. Otherwise `null`.                                                                                                                                                                                                                                                                 |
-| `completed`    | Questions both sides have answered, out of `total`. With `liveEmpty`, questions the draft has answered.                                                                                                                                                                                                                                      |
-| `liveEmpty`    | `true` when Live had no cards when the check started. Then only the draft runs: `live` stays `null`, `same` stays `null`, and `summary` counts the draft's answers, with Live tokens 0 and no Live time.                                                                                                                                     |
-| `draftChanged` | `true` when the draft was saved, published or discarded after the check started, so its answers may be out of date.                                                                                                                                                                                                                          |
-| `cases`        | One per question. `live` and `draft` are `null` until that side has run. `text` is the answer, cut at 4,000 characters, or `null` with an `error` when the run failed. `tokens` is `null` when the model reported none.                                                                                                                      |
-| `same`         | `true` when both answers match, ignoring case and spacing. `false` when they differ or either side failed. `null` until both have run. Answers from a model can vary between runs even with no change.                                                                                                                                       |
-| `selection`    | Set when the request sent `count`. `requested` is the count after clamping, `available` is how many distinct past questions were found (at most 100), `used` is how many of those were included, and `truncated` means the scan stopped early. `null` when the request sent a question list and no count.                                    |
-| `summary`      | Counts over the questions both sides answered: how many `same`, `changed` and with `errors`, total tokens per side, and the middle (median) time per side in milliseconds. The dialog also shows the token and time difference between the sides. There is no better or worse score, and no price, because the check does not record a cost. |
+| Field          | Meaning                                                                                                                                                                                                                                                                                                                                                                                                         |
+| -------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `status`       | `running`, `done`, `stopped` (a limit or Stop ended it early) or `failed` (it could not run; `error` says so).                                                                                                                                                                                                                                                                                                  |
+| `stopReason`   | `tokens`, `time` or `stopped`, when `status` is `stopped`. Otherwise `null`.                                                                                                                                                                                                                                                                                                                                    |
+| `completed`    | Questions both sides have answered, out of `total`. With `liveEmpty`, questions the draft has answered.                                                                                                                                                                                                                                                                                                         |
+| `liveEmpty`    | `true` when Live had no cards when the check started. Then only the draft runs: `live` stays `null`, `same` stays `null`, and `summary` counts the draft's answers, with Live tokens 0 and no Live time.                                                                                                                                                                                                        |
+| `draftChanged` | `true` when the draft was saved, published or discarded after the check started, so its answers may be out of date.                                                                                                                                                                                                                                                                                             |
+| `cases`        | One per question. `live` and `draft` are `null` until that side has run. `text` is the answer, cut at 4,000 characters, or `null` with an `error` when the run failed. `tokens` is `null` when the model reported none. `estimatedCostUsd` is an estimate in US dollars, or `null` when `price` is `no price` or that side did not run. `price` is `known`, `partial`, or `no price`.                           |
+| `same`         | `true` when both answers match, ignoring case and spacing. `false` when they differ or either side failed. `null` until both have run. Answers from a model can vary between runs even with no change.                                                                                                                                                                                                          |
+| `selection`    | Set when the request sent `count`. `requested` is the count after clamping, `available` is how many distinct past questions were found (at most 100), `used` is how many of those were included, and `truncated` means the scan stopped early. `null` when the request sent a question list and no count.                                                                                                       |
+| `summary`      | Counts over the questions both sides answered: how many `same`, `changed` and with `errors`, total tokens per side, the middle (median) time per side in milliseconds, and an estimated cost per side. `livePrice` and `draftPrice` are `known`, `partial`, `no price`, or `null` when that side did not run. A missing price is not zero. There is no better or worse score. The dollar figures are estimates. |
 
 ### Stop a check
 

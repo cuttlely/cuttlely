@@ -373,6 +373,10 @@ function fromMetrics(metrics: unknown): UsageLine[] {
     return lines
 }
 
+export function usageLinesFromMetrics(metrics: unknown): UsageLine[] {
+    return groupUsageLines(fromMetrics(metrics))
+}
+
 export function groupUsageLines(lines: UsageLine[]): UsageLine[] {
     const grouped = new Map<string, UsageLine>()
     for (const line of lines) {

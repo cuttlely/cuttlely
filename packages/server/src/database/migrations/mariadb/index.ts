@@ -54,6 +54,7 @@ import { AddIdentityLoginGuards1782000000001 } from './1782000000001-AddIdentity
 import { HashApiKey1783000000000 } from './1783000000000-HashApiKey'
 import { AddFlowVersionState1784000000000 } from './1784000000000-AddFlowVersionState'
 import { AddTokenUsageDay1791900000000 } from './1791900000000-AddTokenUsageDay'
+import { AddModelPriceOverride1792000000000 } from './1792000000000-AddModelPriceOverride'
 
 import { AddAuthTables1720230151482 } from './1720230151482-AddAuthTables'
 import { AddWorkspace1725437498242 } from './1725437498242-AddWorkspace'
@@ -134,5 +135,6 @@ export const mariadbMigrations = [
     AddIdentityLoginGuards1782000000001,
     HashApiKey1783000000000,
     AddFlowVersionState1784000000000,
-    AddTokenUsageDay1791900000000
+    AddTokenUsageDay1791900000000,
+    AddModelPriceOverride1792000000000
 ]

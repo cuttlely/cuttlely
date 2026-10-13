@@ -1,5 +1,7 @@
 // Same or changed, and the totals the Publish dialog shows. Pure functions, no I/O.
 
+export type PriceStatus = 'known' | 'partial' | 'no price'
+
 export interface SideResult {
     text: string | null
     error: string | null
@@ -7,6 +9,11 @@ export interface SideResult {
     tokens: number | null
     // Wall-clock time for this one run, in milliseconds.
     ms: number
+    // US dollars from the current model prices. Null when a price is missing or this side did not run.
+    // A missing price is `no price`, never zero.
+    estimatedCostUsd?: number | null
+    price?: PriceStatus | null
+    unpricedModels?: string[]
 }
 
 export interface CheckCase {
@@ -28,6 +35,40 @@ export interface CheckSummary {
     draftTokens: number
     liveMedianMs: number | null
     draftMedianMs: number | null
+    // Estimated US dollars for the sides that ran. Null when that side did not run or no model had a price.
+    liveEstimatedCostUsd: number | null
+    draftEstimatedCostUsd: number | null
+    livePrice: PriceStatus | null
+    draftPrice: PriceStatus | null
+}
+
+function costRollup(sides: Array<SideResult | null | undefined>): {
+    estimatedCostUsd: number | null
+    price: PriceStatus | null
+} {
+    let units = 0
+    let known = false
+    let missing = false
+    let saw = false
+    for (const side of sides) {
+        if (!side || side.price == null) continue
+        saw = true
+        if (side.price === 'no price') missing = true
+        else if (side.price === 'partial') {
+            missing = true
+            if (side.estimatedCostUsd != null) {
+                units += Math.round(side.estimatedCostUsd * 1e8)
+                known = true
+            }
+        } else if (side.price === 'known' && side.estimatedCostUsd != null) {
+            units += Math.round(side.estimatedCostUsd * 1e8)
+            known = true
+        }
+    }
+    if (!saw) return { estimatedCostUsd: null, price: null }
+    if (!known) return { estimatedCostUsd: null, price: 'no price' }
+    if (missing) return { estimatedCostUsd: units / 1e8, price: 'partial' }
+    return { estimatedCostUsd: units / 1e8, price: 'known' }
 }
 
 export function normalizeAnswer(text: string | null | undefined): string {
@@ -53,6 +94,7 @@ export function median(values: number[]): number | null {
 export function summarize(cases: CheckCase[], liveEmpty = false): CheckSummary {
     if (liveEmpty) {
         const answered = cases.filter((c) => c.draft) as Array<CheckCase & { draft: SideResult }>
+        const draftCost = costRollup(answered.map((c) => c.draft))
         return {
             ran: answered.length,
             same: 0,
@@ -61,10 +103,16 @@ export function summarize(cases: CheckCase[], liveEmpty = false): CheckSummary {
             liveTokens: 0,
             draftTokens: answered.reduce((sum, c) => sum + (c.draft.tokens || 0), 0),
             liveMedianMs: null,
-            draftMedianMs: median(answered.filter((c) => !c.draft.error).map((c) => c.draft.ms))
+            draftMedianMs: median(answered.filter((c) => !c.draft.error).map((c) => c.draft.ms)),
+            liveEstimatedCostUsd: null,
+            draftEstimatedCostUsd: draftCost.estimatedCostUsd,
+            livePrice: null,
+            draftPrice: draftCost.price
         }
     }
     const done = cases.filter((c) => c.live && c.draft) as Array<CheckCase & { live: SideResult; draft: SideResult }>
+    const liveCost = costRollup(done.map((c) => c.live))
+    const draftCost = costRollup(done.map((c) => c.draft))
     return {
         ran: done.length,
         same: done.filter((c) => c.same === true).length,
@@ -73,7 +121,11 @@ export function summarize(cases: CheckCase[], liveEmpty = false): CheckSummary {
         liveTokens: done.reduce((sum, c) => sum + (c.live.tokens || 0), 0),
         draftTokens: done.reduce((sum, c) => sum + (c.draft.tokens || 0), 0),
         liveMedianMs: median(done.filter((c) => !c.live.error).map((c) => c.live.ms)),
-        draftMedianMs: median(done.filter((c) => !c.draft.error).map((c) => c.draft.ms))
+        draftMedianMs: median(done.filter((c) => !c.draft.error).map((c) => c.draft.ms)),
+        liveEstimatedCostUsd: liveCost.estimatedCostUsd,
+        draftEstimatedCostUsd: draftCost.estimatedCostUsd,
+        livePrice: liveCost.price,
+        draftPrice: draftCost.price
     }
 }
 

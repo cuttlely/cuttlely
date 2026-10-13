@@ -8,20 +8,23 @@
 // It does not refuse the flow. Legacy multi-agent flows stay out of this check.
 //
 // A replay runs the canvas in memory through executeFlow with replay on: a new chat id, so memory starts
-// empty; no chat messages, follow-ups, telemetry, usage counts or tracing are written; Live is never saved.
+// empty; no chat messages, follow-ups, telemetry or tracing are written. The daily token total is written.
+// Live is never saved.
 // Chatflows and agentflows can be checked. An agentflow replay also writes no execution record.
 // Results stay in this server's memory for a short while and are never written to the database or logged.
 // The check is optional and never blocks Publish.
 import crypto from 'crypto'
 import { StatusCodes } from 'http-status-codes'
 import { v4 as uuidv4 } from 'uuid'
-import { EvaluationRunner } from '@cuttlely/components'
+import { EvaluationRunner, getRawModelFile } from '@cuttlely/components'
 import { ChatMessage } from '../../database/entities/ChatMessage'
 import { Organization, Workspace } from '../../database/entities/identity'
 import { AppError } from '../../errors/appError'
 import { ChatType, IChatFlow } from '../../Interface'
 import { OSS_PRODUCT_ID } from '../../identity/ossPlatform'
 import { getRunningExpressApp } from '../../utils/getRunningExpressApp'
+import { estimateTokenLines, priceBookForWorkspace, usageLinesFromMetrics, usageLinesFromRun } from '../usage'
+import type { PriceBook, UsageLine } from '../usage'
 import logger from '../../utils/logger'
 import executionsService from '../executions'
 import flowDraftsService, { canvasHash, DraftFlow } from '../flow-drafts'
@@ -150,6 +153,8 @@ interface CheckRecord {
     selection: CheckSelection | null
     inflight: Set<AbortController>
     stopRequested: boolean
+    // Loaded once per check so every side uses the same prices.
+    priceBook?: Promise<PriceBook | null>
 }
 
 // One check per flow, kept in memory. Test seam: tests reset it.
@@ -157,8 +162,37 @@ export const checks = new Map<string, CheckRecord>()
 
 // Test seam: tests replace the runner so no model is called.
 export const replayHooks: {
-    run: null | ((input: ReplayInput) => Promise<{ text: string; metrics?: unknown[] }>)
+    run: null | ((input: ReplayInput) => Promise<{ text: string; metrics?: unknown[]; lines?: UsageLine[] }>)
 } = { run: null }
+
+// Test seam: the check prices each side from this book instead of the database.
+export const priceHooks: {
+    load: null | ((workspaceId: string) => Promise<PriceBook | null>)
+} = { load: null }
+
+function bookOnce(record: CheckRecord): Promise<PriceBook | null> {
+    if (!record.priceBook) record.priceBook = bookFor(record.workspaceId)
+    return record.priceBook
+}
+
+async function bookFor(workspaceId: string): Promise<PriceBook | null> {
+    if (priceHooks.load) return priceHooks.load(workspaceId)
+    // Tests replace the components module and do not load a price book.
+    if (typeof getRawModelFile !== 'function') return null
+    try {
+        const app = getRunningExpressApp()
+        const list = await getRawModelFile()
+        return await priceBookForWorkspace(app.AppDataSource, workspaceId, list)
+    } catch {
+        return null
+    }
+}
+
+function sideCost(lines: UsageLine[] | undefined, tokens: number | null, book: PriceBook | null) {
+    if ((!lines || !lines.length) && tokens == null) return { estimatedCostUsd: null, price: null, unpricedModels: [] as string[] }
+    if (!lines || !lines.length) return { estimatedCostUsd: null, price: 'no price' as const, unpricedModels: [] as string[] }
+    return estimateTokenLines(lines, book)
+}
 
 export interface ReplayInput {
     flow: IChatFlow
@@ -583,8 +617,11 @@ async function runOne(record: CheckRecord, flow: IChatFlow, flowData: string, qu
     const started = Date.now()
     try {
         const run = replayHooks.run || replayFlow
-        const { text, metrics } = await run({ flow, flowData, question, signal: controller, baseURL })
-        return { text: String(text ?? ''), error: null, tokens: totalTokens(metrics), ms: Date.now() - started }
+        const { text, metrics, lines } = await run({ flow, flowData, question, signal: controller, baseURL })
+        const tokens = totalTokens(metrics)
+        const usage = lines ?? usageLinesFromMetrics(metrics)
+        const estimate = sideCost(usage, tokens, await bookOnce(record))
+        return { text: String(text ?? ''), error: null, tokens, ms: Date.now() - started, ...estimate }
     } catch (error) {
         const timedOut = controller.signal.aborted && !record.stopRequested
         const message = record.stopRequested
@@ -724,7 +761,11 @@ async function replayFlow({ flow, flowData, question, signal, baseURL }: ReplayI
         })
         // An agentflow reports tokens on each step; a chatflow through the evaluation tracer.
         const metrics = flow.type === 'AGENTFLOW' ? stepTokens(result?.agentFlowExecutedData) : EvaluationRunner.metrics.get(runId)
-        return { text: result?.text ?? '', metrics }
+        const lines =
+            flow.type === 'AGENTFLOW'
+                ? usageLinesFromRun({ agentFlowExecutedData: result?.agentFlowExecutedData })
+                : usageLinesFromMetrics(EvaluationRunner.metrics.get(runId))
+        return { text: result?.text ?? '', metrics, lines }
     } finally {
         EvaluationRunner.metrics.delete(runId)
     }
