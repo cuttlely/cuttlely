@@ -73,7 +73,7 @@ test('the guide uses that file and names only attributes the server sets', () =>
         'content.output'
     ]
     for (const name of attributes) {
-        assert.match(guide, new RegExp('`' + name.replace(/\./g, '\\.') + '`'), name)
+        assert.ok(guide.includes('`' + name + '`'), name)
         assert.ok(sources.includes("'" + name + "'"), name + ' is not set in the server')
     }
 
