@@ -158,6 +158,7 @@ async function exercise(page, base, { route, nodeId }) {
     if ((await card.locator('[data-testid="card-actions"]').count()) !== 1) {
         throw new Error(`${nodeId} toolbar is missing while the panel is open`)
     }
+    await checkBackspaceInField(page, panel, nodeId)
     await panel.getByTestId('panel-duplicate').click()
     await page.waitForTimeout(400)
     const afterCopy = await page.locator('.react-flow__node').count()
@@ -191,6 +192,7 @@ async function exercise(page, base, { route, nodeId }) {
     await page.waitForTimeout(300)
     if ((await panel.count()) !== 0) throw new Error(`${nodeId} Escape left the panel open`)
 
+    await checkCanvasBackspace(page, card, nodeId)
     await checkHoverClicks(page, nodeId, 'above')
     const survivor = await remainingCardId(page, nodeId)
     await checkTopEdge(page, page.locator(`.react-flow__node[data-id="${survivor}"]`), survivor)
@@ -259,13 +261,64 @@ async function checkHoverClicks(page, nodeId, placement) {
     const before = await page.locator('.react-flow__node').count()
     await moveFromCardToButton(page, card, 'card-duplicate')
     await page.waitForTimeout(400)
-    if ((await page.locator('.react-flow__node').count()) !== before + 1) {
+    const copied = await page.locator('.react-flow__node').count()
+    if (copied !== before + 1) {
         throw new Error(`${nodeId} hover duplicate (${placement}) did not add a card`)
     }
+    // Cross from the card onto toolbar Delete. Hiding that button fails here, including when the row sits below a card at the top.
     await moveFromCardToButton(page, card, 'card-delete')
     await page.waitForTimeout(400)
+    const afterDelete = await page.locator('.react-flow__node').count()
+    if (afterDelete !== copied - 1) {
+        throw new Error(`${nodeId} hover delete (${placement}) left ${afterDelete} cards, expected ${copied - 1}`)
+    }
     if ((await page.locator(`.react-flow__node[data-id="${nodeId}"]`).count()) !== 0) {
         throw new Error(`${nodeId} hover delete (${placement}) left the card`)
+    }
+}
+
+async function checkBackspaceInField(page, panel, nodeId) {
+    const field = panel.locator('textarea, input[type="text"], [contenteditable="true"]').first()
+    await field.waitFor({ timeout: 10000 })
+    await field.click()
+    await page.keyboard.press('End')
+    const editable = await field.evaluate((el) => el.getAttribute('contenteditable') === 'true')
+    const read = () => (editable ? field.innerText() : field.inputValue())
+    const start = await read()
+    const before = await page.locator('.react-flow__node').count()
+    await page.keyboard.type('Q')
+    await page.keyboard.press('Backspace')
+    await page.waitForTimeout(200)
+    const afterText = await read()
+    if (afterText !== start) throw new Error(`${nodeId} Backspace in the panel field left "${afterText}"`)
+    if ((await page.locator('.react-flow__node').count()) !== before) {
+        throw new Error(`${nodeId} Backspace in a panel field removed a card`)
+    }
+    if ((await panel.count()) === 0) throw new Error(`${nodeId} Backspace in a panel field closed the panel`)
+}
+
+async function checkCanvasBackspace(page, card, nodeId) {
+    const panel = page.getByTestId('node-side-panel')
+    if ((await panel.count()) !== 0) throw new Error(`${nodeId} panel was open for canvas Backspace`)
+    if (!(await card.evaluate((el) => el.classList.contains('selected')))) {
+        await card.click({ position: { x: Math.min(30, (await card.boundingBox()).width / 2), y: 16 } })
+        await panel.waitFor({ timeout: 10000 })
+        await panel.getByTestId('close-settings').click()
+        await page.waitForTimeout(200)
+    }
+    const before = await page.locator('.react-flow__node').count()
+    await card.locator('[data-testid="card-duplicate"]').click()
+    await page.waitForTimeout(400)
+    if ((await page.locator('.react-flow__node').count()) !== before + 1) {
+        throw new Error(`${nodeId} Backspace setup did not add a card`)
+    }
+    if ((await panel.count()) !== 0) throw new Error(`${nodeId} duplicate opened the panel before Backspace`)
+    await page.keyboard.press('Backspace')
+    await page.waitForTimeout(400)
+    const after = await page.locator('.react-flow__node').count()
+    if (after !== before) throw new Error(`${nodeId} Backspace left ${after} cards, expected ${before}`)
+    if ((await page.locator(`.react-flow__node[data-id="${nodeId}"]`).count()) !== 1) {
+        throw new Error(`${nodeId} Backspace removed the original card`)
     }
 }
 

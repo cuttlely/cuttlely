@@ -991,7 +991,7 @@ const AgentflowCanvas = () => {
                                         onConnect={onConnect}
                                         onInit={setReactFlowInstance}
                                         fitView
-                                        deleteKeyCode={canvas.canvasDialogShow ? null : ['Delete']}
+                                        deleteKeyCode={canvas.canvasDialogShow ? null : ['Delete', 'Backspace']}
                                         minZoom={0.5}
                                         snapGrid={[25, 25]}
                                         snapToGrid={isSnappingEnabled}

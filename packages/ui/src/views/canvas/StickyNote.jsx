@@ -57,8 +57,8 @@ const StickyNote = ({ data }) => {
                             inputParam={inputParam}
                             onChange={(newValue) => (data.inputs[inputParam.name] = newValue)}
                             value={data.inputs[inputParam.name] ?? inputParam.default ?? ''}
-                            nodes={inputParam?.acceptVariable && reactFlowInstance ? reactFlowInstance.getNodes() : []}
-                            edges={inputParam?.acceptVariable && reactFlowInstance ? reactFlowInstance.getEdges() : []}
+                            nodes={[]}
+                            edges={[]}
                             nodeId={data.id}
                         />
                     </Box>

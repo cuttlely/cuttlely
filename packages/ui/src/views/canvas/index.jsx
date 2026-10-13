@@ -1258,7 +1258,7 @@ const Canvas = () => {
                                         onConnect={onConnect}
                                         onInit={setReactFlowInstance}
                                         fitView
-                                        deleteKeyCode={canvas.canvasDialogShow ? null : ['Delete']}
+                                        deleteKeyCode={canvas.canvasDialogShow ? null : ['Delete', 'Backspace']}
                                         minZoom={0.1}
                                         snapGrid={[25, 25]}
                                         snapToGrid={isSnappingEnabled}
