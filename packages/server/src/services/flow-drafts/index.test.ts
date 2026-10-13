@@ -738,15 +738,24 @@ describe('a passing test set before Publish', () => {
         expect(await draftToPublish(flow())).toBe(canvas('Draft'))
     })
 
-    test('a harness that shares the Publish route is not blocked by a stored flag', async () => {
+    test('a harness check result is not stored, and a stored flag does not block Publish', async () => {
         chats[0].type = 'HARNESS'
         const harness = flow({ type: 'HARNESS' })
         await saveDraft(harness, canvas('Draft'), context)
+        seed()
+        await recordPublishGateResult(harness, {
+            ...pass,
+            draftHash: canvasHash(canvas('Draft')),
+            contentHash: 'abc'
+        })
+        expect(rows[0].publishGateResult ?? null).toBeNull()
         rows[0].publishGate = true
         rows[0].publishGateDatasetId = 'ds-1'
         rows[0].publishGateEvaluatorIds = JSON.stringify(['ev-1'])
         rows[0].publishGateThreshold = 100
+        rows[0].publishGateResult = JSON.stringify({ ...pass, contentHash: 'abc', draftHash: canvasHash(canvas('Draft')) })
         expect(await draftToPublish(harness)).toBe(canvas('Draft'))
+        expect((await getDraftStatus(harness)).publishGate.enabled).toBe(false)
     })
 
     test('roll back bookkeeping still records Live while the gate is on', async () => {

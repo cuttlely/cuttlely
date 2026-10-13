@@ -220,7 +220,6 @@ describe('setup', () => {
 
     test('says why the check is not available', async () => {
         expect((await getCheckSetup(flow({ type: 'MULTIAGENT' }))).unavailable?.code).toBe('type')
-        expect((await getCheckSetup(flow({ type: 'HARNESS' }))).unavailable?.code).toBe('type')
         states.set('flow-1', { chatflowId: 'flow-1', draftFlowData: agentCanvas('PAPAYA', 'formInput'), publishInstantly: false })
         expect((await getCheckSetup(flow({ type: 'AGENTFLOW', flowData: agentCanvas('MANGO') }))).unavailable?.code).toBe('start')
         states.clear()

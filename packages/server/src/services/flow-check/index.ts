@@ -9,7 +9,10 @@
 //
 // A replay runs the canvas in memory through executeFlow with replay on: a new chat id, so memory starts
 // empty; no chat messages, follow-ups, telemetry, usage counts or tracing are written; Live is never saved.
-// Chatflows and agentflows can be checked. An agentflow replay also writes no execution record.
+// Chatflows, agentflows and harnesses can be checked. An agentflow replay also writes no execution record.
+// A harness replay uses the canvas try profile (Live roster and draft roster, each in its own directory).
+// It writes no chat message, no run history, no session and no analyst capture. The tokens it shows are
+// the route, specialist and handoff tokens that run already summed. It does not add a second usage count.
 // Results stay in this server's memory for a short while and are never written to the database or logged.
 // The check itself does not block Publish. A flow can require a passing dataset result before Publish;
 // that verdict is stored on the flow, without the answers, and Publish reads it from there.
@@ -55,6 +58,8 @@ import {
     triggerStart,
     typeUnavailable
 } from './kinds'
+import { publishGateApplies } from '../flow-drafts/gate'
+import { harnessQuestionsFor, harnessQuestionsToRun, replayHarnessQuestion } from './harness'
 import { casesFromDataset, CheckEvaluator, currentTestSetHash, loadEvaluators, readDatasetId, readEvaluatorIds, scoreAnswer } from './score'
 
 // A question list sent without `count` stays capped at 10, which is what this route accepted before.
@@ -429,6 +434,8 @@ export async function getCheckSetup(
             ? { questions: [], pastCount: 0, pastTruncated: false }
             : kind
             ? await inputsFor(flow, kind)
+            : flow.type === 'HARNESS'
+            ? await harnessQuestionsFor(flow)
             : await questionsFor(flow)
     return {
         unavailable,
@@ -598,6 +605,7 @@ export async function startCheck(
     // and do not stop a check this request did not create.
     if (closed()) throw new AppError(StatusCodes.BAD_REQUEST, 'The check was cancelled before it started.')
     if (fromDataset) {
+        // A harness accepts datasetId. This refusal is only a form, webhook, or schedule start.
         const refusal = datasetStartRefusal(flow.type, [flow.flowData, draft])
         if (refusal) throw new AppError(StatusCodes.BAD_REQUEST, refusal)
     }
@@ -622,6 +630,10 @@ export async function startCheck(
         previews = resolved.previews
         sources = resolved.sources
         dates = resolved.dates
+    } else if (flow.type === 'HARNESS') {
+        const resolved = await harnessQuestionsToRun(flow, body || {})
+        questions = resolved.questions
+        selection = resolved.selection
     } else {
         const resolved = await questionsToRun(flow.id, request)
         questions = resolved.questions
@@ -853,7 +865,14 @@ async function runCheck(record: CheckRecord, flow: IChatFlow, draft: string, bas
             record.status = 'stopped'
         } else {
             // Store the verdict before status is done, so a poll cannot see a finished check with nothing saved yet.
-            if (record.fromDataset && record.datasetId && record.threshold != null && flowDraftsService.recordPublishGateResult) {
+            // A harness check can replay a dataset. It does not store a pass: the gate cannot be turned on for one.
+            if (
+                publishGateApplies(flow.type) &&
+                record.fromDataset &&
+                record.datasetId &&
+                record.threshold != null &&
+                flowDraftsService.recordPublishGateResult
+            ) {
                 const verdict = draftVerdict(summarize(record.cases, record.liveEmpty).scores?.draft, record.threshold)
                 await flowDraftsService
                     .recordPublishGateResult(flow as DraftFlow, {
@@ -890,6 +909,7 @@ async function runCheck(record: CheckRecord, flow: IChatFlow, draft: string, bas
 // evaluation tracer, the only analytics provider on the copy, so the flow's own tracing providers are not called.
 // An agentflow replay calls no tracing provider and keeps its run in memory; its steps report their tokens.
 async function replayFlow({ flow, flowData, question, signal, baseURL }: ReplayInput): Promise<{ text: string; metrics?: unknown[] }> {
+    if (flow.type === 'HARNESS') return replayHarnessQuestion({ flow, flowData, question, signal })
     // Imported here so loading this module does not load the whole prediction path.
     const { executeFlow } = await import('../../utils/buildChatflow')
     const app = getRunningExpressApp()

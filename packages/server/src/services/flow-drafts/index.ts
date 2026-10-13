@@ -208,7 +208,8 @@ function gateSettingsOf(state: FlowVersionState | null) {
 export function gateStatusFor(flow: Pick<DraftFlow, 'type'>, state: FlowVersionState | null, draftFlowData?: string | null): GateStatus {
     const settings = gateSettingsOf(state)
     const result = readGateResult(state?.publishGateResult)
-    // Harness and other canvases share this row, but a dataset check cannot run for them, so the gate stays off.
+    // Harness and other canvases share this row. The setting is refused for them, and a harness check
+    // does not write a pass, so the gate stays off even when the flag is set.
     const enabled = publishGateApplies(flow.type) && settings.enabled
     const block = enabled
         ? publishBlockReason({ ...settings, enabled: true }, result, draftFlowData ? canvasHash(draftFlowData) : null)
