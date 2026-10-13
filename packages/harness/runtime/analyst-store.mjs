@@ -21,12 +21,13 @@ import {
     offsetSql,
     pageKeyValue,
     parseSimpleSelect,
+    columnTypeSql,
     resultLengthSql,
     safeOrderKeys,
     stripPageColumns
 } from './analyst-page.mjs'
 import { encryptionKeyConflict, encryptionKeyOverwrite } from '../../../scripts/setting-alias.cjs'
-import { analystPagesFromLineLengths, analystShownRows } from '../context.mjs'
+import { analystHandoffLine, analystPagesFromLineLengths, analystShownRows } from '../context.mjs'
 
 // Repo root. This module lives in packages/harness/runtime/.
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..')
@@ -1234,13 +1235,34 @@ async function readSelectPage(runner, plan, paging) {
     let walked = Number.isInteger(paging.walked) ? paging.walked : null
     if (walked == null && raw.length) {
         const names = Object.keys(stripPageColumns(raw[0]))
-        walked = await measureResultWalk(runner, plan, names, pageSize, paging.total)
+        const lengths = await measureResultWalk(runner, plan, names, paging.total)
+        // The length pass is a lower bound. Before a page count is named, compare it with the
+        // handoff line for the rows already in hand. If any bound is shorter than that line,
+        // the count would be a lie, so name none.
+        if (lengths && boundsCoverRows(lengths, raw, offset)) walked = analystPagesFromLineLengths(lengths, pageSize)
     }
     return finishPage(raw, { ...paging, walked }, plan)
 }
 
+function boundsCoverRows(lengths, rawRows, offset) {
+    const rows = (rawRows || []).map((row) => stripPageColumns(row))
+    for (let i = 0; i < rows.length; i += 1) {
+        const bound = lengths[offset + i]
+        if (bound == null || !Number.isInteger(bound)) return false
+        if (bound < analystHandoffLine(rows[i]).length) return false
+    }
+    return true
+}
+
 // Lengths only: the handoff line is `key: value` joined with `, `, and NULL is the word null.
-async function measureResultWalk(runner, plan, columnNames, pageSize, total) {
+async function postgresColumnTypes(runner, inner, names) {
+    const sql = columnTypeSql(inner, names)
+    if (!sql) return null
+    const rows = await runner.all(sql, [])
+    return rows[0] || {}
+}
+
+async function measureResultWalk(runner, plan, columnNames, total) {
     let inner = plan.statement
     if (plan.mode === 'keyset' && plan.simple && plan.keys) {
         inner = keysetSql({
@@ -1252,9 +1274,11 @@ async function measureResultWalk(runner, plan, columnNames, pageSize, total) {
         }).sql
     }
     const engine = plan.engine === 'postgres' ? 'postgres' : plan.engine === 'sqlite' ? 'sqlite' : null
-    const sql = engine ? resultLengthSql(inner, columnNames, engine) : null
-    if (!sql) return null
+    if (!engine) return null
     try {
+        const columnTypes = engine === 'postgres' ? await postgresColumnTypes(runner, inner, columnNames) : null
+        const sql = resultLengthSql(inner, columnNames, engine, columnTypes)
+        if (!sql) return null
         const rows = await runner.all(sql, [])
         const lengths = []
         for (const row of rows) {
@@ -1265,7 +1289,7 @@ async function measureResultWalk(runner, plan, columnNames, pageSize, total) {
         }
         if (!lengths.length) return null
         if (Number.isFinite(total) && lengths.length !== total) return null
-        return analystPagesFromLineLengths(lengths, pageSize)
+        return lengths
     } catch {
         return null
     }

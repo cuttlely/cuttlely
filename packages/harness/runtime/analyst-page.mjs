@@ -362,27 +362,41 @@ function sqlLiteral(value) {
 
 // A lower bound on the characters `${value}` adds. NULL means this type has no bound.
 // Text, varchar, and name use UTF-8 bytes, which are at least the UTF-16 units the handoff counts.
-// character(n) keeps its pad spaces. octet_length() is not defined for every column type in this
-// CASE, so the bound is the stored datum size, which matches that padded byte length unless the
-// value was compressed. A compressed value has no bound.
-function valueLengthExpr(name, engine) {
+// character(n) uses octet_length of the value itself. On that type this is the detoasted padded
+// byte count, so a compressed wide value is not shorter than the handoff line. That call is only
+// emitted when the column type is character, because octet_length is not defined for every type.
+function valueLengthExpr(name, engine, pgType) {
     const id = quoteIdent(name)
+    if (engine === 'postgres' && pgType === 'character') {
+        return `CASE WHEN ${id} IS NULL THEN 4 ELSE octet_length(${id}) END`
+    }
     if (engine === 'postgres') {
-        return `CASE WHEN ${id} IS NULL THEN 4 WHEN pg_typeof(${id})::text IN ('smallint', 'integer', 'bigint') THEN length(${id}::text) WHEN pg_typeof(${id})::text = 'boolean' THEN length(${id}::text) WHEN pg_typeof(${id})::text = 'character' THEN CASE WHEN (CASE WHEN pg_column_size(${id}) <= 127 THEN pg_column_size(${id}) - 1 ELSE pg_column_size(${id}) - 4 END) < octet_length(${id}::text) THEN NULL ELSE (CASE WHEN pg_column_size(${id}) <= 127 THEN pg_column_size(${id}) - 1 ELSE pg_column_size(${id}) - 4 END) END WHEN pg_typeof(${id})::text IN ('text', 'character varying', 'name') THEN octet_length(${id}::text) WHEN pg_typeof(${id})::text IN ('date', 'timestamp without time zone', 'timestamp with time zone') THEN GREATEST(octet_length(${id}::text), ${ANALYST_DATE_LINE_FLOOR}) WHEN pg_typeof(${id})::text IN ('json', 'jsonb') AND jsonb_typeof(to_jsonb(${id})) = 'array' THEN NULL WHEN pg_typeof(${id})::text IN ('json', 'jsonb') THEN GREATEST(octet_length(${id}::text), ${ANALYST_JSON_LINE_FLOOR}) ELSE NULL END`
+        return `CASE WHEN ${id} IS NULL THEN 4 WHEN pg_typeof(${id})::text IN ('smallint', 'integer', 'bigint') THEN length(${id}::text) WHEN pg_typeof(${id})::text = 'boolean' THEN length(${id}::text) WHEN pg_typeof(${id})::text IN ('text', 'character varying', 'name') THEN octet_length(${id}::text) WHEN pg_typeof(${id})::text IN ('date', 'timestamp without time zone', 'timestamp with time zone') THEN GREATEST(octet_length(${id}::text), ${ANALYST_DATE_LINE_FLOOR}) WHEN pg_typeof(${id})::text IN ('json', 'jsonb') AND jsonb_typeof(to_jsonb(${id})) = 'array' THEN NULL WHEN pg_typeof(${id})::text IN ('json', 'jsonb') THEN GREATEST(octet_length(${id}::text), ${ANALYST_JSON_LINE_FLOOR}) ELSE NULL END`
     }
     return `CASE typeof(${id}) WHEN 'null' THEN 4 WHEN 'integer' THEN length(CAST(${id} AS TEXT)) WHEN 'text' THEN length(CAST(${id} AS BLOB)) ELSE NULL END`
 }
 
 // One integer per result row, in the same order as the paged statement. The integer is at least
 // the handoff line length. A NULL length means a column type cannot be bounded.
-export function resultLengthSql(innerSql, columnNames, engine = 'sqlite') {
+export function columnTypeSql(innerSql, columnNames) {
+    const names = (columnNames || []).filter((name) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(String(name)))
+    if (!names.length) return null
+    const source = String(innerSql || '').trim()
+    if (!source) return null
+    const limited = hasTopLevelLimit(source) ? source : `${source}\nLIMIT 1`
+    const cols = names.map((name) => `pg_typeof(${quoteIdent(name)})::text AS ${quoteIdent(name)}`).join(', ')
+    return `SELECT ${cols} FROM (${limited}) AS analyst_types`
+}
+
+export function resultLengthSql(innerSql, columnNames, engine = 'sqlite', columnTypes = null) {
     const names = (columnNames || []).filter((name) => name !== 'analyst_rowid' && !String(name).startsWith('analyst_key_'))
     if (!names.length || names.some((name) => !/^[A-Za-z_][A-Za-z0-9_]*$/.test(String(name)))) return null
     if (engine !== 'sqlite' && engine !== 'postgres') return null
     const expr = names
         .map((name, index) => {
             const prefix = `${index === 0 ? '' : ', '}${name}: `
-            return `(length(${sqlLiteral(prefix)}) + (${valueLengthExpr(name, engine)}))`
+            const pgType = columnTypes && columnTypes[name]
+            return `(length(${sqlLiteral(prefix)}) + (${valueLengthExpr(name, engine, pgType)}))`
         })
         .join(' + ')
     const source = String(innerSql || '').trim()

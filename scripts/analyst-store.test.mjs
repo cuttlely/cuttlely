@@ -269,6 +269,45 @@ async function assertNoPageCountAndNoSkips(query, sql, total, cap) {
     )
 }
 
+async function assertCountAgreesWithShowMore(query, sql, total) {
+    const opened = await query(sql)
+    const summary = String(opened.summary || '')
+    const stated = summary.match(/page \d+ of (\d+)/)
+    const fresh = await query(sql)
+    const walked = []
+    let page = fresh
+    let guard = 0
+    while (page) {
+        guard += 1
+        assert.ok(guard < 200)
+        walked.push(page.rows.map((row) => row.n))
+        if (!page.cursor || String(page.summary || '').includes('last page')) break
+        page = await query({ cursor: page.cursor })
+    }
+    const flat = walked.flat()
+    assert.deepEqual(
+        flat,
+        Array.from({ length: total }, (_, item) => item + 1)
+    )
+    if (!stated) {
+        assert.equal(/page \d+/.test(summary), false, summary)
+        await assert.rejects(query({ cursor: opened.cursor, page: 3 }), (error) => {
+            assert.equal(error.message, ANALYST_CURSOR_ERRORS.page)
+            return true
+        })
+        return
+    }
+    assert.equal(walked.length, Number(stated[1]), summary)
+    for (let n = 1; n <= walked.length; n += 1) {
+        const jumped = await query({ cursor: opened.cursor, page: n })
+        assert.deepEqual(
+            jumped.rows.map((row) => row.n),
+            walked[n - 1],
+            `${sql} page ${n}`
+        )
+    }
+}
+
 async function assertNamedCountMatchesWalk(query, sql) {
     const opened = await query(sql)
     const summary = String(opened.summary || '')
@@ -2077,6 +2116,8 @@ describe('analyst URL path', () => {
                 values: [null, '', 'x', ' '.repeat(10), '😀'.repeat(4), '字', 'pad']
             },
             { key: 'character', ddl: 'character(200)', values: [null, '', 'x', 'hi', ' '.repeat(5)] },
+            { key: 'character2500', ddl: 'character(2500)', values: [null, '', 'x', '😀'] },
+            { key: 'character4000', ddl: 'character(4000)', values: [null, '', 'x', '😀'] },
             { key: 'name', ddl: 'name', values: [null, '', 'a', 'abc', 'a'.repeat(63), '字'] },
             { key: 'date', ddl: 'date', values: [null, '2026-10-13', '0001-01-01', '9999-12-31'] },
             {
@@ -2114,7 +2155,13 @@ describe('analyst URL path', () => {
                 for (let i = 0; i < spec.values.length; i += 1) {
                     await owner.query(`INSERT INTO ${table} (n, body) VALUES ($1, $2::${spec.ddl})`, [i + 1, spec.values[i]])
                 }
-                const lengthSql = resultLengthSql(`SELECT n, body FROM ${table} ORDER BY n`, ['n', 'body'], 'postgres')
+                const typed = await owner.query(`SELECT pg_typeof(n)::text AS n, pg_typeof(body)::text AS body FROM ${table} LIMIT 1`)
+                const lengthSql = resultLengthSql(`SELECT n, body FROM ${table} ORDER BY n`, ['n', 'body'], 'postgres', typed.rows[0])
+                if (spec.ddl.startsWith('character(') && Number(spec.ddl.slice('character('.length).replace(')', '')) >= 2500) {
+                    assert.equal(lengthSql.includes('pg_column_size'), false, lengthSql)
+                    assert.match(lengthSql, /octet_length\("body"\)/)
+                    assert.equal(/octet_length\("body"\)::text/.test(lengthSql), false)
+                }
                 const measured = await owner.query(lengthSql)
                 const got = await owner.query(`SELECT n, body FROM ${table} ORDER BY n`)
                 assert.equal(measured.rows.length, got.rows.length)
@@ -2139,6 +2186,15 @@ describe('analyst URL path', () => {
                     nullUntil: 100,
                     value: 'x',
                     expectCount: false
+                },
+                {
+                    table: 'wide_char4000',
+                    ddl: 'character(4000)',
+                    total: 300,
+                    cap: 100,
+                    nullUntil: 100,
+                    value: 'x',
+                    expectCount: 'agree'
                 },
                 {
                     table: 'wide_json',
@@ -2195,9 +2251,12 @@ describe('analyst URL path', () => {
                     await owner.query(`INSERT INTO ${spec.table} (n, body) VALUES ($1, $2::${spec.ddl})`, [n, value])
                 }
             }
+            const padded = await owner.query('SELECT n, body, pg_column_size(body) AS sz FROM wide_char4000 WHERE n = 101')
+            const oldBound = padded.rows[0].sz <= 127 ? padded.rows[0].sz - 1 : padded.rows[0].sz - 4
+            assert.ok(oldBound < analystHandoffLine({ n: padded.rows[0].n, body: padded.rows[0].body }).length)
             await owner.end()
             assert.equal(String(-Number.MAX_VALUE).length, 24)
-            assert.equal(shuffles.length, 13)
+            assert.equal(shuffles.length, 15)
             assert.equal(
                 boundRows,
                 shuffles.reduce((sum, spec) => sum + spec.values.length, 0)
@@ -2211,16 +2270,18 @@ describe('analyst URL path', () => {
                     `SELECT n, body FROM ${spec.table} ORDER BY n LIMIT 100000`
                 ]) {
                     resetAnalystStoreForTests()
-                    if (spec.expectCount) {
+                    if (spec.expectCount === true) {
                         await assertNamedCountMatchesWalk((input) => run(spec.cap, input), sql)
                         named += 1
+                    } else if (spec.expectCount === 'agree') {
+                        await assertCountAgreesWithShowMore((input) => run(spec.cap, input), sql, spec.total)
                     } else {
                         await assertNoPageCountAndNoSkips((input) => run(spec.cap, input), sql, spec.total, spec.cap)
                     }
                 }
             }
-            assert.equal(named, wide.filter((spec) => spec.expectCount).length * 2)
-            assert.equal(wide.filter((spec) => !spec.expectCount).length, 3)
+            assert.equal(named, wide.filter((spec) => spec.expectCount === true).length * 2)
+            assert.equal(wide.filter((spec) => spec.expectCount === false).length, 3)
         } finally {
             resetAnalystStoreForTests()
             await admin.query(`DROP DATABASE IF EXISTS ${dbName} WITH (FORCE)`).catch(() => {})
