@@ -338,6 +338,34 @@ describe('server clock for Last hour', () => {
     })
 })
 
+describe('a window with no newline', () => {
+    it('returns a bounded suffix of an over-long line', async () => {
+        const line = '2026-10-12 15:04:00 [INFO]: oven is still warm ' + 'word '.repeat(40)
+        const limits = { fileBytes: 60, maxBytes: 60 }
+        writeLog(process.env.LOG_PATH as string, `server.log.${STAMP}`, line)
+        const result = await logService.getLogs({ startDate: STAMP, endDate: STAMP, level: 'debug', limits })
+        expect(result.truncated).toBe(true)
+        const shown = result.lines.join('\n')
+        expect(shown.length).toBeGreaterThan(0)
+        expect(shown).toContain('word')
+        expect(shown).not.toContain('2026-10-12')
+        expect(Buffer.byteLength(shown)).toBeLessThanOrEqual(limits.fileBytes)
+    })
+
+    it('hides an over-long base64 line instead of returning an empty window', async () => {
+        const bodyLine = 'QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVo'
+        const line = 'p'.repeat(80) + bodyLine + bodyLine
+        const limits = { fileBytes: 40, maxBytes: 40 }
+        writeLog(process.env.LOG_PATH as string, `server.log.${STAMP}`, line)
+        const result = await logService.getLogs({ startDate: STAMP, endDate: STAMP, level: 'debug', limits })
+        const shown = result.lines.join('\n')
+        expect(result.truncated).toBe(true)
+        expect(shown).toContain('[secret hidden]')
+        expect(shown).not.toContain(bodyLine)
+        expect(shown.length).toBeGreaterThan(0)
+    })
+})
+
 describe('a file larger than the cap', () => {
     it('returns a capped result on every read of a file larger than the cap', async () => {
         writeLog(process.env.LOG_PATH as string, `server.log.${STAMP}`, overCap('HEAD', 'TAIL-OVER-TWO-MEG'))

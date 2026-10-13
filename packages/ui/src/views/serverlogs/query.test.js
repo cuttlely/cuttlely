@@ -1,4 +1,4 @@
-import { RELATIVE_RANGES, logsQuery } from './query'
+import { RELATIVE_RANGES, logsLookEmpty, logsQuery } from './query'
 
 describe('log range query', () => {
     it('refresh keeps relative ranges on the server clock and custom endpoints fixed', () => {
@@ -30,5 +30,12 @@ describe('log range query', () => {
         })
         expect(custom).toEqual({ level: 'warn', startDate: '2026-10-01-00', endDate: '2026-10-02-04' })
         expect(customAgain).toEqual(custom)
+    })
+
+    it('does not show the empty state when the window was truncated', () => {
+        expect(logsLookEmpty({ configured: true, text: '', truncated: true })).toBe(false)
+        expect(logsLookEmpty({ configured: true, text: '', truncated: false })).toBe(true)
+        expect(logsLookEmpty({ configured: true, text: 'line', truncated: false })).toBe(false)
+        expect(logsLookEmpty({ configured: false, text: '', truncated: false })).toBe(false)
     })
 })

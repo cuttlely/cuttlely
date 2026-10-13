@@ -13,6 +13,11 @@ export const RELATIVE_RANGES = {
     'Last 3 months': '3m'
 }
 
+/** The "no log lines" picture. A truncated window still has a result, even when the text is empty. */
+export function logsLookEmpty({ configured, text, truncated }) {
+    return Boolean(configured) && !text && !truncated
+}
+
 export function logsQuery({ selection, level, startDate, endDate }) {
     if (selection !== 'Custom') {
         const range = RELATIVE_RANGES[selection]

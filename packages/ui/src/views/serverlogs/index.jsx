@@ -22,7 +22,7 @@ import ErrorBoundary from '@/ErrorBoundary'
 import useApi from '@/hooks/useApi'
 import logsApi from '@/api/log'
 import { useError } from '@/store/context/ErrorContext'
-import { logsQuery } from './query'
+import { logsLookEmpty, logsQuery } from './query'
 
 import LogsEmptySVG from '@/assets/images/logs_empty.svg'
 import 'react-datepicker/dist/react-datepicker.css'
@@ -287,7 +287,18 @@ const Logs = () => {
                                         use /var/cuttlely/logs. A from-source server writes a logs directory when LOG_PATH is unset.
                                     </Typography>
                                 </Stack>
-                            ) : logData ? (
+                            ) : logsLookEmpty({ configured, text: logData, truncated }) ? (
+                                <Stack sx={{ alignItems: 'center', justifyContent: 'center' }} flexDirection='column'>
+                                    <Box sx={{ p: 2, height: 'auto' }}>
+                                        <img
+                                            style={{ objectFit: 'cover', height: '20vh', width: 'auto' }}
+                                            src={LogsEmptySVG}
+                                            alt='LogsEmptySVG'
+                                        />
+                                    </Box>
+                                    <div>No log lines in this range</div>
+                                </Stack>
+                            ) : (
                                 <CodeMirror
                                     value={logData}
                                     height={'calc(100vh - 220px)'}
@@ -302,17 +313,6 @@ const Logs = () => {
                                         highlightActiveLine: false
                                     }}
                                 />
-                            ) : (
-                                <Stack sx={{ alignItems: 'center', justifyContent: 'center' }} flexDirection='column'>
-                                    <Box sx={{ p: 2, height: 'auto' }}>
-                                        <img
-                                            style={{ objectFit: 'cover', height: '20vh', width: 'auto' }}
-                                            src={LogsEmptySVG}
-                                            alt='LogsEmptySVG'
-                                        />
-                                    </Box>
-                                    <div>No log lines in this range</div>
-                                </Stack>
                             )}
                         </>
                     )}

@@ -206,7 +206,8 @@ async function readTail(filePath: string, maxBytes: number): Promise<{ text: str
         let text = buf.subarray(0, offset).toString('utf8')
         if (capped) {
             const newline = text.indexOf('\n')
-            text = newline >= 0 ? text.slice(newline + 1) : ''
+            // A window with no newline is one over-long line. Keep that bounded suffix.
+            if (newline >= 0) text = text.slice(newline + 1)
         }
         text = trimToBytes(text, maxBytes)
         return { text, capped }
@@ -227,29 +228,142 @@ function trimToBytes(text: string, maxBytes: number): string {
     return newline >= 0 ? sliced.slice(newline + 1) : sliced
 }
 
-function armoredLine(line: string): boolean {
+function stripCr(line: string): string {
+    return line.replace(/\r$/, '')
+}
+
+function isBeginBanner(line: string): boolean {
+    return /^-----BEGIN [A-Z0-9 ]+-----$/.test(line.trim())
+}
+
+function isEndBanner(line: string): boolean {
     const value = line.trim()
-    if (!value) return false
-    if (/^-----BEGIN [A-Z0-9 ]+-----$/.test(value)) return true
     if (/^-----END [A-Z0-9 ]+-----$/.test(value)) return true
+    // The byte cut can leave the right-hand side of an END line.
+    return /PRIVATE KEY-----$/.test(value) && value.length <= 80 && !value.includes('[')
+}
+
+function isBase64Body(line: string): boolean {
+    const value = line.trim()
     return /^[A-Za-z0-9+/]+=*$/.test(value) && value.length >= 16
 }
 
+/** RFC 1421 encapsulation header. A hyphen in the name keeps ordinary "Error:" lines out. */
+function isPemHeader(line: string): boolean {
+    const value = stripCr(line).trim()
+    const match = /^([A-Za-z][A-Za-z0-9-]*):[ \t]/.exec(value)
+    if (!match) return false
+    return match[1].includes('-')
+}
+
+function isHeaderContinuation(line: string): boolean {
+    return /^[ \t]+\S/.test(stripCr(line))
+}
+
 /**
- * A capped tail can start after BEGIN. Those leading armored lines have no header for
- * the redactor to match, with or without a footer. A base64 line later in the text stays.
+ * A capped tail can start after BEGIN, inside an RFC 1421 header, on the blank
+ * separator, in the body, or in END. Hide that leading run. A base64 line that
+ * follows a normal log line stays.
  */
 function hideCutPem(text: string, capped: boolean): string {
     if (!capped || !text) return text
-    const lines = text.split('\n')
+    const lines = text.split('\n').map(stripCr)
     let index = 0
-    while (index < lines.length && lines[index].trim() === '') index += 1
-    const start = index
-    while (index < lines.length && armoredLine(lines[index]) && !lines[index].trim().startsWith('-----BEGIN ')) {
-        index += 1
+    let phase: 'lead' | 'headers' | 'gap' | 'body' = 'lead'
+    let hid = false
+    let cut = 0
+
+    while (index < lines.length) {
+        const line = lines[index]
+        const blank = line.trim() === ''
+        const begin = isBeginBanner(line)
+        const end = isEndBanner(line)
+        const header = isPemHeader(line)
+        const continuation = isHeaderContinuation(line)
+        const body = isBase64Body(line)
+
+        if (phase === 'lead') {
+            if (blank) {
+                index += 1
+                continue
+            }
+            if (begin) break
+            if (header || continuation) {
+                phase = 'headers'
+                hid = true
+                index += 1
+                cut = index
+                continue
+            }
+            if (body || end) {
+                phase = 'body'
+                hid = true
+                index += 1
+                cut = index
+                if (end) break
+                continue
+            }
+            break
+        }
+        if (phase === 'headers') {
+            if (header || continuation) {
+                index += 1
+                cut = index
+                continue
+            }
+            if (blank) {
+                phase = 'gap'
+                index += 1
+                cut = index
+                continue
+            }
+            if (body) {
+                phase = 'body'
+                index += 1
+                cut = index
+                continue
+            }
+            if (end) {
+                index += 1
+                cut = index
+                break
+            }
+            break
+        }
+        if (phase === 'gap') {
+            if (blank) {
+                index += 1
+                cut = index
+                continue
+            }
+            if (body) {
+                phase = 'body'
+                index += 1
+                cut = index
+                continue
+            }
+            if (end) {
+                index += 1
+                cut = index
+                break
+            }
+            break
+        }
+        if (body) {
+            index += 1
+            cut = index
+            continue
+        }
+        if (end) {
+            index += 1
+            cut = index
+            break
+        }
+        break
     }
-    if (index === start) return text
-    const rest = lines.slice(index).join('\n')
+
+    if (!hid || cut === 0) return text
+    const rest = lines.slice(cut).join('\n')
     return rest ? `${SECRET_PLACEHOLDER}\n${rest}` : SECRET_PLACEHOLDER
 }
 
