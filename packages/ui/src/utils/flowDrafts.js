@@ -142,6 +142,55 @@ export const publishChangeLines = (liveText, draftText) => {
     return describeDiff(diffCanvases(liveText, draftText), 'previous', draft?.nodes || [])
 }
 
+const canvasString = (value) => (typeof value === 'string' && value.trim() ? value : '')
+
+// A canvas string the cards can be replaced with. Blank, missing, or not a canvas is ignored,
+// so a summary that omitted flowData cannot wipe the cards.
+export const canvasTextToApply = (text) => {
+    const value = canvasString(text)
+    if (!value || !parseCanvas(value)) return null
+    return value
+}
+
+// The publish and rollback responses name the flow without its canvas. Keep the record we had
+// and set flowData to the canvas that just became Live.
+export const chatflowAfterLive = (previous, incoming, liveCanvas) => {
+    const flowData = canvasString(incoming?.flowData) || canvasString(liveCanvas) || canvasString(previous?.flowData)
+    const next = { ...(previous || {}), ...(incoming || {}) }
+    if (flowData) next.flowData = flowData
+    return next
+}
+
+// After Publish: flowData is the draft that went Live (or the canvas the server saved).
+// A newer draft saved during publish is what the canvas shows; otherwise the cards show Live.
+export const canvasAfterPublish = (previous, response, draftFlowData) => {
+    const chatflow = chatflowAfterLive(previous, response?.chatflow, draftFlowData)
+    return { chatflow, apply: canvasTextToApply(response?.status?.draft?.flowData || chatflow?.flowData) }
+}
+
+// Discard puts Live back on the canvas. No Live canvas means leave the cards alone.
+export const canvasAfterDiscard = (chatflow) => canvasTextToApply(chatflow?.flowData)
+
+// After Roll back with no draft, the canvas becomes the version that is Live.
+// fetchedFlowData is GET /api/v1/chatflows/:id when the response left the canvas out.
+export const canvasAfterRollback = (previous, response, fetchedFlowData) => {
+    const kept = Boolean(response?.status?.draft)
+    const live = kept ? undefined : response?.chatflow?.flowData || fetchedFlowData
+    const chatflow = chatflowAfterLive(previous, response?.chatflow, live)
+    return { chatflow, apply: kept ? null : canvasTextToApply(chatflow?.flowData) }
+}
+
+// A pipeline publish lists the structural diff and does not replay questions.
+export const showsPublishCheck = (type) => type !== 'ETL'
+
+export const PIPELINE_PREVIEW_NOTE = 'Preview uses this canvas and does not write to the store.'
+
+export const PIPELINE_RUN_DIRTY =
+    'Save your changes first. A save stores a draft. Preview uses this canvas and does not write to the store.'
+
+export const PIPELINE_RUN_DRAFT =
+    'This run uses the published pipeline and writes to the store. The draft is not included until you Publish. Preview uses the draft and does not write.'
+
 export const publishBody = (stale, replaceLiveChanges) => (stale && replaceLiveChanges ? { overwriteLiveChanges: true } : {})
 
 export const publishResultMessage = (data = {}) => {

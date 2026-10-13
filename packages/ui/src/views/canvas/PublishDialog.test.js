@@ -18,10 +18,10 @@ jest.mock('@/hooks/useAuth', () => ({
 }))
 jest.mock('@/api/dataset', () => ({ __esModule: true, default: { getAllDatasets: jest.fn() } }))
 jest.mock('@/api/evaluators', () => ({ __esModule: true, default: { getAllEvaluators: jest.fn() } }))
-jest.mock('@/hooks/useConfirm', () => ({
-    __esModule: true,
-    default: () => ({ confirm: jest.fn() })
-}))
+jest.mock('@/hooks/useConfirm', () => {
+    const confirm = jest.fn()
+    return { __esModule: true, default: () => ({ confirm }) }
+})
 jest.mock('react-redux', () => ({
     useDispatch: () => jest.fn()
 }))
@@ -34,6 +34,8 @@ import { ThemeProvider, createTheme } from '@mui/material/styles'
 
 import flowDraftsApi from '@/api/flowDrafts'
 import PublishDialog, { PublishChangeList, PublishGateNotice } from './PublishDialog'
+
+const { confirm } = jest.requireMock('@/hooks/useConfirm').default()
 
 describe('PublishChangeList', () => {
     const html = (lines) =>
@@ -190,5 +192,125 @@ describe('PublishDialog while the check setup is still pending', () => {
         expect(flowDraftsApi.getStatus).toHaveBeenCalledWith('flow-1')
         expect(onDraftStatus).toHaveBeenCalledWith(expect.objectContaining({ publishGate: expect.objectContaining({ block: reason }) }))
         act(() => root.unmount())
+    })
+})
+
+const graph = (label, path) =>
+    JSON.stringify({
+        nodes: [{ id: 'src', data: { label, inputs: { paths: path } } }],
+        edges: []
+    })
+
+const clickButton = async (label) => {
+    const button = [...document.body.querySelectorAll('button')].find((item) => item.textContent === label)
+    expect(button).toBeTruthy()
+    await act(async () => {
+        button.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+}
+
+const appliedCanvases = (onApplyCanvas) => onApplyCanvas.mock.calls.map((call) => call[0])
+
+const expectOnlyReadableCanvases = (onApplyCanvas) => {
+    for (const value of appliedCanvases(onApplyCanvas)) {
+        expect(typeof value).toBe('string')
+        expect(value.trim()).not.toBe('')
+        const parsed = JSON.parse(value)
+        expect(Array.isArray(parsed.nodes)).toBe(true)
+        expect(Array.isArray(parsed.edges)).toBe(true)
+    }
+}
+
+describe('Publish keeps Live on the stored flow', () => {
+    afterEach(() => {
+        flowDraftsApi.publish.mockReset()
+        flowDraftsApi.discardDraft.mockReset()
+        flowDraftsApi.getCheckSetup.mockReset()
+        confirm.mockReset()
+        document.body.innerHTML = ''
+    })
+
+    const open = async ({ type, flowData, draftFlowData }) => {
+        flowDraftsApi.getCheckSetup.mockImplementation(() => new Promise(() => {}))
+        const onChatflowUpdated = jest.fn()
+        const onApplyCanvas = jest.fn()
+        const onDraftStatus = jest.fn()
+        const container = document.createElement('div')
+        document.body.appendChild(container)
+        const root = createRoot(container)
+        const chatflow = { id: 'flow-1', name: 'Upgrade catalog', type, flowData, chatbotConfig: '{}' }
+        await act(async () => {
+            root.render(
+                createElement(
+                    ThemeProvider,
+                    { theme: createTheme() },
+                    createElement(PublishDialog, {
+                        open: true,
+                        chatflow,
+                        draftStatus: { mode: 'draft', draft: { flowData: draftFlowData, stale: false } },
+                        isDirty: false,
+                        onClose: () => {},
+                        onDraftStatus,
+                        onChatflowUpdated,
+                        onApplyCanvas
+                    })
+                )
+            )
+        })
+        return { root, chatflow, onChatflowUpdated, onApplyCanvas, onDraftStatus }
+    }
+
+    test.each(['CHATFLOW', 'AGENTFLOW', 'ETL'])(
+        'a %s publish stores the published canvas when the server summary omits flowData',
+        async (type) => {
+            const live = graph('Streaming Files', 'outdoor-catalog.csv')
+            const draft = graph('Streaming Files', 'outdoor-catalog-2026.csv')
+            const view = await open({ type, flowData: live, draftFlowData: draft })
+            flowDraftsApi.publish.mockResolvedValue({
+                data: {
+                    chatflow: { id: 'flow-1', name: 'Upgrade catalog', type, updatedDate: '2026-10-13T00:00:00.000Z' },
+                    status: { mode: 'draft', draft: null },
+                    unchanged: false,
+                    recorded: true
+                }
+            })
+            await clickButton('Publish')
+            expect(flowDraftsApi.publish).toHaveBeenCalledWith('flow-1', {})
+            expect(view.onChatflowUpdated).toHaveBeenCalledTimes(1)
+            const stored = view.onChatflowUpdated.mock.calls[0][0]
+            expect(stored.flowData).toBe(draft)
+            expect(stored.chatbotConfig).toBe('{}')
+            expect(stored.type).toBe(type)
+            expect(appliedCanvases(view.onApplyCanvas)).toEqual([draft])
+            expectOnlyReadableCanvases(view.onApplyCanvas)
+            act(() => view.root.unmount())
+        }
+    )
+
+    test.each(['CHATFLOW', 'AGENTFLOW', 'ETL'])('a %s discard applies the Live canvas and never a blank one', async (type) => {
+        const live = graph('Streaming Files', 'outdoor-catalog.csv')
+        const draft = graph('Streaming Files', 'outdoor-catalog-2026.csv')
+        confirm.mockResolvedValue(true)
+        flowDraftsApi.discardDraft.mockResolvedValue({ data: { mode: 'draft', draft: null } })
+        const view = await open({ type, flowData: live, draftFlowData: draft })
+        await clickButton('Discard draft')
+        expect(flowDraftsApi.discardDraft).toHaveBeenCalledWith('flow-1')
+        expect(appliedCanvases(view.onApplyCanvas)).toEqual([live])
+        expectOnlyReadableCanvases(view.onApplyCanvas)
+        act(() => view.root.unmount())
+    })
+
+    test.each([
+        ['missing', undefined],
+        ['blank', ''],
+        ['unreadable', 'not json']
+    ])('discard does not apply a %s Live canvas', async (_label, flowData) => {
+        confirm.mockResolvedValue(true)
+        flowDraftsApi.discardDraft.mockResolvedValue({ data: { mode: 'draft', draft: null } })
+        const view = await open({ type: 'ETL', flowData, draftFlowData: graph('Streaming Files', 'draft.csv') })
+        await clickButton('Discard draft')
+        expect(flowDraftsApi.discardDraft).toHaveBeenCalled()
+        expect(view.onApplyCanvas).not.toHaveBeenCalled()
+        act(() => view.root.unmount())
     })
 })

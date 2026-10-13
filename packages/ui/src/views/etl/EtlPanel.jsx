@@ -46,6 +46,7 @@ import {
 } from '@tabler/icons-react'
 
 import etlApi from '@/api/etl'
+import { PIPELINE_PREVIEW_NOTE, PIPELINE_RUN_DIRTY, PIPELINE_RUN_DRAFT } from '@/utils/flowDrafts'
 import {
     ACTIVE,
     FINISHED_OK,
@@ -238,6 +239,9 @@ const PreviewTab = ({ chatflowId, getFlowData }) => {
                     {loading ? 'Previewing' : 'Refresh preview'}
                 </Button>
             </Stack>
+            <Typography variant='caption' color='text.secondary'>
+                {PIPELINE_PREVIEW_NOTE}
+            </Typography>
             {loading && <LinearProgress />}
             {error && <Alert severity='error'>{error}</Alert>}
             {preview?.problems?.map((problem) => (
@@ -369,7 +373,7 @@ const PreviewTab = ({ chatflowId, getFlowData }) => {
 }
 PreviewTab.propTypes = { chatflowId: PropTypes.string, getFlowData: PropTypes.func }
 
-const RunTab = ({ chatflowId, isDirty, detail, runId, onRunChange, onFinished, starters = [] }) => {
+const RunTab = ({ chatflowId, isDirty, hasDraft, detail, runId, onRunChange, onFinished, starters = [] }) => {
     const [run, setRun] = useState(null)
     const [error, setError] = useState('')
     const [busy, setBusy] = useState(false)
@@ -449,9 +453,8 @@ const RunTab = ({ chatflowId, isDirty, detail, runId, onRunChange, onFinished, s
     return (
         <Stack sx={{ gap: 2 }}>
             {!chatflowId && <Alert severity='info'>Save the pipeline to create its first version, then run it.</Alert>}
-            {chatflowId && isDirty && (
-                <Alert severity='info'>Save your changes first. Each save that changes the pipeline creates a new version.</Alert>
-            )}
+            {chatflowId && isDirty && <Alert severity='info'>{PIPELINE_RUN_DIRTY}</Alert>}
+            {chatflowId && !isDirty && hasDraft && <Alert severity='info'>{PIPELINE_RUN_DRAFT}</Alert>}
             {detail?.problems?.map((problem) => (
                 <Alert key={problem} severity='error'>
                     {problem}
@@ -718,6 +721,7 @@ const RunTab = ({ chatflowId, isDirty, detail, runId, onRunChange, onFinished, s
 RunTab.propTypes = {
     chatflowId: PropTypes.string,
     isDirty: PropTypes.bool,
+    hasDraft: PropTypes.bool,
     detail: PropTypes.object,
     runId: PropTypes.string,
     onRunChange: PropTypes.func,
@@ -771,8 +775,9 @@ const VersionsTab = ({ chatflowId, detail, onRestore }) => {
         <Stack sx={{ gap: 1 }}>
             {error && <Alert severity='error'>{error}</Alert>}
             <Typography variant='caption' color='text.secondary'>
-                Each save that changes nodes, inputs, credentials or connections creates a version. Moving nodes does not. Runs pin the
-                version they started on, and the ETL Retriever serves the version of the last succeeded or partial run.
+                Publish, Roll back, and a save through the API create a version when nodes, inputs, credentials or connections change. A
+                canvas save stores a draft and does not. Moving nodes does not. Runs pin the version they started on, and the ETL Retriever
+                serves the version of the last succeeded or partial run.
             </Typography>
             {detail.versions.map((version) => (
                 <Paper key={version.version} variant='outlined' sx={{ p: 1.5, borderRadius: 1.5 }}>
@@ -995,7 +1000,7 @@ const SchedulesTab = ({ chatflowId }) => {
 }
 SchedulesTab.propTypes = { chatflowId: PropTypes.string }
 
-const EtlPanel = ({ chatflowId, getFlowData, isDirty, onRestore, savedAt, starters }) => {
+const EtlPanel = ({ chatflowId, getFlowData, isDirty, hasDraft, onRestore, savedAt, starters }) => {
     const [open, setOpen] = useState(false)
     const [tab, setTab] = useState('preview')
     const [detail, setDetail] = useState(null)
@@ -1123,6 +1128,7 @@ const EtlPanel = ({ chatflowId, getFlowData, isDirty, onRestore, savedAt, starte
                         <RunTab
                             chatflowId={chatflowId}
                             isDirty={isDirty}
+                            hasDraft={hasDraft}
                             detail={detail}
                             runId={runId}
                             onRunChange={setRunId}
@@ -1151,6 +1157,7 @@ EtlPanel.propTypes = {
     chatflowId: PropTypes.string,
     getFlowData: PropTypes.func,
     isDirty: PropTypes.bool,
+    hasDraft: PropTypes.bool,
     onRestore: PropTypes.func,
     savedAt: PropTypes.any,
     starters: PropTypes.array

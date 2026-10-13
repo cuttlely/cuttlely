@@ -3,13 +3,21 @@ import {
     STALE_DRAFT_WARNING,
     apiErrorMessage,
     badgeText,
+    canvasAfterDiscard,
+    canvasAfterPublish,
+    canvasAfterRollback,
     canvasFlowText,
+    canvasTextToApply,
     diffCanvases,
     draftBadge,
     planCanvasSave,
     publishBody,
+    PIPELINE_PREVIEW_NOTE,
+    PIPELINE_RUN_DIRTY,
+    PIPELINE_RUN_DRAFT,
     publishChangeLines,
     publishInstantlyLocked,
+    showsPublishCheck,
     publishResultMessage,
     showDraftChrome,
     showPublishGate,
@@ -135,6 +143,39 @@ describe('publish diff', () => {
         expect(lines).toContain('Rewired connections')
     })
 
+    test('a pipeline change list uses the same words, and a pipeline publish has no question check', () => {
+        const livePipeline = JSON.stringify({
+            nodes: [
+                {
+                    id: 'src',
+                    data: { label: 'Streaming Files', inputs: { paths: '/data/catalog.csv' } }
+                },
+                { id: 'old', data: { label: 'Old splitter', inputs: { chunkSize: 800 } } }
+            ],
+            edges: []
+        })
+        const draftPipeline = JSON.stringify({
+            nodes: [
+                {
+                    id: 'src',
+                    data: { label: 'Streaming Files', inputs: { paths: '/data/catalog-2026.csv' } }
+                },
+                { id: 'added', data: { label: 'Clean & Transform', inputs: {} } }
+            ],
+            edges: []
+        })
+        const lines = publishChangeLines(livePipeline, draftPipeline).map((line) => line.text)
+        expect(lines).toContain('Added Clean & Transform')
+        expect(lines).toContain('Removed Old splitter')
+        expect(lines.some((line) => line.startsWith('Changed Streaming Files: paths'))).toBe(true)
+        expect(showsPublishCheck('ETL')).toBe(false)
+        expect(showsPublishCheck('CHATFLOW')).toBe(true)
+        expect(showsPublishCheck('HARNESS')).toBe(true)
+        expect(PIPELINE_PREVIEW_NOTE).toContain('does not write to the store')
+        expect(PIPELINE_RUN_DIRTY).toContain('stores a draft')
+        expect(PIPELINE_RUN_DRAFT).toContain('published pipeline')
+    })
+
     test('a draft that matched Live does not look changed when the only difference is nodePack', () => {
         const withPack = JSON.parse(live)
         withPack.nodes[0].data.nodePack = '@cuttlely/node-pack-tools-mcp'
@@ -180,6 +221,121 @@ describe('publish diff', () => {
             'Drafts are off on this server.'
         )
         expect(apiErrorMessage({}, 'Publish failed.')).toBe('Publish failed.')
+    })
+})
+
+describe('publish and rollback keep the Live canvas', () => {
+    const published = (label, path) =>
+        JSON.stringify({
+            nodes: [{ id: 'src', data: { label, inputs: { paths: path } } }],
+            edges: []
+        })
+    const withExtra = (label, path) =>
+        JSON.stringify({
+            nodes: [
+                { id: 'src', data: { label, inputs: { paths: path } } },
+                { id: 'added', data: { label: 'Clean & Transform', inputs: {} } }
+            ],
+            edges: []
+        })
+
+    test.each(['CHATFLOW', 'AGENTFLOW', 'ETL'])(
+        'a %s publish keeps the published canvas when the summary omits it, and Discard puts that canvas back',
+        (type) => {
+            const before = published('Streaming Files', 'outdoor-catalog.csv')
+            const draft = withExtra('Streaming Files', 'outdoor-catalog-2026.csv')
+            const later = published('Streaming Files', 'outdoor-catalog-2027.csv')
+            const previous = { id: 'f1', name: 'Upgrade catalog', type, flowData: before, chatbotConfig: '{}' }
+            const summary = { id: 'f1', name: 'Upgrade catalog', type, updatedDate: '2026-10-13T00:00:00.000Z' }
+            const next = canvasAfterPublish(previous, { chatflow: summary, status: { mode: 'draft', draft: null } }, draft)
+
+            expect(next.chatflow.flowData).toBe(draft)
+            expect(next.chatflow.chatbotConfig).toBe('{}')
+            expect(next.chatflow.type).toBe(type)
+            expect(next.apply).toBe(draft)
+            expect(publishChangeLines(next.chatflow.flowData, later).length).toBeGreaterThan(0)
+            expect(canvasAfterDiscard(next.chatflow)).toBe(draft)
+            expect(canvasAfterDiscard({ ...next.chatflow, flowData: '' })).toBeNull()
+            expect(canvasAfterDiscard({ ...next.chatflow, flowData: undefined })).toBeNull()
+        }
+    )
+
+    test.each(['CHATFLOW', 'AGENTFLOW', 'ETL'])('a %s publish prefers the canvas the server saved', (type) => {
+        const draft = published('Conversation Chain', 'Hello')
+        const saved = published('Conversation Chain', 'Welcome')
+        const previous = { id: 'f1', name: 'Desk', type, flowData: published('Conversation Chain', 'Old') }
+        const next = canvasAfterPublish(
+            previous,
+            { chatflow: { id: 'f1', name: 'Desk', type, flowData: saved }, status: { draft: null } },
+            draft
+        )
+        expect(next.chatflow.flowData).toBe(saved)
+        expect(next.apply).toBe(saved)
+    })
+
+    test('a newer draft saved during publish stays on the canvas, and the record is the canvas that went Live', () => {
+        const live = published('Streaming Files', 'a.csv')
+        const publishedDraft = published('Streaming Files', 'b.csv')
+        const newer = withExtra('Streaming Files', 'b.csv')
+        const next = canvasAfterPublish(
+            { id: 'f1', type: 'ETL', flowData: live },
+            {
+                chatflow: { id: 'f1', type: 'ETL', flowData: publishedDraft },
+                status: { draft: { flowData: newer } }
+            },
+            publishedDraft
+        )
+        expect(next.chatflow.flowData).toBe(publishedDraft)
+        expect(next.apply).toBe(newer)
+        expect(publishChangeLines(next.chatflow.flowData, newer).map((line) => line.text)).toContain('Added Clean & Transform')
+    })
+
+    test.each(['CHATFLOW', 'AGENTFLOW', 'ETL'])(
+        'a %s roll back with no draft applies the version canvas from the response or a refetch',
+        (type) => {
+            const before = published('Streaming Files', 'a.csv')
+            const version = published('Streaming Files', 'b.csv')
+            const previous = { id: 'f1', name: 'Upgrade catalog', type, flowData: before }
+            const summary = { id: 'f1', name: 'Upgrade catalog', type, updatedDate: 'd' }
+
+            const fromServer = canvasAfterRollback(previous, { chatflow: { ...summary, flowData: version }, status: { draft: null } }, '')
+            expect(fromServer.chatflow.flowData).toBe(version)
+            expect(fromServer.apply).toBe(version)
+
+            const fromRefetch = canvasAfterRollback(previous, { chatflow: summary, status: { draft: null } }, version)
+            expect(fromRefetch.chatflow.flowData).toBe(version)
+            expect(fromRefetch.apply).toBe(version)
+            expect(publishChangeLines(fromRefetch.chatflow.flowData, withExtra('Streaming Files', 'b.csv')).length).toBeGreaterThan(0)
+            expect(canvasAfterDiscard(fromRefetch.chatflow)).toBe(version)
+        }
+    )
+
+    test('a roll back that keeps a draft updates Live on the record and leaves the open canvas alone', () => {
+        const before = published('Streaming Files', 'a.csv')
+        const version = published('Streaming Files', 'b.csv')
+        const openDraft = withExtra('Streaming Files', 'c.csv')
+        const next = canvasAfterRollback(
+            { id: 'f1', type: 'ETL', flowData: before },
+            { chatflow: { id: 'f1', type: 'ETL', flowData: version }, status: { draft: { flowData: openDraft } } },
+            before
+        )
+        expect(next.chatflow.flowData).toBe(version)
+        expect(next.apply).toBeNull()
+    })
+
+    test('a blank or unreadable canvas is not applied', () => {
+        expect(canvasTextToApply('')).toBeNull()
+        expect(canvasTextToApply('   ')).toBeNull()
+        expect(canvasTextToApply(undefined)).toBeNull()
+        expect(canvasTextToApply(null)).toBeNull()
+        expect(canvasTextToApply('not json')).toBeNull()
+        expect(canvasTextToApply('{"foo":1}')).toBeNull()
+        const previous = { id: 'f1', type: 'CHATFLOW', name: 'Desk' }
+        const wiped = canvasAfterPublish(previous, { chatflow: { id: 'f1', type: 'CHATFLOW' }, status: { draft: null } }, '')
+        expect(wiped.chatflow.flowData).toBeUndefined()
+        expect(wiped.apply).toBeNull()
+        const rolled = canvasAfterRollback(previous, { chatflow: { id: 'f1', type: 'CHATFLOW' }, status: { draft: null } }, '')
+        expect(rolled.apply).toBeNull()
     })
 })
 

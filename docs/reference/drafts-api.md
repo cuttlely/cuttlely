@@ -19,7 +19,7 @@ All routes are under `/api/v1/flow-drafts`. A signed-in session works, and so do
 | `GET`    | `/:chatflowId/check/:checkId` | `chatflows:view` or `agentflows:view`     |
 | `DELETE` | `/:chatflowId/check/:checkId` | `chatflows:update` or `agentflows:update` |
 
-Which flows have drafts: chatflows, agentflows, and harnesses. ETL and assistant flows save straight to Live. A harness draft does not change `POST /api/v1/harnesses/:name/runs`. The canvas chat and Try it use `POST /api/v1/internal-prediction/:id`, which runs the draft when one exists and Live otherwise. Publish, Roll back, and `PUT /api/v1/chatflows/:id` write Live and update the roster the runs route serves. The publish check runs on chatflows, agentflows, and harnesses. A harness accepts `datasetId`.
+Which flows have drafts: chatflows, agentflows, harnesses, and ETL pipelines. Assistant flows save straight to Live. A harness draft does not change `POST /api/v1/harnesses/:name/runs`. The canvas chat and Try it use `POST /api/v1/internal-prediction/:id`, which runs the draft when one exists and Live otherwise. Publish, Roll back, and `PUT /api/v1/chatflows/:id` write Live and update the roster the runs route serves. A pipeline draft does not change `POST /api/v1/etl/pipelines/:id/runs` or a schedule. Those read the published pipeline. `POST /api/v1/etl/pipelines/:id/preview` runs the canvas you send, which is the draft on the canvas, and does not write the store. When that preview omits the canvas, it runs the saved draft, or Live when there is no draft. The publish check runs on chatflows, agentflows, and harnesses. A harness accepts `datasetId`. A pipeline Publish lists the change list and does not run that check.
 
 A draft holds the canvas only: nodes, connections, prompts and node settings. The flow's name, chatbot and API settings, and starter prompts still save straight to Live through the chatflow routes. `PUT /api/v1/chatflows/:id` also keeps writing Live, so scripts that update flows keep working. One exception: while a flow has unpublished changes, changing its type (through the chatflow API, Restore, or Roll back Live) returns 409 `This flow has unpublished changes. Publish or discard them before changing the flow's type.`, because the draft is a canvas of the current type. That check is the type write itself, so a draft saved after the read and before the write still blocks it. Publish also checks the type the draft was started on, and refuses a draft of another kind of flow with 409, even with `overwriteLiveChanges`; discard it to continue. A draft saved before Cuttlely recorded that type (a draft left from an earlier preview release) is refused the same way.
 
@@ -85,7 +85,13 @@ When the draft is `stale` (Live changed after it started), publishing would repl
 
 ```json
 {
-    "chatflow": { "id": "<flow id>", "name": "Bakery helper", "type": "CHATFLOW", "updatedDate": "2026-10-08T17:05:40.000Z" },
+    "chatflow": {
+        "id": "<flow id>",
+        "name": "Bakery helper",
+        "type": "CHATFLOW",
+        "updatedDate": "2026-10-08T17:05:40.000Z",
+        "flowData": "<Live canvas JSON>"
+    },
     "version": {
         "sha": "afc07f3…",
         "kind": "publish",
@@ -119,7 +125,7 @@ When the draft is `stale` (Live changed after it started), publishing would repl
 
 Sets Live to that version at once, with its name, type and category, the same way [Restore](./versioning-api.md#restore) does. History gains a version of kind `rollback`, titled `Rolled back Live to: <title> (<short sha>)`. An open draft is kept and is not marked stale, because this Live was chosen. While the flow has unpublished changes, a version of another kind of flow is refused with 409; see below.
 
-The response is the [Restore](./versioning-api.md#restore) response plus `status`, the draft status afterwards. The write lands only while Live is still the canvas that was read; a Live update in between returns 409 `Live changed while this was being saved, so nothing was changed. Try again.` 400 when `sha` is not 7 to 40 lowercase hex characters, 404 when the version is not in this flow's history, 409 when drafts or history are off, 403 without the update permission for the flow's type and the version's type.
+The response is the [Restore](./versioning-api.md#restore) response plus `status`, the draft status afterwards. `chatflow.flowData` is the canvas that is Live after the roll back. The write lands only while Live is still the canvas that was read; a Live update in between returns 409 `Live changed while this was being saved, so nothing was changed. Try again.` 400 when `sha` is not 7 to 40 lowercase hex characters, 404 when the version is not in this flow's history, 409 when drafts or history are off, 403 without the update permission for the flow's type and the version's type.
 
 ## Publish check
 

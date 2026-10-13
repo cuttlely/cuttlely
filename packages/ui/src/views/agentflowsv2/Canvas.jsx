@@ -69,7 +69,7 @@ import {
 } from '@/utils/genericHelper'
 import useNotifier from '@/utils/useNotifier'
 import { usePrompt } from '@/utils/usePrompt'
-import { apiErrorMessage, canvasFlowText, planCanvasSave } from '@/utils/flowDrafts'
+import { apiErrorMessage, canvasFlowText, canvasTextToApply, planCanvasSave } from '@/utils/flowDrafts'
 import { canvasSaveDocument } from '@/utils/canvasSave'
 import { canvasIsEmpty, missingCredentialsText, stashNewCanvas, takeLanding, withStarterQuestions } from '@/utils/buildWithAI'
 import BuildLandingDialog from '@/ui-component/dialog/BuildLandingDialog'
@@ -680,13 +680,15 @@ const AgentflowCanvas = () => {
     }
 
     const applyCanvasText = (text) => {
+        // Blank or unreadable text used to become an empty graph and could replace the published canvas.
+        if (!canvasTextToApply(text)) return
         try {
             const flow = readGraph(text)
+            if (!Array.isArray(flow.nodes) || !Array.isArray(flow.edges)) return
             setNodes(flow.nodes)
             setEdges(flow.edges)
         } catch {
-            setNodes([])
-            setEdges([])
+            return
         }
         dispatch({ type: REMOVE_DIRTY })
     }

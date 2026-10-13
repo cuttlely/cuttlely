@@ -85,10 +85,11 @@ export async function withChatflowLock<T>(chatflowId: string, fn: (manager: Enti
     }
 }
 
-// Canvas types whose edits go to a draft. ETL canvases keep saving to Live until a pipeline test run
-// can use a draft; assistants have no canvas. A harness canvas saves here too. Its runs keep serving
-// the published roster until Publish syncs Live.
-export const DRAFT_TYPES = ['CHATFLOW', 'MULTIAGENT', 'AGENTFLOW', 'HARNESS']
+// Canvas types whose edits go to a draft. Assistants have no canvas. A harness canvas saves here too;
+// its runs keep serving the published roster until Publish syncs Live. A pipeline canvas saves here too;
+// scheduled runs, a run you start, and a full rebuild keep the published pipeline until Publish syncs Live.
+// Preview is the canvas test: it runs the draft and does not write the store.
+export const DRAFT_TYPES = ['CHATFLOW', 'MULTIAGENT', 'AGENTFLOW', 'HARNESS', 'ETL']
 
 // The flow fields this module reads.
 export interface DraftFlow {
@@ -545,8 +546,9 @@ export async function recordPublishGateResult(flow: DraftFlow, input: GateResult
     await repo().update({ chatflowId: flow.id }, { publishGateResult: gateResultRecord(record) })
 }
 
-// The canvas the flow's own test chat runs: the draft when the flow saves to drafts and has one,
-// otherwise Live. Only the canvas test chat calls this. Every other caller reads Live.
+// The canvas the flow's own test runs: the draft when the flow saves to drafts and has one,
+// otherwise Live. The canvas test chat calls this, and so does a pipeline preview that omits the canvas.
+// Every other caller reads Live.
 export async function flowDataForTestChat(flow: DraftFlow): Promise<string> {
     if (!isDraftsEnabled() || !typeHasDrafts(flow.type)) return flow.flowData
     const state = await getState(flow.id)

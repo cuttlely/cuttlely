@@ -87,7 +87,7 @@ const updateSettings = async (req: Request, res: Response, next: NextFunction) =
 }
 
 function summary(flow: any) {
-    return { id: flow.id, name: flow.name, type: flow.type, updatedDate: flow.updatedDate }
+    return { id: flow.id, name: flow.name, type: flow.type, updatedDate: flow.updatedDate, flowData: flow.flowData }
 }
 
 // Publish: the draft becomes Live through the normal update path (validation, harness sync, file handling),
@@ -161,7 +161,12 @@ const rollbackLive = async (req: Request, res: Response, next: NextFunction) => 
         const status = result.chatflow
             ? await flowDraftsService.afterLiveSet(result.chatflow, result.sha)
             : await flowDraftsService.getDraftStatus(flow)
-        return res.json({ ...result.body, status })
+        // The page keeps this object as the flow. flowData is the canvas that is Live now:
+        // the version that was written, or the canvas already stored when nothing changed.
+        const liveCanvas = result.chatflow?.flowData || flow.flowData
+        const named = result.body?.chatflow
+        const chatflow = named && typeof liveCanvas === 'string' ? { ...named, flowData: liveCanvas } : named
+        return res.json({ ...result.body, ...(chatflow ? { chatflow } : {}), status })
     } catch (error) {
         next(error)
     }
