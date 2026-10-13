@@ -43,8 +43,17 @@ import {
     totalTokens
 } from './compare'
 import { RiskyStep, riskySteps } from './risk'
-import { NO_PAST_RUNS, RecordedRow, applyPreviews, recordedDraft, replayFromQuestion } from './inputs'
-import { TriggerStart, Unavailable, datasetStartRefusal, startUnavailable, triggerStart, typeUnavailable } from './kinds'
+import { RecordedRow, applyPreviews, noPastRunsMessage, recordedDraft, replayFromQuestion } from './inputs'
+import {
+    ReplaySource,
+    TriggerStart,
+    Unavailable,
+    datasetStartRefusal,
+    sourceOf,
+    startUnavailable,
+    triggerStart,
+    typeUnavailable
+} from './kinds'
 import { harnessQuestionsFor, harnessQuestionsToRun, replayHarnessQuestion } from './harness'
 import { casesFromDataset, CheckEvaluator, loadEvaluators, readDatasetId, readEvaluatorIds, scoreAnswer } from './score'
 
@@ -106,7 +115,7 @@ export interface CheckSelection {
 export interface CheckSetup {
     unavailable: Unavailable | null
     // Recent real questions, newest first, then the starter questions nobody asked yet (marked starter).
-    questions: Array<{ text: string; date: string; starter?: boolean; preview?: string }>
+    questions: Array<{ text: string; date: string; starter?: boolean; preview?: string; source?: ReplaySource }>
     // Distinct past questions found, not counting starter questions. At most 100.
     pastCount: number
     pastTruncated: boolean
@@ -117,6 +126,8 @@ export interface CheckSetup {
     // True when this agentflow starts from a form, a webhook or a schedule, so `questions` are recorded
     // inputs (canonical JSON) rather than chat questions. False for chatflows and chat-started agentflows.
     replayInputs: boolean
+    // Which start those recorded inputs came from. Null for a chatflow or a chat-started agentflow.
+    replaySource: ReplaySource | null
     check: CheckView | null
 }
 
@@ -262,6 +273,8 @@ function view(record: CheckRecord, currentDraftHash: string | null, reveal?: Che
             question: showRows ? c.question : '',
             expected: showRows ? c.expected ?? null : null,
             ...(showRows && c.preview ? { preview: c.preview } : {}),
+            ...(showRows && c.source ? { source: c.source } : {}),
+            ...(showRows && c.date ? { date: c.date } : {}),
             live: shownSide(c.live, showEvaluators),
             draft: shownSide(c.draft, showEvaluators),
             same: c.same
@@ -334,7 +347,7 @@ const EXEC_PAGE = 50
 async function loadInputs(
     flow: { id: string; workspaceId?: string | null },
     kind: TriggerStart
-): Promise<{ questions: Array<{ text: string; date: string; preview: string }>; truncated: boolean }> {
+): Promise<{ questions: Array<{ text: string; date: string; preview: string; source: ReplaySource }>; truncated: boolean }> {
     const found: RecordedRow[] = []
     const seen = new Set<string>()
     let scanned = 0
@@ -363,7 +376,8 @@ async function loadInputs(
         if (found.length >= COMPARE_COUNT_MAX || scanned >= SCAN_CAP) break
         if (page * EXEC_PAGE >= total) break
     }
-    const questions = applyPreviews(found).map(({ text, date, preview }) => ({ text, date: date || '', preview }))
+    const source = sourceOf(kind)
+    const questions = applyPreviews(found).map(({ text, date, preview }) => ({ text, date: date || '', preview, source }))
     return { questions, truncated: truncated && questions.length < COMPARE_COUNT_MAX }
 }
 
@@ -415,6 +429,7 @@ export async function getCheckSetup(
         limits: checkLimits(),
         liveEmpty: liveIsEmpty(flow.flowData),
         replayInputs: Boolean(kind),
+        replaySource: kind ? sourceOf(kind) : null,
         check: record ? view(record, draft ? canvasHash(draft) : null, reveal) : null
     }
 }
@@ -509,19 +524,27 @@ async function inputsToRun(
     flow: { id: string; workspaceId?: string | null },
     kind: TriggerStart,
     body: { questions?: unknown; count?: unknown }
-): Promise<{ questions: string[]; previews: string[]; selection: CheckSelection | null }> {
+): Promise<{
+    questions: string[]
+    previews: string[]
+    sources: ReplaySource[]
+    dates: string[]
+    selection: CheckSelection | null
+}> {
     const parsed = parseCompareCount(body?.count)
     if (!parsed.ok) throw new AppError(StatusCodes.BAD_REQUEST, parsed.message)
     if (parsed.count !== null && body?.questions !== undefined) {
         throw new AppError(StatusCodes.BAD_REQUEST, 'Questions are not used for a form, webhook or schedule start. Send count on its own.')
     }
-    if (parsed.count === null) return { questions: cleanQuestions(body?.questions), previews: [], selection: null }
+    if (parsed.count === null) return { questions: cleanQuestions(body?.questions), previews: [], sources: [], dates: [], selection: null }
     const loaded = await loadInputs(flow, kind)
     const inputs = loaded.questions.slice(0, parsed.count)
-    if (!inputs.length) throw new AppError(StatusCodes.BAD_REQUEST, NO_PAST_RUNS)
+    if (!inputs.length) throw new AppError(StatusCodes.BAD_REQUEST, noPastRunsMessage(kind))
     return {
         questions: inputs.map((item) => item.text),
         previews: inputs.map((item) => item.preview || item.text),
+        sources: inputs.map((item) => item.source),
+        dates: inputs.map((item) => item.date),
         selection: {
             requested: parsed.count,
             available: loaded.questions.length,
@@ -567,6 +590,8 @@ export async function startCheck(
     let questions: string[]
     let selection: CheckSelection | null
     let previews: string[] = []
+    let sources: ReplaySource[] = []
+    let dates: string[] = []
     if (fromDataset) {
         questions = fromDataset.map((row) => row.question)
         selection = null
@@ -575,6 +600,8 @@ export async function startCheck(
         questions = resolved.questions
         selection = resolved.selection
         previews = resolved.previews
+        sources = resolved.sources
+        dates = resolved.dates
     } else if (flow.type === 'HARNESS') {
         const resolved = await harnessQuestionsToRun(flow, body || {})
         questions = resolved.questions
@@ -621,6 +648,8 @@ export async function startCheck(
             question,
             expected: fromDataset ? fromDataset[index].expected : null,
             ...(previews[index] ? { preview: previews[index] } : {}),
+            ...(sources[index] ? { source: sources[index] } : {}),
+            ...(dates[index] ? { date: dates[index] } : {}),
             live: null,
             draft: null,
             same: null
