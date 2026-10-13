@@ -187,7 +187,7 @@ Chat history, uploaded files, runs, and the app database are not in version hist
 
 ## Drafts and Publish
 
-Drafts are on by default. A chatflow, agentflow, or harness canvas saves to a **Draft**. The prediction API, embeds, shared links, schedules, webhooks, and `POST /api/v1/harnesses/:name/runs` keep running **Live** until you **Publish**. The canvas test chat runs the draft, so you try the version you are editing. On a harness that is the canvas chat and **Try it**. They use the same internal route as a chatflow test chat. External callers of `POST /api/v1/harnesses/:name/runs` stay on Live. Pipeline canvases still save straight to Live.
+Drafts are on by default. A chatflow, agentflow, or harness canvas saves to a **Draft**. The prediction API, embeds, shared links, schedules, webhooks, and `POST /api/v1/harnesses/:name/runs` keep running **Live** until you **Publish**. The canvas test chat runs the draft, so you try the version you are editing. On a harness that is the canvas chat and **Try it**. They use the same internal route as a chatflow test chat, and that try runs the draft roster: its specialists, tools, and models. External callers of `POST /api/v1/harnesses/:name/runs` stay on Live. Pipeline canvases still save straight to Live.
 
 The canvas says **Draft, not live yet** and when that draft was saved, or **Live** when there is nothing waiting. **Publish** opens one dialog that lists what changed, in the same words as version history. **Keep editing** closes it. **Discard draft** throws the draft away and puts Live back on the canvas.
 

@@ -49,10 +49,15 @@ export function gatewayUrl() {
 
 export function registerProfileToken({ token, harnessName, specialistName, modelKey, profileName }) {
     loadTokensOnce()
-    for (const [existing, meta] of [...tokens]) {
-        if (meta.harnessName === harnessName && meta.specialistName === specialistName && existing !== token) tokens.delete(existing)
+    // One token per profile directory. Recompiling bakery--shell replaces only that token.
+    // A try profile (try{id}--shell) never evicts the published one, or another try.
+    const directory = profileName || ''
+    if (directory) {
+        for (const [existing, meta] of [...tokens]) {
+            if (meta.profileName === directory && existing !== token) tokens.delete(existing)
+        }
     }
-    tokens.set(token, { harnessName, specialistName, modelKey: modelKey || '', profileName: profileName || '' })
+    tokens.set(token, { harnessName, specialistName, modelKey: modelKey || '', profileName: directory })
 }
 
 export function forgetProfileToken(token) {
@@ -315,10 +320,28 @@ function unixNow() {
     return Math.floor(Date.now() / 1000)
 }
 
+const PROFILE_NAME = /^[A-Za-z][A-Za-z0-9_-]{0,63}$/
+
 function requireHarness(name) {
-    const record = getHarness(name)
-    if (!record) throw new HarnessError('not_found', `Harness "${name}" was not found.`)
-    return record
+    if (!PROFILE_NAME.test(name || '')) throw new HarnessError('not_found', `Harness "${name}" was not found.`)
+    const saved = getHarness(name)
+    if (saved) return saved
+    // A draft try registers its token under the try profile directory. That name is not a saved harness.
+    const roster = readProfileRoster(name)
+    if (roster) return roster
+    throw new HarnessError('not_found', `Harness "${name}" was not found.`)
+}
+
+function readProfileRoster(name) {
+    const file = path.join(hermesHome(), 'profiles', name, 'harness-roster.json')
+    if (!fs.existsSync(file)) return null
+    try {
+        const parsed = JSON.parse(fs.readFileSync(file, 'utf8'))
+        if (!parsed || typeof parsed !== 'object' || !Array.isArray(parsed.specialists)) return null
+        return parsed
+    } catch {
+        return null
+    }
 }
 
 function specialistOf(record, name) {

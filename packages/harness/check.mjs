@@ -9841,6 +9841,135 @@ check(
     `mid=${midTry?.message} untouched=${duringTry.untouched} same=${sameAfterError} gone=${tryGone}`
 )
 
+await (async () => {
+    const liveModel = nodeModel('echoChat', { credential: 'cred-xai', label: 'Echo', inputs: { modelName: 'gpt-4.1' } })
+    const draftModel = nodeModel('draftChat', { credential: 'cred-xai', label: 'Draft', inputs: { modelName: 'gpt-4.1-mini' } })
+    const addedModel = nodeModel('addedChat', { credential: 'cred-xai', label: 'Added', inputs: { modelName: 'gpt-4.1-nano' } })
+    const shellOf = (instructions, model, moduleName) => ({
+        name: 'shell',
+        instructions,
+        shell: true,
+        browser: false,
+        codeExecution: false,
+        fileAccess: false,
+        ...(model ? { model } : {}),
+        modules: [{ nodeName: moduleName, label: moduleName, category: 'Tools', inputs: {} }],
+        mcpServers: []
+    })
+    saveHarness(
+        {
+            name: 'try-gate',
+            workspaceId: 'w1',
+            chatflowId: 'flow-gate',
+            chief: { instructions: 'LIVE-INSTRUCTIONS', model: liveModel },
+            specialists: [shellOf('LIVE-SPECIALIST', null, 'calculator')]
+        },
+        { overwrite: true }
+    )
+    compileProfileCached(getHarness('try-gate'))
+    const publishedToken = readProfileEnv('try-gate--shell').OPENAI_API_KEY
+    const draftRoster = (tryId) => ({
+        ...getHarness('try-gate'),
+        tryId,
+        chief: { ...getHarness('try-gate').chief, instructions: 'DRAFT-CHIEF' },
+        specialists: [
+            shellOf('DRAFT-SPECIALIST', draftModel, 'draftTool'),
+            {
+                name: 'added',
+                instructions: 'ADDED-SPECIALIST',
+                shell: true,
+                browser: false,
+                codeExecution: false,
+                fileAccess: false,
+                model: addedModel,
+                modules: [{ nodeName: 'extraTool', label: 'extraTool', category: 'Tools', inputs: {} }],
+                mcpServers: []
+            }
+        ]
+    })
+    const tryD = 'd'.repeat(16)
+    const tryE = 'e'.repeat(16)
+    const compiledD = compileTryProfile(draftRoster(tryD), tryD)
+    const tokenD = readProfileEnv(`try${tryD}--shell`).OPENAI_API_KEY
+    compileProfileCached(getHarness('try-gate'))
+    const compiledE = compileTryProfile(draftRoster(tryE), tryE)
+    const tokenE = readProfileEnv(`try${tryE}--shell`).OPENAI_API_KEY
+    const gatewayApi = await import('./gateway.mjs')
+    const seen = []
+    gatewayApi.setGatewayContext(async (record) => {
+        seen.push(record)
+        return {
+            componentNodes: {},
+            loadNode: async () =>
+                class {
+                    async init() {
+                        return {}
+                    }
+                },
+            flowOptions: { workspaceId: record.workspaceId || 'w1', chatflowid: record.chatflowId }
+        }
+    })
+    const gateway = await openGateway()
+    const status = async (token) => (await localRequest({ port: gateway.port, method: 'GET', path: '/v1/models', token })).status
+    const toolNames = async (token) => {
+        const response = await localRequest({ port: gateway.port, method: 'POST', path: '/harness/tools/list', token, body: {} })
+        const parsed = JSON.parse(response.body)
+        return { status: response.status, names: (parsed.tools || []).map((tool) => tool.name) }
+    }
+    const publishedStatus = await status(publishedToken)
+    const duringD = await status(tokenD)
+    const duringE = await status(tokenE)
+    const draftTools = await toolNames(tokenD)
+    const liveTools = await toolNames(publishedToken)
+    const draftSeen = seen.find((record) => (record.specialists || []).some((item) => item.instructions === 'DRAFT-SPECIALIST'))
+    const liveSeen = seen.find((record) => (record.specialists || []).some((item) => item.instructions === 'LIVE-SPECIALIST'))
+    const rosterFile = JSON.parse(fs.readFileSync(path.join(compiledD.dir, 'harness-roster.json'), 'utf8'))
+    const rosterYaml = fs.readFileSync(path.join(compiledD.dir, 'config.yaml'), 'utf8')
+    const { specialistLaunch } = await import('./roster-mcp.mjs')
+    const addedDuringTry = specialistLaunch(`try${tryD}`, 'added')
+    const addedOnLive = specialistLaunch('try-gate', 'added')
+    const shellOnLive = specialistLaunch('try-gate', 'shell')
+    discardTryProfile(tryD)
+    const afterDiscardD = await status(tokenD)
+    const stillE = await status(tokenE)
+    const stillPublished = await status(publishedToken)
+    discardTryProfile(tryE)
+    const afterDiscardE = await status(tokenE)
+    const publishedAfter = await status(publishedToken)
+    await gateway.close()
+    check(
+        'a published gateway token stays valid during a try, after a cache hit, and beside another try',
+        publishedStatus === 200 && duringD === 200 && duringE === 200 && stillPublished === 200 && publishedAfter === 200,
+        `published ${publishedStatus} tryD ${duringD} tryE ${duringE} still ${stillPublished} after ${publishedAfter}`
+    )
+    check(
+        'discarding a try revokes only that token',
+        afterDiscardD === 401 && stillE === 200 && afterDiscardE === 401,
+        `discarded D ${afterDiscardD} E while D discarded ${stillE} E after ${afterDiscardE}`
+    )
+    const draftShell = rosterFile.specialists.find((item) => item.name === 'shell')
+    check(
+        'a draft try roster, its MCP args, and the gateway read the draft specialists and tools',
+        draftShell?.instructions === 'DRAFT-SPECIALIST' &&
+            draftShell.modules?.[0]?.nodeName === 'draftTool' &&
+            rosterYaml.includes(`"--harness"`) &&
+            rosterYaml.includes(`"try${tryD}"`) &&
+            draftTools.status === 200 &&
+            draftTools.names.includes('draftTool') &&
+            !draftTools.names.includes('calculator') &&
+            draftSeen?.specialists?.some((item) => item.instructions === 'DRAFT-SPECIALIST') &&
+            liveTools.status === 200 &&
+            liveTools.names.includes('calculator') &&
+            !liveTools.names.includes('draftTool') &&
+            liveSeen?.specialists?.some((item) => item.instructions === 'LIVE-SPECIALIST') &&
+            addedDuringTry === `try${tryD}--added` &&
+            addedOnLive === '' &&
+            shellOnLive === 'try-gate--shell' &&
+            compiledE.dir !== compiledD.dir,
+        `draft ${draftTools.status} ${draftTools.names} live ${liveTools.status} ${liveTools.names} launch ${addedDuringTry}`
+    )
+})()
+
 if (failures.length) {
     console.error(`\n${failures.length} check(s) failed`)
     process.exit(1)

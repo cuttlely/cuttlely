@@ -124,7 +124,7 @@ The name is the harness id. Chatflows and the API call the harness by it. It is 
 
 ![The Save New Harness dialog with chief-of-staff typed in the name field, and Cancel and Save buttons.](../images/harnesses/save-dialog-name.png)
 
-The first save of a new harness is Live, so a chatflow and the API can call it. After that, **Save Harness** writes a **Draft**. The header says **Draft, not live yet**, or **Live** when nothing is waiting. **Publish** puts the draft Live. **Discard draft**, in the Publish dialog, throws the draft away. The canvas chat and **Try it** run the draft when one exists, and Live otherwise. `POST /api/v1/harnesses/:name/runs` stays on Live until you publish. [Drafts and Publish](./versioning.md#drafts-and-publish) is the same flow chatflows use, including **Roll back Live**. The check that replays recent questions is not on a harness yet.
+The first save of a new harness is Live, so a chatflow and the API can call it. After that, **Save Harness** writes a **Draft**. The header says **Draft, not live yet**, or **Live** when nothing is waiting. **Publish** puts the draft Live. **Discard draft**, in the Publish dialog, throws the draft away. The canvas chat and **Try it** run the draft when one exists, and Live otherwise. That try uses the draft roster: its specialists, tools, and models. `POST /api/v1/harnesses/:name/runs` stays on Live until you publish. [Drafts and Publish](./versioning.md#drafts-and-publish) is the same flow chatflows use, including **Roll back Live**. The check that replays recent questions is not on a harness yet.
 
 A harness that was saved before drafts is already Live. The next edit on the canvas starts a draft. The saved canvas and the roster runs serve do not change until you publish.
 
@@ -224,7 +224,7 @@ While it runs, the button reads **Running** and **Stop** cancels the run. The ru
 
 ![Try it after the run. The Run card says Finished, 3.3 s, and the answer says There are 2 open tasks and lists draft agenda and send invites.](../images/harnesses/harness-try-it-done.png)
 
-**Try it** uses your signed-in session. It runs the draft when the canvas has one, and Live otherwise. `POST /api/v1/harnesses/chief-of-staff/runs` is what an external caller uses, and that route stays on Live until you publish.
+**Try it** uses your signed-in session. It runs the draft when the canvas has one, and Live otherwise, including the draft's specialists, tools, and models. `POST /api/v1/harnesses/chief-of-staff/runs` is what an external caller uses, and that route stays on Live until you publish.
 
 ## Look at earlier runs
 
@@ -275,7 +275,7 @@ Sample chatflows that run a harness by name are in `samples/chatflows/`. The har
 
 `POST /api/v1/prediction/:id` on a chatflow that runs a harness returns `text`, `harness`, `agents`, `sources`, and `artifacts`. Streaming (`true` or `"true"`) sends harness events on that response. The event names are `route`, `specialist`, `tool`, `partial`, `handoff`, and `final`.
 
-The harness page uses a signed-in session: `POST /api/v1/harnesses/:name/runs`. An API key still goes through a chatflow. **Try it** on that page is the same run.
+The harness page uses a signed-in session. **Try it** runs the draft when one exists. An API key still goes through a chatflow, and `POST /api/v1/harnesses/:name/runs` stays on Live.
 
 Chat uploads on `POST /api/v1/prediction/:id` use multipart field `files` with `question`. Turn on file uploads for that chatflow first (**Configuration**, **File Upload**, **Enable Full File Upload**); with them off the file is refused with 403 and not stored. A file over 25 MB is refused. A large file is a path the harness can read. The sample roster is `samples/harnesses/upload.canvas.json`.
 

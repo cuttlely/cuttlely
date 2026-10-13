@@ -414,7 +414,7 @@ function pushProviders(yaml) {
 
 // Hermes sends OPENAI_API_KEY only when OPENAI_BASE_URL equals model.base_url
 // (_host_gated_env_key_candidates). model.api_key and model.key_env stay unset.
-function issueSpecialistToken(record, specialist) {
+function issueSpecialistToken(record, specialist, profileName) {
     const key = modelKey(specialist.model)
     const base = gatewayUrl()
     const previous = readEnvFile(profileEnvPath(specialist.profileName))
@@ -423,7 +423,8 @@ function issueSpecialistToken(record, specialist) {
     const token = reusable ? previous.OPENAI_API_KEY : crypto.randomBytes(32).toString('base64url')
     registerProfileToken({
         token,
-        harnessName: record.name,
+        // The profile directory that holds harness-roster.json, not the saved harness name when this is a try.
+        harnessName: profileName,
         specialistName: specialist.name,
         modelKey: key,
         profileName: specialist.profileName
@@ -595,7 +596,7 @@ function compileSpecialistProfile(record, specialist, profileName) {
     writeIfChanged(path.join(dir, 'harness-parent'), `${profileName}\n`)
     writeIfChanged(path.join(dir, 'SOUL.md'), specialistSoul(specialist))
     writePlaybooks(dir, specialist.playbooks || [])
-    const issued = issueSpecialistToken(record, specialist)
+    const issued = issueSpecialistToken(record, specialist, profileName)
     const bridgeOn = usesBridge(specialist)
     const bridge = serverNameFor(specialist)
     const enabled = specialist.hermesToolsets.filter((name) => bridgeOn || name !== bridge || requestedBuiltin(specialist, name))
@@ -650,7 +651,7 @@ function compileSpecialistProfile(record, specialist, profileName) {
         OPENAI_BASE_URL: issued.base,
         OPENAI_API_KEY: issued.token,
         CUTTLELY_MODEL_KEY: issued.modelKey,
-        CUTTLELY_GATEWAY_HARNESS: record.name,
+        CUTTLELY_GATEWAY_HARNESS: profileName,
         CUTTLELY_GATEWAY_SPECIALIST: specialist.name
     })
 }
@@ -709,7 +710,7 @@ export function compileProfile(record, options = {}) {
         mcpBlocks.push({
             name: 'roster',
             command: process.execPath,
-            args: [path.join(repoRoot(), 'packages', 'harness', 'roster-mcp.mjs'), '--harness', record.name]
+            args: [path.join(repoRoot(), 'packages', 'harness', 'roster-mcp.mjs'), '--harness', profileName]
         })
     }
     for (const block of mcpBlocks) {
