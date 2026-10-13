@@ -8232,7 +8232,7 @@
                     "nullable": false,
                     "default": null,
                     "extra": "",
-                    "collation": "utf8mb4_unicode_520_ci"
+                    "collation": "utf8mb4_bin"
                 },
                 {
                     "name": "inputUsdPerMillion",
@@ -11861,7 +11861,7 @@
                     "nullable": false,
                     "default": null,
                     "extra": "",
-                    "collation": "utf8mb4_0900_ai_ci"
+                    "collation": "utf8mb4_bin"
                 },
                 {
                     "name": "inputUsdPerMillion",

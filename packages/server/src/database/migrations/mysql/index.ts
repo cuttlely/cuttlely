@@ -55,7 +55,7 @@ import { AddIdentityLoginGuards1782000000001 } from './1782000000001-AddIdentity
 import { HashApiKey1783000000000 } from './1783000000000-HashApiKey'
 import { AddFlowVersionState1784000000000 } from './1784000000000-AddFlowVersionState'
 import { AddTokenUsageDay1791900000000 } from './1791900000000-AddTokenUsageDay'
-import { AddModelPriceOverride1792000000000 } from './1792000000000-AddModelPriceOverride'
+import { AddModelPriceOverride1793000000000 } from './1793000000000-AddModelPriceOverride'
 
 import { AddAuthTables1720230151482 } from './1720230151482-AddAuthTables'
 import { AddWorkspace1720230151484 } from './1720230151484-AddWorkspace'
@@ -138,5 +138,5 @@ export const mysqlMigrations = [
     HashApiKey1783000000000,
     AddFlowVersionState1784000000000,
     AddTokenUsageDay1791900000000,
-    AddModelPriceOverride1792000000000
+    AddModelPriceOverride1793000000000
 ]

@@ -1,6 +1,7 @@
-// One cost formula. CostCalculator multiplies a per-thousand-token rate by tokens / 1000.
+// CostCalculator multiplies a per-thousand-token rate by tokens / 1000. That helper stays for those rates.
 // Model-list prices are US dollars per token. The price table stores US dollars per million tokens.
-// Both convert into that per-thousand rate before this function runs.
+// An estimate from a per-million price is an integer count of hundred-millionths of a dollar, so a
+// half unit rounds up. Dividing the rate in floating point first drops that half unit.
 
 export const PRICE_UNIT = 'usd_per_million_tokens'
 export const PRICE_MAX_PER_MILLION = 1_000_000
@@ -38,13 +39,19 @@ export function dollarsFromPerThousand(ratePerThousand: number, tokens: number):
 
 /** US dollars. `ratePerMillion` is the unit the price table stores. */
 export function dollarsFromPerMillion(ratePerMillion: number, tokens: number): number {
-    return dollarsFromPerThousand(ratePerMillion / 1000, tokens)
+    return unitsToUsd(costUnits(tokens, ratePerMillion))
 }
 
-// Hundred-millionths of a dollar, so a sum of several models stays exact at 8 decimal places.
+// Hundred-millionths of a dollar. `usdPerMillion * 1e8` is that rate per million tokens.
+// The product is divided by 1,000,000 with half-up rounding, in integers, so a remainder of
+// 500,000 hundred-millionths rounds up instead of falling to the unit below.
 export function costUnits(tokens: number, usdPerMillion: number): number {
-    if (!Number.isFinite(tokens) || !Number.isFinite(usdPerMillion) || tokens === 0 || usdPerMillion === 0) return 0
-    return Math.round(dollarsFromPerMillion(usdPerMillion, tokens) * 1e8)
+    if (!Number.isFinite(tokens) || !Number.isFinite(usdPerMillion) || tokens <= 0 || usdPerMillion <= 0) return 0
+    const tokenCount = Math.round(tokens)
+    const scaled = Math.round(usdPerMillion * 1e8)
+    if (tokenCount <= 0 || scaled <= 0) return 0
+    const units = (BigInt(scaled) * BigInt(tokenCount) + 500_000n) / 1_000_000n
+    return Number(units)
 }
 
 export function unitsToUsd(units: number): number {

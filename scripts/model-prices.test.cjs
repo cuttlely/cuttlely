@@ -22,12 +22,12 @@ serverRequire('ts-node').register({
 })
 
 const { DataSource } = serverRequire('typeorm')
-const { AddModelPriceOverride1792000000000: SqlitePrice } = serverRequire(
-    './src/database/migrations/sqlite/1792000000000-AddModelPriceOverride.ts'
+const { AddModelPriceOverride1793000000000: SqlitePrice } = serverRequire(
+    './src/database/migrations/sqlite/1793000000000-AddModelPriceOverride.ts'
 )
 const { AddTokenUsageDay1791900000000: SqliteUsage } = serverRequire('./src/database/migrations/sqlite/1791900000000-AddTokenUsageDay.ts')
-const { AddModelPriceOverride1792000000000: PostgresPrice } = serverRequire(
-    './src/database/migrations/postgres/1792000000000-AddModelPriceOverride.ts'
+const { AddModelPriceOverride1793000000000: PostgresPrice } = serverRequire(
+    './src/database/migrations/postgres/1793000000000-AddModelPriceOverride.ts'
 )
 const { deleteOverride, loadOverrides, priceBook, priceBookForWorkspace, queryTokenUsage, recordCompletedRun, writeOverride } =
     serverRequire('./src/services/usage/index.ts')
@@ -91,6 +91,13 @@ describe('model price overrides', () => {
             await deleteOverride(dataSource, 'org-a', 'gpt-4.1-mini')
             const cleared = await priceBookForWorkspace(dataSource, 'ws-a', modelList)
             assert.deepEqual(cleared.rateFor('gpt-4.1-mini'), { inputUsdPerMillion: 0.4, outputUsdPerMillion: 1.6 })
+
+            await writeOverride(dataSource, 'org-a', 'moonshotai/kimi-k3', 0.8, 13.5)
+            await writeOverride(dataSource, 'org-a', 'moonshotai/Kimi-K3', 2.7, 13.5)
+            const bothCases = await loadOverrides(dataSource, 'org-a')
+            assert.equal(bothCases.size, 2)
+            assert.deepEqual(bothCases.get('moonshotai/kimi-k3'), { inputUsdPerMillion: 0.8, outputUsdPerMillion: 13.5 })
+            assert.deepEqual(bothCases.get('moonshotai/Kimi-K3'), { inputUsdPerMillion: 2.7, outputUsdPerMillion: 13.5 })
         } finally {
             if (dataSource.isInitialized) await dataSource.destroy()
         }
@@ -195,7 +202,7 @@ describe('model price overrides', () => {
             const ran = await dataSource.runMigrations()
             assert.deepEqual(
                 ran.map((migration) => migration.name),
-                ['AddModelPriceOverride1792000000000']
+                ['AddModelPriceOverride1793000000000']
             )
             await writeOverride(dataSource, 'org-a', 'gpt-4.1-mini', 0.4, 1.6)
             const saved = await loadOverrides(dataSource, 'org-a')

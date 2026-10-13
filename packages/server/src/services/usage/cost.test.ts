@@ -1,6 +1,14 @@
 import { readFileSync } from 'fs'
 import path from 'path'
-import { defaultsFromModelList, dollarsFromPerMillion, estimateTokenLines, parseModelName, parseUsdPerMillion, priceBook } from './cost'
+import {
+    costUnits,
+    defaultsFromModelList,
+    dollarsFromPerMillion,
+    estimateTokenLines,
+    parseModelName,
+    parseUsdPerMillion,
+    priceBook
+} from './cost'
 
 const mini = {
     chat: [
@@ -47,12 +55,35 @@ describe('model prices', () => {
         expect(estimate.estimatedCostUsd).not.toBe(0)
     })
 
-    it('matches a hand-computed cost and the evaluation calculator', () => {
+    it('matches a hand-computed cost, including a half unit that must round up', () => {
+        const file = JSON.parse(readFileSync(path.join(__dirname, '../../../../components/models.json'), 'utf8'))
+        const defaults = defaultsFromModelList(file)
         // 1000 input tokens at $0.40 per million and 500 output tokens at $1.60 per million.
         // 1000 * 0.40 / 1_000_000 + 500 * 1.60 / 1_000_000 = 0.0004 + 0.0008 = 0.0012
-        expect(dollarsFromPerMillion(0.4, 1000) + dollarsFromPerMillion(1.6, 500)).toBeCloseTo(0.0012, 10)
-        const book = priceBook(defaultsFromModelList(mini), new Map())
+        const book = priceBook(defaults, new Map())
         expect(estimateTokenLines([{ model: 'gpt-4.1-mini', inputTokens: 1000, outputTokens: 500 }], book).estimatedCostUsd).toBe(0.0012)
+
+        // openai/gpt-oss-20b is $0.075 per million input. 45 * 0.075 / 1_000_000 = 0.000003375,
+        // which is 337.5 hundred-millionths and rounds up to 0.00000338.
+        expect(defaults.get('openai/gpt-oss-20b')?.inputUsdPerMillion).toBe(0.075)
+        expect(costUnits(45, 0.075)).toBe(338)
+        expect(dollarsFromPerMillion(0.075, 45)).toBe(0.00000338)
+
+        // ibm/granite-4-h-small output is $0.265 per million. 45 * 0.265 / 1_000_000 = 0.000011925,
+        // which is 1192.5 hundred-millionths and rounds up to 0.00001193.
+        expect(defaults.get('ibm/granite-4-h-small')?.outputUsdPerMillion).toBe(0.265)
+        expect(costUnits(45, 0.265)).toBe(1193)
+        expect(dollarsFromPerMillion(0.265, 45)).toBe(0.00001193)
+    })
+
+    it('keeps overrides for model names that differ only by case', () => {
+        const overrides = new Map([
+            ['moonshotai/kimi-k3', { inputUsdPerMillion: 0.8, outputUsdPerMillion: 13.5 }],
+            ['moonshotai/Kimi-K3', { inputUsdPerMillion: 2.7, outputUsdPerMillion: 13.5 }]
+        ])
+        const book = priceBook(new Map(), overrides)
+        expect(book.rateFor('moonshotai/kimi-k3')).toEqual({ inputUsdPerMillion: 0.8, outputUsdPerMillion: 13.5 })
+        expect(book.rateFor('moonshotai/Kimi-K3')).toEqual({ inputUsdPerMillion: 2.7, outputUsdPerMillion: 13.5 })
     })
 
     it('refuses a secret-shaped model name and a price that is not a plain number', () => {
