@@ -99,6 +99,37 @@ const sanitizeToolName = (name: string): string => {
 
 type StepUsage = { input_tokens?: number; output_tokens?: number; total_tokens?: number }
 
+function tokenField(usage: Record<string, unknown> | undefined, key: string): number {
+    const value = usage?.[key]
+    return typeof value === 'number' && Number.isFinite(value) ? value : 0
+}
+
+function sumTokenCounts(left: unknown, right: unknown): { input_tokens: number; output_tokens: number; total_tokens: number } | undefined {
+    const a = left && typeof left === 'object' ? (left as Record<string, unknown>) : undefined
+    const b = right && typeof right === 'object' ? (right as Record<string, unknown>) : undefined
+    if (!a && !b) return undefined
+    return {
+        input_tokens: tokenField(a, 'input_tokens') + tokenField(b, 'input_tokens'),
+        output_tokens: tokenField(a, 'output_tokens') + tokenField(b, 'output_tokens'),
+        total_tokens: tokenField(a, 'total_tokens') + tokenField(b, 'total_tokens')
+    }
+}
+
+function throwToolFailure(cause: unknown, usedTools: IUsedTool[], usageMetadata: unknown): never {
+    const failure = new Error(getErrorMessage(cause)) as Error & { usedTools: IUsedTool[]; usageMetadata: unknown }
+    failure.usedTools = usedTools
+    failure.usageMetadata = usageMetadata
+    throw failure
+}
+
+function rethrowAccumulatedToolFailure(error: unknown, usedTools: IUsedTool[], usageMetadata: unknown, nextUsage?: unknown): never {
+    const failure = error as { usedTools?: IUsedTool[]; usageMetadata?: unknown }
+    if (Array.isArray(failure.usedTools)) usedTools.push(...failure.usedTools)
+    const errorHasUsage = failure.usageMetadata !== undefined && failure.usageMetadata !== null
+    const base = errorHasUsage ? usageMetadata : sumTokenCounts(usageMetadata, nextUsage)
+    throwToolFailure(error, usedTools, errorHasUsage ? sumTokenCounts(base, failure.usageMetadata) : base)
+}
+
 function addStepUsage(into: { input: number; output: number; total: number }, usage?: StepUsage | null) {
     if (!usage) return
     const input = Number(usage.input_tokens) || 0
@@ -2454,7 +2485,8 @@ class Agent_Agentflow implements INode {
                     usedTools.push({
                         tool: toolCall.name,
                         toolInput: toolInput ?? toolCall.args,
-                        toolOutput
+                        toolOutput,
+                        id: toolCall.id
                     })
                 } catch (e) {
                     if (options.analyticHandlers && toolIds) {
@@ -2477,13 +2509,11 @@ class Agent_Agentflow implements INode {
                         tool: selectedTool.name,
                         toolInput,
                         toolOutput: '',
-                        error: getErrorMessage(e)
+                        error: getErrorMessage(e),
+                        id: toolCall.id
                     })
                     sseStreamer?.streamUsedToolsEvent(chatId, flatten(usedTools))
-                    const failure = new Error(getErrorMessage(e)) as Error & { usedTools: IUsedTool[]; usageMetadata: unknown }
-                    failure.usedTools = usedTools
-                    failure.usageMetadata = response?.usage_metadata
-                    throw failure
+                    throwToolFailure(e, usedTools, response?.usage_metadata)
                 }
             }
         }
@@ -2536,91 +2566,94 @@ class Agent_Agentflow implements INode {
             })
         }
 
-        // Get LLM response after tool calls
-        let newResponse: AIMessageChunk
+        // Get LLM response after tool calls. A rejected follow-up still carries the tools from this turn.
+        let newResponse: AIMessageChunk | undefined
+        try {
+            if (isStreamable) {
+                newResponse = await this.handleStreamingResponse(
+                    sseStreamer,
+                    llmNodeInstance,
+                    messages,
+                    chatId,
+                    abortController,
+                    isStructuredOutput,
+                    isLastNode
+                )
+            } else {
+                newResponse = await llmNodeInstance.invoke(messages, { signal: abortController?.signal })
 
-        if (isStreamable) {
-            newResponse = await this.handleStreamingResponse(
-                sseStreamer,
-                llmNodeInstance,
-                messages,
-                chatId,
-                abortController,
-                isStructuredOutput,
-                isLastNode
-            )
-        } else {
-            newResponse = await llmNodeInstance.invoke(messages, { signal: abortController?.signal })
-
-            // Stream non-streaming response if this is the last node
-            if (isLastNode && sseStreamer && !isStructuredOutput) {
-                sseStreamer.streamTokenEvent(chatId, extractResponseContent(newResponse))
+                // Stream non-streaming response if this is the last node
+                if (isLastNode && sseStreamer && !isStructuredOutput) {
+                    sseStreamer.streamTokenEvent(chatId, extractResponseContent(newResponse))
+                }
             }
-        }
 
-        addStepUsage(spent, newResponse.usage_metadata)
-        totalTokens = spent.total
-
-        // Accumulate this turn's reasoning content and duration
-        if (newResponse.additional_kwargs?.reasoning_content) {
-            const chunkReason = newResponse.additional_kwargs.reasoning_content as string
-            accumulatedReasonContent += (accumulatedReasonContent ? '\n\n' : '') + chunkReason
-        }
-        if (typeof newResponse.additional_kwargs?.reasoning_duration === 'number') {
-            accumulatedReasoningDuration += newResponse.additional_kwargs.reasoning_duration
-        }
-
-        // Check for recursive tool calls and handle them
-        if (newResponse.tool_calls && newResponse.tool_calls.length > 0) {
-            const {
-                response: recursiveResponse,
-                usedTools: recursiveUsedTools,
-                sourceDocuments: recursiveSourceDocuments,
-                artifacts: recursiveArtifacts,
-                totalTokens: recursiveTokens,
-                inputTokens: recursiveInput,
-                outputTokens: recursiveOutput,
-                isWaitingForHumanInput: recursiveIsWaitingForHumanInput,
-                accumulatedReasonContent: recursiveAccumulatedReasonContent,
-                accumulatedReasoningDuration: recursiveAccumulatedReasoningDuration
-            } = await this.handleToolCalls({
-                response: newResponse,
-                messages,
-                toolsInstance,
-                sseStreamer,
-                chatId,
-                input,
-                options,
-                abortController,
-                llmNodeInstance,
-                isStreamable,
-                isLastNode,
-                iterationContext,
-                isStructuredOutput,
-                accumulatedReasonContent,
-                accumulatedReasoningDuration,
-                countIncoming: false
-            })
-
-            // The follow-up response was already added. The recursive call starts after it.
-            newResponse = recursiveResponse
-            usedTools.push(...recursiveUsedTools)
-            sourceDocuments = [...sourceDocuments, ...recursiveSourceDocuments]
-            artifacts = [...artifacts, ...recursiveArtifacts]
-            spent.input += recursiveInput
-            spent.output += recursiveOutput
-            spent.total += recursiveTokens
+            addStepUsage(spent, newResponse.usage_metadata)
             totalTokens = spent.total
-            isWaitingForHumanInput = recursiveIsWaitingForHumanInput
-            if (recursiveAccumulatedReasonContent !== undefined) {
-                accumulatedReasonContent = recursiveAccumulatedReasonContent
+
+            // Accumulate this turn's reasoning content and duration
+            if (newResponse.additional_kwargs?.reasoning_content) {
+                const chunkReason = newResponse.additional_kwargs.reasoning_content as string
+                accumulatedReasonContent += (accumulatedReasonContent ? '\n\n' : '') + chunkReason
             }
-            if (recursiveAccumulatedReasoningDuration !== undefined) {
-                accumulatedReasoningDuration = recursiveAccumulatedReasoningDuration
+            if (typeof newResponse.additional_kwargs?.reasoning_duration === 'number') {
+                accumulatedReasoningDuration += newResponse.additional_kwargs.reasoning_duration
             }
+
+            // Check for recursive tool calls and handle them
+            if (newResponse.tool_calls && newResponse.tool_calls.length > 0) {
+                const {
+                    response: recursiveResponse,
+                    usedTools: recursiveUsedTools,
+                    sourceDocuments: recursiveSourceDocuments,
+                    artifacts: recursiveArtifacts,
+                    totalTokens: recursiveTokens,
+                    inputTokens: recursiveInput,
+                    outputTokens: recursiveOutput,
+                    isWaitingForHumanInput: recursiveIsWaitingForHumanInput,
+                    accumulatedReasonContent: recursiveAccumulatedReasonContent,
+                    accumulatedReasoningDuration: recursiveAccumulatedReasoningDuration
+                } = await this.handleToolCalls({
+                    response: newResponse,
+                    messages,
+                    toolsInstance,
+                    sseStreamer,
+                    chatId,
+                    input,
+                    options,
+                    abortController,
+                    llmNodeInstance,
+                    isStreamable,
+                    isLastNode,
+                    iterationContext,
+                    isStructuredOutput,
+                    accumulatedReasonContent,
+                    accumulatedReasoningDuration,
+                    countIncoming: false
+                })
+
+                // The follow-up response was already added. The recursive call starts after it.
+                newResponse = recursiveResponse
+                usedTools.push(...recursiveUsedTools)
+                sourceDocuments = [...sourceDocuments, ...recursiveSourceDocuments]
+                artifacts = [...artifacts, ...recursiveArtifacts]
+                spent.input += recursiveInput
+                spent.output += recursiveOutput
+                spent.total += recursiveTokens
+                totalTokens = spent.total
+                isWaitingForHumanInput = recursiveIsWaitingForHumanInput
+                if (recursiveAccumulatedReasonContent !== undefined) {
+                    accumulatedReasonContent = recursiveAccumulatedReasonContent
+                }
+                if (recursiveAccumulatedReasoningDuration !== undefined) {
+                    accumulatedReasoningDuration = recursiveAccumulatedReasoningDuration
+                }
+            }
+        } catch (error) {
+            rethrowAccumulatedToolFailure(error, usedTools, response.usage_metadata, newResponse?.usage_metadata)
         }
 
-        return finish(newResponse, {
+        return finish(newResponse as AIMessageChunk, {
             isWaitingForHumanInput,
             accumulatedReasonContent: accumulatedReasonContent || undefined,
             accumulatedReasoningDuration: accumulatedReasoningDuration || undefined
@@ -2865,7 +2898,8 @@ class Agent_Agentflow implements INode {
                         usedTools.push({
                             tool: toolCall.name,
                             toolInput: toolInput ?? toolCall.args,
-                            toolOutput
+                            toolOutput,
+                            id: toolCall.id
                         })
                     } catch (e) {
                         if (options.analyticHandlers && toolIds) {
@@ -2888,13 +2922,11 @@ class Agent_Agentflow implements INode {
                             tool: selectedTool.name,
                             toolInput,
                             toolOutput: '',
-                            error: getErrorMessage(e)
+                            error: getErrorMessage(e),
+                            id: toolCall.id
                         })
                         sseStreamer?.streamUsedToolsEvent(chatId, flatten(usedTools))
-                        const failure = new Error(getErrorMessage(e)) as Error & { usedTools: IUsedTool[]; usageMetadata: unknown }
-                        failure.usedTools = usedTools
-                        failure.usageMetadata = response?.usage_metadata
-                        throw failure
+                        throwToolFailure(e, usedTools, response?.usage_metadata)
                     }
                 }
             }
@@ -2939,8 +2971,8 @@ class Agent_Agentflow implements INode {
             }
         }
 
-        // Get LLM response after tool calls
-        let newResponse: AIMessageChunk
+        // Get LLM response after tool calls. A rejected follow-up still carries the tools from this turn.
+        let newResponse: AIMessageChunk | undefined
 
         if (llmNodeInstance && (llmNodeInstance as any).builtInTools && (llmNodeInstance as any).builtInTools.length > 0) {
             toolsInstance.push(...(llmNodeInstance as any).builtInTools)
@@ -2955,91 +2987,97 @@ class Agent_Agentflow implements INode {
             llmNodeInstance = llmNodeInstance.bindTools(toolsInstance)
         }
 
-        if (isStreamable) {
-            newResponse = await this.handleStreamingResponse(
-                sseStreamer,
-                llmNodeInstance,
-                messages,
-                chatId,
-                abortController,
-                isStructuredOutput,
-                isLastNode
-            )
-        } else {
-            newResponse = await llmNodeInstance.invoke(messages, { signal: abortController?.signal })
-
-            // Stream non-streaming response if this is the last node
-            if (isLastNode && sseStreamer && !isStructuredOutput) {
-                sseStreamer.streamTokenEvent(chatId, extractResponseContent(newResponse))
-            }
-        }
-
-        // Add this post-approval model call. The checkpoint total already includes the call that asked for approval.
-        addStepUsage(spent, newResponse.usage_metadata)
-        totalTokens = spent.total
-
-        // Accumulate reasoning and duration from checkpoint response and this turn
         let accumulatedReasonContent = (response.additional_kwargs?.reasoning_content as string) || ''
-        if (newResponse.additional_kwargs?.reasoning_content) {
-            accumulatedReasonContent +=
-                (accumulatedReasonContent ? '\n\n' : '') + (newResponse.additional_kwargs.reasoning_content as string)
-        }
         let accumulatedReasoningDuration =
-            (typeof response.additional_kwargs?.reasoning_duration === 'number' ? response.additional_kwargs.reasoning_duration : 0) +
-            (typeof newResponse.additional_kwargs?.reasoning_duration === 'number' ? newResponse.additional_kwargs.reasoning_duration : 0)
+            typeof response.additional_kwargs?.reasoning_duration === 'number' ? response.additional_kwargs.reasoning_duration : 0
+        try {
+            if (isStreamable) {
+                newResponse = await this.handleStreamingResponse(
+                    sseStreamer,
+                    llmNodeInstance,
+                    messages,
+                    chatId,
+                    abortController,
+                    isStructuredOutput,
+                    isLastNode
+                )
+            } else {
+                newResponse = await llmNodeInstance.invoke(messages, { signal: abortController?.signal })
 
-        // Check for recursive tool calls and handle them
-        if (newResponse.tool_calls && newResponse.tool_calls.length > 0) {
-            const {
-                response: recursiveResponse,
-                usedTools: recursiveUsedTools,
-                sourceDocuments: recursiveSourceDocuments,
-                artifacts: recursiveArtifacts,
-                totalTokens: recursiveTokens,
-                inputTokens: recursiveInput,
-                outputTokens: recursiveOutput,
-                isWaitingForHumanInput: recursiveIsWaitingForHumanInput,
-                accumulatedReasonContent: recursiveAccumulatedReasonContent,
-                accumulatedReasoningDuration: recursiveAccumulatedReasoningDuration
-            } = await this.handleToolCalls({
-                response: newResponse,
-                messages,
-                toolsInstance,
-                sseStreamer,
-                chatId,
-                input,
-                options,
-                abortController,
-                llmNodeInstance,
-                isStreamable,
-                isLastNode,
-                iterationContext,
-                isStructuredOutput,
-                accumulatedReasonContent,
-                accumulatedReasoningDuration,
-                countIncoming: false
-            })
+                // Stream non-streaming response if this is the last node
+                if (isLastNode && sseStreamer && !isStructuredOutput) {
+                    sseStreamer.streamTokenEvent(chatId, extractResponseContent(newResponse))
+                }
+            }
 
-            // Merge results from recursive tool calls
-            newResponse = recursiveResponse
-            usedTools.push(...recursiveUsedTools)
-            sourceDocuments = [...sourceDocuments, ...recursiveSourceDocuments]
-            artifacts = [...artifacts, ...recursiveArtifacts]
-            spent.input += recursiveInput
-            spent.output += recursiveOutput
-            spent.total += recursiveTokens
+            // Add this post-approval model call. The checkpoint total already includes the call that asked for approval.
+            addStepUsage(spent, newResponse.usage_metadata)
             totalTokens = spent.total
-            isWaitingForHumanInput = recursiveIsWaitingForHumanInput
-            if (recursiveAccumulatedReasonContent !== undefined) {
-                accumulatedReasonContent = recursiveAccumulatedReasonContent
+
+            // Accumulate reasoning and duration from checkpoint response and this turn
+            if (newResponse.additional_kwargs?.reasoning_content) {
+                accumulatedReasonContent +=
+                    (accumulatedReasonContent ? '\n\n' : '') + (newResponse.additional_kwargs.reasoning_content as string)
             }
-            if (recursiveAccumulatedReasoningDuration !== undefined) {
-                accumulatedReasoningDuration = recursiveAccumulatedReasoningDuration
+            if (typeof newResponse.additional_kwargs?.reasoning_duration === 'number') {
+                accumulatedReasoningDuration += newResponse.additional_kwargs.reasoning_duration
             }
+
+            // Check for recursive tool calls and handle them
+            if (newResponse.tool_calls && newResponse.tool_calls.length > 0) {
+                const {
+                    response: recursiveResponse,
+                    usedTools: recursiveUsedTools,
+                    sourceDocuments: recursiveSourceDocuments,
+                    artifacts: recursiveArtifacts,
+                    totalTokens: recursiveTokens,
+                    inputTokens: recursiveInput,
+                    outputTokens: recursiveOutput,
+                    isWaitingForHumanInput: recursiveIsWaitingForHumanInput,
+                    accumulatedReasonContent: recursiveAccumulatedReasonContent,
+                    accumulatedReasoningDuration: recursiveAccumulatedReasoningDuration
+                } = await this.handleToolCalls({
+                    response: newResponse,
+                    messages,
+                    toolsInstance,
+                    sseStreamer,
+                    chatId,
+                    input,
+                    options,
+                    abortController,
+                    llmNodeInstance,
+                    isStreamable,
+                    isLastNode,
+                    iterationContext,
+                    isStructuredOutput,
+                    accumulatedReasonContent,
+                    accumulatedReasoningDuration,
+                    countIncoming: false
+                })
+
+                // Merge results from recursive tool calls
+                newResponse = recursiveResponse
+                usedTools.push(...recursiveUsedTools)
+                sourceDocuments = [...sourceDocuments, ...recursiveSourceDocuments]
+                artifacts = [...artifacts, ...recursiveArtifacts]
+                spent.input += recursiveInput
+                spent.output += recursiveOutput
+                spent.total += recursiveTokens
+                totalTokens = spent.total
+                isWaitingForHumanInput = recursiveIsWaitingForHumanInput
+                if (recursiveAccumulatedReasonContent !== undefined) {
+                    accumulatedReasonContent = recursiveAccumulatedReasonContent
+                }
+                if (recursiveAccumulatedReasoningDuration !== undefined) {
+                    accumulatedReasoningDuration = recursiveAccumulatedReasoningDuration
+                }
+            }
+        } catch (error) {
+            rethrowAccumulatedToolFailure(error, usedTools, response.usage_metadata, newResponse?.usage_metadata)
         }
 
         return {
-            response: newResponse,
+            response: newResponse as AIMessageChunk,
             usedTools,
             sourceDocuments,
             artifacts,

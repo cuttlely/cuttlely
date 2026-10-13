@@ -97,7 +97,7 @@ describe('run trace spans', () => {
                 chatClass(`
                     const { additionalCallbacks } = require('@cuttlely/components')
                     const callbacks = await additionalCallbacks(nodeData, options)
-                    const handler = callbacks[0]
+                    const handler = callbacks.find((item) => item && typeof item.handleToolStart === 'function')
                     if (!handler) return { text: 'At 7.' }
                     await handler.handleLLMStart({ kwargs: { modelName: 'gpt-4o-mini' } }, ['When is the sourdough ready?'], 'model-1')
                     await handler.handleLLMEnd({
@@ -1323,7 +1323,7 @@ describe('run trace spans', () => {
                     global.__cuttlelyReplayInit.replay = options && options.cuttlelyReplay === true
                     const { additionalCallbacks } = require('@cuttlely/components')
                     const callbacks = await additionalCallbacks(nodeData, options || {})
-                    const handler = callbacks && callbacks[0]
+                    const handler = callbacks && callbacks.find((item) => item && typeof item.handleToolStart === 'function')
                     if (handler) {
                         await handler.handleLLMStart({ kwargs: { modelName: 'gpt-4o-mini' } }, ['When is the sourdough ready?'], 'pred-model')
                         await handler.handleLLMEnd({ generations: [[{ text: 'At 7.' }]], llmOutput: { tokenUsage: { promptTokens: 3, completionTokens: 1 } } }, 'pred-model')
