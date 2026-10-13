@@ -1,11 +1,13 @@
 import crypto from 'node:crypto'
 import fs from 'node:fs'
+import net from 'node:net'
 import path from 'node:path'
 import { isFlowiseMcpBinding } from './bridge.mjs'
 import { CHIEF_MODEL_REQUIRED, HarnessError } from './errors.mjs'
 import { stableStringify } from './flow-graph.mjs'
 import { credentialStamp } from './credential-store.mjs'
 import { forgetProfileToken, gatewayListenPort, gatewayOrigin, gatewayUrl, registerProfileToken } from './gateway.mjs'
+import { endLiveTry, noteLiveTry } from './try-live.mjs'
 import { dataRoot, repoRoot, hermesHome, profileDir } from './paths.mjs'
 import { ROUTING_SUMMARY_CHARS, routingSummaryText } from './store.mjs'
 import { SQL_TOOL_REFUSED, refusedRawServer } from './sql-tools.mjs'
@@ -805,12 +807,41 @@ export function compileTryProfile(record, tryId) {
     return compileProfile(record, { profileName: tryProfileName(tryId), tryProfile: true })
 }
 
-export function discardTryProfile(tryId) {
-    const scope = tryProfileName(tryId)
+// Tests stand in for the runtime close. The default asks the running runtime to drop the profile.
+export const tryRuntime = {
+    closeProfiles: null,
+    afterFirstRemoval: null
+}
+
+function tryOwnedEntry(scope, entry, parentMarker) {
+    if (entry === scope || entry.startsWith(`${scope}--`)) return true
+    return /^tryx[a-f0-9]{16}$/.test(entry) && parentMarker === scope
+}
+
+function tryProfileNames(scope) {
     const root = path.join(hermesHome(), 'profiles')
+    if (!fs.existsSync(root)) return []
+    const names = []
+    for (const entry of fs.readdirSync(root)) {
+        const marker = readMarker(path.join(root, entry, 'harness-parent'))
+        if (tryOwnedEntry(scope, entry, marker)) names.push(entry)
+    }
+    return names
+}
+
+function readMarker(file) {
+    if (!fs.existsSync(file)) return ''
+    return fs.readFileSync(file, 'utf8').trim()
+}
+
+function removeTryScope(scope) {
+    const root = path.join(hermesHome(), 'profiles')
+    const names = new Set(tryProfileNames(scope))
     if (fs.existsSync(root)) {
         for (const entry of fs.readdirSync(root)) {
-            if (entry !== scope && !entry.startsWith(`${scope}--`)) continue
+            if (entry === scope || entry.startsWith(`${scope}--`)) names.add(entry)
+        }
+        for (const entry of names) {
             const dir = path.join(root, entry)
             const env = readEnvFile(path.join(dir, '.env'))
             if (env.OPENAI_API_KEY) forgetProfileToken(env.OPENAI_API_KEY)
@@ -818,14 +849,72 @@ export function discardTryProfile(tryId) {
         }
     }
     const workRoot = path.join(dataRoot(), 'workspaces')
-    if (fs.existsSync(workRoot)) {
-        for (const entry of fs.readdirSync(workRoot)) {
-            if (entry !== scope && !entry.startsWith(`${scope}--`)) continue
-            fs.rmSync(path.join(workRoot, entry), { recursive: true, force: true })
-        }
+    if (!fs.existsSync(workRoot)) return
+    for (const entry of fs.readdirSync(workRoot)) {
+        if (!names.has(entry) && entry !== scope && !entry.startsWith(`${scope}--`)) continue
+        fs.rmSync(path.join(workRoot, entry), { recursive: true, force: true })
     }
-    compiledProfiles.delete(scope)
 }
+
+function gatewaySocketPath() {
+    const home = hermesHome()
+    const direct = path.join(home, 'gateway.sock')
+    if (fs.existsSync(direct)) return direct
+    const pointer = path.join(home, 'gateway.sock.path')
+    if (!fs.existsSync(pointer)) return ''
+    const target = fs.readFileSync(pointer, 'utf8').trim()
+    return target && fs.existsSync(target) ? target : ''
+}
+
+function unserveRuntimeProfile(name) {
+    const sock = gatewaySocketPath()
+    if (!sock || !name) return Promise.resolve()
+    return new Promise((resolve) => {
+        const socket = net.createConnection(sock)
+        const timer = setTimeout(() => {
+            socket.destroy()
+            resolve()
+        }, 2000)
+        const done = () => {
+            clearTimeout(timer)
+            socket.destroy()
+            resolve()
+        }
+        socket.on('error', done)
+        socket.on('data', (chunk) => {
+            if (String(chunk).includes('\n')) done()
+        })
+        socket.on('connect', () => {
+            socket.write(`${JSON.stringify({ verb: 'unserve-profile', id: 1, protocol: 1, params: { name } })}\n`)
+        })
+    })
+}
+
+async function closeTryRuntime(names) {
+    const closeProfiles =
+        tryRuntime.closeProfiles ||
+        (async (profiles) => {
+            for (const name of profiles) await unserveRuntimeProfile(name)
+        })
+    await closeProfiles(names)
+}
+
+// Close the runtime profile before deleting it. A close can recreate log directories, so delete again after it.
+export async function discardTryProfile(tryId) {
+    const scope = tryProfileName(tryId)
+    try {
+        const names = tryProfileNames(scope)
+        await closeTryRuntime(names.length ? names : [scope])
+        removeTryScope(scope)
+        if (typeof tryRuntime.afterFirstRemoval === 'function') tryRuntime.afterFirstRemoval(scope)
+        removeTryScope(scope)
+    } finally {
+        compiledProfiles.delete(scope)
+        endLiveTry(scope)
+    }
+}
+
+export { noteLiveTry }
 
 const compiledProfiles = new Map()
 

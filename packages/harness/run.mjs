@@ -33,6 +33,8 @@ import {
     compileProfileCached,
     compileTryProfile,
     discardTryProfile,
+    noteLiveTry,
+    tryProfileName,
     hasAnalystTool,
     needsAgentLoop,
     routerDialectNote,
@@ -162,6 +164,8 @@ export async function runHarness(args = {}) {
     }
     let result
     let failure = null
+    const tryName = args.record?.tryId ? tryProfileName(args.record.tryId) : ''
+    if (tryName) noteLiveTry(tryName)
     try {
         result = await runHarnessTurn(args)
         return result
@@ -171,7 +175,7 @@ export async function runHarness(args = {}) {
     } finally {
         if (args.record?.tryId) {
             try {
-                discardTryProfile(args.record.tryId)
+                await discardTryProfile(args.record.tryId)
             } catch (error) {
                 console.warn(`[harness] try profile was not removed: ${error.message}`)
             }

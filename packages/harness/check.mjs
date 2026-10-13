@@ -9780,8 +9780,8 @@ check(
     'draft tries do not change the published profile',
     profileTree(publishedProfile) === publishedBytes && profileTree(publishedSpecialist) === publishedSpecialistBytes
 )
-discardTryProfile(tryA)
-discardTryProfile(tryB)
+await discardTryProfile(tryA)
+await discardTryProfile(tryB)
 check(
     'discarding a try removes only that profile',
     !fs.existsSync(compiledA.dir) &&
@@ -9941,11 +9941,11 @@ await (async () => {
     const addedDuringTry = specialistLaunch(`try${tryD}`, 'added')
     const addedOnLive = specialistLaunch('try-gate', 'added')
     const shellOnLive = specialistLaunch('try-gate', 'shell')
-    discardTryProfile(tryD)
+    await discardTryProfile(tryD)
     const afterDiscardD = await status(tokenD)
     const stillE = await status(tokenE)
     const stillPublished = await status(publishedToken)
-    discardTryProfile(tryE)
+    await discardTryProfile(tryE)
     const afterDiscardE = await status(tokenE)
     const publishedAfter = await status(publishedToken)
     const reserved = `try${'c'.repeat(16)}`
@@ -10134,7 +10134,7 @@ await (async () => {
     const tryAfter = await call(tryToken, 'execute_sql')
     const tryDocs = await call(tryToken, 'search_docs')
     await gateway.close()
-    discardTryProfile(tryId)
+    await discardTryProfile(tryId)
     check(
         'a try refuses the same SQL tools as the published profile, and neither list replaces the other',
         !publishedList.includes('execute_sql') &&
@@ -10529,6 +10529,103 @@ await (async () => {
             after,
             renamed: renamed.roster.specialists[0].profileName
         })
+    )
+})()
+
+await (async () => {
+    const { tryRuntime } = await import('./profile.mjs')
+    const { noteLiveTry } = await import('./try-live.mjs')
+    const { bootHarnessGateway } = await import('./gateway.mjs')
+    const profiles = path.join(process.env.CUTTLELY_HERMES_HOME, 'profiles')
+    const tryDir = (name) => path.join(profiles, name)
+    tryRuntime.closeProfiles = async (names) => {
+        for (const name of names) fs.mkdirSync(path.join(tryDir(name), 'logs'), { recursive: true })
+    }
+    tryRuntime.afterFirstRemoval = (scope) => {
+        fs.mkdirSync(path.join(tryDir(scope), 'logs'), { recursive: true })
+        fs.mkdirSync(path.join(tryDir(`${scope}--clerk`), 'logs'), { recursive: true })
+    }
+    const fetchImpl = async () => ({
+        ok: true,
+        status: 200,
+        statusText: 'OK',
+        text: async () => JSON.stringify({ output: 'STUB_ANSWER', status: 'completed' })
+    })
+    const loadNode = async () => recordingChat([], () => ({ content: 'STUB_ANSWER' }))
+    for (let n = 0; n < 3; n += 1) {
+        const tryId = `${n + 1}`.repeat(16)
+        await runHarnessRaw({
+            name: 'try-live',
+            chatId: `cleanup-${n}`,
+            input: 'Hello',
+            loadNode,
+            fetchImpl,
+            baseUrl: 'http://127.0.0.1:8644',
+            record: { ...getHarness('try-live'), tryId }
+        })
+    }
+    tryRuntime.closeProfiles = null
+    tryRuntime.afterFirstRemoval = null
+    const tryHomes = () => fs.readdirSync(profiles).filter((name) => /^try[a-f0-9]{8,32}$/.test(name))
+    const dead = `try${'d'.repeat(16)}`
+    const deadToken = 'D'.repeat(43)
+    fs.mkdirSync(tryDir(dead), { recursive: true })
+    fs.writeFileSync(path.join(tryDir(dead), 'harness-roster.json'), '{"name":"dead","specialists":[]}\n')
+    fs.writeFileSync(path.join(tryDir(dead), 'state.db'), Buffer.alloc(64))
+    fs.writeFileSync(
+        path.join(tryDir(dead), '.env'),
+        `OPENAI_API_KEY=${deadToken}\nOPENAI_BASE_URL=http://127.0.0.1:43118/v1\nCUTTLELY_GATEWAY_HARNESS=${dead}\nCUTTLELY_GATEWAY_SPECIALIST=clerk\nCUTTLELY_GATEWAY_TRY=1\n`
+    )
+    const { registerProfileToken } = await import('./gateway.mjs')
+    registerProfileToken({
+        token: deadToken,
+        harnessName: dead,
+        specialistName: 'clerk',
+        modelKey: 'k',
+        profileName: `${dead}--clerk`,
+        tryProfile: true
+    })
+    const live = `try${'e'.repeat(16)}`
+    const liveToken = 'E'.repeat(43)
+    noteLiveTry(live)
+    fs.mkdirSync(tryDir(live), { recursive: true })
+    fs.mkdirSync(path.join(tryDir(`${live}--clerk`)), { recursive: true })
+    fs.writeFileSync(path.join(tryDir(live), 'SOUL.md'), 'IN-FLIGHT\n')
+    fs.writeFileSync(path.join(tryDir(`${live}--clerk`), 'harness-parent'), `${live}\n`)
+    fs.writeFileSync(
+        path.join(tryDir(`${live}--clerk`), '.env'),
+        `OPENAI_API_KEY=${liveToken}\nOPENAI_BASE_URL=http://127.0.0.1:43118/v1\nCUTTLELY_GATEWAY_HARNESS=${live}\nCUTTLELY_GATEWAY_SPECIALIST=clerk\nCUTTLELY_GATEWAY_TRY=1\n`
+    )
+    const kept = `tryx${'ab'.repeat(8)}`
+    fs.mkdirSync(tryDir(kept), { recursive: true })
+    fs.writeFileSync(path.join(tryDir(kept), 'harness-parent'), 'finance\n')
+    fs.writeFileSync(path.join(tryDir(kept), 'SOUL.md'), 'PUBLISHED-FIT\n')
+    const publishedDir = tryDir('finance')
+    const publishedThere = fs.existsSync(publishedDir)
+    bootHarnessGateway()
+    const gateway = await openGateway()
+    const status = async (token) => (await localRequest({ port: gateway.port, method: 'GET', path: '/v1/models', token })).status
+    const deadStatus = await status(deadToken)
+    const liveStatus = await status(liveToken)
+    await gateway.close()
+    const { endLiveTry } = await import('./try-live.mjs')
+    endLiveTry(live)
+    check(
+        'finished tries leave no directories, and a crash leftover is dropped on the next start',
+        tryHomes().length === 1 &&
+            tryHomes()[0] === live &&
+            !fs.existsSync(tryDir(dead)) &&
+            !fs.existsSync(tryDir(`try${'1'.repeat(16)}`)) &&
+            !fs.existsSync(path.join(tryDir(`try${'1'.repeat(16)}--shell`), 'logs')) &&
+            !fs.existsSync(path.join(tryDir(`try${'1'.repeat(16)}--clerk`), 'logs')) &&
+            deadStatus === 401 &&
+            liveStatus === 200 &&
+            fs.existsSync(tryDir(live)) &&
+            fs.existsSync(tryDir(`${live}--clerk`)) &&
+            fs.readFileSync(path.join(tryDir(kept), 'SOUL.md'), 'utf8').includes('PUBLISHED-FIT') &&
+            publishedThere &&
+            fs.existsSync(publishedDir),
+        JSON.stringify({ homes: tryHomes(), deadStatus, liveStatus })
     )
 })()
 

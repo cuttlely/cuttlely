@@ -10,7 +10,8 @@ import { executeSpecialistTool, isFlowiseMcpBinding, prepareModule, readyToolSpe
 import { HarnessError } from './errors.mjs'
 import { withModelFallback } from './fallback.mjs'
 import { cachedPromptTokens, invokeChat, resolveModel } from './model.mjs'
-import { hermesHome } from './paths.mjs'
+import { dataRoot, hermesHome } from './paths.mjs'
+import { isLiveTry } from './try-live.mjs'
 import { sessionChat } from './specialist-run.mjs'
 import { getHarness } from './store.mjs'
 
@@ -173,21 +174,59 @@ function trackServer(server, port) {
     return item
 }
 
-function loadTokensOnce() {
-    if (tokensLoaded) return
-    tokensLoaded = true
+const TRY_HOME = /^try[a-f0-9]{8,32}$/
+const TRYX_HOME = /^tryx[a-f0-9]{16}$/
+
+function tryHomeOf(entry) {
+    if (TRY_HOME.test(entry)) return entry
+    const split = entry.indexOf('--')
+    if (split === -1) return ''
+    const parent = entry.slice(0, split)
+    return TRY_HOME.test(parent) ? parent : ''
+}
+
+function abandonedTryEntry(entry, parentMarker) {
+    const home = tryHomeOf(entry)
+    if (home) return !isLiveTry(home)
+    if (!TRYX_HOME.test(entry)) return false
+    return TRY_HOME.test(parentMarker) && !isLiveTry(parentMarker)
+}
+
+function removeProfileTree(entry) {
+    const dir = path.join(hermesHome(), 'profiles', entry)
+    const env = readEnvFile(path.join(dir, '.env'))
+    if (env.OPENAI_API_KEY) forgetProfileToken(env.OPENAI_API_KEY)
+    fs.rmSync(dir, { recursive: true, force: true })
+    fs.rmSync(path.join(dataRoot(), 'workspaces', entry), { recursive: true, force: true })
+}
+
+// Leftover canvas tries (and fitted profiles that belonged to one) are not a live run after a crash.
+export function sweepAbandonedTryProfiles() {
+    const root = path.join(hermesHome(), 'profiles')
+    if (!fs.existsSync(root)) return
+    const drop = []
+    for (const entry of fs.readdirSync(root)) {
+        const marker = readParent(path.join(root, entry))
+        if (abandonedTryEntry(entry, marker)) drop.push(entry)
+    }
+    for (const entry of drop) removeProfileTree(entry)
+}
+
+function ingestProfileTokens() {
     const root = path.join(hermesHome(), 'profiles')
     if (!fs.existsSync(root)) return
     for (const entry of fs.readdirSync(root)) {
-        const env = readEnvFile(path.join(root, entry, '.env'))
+        const dir = path.join(root, entry)
+        const env = readEnvFile(path.join(dir, '.env'))
         const token = env.OPENAI_API_KEY || ''
         const base = String(env.OPENAI_BASE_URL || '')
             .trim()
             .replace(/\/$/, '')
         if (!TOKEN_RE.test(token) || !/^http:\/\/127\.0\.0\.1:\d+\/v1$/.test(base)) continue
-        const harnessName = env.CUTTLELY_GATEWAY_HARNESS || readParent(path.join(root, entry))
+        const harnessName = env.CUTTLELY_GATEWAY_HARNESS || readParent(dir)
         const specialistName = env.CUTTLELY_GATEWAY_SPECIALIST || ''
         if (!harnessName || !specialistName) continue
+        if (abandonedTryEntry(entry, harnessName) || abandonedTryEntry(entry, readParent(dir))) continue
         tokens.set(token, {
             harnessName,
             specialistName,
@@ -196,6 +235,19 @@ function loadTokensOnce() {
             tryProfile: env.CUTTLELY_GATEWAY_TRY === '1'
         })
     }
+}
+
+// A process start loads tokens only after abandoned tries are gone.
+export function bootHarnessGateway() {
+    tokensLoaded = false
+    sweepAbandonedTryProfiles()
+    tokensLoaded = true
+    ingestProfileTokens()
+}
+
+function loadTokensOnce() {
+    if (tokensLoaded) return
+    bootHarnessGateway()
 }
 
 function readParent(dir) {
