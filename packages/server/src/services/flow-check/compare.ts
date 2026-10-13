@@ -1,5 +1,14 @@
 // Same or changed, and the totals the Publish dialog shows. Pure functions, no I/O.
 
+export interface CheckScore {
+    // Omitted on a read when the caller cannot view evaluators.
+    id?: string
+    name?: string
+    result: 'Pass' | 'Fail' | 'Error'
+    // Why a model score is Error, when the grading model could not be started or did not finish.
+    message?: string
+}
+
 export interface SideResult {
     text: string | null
     error: string | null
@@ -7,10 +16,16 @@ export interface SideResult {
     tokens: number | null
     // Wall-clock time for this one run, in milliseconds.
     ms: number
+    // Tokens the model grader reported for this side. Counted toward the check's token cap. Not shown on the answer.
+    graderTokens?: number | null
+    // One entry per evaluator, in the order the check was given. Absent when no evaluators were sent.
+    scores?: CheckScore[]
 }
 
 export interface CheckCase {
     question: string
+    // The dataset row's expected answer. Null when the question did not come from a dataset.
+    expected?: string | null
     // Compact line for a recorded input. Set when the row is a form, webhook or schedule replay.
     preview?: string
     // Where a recorded input came from, and when that run was stored. Chat questions leave both unset.
@@ -22,6 +37,15 @@ export interface CheckCase {
     same: boolean | null
 }
 
+export interface SideScores {
+    passed: number
+    failed: number
+    errored: number
+    // Passed divided by passed + failed + errored, as a percentage from 0 to 100 with one decimal.
+    // Null when this side has no scores.
+    passRate: number | null
+}
+
 export interface CheckSummary {
     ran: number
     same: number
@@ -31,6 +55,11 @@ export interface CheckSummary {
     draftTokens: number
     liveMedianMs: number | null
     draftMedianMs: number | null
+    // Present only when the check was started with evaluators.
+    scores?: {
+        live?: SideScores
+        draft?: SideScores
+    }
 }
 
 export function normalizeAnswer(text: string | null | undefined): string {
@@ -52,32 +81,71 @@ export function median(values: number[]): number | null {
     return sorted.length % 2 ? sorted[mid] : Math.round((sorted[mid - 1] + sorted[mid]) / 2)
 }
 
+function tally(results: Array<CheckScore['result']>): SideScores {
+    const passed = results.filter((result) => result === 'Pass').length
+    const failed = results.filter((result) => result === 'Fail').length
+    const errored = results.filter((result) => result === 'Error').length
+    const total = passed + failed + errored
+    return {
+        passed,
+        failed,
+        errored,
+        passRate: total ? Math.round((passed / total) * 1000) / 10 : null
+    }
+}
+
+function sideScoreSummary(cases: CheckCase[], side: 'live' | 'draft'): SideScores | null {
+    const results: Array<CheckScore['result']> = []
+    let seen = false
+    for (const item of cases) {
+        const scores = item[side]?.scores
+        if (!scores) continue
+        seen = true
+        for (const score of scores) results.push(score.result)
+    }
+    return seen ? tally(results) : null
+}
+
+// Scores are added only when an evaluator ran. A check with none keeps the summary shape it had before.
+function withScores(summary: CheckSummary, cases: CheckCase[]): CheckSummary {
+    const live = sideScoreSummary(cases, 'live')
+    const draft = sideScoreSummary(cases, 'draft')
+    if (!live && !draft) return summary
+    return { ...summary, scores: { ...(live ? { live } : {}), ...(draft ? { draft } : {}) } }
+}
+
 // With an empty Live (a flow never published) only the draft runs, so a question counts once its draft answered.
 export function summarize(cases: CheckCase[], liveEmpty = false): CheckSummary {
     if (liveEmpty) {
         const answered = cases.filter((c) => c.draft) as Array<CheckCase & { draft: SideResult }>
-        return {
-            ran: answered.length,
-            same: 0,
-            changed: 0,
-            errors: answered.filter((c) => c.draft.error).length,
-            liveTokens: 0,
-            draftTokens: answered.reduce((sum, c) => sum + (c.draft.tokens || 0), 0),
-            liveMedianMs: null,
-            draftMedianMs: median(answered.filter((c) => !c.draft.error).map((c) => c.draft.ms))
-        }
+        return withScores(
+            {
+                ran: answered.length,
+                same: 0,
+                changed: 0,
+                errors: answered.filter((c) => c.draft.error).length,
+                liveTokens: 0,
+                draftTokens: answered.reduce((sum, c) => sum + (c.draft.tokens || 0), 0),
+                liveMedianMs: null,
+                draftMedianMs: median(answered.filter((c) => !c.draft.error).map((c) => c.draft.ms))
+            },
+            cases
+        )
     }
     const done = cases.filter((c) => c.live && c.draft) as Array<CheckCase & { live: SideResult; draft: SideResult }>
-    return {
-        ran: done.length,
-        same: done.filter((c) => c.same === true).length,
-        changed: done.filter((c) => c.same === false && !c.live.error && !c.draft.error).length,
-        errors: done.filter((c) => c.live.error || c.draft.error).length,
-        liveTokens: done.reduce((sum, c) => sum + (c.live.tokens || 0), 0),
-        draftTokens: done.reduce((sum, c) => sum + (c.draft.tokens || 0), 0),
-        liveMedianMs: median(done.filter((c) => !c.live.error).map((c) => c.live.ms)),
-        draftMedianMs: median(done.filter((c) => !c.draft.error).map((c) => c.draft.ms))
-    }
+    return withScores(
+        {
+            ran: done.length,
+            same: done.filter((c) => c.same === true).length,
+            changed: done.filter((c) => c.same === false && !c.live.error && !c.draft.error).length,
+            errors: done.filter((c) => c.live.error || c.draft.error).length,
+            liveTokens: done.reduce((sum, c) => sum + (c.live.tokens || 0), 0),
+            draftTokens: done.reduce((sum, c) => sum + (c.draft.tokens || 0), 0),
+            liveMedianMs: median(done.filter((c) => !c.live.error).map((c) => c.live.ms)),
+            draftMedianMs: median(done.filter((c) => !c.draft.error).map((c) => c.draft.ms))
+        },
+        cases
+    )
 }
 
 // Token metrics the evaluation tracer recorded for one run: JSON strings, some with totalTokens.

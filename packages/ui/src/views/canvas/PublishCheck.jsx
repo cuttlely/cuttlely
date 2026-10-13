@@ -17,6 +17,9 @@ import {
 import { useTheme } from '@mui/material/styles'
 
 import flowDraftsApi from '@/api/flowDrafts'
+import datasetsApi from '@/api/dataset'
+import evaluatorsApi from '@/api/evaluators'
+import { useAuth } from '@/hooks/useAuth'
 import { apiErrorMessage } from '@/utils/flowDrafts'
 import {
     checkKind,
@@ -46,6 +49,7 @@ import {
     riskyWarning,
     sideCaption,
     stopReasonText,
+    passRateText,
     summaryText,
     togglePick,
     usageText,
@@ -69,6 +73,26 @@ const Side = ({ title, side, running, empty }) => (
                 <Typography variant='caption' color='text.secondary'>
                     {sideCaption(side)}
                 </Typography>
+                {side.scores?.length > 0 && (
+                    <Stack direction='row' spacing={0.5} useFlexGap flexWrap='wrap' sx={{ mt: 0.5 }}>
+                        {side.scores.map((score, index) => (
+                            <Chip
+                                key={score.id || `score-${index}`}
+                                size='small'
+                                data-testid='check-score'
+                                title={score.message || undefined}
+                                label={score.name ? `${score.name}: ${score.result}` : score.result}
+                                color={score.result === 'Pass' ? 'success' : score.result === 'Fail' ? 'error' : 'warning'}
+                                variant='outlined'
+                            />
+                        ))}
+                    </Stack>
+                )}
+                {side.scores?.some((score) => score.message) && (
+                    <Typography variant='caption' color='text.secondary' data-testid='check-score-message'>
+                        {[...new Set(side.scores.map((score) => score.message).filter(Boolean))].join(' ')}
+                    </Typography>
+                )}
             </>
         ) : (
             <Typography variant='body2' color='text.secondary'>
@@ -128,6 +152,11 @@ export const CheckResults = ({ check, words = CHECK_WORDS.publish, replayInputs 
                             {usageText(check, words)}
                         </Typography>
                     )}
+                    {passRateText(check, words).map((line) => (
+                        <Typography key={line} variant='body2' color='text.secondary' data-testid='check-pass-rate'>
+                            {line}
+                        </Typography>
+                    ))}
                 </Box>
             )}
             {check.stopReason && <Alert severity='info'>{stopReasonText(check.stopReason, replayInputs ? 'run' : 'question')}</Alert>}
@@ -169,6 +198,16 @@ export const CheckResults = ({ check, words = CHECK_WORDS.publish, replayInputs 
                                 variant={badge.color === 'default' ? 'outlined' : 'filled'}
                             />
                         </Stack>
+                        {c.expected ? (
+                            <Typography
+                                variant='caption'
+                                color='text.secondary'
+                                data-testid='check-expected'
+                                sx={{ display: 'block', mb: 1 }}
+                            >
+                                Expected: {c.expected}
+                            </Typography>
+                        ) : null}
                         <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
                             <Side title='Live' side={c.live} running={running} empty={check.liveEmpty ? words.emptyLive : ''} />
                             <Side title={words.side} side={c.draft} running={running} />
@@ -224,7 +263,17 @@ export const PublishCheckView = ({
     onCount = () => {},
     words = CHECK_WORDS.publish,
     // 'runs', 'questions', or null. Known from the canvas before the setup request returns.
-    checkKind: hintedKind = null
+    checkKind: hintedKind = null,
+    source = 'recent',
+    datasets = [],
+    datasetId = '',
+    evaluators = [],
+    evaluatorIds = [],
+    canUseDatasets = false,
+    canUseEvaluators = false,
+    onSource = () => {},
+    onDataset = () => {},
+    onToggleEvaluator = () => {}
 }) => {
     const theme = useTheme()
     const [previewShown, setPreviewShown] = useState(RESULT_PAGE_SIZE)
@@ -268,7 +317,18 @@ export const PublishCheckView = ({
         ? words.introNew
         : words.intro
     if (unavailable?.code === 'off') return null
-    const runnable = canRunCheck({ picked: questionCount, riskySteps: risky, runAnyway, running: running || starting, unavailable })
+    const fromDataset = source === 'dataset'
+    const chosenDataset = datasets.find((item) => item.id === datasetId)
+    const datasetQuestions = chosenDataset?.rowCount ? Math.min(Number(chosenDataset.rowCount) || 0, maxQuestions) : 0
+    const runnable = canRunCheck({
+        picked: fromDataset ? datasetQuestions : questionCount,
+        riskySteps: risky,
+        runAnyway,
+        running: running || starting,
+        unavailable,
+        source,
+        datasetId
+    })
 
     return (
         <Box data-testid='publish-check' sx={{ mt: 2, p: 1.5, border: '1px solid', borderColor: theme.palette.divider, borderRadius: 1 }}>
@@ -296,14 +356,52 @@ export const PublishCheckView = ({
             {!loading && !loadError && setup && !unavailable && (
                 <>
                     <Typography variant='body2' color='text.secondary' sx={{ mt: 0.5 }}>
-                        {intro}
+                        {fromDataset
+                            ? `Ask the rows of a saved dataset, on Live and on ${words.yours}, and compare the answers. This is optional.`
+                            : intro}
                     </Typography>
-                    {cap && (
+                    {canUseDatasets && (
+                        <TextField
+                            select
+                            size='small'
+                            label='Questions from'
+                            value={source}
+                            disabled={running || starting}
+                            onChange={(event) => onSource(event.target.value)}
+                            SelectProps={{ native: true }}
+                            inputProps={{ 'aria-label': 'Questions from', 'data-testid': 'check-question-source' }}
+                            sx={{ mt: 1, width: 220 }}
+                        >
+                            <option value='recent'>{replayInputs ? 'Recent runs' : 'Recent questions'}</option>
+                            <option value='dataset'>A dataset</option>
+                        </TextField>
+                    )}
+                    {fromDataset && (
+                        <TextField
+                            select
+                            size='small'
+                            label='Dataset'
+                            value={datasetId}
+                            disabled={running || starting}
+                            onChange={(event) => onDataset(event.target.value)}
+                            SelectProps={{ native: true }}
+                            inputProps={{ 'aria-label': 'Dataset', 'data-testid': 'check-dataset' }}
+                            sx={{ mt: 1, ml: canUseDatasets ? 1 : 0, width: 260 }}
+                        >
+                            <option value=''>Choose a dataset</option>
+                            {datasets.map((item) => (
+                                <option key={item.id} value={item.id}>
+                                    {item.name}
+                                </option>
+                            ))}
+                        </TextField>
+                    )}
+                    {!fromDataset && cap && (
                         <Typography variant='body2' sx={{ mt: 1 }} data-testid='compare-cap'>
                             {cap}
                         </Typography>
                     )}
-                    {pastCount > 0 && (
+                    {!fromDataset && pastCount > 0 && (
                         <Stack sx={{ mt: 1 }} aria-label={compareListLabel(replayInputs)}>
                             {past
                                 .slice(0, used)
@@ -344,7 +442,7 @@ export const PublishCheckView = ({
                             )}
                         </Stack>
                     )}
-                    {pastCount === 0 && checklist.length === 0 ? (
+                    {fromDataset ? null : pastCount === 0 && checklist.length === 0 ? (
                         <Typography variant='body2' color='text.secondary' sx={{ mt: 1 }} data-testid='check-empty'>
                             {replayInputs
                                 ? noPastRunsMessage(setup?.replaySource)
@@ -383,7 +481,7 @@ export const PublishCheckView = ({
                             })}
                         </Stack>
                     ) : null}
-                    {!replayInputs && (
+                    {!fromDataset && !replayInputs && (
                         <Stack direction='row' spacing={1} sx={{ mt: 1 }} alignItems='flex-start'>
                             <TextField
                                 size='small'
@@ -425,29 +523,64 @@ export const PublishCheckView = ({
                         </Alert>
                     )}
                     <Typography variant='body2' color='text.secondary' sx={{ mt: 1 }} data-testid='check-cost'>
-                        {costNote(limits, questionCount, words, Boolean(setup.liveEmpty), unit)}
+                        {costNote(limits, fromDataset ? datasetQuestions : questionCount, words, Boolean(setup.liveEmpty), unit)}
                     </Typography>
+                    {canUseEvaluators && (
+                        <Stack sx={{ mt: 1 }} aria-label='Evaluators'>
+                            <Typography variant='body2' sx={{ fontWeight: 600 }}>
+                                Evaluators
+                            </Typography>
+                            {evaluators.length === 0 ? (
+                                <Typography variant='body2' color='text.secondary'>
+                                    No evaluators in this workspace.
+                                </Typography>
+                            ) : (
+                                evaluators.map((evaluator) => (
+                                    <FormControlLabel
+                                        key={evaluator.id}
+                                        data-testid='check-evaluator'
+                                        sx={{ alignItems: 'flex-start', mr: 0 }}
+                                        control={
+                                            <Checkbox
+                                                size='small'
+                                                checked={evaluatorIds.includes(evaluator.id)}
+                                                disabled={running || starting}
+                                                onChange={() => onToggleEvaluator(evaluator.id)}
+                                            />
+                                        }
+                                        label={
+                                            <Typography variant='body2' sx={{ pt: '9px' }}>
+                                                {evaluator.name}
+                                            </Typography>
+                                        }
+                                    />
+                                ))
+                            )}
+                        </Stack>
+                    )}
                     <Stack direction='row' spacing={1} sx={{ mt: 1 }} alignItems='center' flexWrap='wrap' useFlexGap>
-                        <TextField
-                            select
-                            size='small'
-                            label={countLabel}
-                            value={String(COMPARE_COUNTS.includes(count) ? count : DEFAULT_COMPARE_COUNT)}
-                            disabled={running || starting || pastCount === 0}
-                            onChange={(event) => onCount(Number(event.target.value))}
-                            SelectProps={{ native: true }}
-                            inputProps={{
-                                'aria-label': countLabel,
-                                'data-testid': 'compare-count'
-                            }}
-                            sx={{ width: 180 }}
-                        >
-                            {COMPARE_COUNTS.map((n) => (
-                                <option key={n} value={n}>
-                                    {n}
-                                </option>
-                            ))}
-                        </TextField>
+                        {!fromDataset && (
+                            <TextField
+                                select
+                                size='small'
+                                label={countLabel}
+                                value={String(COMPARE_COUNTS.includes(count) ? count : DEFAULT_COMPARE_COUNT)}
+                                disabled={running || starting || pastCount === 0}
+                                onChange={(event) => onCount(Number(event.target.value))}
+                                SelectProps={{ native: true }}
+                                inputProps={{
+                                    'aria-label': countLabel,
+                                    'data-testid': 'compare-count'
+                                }}
+                                sx={{ width: 180 }}
+                            >
+                                {COMPARE_COUNTS.map((n) => (
+                                    <option key={n} value={n}>
+                                        {n}
+                                    </option>
+                                ))}
+                            </TextField>
+                        )}
                         {running ? (
                             <Button variant='outlined' color='inherit' onClick={onStop} data-testid='check-stop'>
                                 Stop
@@ -493,14 +626,29 @@ PublishCheckView.propTypes = {
     count: PropTypes.number,
     onCount: PropTypes.func,
     words: PropTypes.object,
-    checkKind: PropTypes.oneOf(['runs', 'questions', null])
+    checkKind: PropTypes.oneOf(['runs', 'questions', null]),
+    source: PropTypes.oneOf(['recent', 'dataset']),
+    datasets: PropTypes.array,
+    datasetId: PropTypes.string,
+    evaluators: PropTypes.array,
+    evaluatorIds: PropTypes.array,
+    canUseDatasets: PropTypes.bool,
+    canUseEvaluators: PropTypes.bool,
+    onSource: PropTypes.func,
+    onDataset: PropTypes.func,
+    onToggleEvaluator: PropTypes.func
 }
 
 // The publish check panel: loads recent questions, runs the check, polls it, and stops it when the dialog closes.
 // The same panel checks a version from Dev before Promote: variant 'promote' with that check's api.
+const asList = (payload) => (Array.isArray(payload) ? payload : payload?.data || [])
+
 const PublishCheck = ({ chatflowId, variant = 'publish', api = flowDraftsApi, flowType, canvases }) => {
     const words = CHECK_WORDS[variant] || CHECK_WORDS.publish
     const hintedKind = checkKind(flowType, canvases)
+    const { hasPermission } = useAuth()
+    const canUseDatasets = hasPermission('datasets:view')
+    const canUseEvaluators = hasPermission('evaluators:view')
     const [setup, setSetup] = useState(null)
     const [loading, setLoading] = useState(true)
     const [loadError, setLoadError] = useState('')
@@ -510,6 +658,11 @@ const PublishCheck = ({ chatflowId, variant = 'publish', api = flowDraftsApi, fl
     const [runAnyway, setRunAnyway] = useState(false)
     const [check, setCheck] = useState(null)
     const [count, setCount] = useState(DEFAULT_COMPARE_COUNT)
+    const [source, setSource] = useState('recent')
+    const [datasets, setDatasets] = useState([])
+    const [datasetId, setDatasetId] = useState('')
+    const [evaluators, setEvaluators] = useState([])
+    const [evaluatorIds, setEvaluatorIds] = useState([])
     const [starting, setStarting] = useState(false)
     const [error, setError] = useState('')
     const timer = useRef(null)
@@ -571,6 +724,38 @@ const PublishCheck = ({ chatflowId, variant = 'publish', api = flowDraftsApi, fl
         }
     }, [chatflowId, poll, api, hintedKind])
 
+    useEffect(() => {
+        if (!canUseDatasets) return undefined
+        let cancelled = false
+        datasetsApi
+            .getAllDatasets()
+            .then((res) => {
+                if (!cancelled) setDatasets(asList(res.data))
+            })
+            .catch(() => {
+                if (!cancelled) setDatasets([])
+            })
+        return () => {
+            cancelled = true
+        }
+    }, [canUseDatasets])
+
+    useEffect(() => {
+        if (!canUseEvaluators) return undefined
+        let cancelled = false
+        evaluatorsApi
+            .getAllEvaluators()
+            .then((res) => {
+                if (!cancelled) setEvaluators(asList(res.data))
+            })
+            .catch(() => {
+                if (!cancelled) setEvaluators([])
+            })
+        return () => {
+            cancelled = true
+        }
+    }, [canUseEvaluators])
+
     const pastCount = () => {
         const reported = Number(setup?.pastCount)
         if (Number.isFinite(reported)) return reported
@@ -593,10 +778,13 @@ const PublishCheck = ({ chatflowId, variant = 'publish', api = flowDraftsApi, fl
         try {
             const have = pastCount()
             const added = list.filter((q) => q.added && q.picked).map((q) => q.text)
+            const scored = evaluatorIds.length ? { evaluatorIds } : {}
             const body =
-                have > 0
-                    ? { count, ...(added.length ? { questions: added } : {}), includeRiskySteps: runAnyway }
-                    : { questions: pickedQuestions(list), includeRiskySteps: runAnyway }
+                source === 'dataset'
+                    ? { datasetId, ...scored, includeRiskySteps: runAnyway }
+                    : have > 0
+                    ? { count, ...(added.length ? { questions: added } : {}), ...scored, includeRiskySteps: runAnyway }
+                    : { questions: pickedQuestions(list), ...scored, includeRiskySteps: runAnyway }
             const res = await api.startCheck(chatflowId, body)
             if (!live.current.mounted) return
             setCheck(res.data)
@@ -645,6 +833,18 @@ const PublishCheck = ({ chatflowId, variant = 'publish', api = flowDraftsApi, fl
             onCount={setCount}
             words={words}
             checkKind={hintedKind}
+            source={canUseDatasets ? source : 'recent'}
+            datasets={datasets}
+            datasetId={datasetId}
+            evaluators={evaluators}
+            evaluatorIds={evaluatorIds}
+            canUseDatasets={canUseDatasets}
+            canUseEvaluators={canUseEvaluators}
+            onSource={(value) => setSource(value === 'dataset' ? 'dataset' : 'recent')}
+            onDataset={setDatasetId}
+            onToggleEvaluator={(id) =>
+                setEvaluatorIds((current) => (current.includes(id) ? current.filter((item) => item !== id) : [...current, id]))
+            }
         />
     )
 }

@@ -12,6 +12,11 @@ jest.mock('@/api/flowDrafts', () => ({
         stopCheck: jest.fn()
     }
 }))
+jest.mock('@/hooks/useAuth', () => ({
+    useAuth: () => ({ hasPermission: () => false })
+}))
+jest.mock('@/api/dataset', () => ({ __esModule: true, default: { getAllDatasets: jest.fn() } }))
+jest.mock('@/api/evaluators', () => ({ __esModule: true, default: { getAllEvaluators: jest.fn() } }))
 jest.mock('@/hooks/useConfirm', () => ({
     __esModule: true,
     default: () => ({ confirm: jest.fn() })

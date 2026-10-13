@@ -56,6 +56,9 @@
             "packages/ui/src/api/flowVersions.js",
             "packages/server/src/database/entities/FlowVersionState.ts",
             "packages/server/src/database/migrations/*/1784000000000-AddFlowVersionState.ts",
+            "packages/server/src/services/usage/**",
+            "packages/server/src/database/entities/TokenUsageDay.ts",
+            "packages/server/src/database/migrations/*/1791900000000-AddTokenUsageDay.ts",
             "packages/ui/src/ui-component/extended/PublishInstantly.jsx",
             "packages/server/src/services/flow-promote/**",
             "packages/server/src/controllers/flow-promote/**",
@@ -674,6 +677,22 @@
                 "packages/ui/src/ui-component/flow/FlowiseMigrationWizard.jsx",
                 "packages/ui/src/utils/flowiseImport.js",
                 "packages/ui/src/utils/langflowImport.mjs"
+            ]
+        },
+        {
+            "name": "Usage",
+            "paths": [
+                "packages/server/src/services/usage/**",
+                "packages/server/src/database/entities/TokenUsageDay.ts",
+                "packages/server/src/database/migrations/*/1791900000000-AddTokenUsageDay.ts"
+            ],
+            "entryPoints": [
+                "packages/server/src/services/usage/index.ts",
+                "packages/server/src/database/entities/TokenUsageDay.ts",
+                "packages/server/src/database/migrations/mariadb/1791900000000-AddTokenUsageDay.ts",
+                "packages/server/src/database/migrations/mysql/1791900000000-AddTokenUsageDay.ts",
+                "packages/server/src/database/migrations/postgres/1791900000000-AddTokenUsageDay.ts",
+                "packages/server/src/database/migrations/sqlite/1791900000000-AddTokenUsageDay.ts"
             ]
         },
         {

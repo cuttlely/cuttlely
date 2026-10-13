@@ -517,10 +517,13 @@ class ExtendedLunaryHandler extends LunaryHandler {
 }
 
 export const additionalCallbacks = async (nodeData: INodeData, options: ICommonObject) => {
+    const callbacks: any[] = []
+    // Local counter only. It does not call a provider.
+    if (options?.tokenUsageCallback) callbacks.push(options.tokenUsageCallback)
     try {
         // One check when run traces are off: no handler is constructed.
         const otel = options?.cuttlelyReplay ? undefined : otelRunCallback()
-        if (!options.analytic && !tracingEnvEnabled() && !otel) return []
+        if (!options.analytic && !tracingEnvEnabled() && !otel) return callbacks
 
         const initial = options.analytic ? JSON.parse(options.analytic) : {}
         // A Cuttlely publish check replay keeps only the providers it was given (its token counter), so
@@ -528,7 +531,6 @@ export const additionalCallbacks = async (nodeData: INodeData, options: ICommonO
         const { analytic, envCredentials } = options.cuttlelyReplay
             ? { analytic: initial, envCredentials: {} as Record<string, ICommonObject> }
             : applyEnvTracingProviders(initial)
-        const callbacks: any = []
         if (otel) callbacks.push(otel)
 
         for (const provider in analytic) {

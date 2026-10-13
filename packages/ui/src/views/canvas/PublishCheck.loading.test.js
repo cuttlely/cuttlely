@@ -2,6 +2,11 @@ jest.mock('@/api/flowDrafts', () => ({
     __esModule: true,
     default: { getCheckSetup: jest.fn(), startCheck: jest.fn(), getCheck: jest.fn(), stopCheck: jest.fn() }
 }))
+jest.mock('@/api/dataset', () => ({ __esModule: true, default: { getAllDatasets: jest.fn() } }))
+jest.mock('@/api/evaluators', () => ({ __esModule: true, default: { getAllEvaluators: jest.fn() } }))
+jest.mock('@/hooks/useAuth', () => ({
+    useAuth: () => ({ hasPermission: () => false })
+}))
 
 import { createElement } from 'react'
 import TestRenderer from 'react-test-renderer'

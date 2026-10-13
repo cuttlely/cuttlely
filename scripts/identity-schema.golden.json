@@ -2442,6 +2442,80 @@
                 }
             ]
         },
+        "token_usage_day": {
+            "columns": [
+                {
+                    "name": "id",
+                    "type": "varchar",
+                    "nullable": false,
+                    "default": null,
+                    "pk": 1
+                },
+                {
+                    "name": "workspaceId",
+                    "type": "varchar(36)",
+                    "nullable": false,
+                    "default": null,
+                    "pk": 0
+                },
+                {
+                    "name": "flowId",
+                    "type": "varchar(64)",
+                    "nullable": false,
+                    "default": null,
+                    "pk": 0
+                },
+                {
+                    "name": "model",
+                    "type": "varchar(255)",
+                    "nullable": false,
+                    "default": null,
+                    "pk": 0
+                },
+                {
+                    "name": "day",
+                    "type": "varchar(10)",
+                    "nullable": false,
+                    "default": null,
+                    "pk": 0
+                },
+                {
+                    "name": "inputTokens",
+                    "type": "INTEGER",
+                    "nullable": false,
+                    "default": "0",
+                    "pk": 0
+                },
+                {
+                    "name": "outputTokens",
+                    "type": "INTEGER",
+                    "nullable": false,
+                    "default": "0",
+                    "pk": 0
+                }
+            ],
+            "foreignKeys": [],
+            "indexes": [
+                {
+                    "name": "IDX_token_usage_day_workspace_day",
+                    "unique": false,
+                    "columns": ["workspaceId", "day"],
+                    "origin": "c"
+                },
+                {
+                    "name": "sqlite_autoindex_token_usage_day_1",
+                    "unique": true,
+                    "columns": ["id"],
+                    "origin": "pk"
+                },
+                {
+                    "name": "sqlite_autoindex_token_usage_day_2",
+                    "unique": true,
+                    "columns": ["workspaceId", "flowId", "model", "day"],
+                    "origin": "u"
+                }
+            ]
+        },
         "tool": {
             "columns": [
                 {
@@ -5244,6 +5318,70 @@
                     "name": "PK_schedule_trigger_log",
                     "unique": true,
                     "columns": ["id"]
+                }
+            ]
+        },
+        "token_usage_day": {
+            "columns": [
+                {
+                    "name": "id",
+                    "type": "varchar(36)",
+                    "nullable": false,
+                    "default": null
+                },
+                {
+                    "name": "workspaceId",
+                    "type": "varchar(36)",
+                    "nullable": false,
+                    "default": null
+                },
+                {
+                    "name": "flowId",
+                    "type": "varchar(64)",
+                    "nullable": false,
+                    "default": null
+                },
+                {
+                    "name": "model",
+                    "type": "varchar(255)",
+                    "nullable": false,
+                    "default": null
+                },
+                {
+                    "name": "day",
+                    "type": "varchar(10)",
+                    "nullable": false,
+                    "default": null
+                },
+                {
+                    "name": "inputTokens",
+                    "type": "integer",
+                    "nullable": false,
+                    "default": "0"
+                },
+                {
+                    "name": "outputTokens",
+                    "type": "integer",
+                    "nullable": false,
+                    "default": "0"
+                }
+            ],
+            "foreignKeys": [],
+            "indexes": [
+                {
+                    "name": "IDX_token_usage_day_workspace_day",
+                    "unique": false,
+                    "columns": ["workspaceId", "day"]
+                },
+                {
+                    "name": "PK_token_usage_day",
+                    "unique": true,
+                    "columns": ["id"]
+                },
+                {
+                    "name": "UQ_token_usage_day_bucket",
+                    "unique": true,
+                    "columns": ["workspaceId", "flowId", "model", "day"]
                 }
             ]
         },
@@ -8565,6 +8703,84 @@
                     "name": "PRIMARY",
                     "unique": true,
                     "columns": ["id"]
+                }
+            ]
+        },
+        "token_usage_day": {
+            "columns": [
+                {
+                    "name": "id",
+                    "type": "varchar(36)",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_unicode_520_ci"
+                },
+                {
+                    "name": "workspaceId",
+                    "type": "varchar(36)",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_unicode_520_ci"
+                },
+                {
+                    "name": "flowId",
+                    "type": "varchar(64)",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_unicode_520_ci"
+                },
+                {
+                    "name": "model",
+                    "type": "varchar(255)",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_unicode_520_ci"
+                },
+                {
+                    "name": "day",
+                    "type": "varchar(10)",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_unicode_520_ci"
+                },
+                {
+                    "name": "inputTokens",
+                    "type": "int(11)",
+                    "nullable": false,
+                    "default": "0",
+                    "extra": "",
+                    "collation": null
+                },
+                {
+                    "name": "outputTokens",
+                    "type": "int(11)",
+                    "nullable": false,
+                    "default": "0",
+                    "extra": "",
+                    "collation": null
+                }
+            ],
+            "foreignKeys": [],
+            "indexes": [
+                {
+                    "name": "IDX_token_usage_day_workspace_day",
+                    "unique": false,
+                    "columns": ["workspaceId", "day"]
+                },
+                {
+                    "name": "PRIMARY",
+                    "unique": true,
+                    "columns": ["id"]
+                },
+                {
+                    "name": "UQ_token_usage_day_bucket",
+                    "unique": true,
+                    "columns": ["workspaceId", "flowId", "model", "day"]
                 }
             ]
         },
@@ -12059,6 +12275,84 @@
                     "name": "PRIMARY",
                     "unique": true,
                     "columns": ["id"]
+                }
+            ]
+        },
+        "token_usage_day": {
+            "columns": [
+                {
+                    "name": "id",
+                    "type": "varchar(36)",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_0900_ai_ci"
+                },
+                {
+                    "name": "workspaceId",
+                    "type": "varchar(36)",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_0900_ai_ci"
+                },
+                {
+                    "name": "flowId",
+                    "type": "varchar(64)",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_0900_ai_ci"
+                },
+                {
+                    "name": "model",
+                    "type": "varchar(255)",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_0900_ai_ci"
+                },
+                {
+                    "name": "day",
+                    "type": "varchar(10)",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_0900_ai_ci"
+                },
+                {
+                    "name": "inputTokens",
+                    "type": "int",
+                    "nullable": false,
+                    "default": "0",
+                    "extra": "",
+                    "collation": null
+                },
+                {
+                    "name": "outputTokens",
+                    "type": "int",
+                    "nullable": false,
+                    "default": "0",
+                    "extra": "",
+                    "collation": null
+                }
+            ],
+            "foreignKeys": [],
+            "indexes": [
+                {
+                    "name": "IDX_token_usage_day_workspace_day",
+                    "unique": false,
+                    "columns": ["workspaceId", "day"]
+                },
+                {
+                    "name": "PRIMARY",
+                    "unique": true,
+                    "columns": ["id"]
+                },
+                {
+                    "name": "UQ_token_usage_day_bucket",
+                    "unique": true,
+                    "columns": ["workspaceId", "flowId", "model", "day"]
                 }
             ]
         },
