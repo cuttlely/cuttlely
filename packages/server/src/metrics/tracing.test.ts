@@ -1286,6 +1286,69 @@ describe('run trace spans', () => {
         expect(usage?.output_cost).toBeCloseTo((3 + (usage?.tool_call_tokens ?? 0)) * outputRate, 12)
     })
 
+    it('matches the agentflow span tree to the run card', async () => {
+        process.env.CUTTLELY_OTEL_TRACES = 'true'
+        process.env.CUTTLELY_OTEL_TRACES_CONTENT = 'false'
+        const captured = helperSource()
+        await runHelper(
+            'run-card',
+            `exports.nodeClass = class {
+                async init() {
+                    let turn = 0
+                    return {
+                        bindTools() { return this },
+                        async invoke() {
+                            turn += 1
+                            if (turn === 1) {
+                                return {
+                                    content: '',
+                                    tool_calls: [{ id: 'call-mixer', name: 'mixer', args: { speed: 'low' }, type: 'tool_call' }],
+                                    usage_metadata: { input_tokens: 10, output_tokens: 4, total_tokens: 14 }
+                                }
+                            }
+                            return { content: 'Baked', usage_metadata: { input_tokens: 12, output_tokens: 5, total_tokens: 17 } }
+                        }
+                    }
+                }
+            }\n`,
+            false,
+            captured.source
+        )
+        const spans = memory.spans()
+        const rows = JSON.parse(captured.saved.Execution.executionData) as Array<{
+            nodeId: string
+            data?: {
+                name?: string
+                output?: {
+                    usageMetadata?: { input_tokens?: number; output_tokens?: number }
+                    usedTools?: Array<{ tool?: string; id?: string }>
+                }
+            }
+        }>
+        expect(rows.length).toBeGreaterThan(0)
+        for (const row of rows) {
+            const node = spans.find(
+                (span) =>
+                    span.name === 'node' && span.attributes['node.id'] === row.nodeId && span.attributes['node.type'] === row.data?.name
+            )
+            expect(node).toBeDefined()
+            const usage = row.data?.output?.usageMetadata
+            if (usage && (usage.input_tokens || usage.output_tokens)) {
+                const model = spans.find((span) => span.name === 'model' && span.parentSpanId === node?.spanId)
+                expect(model?.attributes['tokens.input']).toBe(usage.input_tokens)
+                expect(model?.attributes['tokens.output']).toBe(usage.output_tokens)
+            }
+            for (const tool of row.data?.output?.usedTools ?? []) {
+                const toolSpan = spans.find(
+                    (span) => span.name === 'tool' && span.parentSpanId === node?.spanId && span.attributes['tool.name'] === tool.tool
+                )
+                expect(toolSpan?.attributes['status']).toBe('ok')
+                if (tool.id) expect(toolSpan?.attributes['tool.id']).toBe(tool.id)
+            }
+        }
+        expect(contentKeys(spans)).toEqual([])
+    })
+
     it('keeps a second approval wait for the same tool pending', async () => {
         process.env.CUTTLELY_OTEL_TRACES = 'true'
         await traceFlow('agentflow', 'flow-again', async () => {

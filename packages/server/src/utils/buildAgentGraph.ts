@@ -49,6 +49,7 @@ import { Variable } from '../database/entities/Variable'
 import { getWorkspaceSearchOptions } from '../identity/workspaceScope'
 import { DataSource } from 'typeorm'
 import { CachePool } from '../CachePool'
+import { attachTraceContinuation, traceGraphNode } from '../metrics/tracing'
 
 /**
  * Build Agent Graph
@@ -366,7 +367,7 @@ export const buildAgentGraph = async ({
                                 approveButtonText = node.data.inputs?.approveButtonText || 'Yes'
                                 rejectButtonText = node.data.inputs?.rejectButtonText || 'No'
                             }
-                            finalAction = {
+                            finalAction = attachTraceContinuation({
                                 id: uuidv4(),
                                 mapping: {
                                     approve: approveButtonText,
@@ -377,7 +378,7 @@ export const buildAgentGraph = async ({
                                     { type: 'approve-button', label: approveButtonText },
                                     { type: 'reject-button', label: rejectButtonText }
                                 ]
-                            }
+                            })
                             if (shouldStreamResponse && sseStreamer) {
                                 sseStreamer.streamTokenEvent(chatId, finalResult)
                                 sseStreamer.streamActionEvent(chatId, finalAction)
@@ -568,6 +569,8 @@ const compileMultiAgentsGraph = async (params: MultiAgentsGraphParams) => {
         //@ts-ignore
         channels
     })
+    const graphNodeNames = new Map<string, { id: string; type: string }>()
+    traceAddedGraphNodes(workflowGraph, (name) => graphNodeNames.get(name) ?? { id: name, type: name })
 
     const workerNodes = reactFlowNodes.filter((node) => workerNodeIds.includes(node.data.id))
 
@@ -602,6 +605,7 @@ const compileMultiAgentsGraph = async (params: MultiAgentsGraphParams) => {
                 supervisorWorkers[parentSupervisor] = [workerResult]
             }
 
+            graphNodeNames.set(workerResult.name, { id: workerNode.data.id, type: workerNode.data.name })
             workflowGraph.addNode(workerResult.name, workerResult.node)
         } catch (e) {
             throw new AppError(StatusCodes.INTERNAL_SERVER_ERROR, `Error initialize worker nodes - ${getErrorMessage(e)}`)
@@ -636,6 +640,7 @@ const compileMultiAgentsGraph = async (params: MultiAgentsGraphParams) => {
                 }
             }
 
+            graphNodeNames.set(supervisorResult.name, { id: supervisorNode.data.id, type: supervisorNode.data.name })
             workflowGraph.addNode(supervisorResult.name, supervisorResult.node)
 
             for (const worker of supervisorResult.workers) {
@@ -695,7 +700,7 @@ const compileMultiAgentsGraph = async (params: MultiAgentsGraphParams) => {
                 },
                 {
                     recursionLimit: supervisorResult?.recursionLimit ?? 100,
-                    callbacks: [loggerHandler, ...callbacks],
+                    callbacks: [loggerHandler, ...withoutRunTraceHandler(callbacks)],
                     configurable: config
                 }
             )
@@ -762,6 +767,14 @@ const compileSeqAgentsGraph = async (params: SeqAgentsGraphParams) => {
     let seqGraph = new StateGraph<any>({
         //@ts-ignore
         channels
+    })
+    const seqNodeNames = new Map<string, { id: string; type: string }>()
+    traceAddedGraphNodes(seqGraph, (name) => {
+        const known = seqNodeNames.get(name)
+        if (known) return known
+        // An approval tool is added from inside the agent node, named tool_<node id>.
+        if (name.startsWith('tool_')) return { id: name, type: 'seqToolNode' }
+        return { id: name, type: name }
     })
 
     /*** Validate Graph ***/
@@ -930,6 +943,7 @@ const compileSeqAgentsGraph = async (params: SeqAgentsGraphParams) => {
 
                 if (nodesToAdd.includes(agentNode.data.name)) {
                     // Add node to graph
+                    seqNodeNames.set(agentInstance.name, { id: agentNode.data.id, type: agentNode.data.name })
                     seqGraph.addNode(agentInstance.name, agentInstance.node)
 
                     /*
@@ -1133,13 +1147,29 @@ const compileSeqAgentsGraph = async (params: SeqAgentsGraphParams) => {
             }
         }
         return await graph.stream(humanMsg, {
-            callbacks: [loggerHandler, ...callbacks],
+            callbacks: [loggerHandler, ...withoutRunTraceHandler(callbacks)],
             configurable: config
         })
     } catch (e) {
         logger.error(`[${options.orgId}]: Error compile graph`, e)
         throw new AppError(StatusCodes.INTERNAL_SERVER_ERROR, `Error compile graph - ${getErrorMessage(e)}`)
     }
+}
+
+/** When traces are off the graph keeps the original node functions. */
+function traceAddedGraphNodes(graph: { addNode: (...args: any[]) => any }, resolve: (name: string) => { id: string; type: string }): void {
+    if (process.env.CUTTLELY_OTEL_TRACES !== 'true') return
+    const original = graph.addNode.bind(graph)
+    graph.addNode = (key: unknown, action: unknown, options?: unknown) => {
+        const name = typeof key === 'string' ? key : String(key ?? '')
+        const meta = resolve(name)
+        return original(key, traceGraphNode(meta.id, meta.type, action), options)
+    }
+}
+
+/** The graph records its own model and tool spans. The shared run-trace handler would record them again. */
+function withoutRunTraceHandler<T>(callbacks: T[]): T[] {
+    return callbacks.filter((callback) => (callback as { name?: string } | undefined)?.name !== 'cuttlely_otel')
 }
 
 const getSortedDepthNodes = (depthQueue: IDepthQueue) => {

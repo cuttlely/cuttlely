@@ -14,7 +14,7 @@ import {
     generateFollowUpPrompts,
     tracingEnvEnabled
 } from '@cuttlely/components'
-import { noteFlowOutcome, silenceRunTraces, traceFlow, tracedNode } from '../metrics/tracing'
+import { attachTraceContinuation, noteFlowOutcome, silenceRunTraces, traceContinuation, traceFlow, tracedNode } from '../metrics/tracing'
 import {
     IncomingAgentflowInput,
     INodeData,
@@ -1427,7 +1427,7 @@ const executeNode = async ({
 
         // Stop going through the current route if the node is a human task
         if (!humanInput && reactFlowNode.data.name === 'humanInputAgentflow') {
-            const humanInputAction = {
+            const humanInputAction = attachTraceContinuation({
                 id: uuidv4(),
                 mapping: {
                     approve: 'Proceed',
@@ -1442,7 +1442,7 @@ const executeNode = async ({
                     nodeLabel: reactFlowNode.data.label,
                     input: results.input
                 }
-            }
+            })
 
             const newWorkflowExecutedData: IAgentflowExecutedData = {
                 nodeId,
@@ -1474,7 +1474,7 @@ const executeNode = async ({
 
         // Stop going through the current route if the node is a agent node waiting for human input before using the tool
         if (reactFlowNode.data.name === 'agentAgentflow' && results?.output?.isWaitingForHumanInput) {
-            const humanInputAction = {
+            const humanInputAction = attachTraceContinuation({
                 id: uuidv4(),
                 mapping: {
                     approve: 'Proceed',
@@ -1489,7 +1489,7 @@ const executeNode = async ({
                     nodeLabel: reactFlowNode.data.label,
                     input: results.input
                 }
-            }
+            })
 
             const newWorkflowExecutedData: IAgentflowExecutedData = {
                 nodeId,
@@ -1558,17 +1558,50 @@ const parseFormStringToJson = (formString: string): Record<string, string> => {
 /*
  * Function to traverse the flow graph and execute the nodes
  */
+async function agentflowContinuation(params: IExecuteAgentFlowParams): Promise<{ traceId: string; spanId: string } | undefined> {
+    if (!params.incomingInput?.humanInput || params.replay || params.isRecursive) return undefined
+    if (process.env.CUTTLELY_OTEL_TRACES !== 'true') return undefined
+    try {
+        const rows = await params.appDataSource.getRepository(Execution).find({
+            where: {
+                sessionId: params.chatId,
+                agentflowId: params.chatflow.id,
+                workspaceId: params.workspaceId
+            },
+            order: { createdDate: 'DESC' }
+        })
+        const latest = rows?.[0]
+        if (!latest?.executionData) return undefined
+        const data = JSON.parse(latest.executionData) as Array<{ data?: { output?: { humanInputAction?: unknown } } }>
+        if (!Array.isArray(data)) return undefined
+        for (let index = data.length - 1; index >= 0; index -= 1) {
+            const parent = traceContinuation(data[index]?.data?.output?.humanInputAction)
+            if (parent) return parent
+        }
+    } catch {
+        // A resume still runs when the waiting trace id cannot be read. It starts a new trace.
+    }
+    return undefined
+}
+
 export const executeAgentFlow = async (params: IExecuteAgentFlowParams): Promise<any> => {
     // A publish check replay exports no spans, including the nodes it still runs.
     if (!params.isRecursive && params.replay) return silenceRunTraces(() => runAgentFlow(params))
     // When traces are off this is one environment check and the body runs once.
     // isRecursive is the iteration guard: a nested pass joins the active trace instead of starting another root.
     if (!params.isRecursive && process.env.CUTTLELY_OTEL_TRACES === 'true') {
-        return traceFlow('agentflow', params.chatflow.id, async () => {
-            const result = await runAgentFlow(params)
-            noteFlowOutcome(params.incomingInput?.question ?? params.incomingInput?.form, result?.text, result?.status)
-            return result
-        })
+        // The client does not send the waiting action back. The saved execution carries the trace id.
+        const continuedFrom = await agentflowContinuation(params)
+        return traceFlow(
+            'agentflow',
+            params.chatflow.id,
+            async () => {
+                const result = await runAgentFlow(params)
+                noteFlowOutcome(params.incomingInput?.question ?? params.incomingInput?.form, result?.text, result?.status)
+                return result
+            },
+            continuedFrom
+        )
     }
     return runAgentFlow(params)
 }

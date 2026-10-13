@@ -63,13 +63,38 @@ Point `CUTTLELY_OTEL_TRACES_ENDPOINT` at `http://localhost:4318/v1/traces`, rest
 
 One trace per run. The root span is `chatflow.prediction` or `agentflow.run`.
 
-| Span                  | When                                                         | Attributes                                                                                             |
-| --------------------- | ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------ |
-| `chatflow.prediction` | A chatflow prediction, including an older multi-agent canvas | `flow.id`, `flow.kind` (`chatflow`), `status` (`ok` or `error`), and `error` when the run fails        |
-| `agentflow.run`       | An agentflow run                                             | `flow.id`, `flow.kind` (`agentflow`), `status`, and `error` when the run fails                         |
-| `node`                | Each node that is initialized or executed                    | `node.id`, `node.type`, `flow.id`, `flow.kind`, `status`, and `error` when that node fails             |
-| `model`               | A model call on that node                                    | `model.name` when Cuttlely knows it, `tokens.input`, `tokens.output`, `node.id`, `node.type`, `status` |
-| `tool`                | A tool call on that node                                     | `tool.name`, `node.id`, `node.type`, `status`, and `error` when the tool fails                         |
+| Span                  | When                                                         | Attributes                                                                                                      |
+| --------------------- | ------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------- |
+| `chatflow.prediction` | A chatflow prediction, including an older multi-agent canvas | `flow.id`, `flow.kind` (`chatflow`), `status` (`ok` or `error`), and `error` when the run fails                 |
+| `agentflow.run`       | An agentflow run                                             | `flow.id`, `flow.kind` (`agentflow`), `status`, and `error` when the run fails                                  |
+| `node`                | Each node that is initialized or executed                    | `node.id`, `node.type`, `flow.id`, `flow.kind`, `status`, and `error` when that node fails                      |
+| `model`               | A model call on that node                                    | `model.name` when Cuttlely knows it, `tokens.input`, `tokens.output`, `node.id`, `node.type`, `status`          |
+| `tool`                | A tool call on that node                                     | `tool.name`, `tool.id` when the call has one, `node.id`, `node.type`, `status`, and `error` when the tool fails |
+
+`status` is `ok`, `error`, or `pending`. A tool call that is waiting for approval is `pending`.
+
+For an agentflow step, `tokens.input` and `tokens.output` are the sum of the model calls in that step. That is the total the run card stores for the step. For a Multi Agents or Sequential Agents step, each model call has its own model span. Those counts use the same fields a usage record reads from the model callback, and they add up to that step's total.
+
+## Which runs send spans
+
+Nothing is sent until `CUTTLELY_OTEL_TRACES` is `true`. A publish check sends nothing. Streaming and a queue worker use the same tree as a direct run.
+
+| Run               | Root                                     | Rest of the trace                                                                                                                       |
+| ----------------- | ---------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| Chatflow          | `chatflow.prediction`                    | A node span for each initialized node and for the node that answers. Model and tool spans belong to the node that called them.          |
+| Queue worker      | `chatflow.prediction` or `agentflow.run` | The worker exports the same tree. Set the trace variables on the worker and restart it.                                                 |
+| Agentflow         | `agentflow.run`                          | A node span for each step on the run card. The model span's token counts match that step. Each tool span has `tool.name` and `tool.id`. |
+| Multi Agents      | `chatflow.prediction`                    | A node span for each worker and supervisor that runs, then a model span per model call and a tool span per tool call.                   |
+| Sequential Agents | `chatflow.prediction`                    | A node span for each step that runs, including a tool step, with the same model and tool spans.                                         |
+| Approval resume   | Child of the waiting run                 | The next prediction continues the waiting trace. See below.                                                                             |
+
+A Sequential Agents approval puts the trace id and the root span id on the action the chat sends back. The next prediction's `chatflow.prediction` span is a child of that root, so both parts are one trace. The waiting tool call stays `pending` until that next prediction runs it.
+
+An agentflow approval stores those same ids on the execution. The resume reads them and continues that trace. The chat does not have to send the ids back.
+
+Harness runs are not in these traces.
+
+Turning traces off does not create spans for any of these runs.
 
 `tokens.input` and `tokens.output` are set when the model reports them.
 

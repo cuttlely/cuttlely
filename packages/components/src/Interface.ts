@@ -270,6 +270,9 @@ export interface IAction {
     id?: string
     elements?: Array<{ type: string; label: string }>
     mapping?: { approve: string; reject: string; toolCalls: any[] }
+    /** Present only when run traces are on, so the approval continues that trace. */
+    traceId?: string
+    spanId?: string
 }
 
 export interface IFileUpload {

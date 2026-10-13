@@ -1044,7 +1044,8 @@ export const executeFlow = async ({
 
                 return result
             }
-        }
+        },
+        incomingInput.action
     )
 }
 
