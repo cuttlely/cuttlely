@@ -46,6 +46,7 @@ const Datasets = Loadable(lazy(() => import('@/views/datasets')))
 const DatasetItems = Loadable(lazy(() => import('@/views/datasets/DatasetItems')))
 const Evaluators = Loadable(lazy(() => import('@/views/evaluators')))
 const Evaluations = Loadable(lazy(() => import('@/views/evaluations')))
+const Usage = Loadable(lazy(() => import('@/views/usage')))
 const EvaluationResult = Loadable(lazy(() => import('@/views/evaluations/EvaluationResult')))
 const DocumentStoreDetail = Loadable(lazy(() => import('@/views/docstore/DocumentStoreDetail')))
 const ShowStoredChunks = Loadable(lazy(() => import('@/views/docstore/ShowStoredChunks')))
@@ -288,6 +289,14 @@ const MainRoutes = {
             element: (
                 <RequireAuth permission={'evaluations:view'}>
                     <EvaluationResult />
+                </RequireAuth>
+            )
+        },
+        {
+            path: '/usage',
+            element: (
+                <RequireAuth permission={'chatflows:view,agentflows:view'}>
+                    <Usage />
                 </RequireAuth>
             )
         },

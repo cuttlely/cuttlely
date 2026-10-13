@@ -62,6 +62,8 @@
             "packages/server/src/database/migrations/*/1791900000000-AddTokenUsageDay.ts",
             "packages/server/src/database/migrations/*/1793000000000-AddModelPriceOverride.ts",
             "packages/server/src/database/migrations/*/1794000000000-BinCollationOnTokenUsageDayModel.ts",
+            "packages/ui/src/views/usage/**",
+            "packages/ui/src/api/usage.js",
             "packages/ui/src/ui-component/extended/PublishInstantly.jsx",
             "packages/server/src/services/flow-promote/**",
             "packages/server/src/controllers/flow-promote/**",
@@ -690,7 +692,9 @@
                 "packages/server/src/database/entities/ModelPriceOverride.ts",
                 "packages/server/src/database/migrations/*/1791900000000-AddTokenUsageDay.ts",
                 "packages/server/src/database/migrations/*/1793000000000-AddModelPriceOverride.ts",
-                "packages/server/src/database/migrations/*/1794000000000-BinCollationOnTokenUsageDayModel.ts"
+                "packages/server/src/database/migrations/*/1794000000000-BinCollationOnTokenUsageDayModel.ts",
+                "packages/ui/src/views/usage/**",
+                "packages/ui/src/api/usage.js"
             ],
             "entryPoints": [
                 "packages/server/src/services/usage/index.ts",
@@ -705,7 +709,8 @@
                 "packages/server/src/database/migrations/postgres/1791900000000-AddTokenUsageDay.ts",
                 "packages/server/src/database/migrations/postgres/1793000000000-AddModelPriceOverride.ts",
                 "packages/server/src/database/migrations/sqlite/1791900000000-AddTokenUsageDay.ts",
-                "packages/server/src/database/migrations/sqlite/1793000000000-AddModelPriceOverride.ts"
+                "packages/server/src/database/migrations/sqlite/1793000000000-AddModelPriceOverride.ts",
+                "packages/ui/src/views/usage/index.jsx"
             ]
         },
         {
