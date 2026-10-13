@@ -8,7 +8,8 @@ const clearGateCheckNote: jest.Mock = jest.fn()
 const settlePublishGateCheck: jest.Mock = jest.fn(async (flow: { id?: string }, input: { checkId?: string }) => {
     try {
         const outcome = await recordPublishGateResult(flow, input)
-        if (outcome !== 'stored') clearGateCheckNote(flow?.id)
+        const noted = noteGateCheck.mock.calls.filter((call) => call[0] === flow?.id).at(-1)?.[1]
+        if (outcome === 'stored' || (input?.checkId && noted === input.checkId)) clearGateCheckNote(flow?.id)
         return outcome === 'ignored' ? 'ignored' : 'stored'
     } catch (error) {
         noteGateCheck(flow?.id, input?.checkId)
@@ -1117,7 +1118,7 @@ describe('a dataset and evaluators', () => {
         const done = await getCheck(flow(), started.id)
         expect(done.status).toBe('done')
         expect(noteGateCheck).not.toHaveBeenCalled()
-        expect(clearGateCheckNote).toHaveBeenCalledWith('flow-1')
+        expect(clearGateCheckNote).not.toHaveBeenCalled()
     })
 
     test('a dataset check matches the passing test set only when the settings are the same', async () => {

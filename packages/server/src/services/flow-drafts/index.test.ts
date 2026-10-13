@@ -121,6 +121,7 @@ beforeEach(() => {
     evaluators.clear()
     duringDatasetLookup = null
     clearGateCheckNotes()
+    draftWriteHooks.afterStateRead = null
     chats.push({ id: 'flow-1', type: 'CHATFLOW', workspaceId: 'team-a' })
     draftWriteHooks.beforeDraftWrite = null
     jest.clearAllMocks()
@@ -642,6 +643,151 @@ describe('a passing test set before Publish', () => {
         expect(rows[0].publishInstantly).toBe(true)
         expect(rows[0].publishGate).toBe(false)
         expect(rows[0].publishGateDatasetId).toBeUndefined()
+    })
+
+    const storedPass = (checkId: string, checkedAt: string) =>
+        JSON.stringify({
+            draftHash: canvasHash(canvas('Draft')),
+            datasetId: 'ds-1',
+            evaluatorIds: ['ev-1'],
+            threshold: 100,
+            passRate: 100,
+            passed: 1,
+            failed: 0,
+            errored: 0,
+            verdict: 'passed',
+            checkedAt,
+            contentHash: 'abc',
+            postProcessHash: 'def',
+            checkId
+        })
+
+    test('an ignored check leaves another check failure note, so Publish stays refused', async () => {
+        await arm()
+        await recordPass()
+        noteGateCheck('flow-1', 'check-failed')
+        const outcome = await settlePublishGateCheck(flow(), {
+            ...pass,
+            datasetId: 'ds-other',
+            draftHash: canvasHash(canvas('Draft')),
+            contentHash: 'abc',
+            postProcessHash: postProcessHash(chats[0]?.chatbotConfig),
+            checkId: 'check-explore'
+        })
+        expect(outcome).toBe('ignored')
+        expect(notedGateCheck('flow-1')).toBe('check-failed')
+        await expect(draftToPublish(flow())).rejects.toMatchObject({
+            statusCode: 409,
+            message: expect.stringContaining('The test set result could not be saved.')
+        })
+    })
+
+    test('a draft save does not put back gate settings written after the row was read', async () => {
+        rows.push({
+            id: 'state-1',
+            chatflowId: 'flow-1',
+            workspaceId: 'team-a',
+            publishInstantly: false,
+            publishGate: false,
+            publishGateResult: null,
+            draftFlowData: null
+        })
+        const original = fakeRepo.findOneBy.getMockImplementation()
+        fakeRepo.findOneBy.mockImplementation(async (where: any) => {
+            const row = rows.find((item) => item.chatflowId === where.chatflowId) || null
+            return row ? { ...row } : null
+        })
+        draftWriteHooks.afterStateRead = async () => {
+            rows[0].publishGate = true
+            rows[0].publishGateDatasetId = 'ds-1'
+            rows[0].publishGateResult = storedPass('fresh', '2026-10-13T02:00:00.000Z')
+        }
+        try {
+            await saveDraft(flow(), canvas('Draft during save'), context)
+            expect(rows[0].draftFlowData).toEqual(expect.stringContaining('Draft during save'))
+            expect(rows[0].publishGate).toBe(true)
+            expect(rows[0].publishGateDatasetId).toBe('ds-1')
+            expect(rows[0].publishGateResult).toContain('fresh')
+        } finally {
+            fakeRepo.findOneBy.mockImplementation(original as any)
+        }
+    })
+
+    test('discarding a draft does not put back a gate result written after the row was read', async () => {
+        await saveDraft(flow(), canvas('Draft'), context)
+        const original = fakeRepo.findOneBy.getMockImplementation()
+        fakeRepo.findOneBy.mockImplementation(async (where: any) => {
+            const row = rows.find((item) => item.chatflowId === where.chatflowId) || null
+            return row ? { ...row } : null
+        })
+        draftWriteHooks.afterStateRead = async () => {
+            rows[0].publishGate = true
+            rows[0].publishGateResult = storedPass('fresh', '2026-10-13T03:00:00.000Z')
+        }
+        try {
+            await discardDraft(flow())
+            expect(rows[0].draftFlowData).toBeNull()
+            expect(rows[0].publishGate).toBe(true)
+            expect(rows[0].publishGateResult).toContain('fresh')
+        } finally {
+            fakeRepo.findOneBy.mockImplementation(original as any)
+        }
+    })
+
+    test('a clear does not delete a pass another check stored', async () => {
+        await arm()
+        rows[0].publishGateResult = storedPass('new-pass', '2026-10-13T01:00:00.000Z')
+        await clearPublishGateResult(flow(), { checkId: 'old-pass', checkedAt: '2026-10-13T00:00:00.000Z' })
+        expect(rows[0].publishGateResult).toContain('new-pass')
+        await clearPublishGateResult(flow(), { checkId: 'new-pass', checkedAt: '2026-10-13T01:00:00.000Z' })
+        expect(rows[0].publishGateResult).toBeNull()
+        expect(rows[0].draftFlowData).toEqual(expect.stringContaining('Draft'))
+    })
+
+    test('one request can turn Publish instantly off and the passing test set on, and the reverse', async () => {
+        seed()
+        await setPublishInstantly(flow(), true)
+        await updateDraftSettings(flow(), { publishInstantly: false, publishGate: gate })
+        expect(rows[0].publishInstantly).toBe(false)
+        expect(rows[0].publishGate).toBe(true)
+        expect(rows[0].publishGateDatasetId).toBe('ds-1')
+        await updateDraftSettings(flow(), { publishInstantly: true, publishGate: { enabled: false } })
+        expect(rows[0].publishInstantly).toBe(true)
+        expect(rows[0].publishGate).toBe(false)
+    })
+
+    test('a first draft save that wins the row keeps its canvas when settings insert hits the unique key', async () => {
+        seed()
+        const original = fakeRepo.save.getMockImplementation()
+        let thrown = false
+        fakeRepo.save.mockImplementation(async (row: any) => {
+            if (!thrown && row.publishGate === true && !rows.some((item) => item.chatflowId === row.chatflowId)) {
+                thrown = true
+                rows.push({
+                    id: 'draft-first',
+                    chatflowId: row.chatflowId,
+                    workspaceId: row.workspaceId,
+                    publishInstantly: false,
+                    publishGate: false,
+                    draftFlowData: canvas('First draft'),
+                    liveSha: 'abc123'
+                })
+                const error: any = new Error('UNIQUE constraint failed: flow_version_state.chatflowId')
+                error.code = 'SQLITE_CONSTRAINT'
+                throw error
+            }
+            return original?.(row)
+        })
+        try {
+            await updateDraftSettings(flow(), { publishGate: gate })
+            expect(rows).toHaveLength(1)
+            expect(rows[0].draftFlowData).toEqual(expect.stringContaining('First draft'))
+            expect(rows[0].liveSha).toBe('abc123')
+            expect(rows[0].publishGate).toBe(true)
+            expect(rows[0].publishGateDatasetId).toBe('ds-1')
+        } finally {
+            fakeRepo.save.mockImplementation(original as any)
+        }
     })
 
     test('a mismatched exploratory check leaves a stored pass publishable', async () => {

@@ -35,7 +35,11 @@ import { datasetStartRefusal } from '../flow-check/kinds'
 import { casesFromDataset, currentTestSetHash, loadEvaluators } from '../flow-check/score'
 
 // Test seam. A race test changes the flow's type after a draft save has started and before it writes.
-export const draftWriteHooks: { beforeDraftWrite: null | (() => Promise<void>) } = { beforeDraftWrite: null }
+export const draftWriteHooks: {
+    beforeDraftWrite: null | (() => Promise<void>)
+    // After the row is read and before this save writes. A test uses it to commit another write in between.
+    afterStateRead: null | (() => Promise<void>)
+} = { beforeDraftWrite: null, afterStateRead: null }
 
 const TYPE_CHANGED =
     "This flow changed to another kind of flow after these edits started, so they can't be saved. Discard them to continue."
@@ -366,17 +370,33 @@ export async function saveDraft(flow: DraftFlow, flowData: unknown, context: Sav
         }
         const stateRepo = manager.getRepository(FlowVersionState)
         const state = await stateRepo.findOneBy({ chatflowId: flow.id })
-        const row = state || stateRepo.create({ chatflowId: flow.id, workspaceId: flow.workspaceId, publishInstantly: false })
-        if (sameCanvas(canvas, flow.flowData)) {
-            clearDraft(row)
-        } else {
-            if (!row.draftFlowData) row.draftBaseHash = draftBase(flow)
-            row.draftFlowData = stampNodePack(canvas)
-            row.draftUpdatedDate = new Date()
-            row.draftUpdatedBy = context.userId || null
+        if (draftWriteHooks.afterStateRead) await draftWriteHooks.afterStateRead()
+        const clearing = sameCanvas(canvas, flow.flowData)
+        const draftPatch = clearing
+            ? { ...NO_DRAFT }
+            : {
+                  draftFlowData: stampNodePack(canvas),
+                  draftBaseHash: state?.draftFlowData ? state.draftBaseHash ?? null : draftBase(flow),
+                  draftUpdatedDate: new Date(),
+                  draftUpdatedBy: context.userId || null
+              }
+        if (!state && !draftPatch.draftFlowData) return statusFrom(flow, null)
+        if (!state) {
+            return statusFrom(
+                flow,
+                await stateRepo.save(
+                    stateRepo.create({
+                        chatflowId: flow.id,
+                        workspaceId: flow.workspaceId,
+                        publishInstantly: false,
+                        ...draftPatch
+                    })
+                )
+            )
         }
-        if (!state && !row.draftFlowData) return statusFrom(flow, null)
-        return statusFrom(flow, await stateRepo.save(row))
+        // Only the draft columns. A settings or gate-result write that landed after this read stays.
+        await stateRepo.update({ chatflowId: flow.id }, draftPatch)
+        return statusFrom(flow, await stateRepo.findOneBy({ chatflowId: flow.id }))
     })
     return withTestSet(flow, saved)
 }
@@ -392,8 +412,9 @@ function clearDraft(row: FlowVersionState) {
 export async function discardDraft(flow: DraftFlow): Promise<DraftStatus> {
     const state = await getState(flow.id)
     if (!state?.draftFlowData) return withTestSet(flow, statusFrom(flow, state))
-    clearDraft(state)
-    return withTestSet(flow, statusFrom(flow, await repo().save(state)))
+    if (draftWriteHooks.afterStateRead) await draftWriteHooks.afterStateRead()
+    await repo().update({ chatflowId: flow.id }, NO_DRAFT)
+    return getDraftStatus(flow)
 }
 
 // The draft canvas to publish. Refused when drafts are off or there is nothing to publish, and when Live
@@ -513,72 +534,107 @@ export async function updateDraftSettings(
     // Turning one setting on is conditional on the other still being off. A publish-instantly save
     // that commits during the lookup must not leave both flags true: publishInstantly would win and
     // the gate would never be consulted.
-    const current = await getState(flow.id)
-    if (!current) {
-        if (!nextInstant && !nextGate) return withTestSet(flow, statusFrom(flow, null))
-        await repo().save(
-            repo().create({
-                chatflowId: flow.id,
-                workspaceId: flow.workspaceId,
-                publishInstantly: Boolean(nextInstant),
-                publishGate: Boolean(gate?.enabled),
-                ...(gate?.enabled
-                    ? {
-                          publishGateDatasetId: gate.datasetId,
-                          publishGateEvaluatorIds: JSON.stringify(gate.evaluatorIds),
-                          publishGateThreshold: gate.threshold
-                      }
-                    : {})
-            })
-        )
-    } else {
-        if (gate?.enabled) {
-            await updateUnlessOtherFlag(
-                flow.id,
-                { chatflowId: flow.id, publishInstantly: false },
-                {
-                    publishGate: true,
-                    publishGateDatasetId: gate.datasetId,
-                    publishGateEvaluatorIds: JSON.stringify(gate.evaluatorIds),
-                    publishGateThreshold: gate.threshold
-                },
-                (row) => Boolean(row.publishInstantly),
-                true
-            )
-        } else if (gate && !gate.enabled) {
-            await repo().update({ chatflowId: flow.id }, { publishGate: false })
+    await withChatflowLock(flow.id, async (manager) => {
+        const stateRepo = manager.getRepository(FlowVersionState)
+        let row = await stateRepo.findOneBy({ chatflowId: flow.id })
+        if (!row) {
+            if (!nextInstant && !nextGate) return
+            try {
+                await stateRepo.save(stateRepo.create(newSettingsRow(flow, nextInstant, gate)))
+                return
+            } catch (error) {
+                if (!isUniqueViolation(error)) throw error
+                row = await stateRepo.findOneBy({ chatflowId: flow.id })
+                if (!row) throw error
+            }
         }
-        if (hasInstant && nextInstant) {
-            await updateUnlessOtherFlag(
-                flow.id,
-                { chatflowId: flow.id, publishGate: false },
-                { publishInstantly: true },
-                (row) => Boolean(row.publishGate),
-                false
-            )
-        } else if (hasInstant && !nextInstant) {
-            await repo().update({ chatflowId: flow.id }, { publishInstantly: false })
-        }
-    }
+        await applySettingsUpdate(stateRepo, flow.id, hasInstant, nextInstant, gate)
+    })
     return withTestSet(flow, statusFrom(flow, await getState(flow.id)))
+}
+
+function newSettingsRow(
+    flow: DraftFlow,
+    nextInstant: boolean,
+    gate: { enabled: boolean; datasetId: string | null; evaluatorIds: string[]; threshold: number | null } | null
+) {
+    return {
+        chatflowId: flow.id,
+        workspaceId: flow.workspaceId,
+        publishInstantly: Boolean(nextInstant),
+        publishGate: Boolean(gate?.enabled),
+        ...(gate?.enabled
+            ? {
+                  publishGateDatasetId: gate.datasetId,
+                  publishGateEvaluatorIds: JSON.stringify(gate.evaluatorIds),
+                  publishGateThreshold: gate.threshold
+              }
+            : {})
+    }
+}
+
+// Off flags go first, so one request can turn Publish instantly off and the passing test set on,
+// or the reverse. The on is then conditional on the other flag still being off.
+async function applySettingsUpdate(
+    stateRepo: { update: (where: object, patch: object) => Promise<{ affected?: number | null }> },
+    flowId: string,
+    hasInstant: boolean,
+    nextInstant: boolean,
+    gate: { enabled: boolean; datasetId: string | null; evaluatorIds: string[]; threshold: number | null } | null
+): Promise<void> {
+    if (hasInstant && !nextInstant) await stateRepo.update({ chatflowId: flowId }, { publishInstantly: false })
+    if (gate && !gate.enabled) await stateRepo.update({ chatflowId: flowId }, { publishGate: false })
+    if (gate?.enabled) {
+        await updateUnlessOtherFlag(
+            stateRepo,
+            flowId,
+            { chatflowId: flowId, publishInstantly: false },
+            {
+                publishGate: true,
+                publishGateDatasetId: gate.datasetId,
+                publishGateEvaluatorIds: JSON.stringify(gate.evaluatorIds),
+                publishGateThreshold: gate.threshold
+            },
+            (row) => Boolean(row.publishInstantly),
+            true
+        )
+    }
+    if (hasInstant && nextInstant) {
+        await updateUnlessOtherFlag(
+            stateRepo,
+            flowId,
+            { chatflowId: flowId, publishGate: false },
+            { publishInstantly: true },
+            (row) => Boolean(row.publishGate),
+            false
+        )
+    }
+}
+
+function isUniqueViolation(error: unknown): boolean {
+    const err = error as { code?: string; message?: string; driverError?: { code?: string } }
+    const code = String(err?.code || err?.driverError?.code || '')
+    if (['23505', 'ER_DUP_ENTRY', 'SQLITE_CONSTRAINT', 'SQLITE_CONSTRAINT_UNIQUE'].includes(code)) return true
+    return /unique constraint|duplicate key|duplicate entry/i.test(String(err?.message || ''))
 }
 
 // MySQL and MariaDB report 0 changed rows when the values are already stored. That is a save,
 // not proof that the other flag is on. Re-read, and return 400 only when that flag really is on.
 async function updateUnlessOtherFlag(
+    stateRepo: { update: (where: object, patch: object) => Promise<{ affected?: number | null }> },
     flowId: string,
     where: { chatflowId: string; publishInstantly?: boolean; publishGate?: boolean },
     patch: Partial<FlowVersionState>,
     otherFlagOn: (row: FlowVersionState) => boolean,
     turningGateOn: boolean
 ): Promise<void> {
-    const updated = await repo().update(where, patch)
+    const updated = await stateRepo.update(where, patch)
     if (updated?.affected) return
     const row = await getState(flowId)
     if (!row || otherFlagOn(row)) throw new AppError(StatusCodes.BAD_REQUEST, conflictingSettingsMessage(turningGateOn))
     const same = (Object.keys(patch) as Array<keyof FlowVersionState>).every((key) => row[key] === patch[key])
     if (same) return
-    await repo().update({ chatflowId: flowId }, patch)
+    await stateRepo.update({ chatflowId: flowId }, patch)
 }
 
 export interface GateResultInput {
@@ -622,14 +678,18 @@ export type GateWriteOutcome = 'stored' | 'ignored'
 // A write that throws notes this check, then tries to clear the stored result. If that clear
 // also throws, the note stays so Publish refuses the older pass.
 export async function settlePublishGateCheck(flow: DraftFlow, input: GateResultInput): Promise<GateWriteOutcome> {
+    const before = readGateResult((await getState(flow.id))?.publishGateResult)
     try {
         const outcome = await recordPublishGateResult(flow, input)
-        clearGateCheckNote(flow.id)
+        // A stored result replaces any failure note. An ignored check clears a note only when that
+        // note is this check's. Another check's failure note stays, so its older pass stays refused.
+        const noted = notedGateCheck(flow.id)
+        if (outcome === 'stored' || (input.checkId && noted === input.checkId)) clearGateCheckNote(flow.id)
         return outcome
     } catch (error) {
         if (input.checkId) noteGateCheck(flow.id, input.checkId)
         try {
-            await clearPublishGateResult(flow)
+            await clearPublishGateResult(flow, { checkId: before?.checkId ?? null, checkedAt: before?.checkedAt ?? null })
         } catch {
             // The note stays. Publish refuses a stored pass that is not from this check.
         }
@@ -679,9 +739,22 @@ export async function recordPublishGateResult(flow: DraftFlow, input: GateResult
 }
 
 // Drops the stored gate result and leaves the draft and the other settings alone. A check whose
-// write failed calls this so an older pass cannot publish.
-export async function clearPublishGateResult(flow: Pick<DraftFlow, 'id'>): Promise<void> {
-    await repo().update({ chatflowId: flow.id }, { publishGateResult: null })
+// write failed calls this so an older pass cannot publish. When `previous` is set, the clear runs
+// only while the row still holds that result. A pass another process stored (a different check id
+// or a different time) is left in place.
+export async function clearPublishGateResult(
+    flow: Pick<DraftFlow, 'id'>,
+    previous?: { checkId?: string | null; checkedAt?: string | null } | null
+): Promise<void> {
+    const state = await getState(flow.id)
+    const stored = state?.publishGateResult
+    if (!stored) return
+    if (previous) {
+        const current = readGateResult(stored)
+        if ((previous.checkId || null) !== (current?.checkId || null)) return
+        if ((previous.checkedAt || null) !== (current?.checkedAt || null)) return
+    }
+    await repo().update({ chatflowId: flow.id, publishGateResult: stored }, { publishGateResult: null })
 }
 
 // The canvas the flow's own test runs: the draft when the flow saves to drafts and has one,
