@@ -24,8 +24,15 @@ import { callPrepared, normalizeResult, prepareModule, preparedKind, preparedSch
 import { emitHarnessEvent } from './events.mjs'
 import { CHIEF_MODEL_REQUIRED, HarnessError, STALE_RECORD } from './errors.mjs'
 import { createRun, hermesBaseUrl, stopRun, waitForRun } from './client.mjs'
-import { analystCallsFor, beginAnalystCalls, endAnalystCalls, latestAnalystCursor, takeAnalystResults } from './analyst-capture.mjs'
-import { abortGatewayProfile, setGatewayContext } from './gateway.mjs'
+import {
+    analystCallsFor,
+    beginAnalystCalls,
+    dropAnalystCapture,
+    endAnalystCalls,
+    latestAnalystCursor,
+    takeAnalystResults
+} from './analyst-capture.mjs'
+import { abortGatewayProfile, clearCallerWorkspace, noteCallerWorkspace, setGatewayContext } from './gateway.mjs'
 import { analystToolsMissing } from './runtime/analyst-mcp-status.mjs'
 import { ANALYST_CURSOR_ERRORS, analystPageRequest, analystPageTask } from './runtime/analyst-page.mjs'
 import { analystScopeKey, endAnalystRun, withAnalystScope } from './runtime/analyst-store.mjs'
@@ -72,11 +79,28 @@ export function configureHarnessRuntime({ contextFor } = {}) {
     setGatewayContext(runtimeContextFor)
 }
 
+// Before a run row is opened. A harness with no team is not in the caller's team.
+// Both empty is an offline run with no team on either side.
+export function assertHarnessWorkspace(name, flowOptions, record) {
+    let harness = record
+    if (!harness) {
+        try {
+            harness = getHarness(name)
+        } catch {
+            return
+        }
+    }
+    if (!harness) return
+    const caller = typeof flowOptions?.workspaceId === 'string' ? flowOptions.workspaceId : ''
+    const owner = typeof harness.workspaceId === 'string' ? harness.workspaceId : ''
+    if (caller !== owner) {
+        throw new HarnessError('wrong_workspace', `Harness "${harness.name || name}" belongs to another workspace.`)
+    }
+}
+
 function ownerFlowOptions(record, callerOptions) {
     const flowOptions = { ...(callerOptions || {}) }
-    if (record.workspaceId && flowOptions.workspaceId !== record.workspaceId) {
-        throw new HarnessError('wrong_workspace', `Harness "${record.name}" belongs to another workspace.`)
-    }
+    assertHarnessWorkspace(record?.name, flowOptions, record)
     if (flowOptions.callerChatflowId == null && flowOptions.chatflowid != null) {
         flowOptions.callerChatflowId = flowOptions.chatflowid
     }
@@ -150,18 +174,24 @@ export function harnessForTurn(name, record) {
 
 export async function runHarness(args = {}) {
     const started = Date.now()
+    // A wrong team must not open a run row. Inline and off both reach this function.
+    assertHarnessWorkspace(args.name, args.flowOptions, args.record)
+    // A publish-check replay keeps no run history. The try profile is still removed below.
+    const replay = args.replay === true
     let pending = null
-    try {
-        pending = beginHarnessRun({
-            name: args.name,
-            chatId: args.chatId,
-            source: args.source,
-            startedAt: started,
-            input: args.input,
-            traceId: traceIdFrom(args)
-        })
-    } catch (historyError) {
-        console.warn(`[harness] run history was not opened: ${historyError.message}`)
+    if (!replay) {
+        try {
+            pending = beginHarnessRun({
+                name: args.name,
+                chatId: args.chatId,
+                source: args.source,
+                startedAt: started,
+                input: args.input,
+                traceId: traceIdFrom(args)
+            })
+        } catch (historyError) {
+            console.warn(`[harness] run history was not opened: ${historyError.message}`)
+        }
     }
     let result
     let failure = null
@@ -181,7 +211,15 @@ export async function runHarness(args = {}) {
                 console.warn(`[harness] try profile was not removed: ${error.message}`)
             }
         }
-        rememberRun(args, started, pending, result, failure)
+        if (replay) {
+            try {
+                dropAnalystCapture({ harness: args.name, chatId: args.chatId })
+            } catch {
+                // Dropping the check's captured rows must not hide the run's own error.
+            }
+        } else {
+            rememberRun(args, started, pending, result, failure)
+        }
     }
 }
 
@@ -202,7 +240,8 @@ async function runHarnessTurn({
     signal,
     budgetMs,
     images,
-    record
+    record,
+    replay
 } = {}) {
     const harness = harnessForTurn(name, record)
     if (!chatId) {
@@ -230,7 +269,8 @@ async function runHarnessTurn({
                     onEvent,
                     signal,
                     budgetMs,
-                    images
+                    images,
+                    replay
                 }),
             { workspace: harness.workspaceId }
         )
@@ -264,10 +304,60 @@ async function runTurn(
         onEvent,
         signal,
         budgetMs,
-        images
+        images,
+        replay
     }
 ) {
     const flowOptions = ownerFlowOptions(harness, callerFlowOptions)
+    const callerWorkspace = typeof flowOptions.workspaceId === 'string' ? flowOptions.workspaceId : ''
+    if (callerWorkspace) noteCallerWorkspace(harness.name, callerWorkspace)
+    try {
+        return await runTurnBody(harness, {
+            name,
+            chatId,
+            input,
+            baseUrl,
+            fetchImpl,
+            componentNodes,
+            loadNode,
+            forceSpecialistFailure,
+            metadata,
+            timeoutMs,
+            modelBaseUrl,
+            flowOptions,
+            onEvent,
+            signal,
+            budgetMs,
+            images,
+            replay
+        })
+    } finally {
+        if (callerWorkspace) clearCallerWorkspace(harness.name)
+    }
+}
+
+async function runTurnBody(
+    harness,
+    {
+        name,
+        chatId,
+        input,
+        baseUrl,
+        fetchImpl,
+        componentNodes,
+        loadNode,
+        forceSpecialistFailure,
+        metadata,
+        timeoutMs,
+        modelBaseUrl,
+        flowOptions,
+        onEvent,
+        signal,
+        budgetMs,
+        images,
+        replay
+    }
+) {
     assertCurrentRecord(harness)
     const profileStarted = Date.now()
     const needsHermes = (harness.specialists || []).some((specialist) => needsAgentLoop(specialist))
@@ -312,7 +402,9 @@ async function runTurn(
         memoryBlock: '',
         promptMessages: [],
         turnId: crypto.randomUUID(),
-        images: promptImages(images)
+        images: promptImages(images),
+        // Publish-check replay: do not read or write the harness session.
+        replay: replay === true
     }
     try {
         // With images, Harness Prime routes even a one-tool roster so it can write what the image shows into the task.
@@ -389,6 +481,11 @@ function noteTruncated(context, names) {
 }
 
 function loadPrompt(context) {
+    if (context.replay) {
+        context.memoryBlock = ''
+        context.promptMessages = []
+        return []
+    }
     const prompt = readPromptContext(context.name, context.chatId)
     context.memoryBlock = prompt.block
     context.promptMessages = (prompt.messages || []).map((message) => {
@@ -466,13 +563,15 @@ async function runRoster(context, input) {
     if (!text.trim()) {
         throw new HarnessError('empty_output', `Harness "${context.name}" finished without a Harness Prime answer.`)
     }
-    appendTurn(
-        context.name,
-        context.chatId,
-        question,
-        text,
-        sourceNames([...(context.uploadSources || []), ...results.flatMap((result) => result.sources || [])])
-    )
+    if (!context.replay) {
+        appendTurn(
+            context.name,
+            context.chatId,
+            question,
+            text,
+            sourceNames([...(context.uploadSources || []), ...results.flatMap((result) => result.sources || [])])
+        )
+    }
     const timings = { routeMs: routed - started, specialistsMs: finished - routed, handoffMs: Date.now() - finished }
     const agents = results.map((result) => {
         const specialist = (context.roster.specialists || []).find((item) => item.name === result.name)
@@ -1269,7 +1368,7 @@ async function runHermesSpecialist(context, specialist, task) {
 }
 
 function attachCapturedAnalystResults(context, specialist, since, logStart = 0) {
-    const captured = takeAnalystResults({ harness: context.name, specialist: specialist.name, since })
+    const captured = takeAnalystResults({ harness: context.name, specialist: specialist.name, chatId: context.chatId, since })
     if (!captured.length) return
     if (!context.toolLog) context.toolLog = []
     const slots = []
@@ -1835,7 +1934,7 @@ async function runDirectTool(context, specialist, input) {
             context
         )}, ${reportNote(context)}`
     )
-    appendTurn(name, chatId, question, text, sourceNames(output.documents))
+    if (!context.replay) appendTurn(name, chatId, question, text, sourceNames(output.documents))
     const filledInput = typeof value === 'string' ? value : JSON.stringify(value ?? '')
     const agent = publicAgent(context, specialist, {
         name: specialist.name,

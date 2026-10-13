@@ -46,8 +46,13 @@ import flowVersionsApi from '@/api/flowVersions'
 import credentialsApi from '@/api/credentials'
 import {
     DEFAULT_REPO_NAME,
-    ENVIRONMENT_HINT,
     NEW_TOKEN,
+    environmentHint,
+    environmentSwitchNote,
+    listUnreadable,
+    repairListBody,
+    SAVED_REPAIR_ROWS,
+    UNREADABLE_LIST,
     ownCredentials,
     checkRepoName,
     filterRepos,
@@ -59,7 +64,15 @@ import {
     tokenHint
 } from '@/utils/githubSync'
 import GithubTokenHelp from './GithubTokenHelp'
-import { incomingSummary, promotePath, readLine } from '@/utils/promote'
+import {
+    incomingSummary,
+    isSavedDevProdPair,
+    previousEnvironmentTitle,
+    promotePath,
+    readIntro,
+    readLine,
+    sourceTitleOf
+} from '@/utils/promote'
 
 const pop = keyframes`
   0% { transform: scale(0.4); opacity: 0; }
@@ -134,13 +147,22 @@ RepoRow.propTypes = {
 // The "make a new repository" row in the picker.
 const NEW_REPO = '__new_repo__'
 
+// What loadRepos selects. A server with a previous environment starts with nothing picked.
+export const repoPickAfterLoad = (repos, joinsExisting) => {
+    if (joinsExisting) return ''
+    const list = repos || []
+    const firstEmpty = list.find((item) => item.empty)
+    if (firstEmpty) return firstEmpty.repo
+    return list.length ? '' : NEW_REPO
+}
+
 // onStatus hears every status the card loads or gets back, so a page around it can follow along.
-const GithubCard = ({ onStatus }) => {
-    const [status, setStatus] = useState(null)
+const GithubCard = ({ onStatus, initialStatus = null, initialStep = 'idle' }) => {
+    const [status, setStatus] = useState(initialStatus)
     const [loadError, setLoadError] = useState('')
     const [busy, setBusy] = useState('')
     const [error, setError] = useState('')
-    const [step, setStep] = useState('idle') // idle, token, repo
+    const [step, setStep] = useState(initialStep) // idle, token, repo
     const [savedTokens, setSavedTokens] = useState([])
     const [tokenChoice, setTokenChoice] = useState(NEW_TOKEN)
     const [token, setToken] = useState('')
@@ -192,21 +214,27 @@ const GithubCard = ({ onStatus }) => {
     const connected = Boolean(status?.connected)
     // Prod only reads the repository: new versions from Dev arrive there to promote.
     const reading = status?.role === 'read'
+    const reviews = reading || Boolean(status?.promotes)
     const [incoming, setIncoming] = useState(null)
     useEffect(() => {
-        if (!reading || !connected) {
+        if (!reviews || !connected) {
             setIncoming(null)
             return undefined
         }
         let cancelled = false
         flowVersionsApi
             .listIncoming()
-            .then((res) => !cancelled && setIncoming(res.data?.flows || []))
+            .then((res) => !cancelled && setIncoming(res.data || null))
             .catch(() => !cancelled && setIncoming(null))
         return () => {
             cancelled = true
         }
-    }, [reading, connected, status?.incomingVersion, status?.lastCheckedAt])
+    }, [reviews, connected, status?.incomingVersion, status?.lastCheckedAt])
+    const incomingFlows = incoming?.flows || []
+    const sourceTitle = sourceTitleOf(incoming)
+    const readsFrom = previousEnvironmentTitle(status)
+    // Any server with a previous environment reads that repository, including one that also copies.
+    const joinsExisting = Boolean(status?.promotes)
     const tokenBody = tokenChoice === NEW_TOKEN ? { token } : { credentialId: tokenChoice }
     const shown = useMemo(() => filterRepos(repos, query), [repos, query])
 
@@ -240,10 +268,8 @@ const GithubCard = ({ onStatus }) => {
             const res = await flowVersionsApi.listGithubRepos(tokenBody)
             setAccount(res.data.account)
             setRepos(res.data.repos || [])
-            const firstEmpty = (res.data.repos || []).find((r) => r.empty)
-            // Prod reads what Dev copied, so it starts with nothing picked and never offers a new repository.
-            if (reading) setPicked('')
-            else setPicked(firstEmpty ? firstEmpty.repo : res.data.repos?.length ? '' : NEW_REPO)
+            // A server with a previous environment uses that repository. Nothing is preselected, and a new one is never offered.
+            setPicked(repoPickAfterLoad(res.data.repos, joinsExisting))
             setStep('repo')
         } catch (err) {
             setError(messageOf(err))
@@ -257,6 +283,10 @@ const GithubCard = ({ onStatus }) => {
         setError('')
         try {
             let repo = picked
+            if (joinsExisting && picked === NEW_REPO) {
+                setError(`Pick the repository your ${readsFrom} server copies to.`)
+                return
+            }
             if (picked === NEW_REPO) {
                 const checked = checkRepoName(newName)
                 if (checked.error) {
@@ -309,6 +339,10 @@ const GithubCard = ({ onStatus }) => {
         }
     }
 
+    const [repairRows, setRepairRows] = useState(SAVED_REPAIR_ROWS)
+    const [repairHere, setRepairHere] = useState('')
+    const unreadable = listUnreadable(status)
+
     const changeEnvironment = async (_event, value) => {
         if (value === null || value === undefined) return
         setError('')
@@ -318,6 +352,26 @@ const GithubCard = ({ onStatus }) => {
         } catch (err) {
             setError(messageOf(err))
         }
+    }
+
+    const saveRepair = async () => {
+        setError('')
+        const body = repairListBody(repairRows, repairHere)
+        if (body.error) {
+            setError(body.error)
+            return
+        }
+        try {
+            const res = await flowVersionsApi.setEnvironment(body.environment, body.environments)
+            setStatus(res.data)
+        } catch (err) {
+            setError(messageOf(err))
+        }
+    }
+
+    const editRepair = (index, field) => (event) => {
+        const value = event.target.value
+        setRepairRows((rows) => rows.map((row, at) => (at === index ? { ...row, [field]: value } : row)))
     }
 
     return (
@@ -343,9 +397,7 @@ const GithubCard = ({ onStatus }) => {
                             <Box sx={{ flex: 1 }}>
                                 <Typography variant='h4'>GitHub</Typography>
                                 <Typography variant='body2' color='text.secondary'>
-                                    {reading
-                                        ? 'Get new versions from your Dev server through your GitHub repository.'
-                                        : 'Keep a copy of every version in your own GitHub repository.'}
+                                    {reading ? readIntro(status) : 'Keep a copy of every version in your own GitHub repository.'}
                                 </Typography>
                             </Box>
                             <Chip label={chip.label} color={chip.color} variant={connected ? 'filled' : 'outlined'} />
@@ -392,29 +444,33 @@ const GithubCard = ({ onStatus }) => {
                                         ? 'This server only reads the repository. Live flows never wait for GitHub.'
                                         : 'Publishing never waits for GitHub.'}
                                 </Typography>
-                                {reading && incoming && (
+                                {reviews && incoming && (
                                     <Box
                                         data-testid='card-incoming'
                                         sx={{
                                             p: 1.5,
                                             borderRadius: 2,
-                                            bgcolor: incoming.length ? 'primary.light' : 'action.hover',
+                                            bgcolor: incomingFlows.length ? 'primary.light' : 'action.hover',
                                             display: 'flex',
                                             alignItems: 'center',
                                             gap: 1.5
                                         }}
                                     >
-                                        {incoming.length ? <IconRocket size={22} /> : <IconCheck size={22} />}
-                                        <Typography variant='body2' sx={{ flex: 1, fontWeight: incoming.length ? 600 : 400 }}>
-                                            {incoming.length ? incomingSummary(incoming) : 'Everything from Dev is Live here.'}
+                                        {incomingFlows.length ? <IconRocket size={22} /> : <IconCheck size={22} />}
+                                        <Typography variant='body2' sx={{ flex: 1, fontWeight: incomingFlows.length ? 600 : 400 }}>
+                                            {incomingFlows.length
+                                                ? incomingSummary(incomingFlows, sourceTitle)
+                                                : sourceTitle === 'Dev'
+                                                ? 'Everything from Dev is Live here.'
+                                                : `Everything from ${sourceTitle} is Live here.`}
                                         </Typography>
                                         <Button
                                             size='small'
-                                            variant={incoming.length ? 'contained' : 'text'}
+                                            variant={incomingFlows.length ? 'contained' : 'text'}
                                             component={RouterLink}
                                             to={promotePath()}
                                         >
-                                            {incoming.length ? 'Review' : 'Open'}
+                                            {incomingFlows.length ? 'Review' : 'Open'}
                                         </Button>
                                     </Box>
                                 )}
@@ -444,8 +500,8 @@ const GithubCard = ({ onStatus }) => {
                             <Stack spacing={2} alignItems='flex-start'>
                                 {status.state === 'stopped' && <Alert severity='error'>{status.message}</Alert>}
                                 <Typography color='text.secondary'>
-                                    {reading
-                                        ? 'Connect the repository your Dev server copies to. This server reads new versions from it, never writes to it, and puts nothing Live until you promote it.'
+                                    {joinsExisting
+                                        ? `Connect the repository your ${readsFrom} server copies to. New versions from ${readsFrom} show up here, and nothing goes Live until you promote it.`
                                         : 'Your history always stays on this server. Connect GitHub to keep a second copy there, updated a few seconds after each change. Keys are never copied: credentials go by name only.'}
                                 </Typography>
                                 <Button variant='contained' size='large' startIcon={<IconBrandGithub size={20} />} onClick={startConnect}>
@@ -486,7 +542,7 @@ const GithubCard = ({ onStatus }) => {
                                             InputProps={{
                                                 endAdornment: (
                                                     <InputAdornment position='end'>
-                                                        <GithubTokenHelp reading={reading} />
+                                                        <GithubTokenHelp reading={reading} from={joinsExisting ? readsFrom : ''} />
                                                     </InputAdornment>
                                                 )
                                             }}
@@ -526,8 +582,8 @@ const GithubCard = ({ onStatus }) => {
                             <Stack spacing={2}>
                                 <Typography variant='h5'>2. Pick where to keep it</Typography>
                                 <Typography variant='body2' color='text.secondary'>
-                                    {reading
-                                        ? `Signed in as ${account}. Pick the repository your Dev server copies to.`
+                                    {joinsExisting
+                                        ? `Signed in as ${account}. Pick the repository your ${readsFrom} server copies to.`
                                         : `Signed in as ${account}. Pick an empty repository, or make a new private one.`}
                                 </Typography>
                                 {repos.length > 6 && (
@@ -564,7 +620,7 @@ const GithubCard = ({ onStatus }) => {
                                             onSelect={() => setPicked(item.repo)}
                                         />
                                     ))}
-                                    {!reading && (
+                                    {!joinsExisting && (
                                         <ListItemButton
                                             selected={picked === NEW_REPO}
                                             onClick={() => setPicked(NEW_REPO)}
@@ -635,31 +691,103 @@ const GithubCard = ({ onStatus }) => {
                                     <Box sx={{ flex: 1 }}>
                                         <Typography variant='h5'>This server is</Typography>
                                         <Typography variant='caption' color='text.secondary'>
-                                            {ENVIRONMENT_HINT}
+                                            {unreadable ? UNREADABLE_LIST : environmentHint(status.environments)}
                                         </Typography>
-                                        {connected && (
+                                        {connected && !unreadable && (
                                             <Typography variant='caption' color='text.secondary' sx={{ display: 'block' }}>
-                                                To switch between Dev and Prod, disconnect GitHub first.
+                                                {environmentSwitchNote(status)}
                                             </Typography>
                                         )}
                                     </Box>
-                                    <ToggleButtonGroup
-                                        exclusive
-                                        size='small'
-                                        value={status.environment || ''}
-                                        onChange={changeEnvironment}
-                                        aria-label='This server is Dev or Prod'
-                                    >
-                                        <ToggleButton value='dev' sx={{ px: 2.5 }}>
-                                            Dev
-                                        </ToggleButton>
-                                        <ToggleButton value='prod' sx={{ px: 2.5 }}>
-                                            Prod
-                                        </ToggleButton>
-                                        <ToggleButton value='' sx={{ px: 2 }}>
-                                            Not set
-                                        </ToggleButton>
-                                    </ToggleButtonGroup>
+                                    {unreadable ? (
+                                        <Stack spacing={1} data-testid='environment-repair' sx={{ minWidth: { sm: 360 } }}>
+                                            {repairRows.map((row, index) => (
+                                                <Stack key={index} direction='row' spacing={1}>
+                                                    <TextField
+                                                        size='small'
+                                                        label='Name'
+                                                        value={row.name}
+                                                        onChange={editRepair(index, 'name')}
+                                                        inputProps={{ 'data-testid': `repair-name-${index}` }}
+                                                    />
+                                                    <TextField
+                                                        size='small'
+                                                        label='Server'
+                                                        value={row.server}
+                                                        onChange={editRepair(index, 'server')}
+                                                        inputProps={{ 'data-testid': `repair-server-${index}` }}
+                                                    />
+                                                    <TextField
+                                                        size='small'
+                                                        label='Copies to'
+                                                        value={row.branch}
+                                                        onChange={editRepair(index, 'branch')}
+                                                        inputProps={{ 'data-testid': `repair-copy-${index}` }}
+                                                    />
+                                                </Stack>
+                                            ))}
+                                            <Button
+                                                size='small'
+                                                onClick={() => setRepairRows((rows) => [...rows, { name: '', branch: '', server: '' }])}
+                                            >
+                                                Add an environment
+                                            </Button>
+                                            <ToggleButtonGroup
+                                                exclusive
+                                                size='small'
+                                                value={repairHere}
+                                                onChange={(_event, value) => {
+                                                    if (value) setRepairHere(value)
+                                                }}
+                                                aria-label='Which row is this server'
+                                            >
+                                                {repairRows
+                                                    .filter((row) => row.server)
+                                                    .map((row) => (
+                                                        <ToggleButton key={row.server} value={row.server}>
+                                                            {row.name}
+                                                        </ToggleButton>
+                                                    ))}
+                                            </ToggleButtonGroup>
+                                            <Button
+                                                size='small'
+                                                variant='contained'
+                                                data-testid='save-environment-list'
+                                                disabled={!repairHere}
+                                                onClick={saveRepair}
+                                            >
+                                                Save the list
+                                            </Button>
+                                        </Stack>
+                                    ) : (
+                                        <ToggleButtonGroup
+                                            exclusive
+                                            size='small'
+                                            value={status.environment || ''}
+                                            onChange={changeEnvironment}
+                                            aria-label={
+                                                isSavedDevProdPair(status.environments) ? 'This server is Dev or Prod' : 'This server is'
+                                            }
+                                        >
+                                            {isSavedDevProdPair(status.environments)
+                                                ? [
+                                                      <ToggleButton key='dev' value='dev' sx={{ px: 2.5 }}>
+                                                          Dev
+                                                      </ToggleButton>,
+                                                      <ToggleButton key='prod' value='prod' sx={{ px: 2.5 }}>
+                                                          Prod
+                                                      </ToggleButton>
+                                                  ]
+                                                : (status.environments || []).map((env) => (
+                                                      <ToggleButton key={env.server} value={env.server} sx={{ px: 2.5 }}>
+                                                          {env.name}
+                                                      </ToggleButton>
+                                                  ))}
+                                            <ToggleButton value='' sx={{ px: 2 }}>
+                                                Not set
+                                            </ToggleButton>
+                                        </ToggleButtonGroup>
+                                    )}
                                 </Stack>
                             </>
                         )}
@@ -670,6 +798,6 @@ const GithubCard = ({ onStatus }) => {
     )
 }
 
-GithubCard.propTypes = { onStatus: PropTypes.func }
+GithubCard.propTypes = { onStatus: PropTypes.func, initialStatus: PropTypes.object, initialStep: PropTypes.string }
 
 export default GithubCard

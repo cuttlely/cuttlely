@@ -52,18 +52,27 @@ export const runAdditionalEvaluators = async (
             try {
                 if (evaluator.type === 'numeric') {
                     const metric = metricsArray[j]
-                    const metricValue = metric[evaluator.measure]
-
-                    subArray.push({
-                        ...returnFields,
-                        result: evaluateExpression(
-                            evaluator.measure !== 'responseLength' ? metricValue : actualOutput.length,
-                            evaluator.operator,
-                            evaluator.value
-                        )
-                            ? 'Pass'
-                            : 'Fail'
-                    })
+                    // responseLength is the answer's length. Every other measure has to be a number the run recorded.
+                    // A missing token count is not a failed comparison: there was nothing to compare.
+                    if (evaluator.measure !== 'responseLength') {
+                        const metricValue = metric ? metric[evaluator.measure] : undefined
+                        if (typeof metricValue !== 'number' || !Number.isFinite(metricValue)) {
+                            subArray.push({
+                                ...returnFields,
+                                result: 'Error'
+                            })
+                            continue
+                        }
+                        subArray.push({
+                            ...returnFields,
+                            result: evaluateExpression(metricValue, evaluator.operator, evaluator.value) ? 'Pass' : 'Fail'
+                        })
+                    } else {
+                        subArray.push({
+                            ...returnFields,
+                            result: evaluateExpression(actualOutput.length, evaluator.operator, evaluator.value) ? 'Pass' : 'Fail'
+                        })
+                    }
                 }
                 if (evaluator.type === 'json') {
                     const operator = evaluator.operator

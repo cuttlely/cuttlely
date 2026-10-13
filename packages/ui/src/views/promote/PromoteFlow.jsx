@@ -9,7 +9,7 @@ import flowDraftsApi from '@/api/flowDrafts'
 import PublishCheck from '@/views/canvas/PublishCheck'
 import { apiErrorMessage } from '@/utils/flowDrafts'
 import { canvasPathFor } from '@/utils/versionHistory'
-import { rollbackTarget } from '@/utils/promote'
+import { rollbackTarget, sourceTitleOf } from '@/utils/promote'
 import { PromoteDetailView } from './PromoteViews'
 
 const PromoteFlow = () => {
@@ -91,11 +91,17 @@ const PromoteFlow = () => {
                 canRollBack={Boolean(target)}
                 onPromote={onPromote}
                 onRollBack={onRollBack}
+                sourceTitle={sourceTitleOf(detail)}
                 openPath={type ? canvasPathFor(type, id) : null}
                 now={Date.now()}
                 check={
                     <Box data-testid='promote-check'>
-                        <PublishCheck chatflowId={id} variant='promote' api={flowVersionsApi.promoteCheckApi} />
+                        <PublishCheck
+                            chatflowId={id}
+                            variant='promote'
+                            sourceTitle={sourceTitleOf(detail)}
+                            api={flowVersionsApi.promoteCheckApi}
+                        />
                     </Box>
                 }
             />

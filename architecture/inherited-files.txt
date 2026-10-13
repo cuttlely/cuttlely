@@ -1009,6 +1009,8 @@ packages/server/src/controllers/marketplaces/index.ts
 packages/server/src/controllers/mcp-endpoint/index.test.ts
 packages/server/src/controllers/mcp-endpoint/index.ts
 packages/server/src/controllers/mcp-server/index.ts
+packages/server/src/controllers/model-prices/index.test.ts
+packages/server/src/controllers/model-prices/index.ts
 packages/server/src/controllers/node-configs/index.ts
 packages/server/src/controllers/node-icons/index.ts
 packages/server/src/controllers/nodes/index.ts
@@ -1259,6 +1261,7 @@ packages/server/src/index.ts
 packages/server/src/metrics/OpenTelemetry.ts
 packages/server/src/metrics/Prometheus.test.ts
 packages/server/src/metrics/Prometheus.ts
+packages/server/src/metrics/graphTraces.test.ts
 packages/server/src/metrics/tracing.test.ts
 packages/server/src/metrics/tracing.ts
 packages/server/src/middlewares/errors/index.ts
@@ -1303,6 +1306,7 @@ packages/server/src/routes/marketplaces/index.ts
 packages/server/src/routes/mcp-endpoint/index.test.ts
 packages/server/src/routes/mcp-endpoint/index.ts
 packages/server/src/routes/mcp-server/index.ts
+packages/server/src/routes/model-prices/index.ts
 packages/server/src/routes/node-configs/index.ts
 packages/server/src/routes/node-custom-functions/index.ts
 packages/server/src/routes/node-icons/index.ts
@@ -1351,9 +1355,12 @@ packages/server/src/services/custom-mcp-servers/index.test.ts
 packages/server/src/services/custom-mcp-servers/index.ts
 packages/server/src/services/dataset/index.ts
 packages/server/src/services/documentstore/index.ts
+packages/server/src/services/evaluations/CostCalculator.test.ts
 packages/server/src/services/evaluations/CostCalculator.ts
 packages/server/src/services/evaluations/EvaluatorRunner.ts
+packages/server/src/services/evaluations/LLMEvaluationRunner.test.ts
 packages/server/src/services/evaluations/LLMEvaluationRunner.ts
+packages/server/src/services/evaluations/grader-node-fixture.js
 packages/server/src/services/evaluations/index.ts
 packages/server/src/services/evaluator/index.ts
 packages/server/src/services/executions/index.test.ts
@@ -1826,6 +1833,7 @@ packages/ui/src/views/auth/verify-email.jsx
 packages/ui/src/views/canvas/AddNodes.jsx
 packages/ui/src/views/canvas/ButtonEdge.jsx
 packages/ui/src/views/canvas/CanvasHeader.jsx
+packages/ui/src/views/canvas/CanvasHeader.test.js
 packages/ui/src/views/canvas/CanvasNode.jsx
 packages/ui/src/views/canvas/CredentialInputHandler.jsx
 packages/ui/src/views/canvas/NodeInputHandler.jsx

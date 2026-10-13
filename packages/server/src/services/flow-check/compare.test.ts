@@ -36,9 +36,75 @@ test('the summary counts same, changed and errors, sums tokens and takes the med
         liveTokens: 35,
         draftTokens: 20,
         liveMedianMs: 100,
-        draftMedianMs: 200
+        draftMedianMs: 200,
+        liveEstimatedCostUsd: null,
+        draftEstimatedCostUsd: null,
+        livePrice: null,
+        draftPrice: null
     })
     expect(median([])).toBeNull()
+})
+
+test('without token lines, estimated cost is the sum of the rounded per-answer figures, and a missing price stays missing', () => {
+    const summary = summarize([
+        {
+            question: 'a',
+            live: side('x', { tokens: 1500, estimatedCostUsd: 0.0012, price: 'known', unpricedModels: [] }),
+            draft: side('y', { tokens: 150, estimatedCostUsd: null, price: 'no price', unpricedModels: ['custom-bakery'] }),
+            same: false
+        },
+        {
+            question: 'b',
+            live: side('x', { tokens: 10, estimatedCostUsd: 0.0004, price: 'partial', unpricedModels: ['custom-bakery'] }),
+            draft: side('y', { tokens: 10, estimatedCostUsd: 0.0004, price: 'known' }),
+            same: true
+        }
+    ])
+    expect(summary.liveEstimatedCostUsd).toBe(0.0016)
+    expect(summary.livePrice).toBe('partial')
+    expect(summary.draftEstimatedCostUsd).toBe(0.0004)
+    expect(summary.draftPrice).toBe('partial')
+    expect(summary.draftTokens).toBe(160)
+    expect(summary.scores).toBeUndefined()
+})
+
+test('two 45-token answers at $0.075 per million price as one 90-token group', () => {
+    const line = {
+        model: 'openai/gpt-oss-20b',
+        inputTokens: 45,
+        outputTokens: 0,
+        inputUsdPerMillion: 0.075,
+        outputUsdPerMillion: 0
+    }
+    // One answer rounds to 338 hundred-millionths. Two of those sum to 0.00000676.
+    // The merged 90 tokens are 675 hundred-millionths, which is 0.00000675.
+    const answer = side('x', { tokens: 45, estimatedCostUsd: 0.00000338, price: 'known', unpricedModels: [], usageLines: [line] })
+    const summary = summarize([
+        { question: 'a', live: answer, draft: answer, same: true },
+        { question: 'b', live: answer, draft: answer, same: true }
+    ])
+    expect(summary.liveEstimatedCostUsd).toBe(0.00000675)
+    expect(summary.draftEstimatedCostUsd).toBe(0.00000675)
+    expect(summary.livePrice).toBe('known')
+    expect(summary.draftPrice).toBe('known')
+    expect(answer.estimatedCostUsd).toBe(0.00000338)
+})
+
+test('evaluators add a pass rate per side, and a check without them does not', () => {
+    const score = (result: 'Pass' | 'Fail' | 'Error') => ({ id: result, name: result, result })
+    const summary = summarize([
+        {
+            question: 'a',
+            expected: 'yes',
+            live: side('x', { scores: [score('Pass'), score('Fail')] }),
+            draft: side('y', { scores: [score('Pass'), score('Error')] }),
+            same: false
+        }
+    ])
+    expect(summary.scores).toEqual({
+        live: { passed: 1, failed: 1, errored: 0, passRate: 50 },
+        draft: { passed: 1, failed: 0, errored: 1, passRate: 50 }
+    })
 })
 
 test('token totals come from the tracer metrics, and nothing counted is null', () => {

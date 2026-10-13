@@ -154,3 +154,34 @@ describe('risky agentflow steps', () => {
         expect(riskySteps([flow])).toEqual([{ id: 'agentAgentflow_0', label: 'Order helper' }])
     })
 })
+
+describe('risky harness specialists', () => {
+    const harness = (inputs: Record<string, unknown> = {}) =>
+        JSON.stringify({
+            nodes: [
+                { id: 'chief', data: { name: 'harnessChief', category: 'Harness', label: 'Harness Prime' } },
+                {
+                    id: 'clerk',
+                    data: { name: 'harnessSpecialist', category: 'Harness', label: 'Clerk', inputs: { specialistName: 'clerk', ...inputs } }
+                }
+            ],
+            edges: []
+        })
+
+    test('Harness Prime and a specialist that only answers are safe', () => {
+        expect(isRiskyNode('harnessChief', 'Harness')).toBe(false)
+        expect(isRiskyNode('harnessSpecialist', 'Harness', {})).toBe(false)
+        expect(riskySteps([harness()])).toEqual([])
+    })
+
+    test('shell, browser, code and files are listed and need the same confirmation', () => {
+        expect(riskySteps([harness({ enableShell: true })])).toEqual([{ id: 'clerk', label: 'clerk (Shell)' }])
+        expect(riskySteps([harness({ enableBrowser: 'true', enableCodeExecution: true, enableFileAccess: true })])).toEqual([
+            { id: 'clerk', label: 'clerk (Browser, Code execution, Files)' }
+        ])
+    })
+
+    test('the chatflow Harness tool is still risky', () => {
+        expect(isRiskyNode('harness', 'Harness')).toBe(true)
+    })
+})

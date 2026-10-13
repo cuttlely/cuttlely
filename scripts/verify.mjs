@@ -77,6 +77,7 @@ const STEPS = [
             path.join(ROOT, 'scripts', 'flowise-migration.test.mjs'),
             path.join(ROOT, 'scripts', 'api-key-hash.test.cjs'),
             path.join(ROOT, 'scripts', 'usage-storage.test.cjs'),
+            path.join(ROOT, 'scripts', 'model-prices.test.cjs'),
             path.join(ROOT, 'scripts', 'harness-callback-usage.test.mjs'),
             path.join(ROOT, 'scripts', 'harness-draft-usage.test.mjs'),
             path.join(ROOT, 'scripts', 'analyst-postgres.test.mjs'),
@@ -162,7 +163,10 @@ const STEPS = [
             'src/views/roles/rolePermissions.test.js',
             'src/views/docstore/chunkPermissions.test.js',
             'src/views/canvas/canvasSavePermission.test.js',
-            'src/views/marketplaces/templateUsePermission.test.js'
+            'src/views/marketplaces/templateUsePermission.test.js',
+            'src/utils/publishCheck.test.js',
+            'src/utils/promote.test.js',
+            'src/views/promote/PromoteViews.test.js'
         ],
         env: { CI: 'true' }
     },

@@ -1,14 +1,20 @@
 import { NextFunction, Request, Response } from 'express'
 import { StatusCodes } from 'http-status-codes'
 import { getErrorMessage } from '../../errors/utils'
+import { requireWorkspaceIdFromReq } from '../../identity/workspaceScope'
 import harnessesService from '../../services/harnesses'
 import { chatImages } from '../../services/harnesses/chatImages'
 import { watchClientDisconnect } from '../../utils/clientAbort'
 import { isStreamingRequest } from '../../utils/streaming'
 
+// The caller's active team. An API key's user carries that key's workspace. A missing id is 400, not every harness.
+function activeWorkspace(req: Request): string {
+    return requireWorkspaceIdFromReq(req)
+}
+
 const listHarnesses = async (req: Request, res: Response, next: NextFunction) => {
     try {
-        return res.json(await harnessesService.listHarnesses())
+        return res.json(await harnessesService.listHarnesses(activeWorkspace(req)))
     } catch (error) {
         next(error)
     }
@@ -16,7 +22,7 @@ const listHarnesses = async (req: Request, res: Response, next: NextFunction) =>
 
 const getHarness = async (req: Request, res: Response, next: NextFunction) => {
     try {
-        return res.json(await harnessesService.getHarness(req.params.name))
+        return res.json(await harnessesService.getHarness(req.params.name, activeWorkspace(req)))
     } catch (error) {
         next(error)
     }
@@ -24,7 +30,7 @@ const getHarness = async (req: Request, res: Response, next: NextFunction) => {
 
 const saveHarness = async (req: Request, res: Response, next: NextFunction) => {
     try {
-        return res.json(await harnessesService.saveHarness(req.body))
+        return res.json(await harnessesService.saveHarness(req.body, activeWorkspace(req)))
     } catch (error) {
         next(error)
     }
@@ -32,7 +38,7 @@ const saveHarness = async (req: Request, res: Response, next: NextFunction) => {
 
 const deleteHarness = async (req: Request, res: Response, next: NextFunction) => {
     try {
-        return res.json(await harnessesService.deleteHarness(req.params.name))
+        return res.json(await harnessesService.deleteHarness(req.params.name, activeWorkspace(req)))
     } catch (error) {
         next(error)
     }
@@ -40,7 +46,7 @@ const deleteHarness = async (req: Request, res: Response, next: NextFunction) =>
 
 const listRuns = async (req: Request, res: Response, next: NextFunction) => {
     try {
-        return res.json(await harnessesService.listRuns(req.params.name))
+        return res.json(await harnessesService.listRuns(req.params.name, activeWorkspace(req)))
     } catch (error) {
         next(error)
     }
@@ -48,7 +54,7 @@ const listRuns = async (req: Request, res: Response, next: NextFunction) => {
 
 const getRun = async (req: Request, res: Response, next: NextFunction) => {
     try {
-        return res.json(await harnessesService.getRun(req.params.name, req.params.runId))
+        return res.json(await harnessesService.getRun(req.params.name, req.params.runId, activeWorkspace(req)))
     } catch (error) {
         next(error)
     }
@@ -61,15 +67,17 @@ function writeSse(res: Response, event: string, data: unknown) {
 
 const createRun = async (req: Request, res: Response, next: NextFunction) => {
     const source = req.get('x-request-from') === 'internal' ? 'playground' : 'api'
+    let workspaceId = ''
     try {
-        await harnessesService.assertRunRequest(req.params.name, req.body || {})
+        workspaceId = activeWorkspace(req)
+        await harnessesService.assertRunRequest(req.params.name, req.body || {}, workspaceId)
     } catch (error) {
         next(error)
         return
     }
     if (!isStreamingRequest(req)) {
         try {
-            const outcome = await harnessesService.startRun(req.params.name, req.body || {}, { source })
+            const outcome = await harnessesService.startRun(req.params.name, req.body || {}, { source, workspaceId })
             return res.json({ chatId: outcome.chatId, run: outcome.run, ...outcome.payload })
         } catch (error) {
             next(error)
@@ -86,6 +94,7 @@ const createRun = async (req: Request, res: Response, next: NextFunction) => {
     try {
         const outcome = await harnessesService.startRun(req.params.name, req.body || {}, {
             source,
+            workspaceId,
             signal,
             onEvent: (event) => writeSse(res, `harness.${event.type}`, event)
         })

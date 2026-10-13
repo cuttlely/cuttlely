@@ -1,5 +1,6 @@
 ---
 // The cuttlely.com home page. Every claim here comes from the README, the docs or SECURITY.md.
+import path from 'node:path'
 import StarlightPage from '@astrojs/starlight/components/StarlightPage.astro'
 import { Code, Icon } from '@astrojs/starlight/components'
 import { Image } from 'astro:assets'
@@ -10,7 +11,12 @@ import analystChat from '../content/docs/docs/images/harnesses/canvas-chat-analy
 import publishCheck from '../content/docs/docs/images/versioning/publish-check-results.png'
 import serverSettings from '../content/docs/docs/images/server-settings/server-settings-all.png'
 import Focus from '../components/Focus.astro'
+import { mediaUrl as versionedMedia } from '../../scripts/media-version.mjs'
 import { REPO_URL } from '../../scripts/site-config.mjs'
+
+// Resolved when the page renders. import.meta.url is the bundled chunk by then, so the site root is the build's cwd.
+const publicDir = path.resolve(process.cwd(), 'public')
+const mediaUrl = (urlPath: string) => versionedMedia(urlPath, publicDir)
 
 const curl = `curl -s http://localhost:43117/api/v1/prediction/<chatflow-id> \\
   -H "Authorization: Bearer $CUTTLELY_API_KEY" \\
@@ -128,11 +134,11 @@ const installs = [
                     preload="none"
                     width="1280"
                     height="720"
-                    poster="/media/customer-care-demo-poster.webp"
+                    poster={mediaUrl('/media/customer-care-demo-poster.webp')}
                     aria-describedby="cl-demo-caption"
                 >
-                    <source src="/media/customer-care-demo.webm" type="video/webm" />
-                    <source src="/media/customer-care-demo.mp4" type="video/mp4" />
+                    <source src={mediaUrl('/media/customer-care-demo.webm')} type="video/webm" />
+                    <source src={mediaUrl('/media/customer-care-demo.mp4')} type="video/mp4" />
                 </video>
                 <figcaption id="cl-demo-caption" class="cl-demo-caption">
                     A narrated walkthrough of one real run, with captions. The live part plays in real time: this run's plan starts streaming at 0.8 seconds,
@@ -366,19 +372,19 @@ const installs = [
                                     preload="none"
                                     width="960"
                                     height="540"
-                                    poster={`/media/products/${tool.video.slug}-poster.webp`}
+                                    poster={mediaUrl(`/media/products/${tool.video.slug}-poster.webp`)}
                                     aria-label={tool.video.label}
                                 >
-                                    <source src={`/media/products/${tool.video.slug}-loop.webm`} type="video/webm" />
-                                    <source src={`/media/products/${tool.video.slug}-loop.mp4`} type="video/mp4" />
+                                    <source src={mediaUrl(`/media/products/${tool.video.slug}-loop.webm`)} type="video/webm" />
+                                    <source src={mediaUrl(`/media/products/${tool.video.slug}-loop.mp4`)} type="video/mp4" />
                                 </video>
-                                <a class="cl-tile-play" href={`/media/products/${tool.video.slug}.mp4`} data-video-dialog-open={`video-${tool.video.slug}`}>
+                                <a class="cl-tile-play" href={mediaUrl(`/media/products/${tool.video.slug}.mp4`)} data-video-dialog-open={`video-${tool.video.slug}`}>
                                     <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M4 2.5v11l9.5-5.5z" fill="currentColor" /></svg>
                                     Watch with sound <span class="cl-tile-play-length">{tool.video.length}</span>
                                 </a>
                                 <dialog id={`video-${tool.video.slug}`} class="cl-video-dialog" aria-label={`${tool.title}: narrated video with captions`}>
-                                    <video controls playsinline preload="none" width="1280" height="720" poster={`/media/products/${tool.video.slug}-poster.webp`}>
-                                        <source src={`/media/products/${tool.video.slug}.mp4`} type="video/mp4" />
+                                    <video controls playsinline preload="none" width="1280" height="720" poster={mediaUrl(`/media/products/${tool.video.slug}-poster.webp`)}>
+                                        <source src={mediaUrl(`/media/products/${tool.video.slug}.mp4`)} type="video/mp4" />
                                     </video>
                                     <form method="dialog">
                                         <button class="cl-video-close" aria-label="Close">×</button>

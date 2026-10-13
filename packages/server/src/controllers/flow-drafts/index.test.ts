@@ -167,7 +167,8 @@ describe('Publish', () => {
         )
         const body = res.json.mock.calls[0][0]
         expect(body).toMatchObject({ unchanged: false, recorded: true, historyError: null, version: { sha: SHA, published: true } })
-        expect(Object.keys(body.chatflow).sort()).toEqual(['id', 'name', 'type', 'updatedDate'])
+        expect(Object.keys(body.chatflow).sort()).toEqual(['flowData', 'id', 'name', 'type', 'updatedDate'])
+        expect(body.chatflow.flowData).toBe('{"nodes":[{"id":"draft"}],"edges":[]}')
     })
 
     it('reports why history could not record the publish', async () => {
@@ -219,6 +220,19 @@ describe('Publish', () => {
         expect(updateChatflow).not.toHaveBeenCalled()
     })
 
+    it.each(['CHATFLOW', 'AGENTFLOW', 'ETL'])('returns the Live canvas after publishing a %s', async (type) => {
+        const permission = type === 'AGENTFLOW' ? 'agentflows:update' : 'chatflows:update'
+        granted.clear()
+        granted.add(permission)
+        getChatflowByIdForWorkspace.mockResolvedValue({ ...FLOW, type })
+        const res = response()
+        await controller.publishDraft(request(), res, jest.fn())
+        expect(res.json.mock.calls[0][0].chatflow).toMatchObject({
+            type,
+            flowData: '{"nodes":[{"id":"draft"}],"edges":[]}'
+        })
+    })
+
     it('viewing is not enough to publish', async () => {
         granted.clear()
         granted.add('chatflows:view')
@@ -240,7 +254,12 @@ describe('Roll back Live', () => {
         putVersionLive.mockResolvedValue({
             chatflow: saved,
             sha: SHA,
-            body: { restoredFrom: 'abcdef1', restoredTo: 'live', unchanged: false }
+            body: {
+                chatflow: { id: FLOW.id, name: 'n', type: FLOW.type, updatedDate: 'd' },
+                restoredFrom: 'abcdef1',
+                restoredTo: 'live',
+                unchanged: false
+            }
         })
         const res = response()
         const next = jest.fn()
@@ -251,16 +270,52 @@ describe('Roll back Live', () => {
             verb: 'Rolled back Live to'
         })
         expect(drafts.afterLiveSet).toHaveBeenCalledWith(saved, SHA)
-        expect(res.json.mock.calls[0][0]).toMatchObject({ restoredFrom: 'abcdef1', restoredTo: 'live', status: { draft: null } })
+        expect(res.json.mock.calls[0][0]).toMatchObject({
+            restoredFrom: 'abcdef1',
+            restoredTo: 'live',
+            status: { draft: null },
+            chatflow: { flowData: saved.flowData }
+        })
     })
 
-    it('a version that already matches Live saves nothing and records nothing', async () => {
-        putVersionLive.mockResolvedValue({ chatflow: null, sha: null, body: { unchanged: true } })
+    it('a version that already matches Live saves nothing and still returns the Live canvas', async () => {
+        putVersionLive.mockResolvedValue({
+            chatflow: null,
+            sha: null,
+            body: {
+                chatflow: { id: FLOW.id, name: 'n', type: FLOW.type, updatedDate: 'd' },
+                unchanged: true
+            }
+        })
         const res = response()
         await controller.rollbackLive(request({ sha: 'abcdef1' }), res, jest.fn())
         expect(drafts.afterLiveSet).not.toHaveBeenCalled()
         expect(drafts.getDraftStatus).toHaveBeenCalled()
-        expect(res.json.mock.calls[0][0]).toMatchObject({ unchanged: true })
+        expect(res.json.mock.calls[0][0]).toMatchObject({
+            unchanged: true,
+            chatflow: { flowData: FLOW.flowData }
+        })
+    })
+
+    it.each(['CHATFLOW', 'AGENTFLOW', 'ETL'])('returns that version canvas after rolling back a %s with no draft', async (type) => {
+        const permission = type === 'AGENTFLOW' ? 'agentflows:update' : 'chatflows:update'
+        granted.clear()
+        granted.add(permission)
+        const version = '{"nodes":[{"id":"rolled"}],"edges":[]}'
+        getChatflowByIdForWorkspace.mockResolvedValue({ ...FLOW, type, flowData: FLOW.flowData })
+        const saved = { ...FLOW, type, flowData: version }
+        putVersionLive.mockResolvedValue({
+            chatflow: saved,
+            sha: SHA,
+            body: {
+                chatflow: { id: FLOW.id, name: 'n', type, updatedDate: 'd' },
+                restoredTo: 'live',
+                unchanged: false
+            }
+        })
+        const res = response()
+        await controller.rollbackLive(request({ sha: 'abcdef1' }), res, jest.fn())
+        expect(res.json.mock.calls[0][0].chatflow).toMatchObject({ type, flowData: version })
     })
 
     it('needs a version id, and drafts on', async () => {
@@ -295,7 +350,10 @@ describe('the publish check', () => {
         granted.add('chatflows:view')
         const res = response()
         await controller.getCheckSetup(checkRequest(), res, jest.fn())
-        expect(checkService.getCheckSetup).toHaveBeenCalledWith(expect.objectContaining({ id: FLOW.id }))
+        expect(checkService.getCheckSetup).toHaveBeenCalledWith(expect.objectContaining({ id: FLOW.id }), undefined, {
+            datasets: false,
+            evaluators: false
+        })
         expect(res.json).toHaveBeenCalledWith({ unavailable: null, questions: [] })
     })
 
@@ -417,9 +475,15 @@ describe('the publish check', () => {
         granted.add('chatflows:view')
         granted.add('chatflows:update')
         await controller.getCheck(checkRequest({}, { checkId: 'c1' }), response(), jest.fn())
-        expect(checkService.getCheck).toHaveBeenCalledWith(expect.objectContaining({ id: FLOW.id }), 'c1')
+        expect(checkService.getCheck).toHaveBeenCalledWith(expect.objectContaining({ id: FLOW.id }), 'c1', undefined, {
+            datasets: false,
+            evaluators: false
+        })
         await controller.stopCheck(checkRequest({}, { checkId: 'c1' }), response(), jest.fn())
-        expect(checkService.stopCheck).toHaveBeenCalledWith(expect.objectContaining({ id: FLOW.id }), 'c1')
+        expect(checkService.stopCheck).toHaveBeenCalledWith(expect.objectContaining({ id: FLOW.id }), 'c1', undefined, {
+            datasets: false,
+            evaluators: false
+        })
     })
 
     it('a viewer cannot start or stop a check', async () => {
@@ -431,5 +495,72 @@ describe('the publish check', () => {
         }
         expect(checkService.startCheck).not.toHaveBeenCalled()
         expect(checkService.stopCheck).not.toHaveBeenCalled()
+    })
+
+    it('a dataset needs datasets:view, and evaluators need evaluators:view', async () => {
+        granted.add('chatflows:update')
+        const next = jest.fn()
+        await controller.startCheck(checkRequest({ datasetId: 'ds-1', evaluatorIds: ['ev-1'] }), accepted(), next)
+        expect(next.mock.calls[0][0]).toMatchObject({ statusCode: 403, message: 'You do not have permission to view datasets.' })
+        expect(checkService.startCheck).not.toHaveBeenCalled()
+
+        granted.add('datasets:view')
+        const nextEval = jest.fn()
+        await controller.startCheck(checkRequest({ datasetId: 'ds-1', evaluatorIds: ['ev-1'] }), accepted(), nextEval)
+        expect(nextEval.mock.calls[0][0]).toMatchObject({ statusCode: 403, message: 'You do not have permission to view evaluators.' })
+        expect(checkService.startCheck).not.toHaveBeenCalled()
+
+        granted.add('evaluators:view')
+        checkService.startCheck.mockResolvedValue({ id: 'c1', status: 'running' })
+        const res = accepted()
+        await controller.startCheck(checkRequest({ datasetId: 'ds-1', evaluatorIds: ['ev-1'] }), res, jest.fn())
+        expect(checkService.startCheck).toHaveBeenCalledWith(
+            expect.objectContaining({ id: FLOW.id }),
+            { datasetId: 'ds-1', evaluatorIds: ['ev-1'] },
+            'http://cuttlely.test:3000',
+            undefined,
+            expect.objectContaining({ closed: expect.any(Function) })
+        )
+        expect(res.status).toHaveBeenCalledWith(202)
+    })
+
+    it('a viewer without dataset or evaluator permission polls setup and the check with those fields hidden', async () => {
+        granted.add('chatflows:view')
+        const setupRes = response()
+        await controller.getCheckSetup(checkRequest(), setupRes, jest.fn())
+        expect(checkService.getCheckSetup).toHaveBeenCalledWith(expect.objectContaining({ id: FLOW.id }), undefined, {
+            datasets: false,
+            evaluators: false
+        })
+        const checkRes = response()
+        await controller.getCheck(checkRequest({}, { checkId: 'c1' }), checkRes, jest.fn())
+        expect(checkService.getCheck).toHaveBeenCalledWith(expect.objectContaining({ id: FLOW.id }), 'c1', undefined, {
+            datasets: false,
+            evaluators: false
+        })
+        granted.add('datasets:view')
+        granted.add('evaluators:view')
+        await controller.getCheckSetup(checkRequest(), response(), jest.fn())
+        expect(checkService.getCheckSetup).toHaveBeenLastCalledWith(expect.objectContaining({ id: FLOW.id }), undefined, {
+            datasets: true,
+            evaluators: true
+        })
+        await controller.getCheck(checkRequest({}, { checkId: 'c1' }), response(), jest.fn())
+        expect(checkService.getCheck).toHaveBeenLastCalledWith(expect.objectContaining({ id: FLOW.id }), 'c1', undefined, {
+            datasets: true,
+            evaluators: true
+        })
+    })
+
+    it('a recent-question check does not ask for dataset or evaluator permission', async () => {
+        granted.add('chatflows:update')
+        await controller.startCheck(checkRequest({ count: 4 }), accepted(), jest.fn())
+        expect(checkService.startCheck).toHaveBeenCalledWith(
+            expect.anything(),
+            { count: 4 },
+            'http://cuttlely.test:3000',
+            undefined,
+            expect.objectContaining({ closed: expect.any(Function) })
+        )
     })
 })

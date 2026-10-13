@@ -58,7 +58,7 @@ The [publish check](./drafts-api.md#publish-check) replays recent questions agai
 
 -   `CUTTLELY_CHECK_MAX_TOKENS`: the most tokens one check may use, counting Live and the draft together. Default 100,000. Values below 1,000 count as 1,000, and above 2,000,000 as 2,000,000.
 -   `CUTTLELY_CHECK_MAX_SECONDS`: the most seconds one check may run. Default 180. Values below 10 count as 10, and above 1,800 as 1,800.
--   `CUTTLELY_CHECK_CONCURRENCY`: how many questions run at the same time. Default 2, from 1 to 8. Above 8 counts as 8. Each question still asks Live and then the draft, one after the other. Questions already started finish when a token or time limit is reached, so a check can go a little past the token cap.
+-   `CUTTLELY_CHECK_CONCURRENCY`: how many questions run at the same time. Default 2, from 1 to 8. Above 8 counts as 8. Each question still asks Live and then the draft, one after the other. Questions already started finish when a token or time limit is reached, so a check can go a little past the token cap. A model evaluator's tokens count toward the same cap, including usage a provider reports only as an estimate. A provider that reports usage nowhere does not move this cap. That check is bounded only by the time limit.
 
 A value that is not a positive number uses the default. When a limit is reached, the check stops starting new questions and shows the answers it has. How to run a check: [Check recent questions before you publish](../how-to/versioning.md#check-recent-questions-before-you-publish). Set them the same way as `CUTTLELY_DRAFTS` above.
 
@@ -92,3 +92,36 @@ The repo is created the first time history is used, by a save or by opening hist
 Moving the repo: stop Cuttlely, move the folder, set `CUTTLELY_VERSIONS_DIR` to the new place, and start Cuttlely. A folder with no repo in it starts a new, empty history on the next save.
 
 The repo layout and commit format are in [Version files](./version-files.md).
+
+## Environments
+
+Promotion walks an ordered list of environments. Each one has:
+
+| Field    | Meaning                                                                                       |
+| -------- | --------------------------------------------------------------------------------------------- |
+| `name`   | What the promote page shows.                                                                  |
+| `branch` | Where that environment publishes in the shared GitHub repository.                             |
+| `server` | The identity of the server that fills that place. `environment` on that server is this value. |
+
+The list is not an environment variable. It is saved on each server, with that server's GitHub connection, in that server's history repo, by `PUT /api/v1/flow-versions/environment`. It is not copied to the shared repository. See [Label this server](./versioning-api.md#label-this-server).
+
+After copying stops on a diverged branch, later reads do not push. Try again pushes once. A process restart tries once and stops again if the branch is still diverged.
+
+Every server in the chain should keep the same list. The list is not compared by talking to the other servers. Each server that publishes records a fingerprint of its list with the copy. That copy is not finished until the fingerprint is on the shared repository: the publisher brings in any fingerprint already recorded, adds its own, and retries when another server recorded one at the same time. If the fingerprint still cannot be recorded, the copy stays unfinished and tries again. A server that reads offers new versions only when it read a fingerprint and that fingerprint matches its own list. When they differ, reading stops and nothing new is offered to promote, until this server saves the same list. Versions already offered stay. When a fingerprint record exists and this version has none, or the record cannot be read, reading stops the same way and nothing new is offered. A matching dev/prod fingerprint keeps promoting. Reading stops on a different list, or when a fingerprint record exists and this tip has no note, for both the saved pair and a named list. The one window that still allows a read with no fingerprint is the saved Dev and Prod pair, when the repository has no fingerprint record at all, because no server has recorded one yet. A named list installs a tip only when the note on it matches. A named Prod whose record is missing keeps the versions already offered and offers nothing new. A failure to reach the repository is not that window. Saving a longer list while this server still publishes the same branch rewrites that fingerprint on the versions already copied, so the next environment can read them without a new version. Disconnect GitHub before a change that alters what this server reads or copies, then save the full list again. An unreadable list does not publish or read. The card shows `The environment list could not be read. Save it again.` It asks which row is this server before it saves, and it sends that identity with the full list. The saved pair is dev then prod, both publishing as main. It does not save without a chosen row. Saving it again drops versions that were already offered, clears the stopped message, and can be done without disconnecting. A connection file that cannot be read is a different failure: the sentence is `The saved GitHub connection could not be read. Disconnect and connect again.`, and the card keeps the list. Saving the saved Dev and Prod pair in place of a named list that still parses, when that save would not change what this server reads or copies, is 409 `The environment list on this server is still valid, so it was not replaced.` and the file is left as it is. On a named list, connect is refused until this server's environment is chosen, and the card does not count versions as waiting to be copied.
+
+A server that was already labeled Dev or Prod, with no list in that file, loads as dev then prod. Both use the branch `main`. Dev copies there, and Prod reads it. You do not have to migrate that file. Saving `environment` as `dev` or `prod` with no list keeps writing that older file. Saving a longer list writes `environment` and `environments` together, and `environment` still names this server.
+
+Dev, Staging and Prod:
+
+```json
+{
+    "environment": "staging",
+    "environments": [
+        { "name": "Dev", "branch": "main", "server": "dev" },
+        { "name": "Staging", "branch": "staging", "server": "staging" },
+        { "name": "Prod", "branch": "prod", "server": "prod" }
+    ]
+}
+```
+
+Promotion moves only to the next environment: Dev to Staging, then Staging to Prod. Dev to Prod is refused while Staging is between them. Each hop still runs the behavior check and matches credentials by name. With only Dev and Prod, promotion works as before. How to set this up: [Add Staging between Dev and Prod](../how-to/versioning.md#add-staging-between-dev-and-prod).

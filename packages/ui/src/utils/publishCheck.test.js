@@ -1,15 +1,27 @@
 import {
     CHECK_INTRO,
     CHECK_TITLE,
+    CHECK_RUNS_TITLE,
+    LOADING_UNKNOWN,
+    canvasStartType,
+    checkKind,
+    checkTitle,
+    countPickerLabel,
+    loadingText,
     COMPARE_COUNTS,
     DEFAULT_COMPARE_COUNT,
     addQuestion,
     canRunCheck,
     capMessage,
+    compareListLabel,
+    loadFailureMessage,
+    inputMeta,
     inputPreview,
     NO_PAST_RUNS,
+    noPastRunsMessage,
     caseBadge,
     CHECK_WORDS,
+    promoteCheckWords,
     costNote,
     formatMs,
     initialPicks,
@@ -17,12 +29,14 @@ import {
     progressText,
     riskyWarning,
     sideCaption,
+    passRateText,
     stopReasonText,
     summaryText,
     togglePick,
     usageText,
     visibleCases
 } from './publishCheck'
+import { formatListDateTime } from '@/utils/formatDate'
 import * as copy from './publishCheck'
 
 const limits = { maxQuestions: 10, maxQuestionChars: 2000, maxTokens: 100000, maxSeconds: 180 }
@@ -76,7 +90,39 @@ describe('recorded input preview', () => {
         const long = JSON.stringify({ form: { note: 'x'.repeat(200) } })
         expect(inputPreview(long, 20).endsWith('…')).toBe(true)
         expect(inputPreview(long, 20).length).toBe(21)
-        expect(NO_PAST_RUNS.startsWith('No past runs to replay yet')).toBe(true)
+        expect(noPastRunsMessage('form')).toBe(NO_PAST_RUNS.form)
+        expect(noPastRunsMessage('webhook')).toBe('No past runs exist yet. Call the webhook once, then check again.')
+        expect(noPastRunsMessage('schedule')).toBe('No past runs exist yet. Wait for the schedule, or trigger it once, then check again.')
+        expect(noPastRunsMessage('form')).toBe('No past runs exist yet. Submit the form once, then check again.')
+        expect(noPastRunsMessage()).toBe('')
+        expect(noPastRunsMessage('other')).toBe('')
+        expect(checkTitle('questions')).toBe(CHECK_TITLE)
+        expect(checkTitle('runs')).toBe(CHECK_RUNS_TITLE)
+        expect(checkTitle(null)).toBe('Check')
+        expect(loadingText('questions')).toBe('Loading recent questions…')
+        expect(loadingText('runs')).toBe('Loading recent runs…')
+        expect(loadingText(null)).toBe(LOADING_UNKNOWN)
+        const webhookCanvas = JSON.stringify({
+            nodes: [{ data: { name: 'startAgentflow', inputs: { startInputType: 'webhookTrigger' } } }]
+        })
+        const chatCanvas = JSON.stringify({
+            nodes: [{ data: { name: 'startAgentflow', inputs: { startInputType: 'chatInput' } } }]
+        })
+        expect(canvasStartType(webhookCanvas)).toBe('webhookTrigger')
+        expect(checkKind('AGENTFLOW', [webhookCanvas, webhookCanvas])).toBe('runs')
+        expect(checkKind('AGENTFLOW', [chatCanvas, chatCanvas])).toBe('questions')
+        expect(checkKind('CHATFLOW', [chatCanvas])).toBe('questions')
+        expect(checkKind('AGENTFLOW', [webhookCanvas, chatCanvas])).toBeNull()
+        expect(checkKind('AGENTFLOW', ['{'])).toBeNull()
+        expect(checkKind()).toBeNull()
+        expect(countPickerLabel({ replayInputs: true, requested: 4, available: 4 })).toBe('Past runs')
+        expect(countPickerLabel({ replayInputs: true, requested: 4, available: 2 })).toBe('Requested runs')
+        expect(countPickerLabel({ replayInputs: false, requested: 50, available: 37 })).toBe('Requested questions')
+        expect(countPickerLabel({ replayInputs: false, requested: 4, available: 10 })).toBe('Past questions')
+        const when = formatListDateTime('2026-10-08T11:00:00.000Z')
+        expect(inputMeta('webhook', '2026-10-08T11:00:00.000Z')).toBe(`Webhook · ${when}`)
+        expect(inputMeta('form', '2026-10-08T11:00:00.000Z')).toBe(`Form · ${when}`)
+        expect(inputMeta('schedule', '')).toBe('Schedule')
     })
 })
 
@@ -181,7 +227,9 @@ describe('results', () => {
             ]
         }
         expect(progressText(running)).toBe('Asked 1 of 4…')
+        expect(progressText(running, 'run')).toBe('Ran 1 of 4…')
         expect(progressText({ status: 'running', total: 2, completed: 2 })).toBe('Asked 2 of 2…')
+        expect(progressText({ status: 'running', total: 2, completed: 2 }, 'run')).toBe('Ran 2 of 2…')
         expect(visibleCases(running)).toHaveLength(2)
         const done = {
             status: 'done',
@@ -196,15 +244,53 @@ describe('results', () => {
         expect(usageText(done)).toBe(
             'Tokens: Live 1,840, draft 188 (Draft used 1,652 fewer). Typical time: Live 0.6 s, draft 0.5 s (Draft was 0.1 s faster).'
         )
+        const priced = {
+            ...done,
+            summary: {
+                ...done.summary,
+                liveEstimatedCostUsd: 0.0012,
+                draftEstimatedCostUsd: null,
+                livePrice: 'known',
+                draftPrice: 'no price'
+            },
+            cases: [{ question: 'a', live: { ...live, estimatedCostUsd: 0.0012, price: 'known' }, draft }]
+        }
+        expect(usageText(priced)).toContain('Estimated cost: Live estimated $0.0012, draft no price.')
+        expect(sideCaption(priced.cases[0].live)).toBe('44 tokens, 0.7 s, estimated $0.0012')
         expect(summaryText({ status: 'stopped', summary: { ran: 0 } })).toBe('No question was answered by both versions.')
+        expect(summaryText({ status: 'stopped', summary: { ran: 0 } }, CHECK_WORDS.publish, 'run')).toBe(
+            'No recorded input was answered by both versions.'
+        )
         expect(usageText({ summary: { ran: 0 } })).toBe('')
         expect(usageText(done, CHECK_WORDS.promote)).toBe(
             'Tokens: Live 1,840, from Dev 188 (From Dev used 1,652 fewer). Typical time: Live 0.6 s, from Dev 0.5 s (From Dev was 0.1 s faster).'
         )
-        expect(stopReasonText('tokens')).toContain('token limit')
-        expect(stopReasonText('time')).toContain('time limit')
-        expect(stopReasonText('stopped')).toContain('You stopped the check')
+        expect(promoteCheckWords('Dev')).toBe(CHECK_WORDS.promote)
+        expect(promoteCheckWords('dev').side).toBe('From Dev')
+        expect(promoteCheckWords().side).toBe('From Dev')
+        const staging = promoteCheckWords('Staging')
+        expect(staging.side).toBe('From Staging')
+        expect(staging.short).toBe('from Staging')
+        expect(staging.yours).toBe('the version from Staging')
+        expect(staging.intro).not.toContain('Dev')
+        expect(staging.changed).toBe('A newer version arrived from Staging after this check ran. Run it again to check it.')
+        expect(usageText(done, staging)).toContain('From Staging')
+        expect(passRateText({ summary: { scores: { draft: { passed: 1, failed: 0, errored: 0, passRate: 100 } } } }, staging)).toEqual([
+            'From Staging pass rate: 100% (1 passed, 0 failed, 0 errored).'
+        ])
+        expect(stopReasonText('tokens')).toBe('Stopped at the token limit. These are the questions answered so far.')
+        expect(stopReasonText('time')).toBe('Stopped at the time limit. These are the questions answered so far.')
+        expect(stopReasonText('stopped')).toBe('You stopped the check. These are the questions answered so far.')
+        expect(stopReasonText('tokens', 'run')).toBe('Stopped at the token limit. These are the runs answered so far.')
+        expect(stopReasonText('time', 'run')).toBe('Stopped at the time limit. These are the runs answered so far.')
+        expect(stopReasonText('stopped', 'run')).toBe('You stopped the check. These are the runs answered so far.')
         expect(stopReasonText(null)).toBe('')
+        expect(stopReasonText(null, 'run')).toBe('')
+        expect(compareListLabel(false)).toBe('Questions to compare')
+        expect(compareListLabel(true)).toBe('Runs to compare')
+        expect(loadFailureMessage('questions')).toBe('Recent questions could not be loaded.')
+        expect(loadFailureMessage('runs')).toBe('Recent runs could not be loaded.')
+        expect(loadFailureMessage(null)).toBe('The check could not be loaded.')
     })
 
     test('a flow never published runs each question once, on the draft', () => {
@@ -222,14 +308,38 @@ describe('results', () => {
         expect(caseBadge({ live: null, draft: { error: 'boom' } }, true)).toEqual({ label: 'Error', color: 'error' })
         expect(caseBadge({ live: null, draft: null }, true)).toEqual({ label: 'Waiting', color: 'default' })
         expect(summaryText({ status: 'done', liveEmpty: true, summary: { ran: 0 } })).toBe('No question was answered on your draft.')
+        expect(summaryText({ status: 'done', liveEmpty: true, summary: { ran: 0 } }, CHECK_WORDS.publish, 'run')).toBe(
+            'No recorded input was answered on your draft.'
+        )
+        expect(summaryText({ status: 'done', liveEmpty: true, summary: { ran: 0 } }, CHECK_WORDS.promote, 'run')).toBe(
+            'No recorded input was answered on the version from Dev.'
+        )
+    })
+
+    test('a pass rate line is shown per side when evaluators ran', () => {
+        const scores = {
+            live: { passed: 1, failed: 1, errored: 0, passRate: 50 },
+            draft: { passed: 2, failed: 0, errored: 0, passRate: 100 }
+        }
+        expect(passRateText({ summary: { scores } })).toEqual([
+            'Live pass rate: 50% (1 passed, 1 failed, 0 errored).',
+            'Draft pass rate: 100% (2 passed, 0 failed, 0 errored).'
+        ])
+        expect(passRateText({ liveEmpty: true, summary: { scores } }, CHECK_WORDS.publish)).toEqual([
+            'Draft pass rate: 100% (2 passed, 0 failed, 0 errored).'
+        ])
+        expect(passRateText({ summary: { ran: 1 } })).toEqual([])
+        expect(canRunCheck({ source: 'dataset', datasetId: '', picked: 0 })).toBe(false)
+        expect(canRunCheck({ source: 'dataset', datasetId: 'ds-1', picked: 0 })).toBe(true)
     })
 
     test('copy is plain words, with no section mark and no engineering terms', () => {
-        // The empty-state sentence is specified with the word "replay". The rest of the copy does not use it.
         const text = Object.values(copy)
-            .filter((v) => typeof v === 'string' && v !== NO_PAST_RUNS)
+            .filter((v) => typeof v === 'string')
+            .concat(Object.values(NO_PAST_RUNS))
             .join(' ')
         expect(CHECK_TITLE).toBe('Check recent questions')
+        expect(CHECK_RUNS_TITLE).toBe('Check recent runs')
         expect(CHECK_INTRO).toContain('This is optional.')
         expect(text.includes('\u00a7')).toBe(false)
         expect(/\b(git|commit|branch|sha|replay|endpoint|API)\b/i.test(text)).toBe(false)

@@ -8,20 +8,27 @@
 // It does not refuse the flow. Legacy multi-agent flows stay out of this check.
 //
 // A replay runs the canvas in memory through executeFlow with replay on: a new chat id, so memory starts
-// empty; no chat messages, follow-ups, telemetry, usage counts or tracing are written; Live is never saved.
-// Chatflows and agentflows can be checked. An agentflow replay also writes no execution record.
+// empty; no chat messages, follow-ups, telemetry or tracing are written. The daily token total is written.
+// Live is never saved.
+// Chatflows, agentflows and harnesses can be checked. An agentflow replay also writes no execution record.
+// A harness replay uses the canvas try profile (Live roster and draft roster, each in its own directory).
+// It writes no chat message, no run history, no session and no analyst capture. The tokens it shows are
+// the route, specialist and handoff tokens that run already summed. The estimate uses those lines,
+// grouped by model, the same lines the usage write stores under the harness name. It does not add a second usage count.
 // Results stay in this server's memory for a short while and are never written to the database or logged.
 // The check is optional and never blocks Publish.
 import crypto from 'crypto'
 import { StatusCodes } from 'http-status-codes'
 import { v4 as uuidv4 } from 'uuid'
-import { EvaluationRunner } from '@cuttlely/components'
+import { EvaluationRunner, getRawModelFile } from '@cuttlely/components'
 import { ChatMessage } from '../../database/entities/ChatMessage'
 import { Organization, Workspace } from '../../database/entities/identity'
 import { AppError } from '../../errors/appError'
 import { ChatType, IChatFlow } from '../../Interface'
 import { OSS_PRODUCT_ID } from '../../identity/ossPlatform'
 import { getRunningExpressApp } from '../../utils/getRunningExpressApp'
+import { estimateTokenLines, priceBookForWorkspace, usageLinesFromMetrics, usageLinesFromRun } from '../usage'
+import type { PriceBook, UsageLine } from '../usage'
 import logger from '../../utils/logger'
 import executionsService from '../executions'
 import flowDraftsService, { canvasHash, DraftFlow } from '../flow-drafts'
@@ -29,6 +36,7 @@ import {
     COMPARE_COUNT_DEFAULT,
     COMPARE_COUNT_MAX,
     CheckCase,
+    CheckScore,
     CheckSummary,
     SideResult,
     parseCompareCount,
@@ -39,8 +47,19 @@ import {
     totalTokens
 } from './compare'
 import { RiskyStep, riskySteps } from './risk'
-import { NO_PAST_RUNS, RecordedRow, applyPreviews, recordedDraft, replayFromQuestion } from './inputs'
-import { TriggerStart, Unavailable, startUnavailable, triggerStart, typeUnavailable } from './kinds'
+import { RecordedRow, applyPreviews, noPastRunsMessage, recordedDraft, replayFromQuestion } from './inputs'
+import {
+    ReplaySource,
+    TriggerStart,
+    Unavailable,
+    datasetStartRefusal,
+    sourceOf,
+    startUnavailable,
+    triggerStart,
+    typeUnavailable
+} from './kinds'
+import { harnessCheckHooks, harnessQuestionsFor, harnessQuestionsToRun, replayHarnessQuestion } from './harness'
+import { casesFromDataset, CheckEvaluator, loadEvaluators, readDatasetId, readEvaluatorIds, scoreAnswer } from './score'
 
 // A question list sent without `count` stays capped at 10, which is what this route accepted before.
 export const MAX_QUESTIONS = 10
@@ -100,7 +119,7 @@ export interface CheckSelection {
 export interface CheckSetup {
     unavailable: Unavailable | null
     // Recent real questions, newest first, then the starter questions nobody asked yet (marked starter).
-    questions: Array<{ text: string; date: string; starter?: boolean; preview?: string }>
+    questions: Array<{ text: string; date: string; starter?: boolean; preview?: string; source?: ReplaySource }>
     // Distinct past questions found, not counting starter questions. At most 100.
     pastCount: number
     pastTruncated: boolean
@@ -111,6 +130,8 @@ export interface CheckSetup {
     // True when this agentflow starts from a form, a webhook or a schedule, so `questions` are recorded
     // inputs (canonical JSON) rather than chat questions. False for chatflows and chat-started agentflows.
     replayInputs: boolean
+    // Which start those recorded inputs came from. Null for a chatflow or a chat-started agentflow.
+    replaySource: ReplaySource | null
     check: CheckView | null
 }
 
@@ -148,8 +169,15 @@ interface CheckRecord {
     liveEmpty: boolean
     cases: CheckCase[]
     selection: CheckSelection | null
+    // True when the questions are dataset rows. A read hides those rows without datasets:view.
+    fromDataset: boolean
+    evaluators: CheckEvaluator[]
+    // Tokens from a side that was dropped when the cap was hit. The case no longer shows them, but they still count.
+    spentTokens: number
     inflight: Set<AbortController>
     stopRequested: boolean
+    // Loaded once per check so every side uses the same prices.
+    priceBook?: Promise<PriceBook | null>
 }
 
 // One check per flow, kept in memory. Test seam: tests reset it.
@@ -157,8 +185,51 @@ export const checks = new Map<string, CheckRecord>()
 
 // Test seam: tests replace the runner so no model is called.
 export const replayHooks: {
-    run: null | ((input: ReplayInput) => Promise<{ text: string; metrics?: unknown[] }>)
+    run: null | ((input: ReplayInput) => Promise<{ text: string; metrics?: unknown[]; lines?: UsageLine[] }>)
 } = { run: null }
+
+// Test seam: the check prices each side from this book instead of the database.
+export const priceHooks: {
+    load: null | ((workspaceId: string) => Promise<PriceBook | null>)
+} = { load: null }
+
+function bookOnce(record: CheckRecord): Promise<PriceBook | null> {
+    if (!record.priceBook) record.priceBook = bookFor(record.workspaceId)
+    return record.priceBook
+}
+
+async function bookFor(workspaceId: string): Promise<PriceBook | null> {
+    if (priceHooks.load) return priceHooks.load(workspaceId)
+    // Tests replace the components module and do not load a price book.
+    if (typeof getRawModelFile !== 'function') return null
+    try {
+        const app = getRunningExpressApp()
+        const list = await getRawModelFile()
+        return await priceBookForWorkspace(app.AppDataSource, workspaceId, list)
+    } catch {
+        return null
+    }
+}
+
+function sideCost(lines: UsageLine[] | undefined, tokens: number | null, book: PriceBook | null) {
+    if ((!lines || !lines.length) && tokens == null) return { estimatedCostUsd: null, price: null, unpricedModels: [] as string[] }
+    if (!lines || !lines.length) return { estimatedCostUsd: null, price: 'no price' as const, unpricedModels: [] as string[] }
+    return estimateTokenLines(lines, book)
+}
+
+// Rates travel with the lines so the summary can price each model once, without the book.
+function ratedLines(lines: UsageLine[], book: PriceBook | null) {
+    return lines.map((line) => {
+        const rate = book ? book.rateFor(line.model) : null
+        return {
+            model: line.model,
+            inputTokens: line.inputTokens,
+            outputTokens: line.outputTokens,
+            inputUsdPerMillion: rate ? rate.inputUsdPerMillion : null,
+            outputUsdPerMillion: rate ? rate.outputUsdPerMillion : null
+        }
+    })
+}
 
 export interface ReplayInput {
     flow: IChatFlow
@@ -177,6 +248,33 @@ function purge(now = Date.now()) {
 function clip(text: string | null): string | null {
     if (text == null) return null
     return text.length > MAX_ANSWER_CHARS ? `${text.slice(0, MAX_ANSWER_CHARS)}…` : text
+}
+
+export interface CheckReveal {
+    datasets: boolean
+    evaluators: boolean
+}
+
+function shownScores(scores: CheckScore[] | undefined, showEvaluators: boolean): CheckScore[] | undefined {
+    if (!scores) return undefined
+    if (showEvaluators) return scores
+    return scores.map((score) => ({ result: score.result, ...(score.message ? { message: score.message } : {}) }))
+}
+
+function shownSide(side: SideResult | null, showEvaluators: boolean): SideResult | null {
+    if (!side) return null
+    const shown: SideResult = {
+        text: clip(side.text),
+        error: side.error,
+        tokens: side.tokens,
+        ms: side.ms,
+        estimatedCostUsd: side.estimatedCostUsd ?? null,
+        price: side.price ?? null,
+        unpricedModels: side.unpricedModels || []
+    }
+    const scores = shownScores(side.scores, showEvaluators)
+    if (scores) shown.scores = scores
+    return shown
 }
 
 async function draftCanvas(flow: DraftFlow): Promise<string | null> {
@@ -209,7 +307,11 @@ function unavailableFor(flow: DraftFlow, candidate: Candidate, custom: boolean):
     return startUnavailable(flow.type, [flow.flowData, candidate.canvas])
 }
 
-function view(record: CheckRecord, currentDraftHash: string | null): CheckView {
+function view(record: CheckRecord, currentDraftHash: string | null, reveal?: CheckReveal): CheckView {
+    // A caller that did not pass a reveal (the start response, and tests) sees the stored check.
+    // A read passes the caller's permissions. Dataset rows and evaluator names stay out otherwise.
+    const showRows = !reveal || !record.fromDataset || reveal.datasets
+    const showEvaluators = !reveal || reveal.evaluators
     const ran = record.cases.filter((c) => (record.liveEmpty || c.live) && c.draft).length
     return {
         id: record.id,
@@ -225,10 +327,13 @@ function view(record: CheckRecord, currentDraftHash: string | null): CheckView {
         limits: record.limits,
         liveEmpty: record.liveEmpty,
         cases: record.cases.map((c) => ({
-            question: c.question,
-            ...(c.preview ? { preview: c.preview } : {}),
-            live: c.live && { ...c.live, text: clip(c.live.text) },
-            draft: c.draft && { ...c.draft, text: clip(c.draft.text) },
+            question: showRows ? c.question : '',
+            expected: showRows ? c.expected ?? null : null,
+            ...(showRows && c.preview ? { preview: c.preview } : {}),
+            ...(showRows && c.source ? { source: c.source } : {}),
+            ...(showRows && c.date ? { date: c.date } : {}),
+            live: shownSide(c.live, showEvaluators),
+            draft: shownSide(c.draft, showEvaluators),
             same: c.same
         })),
         summary: summarize(record.cases, record.liveEmpty),
@@ -299,7 +404,7 @@ const EXEC_PAGE = 50
 async function loadInputs(
     flow: { id: string; workspaceId?: string | null },
     kind: TriggerStart
-): Promise<{ questions: Array<{ text: string; date: string; preview: string }>; truncated: boolean }> {
+): Promise<{ questions: Array<{ text: string; date: string; preview: string; source: ReplaySource }>; truncated: boolean }> {
     const found: RecordedRow[] = []
     const seen = new Set<string>()
     let scanned = 0
@@ -328,7 +433,8 @@ async function loadInputs(
         if (found.length >= COMPARE_COUNT_MAX || scanned >= SCAN_CAP) break
         if (page * EXEC_PAGE >= total) break
     }
-    const questions = applyPreviews(found).map(({ text, date, preview }) => ({ text, date: date || '', preview }))
+    const source = sourceOf(kind)
+    const questions = applyPreviews(found).map(({ text, date, preview }) => ({ text, date: date || '', preview, source }))
     return { questions, truncated: truncated && questions.length < COMPARE_COUNT_MAX }
 }
 
@@ -352,7 +458,11 @@ export function starterQuestions(chatbotConfig?: string | null): string[] {
     }
 }
 
-export async function getCheckSetup(flow: DraftFlow & { chatbotConfig?: string | null }, given?: Candidate): Promise<CheckSetup> {
+export async function getCheckSetup(
+    flow: DraftFlow & { chatbotConfig?: string | null },
+    given?: Candidate,
+    reveal?: CheckReveal
+): Promise<CheckSetup> {
     purge()
     const candidate = await candidateFor(flow, given)
     const draft = candidate.canvas
@@ -364,6 +474,10 @@ export async function getCheckSetup(flow: DraftFlow & { chatbotConfig?: string |
             ? { questions: [], pastCount: 0, pastTruncated: false }
             : kind
             ? await inputsFor(flow, kind)
+            : flow.type === 'HARNESS'
+            ? (await harnessInWorkspace(flow))
+                ? await harnessQuestionsFor(flow)
+                : { questions: [], pastCount: 0, pastTruncated: false }
             : await questionsFor(flow)
     return {
         unavailable,
@@ -374,7 +488,24 @@ export async function getCheckSetup(flow: DraftFlow & { chatbotConfig?: string |
         limits: checkLimits(),
         liveEmpty: liveIsEmpty(flow.flowData),
         replayInputs: Boolean(kind),
-        check: record ? view(record, draft ? canvasHash(draft) : null) : null
+        replaySource: kind ? sourceOf(kind) : null,
+        check: record ? view(record, draft ? canvasHash(draft) : null, reveal) : null
+    }
+}
+
+// The same ownership check replay uses. A canvas left in another team does not open that harness session.
+async function harnessInWorkspace(flow: { name?: string | null; workspaceId?: string | null }): Promise<boolean> {
+    const name = String(flow.name || '').trim()
+    if (!name) return false
+    if (harnessCheckHooks.inWorkspace) return Boolean(await harnessCheckHooks.inWorkspace(name, flow.workspaceId))
+    const harnesses = (await import('../harnesses')).default
+    try {
+        await harnesses.getHarness(name, flow.workspaceId)
+        return true
+    } catch (error) {
+        const status = (error as { statusCode?: number })?.statusCode
+        if (status === StatusCodes.NOT_FOUND || status === StatusCodes.BAD_REQUEST) return false
+        throw error
     }
 }
 
@@ -383,15 +514,15 @@ async function inputsFor(flow: DraftFlow, kind: TriggerStart) {
     return { questions: loaded.questions, pastCount: loaded.questions.length, pastTruncated: loaded.truncated }
 }
 
-export async function getCheck(flow: DraftFlow, checkId: string, given?: Candidate): Promise<CheckView> {
+export async function getCheck(flow: DraftFlow, checkId: string, given?: Candidate, reveal?: CheckReveal): Promise<CheckView> {
     const candidate = await candidateFor(flow, given)
     const record = checks.get(candidate.key)
     if (!record || record.id !== checkId) throw new AppError(StatusCodes.NOT_FOUND, 'That check was not found. Run it again.')
     const draft = candidate.canvas
-    return view(record, draft ? canvasHash(draft) : null)
+    return view(record, draft ? canvasHash(draft) : null, reveal)
 }
 
-export async function stopCheck(flow: DraftFlow, checkId: string, given?: Candidate): Promise<CheckView> {
+export async function stopCheck(flow: DraftFlow, checkId: string, given?: Candidate, reveal?: CheckReveal): Promise<CheckView> {
     const candidate = await candidateFor(flow, given)
     const record = checks.get(candidate.key)
     if (!record || record.id !== checkId) throw new AppError(StatusCodes.NOT_FOUND, 'That check was not found. Run it again.')
@@ -400,7 +531,7 @@ export async function stopCheck(flow: DraftFlow, checkId: string, given?: Candid
         for (const controller of record.inflight) controller.abort()
     }
     const draft = candidate.canvas
-    return view(record, draft ? canvasHash(draft) : null)
+    return view(record, draft ? canvasHash(draft) : null, reveal)
 }
 
 function cleanQuestions(input: unknown, max = MAX_QUESTIONS, allowEmpty = false): string[] {
@@ -468,19 +599,27 @@ async function inputsToRun(
     flow: { id: string; workspaceId?: string | null },
     kind: TriggerStart,
     body: { questions?: unknown; count?: unknown }
-): Promise<{ questions: string[]; previews: string[]; selection: CheckSelection | null }> {
+): Promise<{
+    questions: string[]
+    previews: string[]
+    sources: ReplaySource[]
+    dates: string[]
+    selection: CheckSelection | null
+}> {
     const parsed = parseCompareCount(body?.count)
     if (!parsed.ok) throw new AppError(StatusCodes.BAD_REQUEST, parsed.message)
     if (parsed.count !== null && body?.questions !== undefined) {
         throw new AppError(StatusCodes.BAD_REQUEST, 'Questions are not used for a form, webhook or schedule start. Send count on its own.')
     }
-    if (parsed.count === null) return { questions: cleanQuestions(body?.questions), previews: [], selection: null }
+    if (parsed.count === null) return { questions: cleanQuestions(body?.questions), previews: [], sources: [], dates: [], selection: null }
     const loaded = await loadInputs(flow, kind)
     const inputs = loaded.questions.slice(0, parsed.count)
-    if (!inputs.length) throw new AppError(StatusCodes.BAD_REQUEST, NO_PAST_RUNS)
+    if (!inputs.length) throw new AppError(StatusCodes.BAD_REQUEST, noPastRunsMessage(kind))
     return {
         questions: inputs.map((item) => item.text),
         previews: inputs.map((item) => item.preview || item.text),
+        sources: inputs.map((item) => item.source),
+        dates: inputs.map((item) => item.date),
         selection: {
             requested: parsed.count,
             available: loaded.questions.length,
@@ -492,7 +631,7 @@ async function inputsToRun(
 
 export async function startCheck(
     flow: IChatFlow,
-    body: { questions?: unknown; includeRiskySteps?: unknown; count?: unknown },
+    body: { questions?: unknown; includeRiskySteps?: unknown; count?: unknown; datasetId?: unknown; evaluatorIds?: unknown },
     baseURL: string,
     given?: Candidate,
     watch?: StartWatch
@@ -501,24 +640,59 @@ export async function startCheck(
     const closed = () => Boolean(watch?.closed?.())
     const candidate = await candidateFor(flow as DraftFlow, given)
     const draft = candidate.canvas
+    const request = body || {}
+    const datasetId = readDatasetId(request)
+    const evaluatorIds = readEvaluatorIds(request)
+    if (datasetId && (request.questions !== undefined || request.count !== undefined)) {
+        throw new AppError(StatusCodes.BAD_REQUEST, 'Send a datasetId on its own. Do not send questions or count with it.')
+    }
+    // Resolve the dataset and the evaluators before any other refusal, so a missing one is 404 and starts nothing.
+    const workspaceId = String(flow.workspaceId || '')
+    const fromDataset = datasetId ? await casesFromDataset(datasetId, workspaceId) : null
+    // The client left while the dataset was loading. Do not store a record or start a replay,
+    // and do not stop a check this request did not create.
+    if (closed()) throw new AppError(StatusCodes.BAD_REQUEST, 'The check was cancelled before it started.')
+    if (fromDataset) {
+        // A harness accepts datasetId. This refusal is only a form, webhook, or schedule start.
+        const refusal = datasetStartRefusal(flow.type, [flow.flowData, draft])
+        if (refusal) throw new AppError(StatusCodes.BAD_REQUEST, refusal)
+    }
+    const evaluators = await loadEvaluators(evaluatorIds, workspaceId)
+    if (closed()) throw new AppError(StatusCodes.BAD_REQUEST, 'The check was cancelled before it started.')
     const unavailable = unavailableFor(flow as DraftFlow, candidate, Boolean(given))
     if (unavailable) throw new AppError(StatusCodes.CONFLICT, unavailable.message)
-    const kind = triggerStart(flow.type, [flow.flowData, draft])
+    const kind = fromDataset ? null : triggerStart(flow.type, [flow.flowData, draft])
     let questions: string[]
     let selection: CheckSelection | null
     let previews: string[] = []
-    if (kind) {
-        const resolved = await inputsToRun(flow, kind, body || {})
+    let sources: ReplaySource[] = []
+    let dates: string[] = []
+    if (fromDataset) {
+        questions = fromDataset.map((row) => row.question)
+        selection = null
+    } else if (kind) {
+        const resolved = await inputsToRun(flow, kind, request)
         questions = resolved.questions
         selection = resolved.selection
         previews = resolved.previews
+        sources = resolved.sources
+        dates = resolved.dates
+    } else if (flow.type === 'HARNESS') {
+        // The harness file has to be in this canvas's team. Otherwise the session is not opened.
+        if (await harnessInWorkspace(flow)) {
+            const resolved = await harnessQuestionsToRun(flow, body || {})
+            questions = resolved.questions
+            selection = resolved.selection
+        } else {
+            questions = []
+            selection = null
+        }
     } else {
-        const resolved = await questionsToRun(flow.id, body || {})
+        const resolved = await questionsToRun(flow.id, request)
         questions = resolved.questions
         selection = resolved.selection
     }
-    // The client left during the question scan. Do not store a record or start a replay,
-    // and do not stop a check this request did not create.
+    // The client left during the question or input scan. Nothing from this request is left running.
     if (closed()) throw new AppError(StatusCodes.BAD_REQUEST, 'The check was cancelled before it started.')
     if (body?.includeRiskySteps !== undefined && typeof body.includeRiskySteps !== 'boolean')
         throw new AppError(StatusCodes.BAD_REQUEST, 'includeRiskySteps must be true or false.')
@@ -553,12 +727,18 @@ export async function startCheck(
         liveEmpty: liveIsEmpty(flow.flowData),
         cases: questions.map((question, index) => ({
             question,
-            ...(previews?.[index] ? { preview: previews[index] } : {}),
+            expected: fromDataset ? fromDataset[index].expected : null,
+            ...(previews[index] ? { preview: previews[index] } : {}),
+            ...(sources[index] ? { source: sources[index] } : {}),
+            ...(dates[index] ? { date: dates[index] } : {}),
             live: null,
             draft: null,
             same: null
         })),
         selection,
+        fromDataset: Boolean(fromDataset),
+        evaluators,
+        spentTokens: 0,
         inflight: new Set<AbortController>(),
         stopRequested: false
     }
@@ -583,8 +763,19 @@ async function runOne(record: CheckRecord, flow: IChatFlow, flowData: string, qu
     const started = Date.now()
     try {
         const run = replayHooks.run || replayFlow
-        const { text, metrics } = await run({ flow, flowData, question, signal: controller, baseURL })
-        return { text: String(text ?? ''), error: null, tokens: totalTokens(metrics), ms: Date.now() - started }
+        const { text, metrics, lines } = await run({ flow, flowData, question, signal: controller, baseURL })
+        const tokens = totalTokens(metrics)
+        const usage = lines ?? usageLinesFromMetrics(metrics)
+        const book = await bookOnce(record)
+        const estimate = sideCost(usage, tokens, book)
+        return {
+            text: String(text ?? ''),
+            error: null,
+            tokens,
+            ms: Date.now() - started,
+            ...estimate,
+            usageLines: ratedLines(usage, book)
+        }
     } catch (error) {
         const timedOut = controller.signal.aborted && !record.stopRequested
         const message = record.stopRequested
@@ -603,15 +794,69 @@ function budgetLeft(record: CheckRecord): CheckView['stopReason'] {
     if (record.stopRequested) return 'stopped'
     if (Date.now() >= record.startedAt + record.limits.maxSeconds * 1000) return 'time'
     // Every run so far counts, including the Live half of a question whose draft has not run yet.
-    const used = record.cases.reduce((sum, c) => sum + (c.live?.tokens || 0) + (c.draft?.tokens || 0), 0)
+    const used =
+        record.spentTokens +
+        record.cases.reduce(
+            (sum, c) => sum + (c.live?.tokens || 0) + (c.draft?.tokens || 0) + (c.live?.graderTokens || 0) + (c.draft?.graderTokens || 0),
+            0
+        )
     if (used >= record.limits.maxTokens) return 'tokens'
     return null
 }
 
 // One question: Live, then the draft, so the two sides see the data as close together as they can.
 // A failure is stored on that question. It does not stop the others.
+async function attachScores(record: CheckRecord, side: SideResult | null, question: string, expected: string | null, flowData: string) {
+    if (!side || !record.evaluators.length) return
+    // The same per-run limit as the answer itself: 60 seconds, or whatever the check has left.
+    // Stop aborts this controller because it is in the check's in-flight set.
+    const deadline = record.startedAt + record.limits.maxSeconds * 1000
+    const controller = new AbortController()
+    record.inflight.add(controller)
+    const timeoutMs = Math.max(1, Math.min(RUN_TIMEOUT_MS, deadline - Date.now()))
+    const timer = setTimeout(() => controller.abort(), timeoutMs)
+    timer.unref?.()
+    try {
+        const graded = await scoreAnswer({
+            evaluators: record.evaluators,
+            question,
+            expected,
+            text: side.text,
+            error: side.error,
+            tokens: side.tokens,
+            ms: side.ms,
+            workspaceId: record.workspaceId,
+            flowData,
+            signal: controller.signal,
+            timeoutMs
+        })
+        side.scores = graded.scores
+        side.graderTokens = graded.tokens
+    } catch (error) {
+        // Stop clears the case after this returns. A grader that timed out is Error, and the check moves on.
+        // Scores already computed for text, JSON and numeric evaluators stay. Only a model score is replaced.
+        if (!record.stopRequested) {
+            const aborted = error instanceof Error && /aborted/i.test(error.message)
+            const message = aborted ? 'The grading model did not finish.' : 'The grading model could not be started.'
+            const kept = new Map((side.scores || []).filter((score) => score.id).map((score) => [score.id, score]))
+            side.scores = record.evaluators.map((evaluator) => {
+                if (evaluator.type !== 'llm') {
+                    return kept.get(evaluator.id) || { id: evaluator.id, name: evaluator.name, result: 'Error' as const }
+                }
+                return { id: evaluator.id, name: evaluator.name, result: 'Error' as const, message }
+            })
+        }
+    } finally {
+        clearTimeout(timer)
+        record.inflight.delete(controller)
+    }
+}
+
 async function runCase(record: CheckRecord, c: CheckCase, flow: IChatFlow, draft: string, baseURL: string) {
-    if (!record.liveEmpty) c.live = await runOne(record, flow, flow.flowData, c.question, baseURL)
+    if (!record.liveEmpty) {
+        c.live = await runOne(record, flow, flow.flowData, c.question, baseURL)
+        await attachScores(record, c.live, c.question, c.expected ?? null, flow.flowData)
+    }
     if (record.stopRequested) {
         c.live = null
         c.draft = null
@@ -620,11 +865,14 @@ async function runCase(record: CheckRecord, c: CheckCase, flow: IChatFlow, draft
     }
     const stop = budgetLeft(record)
     if (stop) {
+        // The side is not shown, but its replay and grader tokens still count toward the next question.
+        record.spentTokens += (c.live?.tokens || 0) + (c.live?.graderTokens || 0)
         c.live = null
         record.stopReason = record.stopReason || stop
         return
     }
     c.draft = await runOne(record, flow, draft, c.question, baseURL)
+    await attachScores(record, c.draft, c.question, c.expected ?? null, draft)
     if (record.stopRequested) {
         c.live = null
         c.draft = null
@@ -688,7 +936,14 @@ async function runCheck(record: CheckRecord, flow: IChatFlow, draft: string, bas
 // Runs one question through a canvas without saving anything. For a chatflow the token counter is Cuttlely's
 // evaluation tracer, the only analytics provider on the copy, so the flow's own tracing providers are not called.
 // An agentflow replay calls no tracing provider and keeps its run in memory; its steps report their tokens.
-async function replayFlow({ flow, flowData, question, signal, baseURL }: ReplayInput): Promise<{ text: string; metrics?: unknown[] }> {
+async function replayFlow({
+    flow,
+    flowData,
+    question,
+    signal,
+    baseURL
+}: ReplayInput): Promise<{ text: string; metrics?: unknown[]; lines?: UsageLine[] }> {
+    if (flow.type === 'HARNESS') return replayHarnessQuestion({ flow, flowData, question, signal })
     // Imported here so loading this module does not load the whole prediction path.
     const { executeFlow } = await import('../../utils/buildChatflow')
     const app = getRunningExpressApp()
@@ -722,9 +977,13 @@ async function replayFlow({ flow, flowData, question, signal, baseURL }: ReplayI
             signal,
             replay: true
         })
-        // An agentflow reports tokens on each step; a chatflow through the evaluation tracer.
+        // An agentflow reports tokens on each step. A chatflow prices the lines the usage write keeps.
         const metrics = flow.type === 'AGENTFLOW' ? stepTokens(result?.agentFlowExecutedData) : EvaluationRunner.metrics.get(runId)
-        return { text: result?.text ?? '', metrics }
+        const lines =
+            flow.type === 'AGENTFLOW'
+                ? usageLinesFromRun({ agentFlowExecutedData: result?.agentFlowExecutedData })
+                : usageLinesFromRun(result?.usage)
+        return { text: result?.text ?? '', metrics, lines }
     } finally {
         EvaluationRunner.metrics.delete(runId)
     }

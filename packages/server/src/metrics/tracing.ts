@@ -209,19 +209,146 @@ function endError(span: SpanLike | undefined, error: unknown): void {
     span.end()
 }
 
-export async function traceFlow<T>(kind: 'agentflow' | 'chatflow', flowId: string, fn: () => Promise<T>): Promise<T> {
+const TRACE_ID = /^[0-9a-f]{32}$/i
+const SPAN_ID = /^[0-9a-f]{16}$/i
+
+/** An approval that is never resumed is forgotten after a day. */
+export const TRACE_PARENT_TTL_MS = 24 * 60 * 60 * 1000
+/** After a resume finishes, a client retry can still join that trace for this long. */
+export const TRACE_PARENT_GRACE_MS = 2 * 60 * 1000
+/** Oldest approvals are dropped once the process is holding this many. */
+export const TRACE_PARENT_CAP = 1000
+
+interface TraceParent {
+    traceId: string
+    spanId: string
+    storedAt: number
+    resumeFinishedAt?: number
+}
+
+/** Waiting-run trace, keyed by flow, chat and action id. Not part of the action sent to the client. */
+const traceParents = new Map<string, TraceParent>()
+let traceParentClock: () => number = () => Date.now()
+
+/** Tests move the clock. Production uses the wall clock. */
+export function setTraceParentClock(clock?: () => number): void {
+    traceParentClock = clock ?? (() => Date.now())
+}
+
+function continuationKey(flowId: string, chatId: string, actionId: string): string {
+    return `${flowId}\n${chatId}\n${actionId}`
+}
+
+function activeTraceParent(): Pick<TraceParent, 'traceId' | 'spanId'> | undefined {
+    const span = api().trace.getActiveSpan() as { spanContext?: () => { traceId?: string; spanId?: string } } | undefined
+    const current = span?.spanContext?.()
+    if (!current?.traceId || !current.spanId) return undefined
+    if (!TRACE_ID.test(current.traceId) || !SPAN_ID.test(current.spanId)) return undefined
+    return { traceId: current.traceId.toLowerCase(), spanId: current.spanId.toLowerCase() }
+}
+
+function parentExpired(entry: TraceParent, now: number): boolean {
+    if (now - entry.storedAt >= TRACE_PARENT_TTL_MS) return true
+    if (entry.resumeFinishedAt !== undefined && now >= entry.resumeFinishedAt + TRACE_PARENT_GRACE_MS) return true
+    return false
+}
+
+function pruneTraceParents(now: number): void {
+    for (const [key, entry] of traceParents) {
+        if (parentExpired(entry, now)) dropTraceParent(key)
+    }
+    while (traceParents.size > TRACE_PARENT_CAP) {
+        const oldest = traceParents.keys().next().value
+        if (oldest === undefined) break
+        dropTraceParent(oldest)
+    }
+}
+
+/** Drop one continuation. Waiting tool spans for that trace end pending once no record remains. */
+function dropTraceParent(key: string): void {
+    const entry = traceParents.get(key)
+    if (!entry) return
+    traceParents.delete(key)
+    for (const other of traceParents.values()) {
+        if (other.traceId === entry.traceId) return
+    }
+    releaseHeldToolsPending(entry.traceId)
+}
+
+/**
+ * Remember the active run for an approval that was just stored.
+ * The ids stay here. They are not written onto the action.
+ */
+export function rememberTraceContinuation(flowId: string, chatId: string, actionId: string): void {
+    if (!tracesRequested() || !installed) return
+    if (!flowId || !chatId || !actionId) return
+    const parent = activeTraceParent()
+    if (!parent) return
+    const now = traceParentClock()
+    const key = continuationKey(flowId, chatId, actionId)
+    // Replacing this same key is a refresh, not a drop, so the waiting tool span stays open.
+    if (traceParents.has(key)) traceParents.delete(key)
+    pruneTraceParents(now)
+    while (traceParents.size >= TRACE_PARENT_CAP) {
+        const oldest = traceParents.keys().next().value
+        if (oldest === undefined) break
+        dropTraceParent(oldest)
+    }
+    traceParents.set(key, { ...parent, storedAt: now })
+}
+
+/** The parent recorded for this stored approval. A request cannot supply one. A miss is undefined. */
+export function traceContinuationFor(flowId: string, chatId: string, actionId: string): { traceId: string; spanId: string } | undefined {
+    if (!flowId || !chatId || !actionId) return undefined
+    const now = traceParentClock()
+    pruneTraceParents(now)
+    const key = continuationKey(flowId, chatId, actionId)
+    const entry = traceParents.get(key)
+    if (!entry || parentExpired(entry, now)) {
+        if (entry) dropTraceParent(key)
+        return undefined
+    }
+    return { traceId: entry.traceId, spanId: entry.spanId }
+}
+
+/** The resume finished. A retry can still join until the grace period ends. */
+export function finishTraceContinuation(flowId: string, chatId: string, actionId: string): void {
+    if (!flowId || !chatId || !actionId) return
+    const entry = traceParents.get(continuationKey(flowId, chatId, actionId))
+    if (!entry || entry.resumeFinishedAt !== undefined) return
+    entry.resumeFinishedAt = traceParentClock()
+}
+
+function continuedContext(continuedFrom?: { traceId: string; spanId: string }): unknown {
+    const otel = require('@opentelemetry/api')
+    if (!continuedFrom) return otel.context.active()
+    return otel.trace.setSpanContext(otel.ROOT_CONTEXT, {
+        traceId: continuedFrom.traceId,
+        spanId: continuedFrom.spanId,
+        traceFlags: otel.TraceFlags.SAMPLED,
+        isRemote: true
+    })
+}
+
+export async function traceFlow<T>(
+    kind: 'agentflow' | 'chatflow',
+    flowId: string,
+    fn: () => Promise<T>,
+    continuedFrom?: { traceId: string; spanId: string }
+): Promise<T> {
     if (!tracesRequested()) return fn()
     registerCuttlelyTraces()
     if (!installed || !provider) return await fn()
     const { context, trace, SpanStatusCode } = api()
     const span = provider
         .getTracer('cuttlely')
-        .startSpan(kind === 'agentflow' ? 'agentflow.run' : 'chatflow.prediction', {}, context.active())
+        .startSpan(kind === 'agentflow' ? 'agentflow.run' : 'chatflow.prediction', {}, continuedContext(continuedFrom))
     span.setAttribute('flow.id', flowId)
     span.setAttribute('flow.kind', kind)
     const ctx = trace.setSpan(context.active(), span)
     try {
         const result = await context.with(ctx, fn)
+        settleHeldTools(span.spanContext().traceId)
         if (failedSpans.has(span)) {
             span.setStatus({ code: SpanStatusCode.ERROR, message: String(span.attributes?.error ?? 'error') })
         } else {
@@ -231,6 +358,7 @@ export async function traceFlow<T>(kind: 'agentflow' | 'chatflow', flowId: strin
         span.end()
         return result
     } catch (error) {
+        settleHeldTools(span.spanContext().traceId)
         endError(span, error)
         throw error
     }
@@ -240,15 +368,21 @@ export async function traceChatflowPrediction<T>(
     replay: boolean,
     flowId: string,
     question: () => unknown,
-    fn: () => Promise<T>
+    fn: () => Promise<T>,
+    continuedFrom?: { traceId: string; spanId: string }
 ): Promise<T> {
     if (replay) return silenceRunTraces(fn)
     if (!tracesRequested()) return fn()
-    return traceFlow('chatflow', flowId, async () => {
-        const result = await fn()
-        noteFlowOutcome(question(), (result as { text?: unknown } | undefined)?.text)
-        return result
-    })
+    return traceFlow(
+        'chatflow',
+        flowId,
+        async () => {
+            const result = await fn()
+            noteFlowOutcome(question(), (result as { text?: unknown } | undefined)?.text)
+            return result
+        },
+        continuedFrom
+    )
 }
 
 export function noteFlowOutcome(input: unknown, output: unknown, status?: string): void {
@@ -273,12 +407,32 @@ export async function withNodeSpan<T>(nodeId: string, nodeType: string, fn: () =
     const ctx = trace.setSpan(context.active(), span)
     try {
         const value = await context.with(ctx, fn)
-        span.setAttribute('status', 'ok')
-        span.setStatus({ code: SpanStatusCode.OK })
+        // A tool the executor caught never throws the node, but that step still failed.
+        if (failedSpans.has(span)) {
+            const message = String(span.attributes?.error ?? 'error')
+            span.setStatus({ code: SpanStatusCode.ERROR, message })
+            const parent = api().trace.getActiveSpan() as SpanLike | undefined
+            if (parent && parent !== span) {
+                parent.setAttribute('status', 'error')
+                if (typeof parent.attributes?.error !== 'string') parent.setAttribute('error', message)
+                failedSpans.add(parent)
+            }
+        } else {
+            span.setAttribute('status', 'ok')
+            span.setStatus({ code: SpanStatusCode.OK })
+        }
         span.end()
         return value
     } catch (error) {
         endError(span, error)
+        // The graph keeps going after a node throws, so the run span has to learn about the error here.
+        const parent = api().trace.getActiveSpan() as SpanLike | undefined
+        if (parent && parent !== span) {
+            const message = error instanceof Error ? error.message : String(error)
+            parent.setAttribute('status', 'error')
+            if (typeof parent.attributes?.error !== 'string') parent.setAttribute('error', message)
+            failedSpans.add(parent)
+        }
         throw error
     }
 }
@@ -405,6 +559,576 @@ function recordLateTools(result: unknown, nodeId: string, nodeType: string): voi
         }
         endPending(openChild('tool', nodeId, nodeType, toolSpanAttrs(name, id)))
     }
+}
+
+function wholeCount(value: unknown): number {
+    const n = typeof value === 'number' ? value : typeof value === 'string' && value.trim() !== '' ? Number(value) : NaN
+    if (!Number.isFinite(n) || n <= 0) return 0
+    return Math.min(Math.round(n), Number.MAX_SAFE_INTEGER)
+}
+
+function cleanTraceModel(value: unknown): string | undefined {
+    if (typeof value !== 'string') return undefined
+    const text = value.replace(/\s+/g, ' ').trim().slice(0, 255)
+    if (!text || /sk-|api[_-]?key|bearer\s|secret|password/i.test(text)) return undefined
+    return text
+}
+
+/**
+ * Token counts a usage record stores for one model callback.
+ * Message usage comes first, then the callback's tokenUsage. A call that reports nothing is left out.
+ */
+function reportedModelUsage(output: unknown, modelHint?: string): { model?: string; input: number; output: number } | undefined {
+    if (!output || typeof output !== 'object') return undefined
+    const record = output as {
+        generations?: Array<
+            Array<{
+                message?: { usage_metadata?: Record<string, unknown>; response_metadata?: Record<string, unknown> }
+            }>
+        >
+        llmOutput?: { tokenUsage?: Record<string, unknown>; model?: unknown }
+    }
+    const message = record.generations?.[0]?.[0]?.message
+    const meta = message?.usage_metadata
+    const tokenUsage = record.llmOutput?.tokenUsage
+    const responseModel = message?.response_metadata?.model_name ?? message?.response_metadata?.model ?? record.llmOutput?.model
+    const model = cleanTraceModel(modelHint) ?? cleanTraceModel(responseModel)
+    let input = 0
+    let outputTokens = 0
+    if (meta && (meta.input_tokens != null || meta.output_tokens != null || meta.prompt_tokens != null)) {
+        input = wholeCount(meta.input_tokens ?? meta.prompt_tokens)
+        outputTokens = wholeCount(meta.output_tokens ?? meta.completion_tokens)
+    } else if (tokenUsage) {
+        input = wholeCount(tokenUsage.promptTokens ?? tokenUsage.input_tokens)
+        outputTokens = wholeCount(tokenUsage.completionTokens ?? tokenUsage.output_tokens)
+    } else {
+        return undefined
+    }
+    if (input === 0 && outputTokens === 0) return undefined
+    return { model, input, output: outputTokens }
+}
+
+function modelHintOf(llm: unknown): string | undefined {
+    const kwargs = (llm as { kwargs?: Record<string, unknown> } | undefined)?.kwargs
+    return cleanTraceModel(kwargs?.modelName ?? kwargs?.model_name ?? kwargs?.model)
+}
+
+interface GraphModelCall {
+    runId: string
+    model?: string
+    input: number
+    output: number
+    error?: unknown
+    done: boolean
+    inputText?: unknown
+    outputText?: unknown
+}
+
+interface GraphToolCall {
+    runId: string
+    name: string
+    id?: string
+    error?: unknown
+    done: boolean
+    inputText?: unknown
+    outputText?: unknown
+}
+
+interface ModelToolCall {
+    name: string
+    id?: string
+}
+
+/** A tool span left open while an approval is waiting, so the resume can finish it instead of adding a second one. */
+interface HeldPendingTool {
+    span: SpanLike
+    traceId: string
+    name: string
+    id?: string
+}
+
+const heldPendingTools: HeldPendingTool[] = []
+const approvalHolds = new Set<string>()
+
+function activeTraceId(): string | undefined {
+    const span = api().trace.getActiveSpan() as { spanContext?: () => { traceId?: string } } | undefined
+    const traceId = span?.spanContext?.().traceId
+    return traceId || undefined
+}
+
+/** The approval was saved. Pending tool spans stay open so the resume can finish them. */
+export function keepPendingToolsForApproval(): void {
+    const traceId = activeTraceId()
+    if (traceId) approvalHolds.add(traceId)
+}
+
+function endHeld(traceId: string | undefined, finish: (span: SpanLike) => void): void {
+    if (!traceId) return
+    approvalHolds.delete(traceId)
+    for (let index = heldPendingTools.length - 1; index >= 0; index -= 1) {
+        if (heldPendingTools[index].traceId !== traceId) continue
+        finish(heldPendingTools[index].span)
+        heldPendingTools.splice(index, 1)
+    }
+}
+
+/** The approval was not saved, or its continuation record is gone. Export the waiting tool spans as pending. */
+export function releaseHeldToolsPending(traceId?: string): void {
+    endHeld(traceId || activeTraceId(), (span) => endPending(span))
+}
+
+/** The caller rejected the approval. LangGraph will not resume the interrupted tool, so finish that span here. */
+export function denyHeldTools(): void {
+    endHeld(activeTraceId(), (span) => endError(span, 'rejected by user'))
+}
+
+/** The active step caught a tool error. The node span, and then the run span, stay error. */
+function noteCaughtToolFailure(error: unknown): void {
+    const span = api().trace.getActiveSpan() as SpanLike | undefined
+    if (!span) return
+    const message = error instanceof Error ? error.message : String(error)
+    if (span.attributes?.status !== 'error') {
+        span.setAttribute('status', 'error')
+        span.setAttribute('error', message)
+    }
+    failedSpans.add(span)
+}
+
+function capHeldPendingTools(): void {
+    while (heldPendingTools.length > TRACE_PARENT_CAP) {
+        const oldest = heldPendingTools.shift()
+        if (!oldest) break
+        endPending(oldest.span)
+    }
+}
+
+/** Tests start from an empty hold list. */
+export function resetHeldToolsForTests(): void {
+    for (const held of heldPendingTools) endPending(held.span)
+    heldPendingTools.length = 0
+    approvalHolds.clear()
+}
+
+function claimHeldTool(traceId: string | undefined, tool: GraphToolCall, usedIds: Set<string>): HeldPendingTool | undefined {
+    if (!traceId) return undefined
+    const free = (held: HeldPendingTool) => !held.id || !usedIds.has(held.id)
+    let index = tool.id ? heldPendingTools.findIndex((held) => held.traceId === traceId && held.id === tool.id) : -1
+    if (index < 0) {
+        index = heldPendingTools.findIndex((held) => held.traceId === traceId && held.name === tool.name && free(held))
+    }
+    if (index < 0) {
+        index = heldPendingTools.findIndex(
+            (held) => held.traceId === traceId && toolNameKey(held.name) === toolNameKey(tool.name) && free(held)
+        )
+    }
+    if (index < 0) return undefined
+    const [held] = heldPendingTools.splice(index, 1)
+    return held
+}
+
+function finishHeldOk(held: HeldPendingTool, name: string, id?: string): void {
+    if (name) held.span.setAttribute('tool.name', name)
+    if (id) held.span.setAttribute('tool.id', id)
+    endOk(held.span)
+}
+
+function settleHeldTools(traceId: string): void {
+    if (!traceId) return
+    if (approvalHolds.has(traceId)) {
+        approvalHolds.delete(traceId)
+        return
+    }
+    for (const held of heldPendingTools.filter((item) => item.traceId === traceId)) endPending(held.span)
+    for (let index = heldPendingTools.length - 1; index >= 0; index -= 1) {
+        if (heldPendingTools[index].traceId === traceId) heldPendingTools.splice(index, 1)
+    }
+}
+
+function toolCallsFromLlmOutput(output: unknown): ModelToolCall[] {
+    const generation = (output as { generations?: Array<Array<Record<string, any>>> } | undefined)?.generations?.[0]?.[0]
+    const message = generation?.message ?? generation
+    const calls = message?.tool_calls ?? message?.additional_kwargs?.tool_calls
+    if (!Array.isArray(calls)) return []
+    const rows: ModelToolCall[] = []
+    for (const call of calls) {
+        if (!call || typeof call !== 'object') continue
+        const record = call as { name?: unknown; id?: unknown; function?: { name?: unknown } }
+        const name =
+            typeof record.name === 'string' && record.name
+                ? record.name
+                : typeof record.function?.name === 'string'
+                ? record.function.name
+                : ''
+        if (!name) continue
+        rows.push({ name, id: typeof record.id === 'string' && record.id ? record.id : undefined })
+    }
+    return rows
+}
+
+function stepCollector(bucket: { models: GraphModelCall[]; tools: GraphToolCall[] }) {
+    const models = new Map<string, GraphModelCall>()
+    const tools = new Map<string, GraphToolCall>()
+    const fromModel: ModelToolCall[] = []
+    const content = process.env.CUTTLELY_OTEL_TRACES_CONTENT === 'true'
+    const sync = () => {
+        bucket.models = [...models.values()]
+        bucket.tools = [...tools.values()]
+    }
+    return {
+        name: 'cuttlely_graph_step',
+        // LangChain queues handlers that do not set this, so a nested model end can land after the step span is emitted.
+        awaitHandlers: true,
+        handleLLMStart(llm: unknown, prompts: unknown, runId: string) {
+            if (!runId || models.has(runId)) return
+            models.set(runId, {
+                runId,
+                model: modelHintOf(llm),
+                input: 0,
+                output: 0,
+                done: false,
+                inputText: content ? prompts : undefined
+            })
+            sync()
+        },
+        handleChatModelStart(llm: unknown, messages: unknown, runId: string) {
+            this.handleLLMStart(llm, messages, runId)
+        },
+        async handleLLMEnd(output: unknown, runId: string) {
+            if (!runId || models.get(runId)?.done) return
+            const row = models.get(runId) ?? { runId, input: 0, output: 0, done: false }
+            const usage = reportedModelUsage(output, row.model)
+            if (usage) {
+                row.input = usage.input
+                row.output = usage.output
+                if (usage.model) row.model = usage.model
+            }
+            if (content) {
+                const generation = (
+                    output as { generations?: Array<Array<{ text?: unknown; message?: { content?: unknown } }>> } | undefined
+                )?.generations?.[0]?.[0]
+                row.outputText = generation?.text ?? generation?.message?.content
+            }
+            row.done = true
+            models.set(runId, row)
+            // The worker returns usedTools without the model's call id. The generation is where that id lives.
+            for (const call of toolCallsFromLlmOutput(output)) {
+                if (call.id && !fromModel.some((known) => known.id === call.id)) fromModel.push(call)
+            }
+            sync()
+        },
+        async handleLLMError(error: unknown, runId: string) {
+            if (!runId || models.get(runId)?.done) return
+            const row = models.get(runId) ?? { runId, input: 0, output: 0, done: false }
+            row.error = error
+            row.done = true
+            models.set(runId, row)
+            sync()
+        },
+        async handleToolStart(
+            tool: { name?: string; id?: string[]; kwargs?: { name?: string } },
+            input: unknown,
+            runId: string,
+            _parent?: string,
+            _tags?: string[],
+            metadata?: Record<string, unknown>,
+            runName?: string
+        ) {
+            if (!runId || tools.has(runId)) return
+            // A real tool callback receives the serialized class, which often has no name. The run name is the tool name.
+            const named = tool?.kwargs?.name || tool?.name
+            const fromRun = typeof runName === 'string' ? runName : ''
+            const fromId = Array.isArray(tool?.id) ? String(tool.id[tool.id.length - 1]) : ''
+            const name = named || fromRun || fromId || 'tool'
+            const taken = new Set([...tools.values()].map((call) => call.id).filter((id): id is string => Boolean(id)))
+            let metaId = metadata?.tool_call_id ?? metadata?.toolCallId
+            if (typeof metaId !== 'string' || !metaId) {
+                const exact = fromModel.findIndex((call) => call.id && call.name === name && !taken.has(call.id))
+                const index =
+                    exact >= 0
+                        ? exact
+                        : fromModel.findIndex((call) => call.id && toolNameKey(call.name) === toolNameKey(name) && !taken.has(call.id))
+                if (index >= 0) {
+                    metaId = fromModel[index].id
+                    fromModel.splice(index, 1)
+                }
+            }
+            tools.set(runId, {
+                runId,
+                name: String(name),
+                id: typeof metaId === 'string' && metaId ? metaId : undefined,
+                done: false,
+                inputText: content ? input : undefined
+            })
+            sync()
+        },
+        async handleToolEnd(output: unknown, runId: string) {
+            const row = tools.get(runId)
+            if (!row || row.done) return
+            row.done = true
+            if (content) row.outputText = output
+            sync()
+        },
+        async handleToolError(error: unknown, runId: string) {
+            const row = tools.get(runId)
+            if (!row || row.done) return
+            row.error = error
+            row.done = true
+            sync()
+        }
+    }
+}
+
+function messageList(result: unknown): Array<Record<string, any>> {
+    if (!result || typeof result !== 'object') return []
+    const messages = (result as { messages?: unknown }).messages
+    return Array.isArray(messages) ? messages : []
+}
+
+function usedToolRows(messages: Array<Record<string, any>>): GraphToolCall[] {
+    const rows: GraphToolCall[] = []
+    for (const message of messages) {
+        const used = message?.additional_kwargs?.usedTools
+        const list = Array.isArray(used) ? used.flat() : []
+        for (const tool of list) {
+            if (!tool || typeof tool !== 'object') continue
+            const name = typeof tool.tool === 'string' && tool.tool ? tool.tool : typeof tool.name === 'string' ? tool.name : ''
+            if (!name) continue
+            rows.push({
+                runId: typeof tool.id === 'string' && tool.id ? tool.id : name,
+                name,
+                id: typeof tool.id === 'string' && tool.id ? tool.id : undefined,
+                error: tool.error,
+                done: !tool.error
+            })
+        }
+    }
+    return rows
+}
+
+function requestedToolCalls(messages: Array<Record<string, any>>): Array<{ name: string; id?: string }> {
+    const rows: Array<{ name: string; id?: string }> = []
+    for (const message of messages) {
+        const calls = message?.tool_calls
+        if (!Array.isArray(calls)) continue
+        for (const call of calls) {
+            if (!call || typeof call.name !== 'string' || !call.name) continue
+            rows.push({ name: call.name, id: typeof call.id === 'string' && call.id ? call.id : undefined })
+        }
+    }
+    return rows
+}
+
+function toolNameKey(name: string): string {
+    return name.toLowerCase()
+}
+
+function fillToolIds(tools: GraphToolCall[], donors: Array<{ name: string; id?: string }>): void {
+    const pool = donors.filter((donor): donor is { name: string; id: string } => Boolean(donor.id))
+    const used = new Set(tools.map((tool) => tool.id).filter((id): id is string => Boolean(id)))
+    const claim = (tool: GraphToolCall, matches: (donor: { name: string; id: string }) => boolean) => {
+        const index = pool.findIndex((donor) => !used.has(donor.id) && matches(donor))
+        if (index < 0) return
+        tool.id = pool[index].id
+        used.add(pool[index].id)
+        pool.splice(index, 1)
+    }
+    // Exact names first, so Read and read keep their own call ids.
+    for (const tool of tools) {
+        if (tool.id) continue
+        claim(tool, (donor) => donor.name === tool.name)
+    }
+    // Calculator (the callback class) can still take calculator's unused call id.
+    for (const tool of tools) {
+        if (tool.id) continue
+        claim(tool, (donor) => toolNameKey(donor.name) === toolNameKey(tool.name))
+    }
+}
+
+function pendingToolCalls(calls: Array<{ name: string; id?: string }>, ran: GraphToolCall[]): Array<{ name: string; id?: string }> {
+    const ranIds = new Set(ran.map((tool) => tool.id).filter((id): id is string => Boolean(id)))
+    const nameless = new Map<string, number>()
+    for (const tool of ran) {
+        if (tool.id) continue
+        const key = toolNameKey(tool.name)
+        nameless.set(key, (nameless.get(key) || 0) + 1)
+    }
+    const pending: Array<{ name: string; id?: string }> = []
+    for (const call of calls) {
+        if (call.id) {
+            if (ranIds.has(call.id)) continue
+            pending.push(call)
+            continue
+        }
+        const key = toolNameKey(call.name)
+        const left = nameless.get(key) || 0
+        if (left > 0) {
+            nameless.set(key, left - 1)
+            continue
+        }
+        pending.push(call)
+    }
+    return pending
+}
+
+function emitGraphStep(
+    nodeId: string,
+    nodeType: string,
+    bucket: { models: GraphModelCall[]; tools: GraphToolCall[] },
+    result: unknown
+): void {
+    const messages = messageList(result)
+    // usedTools on a message can be a copy of a tool an earlier step already ran. Only this step's callbacks are spans.
+    fillToolIds(bucket.tools, [...requestedToolCalls(messages), ...usedToolRows(messages)])
+    for (const call of bucket.models) {
+        if (!call.error && call.input === 0 && call.output === 0) continue
+        const span = openChild('model', nodeId, nodeType, { 'model.name': call.model })
+        if (!span) continue
+        if (call.input || call.output) {
+            span.setAttribute('tokens.input', call.input)
+            span.setAttribute('tokens.output', call.output)
+        }
+        writeContent(span, call.inputText, call.outputText)
+        if (call.error) endError(span, call.error)
+        else endOk(span)
+    }
+    const ran = bucket.tools.filter((tool) => tool.done || tool.error)
+    const traceId = activeTraceId()
+    const usedIds = new Set(ran.map((tool) => tool.id).filter((id): id is string => Boolean(id)))
+    for (const tool of ran) {
+        const held = claimHeldTool(traceId, tool, usedIds)
+        if (held) {
+            const id = tool.id || held.id
+            if (id) usedIds.add(id)
+            if (tool.error) {
+                endError(held.span, tool.error)
+                noteCaughtToolFailure(tool.error)
+            } else finishHeldOk(held, tool.name, id)
+            continue
+        }
+        const span = openChild('tool', nodeId, nodeType, { 'tool.name': tool.name, ...(tool.id ? { 'tool.id': tool.id } : {}) })
+        if (!span) continue
+        writeContent(span, tool.inputText, tool.outputText)
+        if (tool.error) {
+            endError(span, tool.error)
+            noteCaughtToolFailure(tool.error)
+        } else endOk(span)
+    }
+    for (const call of pendingToolCalls(requestedToolCalls(messages), ran)) {
+        const span = openChild('tool', nodeId, nodeType, { 'tool.name': call.name, ...(call.id ? { 'tool.id': call.id } : {}) })
+        if (!span) continue
+        if (traceId && call.id) {
+            span.setAttribute('status', 'pending')
+            heldPendingTools.push({ span, traceId, name: call.name, id: call.id })
+            capHeldPendingTools()
+            continue
+        }
+        endPending(span)
+    }
+}
+
+function isSharedRunTraceHandler(callback: unknown): boolean {
+    return (callback as { name?: string } | undefined)?.name === 'cuttlely_otel'
+}
+
+/**
+ * handlers and inheritableHandlers are separate arrays after CallbackManager.setHandlers.
+ * getChild() copies only inheritableHandlers, which is how a nested chain and a worker
+ * tool call receive callbacks. A shared array must be updated once.
+ */
+function callbackHandlerLists(callbacks: unknown): object[][] {
+    if (!callbacks || typeof callbacks !== 'object' || Array.isArray(callbacks)) return []
+    const record = callbacks as { handlers?: unknown; inheritableHandlers?: unknown }
+    if (!Array.isArray(record.handlers)) return []
+    const handlers = record.handlers as object[]
+    if (!Array.isArray(record.inheritableHandlers) || record.inheritableHandlers === handlers) return [handlers]
+    return [handlers, record.inheritableHandlers]
+}
+
+function attachCollector(config: unknown, collector: object): unknown {
+    const record = config && typeof config === 'object' ? (config as { callbacks?: unknown }) : undefined
+    const callbacks = record?.callbacks
+    const lists = callbackHandlerLists(callbacks)
+    if (lists.length) {
+        for (const list of lists) list.push(collector)
+        return config
+    }
+    if (Array.isArray(callbacks)) {
+        const kept = callbacks.filter((callback) => !isSharedRunTraceHandler(callback))
+        return { ...(record ?? {}), callbacks: [...kept, collector] }
+    }
+    return { ...(record ?? {}), callbacks: [collector] }
+}
+
+/** Hide the stream's run-trace handler while this step records its own spans, then put it back. */
+function hideSharedRunTraceHandler(config: unknown): () => void {
+    const lists = callbackHandlerLists((config as { callbacks?: unknown } | undefined)?.callbacks)
+    if (!lists.length) return () => undefined
+    const hidden: Array<{ list: object[]; index: number; handler: object }> = []
+    for (const list of lists) {
+        for (let index = list.length - 1; index >= 0; index -= 1) {
+            if (!isSharedRunTraceHandler(list[index])) continue
+            hidden.push({ list, index, handler: list[index] })
+            list.splice(index, 1)
+        }
+    }
+    return () => {
+        for (const item of [...hidden].reverse()) item.list.splice(Math.min(item.index, item.list.length), 0, item.handler)
+    }
+}
+
+function detachCollector(config: unknown, collector: object): void {
+    for (const list of callbackHandlerLists((config as { callbacks?: unknown } | undefined)?.callbacks)) {
+        const index = list.lastIndexOf(collector)
+        if (index >= 0) list.splice(index, 1)
+    }
+}
+
+async function traceNodeBody(
+    nodeId: string,
+    nodeType: string,
+    run: (config: unknown) => Promise<unknown>,
+    config: unknown
+): Promise<unknown> {
+    if (!tracesRequested() || !installed) return run(config)
+    const bucket = { models: [] as GraphModelCall[], tools: [] as GraphToolCall[] }
+    const collector = stepCollector(bucket)
+    const next = attachCollector(config, collector)
+    const restoreHandler = hideSharedRunTraceHandler(next)
+    try {
+        return await withNodeSpan(nodeId, nodeType, async () => {
+            try {
+                const result = await run(next)
+                emitGraphStep(nodeId, nodeType, bucket, result)
+                return result
+            } catch (error) {
+                emitGraphStep(nodeId, nodeType, bucket, undefined)
+                throw error
+            }
+        })
+    } finally {
+        restoreHandler()
+        detachCollector(next, collector)
+    }
+}
+
+/**
+ * Wraps one graph node so its model and tool calls are children of a node span.
+ * When traces are off the action is returned unchanged: no wrapper and no collector.
+ */
+export function traceGraphNode(nodeId: string, nodeType: string, action: unknown): unknown {
+    if (process.env.CUTTLELY_OTEL_TRACES !== 'true') return action
+    if (typeof action === 'function') {
+        return (state: unknown, config: unknown) => traceNodeBody(nodeId, nodeType, (next) => action(state, next), config)
+    }
+    if (action && typeof action === 'object' && typeof (action as { invoke?: unknown }).invoke === 'function') {
+        const runnable = action as { invoke: (input: unknown, config?: unknown) => Promise<unknown>; __cuttlelyTraced?: boolean }
+        if (runnable.__cuttlelyTraced) return action
+        const original = runnable.invoke.bind(runnable)
+        runnable.__cuttlelyTraced = true
+        runnable.invoke = (input: unknown, config?: unknown) => traceNodeBody(nodeId, nodeType, (next) => original(input, next), config)
+        return action
+    }
+    return action
 }
 
 /**

@@ -89,10 +89,12 @@ export function latestAnalystCursor({ harness, chatId, now = Date.now(), ttlMs =
     return null
 }
 
-export function takeAnalystResults({ harness, specialist, since = 0 } = {}) {
+export function takeAnalystResults({ harness, specialist, chatId = '', since = 0 } = {}) {
+    const name = String(harness || '')
+    const who = String(specialist || '')
+    const chat = String(chatId || '')
     const rows = pending.filter(
-        (item) =>
-            !item.claimed && item.harness === String(harness || '') && item.specialist === String(specialist || '') && item.at >= since
+        (item) => !item.claimed && item.harness === name && item.specialist === who && item.chatId === chat && item.at >= since
     )
     for (const item of rows) item.claimed = true
     return rows.map((item) => ({ result: item.result, callId: item.callId || '' }))
@@ -101,4 +103,19 @@ export function takeAnalystResults({ harness, specialist, since = 0 } = {}) {
 export function resetAnalystCapture() {
     pending.length = 0
     calls.clear()
+}
+
+// A publish-check replay must not leave a page cursor or a captured row for this chat.
+// Other chats, including a published run of the same harness, stay.
+export function dropAnalystCapture({ harness, chatId } = {}) {
+    const name = String(harness || '')
+    const chat = String(chatId || '')
+    if (!name || !chat) return
+    for (let i = pending.length - 1; i >= 0; i -= 1) {
+        if (pending[i].harness === name && pending[i].chatId === chat) pending.splice(i, 1)
+    }
+    for (const key of [...calls.keys()]) {
+        const parts = key.split('\0')
+        if (parts[0] === name && parts[2] === chat) calls.delete(key)
+    }
 }

@@ -4849,6 +4849,89 @@ await expectCase('a caller from another workspace is rejected', async () => {
     )
 })
 
+await expectCase('a save does not adopt a harness from another workspace', async () => {
+    saveHarness(
+        {
+            name: 'maClash',
+            chatflowId: 'canvas-w1',
+            workspaceId: 'w1',
+            chief: { model: { provider: 'xai', model: 'grok-4.7', credentialId: 'cred-xai' } },
+            specialists: [{ name: 'reader', modules: [], mcpServers: [] }]
+        },
+        { overwrite: true }
+    )
+    const clash = await capture(() =>
+        saveHarness(
+            {
+                name: 'maClash',
+                chatflowId: 'canvas-w1',
+                workspaceId: 'w2',
+                chief: { model: { provider: 'xai', model: 'grok-4.7', credentialId: 'cred-xai' } },
+                specialists: [{ name: 'reader', modules: [], mcpServers: [] }]
+            },
+            { overwrite: true }
+        )
+    )
+    const kept = getHarness('maClash')
+    check(
+        'a save does not adopt a harness from another workspace',
+        clash.error?.code === 'name_clash' && kept?.workspaceId === 'w1' && kept?.chatflowId === 'canvas-w1',
+        clash.error?.message || kept?.workspaceId
+    )
+})
+
+await expectCase('a save does not stamp a team onto a harness that has none', async () => {
+    const payroll = {
+        name: 'payroll',
+        chief: { model: { provider: 'xai', model: 'grok-4.7', credentialId: 'cred-xai' } },
+        specialists: [{ name: 'reader', modules: [], mcpServers: [] }]
+    }
+    saveHarness(payroll, { overwrite: true })
+    const before = fs.readFileSync(path.join(process.env.CUTTLELY_DATA_DIR, 'harnesses', 'payroll.json'), 'utf8')
+    const clash = await capture(() =>
+        saveHarness(
+            {
+                ...payroll,
+                workspaceId: 'w2'
+            },
+            { overwrite: true }
+        )
+    )
+    const after = fs.readFileSync(path.join(process.env.CUTTLELY_DATA_DIR, 'harnesses', 'payroll.json'), 'utf8')
+    check(
+        'a save does not stamp a team onto a harness that has none',
+        clash.error?.code === 'name_clash' && after === before && !JSON.parse(after).workspaceId,
+        clash.error?.message || 'file changed'
+    )
+})
+
+await expectCase('a harness with no team is not run for a caller that has one', async () => {
+    saveHarness(
+        {
+            name: 'maUnassigned',
+            chief: { model: { provider: 'xai', model: 'grok-4.7', credentialId: 'cred-xai' } },
+            specialists: [{ name: 'reader', modules: [], mcpServers: [] }]
+        },
+        { overwrite: true }
+    )
+    const http = cannedFetch()
+    const run = await capture(() =>
+        runHarness({
+            name: 'maUnassigned',
+            chatId: 'unassigned-1',
+            input: 'hello',
+            fetchImpl: http.fetchImpl,
+            modelBaseUrl: 'http://127.0.0.1:9/v1',
+            flowOptions: flowContext({ workspaceId: 'w2' }).flowOptions
+        })
+    )
+    check(
+        'a harness with no team is not run for a caller that has one',
+        run.error?.code === 'wrong_workspace' && http.calls.length === 0,
+        run.error?.message || `model calls ${http.calls.length}`
+    )
+})
+
 await expectCase('chatflow tool cannot call the calling chat flow', async () => {
     class ChatflowProbe {
         static httpCalls = 0
@@ -7709,11 +7792,15 @@ const callerJob = enqueueHarnessJob({
     name: 'queue-worker',
     chatId: 'caller-flow-job',
     input: 'Say hi',
-    flowOptions: { chatflowid: 'caller-flow' }
+    flowOptions: { chatflowid: 'caller-flow', workspaceId: 'ws-caller' }
 })
 const callerPayload = JSON.parse(queueDatabase().prepare('SELECT payload FROM jobs WHERE id = ?').get(callerJob.id).payload)
 queueDatabase().prepare('DELETE FROM jobs WHERE id = ?').run(callerJob.id)
-check('a queued job keeps the caller chatflow id', callerPayload.callerChatflowId === 'caller-flow', JSON.stringify(callerPayload))
+check(
+    'a queued job keeps the caller chatflow id and workspace id',
+    callerPayload.callerChatflowId === 'caller-flow' && callerPayload.workspaceId === 'ws-caller',
+    JSON.stringify(callerPayload)
+)
 {
     const { finishJob, waitForJob } = await import('./queue.mjs')
     const imageJob = enqueueHarnessJob({ name: 'queue-worker', chatId: 'image-bytes-job', input: 'Draw' })
@@ -7944,7 +8031,13 @@ let pooledRun
 try {
     pooledRun = await executeJob({
         id: 'job-pool',
-        payload: { name: 'pool-worker', chatId: 'pool-1', input: 'Say hi', callerChatflowId: 'caller-flow' },
+        payload: {
+            name: 'pool-worker',
+            chatId: 'pool-1',
+            input: 'Say hi',
+            callerChatflowId: 'caller-flow',
+            workspaceId: 'ws-pool'
+        },
         cancelRequested: false
     })
 } catch (error) {
@@ -7955,6 +8048,193 @@ check(
     pooledRun?.text === 'answer:pooled' && pooledRun?.harness === 'pool-worker',
     pooledRun?.message || pooledRun?.text
 )
+{
+    const { claimJob, enqueueHarnessJob: enqueueExternal } = await import('./queue.mjs')
+    const { listRuns } = await import('./history.mjs')
+    const gatewayApi = await import('./gateway.mjs')
+    let modelCalls = 0
+    setWorkerContext(async (record) => ({
+        componentNodes: {},
+        loadNode: async () =>
+            class {
+                async init() {
+                    return {
+                        async invoke() {
+                            modelCalls += 1
+                            return { content: 'answer:ext' }
+                        }
+                    }
+                }
+            },
+        // Copies the harness file, which is the bug the payload team has to override.
+        flowOptions: { workspaceId: record?.workspaceId, chatflowid: record?.chatflowId }
+    }))
+    const externalRoster = (name, workspaceId) =>
+        saveHarness(
+            {
+                name,
+                ...(workspaceId ? { workspaceId } : {}),
+                chief: { instructions: 'Combine.', model: nodeModel('scriptedChat') },
+                specialists: [{ name: 'reader', instructions: 'Read.', modules: [], mcpServers: [] }]
+            },
+            { overwrite: true }
+        )
+    const tokenFor = (name) => {
+        const token = `${name}Token`.padEnd(43, 'x').slice(0, 43)
+        gatewayApi.registerProfileToken({ token, harnessName: name, specialistName: 'reader', profileName: `${name}--reader` })
+        return token
+    }
+    const refuseExternal = async (name, callerWorkspace) => {
+        modelCalls = 0
+        const before = listRuns(name).length
+        const enqueued = enqueueExternal({
+            name,
+            chatId: `${name}-chat`,
+            input: 'question from the other team',
+            flowOptions: { workspaceId: callerWorkspace, chatflowid: 'caller-flow' }
+        })
+        const claimed = claimJob()
+        const owned = claimed?.id === enqueued.id
+        let error
+        let gatewayStatus = 0
+        let gatewayBody = ''
+        const previous = gatewayApi.setGatewayContext(async (record) => ({
+            flowOptions: { workspaceId: record?.workspaceId, chatflowid: record?.chatflowId }
+        }))
+        const gateway = await openGateway()
+        try {
+            if (gateway && owned) {
+                const listed = await localRequest({
+                    port: gateway.port,
+                    method: 'POST',
+                    path: '/harness/tools/list',
+                    token: tokenFor(name),
+                    body: {}
+                })
+                gatewayStatus = listed.status
+                gatewayBody = listed.body
+            }
+            if (owned) {
+                try {
+                    await executeJob(claimed)
+                } catch (err) {
+                    error = err
+                }
+            }
+        } finally {
+            gatewayApi.setGatewayContext(previous)
+            if (gateway) await gateway.close()
+        }
+        return { owned, error, before, after: listRuns(name).length, modelCalls, gatewayStatus, gatewayBody }
+    }
+    externalRoster('extUnassigned')
+    const unassignedJob = await refuseExternal('extUnassigned', 'team-a')
+    check(
+        'an external job does not run a harness that has no team',
+        unassignedJob.owned &&
+            unassignedJob.error?.code === 'wrong_workspace' &&
+            unassignedJob.modelCalls === 0 &&
+            unassignedJob.after === unassignedJob.before &&
+            unassignedJob.gatewayStatus === 502 &&
+            unassignedJob.gatewayBody.includes('another workspace'),
+        JSON.stringify({
+            code: unassignedJob.error?.code,
+            calls: unassignedJob.modelCalls,
+            runs: [unassignedJob.before, unassignedJob.after],
+            gateway: unassignedJob.gatewayStatus,
+            body: unassignedJob.gatewayBody.slice(0, 240)
+        })
+    )
+    externalRoster('extOther', 'team-b')
+    const otherJob = await refuseExternal('extOther', 'team-a')
+    check(
+        'an external job does not run another team harness',
+        otherJob.owned &&
+            otherJob.error?.code === 'wrong_workspace' &&
+            otherJob.modelCalls === 0 &&
+            otherJob.after === otherJob.before &&
+            otherJob.gatewayStatus === 502 &&
+            otherJob.gatewayBody.includes('another workspace'),
+        JSON.stringify({
+            code: otherJob.error?.code,
+            calls: otherJob.modelCalls,
+            runs: [otherJob.before, otherJob.after],
+            gateway: otherJob.gatewayStatus,
+            body: otherJob.gatewayBody.slice(0, 240)
+        })
+    )
+    externalRoster('extSame', 'team-a')
+    modelCalls = 0
+    const sameBefore = listRuns('extSame').length
+    const sameEnqueued = enqueueExternal({
+        name: 'extSame',
+        chatId: 'extSame-chat',
+        input: 'Say hi',
+        flowOptions: { workspaceId: 'team-a', chatflowid: 'caller-flow' }
+    })
+    const sameClaimed = claimJob()
+    let sameText = ''
+    let sameError
+    let sameGateway = 0
+    const previousContext = gatewayApi.setGatewayContext(async (record) => ({
+        flowOptions: { workspaceId: record?.workspaceId, chatflowid: record?.chatflowId }
+    }))
+    const sameGatewayServer = await openGateway()
+    try {
+        if (sameGatewayServer && sameClaimed?.id === sameEnqueued.id) {
+            const listed = await localRequest({
+                port: sameGatewayServer.port,
+                method: 'POST',
+                path: '/harness/tools/list',
+                token: tokenFor('extSame'),
+                body: {}
+            })
+            sameGateway = listed.status
+        }
+        if (sameClaimed?.id === sameEnqueued.id) {
+            try {
+                const result = await executeJob(sameClaimed)
+                sameText = result?.text || ''
+            } catch (err) {
+                sameError = err
+            }
+        }
+    } finally {
+        gatewayApi.setGatewayContext(previousContext)
+        if (sameGatewayServer) await sameGatewayServer.close()
+    }
+    check(
+        'an external job runs a harness in the caller team',
+        sameClaimed?.id === sameEnqueued.id &&
+            sameGateway === 200 &&
+            sameText === 'answer:ext' &&
+            modelCalls > 0 &&
+            listRuns('extSame').length === sameBefore + 1,
+        JSON.stringify({ text: sameText, calls: modelCalls, gateway: sameGateway, error: sameError?.message, claimed: sameClaimed?.id })
+    )
+    externalRoster('extBare')
+    modelCalls = 0
+    const bareBefore = listRuns('extBare').length
+    const bareEnqueued = enqueueExternal({ name: 'extBare', chatId: 'extBare-chat', input: 'question from the other team' })
+    const bareClaimed = claimJob()
+    let bareError
+    if (bareClaimed?.id === bareEnqueued.id) {
+        try {
+            await executeJob(bareClaimed)
+        } catch (err) {
+            bareError = err
+        }
+    }
+    check(
+        'an external job with no caller workspace id is refused',
+        bareClaimed?.id === bareEnqueued.id &&
+            bareError?.code === 'wrong_workspace' &&
+            modelCalls === 0 &&
+            listRuns('extBare').length === bareBefore,
+        JSON.stringify({ code: bareError?.code, calls: modelCalls, claimed: bareClaimed?.id === bareEnqueued.id })
+    )
+    setWorkerContext(bootedPool.contextFor)
+}
 saveHarness(
     {
         name: 'pool-missing',
@@ -7972,7 +8252,7 @@ let missingPool
 try {
     await executeJob({
         id: 'job-pool-missing',
-        payload: { name: 'pool-missing', chatId: 'pool-missing', input: 'Say hi' },
+        payload: { name: 'pool-missing', chatId: 'pool-missing', input: 'Say hi', workspaceId: 'ws-pool' },
         cancelRequested: false
     })
 } catch (error) {
@@ -8009,6 +8289,8 @@ workerChild.stdout.on('data', (chunk) => {
 workerChild.stderr.on('data', (chunk) => {
     workerErr += String(chunk)
 })
+const { claimWorkspace } = await import('./store.mjs')
+claimWorkspace('queue-worker', 'ws-queue')
 let externalRun
 try {
     externalRun = await runQueuedHarness({
@@ -8016,7 +8298,8 @@ try {
         chatId: 'queue-external',
         input: 'Say hi',
         offlineModel: true,
-        timeoutMs: 8000
+        timeoutMs: 8000,
+        flowOptions: { workspaceId: 'ws-queue' }
     })
 } finally {
     workerChild.kill('SIGTERM')
@@ -8044,6 +8327,73 @@ check(
         !workerErr.includes('0.0.0.0'),
     JSON.stringify({ out: workerOut.slice(0, 400), err: workerErr.slice(0, 200) })
 )
+
+await expectCase('inline and off refuse another team harness before a run row', async () => {
+    const { listRuns } = await import('./history.mjs')
+    const { runQueuedHarness: queuedRun } = await import('./queue.mjs')
+    saveHarness(
+        {
+            name: 'nodeTeam',
+            workspaceId: 'team-a',
+            chief: { instructions: 'Combine.', model: nodeModel('scriptedChat') },
+            specialists: [{ name: 'reader', instructions: 'Read.', modules: [], mcpServers: [] }]
+        },
+        { overwrite: true }
+    )
+    let calls = 0
+    const loadNode = async () =>
+        class {
+            async init() {
+                return {
+                    async invoke() {
+                        calls += 1
+                        return { content: 'answer:team' }
+                    }
+                }
+            }
+        }
+    const before = listRuns('nodeTeam').length
+    const savedMode = process.env.CUTTLELY_HARNESS_QUEUE
+    const cross = async (mode, workspaceId, chatId) => {
+        process.env.CUTTLELY_HARNESS_QUEUE = mode
+        const args = {
+            name: 'nodeTeam',
+            chatId,
+            input: 'question from the other team',
+            loadNode,
+            source: 'prediction',
+            flowOptions: flowContext({ workspaceId }).flowOptions
+        }
+        if (mode === 'off') return capture(() => runHarness(args))
+        return capture(() => queuedRun(args))
+    }
+    try {
+        const inlineOther = await cross('inline', 'team-b', 'inline-other')
+        const offOther = await cross('off', 'team-b', 'off-other')
+        const refusedCalls = calls
+        const inlineOwn = await cross('inline', 'team-a', 'inline-own')
+        const offOwn = await cross('off', 'team-a', 'off-own')
+        check(
+            'inline and off refuse another team harness before a run row',
+            inlineOther.error?.code === 'wrong_workspace' &&
+                offOther.error?.code === 'wrong_workspace' &&
+                refusedCalls === 0 &&
+                inlineOwn.value?.text === 'answer:team' &&
+                offOwn.value?.text === 'answer:team' &&
+                listRuns('nodeTeam').length === before + 2,
+            JSON.stringify({
+                inline: inlineOther.error?.code || inlineOther.value?.text,
+                off: offOther.error?.code || offOther.value?.text,
+                calls: refusedCalls,
+                own: [inlineOwn.value?.text || inlineOwn.error?.message, offOwn.value?.text || offOwn.error?.message],
+                runs: listRuns('nodeTeam').length
+            })
+        )
+    } finally {
+        if (savedMode === undefined) delete process.env.CUTTLELY_HARNESS_QUEUE
+        else process.env.CUTTLELY_HARNESS_QUEUE = savedMode
+    }
+})
 
 const previousBlob = process.env.BLOB_STORAGE_PATH
 const blobRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'cuttlely-upload-'))
@@ -8525,7 +8875,47 @@ check(
     JSON.stringify({ heldText, passedText })
 )
 const { analystPingHeader, writeAnalystMcpStatus } = await import('./runtime/analyst-mcp-status.mjs')
-const { analystCaptureId, noteAnalystGatewayCall, recordAnalystResult } = await import('./analyst-capture.mjs')
+const { analystCaptureId, dropAnalystCapture, noteAnalystGatewayCall, recordAnalystResult, takeAnalystResults } = await import(
+    './analyst-capture.mjs'
+)
+recordAnalystResult({
+    harness: 'capture-split',
+    specialist: 'analyst',
+    chatId: 'chat-a',
+    callId: '1:same',
+    result: { rows: [{ id: 'A1' }] },
+    at: 1
+})
+recordAnalystResult({
+    harness: 'capture-split',
+    specialist: 'analyst',
+    chatId: 'chat-b',
+    callId: '1:same',
+    result: { rows: [{ id: 'B' }] },
+    at: 2
+})
+recordAnalystResult({
+    harness: 'capture-split',
+    specialist: 'analyst',
+    chatId: 'chat-a',
+    callId: '2:same',
+    result: { rows: [{ id: 'A2' }] },
+    at: 3
+})
+const takenA = takeAnalystResults({ harness: 'capture-split', specialist: 'analyst', chatId: 'chat-a', since: 0 })
+const takenB = takeAnalystResults({ harness: 'capture-split', specialist: 'analyst', chatId: 'chat-b', since: 0 })
+const takenAAgain = takeAnalystResults({ harness: 'capture-split', specialist: 'analyst', chatId: 'chat-a', since: 0 })
+check(
+    'taking one chat does not claim the other chat, even when the call ids match',
+    takenA.map((row) => row.result.rows[0].id).join(',') === 'A1,A2' &&
+        takenB.map((row) => row.result.rows[0].id).join(',') === 'B' &&
+        takenAAgain.length === 0 &&
+        takenA.every((row) => row.callId) &&
+        takenB[0].callId === '1:same',
+    JSON.stringify({ takenA, takenB, takenAAgain })
+)
+dropAnalystCapture({ harness: 'capture-split', chatId: 'chat-a' })
+dropAnalystCapture({ harness: 'capture-split', chatId: 'chat-b' })
 saveHarness(
     {
         name: 'analyst-direct',
@@ -8589,7 +8979,13 @@ const capRun = await runHarness({
     input: 'Use the analyst database for a row cap check. Create a tickets table and insert 150 rows, then select all rows.',
     baseUrl: 'http://127.0.0.1:9',
     fetchImpl: analystHermesFetch(() => {
-        recordAnalystResult({ harness: 'analyst-ground', specialist: 'analyst', callId: 'cap-handoff', result: rowCapBody })
+        recordAnalystResult({
+            harness: 'analyst-ground',
+            specialist: 'analyst',
+            chatId: 'cap-handoff',
+            callId: 'cap-handoff',
+            result: rowCapBody
+        })
         const preview = `${JSON.stringify(rowCapBody).slice(0, 80)}...`
         return {
             output: 'The select returned 100 rows and the tool marked the result as truncated.',
@@ -8615,7 +9011,13 @@ const shortRun = await runHarness({
     input: 'Use the analyst database. Create tickets and select all rows.',
     baseUrl: 'http://127.0.0.1:9',
     fetchImpl: analystHermesFetch(() => {
-        recordAnalystResult({ harness: 'analyst-ground', specialist: 'analyst', callId: 'cap-short', result: shortBody })
+        recordAnalystResult({
+            harness: 'analyst-ground',
+            specialist: 'analyst',
+            chatId: 'cap-short',
+            callId: 'cap-short',
+            result: shortBody
+        })
         return {
             output: 'Here are a few of the rows.',
             events: [
@@ -8667,7 +9069,13 @@ const droppedRun = await runHarness({
     input: 'Show all rows in the tickets table.',
     baseUrl: 'http://127.0.0.1:9',
     fetchImpl: analystHermesFetch(() => {
-        recordAnalystResult({ harness: 'analyst-ground', specialist: 'analyst', callId: 'cap-drop', result: droppedBody })
+        recordAnalystResult({
+            harness: 'analyst-ground',
+            specialist: 'analyst',
+            chatId: 'cap-drop-100',
+            callId: 'cap-drop',
+            result: droppedBody
+        })
         return {
             output: 'Listed the capped rows.',
             events: [
@@ -8709,7 +9117,7 @@ const countRun = await runHarness({
     input: 'How many rows are in tickets?',
     baseUrl: 'http://127.0.0.1:9',
     fetchImpl: analystHermesFetch(() => {
-        recordAnalystResult({ harness: 'analyst-ground', specialist: 'analyst', result: shortBody })
+        recordAnalystResult({ harness: 'analyst-ground', specialist: 'analyst', chatId: 'cap-count', result: shortBody })
         return {
             output: '150',
             events: [{ event: 'tool.completed', tool: 'mcp__analyst__query', preview: '150' }]
@@ -9138,28 +9546,38 @@ const statusRun = await runHarness({
         recordAnalystResult({
             harness: 'analyst-ground',
             specialist: 'analyst',
+            chatId: 'cap-status-lines',
             callId: 'status-1',
             result: { command: 'OK', rowCount: 0 }
         })
         recordAnalystResult({
             harness: 'analyst-ground',
             specialist: 'analyst',
+            chatId: 'cap-status-lines',
             callId: 'status-2',
             result: { command: 'OK', rowCount: 0 }
         })
         recordAnalystResult({
             harness: 'analyst-ground',
             specialist: 'analyst',
+            chatId: 'cap-status-lines',
             callId: 'status-3',
             result: { command: 'OK', rowCount: 150 }
         })
         recordAnalystResult({
             harness: 'analyst-ground',
             specialist: 'analyst',
+            chatId: 'cap-status-lines',
             callId: 'status-4',
             result: { rows: [{ id: 'seed', note: 'ignore' }] }
         })
-        recordAnalystResult({ harness: 'analyst-ground', specialist: 'analyst', callId: 'status-5', result: droppedBody })
+        recordAnalystResult({
+            harness: 'analyst-ground',
+            specialist: 'analyst',
+            chatId: 'cap-status-lines',
+            callId: 'status-5',
+            result: droppedBody
+        })
         return {
             output: 'Created the table, inserted 150 rows, and selected them.',
             events: [
@@ -9276,7 +9694,7 @@ async function runSingleColumnFill({ chatId, callId, rows, answer, summary }) {
         input: 'Show all rows from the analyst table.',
         baseUrl: 'http://127.0.0.1:9',
         fetchImpl: analystHermesFetch(() => {
-            recordAnalystResult({ harness: 'analyst-ground', specialist: 'analyst', callId, result: body })
+            recordAnalystResult({ harness: 'analyst-ground', specialist: 'analyst', chatId, callId, result: body })
             return {
                 output: 'Listed the capped rows.',
                 events: [
@@ -9520,6 +9938,7 @@ const refusalRun = await runHarness({
         recordAnalystResult({
             harness: 'analyst-ground',
             specialist: 'analyst',
+            chatId: 'chip-refusal',
             result: { error: 'Analyst mode refused that PRAGMA.', cuttlelyOutcome: 'expected' }
         })
         return {
@@ -9561,6 +9980,7 @@ const fiveRun = await runHarness({
             recordAnalystResult({
                 harness: 'analyst-ground',
                 specialist: 'analyst',
+                chatId: 'chip-five',
                 result: n === 5 ? { rows: [{ id: n, region: 'west' }] } : { error: `step ${n}`, cuttlelyOutcome: 'expected' }
             })
         }
@@ -9600,6 +10020,7 @@ const retryChipRun = await runHarness({
         recordAnalystResult({
             harness: 'analyst-ground',
             specialist: 'analyst',
+            chatId: 'chip-retry',
             result: { rows: [{ id: 1, region: 'west' }] }
         })
         return {
@@ -9676,6 +10097,7 @@ const mixRun = await runHarness({
         recordAnalystResult({
             harness: 'analyst-ground',
             specialist: 'analyst',
+            chatId: 'chip-mix',
             callId: selectId,
             result: { rows: [{ id: 1, description: 'Ticket 001' }], truncated: true, summary: pageCapLine }
         })
@@ -9728,6 +10150,7 @@ const gapRun = await runHarness({
         recordAnalystResult({
             harness: 'analyst-ground',
             specialist: 'analyst',
+            chatId: 'chip-gap',
             callId: selectId,
             result: { rows: [{ id: 9, description: 'Ticket 009' }], summary: pageCapLine }
         })
@@ -9757,12 +10180,14 @@ const twoRun = await runHarness({
         recordAnalystResult({
             harness: 'analyst-ground',
             specialist: 'analyst',
+            chatId: 'chip-two',
             callId: 'call_left',
             result: { rows: [{ id: 1, side: 'left' }] }
         })
         recordAnalystResult({
             harness: 'analyst-ground',
             specialist: 'analyst',
+            chatId: 'chip-two',
             callId: 'call_right',
             result: { rows: [{ id: 8, side: 'right' }] }
         })
@@ -10022,9 +10447,9 @@ await expectCase('harness runs keep a summary with status, latency, and a trace 
     )
     const workspace = listRuns('maWorkspace', { limit: 5 })[0]
     check(
-        'a rejected harness turn is listed as failed',
-        workspace?.status === 'failed' && workspace?.error?.code === 'wrong_workspace',
-        workspace ? `${workspace.status} ${workspace.error?.code}` : 'no row'
+        'a rejected harness turn is not stored on the other team',
+        !workspace,
+        workspace ? `${workspace.status} ${workspace.inputPreview}` : 'no row'
     )
     for (let i = 0; i < 101; i += 1) {
         beginHarnessRun({ name: 'historyCap', chatId: `c${i}`, source: 'api', input: `row ${i}`, startedAt: 1_700_000_000_000 + i })
@@ -10033,7 +10458,7 @@ await expectCase('harness runs keep a summary with status, latency, and a trace 
     check('run history keeps the latest 100 rows', capped.length === 100 && capped[0].inputPreview === 'row 100', String(capped.length))
     check(
         'harness runs keep a summary with status, latency, and a trace link',
-        failedRow?.status === 'failed' && Boolean(finished) && workspace?.status === 'failed' && capped.length === 100,
+        failedRow?.status === 'failed' && Boolean(finished) && !workspace && capped.length === 100,
         'see the rows above'
     )
 })
@@ -10362,7 +10787,7 @@ await (async () => {
                         return {}
                     }
                 },
-            flowOptions: { workspaceId: record.workspaceId || 'w1', chatflowid: record.chatflowId }
+            flowOptions: { workspaceId: record.workspaceId, chatflowid: record.chatflowId }
         }
     })
     const gateway = await openGateway()
@@ -10656,7 +11081,11 @@ await (async () => {
             if (nodeName === 'postgreSQLMCP') return PageAnalyst
             throw new Error(`unexpected node ${nodeName}`)
         },
-        flowOptions: flowContext({ workspaceId: record.workspaceId || 'w1', chatflowid: record.chatflowId }).flowOptions
+        flowOptions: {
+            ...flowContext().flowOptions,
+            workspaceId: record.workspaceId,
+            chatflowid: record.chatflowId
+        }
     }))
     const gateway = await openGateway()
     const tryId = 'b'.repeat(16)
@@ -11029,6 +11458,14 @@ await (async () => {
         path.join(tryDir(dead), '.env'),
         `OPENAI_API_KEY=${deadToken}\nOPENAI_BASE_URL=http://127.0.0.1:43118/v1\nCUTTLELY_GATEWAY_HARNESS=${dead}\nCUTTLELY_GATEWAY_SPECIALIST=clerk\nCUTTLELY_GATEWAY_TRY=1\n`
     )
+    const deadChild = `${dead}--clerk`
+    fs.mkdirSync(path.join(tryDir(deadChild), 'logs'), { recursive: true })
+    fs.writeFileSync(path.join(tryDir(deadChild), 'harness-parent'), `${dead}\n`)
+    fs.writeFileSync(path.join(tryDir(deadChild), 'logs', 'errors.log'), 'held\n')
+    fs.writeFileSync(path.join(tryDir(deadChild), 'logs', 'gateway.log'), 'held\n')
+    const unmarked = `try${'2b'.repeat(8)}`
+    fs.mkdirSync(tryDir(unmarked), { recursive: true })
+    fs.writeFileSync(path.join(tryDir(unmarked), 'SOUL.md'), 'NOT-A-TRY\n')
     const deadFit = `tryx${'ef'.repeat(8)}`
     fs.mkdirSync(tryDir(deadFit), { recursive: true })
     fs.writeFileSync(path.join(tryDir(deadFit), 'harness-parent'), `${dead}\n`)
@@ -11098,12 +11535,14 @@ await (async () => {
     const savedMemory = fs.readFileSync(path.join(savedDir, 'memory', 'MEMORY.md'), 'utf8')
     const savedWorkspace = fs.readFileSync(path.join(savedWork, 'keep.txt'), 'utf8')
     check(
-        'finished tries leave no directories, and a crash leftover is dropped on the next start',
+        'finished tries leave no directories, and a crash leftover with its specialist directory is dropped on the next start',
         tryHomes().includes(live) &&
             tryHomes().includes(savedName) &&
             !tryHomes().includes(dead) &&
             !fs.existsSync(tryDir(dead)) &&
+            !fs.existsSync(tryDir(deadChild)) &&
             !fs.existsSync(tryDir(deadFit)) &&
+            fs.readFileSync(path.join(tryDir(unmarked), 'SOUL.md'), 'utf8').includes('NOT-A-TRY') &&
             !fs.existsSync(tryDir(`try${'1'.repeat(16)}`)) &&
             !fs.existsSync(path.join(tryDir(`try${'1'.repeat(16)}--shell`), 'logs')) &&
             !fs.existsSync(path.join(tryDir(`try${'1'.repeat(16)}--clerk`), 'logs')) &&
@@ -11542,6 +11981,594 @@ await (async () => {
         'a failed directory removal still forgets every try token and removes the other directories',
         thrown && !failed && statuses.every((status) => status === 401) && remaining.length === 0,
         JSON.stringify({ thrown, thrownName, remaining, statuses, failed: failed?.message })
+    )
+})()
+
+await (async () => {
+    const { listRuns } = await import('./history.mjs')
+    const { recordAnalystResult, latestAnalystCursor } = await import('./analyst-capture.mjs')
+    const { tryRuntime } = await import('./profile.mjs')
+    tryRuntime.closeProfiles = null
+    tryRuntime.afterFirstRemoval = null
+    const name = 'check-replay'
+    const model = nodeModel('scriptedChat', { credential: 'cred-xai', label: 'Echo Chat', inputs: { modelName: 'gpt-4.1' } })
+    saveHarness(
+        {
+            name,
+            chief: { instructions: 'LIVE-INSTRUCTIONS', model },
+            specialists: [
+                {
+                    name: 'shell',
+                    instructions: 'LIVE-SPECIALIST',
+                    shell: true,
+                    browser: false,
+                    codeExecution: false,
+                    fileAccess: false,
+                    modules: [],
+                    mcpServers: []
+                }
+            ]
+        },
+        { overwrite: true }
+    )
+    compileProfileCached(getHarness(name))
+    const publishedDir = path.join(process.env.CUTTLELY_HERMES_HOME, 'profiles', name)
+    const publishedSoul = fs.readFileSync(path.join(publishedDir, 'SOUL.md'), 'utf8')
+    const profiles = path.join(process.env.CUTTLELY_HERMES_HOME, 'profiles')
+    const souls = new Map()
+    const tryDir = (id) => path.join(profiles, `try${id}`)
+    const calls = []
+    const loadNode = async () =>
+        recordingChat(calls, () => ({
+            content: 'CHECK_ANSWER',
+            usage: { prompt_tokens: 2, completion_tokens: 3 }
+        }))
+    const fetchFor = (chatId) => async () => {
+        recordAnalystResult({
+            harness: name,
+            specialist: 'shell',
+            chatId,
+            result: { rows: [{ id: 1 }], cursor: `cur-${chatId}`, summary: '1' }
+        })
+        return {
+            ok: true,
+            status: 200,
+            statusText: 'OK',
+            text: async () =>
+                JSON.stringify({
+                    output: 'SPECIALIST_OK',
+                    status: 'completed',
+                    usage: { prompt_tokens: 4, completion_tokens: 5 }
+                })
+        }
+    }
+    const tokens = new Map()
+    const previousHook = runHooks.afterProfile
+    const abortController = new AbortController()
+    const abortId = '9'.repeat(16)
+    runHooks.afterProfile = async (info) => {
+        if (typeof previousHook === 'function') await previousHook(info)
+        if (!info?.tryId) return
+        const env = readProfileEnv(`try${info.tryId}--shell`)
+        if (env.OPENAI_API_KEY) tokens.set(info.tryId, env.OPENAI_API_KEY)
+        const soulPath = path.join(profiles, `try${info.tryId}`, 'SOUL.md')
+        if (fs.existsSync(soulPath)) souls.set(info.tryId, fs.readFileSync(soulPath, 'utf8'))
+        if (info.tryId === abortId) abortController.abort()
+    }
+    const idA = 'c'.repeat(16)
+    const idB = 'd'.repeat(16)
+    const chatA = 'check-a'
+    const chatB = 'check-b'
+    const publishedChat = 'published-1'
+    let liveText = ''
+    let draftText = ''
+    let failed = null
+    try {
+        const [live, draft] = await Promise.all([
+            runHarnessRaw({
+                name,
+                chatId: chatA,
+                input: 'check question live',
+                baseUrl: 'http://127.0.0.1:9',
+                loadNode,
+                fetchImpl: fetchFor(chatA),
+                replay: true,
+                record: { ...getHarness(name), tryId: idA, chief: { ...getHarness(name).chief, instructions: 'DRAFT-NOT-THIS' } }
+            }),
+            runHarnessRaw({
+                name,
+                chatId: chatB,
+                input: 'check question draft',
+                baseUrl: 'http://127.0.0.1:9',
+                loadNode,
+                fetchImpl: fetchFor(chatB),
+                replay: true,
+                record: { ...getHarness(name), tryId: idB, chief: { ...getHarness(name).chief, instructions: 'DRAFT-INSTRUCTIONS' } }
+            }),
+            runHarnessRaw({
+                name,
+                chatId: publishedChat,
+                input: 'published question',
+                baseUrl: 'http://127.0.0.1:9',
+                loadNode,
+                fetchImpl: fetchFor(publishedChat)
+            })
+        ])
+        liveText = live.text
+        draftText = draft.text
+    } catch (error) {
+        failed = error
+    }
+    const errId = 'e'.repeat(16)
+    let errThrown = false
+    try {
+        await runHarnessRaw({
+            name,
+            chatId: 'check-err',
+            input: 'check question error',
+            baseUrl: 'http://127.0.0.1:9',
+            loadNode: async () => {
+                throw new Error('model failed')
+            },
+            fetchImpl: fetchFor('check-err'),
+            replay: true,
+            record: { ...getHarness(name), tryId: errId }
+        })
+    } catch {
+        errThrown = true
+    }
+    let abortThrown = false
+    try {
+        await runHarnessRaw({
+            name,
+            chatId: 'check-stop',
+            input: 'check question stop',
+            baseUrl: 'http://127.0.0.1:9',
+            loadNode,
+            fetchImpl: fetchFor('check-stop'),
+            signal: abortController.signal,
+            replay: true,
+            record: { ...getHarness(name), tryId: abortId }
+        })
+    } catch {
+        abortThrown = true
+    }
+    runHooks.afterProfile = previousHook
+    const gateway = await openGateway()
+    const tokenStatus = async (token) =>
+        token ? (await localRequest({ port: gateway.port, method: 'GET', path: '/v1/models', token })).status : 0
+    const forgotten = []
+    for (const id of [idA, idB, errId, abortId]) forgotten.push(await tokenStatus(tokens.get(id)))
+    await gateway.close()
+    const history = listRuns(name, { limit: 20 })
+    const inputs = history.map((row) => row.inputPreview)
+    const tryLeft = [idA, idB, errId, abortId].filter((id) => fs.existsSync(tryDir(id)) || fs.existsSync(`${tryDir(id)}--shell`))
+    check(
+        'a publish-check replay runs on its own try profile and leaves no history, session, analyst row, or token',
+        !failed &&
+            liveText === 'CHECK_ANSWER' &&
+            draftText === 'CHECK_ANSWER' &&
+            errThrown &&
+            abortThrown &&
+            !inputs.some((text) => String(text).startsWith('check question')) &&
+            inputs.includes('published question') &&
+            readMessages(name, chatA).length === 0 &&
+            readMessages(name, chatB).length === 0 &&
+            readMessages(name, 'check-err').length === 0 &&
+            readMessages(name, 'check-stop').length === 0 &&
+            readMessages(name, publishedChat).length > 0 &&
+            !latestAnalystCursor({ harness: name, chatId: chatA }) &&
+            !latestAnalystCursor({ harness: name, chatId: chatB }) &&
+            !latestAnalystCursor({ harness: name, chatId: 'check-err' }) &&
+            !latestAnalystCursor({ harness: name, chatId: 'check-stop' }) &&
+            latestAnalystCursor({ harness: name, chatId: publishedChat })?.token === 'cur-published-1' &&
+            tryLeft.length === 0 &&
+            forgotten.length === 4 &&
+            forgotten.every((status) => status === 401) &&
+            fs.existsSync(publishedDir) &&
+            fs.readFileSync(path.join(publishedDir, 'SOUL.md'), 'utf8') === publishedSoul &&
+            publishedSoul.includes('LIVE-INSTRUCTIONS') &&
+            souls.get(idA)?.includes('DRAFT-NOT-THIS') &&
+            souls.get(idB)?.includes('DRAFT-INSTRUCTIONS') &&
+            !souls.get(idA)?.includes('DRAFT-INSTRUCTIONS'),
+        JSON.stringify({
+            failed: failed?.message,
+            liveText,
+            draftText,
+            errThrown,
+            abortThrown,
+            inputs,
+            tryLeft,
+            forgotten,
+            tokens: [...tokens.keys()],
+            souls: [...souls.keys()],
+            publishedSession: readMessages(name, publishedChat).length
+        })
+    )
+})()
+
+await expectCase('a publish check replay from another team is refused and the owner still runs', async () => {
+    const { listRuns } = await import('./history.mjs')
+    saveHarness(
+        {
+            name: 'checkScope',
+            workspaceId: 'team-own',
+            chief: { instructions: 'Combine.', model: nodeModel('scriptedChat') },
+            specialists: [{ name: 'reader', instructions: 'Read.', modules: [], mcpServers: [] }]
+        },
+        { overwrite: true }
+    )
+    saveHarness(
+        {
+            name: 'checkBare',
+            chief: { instructions: 'Combine.', model: nodeModel('scriptedChat') },
+            specialists: [{ name: 'reader', instructions: 'Read.', modules: [], mcpServers: [] }]
+        },
+        { overwrite: true }
+    )
+    let calls = 0
+    const loadNode = async () =>
+        class {
+            async init() {
+                return {
+                    async invoke() {
+                        calls += 1
+                        return { content: 'CHECK_ANSWER' }
+                    }
+                }
+            }
+        }
+    const before = listRuns('checkScope').length + listRuns('checkBare').length
+    const other = await capture(() =>
+        runHarness({
+            name: 'checkScope',
+            chatId: 'check-other',
+            input: 'replay from the other team',
+            loadNode,
+            replay: true,
+            flowOptions: flowContext({ workspaceId: 'team-other' }).flowOptions,
+            record: { ...getHarness('checkScope'), tryId: 'a'.repeat(16) }
+        })
+    )
+    const bare = await capture(() =>
+        runHarness({
+            name: 'checkBare',
+            chatId: 'check-bare',
+            input: 'replay of a harness with no team',
+            loadNode,
+            replay: true,
+            flowOptions: flowContext({ workspaceId: 'team-own' }).flowOptions,
+            record: { ...getHarness('checkBare'), tryId: 'c'.repeat(16) }
+        })
+    )
+    const refusedCalls = calls
+    const owned = await capture(() =>
+        runHarness({
+            name: 'checkScope',
+            chatId: 'check-own',
+            input: 'replay from the owner',
+            loadNode,
+            replay: true,
+            flowOptions: flowContext({ workspaceId: 'team-own' }).flowOptions,
+            record: { ...getHarness('checkScope'), tryId: 'b'.repeat(16) }
+        })
+    )
+    const after = listRuns('checkScope').length + listRuns('checkBare').length
+    check(
+        'a publish check replay from another team is refused and the owner still runs',
+        other.error?.code === 'wrong_workspace' &&
+            bare.error?.code === 'wrong_workspace' &&
+            refusedCalls === 0 &&
+            calls > 0 &&
+            owned.value?.text === 'CHECK_ANSWER' &&
+            owned.value?.harness === 'checkScope' &&
+            after === before,
+        JSON.stringify({
+            other: other.error?.code,
+            bare: bare.error?.code,
+            refusedCalls,
+            calls,
+            text: owned.value?.text || owned.error?.message,
+            runs: [before, after]
+        })
+    )
+})
+
+await (async () => {
+    const profiles = path.join(process.env.CUTTLELY_HERMES_HOME, 'profiles')
+    const { tryRuntime } = await import('./profile.mjs')
+    const { registerProfileToken } = await import('./gateway.mjs')
+    const tryId = 'b7e10e6d577ffa82'
+    const scope = `try${tryId}`
+    const child = `${scope}--clerk`
+    const token = 'B'.repeat(43)
+    const childToken = 'K'.repeat(43)
+    const envFor = (value, specialist) =>
+        `OPENAI_API_KEY=${value}\nOPENAI_BASE_URL=http://127.0.0.1:43118/v1\nCUTTLELY_GATEWAY_HARNESS=${scope}\nCUTTLELY_GATEWAY_SPECIALIST=${specialist}\nCUTTLELY_GATEWAY_TRY=1\n`
+    fs.mkdirSync(path.join(profiles, scope, 'logs'), { recursive: true })
+    fs.mkdirSync(path.join(profiles, child, 'logs'), { recursive: true })
+    fs.writeFileSync(path.join(profiles, scope, 'harness-try'), `${scope}\n`)
+    fs.writeFileSync(path.join(profiles, scope, 'logs', 'errors.log'), 'held\n')
+    fs.writeFileSync(path.join(profiles, scope, 'logs', 'gateway.log'), 'held\n')
+    fs.writeFileSync(path.join(profiles, scope, '.env'), envFor(token, 'prime'))
+    fs.writeFileSync(path.join(profiles, child, 'harness-parent'), `${scope}\n`)
+    fs.writeFileSync(path.join(profiles, child, 'logs', 'errors.log'), 'held\n')
+    fs.writeFileSync(path.join(profiles, child, 'logs', 'gateway.log'), 'held\n')
+    fs.writeFileSync(path.join(profiles, child, '.env'), envFor(childToken, 'clerk'))
+    for (const [value, specialist, profileName] of [
+        [token, 'prime', scope],
+        [childToken, 'clerk', child]
+    ]) {
+        registerProfileToken({ token: value, harnessName: scope, specialistName: specialist, modelKey: 'k', profileName, tryProfile: true })
+    }
+    const closed = []
+    let removedBeforeClose = false
+    tryRuntime.closeProfiles = async (names) => {
+        closed.push(...names)
+    }
+    const realRm = fs.rmSync
+    const failedFirst = new Set()
+    fs.rmSync = function rmSync(target, options) {
+        const text = String(target)
+        const ownProfile =
+            text.includes(`${path.sep}profiles${path.sep}`) &&
+            (text.endsWith(`${path.sep}${scope}`) || text.endsWith(`${path.sep}${child}`))
+        if (ownProfile && closed.length === 0) removedBeforeClose = true
+        if (ownProfile && !failedFirst.has(text)) {
+            failedFirst.add(text)
+            const error = new Error('EBUSY')
+            error.code = 'EBUSY'
+            throw error
+        }
+        return realRm.call(fs, target, options)
+    }
+    const warnings = []
+    const realWarn = console.warn
+    console.warn = (...args) => warnings.push(args.map(String).join(' '))
+    let failed = null
+    try {
+        await discardTryProfile(tryId)
+    } catch (error) {
+        failed = error
+    } finally {
+        fs.rmSync = realRm
+        console.warn = realWarn
+        tryRuntime.closeProfiles = null
+        tryRuntime.afterFirstRemoval = null
+    }
+    const gateway = await openGateway()
+    const statuses = []
+    for (const value of [token, childToken]) {
+        statuses.push((await localRequest({ port: gateway.port, method: 'GET', path: '/v1/models', token: value })).status)
+    }
+    await gateway.close()
+    const left = [scope, child].filter((entry) => fs.existsSync(path.join(profiles, entry)))
+    check(
+        'a busy try directory is removed on the retry after the runtime and specialist are closed',
+        !failed &&
+            !removedBeforeClose &&
+            closed.includes(scope) &&
+            closed.includes(child) &&
+            failedFirst.size === 2 &&
+            left.length === 0 &&
+            warnings.length === 0 &&
+            statuses.every((status) => status === 401),
+        JSON.stringify({ failed: failed?.message, removedBeforeClose, closed, failedFirst: [...failedFirst], left, warnings, statuses })
+    )
+})()
+
+await (async () => {
+    const profiles = path.join(process.env.CUTTLELY_HERMES_HOME, 'profiles')
+    const { tryRuntime } = await import('./profile.mjs')
+    const { sweepAbandonedTryProfiles } = await import('./gateway.mjs')
+    const tryId = 'c0ffee00c0ffee00'
+    const scope = `try${tryId}`
+    const child = `${scope}--clerk`
+    const unmarked = `try${'3c'.repeat(8)}`
+    const savedName = 'try12345678'
+    fs.mkdirSync(path.join(profiles, scope, 'logs'), { recursive: true })
+    fs.mkdirSync(path.join(profiles, child, 'logs'), { recursive: true })
+    fs.writeFileSync(path.join(profiles, scope, 'harness-try'), `${scope}\n`)
+    fs.writeFileSync(path.join(profiles, scope, 'logs', 'errors.log'), 'held\n')
+    fs.writeFileSync(path.join(profiles, scope, 'logs', 'gateway.log'), 'held\n')
+    fs.writeFileSync(path.join(profiles, child, 'harness-parent'), `${scope}\n`)
+    fs.writeFileSync(path.join(profiles, child, 'logs', 'errors.log'), 'held\n')
+    fs.writeFileSync(path.join(profiles, child, 'logs', 'gateway.log'), 'held\n')
+    fs.mkdirSync(path.join(profiles, unmarked), { recursive: true })
+    fs.writeFileSync(path.join(profiles, unmarked, 'SOUL.md'), 'NOT-A-TRY\n')
+    const closed = []
+    tryRuntime.closeProfiles = async (names) => {
+        closed.push(...names)
+    }
+    const realRm = fs.rmSync
+    fs.rmSync = function rmSync(target, options) {
+        const text = String(target)
+        if (text.includes(`${path.sep}profiles${path.sep}${scope}`)) {
+            const error = new Error('EBUSY')
+            error.code = 'EBUSY'
+            throw error
+        }
+        return realRm.call(fs, target, options)
+    }
+    const warnings = []
+    const realWarn = console.warn
+    console.warn = (...args) => warnings.push(args.map(String).join(' '))
+    let failed = null
+    try {
+        await discardTryProfile(tryId)
+    } catch (error) {
+        failed = error
+    } finally {
+        fs.rmSync = realRm
+        console.warn = realWarn
+        tryRuntime.closeProfiles = null
+    }
+    const leftBefore = [scope, child].filter((entry) => fs.existsSync(path.join(profiles, entry)))
+    const swept = sweepAbandonedTryProfiles()
+    const savedDir = path.join(profiles, savedName)
+    const savedChild = path.join(profiles, `${savedName}--clerk`)
+    check(
+        'a try directory that stays busy is logged once, and startup removes that try and its specialist only',
+        !failed &&
+            closed.includes(scope) &&
+            closed.includes(child) &&
+            warnings.length === 1 &&
+            warnings[0].includes(scope) &&
+            warnings[0].includes(child) &&
+            leftBefore.length === 2 &&
+            swept.has(scope) &&
+            swept.has(child) &&
+            !swept.has(unmarked) &&
+            !swept.has(savedName) &&
+            !fs.existsSync(path.join(profiles, scope)) &&
+            !fs.existsSync(path.join(profiles, child)) &&
+            fs.existsSync(path.join(profiles, unmarked)) &&
+            fs.existsSync(savedDir) &&
+            fs.existsSync(savedChild),
+        JSON.stringify({
+            failed: failed?.message,
+            closed,
+            warnings,
+            leftBefore,
+            swept: [...swept],
+            unmarked: fs.existsSync(path.join(profiles, unmarked)),
+            saved: fs.existsSync(savedDir)
+        })
+    )
+})()
+
+await (async () => {
+    const { tryRuntime } = await import('./profile.mjs')
+    tryRuntime.closeProfiles = null
+    tryRuntime.afterFirstRemoval = null
+    const name = 'check-cleanup'
+    const model = nodeModel('scriptedChat', { credential: 'cred-xai', label: 'Echo Chat', inputs: { modelName: 'gpt-4.1' } })
+    saveHarness(
+        {
+            name,
+            chief: { instructions: 'LIVE-INSTRUCTIONS', model },
+            specialists: [
+                {
+                    name: 'clerk',
+                    instructions: 'CLERK',
+                    shell: true,
+                    browser: false,
+                    codeExecution: false,
+                    fileAccess: false,
+                    modules: [],
+                    mcpServers: []
+                }
+            ]
+        },
+        { overwrite: true }
+    )
+    const profiles = path.join(process.env.CUTTLELY_HERMES_HOME, 'profiles')
+    const tokens = new Map()
+    const previousHook = runHooks.afterProfile
+    const stopId = 'd3'.repeat(8)
+    const abortController = new AbortController()
+    runHooks.afterProfile = async (info) => {
+        if (typeof previousHook === 'function') await previousHook(info)
+        if (!info?.tryId) return
+        const env = readProfileEnv(`try${info.tryId}--clerk`)
+        if (env.OPENAI_API_KEY) tokens.set(info.tryId, env.OPENAI_API_KEY)
+        if (info.tryId === stopId) abortController.abort()
+    }
+    const okId = 'd1'.repeat(8)
+    const errId = 'd2'.repeat(8)
+    const loadNode = async () => recordingChat([], () => ({ content: 'CHECK_ANSWER' }))
+    const fetchImpl = async () => ({
+        ok: true,
+        status: 200,
+        statusText: 'OK',
+        text: async () => JSON.stringify({ output: 'SPECIALIST_OK', status: 'completed' })
+    })
+    let okText = ''
+    let failed = null
+    try {
+        const ok = await runHarnessRaw({
+            name,
+            chatId: 'cleanup-ok',
+            input: 'cleanup question',
+            baseUrl: 'http://127.0.0.1:9',
+            loadNode,
+            fetchImpl,
+            replay: true,
+            record: { ...getHarness(name), tryId: okId }
+        })
+        okText = ok.text
+    } catch (error) {
+        failed = error
+    }
+    let errThrown = false
+    try {
+        await runHarnessRaw({
+            name,
+            chatId: 'cleanup-err',
+            input: 'cleanup error',
+            baseUrl: 'http://127.0.0.1:9',
+            loadNode: async () => {
+                throw new Error('model failed')
+            },
+            fetchImpl,
+            replay: true,
+            record: { ...getHarness(name), tryId: errId }
+        })
+    } catch {
+        errThrown = true
+    }
+    let stopThrown = false
+    try {
+        await runHarnessRaw({
+            name,
+            chatId: 'cleanup-stop',
+            input: 'cleanup stop',
+            baseUrl: 'http://127.0.0.1:9',
+            loadNode,
+            fetchImpl,
+            signal: abortController.signal,
+            replay: true,
+            record: { ...getHarness(name), tryId: stopId }
+        })
+    } catch {
+        stopThrown = true
+    }
+    runHooks.afterProfile = previousHook
+    const gateway = await openGateway()
+    const forgotten = []
+    for (const id of [okId, errId, stopId]) {
+        const token = tokens.get(id)
+        forgotten.push(token ? (await localRequest({ port: gateway.port, method: 'GET', path: '/v1/models', token })).status : 0)
+    }
+    await gateway.close()
+    const tryLeft = [okId, errId, stopId].filter(
+        (id) => fs.existsSync(path.join(profiles, `try${id}`)) || fs.existsSync(path.join(profiles, `try${id}--clerk`))
+    )
+    check(
+        'a finished check with a specialist leaves no try directories, on success, error and Stop',
+        !failed &&
+            okText === 'CHECK_ANSWER' &&
+            errThrown &&
+            stopThrown &&
+            tryLeft.length === 0 &&
+            forgotten.length === 3 &&
+            forgotten.every((status) => status === 401),
+        JSON.stringify({ failed: failed?.message, okText, errThrown, stopThrown, tryLeft, forgotten, tokens: [...tokens.keys()] })
+    )
+})()
+
+await (async () => {
+    const { appendTurn, listUserTurns } = await import('./session.mjs')
+    const name = 'turn-questions'
+    const prefix = 'q'.repeat(240)
+    appendTurn(name, 'chat-1', `${prefix} rye bread`, 'one')
+    appendTurn(name, 'chat-2', `${prefix} wheat loaf`, 'two')
+    const listed = listUserTurns(name, { limit: 10 })
+    check(
+        'session user turns keep the full prompt, not the run preview',
+        listed.map((row) => row.content).join('|') === `${prefix} wheat loaf|${prefix} rye bread` &&
+            listed.every((row) => row.content.length > 240 && !row.content.endsWith('…')),
+        listed.map((row) => row.content.length).join(',')
     )
 })()
 

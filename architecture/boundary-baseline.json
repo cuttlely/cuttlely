@@ -317,6 +317,11 @@
         },
         {
             "from": "packages/server/src/identity/rbac.routes.test.ts",
+            "to": "packages/server/src/routes/model-prices/index.ts",
+            "reason": "The permission test imports the model price router so it can check the owner gate."
+        },
+        {
+            "from": "packages/server/src/identity/rbac.routes.test.ts",
             "to": "packages/server/src/routes/stats/index.ts",
             "reason": "The permission test imports the stats router so it can check the view gate."
         },
@@ -475,6 +480,16 @@
             "to": "packages/server/src/errors/utils.ts"
         },
         {
+            "from": "packages/server/src/services/flow-check/harness.ts",
+            "to": "packages/server/src/errors/appError/index.ts",
+            "reason": "The harness publish check reports bad questions through the shared server error class."
+        },
+        {
+            "from": "packages/server/src/services/flow-check/index.test.ts",
+            "to": "packages/server/src/services/evaluations/LLMEvaluationRunner.ts",
+            "reason": "The publish check test counts grader tokens with the runner's reader, and the grader tests sit beside that runner."
+        },
+        {
             "from": "packages/server/src/services/flow-check/index.ts",
             "to": "packages/components/src/index.ts"
         },
@@ -512,6 +527,46 @@
             "from": "packages/server/src/services/flow-check/inputs.ts",
             "to": "packages/server/src/utils/buildAgentflow.ts",
             "reason": "The publish check reads stored form lines with the same parser that restores a form from an execution."
+        },
+        {
+            "from": "packages/server/src/services/flow-check/score.ts",
+            "to": "packages/server/src/database/entities/Dataset.ts",
+            "reason": "The publish check reads a saved dataset and scores answers with the existing evaluator runners."
+        },
+        {
+            "from": "packages/server/src/services/flow-check/score.ts",
+            "to": "packages/server/src/database/entities/DatasetRow.ts",
+            "reason": "The publish check reads a saved dataset and scores answers with the existing evaluator runners."
+        },
+        {
+            "from": "packages/server/src/services/flow-check/score.ts",
+            "to": "packages/server/src/database/entities/Evaluator.ts",
+            "reason": "The publish check reads a saved dataset and scores answers with the existing evaluator runners."
+        },
+        {
+            "from": "packages/server/src/services/flow-check/score.ts",
+            "to": "packages/server/src/errors/appError/index.ts",
+            "reason": "The publish check reads a saved dataset and scores answers with the existing evaluator runners."
+        },
+        {
+            "from": "packages/server/src/services/flow-check/score.ts",
+            "to": "packages/server/src/Interface.Evaluation.ts",
+            "reason": "The publish check reads a saved dataset and scores answers with the existing evaluator runners."
+        },
+        {
+            "from": "packages/server/src/services/flow-check/score.ts",
+            "to": "packages/server/src/services/evaluations/EvaluatorRunner.ts",
+            "reason": "The publish check reads a saved dataset and scores answers with the existing evaluator runners."
+        },
+        {
+            "from": "packages/server/src/services/flow-check/score.ts",
+            "to": "packages/server/src/services/evaluations/LLMEvaluationRunner.ts",
+            "reason": "The publish check reads a saved dataset and scores answers with the existing evaluator runners."
+        },
+        {
+            "from": "packages/server/src/services/flow-check/score.ts",
+            "to": "packages/server/src/utils/getRunningExpressApp.ts",
+            "reason": "The publish check reads a saved dataset and scores answers with the existing evaluator runners."
         },
         {
             "from": "packages/server/src/services/flow-drafts/index.ts",
@@ -1151,6 +1206,21 @@
             "to": "packages/ui/src/views/canvas/NodeInputHandler.jsx"
         },
         {
+            "from": "packages/ui/src/views/canvas/PublishCheck.jsx",
+            "to": "packages/ui/src/api/dataset.js",
+            "reason": "The publish check reads a saved dataset and scores answers with the existing evaluator runners."
+        },
+        {
+            "from": "packages/ui/src/views/canvas/PublishCheck.jsx",
+            "to": "packages/ui/src/api/evaluators.js",
+            "reason": "The publish check reads a saved dataset and scores answers with the existing evaluator runners."
+        },
+        {
+            "from": "packages/ui/src/views/canvas/PublishCheck.jsx",
+            "to": "packages/ui/src/hooks/useAuth.jsx",
+            "reason": "The publish check reads a saved dataset and scores answers with the existing evaluator runners."
+        },
+        {
             "from": "packages/ui/src/views/canvas/PublishDialog.jsx",
             "to": "packages/ui/src/hooks/useConfirm.jsx"
         },
@@ -1316,7 +1386,13 @@
             "reason": "compatibility test for the earlier components package specifier"
         }
     ],
-    "r4Edges": [],
+    "r4Edges": [
+        {
+            "from": "packages/server/src/services/evaluations/LLMEvaluationRunner.test.ts",
+            "to": "packages/server/src/services/flow-check/score.ts",
+            "reason": "The grader test scores a check answer so a credential from another workspace is refused before decrypt and before a model call."
+        }
+    ],
     "r5Edges": [
         {
             "from": "scripts/hermes-import-smoke.mjs",
@@ -2350,6 +2426,18 @@
             "reason": "The node list and pack index sign-in test stays with the inherited nodes routes."
         },
         {
+            "path": "packages/server/src/services/evaluations/LLMEvaluationRunner.test.ts",
+            "reason": "The publish check test counts grader tokens with the runner's reader, and the grader tests sit beside that runner."
+        },
+        {
+            "path": "packages/server/src/services/evaluations/grader-node-fixture.js",
+            "reason": "The publish check test counts grader tokens with the runner's reader, and the grader tests sit beside that runner."
+        },
+        {
+            "path": "packages/server/src/services/executions/index.test.ts",
+            "reason": "The executions paging test lives next to the service it checks."
+        },
+        {
             "path": "packages/server/src/utils/buildAgentflow.harness-usage.test.ts",
             "reason": "The agentflow harness usage test stays next to the agentflow runner it exercises."
         },
@@ -2360,10 +2448,6 @@
         {
             "path": "packages/server/src/utils/buildAgentGraph.usage.test.ts",
             "reason": "The Agent token test and the multi-agent usage test stay next to the inherited nodes they exercise."
-        },
-        {
-            "path": "packages/server/src/services/executions/index.test.ts",
-            "reason": "The executions paging test lives next to the service it checks."
         },
         {
             "path": "packages/server/src/utils/telemetry-geoip-missing.test.ts",
