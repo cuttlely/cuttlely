@@ -14,11 +14,28 @@ type AnalystPostgresModule = {
 
 type AnalystStoreModule = {
     ensureAnalystStore: (env?: NodeJS.ProcessEnv, options?: { workspace?: string }) => Promise<{ engine?: string }>
-    queryAnalyst: (sql: string | Record<string, unknown>, options?: { env?: NodeJS.ProcessEnv; workspace?: string }) => Promise<unknown>
+    queryAnalyst: (
+        sql: string | Record<string, unknown>,
+        options?: { env?: NodeJS.ProcessEnv; workspace?: string; rowCap?: number; statementTimeoutMs?: number }
+    ) => Promise<unknown>
     analystSqlText: (input: unknown) => string
-    analystToolSpec: (engine?: string) => { description: string; schema: Record<string, unknown> }
-    queryAnalystUrl: (postgresUrl: string, input: Record<string, unknown>) => Promise<unknown>
-    analystUrlToolSpec: () => { description: string; schema: Record<string, unknown> }
+    analystToolSpec: (engine?: string, rowCap?: number) => { description: string; schema: Record<string, unknown> }
+    analystCallLimits: (
+        requested?: { rowCap?: number; statementTimeoutMs?: number },
+        env?: NodeJS.ProcessEnv
+    ) => { rowCap: number; timeoutMs: number }
+    queryAnalystUrl: (
+        postgresUrl: string,
+        input: Record<string, unknown>,
+        options?: { rowCap?: number; statementTimeoutMs?: number }
+    ) => Promise<unknown>
+    analystUrlToolSpec: (rowCap?: number) => { description: string; schema: Record<string, unknown> }
+}
+
+function optionalPositive(value: unknown): number | undefined {
+    if (value === undefined || value === null || String(value).trim() === '') return undefined
+    const n = Number(value)
+    return Number.isFinite(n) && n > 0 ? n : undefined
 }
 
 const importEsm = new Function('specifier', 'return import(specifier)') as <T>(specifier: string) => Promise<T>
@@ -108,7 +125,7 @@ class PostgreSQL_MCP implements INode {
     constructor() {
         this.label = 'PostgreSQL MCP'
         this.name = 'postgreSQLMCP'
-        this.version = 1.0
+        this.version = 1.1
         this.type = 'PostgreSQL MCP Tool'
         this.icon = 'postgres.svg'
         this.category = 'Tools (MCP)'
@@ -127,6 +144,24 @@ class PostgreSQL_MCP implements INode {
                 type: 'asyncMultiOptions',
                 loadMethod: 'listActions',
                 refresh: true
+            },
+            {
+                label: 'Row cap',
+                name: 'analystRowCap',
+                type: 'number',
+                optional: true,
+                additionalParams: true,
+                description:
+                    'Most rows one query on this node returns. Leave empty to use the server row cap. A lower number puts less of the table into the prompt. It cannot go above the server cap.'
+            },
+            {
+                label: 'Query timeout (seconds)',
+                name: 'analystTimeoutSeconds',
+                type: 'number',
+                optional: true,
+                additionalParams: true,
+                description:
+                    'How long one statement on this node may run, in seconds. Leave empty to use the server timeout. It cannot go above the server timeout.'
             }
         ]
         this.baseClasses = ['Tool']
@@ -198,18 +233,32 @@ class PostgreSQL_MCP implements INode {
         })
         // Each workspace has its own analyst area. A harness run also passes its workspace with the call.
         const workspace = options?.searchOptions?.workspaceId?._value || options?.workspaceId || ''
-        if (decision.kind === 'auto') return this.isolatedTools(typeof workspace === 'string' ? workspace : '')
-        return this.urlTools(decision.postgresUrl)
+        const requested = this.nodeLimits(nodeData)
+        if (decision.kind === 'auto') return this.isolatedTools(typeof workspace === 'string' ? workspace : '', requested)
+        return this.urlTools(decision.postgresUrl, requested)
     }
 
-    async isolatedTools(workspace = ''): Promise<Tool[]> {
+    nodeLimits(nodeData: INodeData): { rowCap?: number; statementTimeoutMs?: number } {
+        const seconds = optionalPositive(nodeData?.inputs?.analystTimeoutSeconds)
+        return {
+            rowCap: optionalPositive(nodeData?.inputs?.analystRowCap),
+            statementTimeoutMs: seconds === undefined ? undefined : Math.round(seconds * 1000)
+        }
+    }
+
+    async isolatedTools(workspace = '', requested: { rowCap?: number; statementTimeoutMs?: number } = {}): Promise<Tool[]> {
         const store = await loadAnalystStore()
+        const limits = store.analystCallLimits(requested, process.env)
         const ready = await store.ensureAnalystStore(process.env, { workspace })
-        const spec = store.analystToolSpec(ready?.engine)
+        const spec = store.analystToolSpec(ready?.engine, limits.rowCap)
         const query = tool(
             async (input: { sql?: string; statement?: string; query?: string; cursor?: string; page?: number }): Promise<string> => {
                 try {
-                    const result = await store.queryAnalyst(input || {}, { workspace })
+                    const result = await store.queryAnalyst(input || {}, {
+                        workspace,
+                        rowCap: limits.rowCap,
+                        statementTimeoutMs: limits.timeoutMs
+                    })
                     return JSON.stringify(result)
                 } catch (error) {
                     const outcome = (error as { cuttlelyOutcome?: string })?.cuttlelyOutcome
@@ -229,14 +278,20 @@ class PostgreSQL_MCP implements INode {
         return [query as Tool]
     }
 
-    // The URL path runs in Cuttlely, read only, with the same 100-row cap, page line and cursor as the isolated store.
-    async urlTools(postgresUrl: string): Promise<Tool[]> {
+    // The URL path runs in Cuttlely, read only, with the same row cap, page line and cursor as the isolated store.
+    async urlTools(postgresUrl: string, requested: { rowCap?: number; statementTimeoutMs?: number } = {}): Promise<Tool[]> {
         const store = await loadAnalystStore()
-        const spec = store.analystUrlToolSpec()
+        const limits = store.analystCallLimits(requested, process.env)
+        const spec = store.analystUrlToolSpec(limits.rowCap)
         const query = tool(
             async (input: { sql?: string; statement?: string; query?: string; cursor?: string; page?: number }): Promise<string> => {
                 try {
-                    return JSON.stringify(await store.queryAnalystUrl(postgresUrl, input || {}))
+                    return JSON.stringify(
+                        await store.queryAnalystUrl(postgresUrl, input || {}, {
+                            rowCap: limits.rowCap,
+                            statementTimeoutMs: limits.timeoutMs
+                        })
+                    )
                 } catch (error) {
                     const outcome = (error as { cuttlelyOutcome?: string })?.cuttlelyOutcome
                     if (outcome === 'expected' || outcome === 'transport') {

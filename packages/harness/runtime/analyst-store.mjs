@@ -4,6 +4,7 @@
 // The role password is encrypted with the credential key. It is not an env var.
 
 import { fork } from 'node:child_process'
+import { DatabaseSync } from 'node:sqlite'
 import { createRequire } from 'node:module'
 import { AsyncLocalStorage } from 'node:async_hooks'
 import { createHash, randomBytes } from 'node:crypto'
@@ -20,35 +21,146 @@ import {
     offsetSql,
     pageKeyValue,
     parseSimpleSelect,
+    columnTypeSql,
+    resultLengthSql,
     safeOrderKeys,
     stripPageColumns
 } from './analyst-page.mjs'
 import { encryptionKeyConflict, encryptionKeyOverwrite } from '../../../scripts/setting-alias.cjs'
+import { analystHandoffLine, analystPagesFromLineLengths, analystShownRows } from '../context.mjs'
 
 // Repo root. This module lives in packages/harness/runtime/.
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..')
 const require = createRequire(path.join(ROOT, 'packages/components/package.json'))
 const CryptoJS = require('crypto-js')
 const { Client } = require('pg')
+let pgClientFactory = (config) => new Client(config)
+
+export function setAnalystPgClientForTests(factory) {
+    pgClientFactory = typeof factory === 'function' ? factory : (config) => new Client(config)
+}
 
 export const ANALYST_ROLE = 'analyst_reader'
 export const ANALYST_SCHEMA = 'analyst'
 export const ANALYST_STATEMENT_TIMEOUT = '15s'
 export const ANALYST_STATEMENT_TIMEOUT_MS = 15000
+// Hard ceiling. The admin setting and a node override are both clamped to this.
+export const ANALYST_STATEMENT_TIMEOUT_MAX_MS = 120000
+// A reused session client must outlast every later call. The per-call limit is SET statement_timeout.
+export const ANALYST_PG_QUERY_BACKSTOP_MS = ANALYST_STATEMENT_TIMEOUT_MAX_MS + 5000
 export const ANALYST_TIMEOUT_MESSAGE = 'canceling statement due to statement timeout'
 export const ANALYST_ROW_CAP = 100
+// Hard ceiling. A larger page would paste too much of a table into the prompt.
+export const ANALYST_ROW_CAP_MAX = 1000
 export { rowPageSummary, analystPageRequest, analystPageTask } from './analyst-page.mjs'
 
 const analystCall = new AsyncLocalStorage()
 const pageCursors = new Map()
 const SQLITE_WORKER = path.join(path.dirname(fileURLToPath(import.meta.url)), 'analyst-sqlite-worker.mjs')
 
-// Every analyst statement gets a timeout set by Cuttlely on that call. Auto storage stays capped at 15 seconds:
-// a caller can ask for less, and nothing can ask for more until a setting for it ships.
-export function analystStatementTimeoutMs(value) {
-    const ms = Math.floor(Number(value))
-    if (!Number.isFinite(ms) || ms <= 0) return ANALYST_STATEMENT_TIMEOUT_MS
-    return Math.min(ms, ANALYST_STATEMENT_TIMEOUT_MS)
+function positiveInt(value) {
+    const n = Math.floor(Number(value))
+    return Number.isFinite(n) && n > 0 ? n : null
+}
+
+// Blank is unset. 0, a negative number, and text that is not a number are also unset, and each distinct
+// bad value is logged once. A timeout below one second is raised to one second, matching the settings page.
+const ANALYST_TIMEOUT_MIN_MS = 1000
+const analystLimitWarnings = new Set()
+
+export function resetAnalystLimitWarningsForTests() {
+    analystLimitWarnings.clear()
+}
+
+function warnAnalystLimit(name, raw, message) {
+    const shown = String(raw).replace(/\s+/g, ' ').slice(0, 80)
+    const key = `${name}:${shown}`
+    if (analystLimitWarnings.has(key)) return
+    analystLimitWarnings.add(key)
+    console.warn(message)
+}
+
+function hostLimit(raw) {
+    if (raw == null || String(raw).trim() === '') return { kind: 'unset' }
+    const text = String(raw).trim()
+    const n = Math.floor(Number(text))
+    if (!Number.isFinite(n)) return { kind: 'bad', raw: text }
+    return { kind: 'number', n, raw: text }
+}
+
+// The admin setting is the ceiling. Unset keeps today's default. A host value above the hard maximum is
+// brought down to it, the same way the settings page refuses that value.
+export function analystConfiguredRowCap(env = process.env) {
+    const parsed = hostLimit(env?.CUTTLELY_ANALYST_ROW_CAP)
+    if (parsed.kind === 'unset') return ANALYST_ROW_CAP
+    if (parsed.kind === 'bad' || parsed.n <= 0) {
+        warnAnalystLimit(
+            'row cap',
+            parsed.raw,
+            `Analyst row cap "${parsed.raw}" is not used. The default of ${ANALYST_ROW_CAP} rows applies.`
+        )
+        return ANALYST_ROW_CAP
+    }
+    return Math.min(parsed.n, ANALYST_ROW_CAP_MAX)
+}
+
+export function analystConfiguredTimeoutMs(env = process.env) {
+    const parsed = hostLimit(env?.CUTTLELY_ANALYST_STATEMENT_TIMEOUT_MS)
+    if (parsed.kind === 'unset') return ANALYST_STATEMENT_TIMEOUT_MS
+    if (parsed.kind === 'bad' || parsed.n <= 0) {
+        warnAnalystLimit(
+            'query timeout',
+            parsed.raw,
+            `Analyst query timeout "${parsed.raw}" is not used. The default of ${ANALYST_STATEMENT_TIMEOUT_MS} ms applies.`
+        )
+        return ANALYST_STATEMENT_TIMEOUT_MS
+    }
+    if (parsed.n < ANALYST_TIMEOUT_MIN_MS) {
+        warnAnalystLimit(
+            'query timeout floor',
+            parsed.raw,
+            `Analyst query timeout "${parsed.raw}" ms is below 1 second. Using ${ANALYST_TIMEOUT_MIN_MS} ms.`
+        )
+        return ANALYST_TIMEOUT_MIN_MS
+    }
+    return Math.min(parsed.n, ANALYST_STATEMENT_TIMEOUT_MAX_MS)
+}
+
+// A node or a single call may ask for fewer rows. It cannot ask for more than the admin ceiling.
+export function analystRowCap(value, env = process.env) {
+    const ceiling = analystConfiguredRowCap(env)
+    const raw = Number(value)
+    // A fraction in (0, 1) floors to 0 and would otherwise mean "unset", which raises the cap.
+    if (Number.isFinite(raw) && raw > 0 && raw < 1) return Math.min(1, ceiling)
+    const n = positiveInt(value)
+    if (n == null) return ceiling
+    return Math.min(n, ceiling)
+}
+
+// A node or a single call may ask for a shorter timeout. It cannot ask for more than the admin ceiling.
+export function analystStatementTimeoutMs(value, env = process.env) {
+    const ceiling = analystConfiguredTimeoutMs(env)
+    const n = positiveInt(value)
+    if (n == null) return ceiling
+    return Math.min(n, ceiling)
+}
+
+export function analystCallLimits(requested = {}, env = process.env) {
+    return {
+        rowCap: analystRowCap(requested.rowCap, env),
+        timeoutMs: analystStatementTimeoutMs(requested.statementTimeoutMs, env)
+    }
+}
+
+function pageSizeOf(paging) {
+    const n = positiveInt(paging?.rowCap)
+    return n == null ? ANALYST_ROW_CAP : n
+}
+
+// Postgres shows whole seconds as '15s'. Anything else stays in milliseconds.
+export function analystStatementTimeoutSetting(ms = ANALYST_STATEMENT_TIMEOUT_MS) {
+    if (ms % 1000 === 0) return `${ms / 1000}s`
+    return `${ms}ms`
 }
 
 export function analystScopeKey(harness, chatId) {
@@ -273,16 +385,50 @@ function sqliteAreaFor(env, workspace) {
     const legacyFile = analystSqliteFile(env, legacy)
     if (!ownFile || fs.existsSync(ownFile) || !fs.existsSync(legacyFile)) return own
     const claim = `${legacyFile}.workspace`
+    return claimLegacyWorkspace(claim, tag) ? legacy : own
+}
+
+// The claim file has to appear with its tag already written. Opening it with an exclusive create and then
+// writing leaves a window where the file exists and is still empty, and a second workspace can read that
+// empty file. link() publishes the name only after the bytes are in the temp file, so exactly one workspace
+// can take the legacy store.
+function claimLegacyWorkspace(claim, tag) {
+    const tmp = `${claim}.${process.pid}.${randomBytes(6).toString('hex')}.tmp`
+    let fd
     try {
-        fs.writeFileSync(claim, tag, { flag: 'wx', mode: 0o600 })
-        return legacy
-    } catch (error) {
-        if (error.code !== 'EEXIST') return own
+        fd = fs.openSync(tmp, 'wx', 0o600)
+        fs.writeSync(fd, String(tag))
+        try {
+            fs.fsyncSync(fd)
+        } catch {
+            // The bytes are already in the temp file. link() is what publishes the name.
+        }
+    } catch {
+        fs.rmSync(tmp, { force: true })
+        return false
+    } finally {
+        if (fd !== undefined) {
+            try {
+                fs.closeSync(fd)
+            } catch {
+                // Already closed.
+            }
+        }
     }
     try {
-        return fs.readFileSync(claim, 'utf8').trim() === tag ? legacy : own
-    } catch {
-        return own
+        try {
+            fs.linkSync(tmp, claim)
+            return true
+        } catch (error) {
+            if (error.code !== 'EEXIST') return false
+            try {
+                return fs.readFileSync(claim, 'utf8').trim() === tag
+            } catch {
+                return false
+            }
+        }
+    } finally {
+        fs.rmSync(tmp, { force: true })
     }
 }
 
@@ -630,7 +776,11 @@ async function provisionPostgres(env, workspace = '') {
                 } else if (createdSecret) {
                     await client.query(`ALTER ROLE ${role} WITH LOGIN PASSWORD ${quoteLiteral(password)}`)
                 }
-                await client.query(`ALTER ROLE ${role} SET statement_timeout TO ${quoteLiteral(ANALYST_STATEMENT_TIMEOUT)}`)
+                await client.query(
+                    `ALTER ROLE ${role} SET statement_timeout TO ${quoteLiteral(
+                        analystStatementTimeoutSetting(analystConfiguredTimeoutMs(env))
+                    )}`
+                )
                 await client.query(`ALTER ROLE ${role} SET search_path TO ${quoteIdent(area.schema)}`)
                 await client.query(`CREATE SCHEMA IF NOT EXISTS ${quoteIdent(area.schema)}`)
                 await isolateRole(client, area)
@@ -797,6 +947,7 @@ export function resetAnalystStoreForTests() {
     pageCursors.clear()
     stopAnalystSqliteWorker()
     for (const scope of [...pgRunSessions.keys()]) closePgRunSession(scope)
+    pgClientFactory = (config) => new Client(config)
 }
 
 export async function ensureAnalystStore(env = process.env, options = {}) {
@@ -815,11 +966,14 @@ export async function ensureAnalystStore(env = process.env, options = {}) {
 
 function shapeResult(result, paging = null) {
     const rows = Array.isArray(result.rows) ? result.rows : []
+    const pageSize = pageSizeOf(paging)
     if (rows.length > 0 || result.command === 'SELECT' || result.command === 'SHOW' || result.command === 'EXPLAIN') {
-        if (paging && rows.length > ANALYST_ROW_CAP) {
+        const capped = rows.slice(0, pageSize)
+        const shown = analystShownRows(capped.map((row) => stripPageColumns(row)))
+        if (paging && (rows.length > pageSize || shown.length < capped.length)) {
             return finishPage(
-                rows.slice(0, ANALYST_ROW_CAP + 1),
-                { ...paging, page: 1, total: rows.length },
+                rows.slice(0, pageSize + 1),
+                { ...paging, page: 1, total: rows.length, rowCap: pageSize, offset: 0 },
                 {
                     mode: 'buffer',
                     statement: paging.statement,
@@ -827,11 +981,11 @@ function shapeResult(result, paging = null) {
                 }
             )
         }
-        const truncated = rows.length > ANALYST_ROW_CAP
-        const kept = truncated ? rows.slice(0, ANALYST_ROW_CAP) : rows
+        const truncated = rows.length > pageSize
+        const kept = truncated ? rows.slice(0, pageSize) : rows
         const described = describeAnalystPage(kept.length, {
             page: 1,
-            pageSize: ANALYST_ROW_CAP,
+            pageSize,
             total: rows.length,
             more: truncated
         })
@@ -919,7 +1073,7 @@ async function postgresTie(runner, table) {
 
 async function planSelect(runner, engine, statement) {
     const simple = parseSimpleSelect(statement)
-    if (!simple) return { mode: 'offset', statement }
+    if (!simple) return { mode: 'offset', statement, engine }
     let columns = []
     let tie = null
     try {
@@ -931,11 +1085,11 @@ async function planSelect(runner, engine, statement) {
             tie = await postgresTie(runner, simple.table)
         }
     } catch {
-        return { mode: 'offset', statement, simple }
+        return { mode: 'offset', statement, simple, engine }
     }
     const keys = tie ? safeOrderKeys(simple.orders, columns, tie) : null
-    if (!keys) return { mode: 'offset', statement, simple }
-    return { mode: 'keyset', statement, simple, keys }
+    if (!keys) return { mode: 'offset', statement, simple, engine }
+    return { mode: 'keyset', statement, simple, keys, engine }
 }
 
 async function countSimple(runner, simple) {
@@ -968,21 +1122,56 @@ async function countPlan(runner, plan) {
     return countResult(runner, plan?.statement)
 }
 
+function pageStartOffset(paging, pageSize) {
+    return Number.isInteger(paging.offset) ? paging.offset : Math.max(0, (paging.page - 1) * pageSize)
+}
+
+// Pages a full in-memory result the same way finishPage will, one budget window at a time.
+function walkedPageCount(rows, pageSize) {
+    let offset = 0
+    let count = 0
+    const list = Array.isArray(rows) ? rows : []
+    while (offset < list.length && count <= list.length) {
+        count += 1
+        const shown = analystShownRows(list.slice(offset, offset + pageSize).map((row) => stripPageColumns(row)))
+        offset += Math.max(1, shown.length)
+    }
+    return count
+}
+
 function finishPage(rawRows, paging, plan) {
-    const pageSize = ANALYST_ROW_CAP
-    const more = rawRows.length > pageSize
-    const keptRaw = rawRows.slice(0, pageSize)
-    const described = describeAnalystPage(keptRaw.length, {
+    const pageSize = pageSizeOf(paging)
+    const startOffset = pageStartOffset(paging, pageSize)
+    const capped = rawRows.slice(0, pageSize)
+    const moreInFetch = rawRows.length > pageSize
+    const stripped = capped.map((row) => stripPageColumns(row))
+    const shown = analystShownRows(stripped)
+    const more = moreInFetch || shown.length < stripped.length
+    const walked =
+        plan.mode === 'buffer' && Array.isArray(plan.rows)
+            ? walkedPageCount(plan.rows, pageSize)
+            : Number.isInteger(paging.walked)
+            ? paging.walked
+            : null
+    const uniformCount = Number.isFinite(paging.total) && pageSize > 0 ? Math.ceil(paging.total / pageSize) : null
+    const walkAgrees = walked != null && uniformCount != null && walked === uniformCount
+    // Keyset and offset do not have the later rows in hand. Until a length pass shows that
+    // every page is a full cap, a jump to (page - 1) * pageSize can skip rows.
+    const streamed = plan.mode === 'keyset' || plan.mode === 'offset'
+    const cut = Boolean(paging.cut) || (shown.length < pageSize && more) || (streamed && !walkAgrees)
+    const described = describeAnalystPage(shown.length, {
         page: paging.page,
         pageSize,
         total: paging.total,
-        more
+        more,
+        startOffset,
+        cut,
+        walked
     })
-    const rows = keptRaw.map((row) => stripPageColumns(row))
-    const shaped = { rows, truncated: described.truncated }
+    const shaped = { rows: shown, truncated: described.truncated }
     if (described.summary) shaped.summary = described.summary
     if (!described.multi) return shaped
-    const last = keptRaw.at(-1)
+    const last = capped[shown.length - 1]
     const lastKey = plan.mode === 'keyset' && last ? plan.keys.map((key) => pageKeyValue(last, key)) : null
     const usableKey = lastKey && lastKey.every((value) => value != null)
     const state = {
@@ -992,9 +1181,15 @@ function finishPage(rawRows, paging, plan) {
         mode: plan.mode,
         simple: plan.simple || null,
         keys: plan.keys || null,
+        engine: plan.engine || null,
         rows: plan.mode === 'buffer' ? plan.rows : null,
         total: paging.total,
         page: paging.page,
+        pageSize,
+        nextOffset: startOffset + shown.length,
+        // Once a page is shorter than the cap and rows remain, later jumps cannot use (page - 1) * pageSize.
+        cut,
+        walked,
         lastKey: usableKey ? lastKey : null,
         expiresAt: paging.now + paging.ttl
     }
@@ -1004,9 +1199,9 @@ function finishPage(rawRows, paging, plan) {
 }
 
 async function readSelectPage(runner, plan, paging) {
-    const pageSize = ANALYST_ROW_CAP
+    const pageSize = pageSizeOf(paging)
     const limit = pageSize + 1
-    const offset = (paging.page - 1) * pageSize
+    const offset = pageStartOffset(paging, pageSize)
     if (plan.mode === 'buffer') {
         const raw = (plan.rows || []).slice(offset, offset + limit)
         if (!raw.length && paging.page > 1) throw cursorError(ANALYST_CURSOR_ERRORS.past)
@@ -1037,7 +1232,67 @@ async function readSelectPage(runner, plan, paging) {
     }
     const raw = await runner.all(query.sql, query.params)
     if (!raw.length && paging.page > 1) throw cursorError(ANALYST_CURSOR_ERRORS.past)
-    return finishPage(raw, paging, plan, {})
+    let walked = Number.isInteger(paging.walked) ? paging.walked : null
+    if (walked == null && raw.length) {
+        const names = Object.keys(stripPageColumns(raw[0]))
+        const lengths = await measureResultWalk(runner, plan, names, paging.total)
+        // The length pass is a lower bound. Before a page count is named, compare it with the
+        // handoff line for the rows already in hand. If any bound is shorter than that line,
+        // the count would be a lie, so name none.
+        if (lengths && boundsCoverRows(lengths, raw, offset)) walked = analystPagesFromLineLengths(lengths, pageSize)
+    }
+    return finishPage(raw, { ...paging, walked }, plan)
+}
+
+function boundsCoverRows(lengths, rawRows, offset) {
+    const rows = (rawRows || []).map((row) => stripPageColumns(row))
+    for (let i = 0; i < rows.length; i += 1) {
+        const bound = lengths[offset + i]
+        if (bound == null || !Number.isInteger(bound)) return false
+        if (bound < analystHandoffLine(rows[i]).length) return false
+    }
+    return true
+}
+
+// Lengths only: the handoff line is `key: value` joined with `, `, and NULL is the word null.
+async function postgresColumnTypes(runner, inner, names) {
+    const sql = columnTypeSql(inner, names)
+    if (!sql) return null
+    const rows = await runner.all(sql, [])
+    return rows[0] || {}
+}
+
+async function measureResultWalk(runner, plan, columnNames, total) {
+    let inner = plan.statement
+    if (plan.mode === 'keyset' && plan.simple && plan.keys) {
+        inner = keysetSql({
+            selectList: plan.simple.selectList,
+            table: plan.simple.table,
+            where: plan.simple.where,
+            keys: plan.keys,
+            unlimited: true
+        }).sql
+    }
+    const engine = plan.engine === 'postgres' ? 'postgres' : plan.engine === 'sqlite' ? 'sqlite' : null
+    if (!engine) return null
+    try {
+        const columnTypes = engine === 'postgres' ? await postgresColumnTypes(runner, inner, columnNames) : null
+        const sql = resultLengthSql(inner, columnNames, engine, columnTypes)
+        if (!sql) return null
+        const rows = await runner.all(sql, [])
+        const lengths = []
+        for (const row of rows) {
+            if (row?.analyst_line_len == null) return null
+            const n = Number(row.analyst_line_len)
+            if (!Number.isInteger(n) || n < 0) return null
+            lengths.push(n)
+        }
+        if (!lengths.length) return null
+        if (Number.isFinite(total) && lengths.length !== total) return null
+        return lengths
+    } catch {
+        return null
+    }
 }
 
 // The paging builders add their placeholders after all of the user's SQL, so only the last ones become $1..$n.
@@ -1106,8 +1361,8 @@ async function runPostgresStatement(client, statement, paging, runner = postgres
     return readSelectPage(runner, plan, { ...paging, total, page: 1, previousOffset: 0, lastKey: null })
 }
 
-function analystPgClient(store, ms) {
-    return new Client({
+function analystPgClient(store, ms, queryTimeout = ms + 5000) {
+    return pgClientFactory({
         host: store.host,
         port: store.port,
         database: store.database,
@@ -1119,13 +1374,14 @@ function analystPgClient(store, ms) {
         // Set when the connection starts, so it wins over the role's default. The analyst login may change
         // its own role defaults, and that must not lift the timeout or move it out of schema analyst.
         options: `-c statement_timeout=${ms} -c search_path=${store.schema || ANALYST_SCHEMA}`,
-        // Backstop if the server never answers the cancel.
-        query_timeout: ms + 5000
+        // Backstop if the server never answers the cancel. A reused session uses the hard maximum so a later,
+        // longer call is not cut by the first call's client read timeout.
+        query_timeout: queryTimeout
     })
 }
 
-async function queryPostgres(store, statement, replay, timeoutMs = ANALYST_STATEMENT_TIMEOUT_MS) {
-    const ms = analystStatementTimeoutMs(timeoutMs)
+export async function queryPostgres(store, statement, replay, timeoutMs = ANALYST_STATEMENT_TIMEOUT_MS, env = process.env) {
+    const ms = analystStatementTimeoutMs(timeoutMs, env)
     const scope = replay?.paging?.scope || ''
     if (scope) return queryPostgresRun(scope, store, statement, replay, ms)
     const client = analystPgClient(store, ms)
@@ -1166,7 +1422,7 @@ function pgRunSession(scope, store, ms) {
     const current = pgRunSessions.get(scope)
     if (current && current.key === key) return current
     if (current) closePgRunSession(scope)
-    const client = analystPgClient(store, ms)
+    const client = analystPgClient(store, ms, ANALYST_PG_QUERY_BACKSTOP_MS)
     const session = { key, client, queue: Promise.resolve(), idle: null, connected: client.connect() }
     session.connected.catch(() => {})
     pgRunSessions.set(scope, session)
@@ -1342,7 +1598,7 @@ async function querySqliteStopped(file, statement, options, replay) {
     const reply = await sqliteWorkerRequest(
         scope,
         { file, statement, replay, run: Boolean(scope) },
-        analystStatementTimeoutMs(options.statementTimeoutMs)
+        analystStatementTimeoutMs(options.statementTimeoutMs, options.env || process.env)
     )
     if (!reply?.ok) throw new AnalystToolError(reply?.message || 'The analyst query failed.', reply?.outcome)
     for (const [token, state] of reply.cursors || []) pageCursors.set(token, state)
@@ -1448,7 +1704,7 @@ async function runSqliteStatement(db, guard, statement, replay) {
 }
 
 // A PostgresUrl credential or CUTTLELY_POSTGRES_URL points at a database the user chose. Every call opens a
-// read-only session with the statement timeout, and results get the same 100-row cap, page line and cursor as
+// read-only session with the statement timeout, and results get the same row cap, page line and cursor as
 // the isolated store. The URL and its password never reach a result, an error or a cursor.
 function urlStoreKey(postgresUrl) {
     return ['url', createHash('sha256').update(String(postgresUrl)).digest('hex')].join('\0')
@@ -1465,8 +1721,8 @@ function urlSecrets(postgresUrl) {
     return secrets
 }
 
-async function queryUrlPostgres(postgresUrl, statement, replay, timeoutMs = ANALYST_STATEMENT_TIMEOUT_MS) {
-    const ms = analystStatementTimeoutMs(timeoutMs)
+async function queryUrlPostgres(postgresUrl, statement, replay, timeoutMs = ANALYST_STATEMENT_TIMEOUT_MS, env = process.env) {
+    const ms = analystStatementTimeoutMs(timeoutMs, env)
     const client = new Client({
         connectionString: postgresUrl,
         application_name: 'cuttlely-analyst',
@@ -1492,16 +1748,18 @@ async function queryUrlPostgres(postgresUrl, statement, replay, timeoutMs = ANAL
 
 export async function queryAnalystUrl(postgresUrl, sqlOrInput, options = {}) {
     const input = sqlOrInput && typeof sqlOrInput === 'object' && !Array.isArray(sqlOrInput) ? sqlOrInput : { sql: sqlOrInput }
+    const env = options.env || process.env
     const pagingBase = {
         scope: callScope(options),
         now: nowOf(options),
         ttl: ttlOf(options),
-        storeKey: urlStoreKey(postgresUrl)
+        storeKey: urlStoreKey(postgresUrl),
+        rowCap: analystRowCap(options.rowCap, env)
     }
     const cursor = clean(input.cursor)
     if (cursor) {
         const replay = replayCursor(cursor, input, pagingBase)
-        return queryUrlPostgres(postgresUrl, replay.plan.statement, replay, options.statementTimeoutMs)
+        return queryUrlPostgres(postgresUrl, replay.plan.statement, replay, options.statementTimeoutMs, options.env || process.env)
     }
     sweepCursors(pagingBase.now)
     const statement = oneSqlStatement(analystSqlText(input))
@@ -1512,12 +1770,13 @@ export async function queryAnalystUrl(postgresUrl, sqlOrInput, options = {}) {
             plan: null,
             paging: { ...pagingBase, statement, page: 1, previousOffset: 0, lastKey: null, cursor: '' }
         },
-        options.statementTimeoutMs
+        options.statementTimeoutMs,
+        options.env || process.env
     )
 }
 
-export function analystUrlToolSpec() {
-    const base = analystToolSpec('postgres')
+export function analystUrlToolSpec(rowCap) {
+    const base = analystToolSpec('postgres', rowCap)
     return {
         ...base,
         description: `Run a read-only SQL query (PostgreSQL). It cannot create or change tables. ${base.description.replace(
@@ -1525,6 +1784,131 @@ export function analystUrlToolSpec() {
             ''
         )}`
     }
+}
+
+function analystPagingBase(options = {}) {
+    const env = options.env || process.env
+    const workspace = callWorkspace(options)
+    return {
+        scope: callScope(options),
+        now: nowOf(options),
+        ttl: ttlOf(options),
+        storeKey: storeKey(env, workspace),
+        rowCap: analystRowCap(options.rowCap, env)
+    }
+}
+
+export function probeAnalystCursor(cursor, input, options = {}) {
+    return replayCursor(cursor, input && typeof input === 'object' ? input : {}, analystPagingBase(options))
+}
+
+// Pages an in-memory row list with the same cursor rules as a live query. Tests use it to walk thousands of cases.
+export function openBufferedAnalystPage(rows, options = {}) {
+    const paging = {
+        ...analystPagingBase(options),
+        page: 1,
+        offset: 0,
+        total: rows.length,
+        statement: 'SELECT n, note FROM nums ORDER BY n',
+        cut: false,
+        previousOffset: 0,
+        lastKey: null,
+        cursor: ''
+    }
+    const pageSize = pageSizeOf(paging)
+    return finishPage(rows.slice(0, pageSize + 1), paging, {
+        mode: 'buffer',
+        statement: paging.statement,
+        rows,
+        simple: null,
+        keys: null
+    })
+}
+
+function memoryLengthRunner(rows) {
+    const list = Array.isArray(rows) ? rows : []
+    return {
+        async all(sql, params = []) {
+            const text = String(sql || '')
+            if (text.includes('analyst_line_len')) {
+                const db = new DatabaseSync(':memory:')
+                try {
+                    db.exec('CREATE TABLE nums (n INTEGER, note TEXT)')
+                    const insert = db.prepare('INSERT INTO nums (n, note) VALUES (?, ?)')
+                    for (const row of list) insert.run(row.n, row.note == null ? null : String(row.note))
+                    return db
+                        .prepare(text)
+                        .all(...params)
+                        .map((row) => ({ analyst_line_len: row.analyst_line_len }))
+                } finally {
+                    db.close()
+                }
+            }
+            let offset = 0
+            let limit = list.length
+            if (/OFFSET \?/i.test(text)) {
+                offset = Number(params[params.length - 1]) || 0
+                limit = Number(params[params.length - 2]) || 0
+            } else if (/>\s*\?/.test(text)) {
+                const last = params[0]
+                offset = list.findIndex((row) => row.n > last)
+                if (offset < 0) offset = list.length
+                limit = Number(params[params.length - 1]) || 0
+            } else if (/LIMIT \?/i.test(text)) {
+                limit = Number(params[params.length - 1]) || 0
+            }
+            return list.slice(offset, offset + limit).map((row) => ({ ...row }))
+        },
+        async get() {
+            return { analyst_n: list.length }
+        }
+    }
+}
+
+// Pages an in-memory list through buffer, keyset, or offset. Keyset and offset run the length pass.
+export async function openPlannedAnalystPage(rows, options = {}) {
+    const mode = options.mode === 'keyset' || options.mode === 'offset' ? options.mode : 'buffer'
+    if (mode === 'buffer') return openBufferedAnalystPage(rows, options)
+    const statement = 'SELECT n, note FROM nums ORDER BY n'
+    const paging = {
+        ...analystPagingBase(options),
+        page: 1,
+        offset: 0,
+        total: rows.length,
+        statement,
+        cut: false,
+        previousOffset: 0,
+        lastKey: null,
+        cursor: ''
+    }
+    const plan =
+        mode === 'keyset'
+            ? {
+                  mode,
+                  statement,
+                  engine: 'sqlite',
+                  simple: { selectList: 'n, note', table: 'nums', where: '', orders: [{ name: 'n', dir: 'asc' }] },
+                  keys: [{ name: 'n', dir: 'asc' }]
+              }
+            : { mode, statement, engine: 'sqlite' }
+    return readSelectPage(memoryLengthRunner(rows), plan, paging)
+}
+
+export async function continuePlannedAnalystPage(cursor, input, options = {}) {
+    const pagingBase = analystPagingBase(options)
+    const replay = replayCursor(cursor, input && typeof input === 'object' ? input : {}, pagingBase)
+    if (replay.plan.mode === 'buffer') return continueBufferedAnalystPage(cursor, input, options)
+    return readSelectPage(memoryLengthRunner(options.rows), replay.plan, replay.paging)
+}
+
+export function continueBufferedAnalystPage(cursor, input, options = {}) {
+    const pagingBase = analystPagingBase(options)
+    const replay = replayCursor(cursor, input && typeof input === 'object' ? input : {}, pagingBase)
+    const pageSize = pageSizeOf(replay.paging)
+    const offset = pageStartOffset(replay.paging, pageSize)
+    const raw = (replay.plan.rows || []).slice(offset, offset + pageSize + 1)
+    if (!raw.length && replay.paging.page > 1) throw cursorError(ANALYST_CURSOR_ERRORS.past)
+    return finishPage(raw, replay.paging, replay.plan)
 }
 
 function replayCursor(token, input, pagingBase) {
@@ -1539,14 +1923,37 @@ function replayCursor(token, input, pagingBase) {
     const sql = analystSqlText(input)
     if (sql && oneSqlStatement(sql) !== oneSqlStatement(state.statement)) throw cursorError(ANALYST_CURSOR_ERRORS.sql)
     const requested = pageNumber(input.page)
-    const page = requested == null ? state.page + 1 : requested
-    if (Number.isFinite(state.total) && (page - 1) * ANALYST_ROW_CAP >= state.total) throw cursorError(ANALYST_CURSOR_ERRORS.past)
+    const pageSize = positiveInt(state.pageSize) || pageSizeOf(pagingBase)
+    const nextOffset = Number.isInteger(state.nextOffset) ? state.nextOffset : state.page * pageSize
+    let page
+    let offset
+    let cut = Boolean(state.cut)
+    let lastKey = state.lastKey
+    if (cut) {
+        // After a short page, only the following page and a return to page 1 have a known offset.
+        if (requested == null || requested === state.page + 1) {
+            page = requested == null ? state.page + 1 : requested
+            offset = nextOffset
+        } else if (requested === 1) {
+            page = 1
+            offset = 0
+            cut = false
+            lastKey = null
+        } else {
+            throw cursorError(ANALYST_CURSOR_ERRORS.page)
+        }
+    } else {
+        page = requested == null ? state.page + 1 : requested
+        offset = requested == null || page === state.page + 1 ? nextOffset : (page - 1) * pageSize
+    }
+    if (Number.isFinite(state.total) && offset >= state.total) throw cursorError(ANALYST_CURSOR_ERRORS.past)
     return {
         plan: {
             mode: state.mode,
             statement: state.statement,
             simple: state.simple,
             keys: state.keys,
+            engine: state.engine || null,
             rows: state.rows
         },
         paging: {
@@ -1554,8 +1961,12 @@ function replayCursor(token, input, pagingBase) {
             scope: state.scope,
             total: state.total,
             page,
-            previousOffset: state.page * ANALYST_ROW_CAP,
-            lastKey: state.lastKey,
+            offset,
+            rowCap: pageSize,
+            previousOffset: page === 1 && offset === 0 ? 0 : nextOffset,
+            lastKey,
+            cut,
+            walked: Number.isInteger(state.walked) ? state.walked : null,
             cursor: token,
             statement: state.statement
         }
@@ -1573,14 +1984,15 @@ export function analystSqlText(input) {
     return ''
 }
 
-export function analystToolSpec(engine) {
+export function analystToolSpec(engine, rowCap = analystConfiguredRowCap()) {
     const dialect = engine === 'postgres' ? 'PostgreSQL' : 'SQLite'
+    const cap = positiveInt(rowCap) || ANALYST_ROW_CAP
     const idNote =
         dialect === 'SQLite'
             ? ' Use SQLite. Declare an id column as INTEGER PRIMARY KEY. SERIAL is not a SQLite type, and that id comes back null.'
             : ' Use PostgreSQL.'
     return {
-        description: `Run one SQL statement in the isolated analyst store (${dialect}). Every SQL statement or database question must use this tool, including a statement you expect to be refused or to fail. Do not predict, simulate, or paraphrase a result or error. If this tool refuses or errors, quote that text exactly. Results are capped at 100 rows. A capped result includes a page line that starts with "rows " and a cursor. To fetch another page, pass that cursor and do not send a new statement. page is the 1-based page number. Show the rows and the page line, not the line alone.${idNote} Pass the statement as sql. statement and query are the same field.`,
+        description: `Run one SQL statement in the isolated analyst store (${dialect}). Every SQL statement or database question must use this tool, including a statement you expect to be refused or to fail. Do not predict, simulate, or paraphrase a result or error. If this tool refuses or errors, quote that text exactly. Results are capped at ${cap} rows. A capped result includes a page line that starts with "rows " and a cursor. To fetch another page, pass that cursor and do not send a new statement. page is the next page, or 1 to read the first page again. It is a stable page number only while every page so far returned the full row cap and the line names a page count. After a shorter page, or when a later page would be shorter, any other page number is refused. Omit page for the next page. Show the rows and the page line, not the line alone.${idNote} Pass the statement as sql. statement and query are the same field.`,
         schema: {
             type: 'object',
             properties: {
@@ -1588,7 +2000,11 @@ export function analystToolSpec(engine) {
                 statement: { type: 'string', description: 'Alias of sql' },
                 query: { type: 'string', description: 'Alias of sql' },
                 cursor: { type: 'string', description: 'Page cursor from a capped result. Repeats that query.' },
-                page: { type: 'integer', description: '1-based page when using a cursor. Omit for the next page.' }
+                page: {
+                    type: 'integer',
+                    description:
+                        'Next page, or 1 to start over. A stable index only when the page line names a page count. Omit for the next page.'
+                }
             }
         }
     }
@@ -1627,7 +2043,8 @@ export async function queryAnalyst(sqlOrInput, options = {}) {
         scope: callScope(options),
         now: nowOf(options),
         ttl: ttlOf(options),
-        storeKey: storeKey(env, workspace)
+        storeKey: storeKey(env, workspace),
+        rowCap: analystRowCap(options.rowCap, env)
     }
     const storeOptions = { ...options, workspace }
     const cursor = clean(input.cursor)
@@ -1638,7 +2055,7 @@ export async function queryAnalyst(sqlOrInput, options = {}) {
             const file = assertAnalystSqlite(store.file, env)
             return await querySqliteStopped(file, replay.plan.statement, options, replay)
         }
-        return queryPostgres(store, replay.plan.statement, replay, options.statementTimeoutMs)
+        return queryPostgres(store, replay.plan.statement, replay, options.statementTimeoutMs, env)
     }
     sweepCursors(pagingBase.now)
     const statement = oneSqlStatement(analystSqlText(input))
@@ -1652,5 +2069,5 @@ export async function queryAnalyst(sqlOrInput, options = {}) {
         const file = assertAnalystSqlite(store.file, env)
         return await querySqliteStopped(file, statement, options, replay)
     }
-    return queryPostgres(store, statement, replay, options.statementTimeoutMs)
+    return queryPostgres(store, statement, replay, options.statementTimeoutMs, env)
 }
