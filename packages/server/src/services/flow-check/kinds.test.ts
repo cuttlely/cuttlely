@@ -4,11 +4,13 @@ const agentflow = (startInputType?: string) =>
     JSON.stringify({ nodes: [{ id: 'startAgentflow_0', data: { name: 'startAgentflow', inputs: { startInputType } } }], edges: [] })
 
 describe('typeUnavailable', () => {
-    test('chatflows and agentflows can be checked; a missing type is a chatflow', () => {
+    test('chatflows, agentflows and harnesses can be checked; a missing type is a chatflow', () => {
         expect(typeUnavailable('CHATFLOW')).toBeNull()
         expect(typeUnavailable('AGENTFLOW')).toBeNull()
+        expect(typeUnavailable('HARNESS')).toBeNull()
         expect(typeUnavailable(undefined)).toBeNull()
         expect(typeUnavailable('AGENTFLOW', 'AGENTFLOW')).toBeNull()
+        expect(typeUnavailable('HARNESS', 'HARNESS')).toBeNull()
         expect(typeUnavailable(null, 'CHATFLOW')).toBeNull()
     })
 

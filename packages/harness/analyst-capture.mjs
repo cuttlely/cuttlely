@@ -102,3 +102,18 @@ export function resetAnalystCapture() {
     pending.length = 0
     calls.clear()
 }
+
+// A publish-check replay must not leave a page cursor or a captured row for this chat.
+// Other chats, including a published run of the same harness, stay.
+export function dropAnalystCapture({ harness, chatId } = {}) {
+    const name = String(harness || '')
+    const chat = String(chatId || '')
+    if (!name || !chat) return
+    for (let i = pending.length - 1; i >= 0; i -= 1) {
+        if (pending[i].harness === name && pending[i].chatId === chat) pending.splice(i, 1)
+    }
+    for (const key of [...calls.keys()]) {
+        const parts = key.split('\0')
+        if (parts[0] === name && parts[2] === chat) calls.delete(key)
+    }
+}

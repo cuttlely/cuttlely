@@ -11099,6 +11099,209 @@ await (async () => {
     )
 })()
 
+await (async () => {
+    const { listRuns } = await import('./history.mjs')
+    const { recordAnalystResult, latestAnalystCursor } = await import('./analyst-capture.mjs')
+    const { tryRuntime } = await import('./profile.mjs')
+    tryRuntime.closeProfiles = null
+    tryRuntime.afterFirstRemoval = null
+    const name = 'check-replay'
+    const model = nodeModel('scriptedChat', { credential: 'cred-xai', label: 'Echo Chat', inputs: { modelName: 'gpt-4.1' } })
+    saveHarness(
+        {
+            name,
+            chief: { instructions: 'LIVE-INSTRUCTIONS', model },
+            specialists: [
+                {
+                    name: 'shell',
+                    instructions: 'LIVE-SPECIALIST',
+                    shell: true,
+                    browser: false,
+                    codeExecution: false,
+                    fileAccess: false,
+                    modules: [],
+                    mcpServers: []
+                }
+            ]
+        },
+        { overwrite: true }
+    )
+    compileProfileCached(getHarness(name))
+    const publishedDir = path.join(process.env.CUTTLELY_HERMES_HOME, 'profiles', name)
+    const publishedSoul = fs.readFileSync(path.join(publishedDir, 'SOUL.md'), 'utf8')
+    const profiles = path.join(process.env.CUTTLELY_HERMES_HOME, 'profiles')
+    const souls = new Map()
+    const tryDir = (id) => path.join(profiles, `try${id}`)
+    const calls = []
+    const loadNode = async () =>
+        recordingChat(calls, () => ({
+            content: 'CHECK_ANSWER',
+            usage: { prompt_tokens: 2, completion_tokens: 3 }
+        }))
+    const fetchFor = (chatId) => async () => {
+        recordAnalystResult({
+            harness: name,
+            specialist: 'shell',
+            chatId,
+            result: { rows: [{ id: 1 }], cursor: `cur-${chatId}`, summary: '1' }
+        })
+        return {
+            ok: true,
+            status: 200,
+            statusText: 'OK',
+            text: async () =>
+                JSON.stringify({
+                    output: 'SPECIALIST_OK',
+                    status: 'completed',
+                    usage: { prompt_tokens: 4, completion_tokens: 5 }
+                })
+        }
+    }
+    const tokens = new Map()
+    const previousHook = runHooks.afterProfile
+    const abortController = new AbortController()
+    const abortId = '9'.repeat(16)
+    runHooks.afterProfile = async (info) => {
+        if (typeof previousHook === 'function') await previousHook(info)
+        if (!info?.tryId) return
+        const env = readProfileEnv(`try${info.tryId}--shell`)
+        if (env.OPENAI_API_KEY) tokens.set(info.tryId, env.OPENAI_API_KEY)
+        const soulPath = path.join(profiles, `try${info.tryId}`, 'SOUL.md')
+        if (fs.existsSync(soulPath)) souls.set(info.tryId, fs.readFileSync(soulPath, 'utf8'))
+        if (info.tryId === abortId) abortController.abort()
+    }
+    const idA = 'c'.repeat(16)
+    const idB = 'd'.repeat(16)
+    const chatA = 'check-a'
+    const chatB = 'check-b'
+    const publishedChat = 'published-1'
+    let liveText = ''
+    let draftText = ''
+    let failed = null
+    try {
+        const [live, draft] = await Promise.all([
+            runHarnessRaw({
+                name,
+                chatId: chatA,
+                input: 'check question live',
+                baseUrl: 'http://127.0.0.1:9',
+                loadNode,
+                fetchImpl: fetchFor(chatA),
+                replay: true,
+                record: { ...getHarness(name), tryId: idA, chief: { ...getHarness(name).chief, instructions: 'DRAFT-NOT-THIS' } }
+            }),
+            runHarnessRaw({
+                name,
+                chatId: chatB,
+                input: 'check question draft',
+                baseUrl: 'http://127.0.0.1:9',
+                loadNode,
+                fetchImpl: fetchFor(chatB),
+                replay: true,
+                record: { ...getHarness(name), tryId: idB, chief: { ...getHarness(name).chief, instructions: 'DRAFT-INSTRUCTIONS' } }
+            }),
+            runHarnessRaw({
+                name,
+                chatId: publishedChat,
+                input: 'published question',
+                baseUrl: 'http://127.0.0.1:9',
+                loadNode,
+                fetchImpl: fetchFor(publishedChat)
+            })
+        ])
+        liveText = live.text
+        draftText = draft.text
+    } catch (error) {
+        failed = error
+    }
+    const errId = 'e'.repeat(16)
+    let errThrown = false
+    try {
+        await runHarnessRaw({
+            name,
+            chatId: 'check-err',
+            input: 'check question error',
+            baseUrl: 'http://127.0.0.1:9',
+            loadNode: async () => {
+                throw new Error('model failed')
+            },
+            fetchImpl: fetchFor('check-err'),
+            replay: true,
+            record: { ...getHarness(name), tryId: errId }
+        })
+    } catch {
+        errThrown = true
+    }
+    let abortThrown = false
+    try {
+        await runHarnessRaw({
+            name,
+            chatId: 'check-stop',
+            input: 'check question stop',
+            baseUrl: 'http://127.0.0.1:9',
+            loadNode,
+            fetchImpl: fetchFor('check-stop'),
+            signal: abortController.signal,
+            replay: true,
+            record: { ...getHarness(name), tryId: abortId }
+        })
+    } catch {
+        abortThrown = true
+    }
+    runHooks.afterProfile = previousHook
+    const gateway = await openGateway()
+    const tokenStatus = async (token) =>
+        token ? (await localRequest({ port: gateway.port, method: 'GET', path: '/v1/models', token })).status : 0
+    const forgotten = []
+    for (const id of [idA, idB, errId, abortId]) forgotten.push(await tokenStatus(tokens.get(id)))
+    await gateway.close()
+    const history = listRuns(name, { limit: 20 })
+    const inputs = history.map((row) => row.inputPreview)
+    const tryLeft = [idA, idB, errId, abortId].filter((id) => fs.existsSync(tryDir(id)) || fs.existsSync(`${tryDir(id)}--shell`))
+    check(
+        'a publish-check replay runs on its own try profile and leaves no history, session, analyst row, or token',
+        !failed &&
+            liveText === 'CHECK_ANSWER' &&
+            draftText === 'CHECK_ANSWER' &&
+            errThrown &&
+            abortThrown &&
+            !inputs.some((text) => String(text).startsWith('check question')) &&
+            inputs.includes('published question') &&
+            readMessages(name, chatA).length === 0 &&
+            readMessages(name, chatB).length === 0 &&
+            readMessages(name, 'check-err').length === 0 &&
+            readMessages(name, 'check-stop').length === 0 &&
+            readMessages(name, publishedChat).length > 0 &&
+            !latestAnalystCursor({ harness: name, chatId: chatA }) &&
+            !latestAnalystCursor({ harness: name, chatId: chatB }) &&
+            !latestAnalystCursor({ harness: name, chatId: 'check-err' }) &&
+            !latestAnalystCursor({ harness: name, chatId: 'check-stop' }) &&
+            latestAnalystCursor({ harness: name, chatId: publishedChat })?.token === 'cur-published-1' &&
+            tryLeft.length === 0 &&
+            forgotten.length === 4 &&
+            forgotten.every((status) => status === 401) &&
+            fs.existsSync(publishedDir) &&
+            fs.readFileSync(path.join(publishedDir, 'SOUL.md'), 'utf8') === publishedSoul &&
+            publishedSoul.includes('LIVE-INSTRUCTIONS') &&
+            souls.get(idA)?.includes('DRAFT-NOT-THIS') &&
+            souls.get(idB)?.includes('DRAFT-INSTRUCTIONS') &&
+            !souls.get(idA)?.includes('DRAFT-INSTRUCTIONS'),
+        JSON.stringify({
+            failed: failed?.message,
+            liveText,
+            draftText,
+            errThrown,
+            abortThrown,
+            inputs,
+            tryLeft,
+            forgotten,
+            tokens: [...tokens.keys()],
+            souls: [...souls.keys()],
+            publishedSession: readMessages(name, publishedChat).length
+        })
+    )
+})()
+
 if (failures.length) {
     console.error(`\n${failures.length} check(s) failed`)
     process.exit(1)

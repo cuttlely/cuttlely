@@ -5,9 +5,9 @@ export interface Unavailable {
     message: string
 }
 
-const CHECKABLE_TYPES = new Set(['CHATFLOW', 'AGENTFLOW'])
+const CHECKABLE_TYPES = new Set(['CHATFLOW', 'AGENTFLOW', 'HARNESS'])
 
-// Chatflows and agentflows. Legacy multi-agent canvases and assistants are not replayed. When Live and the
+// Chatflows, agentflows and harnesses. Legacy multi-agent canvases and assistants are not replayed. When Live and the
 // version to check are given, they must be the same kind, because both run as the Live flow's kind.
 export function typeUnavailable(...types: Array<string | null | undefined>): Unavailable | null {
     const kinds = types.map((type) => type || 'CHATFLOW')

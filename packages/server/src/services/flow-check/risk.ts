@@ -116,9 +116,28 @@ function toolStepTool(inputs: Record<string, any> | undefined): string {
     return String(inputs?.selectedTool || inputs?.toolAgentflowSelectedTool || '')
 }
 
+const HARNESS_ACTING: Array<[string, string]> = [
+    ['enableShell', 'Shell'],
+    ['enableBrowser', 'Browser'],
+    ['enableCodeExecution', 'Code execution'],
+    ['enableFileAccess', 'Files']
+]
+
+function flagOn(value: unknown): boolean {
+    return value === true || value === 'true'
+}
+
+// Shell, browser, code and files can change something outside the answer. A specialist without them only
+// uses the tools connected on the canvas, and those nodes are listed on their own.
+export function harnessActingLabels(inputs?: Record<string, any>): string[] {
+    return HARNESS_ACTING.filter(([key]) => flagOn(inputs?.[key])).map(([, label]) => label)
+}
+
 export function isRiskyNode(name: string, category: string, inputs?: Record<string, any>): boolean {
     if (!name) return true
     if (name === 'stickyNote') return false
+    if (name === 'harnessChief') return false
+    if (name === 'harnessSpecialist') return harnessActingLabels(inputs).length > 0
     if (name === 'toolAgentflow') return !SAFE_TOOLS.has(toolStepTool(inputs))
     if (name === 'agentAgentflow') {
         const tools = agentTools(inputs)
@@ -163,7 +182,10 @@ export function riskySteps(canvases: string[], chatbotConfig?: string | null): R
             const id = String(node.id || data.id || name)
             if (seen.has(id)) continue
             seen.add(id)
-            steps.push({ id, label: String(data.label || name || id) })
+            const acting = name === 'harnessSpecialist' ? harnessActingLabels(data.inputs) : []
+            const who = String(data.inputs?.specialistName || data.label || name || id)
+            const label = acting.length ? `${who} (${acting.join(', ')})` : String(data.label || name || id)
+            steps.push({ id, label })
         }
     }
     if (postProcessingOn(chatbotConfig)) steps.push({ id: 'postProcessing', label: 'Post-processing code' })
