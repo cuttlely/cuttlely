@@ -87,7 +87,9 @@ From the repository root:
 otelcol --config examples/otel/collector.yaml
 ```
 
-Point `CUTTLELY_OTEL_TRACES_ENDPOINT` at `http://localhost:4318/v1/traces`, set `CUTTLELY_OTEL_TRACES_PROTOCOL=http`, restart Cuttlely, and run one chatflow, one agentflow, and one harness. The collector prints one trace per run. The root span is `chatflow.prediction`, `agentflow.run`, or `harness.run`.
+A native run, Cuttlely and the collector on the same machine with no container, points `CUTTLELY_OTEL_TRACES_ENDPOINT` at `http://localhost:4318/v1/traces` and sets `CUTTLELY_OTEL_TRACES_PROTOCOL=http`. Restart Cuttlely, and run one chatflow, one agentflow, and one harness. The collector prints one trace per run. The root span is `chatflow.prediction`, `agentflow.run`, or `harness.run`.
+
+Inside the Cuttlely container, `localhost` is the container, not the host running `otelcol`. [Docker](./docker.md#run-traces) passes the trace variables from `.env` and names a host or Compose endpoint that reaches the collector.
 
 ## Send traces to a backend through a collector
 
@@ -95,12 +97,16 @@ Cuttlely sends OTLP to the collector. The collector forwards traces. Do not put 
 
 Replace the `exporters` and the traces pipeline in the example file.
 
-Jaeger, OTLP gRPC on the same machine:
+Jaeger listens for OTLP gRPC on a port the example collector does not use. The collector still receives on `4317` and `4318`, and it forwards to Jaeger on `14317`. Publish Jaeger's OTLP port `4317` on the host as `14317`:
+
+```bash
+docker run --rm -p 16686:16686 -p 14317:4317 jaegertracing/all-in-one
+```
 
 ```yaml
 exporters:
     otlp/jaeger:
-        endpoint: localhost:4317
+        endpoint: localhost:14317
         tls:
             insecure: true
 
@@ -111,12 +117,16 @@ service:
             exporters: [otlp/jaeger]
 ```
 
-Grafana Tempo, the same OTLP port:
+Grafana Tempo, the same split. Publish Tempo's OTLP port `4317` on the host as `14317`:
+
+```bash
+docker run --rm -p 14317:4317 grafana/tempo
+```
 
 ```yaml
 exporters:
     otlp/tempo:
-        endpoint: localhost:4317
+        endpoint: localhost:14317
         tls:
             insecure: true
 
@@ -195,12 +205,12 @@ For a Multi Agents or Sequential Agents step, each model call has its own model 
 
 ### Agentflow
 
-| Span            | Attributes                                                                                                                                   |
-| --------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
-| `agentflow.run` | `flow.id`, `flow.kind` (`agentflow`), `status`, and `error` when the run fails                                                               |
-| `node`          | `node.id`, `node.type`, `flow.id`, `flow.kind`, `status`, and `error` when that node fails                                                   |
-| `model`         | `model.name` when Cuttlely knows it, `tokens.input`, `tokens.output` for that step, `node.id`, `node.type`, `flow.id`, `flow.kind`, `status` |
-| `tool`          | `tool.name`, `tool.id` when the call has one, `node.id`, `node.type`, `flow.id`, `flow.kind`, `status`, and `error` when the tool fails      |
+| Span            | Attributes                                                                                                                                                                    |
+| --------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `agentflow.run` | `flow.id`, `flow.kind` (`agentflow`), `status`, and `error` when the run fails                                                                                                |
+| `node`          | `node.id`, `node.type`, `flow.id`, `flow.kind`, `status`, and `error` when that node fails                                                                                    |
+| `model`         | `model.name` when Cuttlely knows it, `tokens.input`, `tokens.output` for that step, `node.id`, `node.type`, `flow.id`, `flow.kind`, `status`, and `error` when the call fails |
+| `tool`          | `tool.name`, `tool.id` when the call has one, `node.id`, `node.type`, `flow.id`, `flow.kind`, `status`, and `error` when the tool fails                                       |
 
 For an agentflow step, `tokens.input` and `tokens.output` on the model span are the sum of the model calls in that step. That is the total the run card stores for the step.
 

@@ -97,3 +97,68 @@ test('the guide uses that file and names only attributes the server sets', () =>
     assert.match(guide, /CUTTLELY_HARNESS_QUEUE=external/)
     assert.match(guide, /do not carry `node\.id` or `node\.type`/)
 })
+
+const RECEIVER_PORTS = new Set([4317, 4318])
+
+function sameDoc(left, right) {
+    try {
+        assert.deepEqual(left, right)
+        return true
+    } catch {
+        return false
+    }
+}
+
+function endpointPorts(endpoint) {
+    const ports = []
+    const pattern = /:(\d+)\b/g
+    let match = pattern.exec(String(endpoint))
+    while (match) {
+        ports.push(Number(match[1]))
+        match = pattern.exec(String(endpoint))
+    }
+    return ports
+}
+
+function exporterEndpoints(doc) {
+    const found = []
+    const walk = (node) => {
+        if (!node || typeof node !== 'object') return
+        if (typeof node.endpoint === 'string') found.push(node.endpoint)
+        for (const value of Object.values(node)) walk(value)
+    }
+    walk(doc && doc.exporters)
+    return found
+}
+
+test('recipe exporters do not send traces back to the example receiver ports', () => {
+    const guide = fs.readFileSync(guidePath, 'utf8')
+    const example = yaml.load(fs.readFileSync(examplePath, 'utf8'))
+    const fences = [...guide.matchAll(/```yaml\n([\s\S]*?)```/g)]
+    assert.ok(fences.length >= 2, 'the guide has no backend recipes')
+    let recipes = 0
+    for (const fence of fences) {
+        const doc = yaml.load(fence[1])
+        if (sameDoc(doc, example)) continue
+        recipes += 1
+        for (const endpoint of exporterEndpoints(doc)) {
+            for (const port of endpointPorts(endpoint)) {
+                assert.equal(RECEIVER_PORTS.has(port), false, endpoint)
+            }
+        }
+    }
+    assert.ok(recipes >= 3, 'expected Jaeger, Tempo, and Zipkin recipes')
+    assert.match(guide, /localhost:14317/)
+})
+
+test('both compose files pass the trace variables from .env', () => {
+    const names = ['CUTTLELY_OTEL_TRACES', 'CUTTLELY_OTEL_TRACES_ENDPOINT', 'CUTTLELY_OTEL_TRACES_PROTOCOL', 'CUTTLELY_OTEL_TRACES_CONTENT']
+    for (const file of ['docker-compose.yml', 'docker/docker-compose.yml']) {
+        const doc = yaml.load(fs.readFileSync(path.join(ROOT, file), 'utf8'))
+        const service = doc.services.cuttlely
+        for (const name of names) {
+            assert.equal(service.environment[name], '${' + name + ':-}', `${file} ${name}`)
+        }
+        assert.ok(service.extra_hosts.includes('host.docker.internal:host-gateway'), file)
+    }
+})
