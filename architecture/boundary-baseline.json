@@ -470,6 +470,11 @@
             "to": "packages/server/src/errors/utils.ts"
         },
         {
+            "from": "packages/server/src/services/flow-check/harness.ts",
+            "to": "packages/server/src/errors/appError/index.ts",
+            "reason": "The harness publish check reports bad questions through the shared server error class."
+        },
+        {
             "from": "packages/server/src/services/flow-check/index.ts",
             "to": "packages/components/src/index.ts"
         },
