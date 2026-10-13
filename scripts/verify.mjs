@@ -99,7 +99,8 @@ const STEPS = [
             path.join(ROOT, 'examples', 'web-app', 'server.test.mjs'),
             path.join(ROOT, 'website', 'scripts', 'sync-docs.test.mjs'),
             path.join(ROOT, 'website', 'scripts', 'check-site.test.mjs'),
-            path.join(ROOT, 'website', 'scripts', 'screenshot-zoom.test.mjs')
+            path.join(ROOT, 'website', 'scripts', 'screenshot-zoom.test.mjs'),
+            path.join(ROOT, 'scripts', 'permission-keys.test.mjs')
         ]
     },
     {
@@ -155,7 +156,11 @@ const STEPS = [
             'src/views/serversetup',
             'src/layout/MainLayout/Sidebar/MenuList/activeRoute.test.js',
             'src/views/evaluations/evaluationFlows.test.js',
-            'src/views/canvas/cardActions.test.js'
+            'src/views/canvas/cardActions.test.js',
+            'src/views/roles/rolePermissions.test.js',
+            'src/views/docstore/chunkPermissions.test.js',
+            'src/views/canvas/canvasSavePermission.test.js',
+            'src/views/marketplaces/templateUsePermission.test.js'
         ],
         env: { CI: 'true' }
     },
