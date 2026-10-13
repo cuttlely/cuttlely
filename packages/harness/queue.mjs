@@ -1,7 +1,9 @@
 import { randomUUID } from 'node:crypto'
+import { HarnessError } from './errors.mjs'
 import { database, immediate, lockTtlMs, turnBusyError } from './lock.mjs'
-import { sessionKey } from './session.mjs'
 import { promptImages } from './images.mjs'
+import { sessionKey } from './session.mjs'
+import { getHarness } from './store.mjs'
 
 const localRuns = new Map()
 let inlineActive = 0
@@ -37,6 +39,8 @@ function jobPayload(args) {
         timeoutMs: args.timeoutMs ?? null,
         offlineModel: args.offlineModel === true,
         callerChatflowId: flow.callerChatflowId || flow.chatflowid || null,
+        // The worker must not read the team off the harness file. A missing caller stays null and the job is refused.
+        workspaceId: typeof flow.workspaceId === 'string' && flow.workspaceId ? flow.workspaceId : null,
         source: args.source || 'prediction',
         traceId: args.traceId || flow.executionId || null,
         // A worker in another process needs the images too. They are already within the count and size limits.
@@ -189,6 +193,14 @@ function offlineLoadNode(payload) {
     }
 }
 
+// The node pool copies workspaceId off the harness file. The job payload is the caller's team.
+function callerFlowOptions(payload, flowOptions) {
+    const next = { ...(flowOptions || {}) }
+    if (payload?.callerChatflowId && next.callerChatflowId == null) next.callerChatflowId = payload.callerChatflowId
+    next.workspaceId = payload?.workspaceId || undefined
+    return next
+}
+
 async function jobRuntime(job, local) {
     const offline = offlineLoadNode(job.payload)
     if (local?.componentNodes || local?.flowOptions || local?.loadNode) {
@@ -204,7 +216,6 @@ async function jobRuntime(job, local) {
         if (booted?.ready) setWorkerContext(booted.contextFor)
     }
     if (typeof workerContextFor === 'function') {
-        const { getHarness } = await import('./store.mjs')
         const record = getHarness(job.payload.name)
         let runtime = null
         try {
@@ -213,18 +224,38 @@ async function jobRuntime(job, local) {
             console.info(`[harness] worker ${process.pid} node pool context failed (${error?.name || 'Error'})`)
         }
         if (runtime?.componentNodes || runtime?.flowOptions) {
-            const flowOptions = runtime.flowOptions ? { ...runtime.flowOptions } : undefined
-            if (flowOptions && job.payload.callerChatflowId && flowOptions.callerChatflowId == null) {
-                flowOptions.callerChatflowId = job.payload.callerChatflowId
-            }
             return {
                 componentNodes: runtime.componentNodes,
                 loadNode: runtime.loadNode || offline,
-                flowOptions
+                flowOptions: callerFlowOptions(job.payload, runtime.flowOptions)
             }
         }
     }
-    return { loadNode: offline }
+    return { loadNode: offline, flowOptions: callerFlowOptions(job.payload) }
+}
+
+// A running external job is the caller's team for the gateway, which otherwise only sees the harness file.
+export function callerWorkspaceForJob(name) {
+    let rows = []
+    try {
+        rows = database().prepare(`SELECT payload FROM jobs WHERE status = 'running'`).all()
+    } catch {
+        return undefined
+    }
+    let caller
+    for (const row of rows) {
+        let payload
+        try {
+            payload = JSON.parse(row.payload)
+        } catch {
+            continue
+        }
+        if (payload?.name !== name) continue
+        const next = typeof payload.workspaceId === 'string' ? payload.workspaceId : ''
+        if (caller === undefined) caller = next
+        else if (caller !== next) return null
+    }
+    return caller
 }
 
 export async function executeJob(job) {
@@ -245,6 +276,14 @@ export async function executeJob(job) {
     }, 25)
     if (typeof timer.unref === 'function') timer.unref()
     try {
+        // No localRuns entry means another process claimed the job. Refuse before runHarness so no history row is written.
+        if (!local) {
+            const caller = typeof job.payload.workspaceId === 'string' ? job.payload.workspaceId : ''
+            const record = getHarness(job.payload.name)
+            if (!caller || (record && caller !== (record.workspaceId || ''))) {
+                throw new HarnessError('wrong_workspace', `Harness "${job.payload.name}" belongs to another workspace.`)
+            }
+        }
         const { runHarness } = await import('./run.mjs')
         const runtime = await jobRuntime(job, local)
         const result = await runHarness({

@@ -1,8 +1,9 @@
 const mockHarnessRuns: { current: Record<string, unknown> | null } = { current: null }
+const listedHarnesses: Array<{ name: string; description?: string; workspaceId?: string }> = []
 
 jest.mock('../engine', () => ({
     loadHarnessEngine: async () => ({
-        listHarnesses: () => [],
+        listHarnesses: () => listedHarnesses,
         runHarness: async () => mockHarnessRuns.current,
         runQueuedHarness: async () => mockHarnessRuns.current
     })
@@ -42,6 +43,23 @@ function fakeStreamer() {
         streamSourceDocumentsEvent: (_chatId: string, data: unknown) => sent.push({ kind: 'sources', data })
     }
 }
+
+describe('Harness node team list', () => {
+    it('lists only the active workspace', async () => {
+        listedHarnesses.splice(
+            0,
+            listedHarnesses.length,
+            { name: 'own', workspaceId: 'ws-1' },
+            { name: 'other', workspaceId: 'ws-2' },
+            { name: 'legacy' }
+        )
+        const node = new HarnessNode()
+        const options = await node.loadMethods.listHarnesses({}, { workspaceId: 'ws-1' })
+        expect(options.map((option: { name: string }) => option.name)).toEqual(['own'])
+        expect(await node.loadMethods.listHarnesses({}, {})).toEqual([])
+        listedHarnesses.splice(0, listedHarnesses.length)
+    })
+})
 
 describe('Harness node stream events', () => {
     it('marks an answer partial that also goes out as a token', () => {

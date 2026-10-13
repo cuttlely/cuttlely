@@ -32,6 +32,8 @@ export {
     getSharedItemsForWorkspace,
     getWorkspaceSearchOptions,
     getWorkspaceSearchOptionsFromReq,
+    requireWorkspaceId,
+    requireWorkspaceIdFromReq,
     WorkspaceService,
     WorkspaceUserErrorMessage,
     WorkspaceUserService

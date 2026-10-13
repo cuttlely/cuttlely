@@ -63,7 +63,7 @@ import {
     typeUnavailable
 } from './kinds'
 import { postProcessHash, publishGateApplies } from '../flow-drafts/gate'
-import { harnessQuestionsFor, harnessQuestionsToRun, replayHarnessQuestion } from './harness'
+import { harnessCheckHooks, harnessQuestionsFor, harnessQuestionsToRun, replayHarnessQuestion } from './harness'
 import { CheckEvaluator, loadEvaluators, loadTestSet, readDatasetId, readEvaluatorIds, scoreAnswer } from './score'
 
 // A question list sent without `count` stays capped at 10, which is what this route accepted before.
@@ -494,7 +494,9 @@ export async function getCheckSetup(
             : kind
             ? await inputsFor(flow, kind)
             : flow.type === 'HARNESS'
-            ? await harnessQuestionsFor(flow)
+            ? (await harnessInWorkspace(flow))
+                ? await harnessQuestionsFor(flow)
+                : { questions: [], pastCount: 0, pastTruncated: false }
             : await questionsFor(flow)
     return {
         unavailable,
@@ -507,6 +509,22 @@ export async function getCheckSetup(
         replayInputs: Boolean(kind),
         replaySource: kind ? sourceOf(kind) : null,
         check: record ? view(record, draft ? canvasHash(draft) : null, reveal) : null
+    }
+}
+
+// The same ownership check replay uses. A canvas left in another team does not open that harness session.
+async function harnessInWorkspace(flow: { name?: string | null; workspaceId?: string | null }): Promise<boolean> {
+    const name = String(flow.name || '').trim()
+    if (!name) return false
+    if (harnessCheckHooks.inWorkspace) return Boolean(await harnessCheckHooks.inWorkspace(name, flow.workspaceId))
+    const harnesses = (await import('../harnesses')).default
+    try {
+        await harnesses.getHarness(name, flow.workspaceId)
+        return true
+    } catch (error) {
+        const status = (error as { statusCode?: number })?.statusCode
+        if (status === StatusCodes.NOT_FOUND || status === StatusCodes.BAD_REQUEST) return false
+        throw error
     }
 }
 
@@ -693,9 +711,15 @@ export async function startCheck(
         sources = resolved.sources
         dates = resolved.dates
     } else if (flow.type === 'HARNESS') {
-        const resolved = await harnessQuestionsToRun(flow, body || {})
-        questions = resolved.questions
-        selection = resolved.selection
+        // The harness file has to be in this canvas's team. Otherwise the session is not opened.
+        if (await harnessInWorkspace(flow)) {
+            const resolved = await harnessQuestionsToRun(flow, body || {})
+            questions = resolved.questions
+            selection = resolved.selection
+        } else {
+            questions = []
+            selection = null
+        }
     } else {
         const resolved = await questionsToRun(flow.id, request)
         questions = resolved.questions
