@@ -6,7 +6,7 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ### Added
 
--   Usage totals and the Publish check include an estimated cost. Defaults come from the model list. An organization owner can set or clear a model's price, in US dollars per million tokens. A model with no price is shown as no price, not as zero. The check total for a side prices each model once across that side's answers. A harness check prices the route, specialist, and handoff lines stored under the harness name. The figure under one answer can differ from that total by one hundred-millionth of a dollar. The figures are estimates.
+-   Usage totals and the Publish check include an estimated cost. Defaults come from the model list. An organization owner can set or clear a model's price, in US dollars per million tokens. A model with no price is shown as no price, not as zero. The check total for a side prices each model once across that side's answers. A harness check prices the route, specialist, and handoff lines stored under the harness name. A line stored as the node label and a catalog id uses an override on that full string, or the catalog price. On MySQL and MariaDB the daily usage model name keeps case, so two names that differ only by case stay separate and are priced apart. The figure under one answer can differ from that total by one hundred-millionth of a dollar. The figures are estimates.
 -   A Docker build can leave out Chromium. `INCLUDE_BROWSER=0` builds that image. The default image still includes Chromium. Puppeteer and Playwright document loaders in the smaller image fail with `this image has no browser`. The agent runtime's browser tool also cannot browse there: it returns success: false, and the server keeps running.
 
 ### Fixed

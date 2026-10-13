@@ -164,6 +164,91 @@ describe('model price overrides', () => {
         }
     })
 
+    it('prices a harness label from the catalog id, and keeps case-distinct names apart', async () => {
+        const dataSource = await openSqlite([SqliteUsage])
+        try {
+            await recordCompletedRun(dataSource, {
+                workspaceId: 'ws-a',
+                flowId: 'bakery-team',
+                result: {
+                    trace: {
+                        route: { model: 'xAI Grok · grok-4.7', tokens: { prompt: 1000, completion: 500 } },
+                        specialists: [],
+                        handoff: { status: 'skipped', tokens: null }
+                    }
+                },
+                at: new Date('2026-10-12T12:00:00.000Z')
+            })
+            await recordCompletedRun(dataSource, {
+                workspaceId: 'ws-a',
+                flowId: 'bakery-team',
+                result: { metrics: [{ model: 'moonshotai/kimi-k3', promptTokens: 1000, completionTokens: 0 }] },
+                at: new Date('2026-10-12T12:00:00.000Z')
+            })
+            await recordCompletedRun(dataSource, {
+                workspaceId: 'ws-a',
+                flowId: 'bakery-team',
+                result: { metrics: [{ model: 'moonshotai/Kimi-K3', promptTokens: 1000, completionTokens: 0 }] },
+                at: new Date('2026-10-12T12:00:00.000Z')
+            })
+            await recordCompletedRun(dataSource, {
+                workspaceId: 'ws-a',
+                flowId: 'bakery-team',
+                result: {
+                    trace: {
+                        route: { model: 'Bakery · custom-oven', tokens: { prompt: 10, completion: 4 } },
+                        specialists: [],
+                        handoff: { status: 'skipped', tokens: null }
+                    }
+                },
+                at: new Date('2026-10-12T12:00:00.000Z')
+            })
+            const rows = await dataSource.query(`SELECT model, inputTokens, outputTokens FROM token_usage_day ORDER BY model`)
+            assert.deepEqual(
+                rows.map((row) => row.model),
+                ['Bakery · custom-oven', 'moonshotai/Kimi-K3', 'moonshotai/kimi-k3', 'xAI Grok · grok-4.7']
+            )
+            const catalog = priceBook(
+                new Map([
+                    ['grok-4.7', { inputUsdPerMillion: 0.4, outputUsdPerMillion: 1.6 }],
+                    ['moonshotai/kimi-k3', { inputUsdPerMillion: 0.8, outputUsdPerMillion: 0 }],
+                    ['moonshotai/Kimi-K3', { inputUsdPerMillion: 2.7, outputUsdPerMillion: 0 }]
+                ]),
+                new Map()
+            )
+            const report = await queryTokenUsage(
+                dataSource,
+                { workspaceId: 'ws-a', startDate: '2026-10-12', endDate: '2026-10-12' },
+                catalog
+            )
+            const grok = report.models.find((row) => row.model === 'xAI Grok · grok-4.7')
+            assert.equal(grok.estimatedCostUsd, 0.0012)
+            assert.equal(grok.price, 'known')
+            const low = report.models.find((row) => row.model === 'moonshotai/kimi-k3')
+            const high = report.models.find((row) => row.model === 'moonshotai/Kimi-K3')
+            assert.equal(low.inputTokens, 1000)
+            assert.equal(high.inputTokens, 1000)
+            assert.equal(low.estimatedCostUsd, 0.0008)
+            assert.equal(high.estimatedCostUsd, 0.0027)
+            const missing = report.models.find((row) => row.model === 'Bakery · custom-oven')
+            assert.equal(missing.estimatedCostUsd, null)
+            assert.equal(missing.price, 'no price')
+
+            const overridden = priceBook(
+                new Map([['grok-4.7', { inputUsdPerMillion: 0.4, outputUsdPerMillion: 1.6 }]]),
+                new Map([['xAI Grok · grok-4.7', { inputUsdPerMillion: 1, outputUsdPerMillion: 2 }]])
+            )
+            const again = await queryTokenUsage(
+                dataSource,
+                { workspaceId: 'ws-a', startDate: '2026-10-12', endDate: '2026-10-12' },
+                overridden
+            )
+            assert.equal(again.models.find((row) => row.model === 'xAI Grok · grok-4.7').estimatedCostUsd, 0.002)
+        } finally {
+            if (dataSource.isInitialized) await dataSource.destroy()
+        }
+    })
+
     it('migrates postgres when a server is available', async (t) => {
         if (!PG_PASSWORD) {
             t.skip('postgres price migration: PGPASSWORD is unset')

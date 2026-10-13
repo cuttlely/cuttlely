@@ -61,7 +61,7 @@ jest.mock('@cuttlely/components', () => ({ EvaluationRunner: { metrics: new Map(
 jest.mock('../../utils/logger', () => ({ __esModule: true, default: { error: jest.fn(), debug: jest.fn() } }))
 
 import { checks, getCheck, getCheckSetup, priceHooks, replayHooks, startCheck, stopCheck } from './index'
-import { usageLinesFromRun } from '../usage'
+import { priceBook, usageLinesFromRun } from '../usage'
 import { harnessCheckHooks, harnessReplayHooks, questionsFromUserTurns, questionTextFromTurn } from './harness'
 
 const canvas = (word: string, extra: any[] = []) =>
@@ -226,6 +226,34 @@ describe('harness publish check', () => {
         expect(done.summary.draftEstimatedCostUsd).toBe(0.00000675)
         expect(done.summary.livePrice).toBe('known')
         expect(done.summary.draftPrice).toBe('known')
+    })
+
+    test('a harness label prices at the catalog id, and a full-string override wins', async () => {
+        const defaults = new Map([['grok-4.7', { inputUsdPerMillion: 0.4, outputUsdPerMillion: 1.6 }]])
+        priceHooks.load = async () => priceBook(defaults, new Map())
+        replayHooks.run = null
+        harnessReplayHooks.run = async ({ flowData }) => ({
+            text: JSON.parse(flowData).nodes[0].data.inputs.instructions,
+            report: { tokens: { prompt: 1000, completion: 500 } },
+            trace: {
+                route: { model: 'xAI Grok · grok-4.7', tokens: { prompt: 1000, completion: 500 } },
+                specialists: [],
+                handoff: { status: 'skipped', model: '', tokens: null }
+            }
+        })
+        const started = await startCheck(flow() as any, { questions: ['Do you have rye?'] }, 'http://x')
+        await settle()
+        const priced = await getCheck(flow(), started.id)
+        expect(priced.cases[0].live).toMatchObject({ estimatedCostUsd: 0.0012, price: 'known', unpricedModels: [] })
+        expect(priced.cases[0].draft).toMatchObject({ estimatedCostUsd: 0.0012, price: 'known', unpricedModels: [] })
+
+        checks.clear()
+        priceHooks.load = async () =>
+            priceBook(defaults, new Map([['xAI Grok · grok-4.7', { inputUsdPerMillion: 1, outputUsdPerMillion: 2 }]]))
+        const overridden = await startCheck(flow() as any, { questions: ['Do you have rye?'] }, 'http://x')
+        await settle()
+        const done = await getCheck(flow(), overridden.id)
+        expect(done.cases[0].live).toMatchObject({ estimatedCostUsd: 0.002, price: 'known', unpricedModels: [] })
     })
 
     test('a shell specialist needs confirmation, and Stop aborts the replay', async () => {

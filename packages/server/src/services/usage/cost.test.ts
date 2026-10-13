@@ -76,6 +76,31 @@ describe('model prices', () => {
         expect(dollarsFromPerMillion(0.265, 45)).toBe(0.00001193)
     })
 
+    it('prices a harness label from the catalog id, and an override on the full string wins', () => {
+        const defaults = new Map([['grok-4.7', { inputUsdPerMillion: 0.4, outputUsdPerMillion: 1.6 }]])
+        const book = priceBook(defaults, new Map())
+        const labeled = [{ model: 'xAI Grok · grok-4.7', inputTokens: 1000, outputTokens: 500 }]
+        expect(book.rateFor('xAI Grok · grok-4.7')).toEqual({ inputUsdPerMillion: 0.4, outputUsdPerMillion: 1.6 })
+        expect(estimateTokenLines(labeled, book)).toEqual({ estimatedCostUsd: 0.0012, price: 'known', unpricedModels: [] })
+        const plain = priceBook(defaultsFromModelList(mini), new Map())
+        expect(plain.rateFor('gpt-4.1-mini')).toEqual({ inputUsdPerMillion: 0.4, outputUsdPerMillion: 1.6 })
+        expect(estimateTokenLines([{ model: 'gpt-4.1-mini', inputTokens: 1000, outputTokens: 500 }], plain).estimatedCostUsd).toBe(0.0012)
+
+        const catalogOverride = priceBook(defaults, new Map([['grok-4.7', { inputUsdPerMillion: 3, outputUsdPerMillion: 4 }]]))
+        expect(catalogOverride.rateFor('xAI Grok · grok-4.7')).toEqual({ inputUsdPerMillion: 3, outputUsdPerMillion: 4 })
+        const overridden = priceBook(defaults, new Map([['xAI Grok · grok-4.7', { inputUsdPerMillion: 1, outputUsdPerMillion: 2 }]]))
+        expect(overridden.rateFor('xAI Grok · grok-4.7')).toEqual({ inputUsdPerMillion: 1, outputUsdPerMillion: 2 })
+        expect(estimateTokenLines(labeled, overridden).estimatedCostUsd).toBe(0.002)
+
+        const missing = priceBook(defaults, new Map())
+        expect(missing.rateFor('Bakery · custom-oven')).toBeNull()
+        expect(estimateTokenLines([{ model: 'Bakery · custom-oven', inputTokens: 10, outputTokens: 4 }], missing)).toEqual({
+            estimatedCostUsd: null,
+            price: 'no price',
+            unpricedModels: ['Bakery · custom-oven']
+        })
+    })
+
     it('keeps overrides for model names that differ only by case', () => {
         const overrides = new Map([
             ['moonshotai/kimi-k3', { inputUsdPerMillion: 0.8, outputUsdPerMillion: 13.5 }],

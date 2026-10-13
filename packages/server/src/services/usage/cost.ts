@@ -90,11 +90,26 @@ export function defaultsFromModelList(list: unknown): Map<string, TokenRates> {
     return rates
 }
 
+// A harness trace stores "node label · catalog id". The middle dot is the one publicModelLabel writes.
+const HARNESS_MODEL_MARK = ' · '
+
+function catalogIdFromLabel(model: string): string | null {
+    const at = model.lastIndexOf(HARNESS_MODEL_MARK)
+    if (at < 0) return null
+    const id = model.slice(at + HARNESS_MODEL_MARK.length).trim()
+    return id || null
+}
+
 export function priceBook(defaults: Map<string, TokenRates>, overrides: Map<string, TokenRates>): PriceBook {
     return {
         unit: PRICE_UNIT,
         rateFor(model: string) {
-            return overrides.get(model) ?? defaults.get(model) ?? null
+            // An override on the recorded string wins, including a harness label.
+            // Otherwise a "label · id" line uses that catalog id. A plain id is unchanged.
+            if (overrides.has(model)) return overrides.get(model) ?? null
+            const catalogId = catalogIdFromLabel(model)
+            if (catalogId) return overrides.get(catalogId) ?? defaults.get(catalogId) ?? null
+            return defaults.get(model) ?? null
         }
     }
 }

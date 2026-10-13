@@ -33,7 +33,7 @@ When both `startDate` and `endDate` are set, they replace `days`. A custom range
 
 Each of those rows, and `totals`, also has `estimatedCostUsd` and `price`. `price` is `known` when every model in that row has a price, `partial` when some do, and `no price` when none do. `estimatedCostUsd` is US dollars. It is `null` when `price` is `no price`, so a missing price is not shown as zero. A `partial` row is only the models that have a price. `totals.unpricedModels` lists the model names that need a price. A day with no tokens has `estimatedCostUsd` of `0` and `price` of `known`.
 
-`estimates` is `true` on every response. The prices are US dollars per million tokens. Defaults come from [the model list](./model-list.md). An organization owner can replace one model's price; see [Model prices](#model-prices).
+`estimates` is `true` on every response. The prices are US dollars per million tokens. Defaults come from [the model list](./model-list.md). An organization owner can replace one model's price; see [Model prices](#model-prices). A harness line is stored as the node label, a middle dot, and the catalog id, for example `xAI Grok · grok-4.7`. An override on that full string wins. Otherwise the price is the catalog id after the last `·`. A plain catalog id is unchanged. A string with no catalog match is `no price`.
 
 ```json
 {
