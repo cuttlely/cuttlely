@@ -9,6 +9,7 @@
 #   The server origin, and the flow id from the canvas address bar.
 #   pnpm dev serves the API on port 3000. scripts/start-cuttlely.sh and npx cuttlely start listen on port 43117.
 # The flow needs a draft and at least one past question. See docs/how-to/ci-gate.md.
+# Cancelling this job stops the server-side check.
 
 name: Cuttlely draft check
 

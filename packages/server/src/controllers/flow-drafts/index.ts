@@ -164,11 +164,41 @@ const getCheckSetup = async (req: Request, res: Response, next: NextFunction) =>
     }
 }
 
+const clientGone = (req: Request) => {
+    const incoming = req as Request & { aborted?: boolean; destroyed?: boolean }
+    return Boolean(incoming.destroyed || incoming.aborted || req.socket?.destroyed)
+}
+
 const startCheck = async (req: Request, res: Response, next: NextFunction) => {
+    // ownedId is set only after this request has stored its own record. A close before that
+    // must not stop a check this request did not create.
+    let ownedId: string | null = null
+    let gone = false
     try {
         const flow = await flowFor(req, 'update')
+        const stopOwned = () => {
+            if (res.writableFinished || !ownedId) return
+            const id = ownedId
+            ownedId = null
+            void flowCheckService.stopCheck(flow, id).catch(() => undefined)
+        }
+        const mark = () => {
+            if (res.writableFinished) return
+            gone = true
+            stopOwned()
+        }
+        if (typeof req.on === 'function') req.on('aborted', mark)
+        if (req.socket && typeof req.socket.on === 'function') req.socket.on('close', mark)
+        if (typeof res.on === 'function') res.on('close', mark)
         const baseURL = `${req.get('x-forwarded-proto') || req.protocol}://${req.get('host')}`
-        return res.status(StatusCodes.ACCEPTED).json(await flowCheckService.startCheck(flow, req.body || {}, baseURL))
+        const closed = () => gone || clientGone(req)
+        const view = await flowCheckService.startCheck(flow, req.body || {}, baseURL, undefined, { closed })
+        ownedId = view.id
+        if (closed()) {
+            await flowCheckService.stopCheck(flow, view.id).catch(() => undefined)
+            return
+        }
+        return res.status(StatusCodes.ACCEPTED).json(view)
     } catch (error) {
         next(error)
     }

@@ -66,7 +66,7 @@ npx cuttlely check --flow <flow id> --server http://127.0.0.1:43117 --timeout 30
 | 1    | `--fail-on-changed` was set and at least one answer was Changed.                                                                         |
 | 2    | The check timed out, the server returned an error, `CUTTLELY_API_KEY` was missing, the flow has no draft, or the command was used wrong. |
 
-A check the server marks stopped or failed also exits 2. If the draft is saved, published, or discarded while the check runs, the command exits 2, because the answers may be for a draft that is already gone. After the check has started, a timeout, a 403, or any other failure asks the server to stop it. That stop is best effort: if it fails, the exit code is still 2.
+A check the server marks stopped or failed also exits 2. If the draft is saved, published, or discarded while the check runs, the command exits 2, because the answers may be for a draft that is already gone. After the check has started, a timeout, a 403, or any other failure asks the server to stop it. Cancelling the command stops that server-side check too. That stop is best effort: if it fails, the exit code is still 2.
 
 The key needs both permissions for the flow: `chatflows:view` and `chatflows:update`, or `agentflows:view` and `agentflows:update`. Update starts the check. View is what reading the result uses. The guide is [Fail a build when answers change](https://github.com/cuttlely/cuttlely/blob/main/docs/how-to/ci-gate.md).
 

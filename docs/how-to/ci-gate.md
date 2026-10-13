@@ -48,7 +48,7 @@ A question that errors is listed under **Errors** and is not a Changed answer. W
 | 1    | `--fail-on-changed` was set and at least one answer was Changed.                                                                         |
 | 2    | The check timed out, the server returned an error, `CUTTLELY_API_KEY` was missing, the flow has no draft, or the command was used wrong. |
 
-A check the server marks stopped or failed also exits 2. If the draft is saved, published, or discarded while the check runs, the command exits 2, because the answers may be for a draft that is already gone. After the check has started, a timeout, a 403, or any other failure asks the server to stop it. That stop is best effort: if it fails, the exit code is still 2.
+A check the server marks stopped or failed also exits 2. If the draft is saved, published, or discarded while the check runs, the command exits 2, because the answers may be for a draft that is already gone. After the check has started, a timeout, a 403, or any other failure asks the server to stop it. Cancelling the command, including a cancelled CI job, stops that server-side check too. That stop is best effort: if it fails, the exit code is still 2.
 
 ## GitHub Actions
 

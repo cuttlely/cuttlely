@@ -204,6 +204,29 @@ export async function runCheck(options, io = {}) {
         await stopIfStarted()
         return fail(text)
     }
+    // Signals are armed only after the id is known, and removed on a normal return so a
+    // finished check is left alone. process.exit skips the finally, so the handler disarms first.
+    const signalTarget = io.signals || process
+    let signalExit = false
+    const onSignal = () => {
+        if (signalExit) return
+        signalExit = true
+        disarmSignals()
+        void (async () => {
+            await stopIfStarted()
+            err('The check was cancelled.')
+            const exit = io.exit || ((code) => process.exit(code))
+            exit(EXIT_ERROR)
+        })()
+    }
+    const disarmSignals = () => {
+        signalTarget.removeListener('SIGTERM', onSignal)
+        signalTarget.removeListener('SIGINT', onSignal)
+    }
+    const armSignals = () => {
+        signalTarget.on('SIGTERM', onSignal)
+        signalTarget.on('SIGINT', onSignal)
+    }
 
     try {
         const started = await callApi(fetchImpl, base, {
@@ -221,6 +244,7 @@ export async function runCheck(options, io = {}) {
         }
         check = started.json
         if (!check || typeof check !== 'object' || !check.id) return fail('The server did not return a check.')
+        armSignals()
         out(`Started check ${check.id} for flow ${flow} (${check.total ?? 0} questions).`)
 
         const giveUp = async () => {
@@ -284,5 +308,7 @@ export async function runCheck(options, io = {}) {
     } catch (error) {
         await stopIfStarted()
         return fail(error instanceof Error ? error.message : String(error))
+    } finally {
+        if (!signalExit) disarmSignals()
     }
 }

@@ -306,9 +306,42 @@ describe('the publish check', () => {
         expect(checkService.startCheck).toHaveBeenCalledWith(
             expect.objectContaining({ id: FLOW.id }),
             { questions: ['Hi'] },
-            'http://cuttlely.test:3000'
+            'http://cuttlely.test:3000',
+            undefined,
+            expect.objectContaining({ closed: expect.any(Function) })
         )
         expect(res.status).toHaveBeenCalledWith(202)
+    })
+
+    it('stops only the check this request created when the client is already gone', async () => {
+        granted.add('chatflows:update')
+        checkService.startCheck.mockResolvedValue({ id: 'cli-new', status: 'running' })
+        const req = checkRequest({ count: 4 }) as any
+        req.destroyed = true
+        req.on = jest.fn()
+        req.socket = { destroyed: true, on: jest.fn() }
+        const res = accepted() as any
+        res.on = jest.fn()
+        res.writableFinished = false
+        await controller.startCheck(req, res, jest.fn())
+        expect(checkService.stopCheck).toHaveBeenCalledTimes(1)
+        expect(checkService.stopCheck).toHaveBeenCalledWith(expect.objectContaining({ id: FLOW.id }), 'cli-new')
+        expect(res.status).not.toHaveBeenCalled()
+    })
+
+    it('does not stop a check when the start fails before it has an id', async () => {
+        granted.add('chatflows:update')
+        checkService.startCheck.mockRejectedValue(Object.assign(new Error('cancelled'), { statusCode: 400 }))
+        const req = checkRequest({ count: 4 }) as any
+        req.destroyed = true
+        req.on = jest.fn()
+        req.socket = { destroyed: true, on: jest.fn() }
+        const res = accepted() as any
+        res.on = jest.fn()
+        const next = jest.fn()
+        await controller.startCheck(req, res, next)
+        expect(next).toHaveBeenCalled()
+        expect(checkService.stopCheck).not.toHaveBeenCalled()
     })
 
     it('reads and stops a check by id', async () => {

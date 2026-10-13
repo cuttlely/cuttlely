@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { spawn } from 'node:child_process'
 import { mkdtempSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
 import { createServer } from 'node:http'
 import { tmpdir } from 'node:os'
@@ -413,6 +414,7 @@ test('check help documents the command and the exit codes', async () => {
     assert.match(help.text(), /1 {2}--fail-on-changed was set/)
     assert.match(help.text(), /2 {2}The check timed out/)
     assert.match(help.text(), /A check the server marks stopped or failed also exits 2/)
+    assert.match(help.text(), /Cancelling the command stops the server-side check/)
     assert.match(help.text(), /If the draft is saved, published, or discarded while the check runs, the command exits 2/)
     assert.equal(DEFAULT_SERVER, `http://127.0.0.1:${DEFAULT_PORT}`)
     assert.equal(parseArgs(['check', '--flow', 'flow-1']).server, null)
@@ -772,6 +774,94 @@ test('check talks to a local server', async () => {
         assert.equal(seen[1].method, 'GET')
         assert.match(io.text(), /0 changed/)
         assert.doesNotMatch(`${io.text()}\n${io.errors()}`, /test-key/)
+    } finally {
+        await new Promise((resolve) => server.close(resolve))
+    }
+})
+
+function runningBody() {
+    return checkBody({ id: 'check-signal', status: 'running', completed: 0 })
+}
+
+function cliAgainst(port, extraArgs = []) {
+    return spawn(
+        process.execPath,
+        [
+            join(ROOT, 'bin', 'cuttlely.js'),
+            'check',
+            '--flow',
+            'flow-1',
+            '--server',
+            `http://127.0.0.1:${port}`,
+            '--timeout',
+            '30',
+            ...extraArgs
+        ],
+        {
+            env: { ...process.env, CUTTLELY_API_KEY: KEY },
+            stdio: ['ignore', 'pipe', 'pipe']
+        }
+    )
+}
+
+test('SIGTERM and SIGINT stop the server-side check, and a finished check does not', async () => {
+    const methods = []
+    let releaseGet = () => {}
+    let mode = 'signal'
+    const server = createServer((req, res) => {
+        req.on('data', () => {})
+        req.on('end', () => {
+            methods.push(req.method)
+            if (req.method === 'POST') {
+                res.writeHead(202, { 'content-type': 'application/json' })
+                res.end(JSON.stringify(runningBody()))
+                return
+            }
+            if (req.method === 'GET') {
+                releaseGet()
+                const body = mode === 'finish' ? checkBody({ id: 'check-signal' }) : runningBody()
+                res.writeHead(200, { 'content-type': 'application/json' })
+                res.end(JSON.stringify(body))
+                return
+            }
+            res.writeHead(200, { 'content-type': 'application/json' })
+            res.end(JSON.stringify({ id: 'check-signal', status: 'stopped' }))
+        })
+    })
+    await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve))
+    const { port } = server.address()
+    const exitOf = (child) =>
+        new Promise((resolve, reject) => {
+            const timer = setTimeout(() => {
+                child.kill('SIGKILL')
+                reject(new Error('cli did not exit'))
+            }, 8000)
+            child.on('close', (code) => {
+                clearTimeout(timer)
+                resolve(code)
+            })
+        })
+    try {
+        for (const signal of ['SIGTERM', 'SIGINT']) {
+            methods.length = 0
+            mode = 'signal'
+            const gotGet = new Promise((resolve) => {
+                releaseGet = resolve
+            })
+            const child = cliAgainst(port)
+            await gotGet
+            child.kill(signal)
+            assert.equal(await exitOf(child), 2, signal)
+            assert.ok(methods.includes('POST'), signal)
+            assert.ok(methods.includes('GET'), signal)
+            assert.ok(methods.includes('DELETE'), signal)
+            assert.equal(methods.filter((method) => method === 'DELETE').length, 1, signal)
+        }
+        methods.length = 0
+        mode = 'finish'
+        const child = cliAgainst(port)
+        assert.equal(await exitOf(child), 0)
+        assert.deepEqual(methods, ['POST', 'GET'])
     } finally {
         await new Promise((resolve) => server.close(resolve))
     }
