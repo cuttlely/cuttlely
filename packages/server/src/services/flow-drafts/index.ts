@@ -39,7 +39,11 @@ export const draftWriteHooks: {
     beforeDraftWrite: null | (() => Promise<void>)
     // After the row is read and before this save writes. A test uses it to commit another write in between.
     afterStateRead: null | (() => Promise<void>)
-} = { beforeDraftWrite: null, afterStateRead: null }
+    // After the settings read and before the locked re-read. A test uses it to commit a draft in between.
+    beforeSettingsWrite: null | (() => Promise<void>)
+} = { beforeDraftWrite: null, afterStateRead: null, beforeSettingsWrite: null }
+
+const OVERLAPPED_SAVE = 'That save overlapped another save. Try again.'
 
 const TYPE_CHANGED =
     "This flow changed to another kind of flow after these edits started, so they can't be saved. Discard them to continue."
@@ -382,17 +386,27 @@ export async function saveDraft(flow: DraftFlow, flowData: unknown, context: Sav
               }
         if (!state && !draftPatch.draftFlowData) return statusFrom(flow, null)
         if (!state) {
-            return statusFrom(
-                flow,
-                await stateRepo.save(
-                    stateRepo.create({
-                        chatflowId: flow.id,
-                        workspaceId: flow.workspaceId,
-                        publishInstantly: false,
-                        ...draftPatch
-                    })
+            try {
+                return statusFrom(
+                    flow,
+                    await stateRepo.save(
+                        stateRepo.create({
+                            chatflowId: flow.id,
+                            workspaceId: flow.workspaceId,
+                            publishInstantly: false,
+                            ...draftPatch
+                        })
+                    )
                 )
-            )
+            } catch (error) {
+                // SQLite takes no row lock, so a settings insert can win the first row. Keep that row
+                // and write only the draft columns. A raw database error is not the response.
+                if (!isUniqueViolation(error)) throw error
+                const existing = await stateRepo.findOneBy({ chatflowId: flow.id })
+                if (!existing) throw new AppError(StatusCodes.CONFLICT, OVERLAPPED_SAVE)
+                await stateRepo.update({ chatflowId: flow.id }, draftPatch)
+                return statusFrom(flow, await stateRepo.findOneBy({ chatflowId: flow.id }))
+            }
         }
         // Only the draft columns. A settings or gate-result write that landed after this read stays.
         await stateRepo.update({ chatflowId: flow.id }, draftPatch)
@@ -477,7 +491,20 @@ export async function afterLiveSet(
             liveSha: sha,
             publishedDate
         })
-        return statusFrom(flow, await repo().save(row))
+        try {
+            return statusFrom(flow, await repo().save(row))
+        } catch (error) {
+            // This insert is outside the chatflow lock. A draft or settings insert can win the row.
+            // Keep that row and write only the publication columns.
+            if (!isUniqueViolation(error)) throw error
+            const existing = await getState(flow.id)
+            if (!existing) throw new AppError(StatusCodes.CONFLICT, OVERLAPPED_SAVE)
+            await repo().update({ chatflowId: flow.id }, { liveSha: sha, publishedDate })
+            if (existing.draftFlowData && !options.keepDraftBase && !isOtherType(existing.draftBaseHash, flow)) {
+                await repo().update({ chatflowId: flow.id, draftFlowData: existing.draftFlowData }, { draftBaseHash: draftBase(flow) })
+            }
+            return getDraftStatus(flow)
+        }
     }
     await repo().update({ chatflowId: flow.id }, { liveSha: sha, publishedDate })
     // Rebased only when it is a canvas of this flow's type; one of another type stays unpublishable.
@@ -535,6 +562,7 @@ export async function updateDraftSettings(
     // that commits during the lookup must not leave both flags true: publishInstantly would win and
     // the gate would never be consulted.
     await withChatflowLock(flow.id, async (manager) => {
+        if (draftWriteHooks.beforeSettingsWrite) await draftWriteHooks.beforeSettingsWrite()
         const stateRepo = manager.getRepository(FlowVersionState)
         let row = await stateRepo.findOneBy({ chatflowId: flow.id })
         if (!row) {
@@ -545,9 +573,13 @@ export async function updateDraftSettings(
             } catch (error) {
                 if (!isUniqueViolation(error)) throw error
                 row = await stateRepo.findOneBy({ chatflowId: flow.id })
-                if (!row) throw error
+                if (!row) throw new AppError(StatusCodes.CONFLICT, OVERLAPPED_SAVE)
             }
         }
+        if (!row) throw new AppError(StatusCodes.CONFLICT, OVERLAPPED_SAVE)
+        // The read above the lock can be stale. A draft, the other flag, or a start that cannot
+        // take a dataset may have landed. Refuse before any settings column is written.
+        refuseLockedSettings(flow, row, hasInstant, nextInstant, gate)
         await applySettingsUpdate(stateRepo, flow.id, hasInstant, nextInstant, gate)
     })
     return withTestSet(flow, statusFrom(flow, await getState(flow.id)))
@@ -570,6 +602,35 @@ function newSettingsRow(
                   publishGateThreshold: gate.threshold
               }
             : {})
+    }
+}
+
+// The same refusals as the unlocked read, using the row the lock just read. Nothing is written when one fails.
+function refuseLockedSettings(
+    flow: DraftFlow,
+    row: FlowVersionState,
+    hasInstant: boolean,
+    nextInstant: boolean,
+    gate: { enabled: boolean; datasetId: string | null; evaluatorIds: string[]; threshold: number | null } | null
+): void {
+    const endInstant = hasInstant ? nextInstant : Boolean(row.publishInstantly)
+    const endGate = gate ? gate.enabled : Boolean(row.publishGate)
+    if (endInstant && endGate) {
+        throw new AppError(StatusCodes.BAD_REQUEST, conflictingSettingsMessage(Boolean(gate?.enabled)))
+    }
+    if (gate?.enabled) {
+        if (!isDraftsEnabled()) throw new AppError(StatusCodes.BAD_REQUEST, 'Drafts are off on this server.')
+        if (!publishGateApplies(flow.type)) {
+            throw new AppError(StatusCodes.BAD_REQUEST, 'A passing test set before Publish is for chatflows and agentflows.')
+        }
+        const refusal = datasetStartRefusal(flow.type, [flow.flowData, row.draftFlowData])
+        if (refusal) throw new AppError(StatusCodes.BAD_REQUEST, refusal)
+    }
+    if (endInstant && row.draftFlowData) {
+        throw new AppError(
+            StatusCodes.CONFLICT,
+            'This flow has unpublished changes. Publish or discard them before turning on Publish instantly.'
+        )
     }
 }
 

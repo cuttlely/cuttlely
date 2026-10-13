@@ -124,6 +124,7 @@ beforeEach(() => {
     draftWriteHooks.afterStateRead = null
     chats.push({ id: 'flow-1', type: 'CHATFLOW', workspaceId: 'team-a' })
     draftWriteHooks.beforeDraftWrite = null
+    draftWriteHooks.beforeSettingsWrite = null
     jest.clearAllMocks()
     process.env.CUTTLELY_DRAFTS = 'on'
 })
@@ -511,6 +512,44 @@ describe('publishing', () => {
         expect(status.draft).toBeNull()
         expect(rows[0]).toMatchObject({ chatflowId: 'flow-1', workspaceId: 'team-a', publishInstantly: false, liveSha: 'c'.repeat(40) })
     })
+
+    test('a settings insert that wins the row keeps its settings when publication bookkeeping hits the unique key', async () => {
+        const original = fakeRepo.save.getMockImplementation()
+        let thrown = false
+        const sha = 'e'.repeat(40)
+        fakeRepo.save.mockImplementation(async (row: any) => {
+            if (!thrown && row.liveSha === sha && !rows.some((item) => item.chatflowId === row.chatflowId)) {
+                thrown = true
+                rows.push({
+                    id: 'settings-first',
+                    chatflowId: row.chatflowId,
+                    workspaceId: row.workspaceId,
+                    publishInstantly: false,
+                    publishGate: true,
+                    publishGateDatasetId: 'ds-1',
+                    draftFlowData: canvas('Kept draft'),
+                    liveSha: null
+                })
+                const error: any = new Error('UNIQUE constraint failed: flow_version_state.chatflowId')
+                error.code = 'SQLITE_CONSTRAINT'
+                throw error
+            }
+            return original?.(row)
+        })
+        try {
+            const status = await afterLiveSet(flow(), sha)
+            expect(rows).toHaveLength(1)
+            expect(rows[0].publishGate).toBe(true)
+            expect(rows[0].publishGateDatasetId).toBe('ds-1')
+            expect(rows[0].draftFlowData).toBe(canvas('Kept draft'))
+            expect(rows[0].liveSha).toBe(sha)
+            expect(rows[0].publishInstantly).toBe(false)
+            expect(status.draft?.flowData).toBe(canvas('Kept draft'))
+            expect(status.lastPublished?.sha).toBe(sha)
+        } finally {
+            fakeRepo.save.mockImplementation(original as any)
+        }
+    })
 })
 
 describe('discarding a draft', () => {
@@ -542,6 +581,43 @@ describe('Publish instantly', () => {
         await saveDraft(flow(), canvas('Draft'), context)
         await expect(setPublishInstantly(flow(), true)).rejects.toMatchObject({ statusCode: 409 })
         expect(rows[0].publishInstantly).toBe(false)
+    })
+
+    test('a draft saved before the settings lock keeps Publish instantly off', async () => {
+        draftWriteHooks.beforeSettingsWrite = async () => {
+            rows.push({
+                chatflowId: 'flow-1',
+                workspaceId: 'team-a',
+                publishInstantly: false,
+                publishGate: false,
+                draftFlowData: canvas('Draft')
+            })
+        }
+        await expect(setPublishInstantly(flow(), true)).rejects.toMatchObject({
+            statusCode: 409,
+            message: 'This flow has unpublished changes. Publish or discard them before turning on Publish instantly.'
+        })
+        expect(rows).toHaveLength(1)
+        expect(rows[0].publishInstantly).toBe(false)
+        expect(rows[0].draftFlowData).toBe(canvas('Draft'))
+    })
+
+    test('a passing test set turned on before the settings lock keeps Publish instantly off', async () => {
+        draftWriteHooks.beforeSettingsWrite = async () => {
+            rows.push({
+                chatflowId: 'flow-1',
+                workspaceId: 'team-a',
+                publishInstantly: false,
+                publishGate: true,
+                draftFlowData: null
+            })
+        }
+        await expect(setPublishInstantly(flow(), true)).rejects.toMatchObject({
+            statusCode: 400,
+            message: 'Turn off the passing test set before turning on Publish instantly.'
+        })
+        expect(rows[0].publishInstantly).toBe(false)
+        expect(rows[0].publishGate).toBe(true)
     })
 
     test('needs true or false', async () => {
@@ -754,6 +830,73 @@ describe('a passing test set before Publish', () => {
         await updateDraftSettings(flow(), { publishInstantly: true, publishGate: { enabled: false } })
         expect(rows[0].publishInstantly).toBe(true)
         expect(rows[0].publishGate).toBe(false)
+    })
+
+    test('a settings insert that wins the row keeps its settings when the first draft save hits the unique key', async () => {
+        const original = fakeRepo.save.getMockImplementation()
+        let thrown = false
+        fakeRepo.save.mockImplementation(async (row: any) => {
+            if (!thrown && row.draftFlowData && !rows.some((item) => item.chatflowId === row.chatflowId)) {
+                thrown = true
+                rows.push({
+                    id: 'settings-first',
+                    chatflowId: row.chatflowId,
+                    workspaceId: row.workspaceId,
+                    publishInstantly: false,
+                    publishGate: true,
+                    publishGateDatasetId: 'ds-1',
+                    publishGateEvaluatorIds: JSON.stringify(['ev-1']),
+                    publishGateThreshold: 100,
+                    liveSha: 'abc123'
+                })
+                const error: any = new Error('UNIQUE constraint failed: flow_version_state.chatflowId')
+                error.code = 'SQLITE_CONSTRAINT'
+                throw error
+            }
+            return original?.(row)
+        })
+        try {
+            const status = await saveDraft(flow(), canvas('First draft'), context)
+            expect(rows).toHaveLength(1)
+            expect(rows[0].draftFlowData).toEqual(expect.stringContaining('First draft'))
+            expect(rows[0].publishGate).toBe(true)
+            expect(rows[0].publishGateDatasetId).toBe('ds-1')
+            expect(rows[0].liveSha).toBe('abc123')
+            expect(rows[0].publishInstantly).toBe(false)
+            expect(status.draft?.flowData).toEqual(expect.stringContaining('First draft'))
+            expect(status.publishGate.enabled).toBe(true)
+        } finally {
+            fakeRepo.save.mockImplementation(original as any)
+        }
+    })
+
+    test('a form draft saved before the settings lock refuses the passing test set and writes nothing', async () => {
+        const chatCanvas = JSON.stringify({
+            nodes: [{ id: 'start', data: { name: 'startAgentflow', inputs: { startInputType: 'chatInput' } } }],
+            edges: []
+        })
+        const formCanvas = JSON.stringify({
+            nodes: [{ id: 'start', data: { name: 'startAgentflow', inputs: { startInputType: 'formInput' } } }],
+            edges: []
+        })
+        seed()
+        draftWriteHooks.beforeSettingsWrite = async () => {
+            rows.push({
+                chatflowId: 'flow-1',
+                workspaceId: 'team-a',
+                publishInstantly: false,
+                publishGate: false,
+                draftFlowData: formCanvas
+            })
+        }
+        await expect(updateDraftSettings(flow({ type: 'AGENTFLOW', flowData: chatCanvas }), { publishGate: gate })).rejects.toMatchObject({
+            statusCode: 400,
+            message: 'A dataset check asks each row as a chat message. This flow starts with a form, so it cannot use a dataset.'
+        })
+        expect(rows).toHaveLength(1)
+        expect(rows[0].publishGate).toBe(false)
+        expect(rows[0].publishGateDatasetId).toBeUndefined()
+        expect(rows[0].draftFlowData).toBe(formCanvas)
     })
 
     test('a first draft save that wins the row keeps its canvas when settings insert hits the unique key', async () => {

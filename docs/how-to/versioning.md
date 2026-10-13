@@ -214,7 +214,7 @@ If Live changed after you started (for example through the API), the canvas and 
 
 Version history marks a version **Published** when it was put Live by Publish or by Roll back, and marks the version people are served now as **Live**. **Roll back Live to this version** changes Live at once. In draft mode, **Open as draft** puts a version on the canvas without changing Live; see [Open a version as your draft](#open-a-version-as-your-draft).
 
-**Publish instantly**, in the flow's configuration, makes every save live again, the way it worked before drafts. It stays off while a draft is still open: publish or discard that draft first.
+**Publish instantly**, in the flow's configuration, makes every save live again, the way it worked before drafts. It stays off while a draft is still open: publish or discard that draft first. A draft saved while the setting is being turned on still blocks it, and nothing is written.
 
 **Passing test set**, next to it, can require a passing dataset check before Publish. It is off until you turn it on, and only a chatflow or an agentflow has it. See [Require a passing test set before you publish](#require-a-passing-test-set-before-you-publish).
 
