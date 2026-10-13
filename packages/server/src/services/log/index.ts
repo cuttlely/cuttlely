@@ -1,7 +1,7 @@
 import fs from 'fs'
 import path from 'path'
 import { StatusCodes } from 'http-status-codes'
-import { redactSecrets, SECRET_PLACEHOLDER } from '@cuttlely/versioning'
+import { redactSecrets } from '@cuttlely/versioning'
 import { AppError } from '../../errors/appError'
 import config from '../../utils/config'
 
@@ -203,13 +203,7 @@ async function readTail(filePath: string, maxBytes: number): Promise<{ text: str
             if (bytesRead <= 0) break
             offset += bytesRead
         }
-        let text = buf.subarray(0, offset).toString('utf8')
-        if (capped) {
-            const newline = text.indexOf('\n')
-            // A window with no newline is one over-long line. Keep that bounded suffix.
-            if (newline >= 0) text = text.slice(newline + 1)
-        }
-        text = trimToBytes(text, maxBytes)
+        const text = trimToBytes(buf.subarray(0, offset).toString('utf8'), maxBytes)
         return { text, capped }
     } catch {
         return { text: '', capped: true }
@@ -221,155 +215,44 @@ async function readTail(filePath: string, maxBytes: number): Promise<{ text: str
 /** Keep the end of the text inside a byte budget. Character slice is not a byte slice. */
 function trimToBytes(text: string, maxBytes: number): string {
     if (Buffer.byteLength(text) <= maxBytes) return text
-    const sliced = Buffer.from(text)
+    return Buffer.from(text)
         .subarray(Buffer.byteLength(text) - maxBytes)
         .toString('utf8')
-    const newline = sliced.indexOf('\n')
-    return newline >= 0 ? sliced.slice(newline + 1) : sliced
-}
-
-function stripCr(line: string): string {
-    return line.replace(/\r$/, '')
-}
-
-function isBeginBanner(line: string): boolean {
-    return /^-----BEGIN [A-Z0-9 ]+-----$/.test(line.trim())
-}
-
-function isEndBanner(line: string): boolean {
-    const value = line.trim()
-    if (/^-----END [A-Z0-9 ]+-----$/.test(value)) return true
-    // The byte cut can leave the right-hand side of an END line.
-    return /PRIVATE KEY-----$/.test(value) && value.length <= 80 && !value.includes('[')
-}
-
-function isBase64Body(line: string): boolean {
-    const value = line.trim()
-    return /^[A-Za-z0-9+/]+=*$/.test(value) && value.length >= 16
-}
-
-/** RFC 1421 encapsulation header. A hyphen in the name keeps ordinary "Error:" lines out. */
-function isPemHeader(line: string): boolean {
-    const value = stripCr(line).trim()
-    const match = /^([A-Za-z][A-Za-z0-9-]*):[ \t]/.exec(value)
-    if (!match) return false
-    return match[1].includes('-')
-}
-
-function isHeaderContinuation(line: string): boolean {
-    return /^[ \t]+\S/.test(stripCr(line))
 }
 
 /**
- * A capped tail can start after BEGIN, inside an RFC 1421 header, on the blank
- * separator, in the body, or in END. Hide that leading run. A base64 line that
- * follows a normal log line stays.
+ * The server logger writes `YYYY-MM-DD HH:mm:ss [LEVEL]:`.
+ * An error record uses that same prefix, so it is a record start.
  */
-function hideCutPem(text: string, capped: boolean): string {
+const RECORD_PREFIX = /^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}) \[([A-Za-z]+)\]:/
+
+/** Neutral stand-in for bytes a capped read dropped before the next log record. */
+export const EARLIER_OUTPUT_CUT = '[earlier output cut]'
+
+function recordLevel(line: string): string | null {
+    const value = line.endsWith('\r') ? line.slice(0, -1) : line
+    const match = RECORD_PREFIX.exec(value)
+    return match ? match[2].toLowerCase() : null
+}
+
+/**
+ * A capped read can begin inside a line. Keep text only from the first log record.
+ * Lines before that record are not a record, whatever shape they have, so they are
+ * replaced with one marker. A window with no record start returns only the marker.
+ */
+function cutToFirstRecord(text: string, capped: boolean): string {
     if (!capped || !text) return text
-    const lines = text.split('\n').map(stripCr)
-    let index = 0
-    let phase: 'lead' | 'headers' | 'gap' | 'body' = 'lead'
-    let hid = false
-    let cut = 0
-
-    while (index < lines.length) {
-        const line = lines[index]
-        const blank = line.trim() === ''
-        const begin = isBeginBanner(line)
-        const end = isEndBanner(line)
-        const header = isPemHeader(line)
-        const continuation = isHeaderContinuation(line)
-        const body = isBase64Body(line)
-
-        if (phase === 'lead') {
-            if (blank) {
-                index += 1
-                continue
-            }
-            if (begin) break
-            if (header || continuation) {
-                phase = 'headers'
-                hid = true
-                index += 1
-                cut = index
-                continue
-            }
-            if (body || end) {
-                phase = 'body'
-                hid = true
-                index += 1
-                cut = index
-                if (end) break
-                continue
-            }
-            break
-        }
-        if (phase === 'headers') {
-            if (header || continuation) {
-                index += 1
-                cut = index
-                continue
-            }
-            if (blank) {
-                phase = 'gap'
-                index += 1
-                cut = index
-                continue
-            }
-            if (body) {
-                phase = 'body'
-                index += 1
-                cut = index
-                continue
-            }
-            if (end) {
-                index += 1
-                cut = index
-                break
-            }
-            break
-        }
-        if (phase === 'gap') {
-            if (blank) {
-                index += 1
-                cut = index
-                continue
-            }
-            if (body) {
-                phase = 'body'
-                index += 1
-                cut = index
-                continue
-            }
-            if (end) {
-                index += 1
-                cut = index
-                break
-            }
-            break
-        }
-        if (body) {
-            index += 1
-            cut = index
-            continue
-        }
-        if (end) {
-            index += 1
-            cut = index
-            break
-        }
-        break
-    }
-
-    if (!hid || cut === 0) return text
-    const rest = lines.slice(cut).join('\n')
-    return rest ? `${SECRET_PLACEHOLDER}\n${rest}` : SECRET_PLACEHOLDER
+    const lines = text.split('\n')
+    const start = lines.findIndex((line) => recordLevel(line) !== null)
+    if (start === 0) return text
+    if (start < 0) return EARLIER_OUTPUT_CUT
+    let offset = 0
+    for (let index = 0; index < start; index += 1) offset += lines[index].length + 1
+    return `${EARLIER_OUTPUT_CUT}\n${text.slice(offset)}`
 }
 
 function lineLevel(line: string): string | null {
-    const match = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} \[([A-Za-z]+)\]:/.exec(line)
-    return match ? match[1].toLowerCase() : null
+    return recordLevel(line)
 }
 
 export function filterByLevel(lines: string[], minimum: LogLevel): string[] {
@@ -465,7 +348,7 @@ const getLogs = async (query: LogQuery = {}): Promise<LogRead> => {
             truncated = true
             readWhole = false
         }
-        const cleaned = hideCutPem(tail.text, tail.capped)
+        const cleaned = cutToFirstRecord(tail.text, tail.capped)
         if (!cleaned) continue
         parts.push(cleaned)
         used += Buffer.byteLength(cleaned)

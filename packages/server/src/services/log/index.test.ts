@@ -6,7 +6,7 @@ import request from 'supertest'
 import errorHandlerMiddleware from '../../middlewares/errors'
 import { setTeamPermissionLookup } from '../../identity/rbac'
 import router from '../../routes/log'
-import logService, { stampsForRange } from './index'
+import logService, { EARLIER_OUTPUT_CUT, stampsForRange } from './index'
 
 /** Small stand-in for the published caps. The file is still larger than one read. */
 const TEST_LIMITS = { fileBytes: 48, maxBytes: 48, maxLines: 8 }
@@ -28,6 +28,13 @@ const SECRET_KEY = 'aB3dE9fG1hJ2kL4mN6pQ'
 const SECRET_PASSWORD = 'pX7kQ9mN2vL4sT8w'
 const HEAD = 'HEAD-MARKER-NOT-IN-TAIL'
 const TAIL = 'TAIL-MARKER-KEPT'
+
+/** A complete logger record that fills the 48-byte test cap, so the window starts on the record. */
+function recordLine(message: string): string {
+    const line = `2026-10-12 15:00:00 [INFO]: ${message}`
+    if (line.length > 47) throw new Error(`record longer than the test cap: ${line.length}`)
+    return line + '.'.repeat(47 - line.length)
+}
 
 let root: string
 let previousLogPath: string | undefined
@@ -158,7 +165,7 @@ describe('masking and caps', () => {
     })
 
     it('caps a large file to its tail', async () => {
-        writeLog(process.env.LOG_PATH as string, `server.log.${STAMP}`, overCap(HEAD, TAIL))
+        writeLog(process.env.LOG_PATH as string, `server.log.${STAMP}`, overCap(HEAD, recordLine(TAIL)))
         const result = await logService.getLogs({
             startDate: STAMP,
             endDate: STAMP,
@@ -192,11 +199,11 @@ describe('masking and caps', () => {
 
     it('reads newer rotation segments before the cap', async () => {
         const dir = process.env.LOG_PATH as string
-        const limits = { fileBytes: 40, maxBytes: 24 }
+        const limits = { fileBytes: 48, maxBytes: 48 }
         for (let index = 0; index <= 2; index += 1) {
             const marker = index === 2 ? 'LATEST-SEGMENT' : `SEG-${index}`
             const name = index === 0 ? `server.log.${STAMP}` : `server.log.${STAMP}.${index}`
-            writeLog(dir, name, overCap(marker, `${marker}-END`))
+            writeLog(dir, name, overCap(marker, recordLine(`${marker}-END`)))
         }
         const result = await logService.getLogs({ startDate: STAMP, endDate: STAMP, level: 'debug', limits })
         expect(result.truncated).toBe(true)
@@ -209,8 +216,8 @@ describe('masking and caps', () => {
     it('does not join an older segment after a capped tail', async () => {
         const dir = process.env.LOG_PATH as string
         const limits = { fileBytes: 48, maxBytes: 200 }
-        writeLog(dir, `server.log.${STAMP}`, overCap('OLD-HEAD', 'OLD-TAIL'))
-        writeLog(dir, `server.log.${STAMP}.1`, overCap('NEW-HEAD', 'NEW-TAIL'))
+        writeLog(dir, `server.log.${STAMP}`, overCap('OLD-HEAD', recordLine('OLD-TAIL')))
+        writeLog(dir, `server.log.${STAMP}.1`, overCap('NEW-HEAD', recordLine('NEW-TAIL')))
         const result = await logService.getLogs({ startDate: STAMP, endDate: STAMP, level: 'debug', limits })
         const shown = result.lines.join('\n')
         expect(result.truncated).toBe(true)
@@ -249,7 +256,8 @@ describe('masking and caps', () => {
         expect(shown).not.toContain(bodyLine)
         expect(shown).not.toContain(footer)
         expect(shown).not.toContain('PRIVATE KEY')
-        expect(shown).toContain('[secret hidden]')
+        expect(shown).toContain(EARLIER_OUTPUT_CUT)
+        expect(shown).not.toContain('[secret hidden]')
         expect(shown).toContain('after the cut')
     })
 
@@ -267,7 +275,8 @@ describe('masking and caps', () => {
         const result = await logService.getLogs({ startDate: STAMP, endDate: STAMP, level: 'debug', limits })
         const shown = result.lines.join('\n')
         expect(shown).not.toContain(bodyLine)
-        expect(shown).toContain('[secret hidden]')
+        expect(shown).toBe(EARLIER_OUTPUT_CUT)
+        expect(shown).not.toContain('[secret hidden]')
     })
 
     it('shows a base64-ish log line that is not the start of a capped tail', async () => {
@@ -339,20 +348,18 @@ describe('server clock for Last hour', () => {
 })
 
 describe('a window with no newline', () => {
-    it('returns a bounded suffix of an over-long line', async () => {
+    it('returns only the cut marker when the line has no record start', async () => {
         const line = '2026-10-12 15:04:00 [INFO]: oven is still warm ' + 'word '.repeat(40)
         const limits = { fileBytes: 60, maxBytes: 60 }
         writeLog(process.env.LOG_PATH as string, `server.log.${STAMP}`, line)
         const result = await logService.getLogs({ startDate: STAMP, endDate: STAMP, level: 'debug', limits })
         expect(result.truncated).toBe(true)
-        const shown = result.lines.join('\n')
-        expect(shown.length).toBeGreaterThan(0)
-        expect(shown).toContain('word')
-        expect(shown).not.toContain('2026-10-12')
-        expect(Buffer.byteLength(shown)).toBeLessThanOrEqual(limits.fileBytes)
+        expect(result.lines).toEqual([EARLIER_OUTPUT_CUT])
+        expect(result.lines.join('\n')).not.toContain('word')
+        expect(result.lines.join('\n')).not.toContain('[secret hidden]')
     })
 
-    it('hides an over-long base64 line instead of returning an empty window', async () => {
+    it('returns only the cut marker for an over-long base64 line', async () => {
         const bodyLine = 'QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVo'
         const line = 'p'.repeat(80) + bodyLine + bodyLine
         const limits = { fileBytes: 40, maxBytes: 40 }
@@ -360,15 +367,15 @@ describe('a window with no newline', () => {
         const result = await logService.getLogs({ startDate: STAMP, endDate: STAMP, level: 'debug', limits })
         const shown = result.lines.join('\n')
         expect(result.truncated).toBe(true)
-        expect(shown).toContain('[secret hidden]')
+        expect(shown).toBe(EARLIER_OUTPUT_CUT)
+        expect(shown).not.toContain('[secret hidden]')
         expect(shown).not.toContain(bodyLine)
-        expect(shown.length).toBeGreaterThan(0)
     })
 })
 
 describe('a file larger than the cap', () => {
     it('returns a capped result on every read of a file larger than the cap', async () => {
-        writeLog(process.env.LOG_PATH as string, `server.log.${STAMP}`, overCap('HEAD', 'TAIL-OVER-TWO-MEG'))
+        writeLog(process.env.LOG_PATH as string, `server.log.${STAMP}`, overCap('HEAD', recordLine('TAIL-OVER-TWO-MEG')))
         for (let attempt = 0; attempt < 4; attempt += 1) {
             const result = await logService.getLogs({
                 startDate: STAMP,
