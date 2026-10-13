@@ -1228,8 +1228,39 @@ const executeNode = async ({
         // This is when human in the loop is resumed
         if (humanInput && nodeId === humanInput.startNodeId) {
             reactFlowNodeData.inputs = { ...reactFlowNodeData.inputs, humanInput }
-            // Remove the stopped humanInput from execution data
-            agentFlowExecutedData = agentFlowExecutedData.filter((execData) => execData.nodeId !== nodeId)
+            // A loop can finish this node, then run it again and stop. Delete only that stopped row.
+            // Earlier FINISHED rows stay, so the final total counts each pass once.
+            let stoppedAt = -1
+            for (let i = agentFlowExecutedData.length - 1; i >= 0; i--) {
+                if (agentFlowExecutedData[i].nodeId === nodeId && agentFlowExecutedData[i].status === 'STOPPED') {
+                    stoppedAt = i
+                    break
+                }
+            }
+            if (stoppedAt >= 0) {
+                const stoppedOutput = agentFlowExecutedData[stoppedAt].data?.output as ICommonObject | undefined
+                const action = stoppedOutput?.humanInputAction
+                const usage = stoppedOutput?.usageMetadata as
+                    | { input_tokens?: number; output_tokens?: number; tool_call_tokens?: number }
+                    | undefined
+                const priorInput = Number(usage?.input_tokens) || 0
+                const priorOutput = Number(usage?.output_tokens) || 0
+                const priorTool = Number(usage?.tool_call_tokens) || 0
+                if (action && (priorInput || priorOutput || priorTool)) {
+                    humanInputAction = {
+                        ...action,
+                        data: {
+                            ...(action.data || {}),
+                            priorUsage: {
+                                input_tokens: priorInput,
+                                output_tokens: priorOutput,
+                                tool_call_tokens: priorTool || priorInput + priorOutput
+                            }
+                        }
+                    }
+                }
+                agentFlowExecutedData = agentFlowExecutedData.filter((_, index) => index !== stoppedAt)
+            }
 
             // Clear humanInput after it's been consumed to prevent subsequent humanInputAgentflow nodes from proceeding
             logger.debug(`🧹 Clearing humanInput after consumption by node: ${nodeId}`)

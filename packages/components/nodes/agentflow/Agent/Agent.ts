@@ -109,6 +109,36 @@ function addStepUsage(into: { input: number; output: number; total: number }, us
     into.total += Number.isFinite(total) && total > 0 ? total : input + output
 }
 
+// Tool-loop sums omit the structured-output conversion and the memory summarizer. Add those calls
+// before the step is stored. A plain answer with neither stays on the message's own usage.
+function completeStepUsage(args: {
+    toolInput: number
+    toolOutput: number
+    toolTotal: number
+    generation?: StepUsage | null
+    conversion?: StepUsage | null
+    summarizer?: StepUsage | null
+    structured: boolean
+}): { inputTokens: number; outputTokens: number; totalTokens: number; counted: boolean } {
+    const hadToolSum = args.toolInput > 0 || args.toolOutput > 0 || args.toolTotal > 0
+    const full = { input: 0, output: 0, total: 0 }
+    if (hadToolSum) {
+        full.input = args.toolInput
+        full.output = args.toolOutput
+        full.total = args.toolTotal
+    } else if (args.structured || args.summarizer) {
+        addStepUsage(full, args.generation)
+    }
+    if (args.summarizer) addStepUsage(full, args.summarizer)
+    if (args.structured) addStepUsage(full, args.conversion)
+    return {
+        inputTokens: full.input,
+        outputTokens: full.output,
+        totalTokens: full.total,
+        counted: hadToolSum || args.structured || !!args.summarizer
+    }
+}
+
 class Agent_Agentflow implements INode {
     label: string
     name: string
@@ -1042,8 +1072,9 @@ class Agent_Agentflow implements INode {
             }
 
             // Handle memory management if enabled
+            let summarizerUsage: StepUsage | undefined
             if (enableMemory) {
-                await this.handleMemory({
+                summarizerUsage = await this.handleMemory({
                     messages,
                     memoryType,
                     pastChatHistory,
@@ -1409,6 +1440,8 @@ class Agent_Agentflow implements INode {
                 )
             }
 
+            // Keep the generation call. Structured output replaces response with the conversion call.
+            const generationUsage = response?.usage_metadata
             // If is structured output, then invoke LLM again with structured output at the very end after all tool calls
             if (isStructuredOutput) {
                 const structuredllmNodeInstance = configureStructuredOutput(llmWithoutToolsBind, _agentStructuredOutput)
@@ -1444,6 +1477,16 @@ class Agent_Agentflow implements INode {
                 additionalTokens
             )
 
+            const completed = completeStepUsage({
+                toolInput: stepInputTokens,
+                toolOutput: stepOutputTokens,
+                toolTotal: additionalTokens,
+                generation: generationUsage,
+                conversion: isStructuredOutput ? response?.usage_metadata : undefined,
+                summarizer: summarizerUsage,
+                structured: !!isStructuredOutput
+            })
+
             const output = this.prepareOutputObject(
                 response,
                 availableTools,
@@ -1454,13 +1497,17 @@ class Agent_Agentflow implements INode {
                 usedTools,
                 sourceDocuments,
                 artifacts,
-                additionalTokens,
+                completed.counted ? completed.totalTokens : additionalTokens,
                 isWaitingForHumanInput,
                 fileAnnotations,
                 isStructuredOutput,
                 reasonContentObj,
                 costMetadata,
-                stepInputTokens > 0 || stepOutputTokens > 0 ? { inputTokens: stepInputTokens, outputTokens: stepOutputTokens } : undefined
+                completed.counted
+                    ? { inputTokens: completed.inputTokens, outputTokens: completed.outputTokens }
+                    : stepInputTokens > 0 || stepOutputTokens > 0
+                    ? { inputTokens: stepInputTokens, outputTokens: stepOutputTokens }
+                    : undefined
             )
 
             // End analytics tracking
@@ -1751,7 +1798,7 @@ class Agent_Agentflow implements INode {
         abortController: AbortController
         options: ICommonObject
         modelConfig: ICommonObject
-    }): Promise<void> {
+    }): Promise<StepUsage | undefined> {
         const { updatedPastMessages } = await getPastChatHistoryImageMessages(pastChatHistory, options)
         pastChatHistory = updatedPastMessages
 
@@ -1776,6 +1823,7 @@ class Agent_Agentflow implements INode {
         const { updatedMessages } = await processMessagesWithImages(pastMessages, options)
         pastMessages = updatedMessages
 
+        let summarizerUsage: StepUsage | undefined
         if (pastMessages.length > 0) {
             if (memoryType === 'windowSize') {
                 // Window memory: Keep the last N messages
@@ -1803,9 +1851,10 @@ class Agent_Agentflow implements INode {
                         content: input
                     })
                 }
+                summarizerUsage = summary.usage_metadata
             } else if (memoryType === 'conversationSummaryBuffer') {
                 // Summary buffer: Summarize messages that exceed token limit
-                await this.handleSummaryBuffer(messages, pastMessages, llmWithoutToolsBind, nodeData, abortController)
+                summarizerUsage = await this.handleSummaryBuffer(messages, pastMessages, llmWithoutToolsBind, nodeData, abortController)
             } else {
                 // Default: Use all messages
                 messages.push(...pastMessages)
@@ -1819,6 +1868,7 @@ class Agent_Agentflow implements INode {
                 content: userMessage
             })
         }
+        return summarizerUsage
     }
 
     /**
@@ -1830,7 +1880,7 @@ class Agent_Agentflow implements INode {
         llmWithoutToolsBind: BaseChatModel,
         nodeData: INodeData,
         abortController: AbortController
-    ): Promise<void> {
+    ): Promise<StepUsage | undefined> {
         const maxTokenLimit = (nodeData.inputs?.agentMemoryMaxTokenLimit as number) || 2000
 
         // Convert past messages to a format suitable for token counting
@@ -1874,9 +1924,11 @@ class Agent_Agentflow implements INode {
             }
             messages.push({ role: summaryRole, content: `Previous conversation summary: ${extractResponseContent(summary)}` })
             messages.push(...remainingMessages)
+            return summary.usage_metadata
         } else {
             // If under token limit, use all messages
             messages.push(...pastMessages)
+            return undefined
         }
     }
 
@@ -3009,4 +3061,4 @@ class Agent_Agentflow implements INode {
     }
 }
 
-module.exports = { nodeClass: Agent_Agentflow }
+module.exports = { nodeClass: Agent_Agentflow, completeStepUsage }

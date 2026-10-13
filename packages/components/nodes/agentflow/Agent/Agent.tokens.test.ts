@@ -1,6 +1,6 @@
 import { AIMessageChunk } from '@langchain/core/messages'
 
-const { nodeClass: AgentNode } = require('./Agent')
+const { nodeClass: AgentNode, completeStepUsage } = require('./Agent')
 
 function modelCall(total: number, toolCalls?: Array<{ id: string; name: string; args: Record<string, unknown> }>) {
     const input = Math.floor(total / 2)
@@ -299,5 +299,104 @@ describe('Agent approval resume token totals', () => {
         expect(usage.input_tokens).toBe(80)
         expect(usage.output_tokens).toBe(80)
         expect(usage.input_tokens + usage.output_tokens).toBe(usage.tool_call_tokens)
+    })
+})
+
+function storedFrom(
+    responseUsage: { input_tokens: number; output_tokens: number; total_tokens: number },
+    completed: {
+        inputTokens: number
+        outputTokens: number
+        totalTokens: number
+        counted: boolean
+    }
+) {
+    const response = new AIMessageChunk({ content: 'done', usage_metadata: responseUsage })
+    return new AgentNode().prepareOutputObject(
+        response,
+        [],
+        'done',
+        0,
+        1,
+        1,
+        [],
+        [],
+        [],
+        completed.counted ? completed.totalTokens : 0,
+        false,
+        [],
+        false,
+        undefined,
+        undefined,
+        completed.counted ? { inputTokens: completed.inputTokens, outputTokens: completed.outputTokens } : undefined
+    ).usageMetadata
+}
+
+describe('Agent calls outside the tool loop', () => {
+    it('adds the structured-output conversion on top of the tool calls', () => {
+        const completed = completeStepUsage({
+            toolInput: 50,
+            toolOutput: 50,
+            toolTotal: 100,
+            generation: { input_tokens: 50, output_tokens: 50, total_tokens: 100 },
+            conversion: { input_tokens: 10, output_tokens: 10, total_tokens: 20 },
+            structured: true
+        })
+        const usage = storedFrom({ input_tokens: 10, output_tokens: 10, total_tokens: 20 }, completed)
+        expect(usage.input_tokens).toBe(60)
+        expect(usage.output_tokens).toBe(60)
+        expect(usage.input_tokens + usage.output_tokens).toBe(120)
+        expect(usage.tool_call_tokens).toBe(120)
+    })
+
+    it('keeps the generation call and the structured-output conversion when there are no tools', () => {
+        const completed = completeStepUsage({
+            toolInput: 0,
+            toolOutput: 0,
+            toolTotal: 0,
+            generation: { input_tokens: 40, output_tokens: 40, total_tokens: 80 },
+            conversion: { input_tokens: 8, output_tokens: 8, total_tokens: 16 },
+            structured: true
+        })
+        const usage = storedFrom({ input_tokens: 8, output_tokens: 8, total_tokens: 16 }, completed)
+        expect(usage.input_tokens).toBe(48)
+        expect(usage.output_tokens).toBe(48)
+        expect(usage.input_tokens + usage.output_tokens).toBe(96)
+        expect(usage.tool_call_tokens).toBe(96)
+    })
+
+    it('adds the memory summarizer to the generation call', async () => {
+        const agent = new AgentNode()
+        const summary = await agent.handleSummaryBuffer(
+            [],
+            [
+                { role: 'user', content: 'rye'.repeat(40) },
+                { role: 'assistant', content: 'spelt'.repeat(40) }
+            ],
+            {
+                getNumTokens: async (text: string) => text.length,
+                invoke: async () =>
+                    new AIMessageChunk({
+                        content: 'summary',
+                        usage_metadata: { input_tokens: 30, output_tokens: 10, total_tokens: 40 }
+                    })
+            },
+            { inputs: { agentMemoryMaxTokenLimit: 50 } },
+            new AbortController()
+        )
+        expect(summary).toMatchObject({ input_tokens: 30, output_tokens: 10, total_tokens: 40 })
+        const completed = completeStepUsage({
+            toolInput: 0,
+            toolOutput: 0,
+            toolTotal: 0,
+            generation: { input_tokens: 20, output_tokens: 20, total_tokens: 40 },
+            summarizer: summary,
+            structured: false
+        })
+        const usage = storedFrom({ input_tokens: 20, output_tokens: 20, total_tokens: 40 }, completed)
+        expect(usage.input_tokens).toBe(50)
+        expect(usage.output_tokens).toBe(30)
+        expect(usage.input_tokens + usage.output_tokens).toBe(80)
+        expect(usage.tool_call_tokens).toBe(80)
     })
 })

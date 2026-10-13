@@ -177,6 +177,35 @@ export function usageFromLlmEnd(output: unknown, modelHint?: string): ReportedLl
     return null
 }
 
+export function carriedUsageLines(usage: ChatflowTokenUsage): Array<{ model: string; promptTokens: number; completionTokens: number }> {
+    return usage.sink.map((row) => ({ model: row.model, promptTokens: row.promptTokens, completionTokens: row.completionTokens }))
+}
+
+// A Sequential Agents interrupt round-trips on the action. The resume starts from these lines, then adds later calls.
+export function applyCarriedUsage(usage: ChatflowTokenUsage, action: unknown) {
+    const lines = action && typeof action === 'object' ? (action as { priorUsage?: unknown }).priorUsage : undefined
+    if (!Array.isArray(lines)) return
+    for (const line of lines) {
+        if (!line || typeof line !== 'object') continue
+        const row = line as { model?: unknown; promptTokens?: unknown; completionTokens?: unknown }
+        const promptTokens = whole(row.promptTokens)
+        const completionTokens = whole(row.completionTokens)
+        if (!promptTokens && !completionTokens) continue
+        usage.sink.push({ model: cleanModel(row.model), promptTokens, completionTokens })
+    }
+}
+
+export function withCarriedUsage<T extends Record<string, any>>(action: T, usage: ChatflowTokenUsage): T {
+    const priorUsage = carriedUsageLines(usage)
+    if (!priorUsage.length) return action
+    return { ...action, priorUsage }
+}
+
+// An empty action is a finished graph. A tool interrupt has the approve and reject buttons.
+export function waitingForApproval(action: unknown): boolean {
+    return !!action && typeof action === 'object' && !Array.isArray(action) && Object.keys(action as object).length > 0
+}
+
 // In-process LangChain callback. The same instance can sit on a parent chain and a child chain, so a run id is counted once.
 export class ChatflowTokenUsage {
     name = 'CuttlelyChatflowTokenUsage'

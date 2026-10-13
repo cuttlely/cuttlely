@@ -1,4 +1,6 @@
 export {
+    applyCarriedUsage,
+    carriedUsageLines,
     ChatflowTokenUsage,
     eachUtcDay,
     usageFromLlmEnd,
@@ -6,7 +8,9 @@ export {
     usageRange,
     utcDay,
     USAGE_RANGE_MAX_DAYS,
-    USAGE_WINDOWS
+    USAGE_WINDOWS,
+    waitingForApproval,
+    withCarriedUsage
 } from './lines'
 export type { UsageLine, UsageRange } from './lines'
 export { queryTokenUsage, recordCompletedRun } from './store'

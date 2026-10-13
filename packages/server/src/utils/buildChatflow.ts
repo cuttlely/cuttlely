@@ -77,7 +77,7 @@ import { validateFlowAPIKey } from './validateKey'
 import { bindRequestSession } from './sessionOwnership'
 import logger from './logger'
 import { utilAddChatMessage } from './addChatMesage'
-import { ChatflowTokenUsage, recordCompletedRun } from '../services/usage'
+import { ChatflowTokenUsage, recordCompletedRun, waitingForApproval } from '../services/usage'
 import { checkPredictions, checkStorage, updatePredictionsUsage, updateStorageUsage } from './quotaUsage'
 import { buildAgentGraph } from './buildAgentGraph'
 import { getErrorMessage } from '../errors/utils'
@@ -787,7 +787,8 @@ export const executeFlow = async ({
             result.followUpPrompts = JSON.stringify(apiMessage.followUpPrompts)
             if (sessionToken) result.sessionToken = sessionToken
             // Multi Agents and Sequential Agents return here. The graph already collected model usage on tokenUsage.
-            if (streamResults.tokenUsage) {
+            // A tool interrupt still has finalAction. Those tokens ride on the action until the resume finishes.
+            if (streamResults.tokenUsage && !waitingForApproval(finalAction)) {
                 void recordCompletedRun(appDataSource, {
                     workspaceId,
                     flowId: agentflow.id,

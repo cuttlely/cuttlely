@@ -2340,6 +2340,10 @@
             "reason": "The node list and pack index sign-in test stays with the inherited nodes routes."
         },
         {
+            "path": "packages/server/src/utils/buildAgentflow.resume-usage.test.ts",
+            "reason": "The loop resume usage test stays next to the agentflow runner it exercises."
+        },
+        {
             "path": "packages/server/src/utils/buildAgentGraph.usage.test.ts",
             "reason": "The Agent token test and the multi-agent usage test stay next to the inherited nodes they exercise."
         },

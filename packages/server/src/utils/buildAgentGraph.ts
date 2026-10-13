@@ -49,7 +49,7 @@ import { Variable } from '../database/entities/Variable'
 import { getWorkspaceSearchOptions } from '../identity/workspaceScope'
 import { DataSource } from 'typeorm'
 import { CachePool } from '../CachePool'
-import { ChatflowTokenUsage, recordCompletedRun } from '../services/usage'
+import { applyCarriedUsage, ChatflowTokenUsage, recordCompletedRun, waitingForApproval, withCarriedUsage } from '../services/usage'
 
 /**
  * Build Agent Graph
@@ -105,6 +105,7 @@ export const buildAgentGraph = async ({
         const uploads = incomingInput.uploads
 
         const chatflowTokenUsage = new ChatflowTokenUsage()
+        applyCarriedUsage(chatflowTokenUsage, incomingInput.action)
         const options = {
             orgId,
             workspaceId,
@@ -411,7 +412,7 @@ export const buildAgentGraph = async ({
 
                 return {
                     finalResult,
-                    finalAction,
+                    finalAction: waitingForApproval(finalAction) ? withCarriedUsage(finalAction, chatflowTokenUsage) : finalAction,
                     sourceDocuments: totalSourceDocuments,
                     artifacts: totalArtifacts,
                     usedTools: totalUsedTools,

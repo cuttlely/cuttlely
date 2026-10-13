@@ -3,7 +3,7 @@
  * in-process counter a chatflow uses, and a finished graph returns it for that write. An aborted graph does not.
  */
 import { buildAgentGraph } from './buildAgentGraph'
-import { ChatflowTokenUsage, recordCompletedRun } from '../services/usage'
+import { applyCarriedUsage, ChatflowTokenUsage, recordCompletedRun, waitingForApproval, withCarriedUsage } from '../services/usage'
 
 jest.mock('./logger', () => ({
     __esModule: true,
@@ -132,6 +132,48 @@ describe('Multi Agents usage', () => {
         })
         expect(String(queries[0][0])).toContain('token_usage_day')
         expect(queries[0][1]).toEqual(expect.arrayContaining(['w1', 'f1', 'gpt-4.1-mini', 5, 2]))
+    })
+
+    it('does not store a Sequential Agents interrupt, and stores one total after approval', async () => {
+        const waiting = new ChatflowTokenUsage()
+        waiting.sink.push({ model: 'gpt-4.1-mini', promptTokens: 50, completionTokens: 20 })
+        const action = withCarriedUsage({ id: 'act-1', mapping: { approve: 'Yes', reject: 'No', toolCalls: [] } }, waiting)
+        expect(waitingForApproval(action)).toBe(true)
+        expect(action.priorUsage).toEqual([{ model: 'gpt-4.1-mini', promptTokens: 50, completionTokens: 20 }])
+
+        const queries: unknown[][] = []
+        const dataSource = {
+            options: { type: 'sqlite' },
+            query: async (...args: unknown[]) => {
+                queries.push(args)
+            }
+        }
+        if (!waitingForApproval(action)) {
+            await recordCompletedRun(dataSource, {
+                workspaceId: 'w1',
+                flowId: 'f1',
+                result: { metrics: waiting.sink }
+            })
+        }
+        expect(queries).toEqual([])
+
+        const resumed = new ChatflowTokenUsage()
+        applyCarriedUsage(resumed, action)
+        resumed.sink.push({ model: 'gpt-4.1-mini', promptTokens: 10, completionTokens: 4 })
+        expect(waitingForApproval({})).toBe(false)
+        await recordCompletedRun(dataSource, {
+            workspaceId: 'w1',
+            flowId: 'f1',
+            result: {
+                metrics: resumed.sink.map((row) => ({
+                    model: row.model,
+                    promptTokens: row.promptTokens,
+                    completionTokens: row.completionTokens
+                }))
+            }
+        })
+        expect(queries).toHaveLength(1)
+        expect(queries[0][1]).toEqual(expect.arrayContaining(['w1', 'f1', 'gpt-4.1-mini', 60, 24]))
     })
 
     it('does not return a counter when the graph is aborted', async () => {
