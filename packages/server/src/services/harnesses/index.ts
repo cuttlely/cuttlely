@@ -229,7 +229,8 @@ const startRun = async (
             const history = await loadHarness('history.mjs')
             recorded = history.listRuns(name, { limit: 20 }).find((row: { chatId?: string }) => row.chatId === prepared.chatId) || null
         }
-        // Public runs and a canvas draft try both finish here. startCanvasRun calls startRun, so this is the only write.
+        // Public runs, a canvas draft try, and a publish-check replay all finish here.
+        // startCanvasRun and replayCheck call startRun, so this is the only usage write.
         const workspaceId = prepared.harness.workspaceId
         if (workspaceId) {
             try {
