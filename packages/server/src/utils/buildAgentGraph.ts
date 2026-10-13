@@ -1168,8 +1168,8 @@ function traceAddedGraphNodes(graph: { addNode: (...args: any[]) => any }, resol
 }
 
 /** The graph records its own model and tool spans. The shared run-trace handler would record them again. */
-function withoutRunTraceHandler<T>(callbacks: T[]): T[] {
-    return callbacks.filter((callback) => (callback as { name?: string } | undefined)?.name !== 'cuttlely_otel')
+function withoutRunTraceHandler(callbacks: readonly any[]): any[] {
+    return callbacks.filter((callback) => callback?.name !== 'cuttlely_otel')
 }
 
 const getSortedDepthNodes = (depthQueue: IDepthQueue) => {
