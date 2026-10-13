@@ -51,7 +51,7 @@ import { StyledButton } from '@/ui-component/button/StyledButton'
 import StatsCard from '@/ui-component/cards/StatsCard'
 import Feedback from '@/ui-component/extended/Feedback'
 import ThinkingCard from '@/views/chatmessage/ThinkingCard'
-import HarnessRunTrace from '@/views/chatmessage/HarnessRunTrace'
+import HarnessRunTrace, { previousUserQuestion } from '@/views/chatmessage/HarnessRunTrace'
 import { traceFromPayload } from '../../../../../packages/harness/trace.mjs'
 
 // store
@@ -1261,7 +1261,10 @@ const ViewMessagesDialog = ({ show, dialogProps, onCancel }) => {
                                                                     />
                                                                 )}
                                                                 {message.harnessTrace ? (
-                                                                    <HarnessRunTrace trace={message.harnessTrace} />
+                                                                    <HarnessRunTrace
+                                                                        trace={message.harnessTrace}
+                                                                        question={previousUserQuestion(chatMessages, index)}
+                                                                    />
                                                                 ) : null}
                                                                 {message.agentReasoning && !message.harnessTrace && (
                                                                     <div style={{ display: 'block', flexDirection: 'row', width: '100%' }}>
