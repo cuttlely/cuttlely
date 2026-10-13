@@ -63,6 +63,27 @@ describe('roles and permissions guide', () => {
         assert.deepEqual(live, [], live.join('\n'))
     })
 
+    it('fails when a helper constant, a template expansion, or a spread array is not in the catalog', () => {
+        const catalog = new Set(['chatflows:view', 'chatflows:update', 'agentflows:view', 'agentflows:update'])
+        const prefixes = new Set(['chatflows', 'agentflows'])
+        const options = { catalog, outside: [], prefixes }
+        const helper = permissionLiteralProblems("export const SAVE = 'chatflows:typo';", options)
+        assert.deepEqual(helper, ['chatflows:typo is not in the permission catalog'])
+        const template = permissionLiteralProblems(
+            "function permissionFor(action: 'view' | 'typo') { return `agentflows:${action}`; }",
+            options
+        )
+        assert.ok(
+            template.some((item) => item === 'agentflows:typo is not in the permission catalog'),
+            template.join('\n')
+        )
+        const spread = permissionLiteralProblems("const needed = ['chatflows:typo'];\nrequireAnyPermission(...needed)", options)
+        assert.ok(
+            spread.some((item) => item === 'chatflows:typo is not in the permission catalog'),
+            spread.join('\n')
+        )
+    })
+
     it('reads keys from the permission table', () => {
         const markdown = [
             '# Guide',

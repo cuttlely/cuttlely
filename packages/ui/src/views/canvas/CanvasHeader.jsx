@@ -32,7 +32,7 @@ import UpsertHistoryDialog from '@/views/vectorstore/UpsertHistoryDialog'
 import ViewLeadsDialog from '@/ui-component/dialog/ViewLeadsDialog'
 import ExportAsTemplateDialog from '@/ui-component/dialog/ExportAsTemplateDialog'
 import { Available } from '@/ui-component/rbac/available'
-import { canvasSavePermission } from './canvasSavePermission'
+import { canvasNamePermission, canvasSaveButtonPermission, canvasUpdatePermission } from './canvasSavePermission'
 import VersionHistoryDrawer from '@/views/canvas/VersionHistoryDrawer'
 import PublishDialog from '@/views/canvas/PublishDialog'
 
@@ -182,7 +182,12 @@ const CanvasHeader = ({
     const enqueueSnackbar = (...args) => dispatch(enqueueSnackbarAction(...args))
     const closeSnackbar = (...args) => dispatch(closeSnackbarAction(...args))
 
-    const savePermission = canvasSavePermission(isAgentCanvas)
+    const draftPermission = canvasUpdatePermission(isAgentCanvas)
+    const namePermission = canvasNamePermission(isAgentCanvas)
+    const saveButtonPermission = canvasSaveButtonPermission(isAgentCanvas, {
+        hasId: Boolean(chatflow?.id),
+        draftMode: showDraftChrome(draftStatus)
+    })
 
     const title = isEtlCanvas ? 'Pipeline' : isHarnessCanvas ? 'Harness' : isAgentCanvas ? 'Agents' : 'Chatflow'
 
@@ -587,7 +592,7 @@ const CanvasHeader = ({
                                         />
                                     )}
                                     {chatflow?.id && (
-                                        <Available permission={savePermission}>
+                                        <Available permission={namePermission}>
                                             <ButtonBase title='Edit Name' sx={{ borderRadius: '50%' }}>
                                                 <Avatar
                                                     variant='rounded'
@@ -785,7 +790,7 @@ const CanvasHeader = ({
                         </ButtonBase>
                     )}
                     {showDraftChrome(draftStatus) && (
-                        <Available permission={savePermission}>
+                        <Available permission={draftPermission}>
                             <Button
                                 variant='contained'
                                 size='small'
@@ -798,7 +803,7 @@ const CanvasHeader = ({
                             </Button>
                         </Available>
                     )}
-                    <Available permission={savePermission}>
+                    <Available permission={saveButtonPermission}>
                         <ButtonBase title={`Save ${title}`} sx={{ borderRadius: '50%', mr: 2 }}>
                             <Avatar
                                 variant='rounded'
@@ -854,14 +859,16 @@ const CanvasHeader = ({
                         borderRadius: 0
                     }}
                     action={
-                        <Stack direction='row' spacing={1}>
-                            <Button color='inherit' size='small' onClick={() => setPublishOpen(true)}>
-                                Review
-                            </Button>
-                            <Button color='inherit' size='small' onClick={discardDraft}>
-                                Discard draft
-                            </Button>
-                        </Stack>
+                        <Available permission={draftPermission}>
+                            <Stack direction='row' spacing={1}>
+                                <Button color='inherit' size='small' onClick={() => setPublishOpen(true)}>
+                                    Review
+                                </Button>
+                                <Button color='inherit' size='small' onClick={discardDraft}>
+                                    Discard draft
+                                </Button>
+                            </Stack>
+                        </Available>
                     }
                 >
                     {STALE_DRAFT_WARNING}

@@ -309,21 +309,103 @@ function dottedPermissionTokens(source, prefixes) {
     return found
 }
 
+function exactKeyTokens(text) {
+    const tokens = []
+    const re = /(['"`])([^'"`]*)\1/g
+    for (const match of String(text).matchAll(re)) {
+        if (match[2].includes('${')) continue
+        const parts = match[2]
+            .split(',')
+            .map((part) => part.trim())
+            .filter(Boolean)
+        if (parts.length && parts.every((part) => KEY.test(part))) tokens.push(...parts)
+    }
+    return tokens
+}
+
+// String constants and helper return values whose text is a permission key, or a comma list of them.
+function assignmentAndReturnKeys(source) {
+    const tokens = []
+    const assignRe = /(?:export\s+)?(?:const|let)\s+[A-Za-z_$][\w$]*\s*=\s*([\s\S]*?);/g
+    const returnRe = /return\s+([\s\S]*?);/g
+    for (const re of [assignRe, returnRe]) {
+        for (const match of source.matchAll(re)) tokens.push(...exactKeyTokens(match[1]))
+    }
+    return tokens
+}
+
+function balancedSlice(source, openIndex, openChar, closeChar) {
+    let depth = 0
+    let i = openIndex
+    while (i < source.length) {
+        const c = source[i]
+        if (c === "'" || c === '"' || c === '`') {
+            const quote = c
+            i += 1
+            while (i < source.length && source[i] !== quote) {
+                if (source[i] === '\\') i += 2
+                else i += 1
+            }
+            i += 1
+            continue
+        }
+        if (c === openChar) depth += 1
+        else if (c === closeChar) {
+            depth -= 1
+            if (depth === 0) return source.slice(openIndex, i + 1)
+        }
+        i += 1
+    }
+    return ''
+}
+
+function arrayBindings(source) {
+    const map = new Map()
+    const re = /(?:const|let)\s+([A-Za-z_$][\w$]*)\s*=\s*\[/g
+    let match
+    while ((match = re.exec(source))) {
+        const slice = balancedSlice(source, match.index + match[0].length - 1, '[', ']')
+        if (slice) map.set(match[1], quotedTokens(slice))
+    }
+    return map
+}
+
+// requireAnyPermission(...needed) where needed is a string array in this file.
+function spreadPermissionTokens(source) {
+    const arrays = arrayBindings(source)
+    const tokens = []
+    for (const body of callBodies(source, ['requirePermission', 'requireAnyPermission', 'hasAnyPermission', 'hasPermission'])) {
+        for (const match of body.matchAll(/\.\.\.\s*([A-Za-z_$][\w$]*)/g)) {
+            const items = arrays.get(match[1])
+            if (items) tokens.push(...items)
+        }
+        for (const match of body.matchAll(/\.\.\.\s*\[/g)) {
+            const slice = balancedSlice(body, match.index + match[0].length - 1, '[', ']')
+            if (slice) tokens.push(...quotedTokens(slice))
+        }
+    }
+    return tokens
+}
+
 export function permissionLiteralProblems(source, { catalog, outside, prefixes }) {
     const catalogSet = catalog instanceof Set ? catalog : new Set(catalog)
     const outsideSet = outside instanceof Set ? outside : new Set(outside || [])
     const prefixSet = prefixes instanceof Set ? prefixes : new Set(prefixes || [])
     const problems = []
     const seen = new Set()
-    const consider = (token) => {
+    const consider = (token, options = {}) => {
         if (!token || seen.has(token)) return
-        seen.add(token)
         const dotted = token.match(/^([A-Za-z][A-Za-z0-9]*)\.([A-Za-z][A-Za-z0-9]+(?:-[A-Za-z0-9]+)*)$/)
         if (dotted && prefixSet.has(dotted[1])) {
+            seen.add(token)
             problems.push(`${token} uses a dot; permission keys use a colon`)
             return
         }
         if (!KEY.test(token) || token.startsWith('feat:')) return
+        const prefix = token.split(':')[0]
+        // A helper can return a time format or a file mode. Only a known permission category is a key.
+        if (options.requireKnownPrefix && !prefixSet.has(prefix)) return
+        seen.add(token)
         if (catalogSet.has(token) || outsideSet.has(token)) return
         problems.push(`${token} is not in the permission catalog`)
     }
@@ -331,6 +413,9 @@ export function permissionLiteralProblems(source, { catalog, outside, prefixes }
         for (const token of quotedTokens(region)) consider(token)
     }
     for (const token of dottedPermissionTokens(source, prefixSet)) consider(token)
+    for (const token of assignmentAndReturnKeys(source)) consider(token, { requireKnownPrefix: true })
+    for (const token of expandTemplates(source)) consider(token, { requireKnownPrefix: true })
+    for (const token of spreadPermissionTokens(source)) consider(token)
     return problems
 }
 

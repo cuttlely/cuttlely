@@ -12,7 +12,7 @@ import { IconEdit, IconTrash, IconX, IconLanguage } from '@tabler/icons-react'
 // Project imports
 import { CodeEditor } from '@/ui-component/editor/CodeEditor'
 import { PermissionButton, PermissionIconButton } from '@/ui-component/button/RBACButtons'
-import { CHUNK_DELETE_PERMISSION } from './chunkPermissions'
+import { CHUNK_DELETE_PERMISSION, CHUNK_EDIT_PERMISSION } from './chunkPermissions'
 
 const ExpandedChunkDialog = ({ show, dialogProps, onCancel, onChunkEdit, onDeleteChunk, isReadOnly }) => {
     const portalElement = document.getElementById('portal')
@@ -90,7 +90,7 @@ const ExpandedChunkDialog = ({ show, dialogProps, onCancel, onChunkEdit, onDelet
                         </Typography>
                         {!isEdit && !isReadOnly && (
                             <PermissionIconButton
-                                permissionId={'documentStores:preview-process'}
+                                permissionId={CHUNK_EDIT_PERMISSION}
                                 onClick={() => setIsEdit(true)}
                                 size='small'
                                 color='primary'
@@ -107,7 +107,7 @@ const ExpandedChunkDialog = ({ show, dialogProps, onCancel, onChunkEdit, onDelet
                         )}
                         {isEdit && !isReadOnly && (
                             <PermissionButton
-                                permissionId={'documentStores:preview-process'}
+                                permissionId={CHUNK_EDIT_PERMISSION}
                                 onClick={() => onEditSaved(true)}
                                 color='primary'
                                 title='Save'
