@@ -353,7 +353,7 @@ export const PublishCheckView = ({
             )}
             {loadError && (
                 <Alert severity='warning' sx={{ mt: 1 }}>
-                    {loadError} {words.stillCan}
+                    {loadError} {gateNote || words.stillCan}
                 </Alert>
             )}
             {!loading && !loadError && unavailable && (

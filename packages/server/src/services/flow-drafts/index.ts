@@ -27,6 +27,8 @@ import {
     readEvaluatorIdList,
     readGateResult,
     sameGateSettings,
+    postProcessChangedReason,
+    postProcessHash,
     testSetChangedReason
 } from './gate'
 import { casesFromDataset, currentTestSetHash, loadEvaluators } from '../flow-check/score'
@@ -238,11 +240,16 @@ async function withTestSet(flow: DraftFlow, status: DraftStatus): Promise<DraftS
     const gate = status.publishGate
     if (!gate.enabled || gate.block || !gate.result || gate.result.verdict !== 'passed' || !gate.datasetId) return status
     const current = await currentTestSetHash(gate.datasetId, gate.evaluatorIds, flow.workspaceId)
-    if (current && gate.result.contentHash && current === gate.result.contentHash) return status
-    return {
-        ...status,
-        publishGate: { ...gate, block: testSetChangedReason(gate.threshold ?? gate.result.threshold, gate.result) }
+    const threshold = gate.threshold ?? gate.result.threshold
+    if (!current || !gate.result.contentHash || current !== gate.result.contentHash) {
+        return { ...status, publishGate: { ...gate, block: testSetChangedReason(threshold, gate.result) } }
     }
+    const chat = await getRunningExpressApp().AppDataSource.getRepository(ChatFlow).findOneBy({ id: flow.id })
+    const post = postProcessHash(chat?.chatbotConfig)
+    if (!gate.result.postProcessHash || post !== gate.result.postProcessHash) {
+        return { ...status, publishGate: { ...gate, block: postProcessChangedReason(threshold, gate.result) } }
+    }
+    return status
 }
 
 export async function getDraftStatus(flow: DraftFlow): Promise<DraftStatus> {
@@ -323,7 +330,7 @@ export async function saveDraft(flow: DraftFlow, flowData: unknown, context: Sav
     }
     // The type on the draft is the flow's type at this write. A type change that landed since the
     // canvas was loaded refuses the save, under the same row lock the type change takes.
-    return withChatflowLock(flow.id, async (manager) => {
+    const saved = await withChatflowLock(flow.id, async (manager) => {
         if (draftWriteHooks.beforeDraftWrite) await draftWriteHooks.beforeDraftWrite()
         const chat = await manager.getRepository(ChatFlow).findOneBy({ id: flow.id })
         if (!chat || (chat.type || 'CHATFLOW') !== (flow.type || 'CHATFLOW')) {
@@ -343,6 +350,7 @@ export async function saveDraft(flow: DraftFlow, flowData: unknown, context: Sav
         if (!state && !row.draftFlowData) return statusFrom(flow, null)
         return statusFrom(flow, await stateRepo.save(row))
     })
+    return withTestSet(flow, saved)
 }
 
 function clearDraft(row: FlowVersionState) {
@@ -355,9 +363,9 @@ function clearDraft(row: FlowVersionState) {
 // Throws the draft away. Live is not touched.
 export async function discardDraft(flow: DraftFlow): Promise<DraftStatus> {
     const state = await getState(flow.id)
-    if (!state?.draftFlowData) return statusFrom(flow, state)
+    if (!state?.draftFlowData) return withTestSet(flow, statusFrom(flow, state))
     clearDraft(state)
-    return statusFrom(flow, await repo().save(state))
+    return withTestSet(flow, statusFrom(flow, await repo().save(state)))
 }
 
 // The draft canvas to publish. Refused when drafts are off or there is nothing to publish, and when Live
@@ -470,7 +478,7 @@ export async function updateDraftSettings(
     // The ids are resolved in this flow's workspace before anything is written. A missing id and an id
     // from another workspace are the same 404, and the stored settings stay as they were.
     if (gate?.enabled && gate.datasetId) await assertGateTargets(flow.workspaceId, gate.datasetId, gate.evaluatorIds)
-    if (!state && !nextInstant && !nextGate) return statusFrom(flow, null)
+    if (!state && !nextInstant && !nextGate) return withTestSet(flow, statusFrom(flow, null))
     const row = state || repo().create({ chatflowId: flow.id, workspaceId: flow.workspaceId, publishInstantly: false, publishGate: false })
     if (hasInstant) row.publishInstantly = nextInstant
     if (gate?.enabled) {
@@ -481,7 +489,7 @@ export async function updateDraftSettings(
     } else if (gate && !gate.enabled) {
         row.publishGate = false
     }
-    return statusFrom(flow, await repo().save(row))
+    return withTestSet(flow, statusFrom(flow, await repo().save(row)))
 }
 
 export interface GateResultInput {
@@ -495,6 +503,7 @@ export interface GateResultInput {
     errored: number
     verdict: 'passed' | 'failed'
     contentHash?: string
+    postProcessHash?: string
 }
 
 // The same workspace lookup the dataset check uses. A missing id and an id from another workspace
@@ -530,7 +539,8 @@ export async function recordPublishGateResult(flow: DraftFlow, input: GateResult
         failed: input.failed,
         errored: input.errored,
         verdict: input.verdict,
-        contentHash: input.contentHash || ''
+        contentHash: input.contentHash || '',
+        postProcessHash: input.postProcessHash || ''
     }
     await repo().update({ chatflowId: flow.id }, { publishGateResult: gateResultRecord(record) })
 }

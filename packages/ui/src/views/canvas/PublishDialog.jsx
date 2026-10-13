@@ -1,5 +1,5 @@
 import PropTypes from 'prop-types'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useDispatch } from 'react-redux'
 
 import {
@@ -122,6 +122,21 @@ const PublishDialog = ({ open, chatflow, draftStatus, isDirty, onClose, onDraftS
         setError('')
         setBusy(false)
     }, [open])
+
+    const onStatus = useRef(onDraftStatus)
+    onStatus.current = onDraftStatus
+    useEffect(() => {
+        if (!open || !chatflow?.id) return
+        let cancelled = false
+        Promise.resolve(flowDraftsApi.getStatus(chatflow.id))
+            .then((res) => {
+                if (!cancelled && res?.data) onStatus.current(res.data)
+            })
+            .catch(() => {})
+        return () => {
+            cancelled = true
+        }
+    }, [open, chatflow?.id])
 
     const finish = (data) => {
         if (data?.status) onDraftStatus(data.status)

@@ -97,7 +97,7 @@ jest.mock('@cuttlely/components', () => ({ EvaluationRunner: { metrics: new Map(
 jest.mock('../../utils/logger', () => ({ __esModule: true, default: { error: jest.fn(), debug: jest.fn() } }))
 
 import { checks, getCheck, getCheckSetup, replayHooks, startCheck, stopCheck } from './index'
-import { scoreHooks } from './score'
+import { currentTestSetHash, scoreHooks } from './score'
 import { noteGraderTokens } from '../evaluations/LLMEvaluationRunner'
 
 const canvas = (word: string, extra: any[] = []) =>
@@ -993,6 +993,27 @@ describe('a dataset and evaluators', () => {
             statusCode: 400,
             message: 'threshold is only used with a dataset.'
         })
+    })
+
+    test('a write during scoring cannot pair a pass with the new test set hash', async () => {
+        datasetRows.length = 0
+        datasetRows.push({ id: 'r1', datasetId: 'ds-1', input: 'First?', output: 'one', sequenceNo: 1 })
+        saveEvaluator('text-1', 'text', { operator: 'ContainsAny', value: 'mango' })
+        const before = await currentTestSetHash('ds-1', ['text-1'], 'team-a')
+        replayHooks.run = async () => {
+            datasetRows[0].output = 'changed-after-the-score-started'
+            evaluatorRows.get('text-1').config = JSON.stringify({ operator: 'ContainsAny', value: 'nope' })
+            return { text: 'mango pie', metrics: [JSON.stringify({ totalTokens: 50 })] }
+        }
+        const started = await startCheck(flow() as any, { datasetId: 'ds-1', evaluatorIds: ['text-1'], threshold: 100 }, 'http://x')
+        await settle()
+        const done = await getCheck(flow(), started.id)
+        expect(done.verdict?.result).toBe('passed')
+        const stored = (recordPublishGateResult.mock.calls.at(-1) as unknown[] | undefined)?.[1] as { contentHash?: string }
+        const after = await currentTestSetHash('ds-1', ['text-1'], 'team-a')
+        expect(after).not.toBe(before)
+        expect(stored.contentHash).toBe(before)
+        expect(stored.contentHash).not.toBe(after)
     })
 
     test('scores text, json, numeric and llm evaluators, and an errored answer is Error', async () => {

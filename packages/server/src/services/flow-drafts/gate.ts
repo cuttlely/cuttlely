@@ -29,6 +29,8 @@ export interface GateResult {
     checkedAt: string
     // Hash of the rows the check asked and of each evaluator's type and config. Not the rows or the answers.
     contentHash: string
+    // Hash of chatbotConfig.postProcessing at the time of the check. Not the function text in the clear.
+    postProcessHash: string
 }
 
 export interface GateStatus extends GateSettings {
@@ -84,6 +86,8 @@ function parseStoredThreshold(value: unknown): number {
 }
 
 export interface AskedRow {
+    // Used only to order ties. It is not part of the stored hash.
+    id?: string
     input: string
     expected: string
     sequence: number
@@ -114,10 +118,20 @@ function stableConfig(config: string): string {
     }
 }
 
-// Evaluator order does not matter. The hash covers the rows the check asked and each evaluator's type and config.
+function compareAsked(a: AskedRow, b: AskedRow): number {
+    if (a.sequence !== b.sequence) return a.sequence - b.sequence
+    const left = a.id || ''
+    const right = b.id || ''
+    if (left !== right) return left < right ? -1 : 1
+    if (a.input !== b.input) return a.input < b.input ? -1 : 1
+    if (a.expected !== b.expected) return a.expected < b.expected ? -1 : 1
+    return 0
+}
+
+// Evaluator order does not matter. Row ties break by id, then by the text, so the hash does not depend on read order.
 export function testSetHash(rows: AskedRow[], evaluators: EvaluatorShape[]): string {
     const body = {
-        rows: rows.map((row) => ({ input: row.input, expected: row.expected, sequence: row.sequence })),
+        rows: [...rows].sort(compareAsked).map((row) => ({ input: row.input, expected: row.expected, sequence: row.sequence })),
         evaluators: [...evaluators]
             .map((item) => ({ id: item.id, type: item.type, config: stableConfig(item.config) }))
             .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
@@ -163,11 +177,30 @@ export function publishBlockReason(settings: GateSettings, result: GateResult | 
     return null
 }
 
+// Hash of chatbotConfig.postProcessing. Missing or unreadable config hashes as empty.
+export function postProcessHash(chatbotConfig: string | null | undefined): string {
+    let raw = ''
+    try {
+        const parsed = chatbotConfig ? JSON.parse(chatbotConfig) : null
+        const post = parsed && typeof parsed === 'object' ? (parsed as { postProcessing?: unknown }).postProcessing : null
+        raw = post && typeof post === 'object' ? stableConfig(JSON.stringify(post)) : ''
+    } catch {
+        raw = ''
+    }
+    return crypto.createHash('sha256').update(raw).digest('hex')
+}
+
 // A row, an evaluator's check, or a missing dataset or evaluator. Same shape as the settings message.
 export function testSetChangedReason(threshold: number, result: GateResult): string {
     const need = `Publish needs a passing test set at ${threshold}%.`
     const rate = result.passRate == null ? 'unscored' : `${result.passRate}%`
     return `${need} The last result was ${rate} and ${result.verdict}. The test set has changed since that check.`
+}
+
+export function postProcessChangedReason(threshold: number, result: GateResult): string {
+    const need = `Publish needs a passing test set at ${threshold}%.`
+    const rate = result.passRate == null ? 'unscored' : `${result.passRate}%`
+    return `${need} The last result was ${rate} and ${result.verdict}. The answer post-processing has changed since that check.`
 }
 
 export function readEvaluatorIdList(stored: string | null | undefined): string[] {
@@ -200,7 +233,8 @@ export function readGateResult(stored: string | null | undefined): GateResult | 
             errored: Number(parsed.errored) || 0,
             verdict: parsed.verdict,
             checkedAt: typeof parsed.checkedAt === 'string' ? parsed.checkedAt : '',
-            contentHash: typeof parsed.contentHash === 'string' ? parsed.contentHash : ''
+            contentHash: typeof parsed.contentHash === 'string' ? parsed.contentHash : '',
+            postProcessHash: typeof parsed.postProcessHash === 'string' ? parsed.postProcessHash : ''
         }
     } catch {
         return null
@@ -220,7 +254,8 @@ export function gateResultRecord(input: Omit<GateResult, 'checkedAt'> & { checke
         errored: input.errored,
         verdict: input.verdict,
         checkedAt: input.checkedAt || new Date().toISOString(),
-        contentHash: input.contentHash || ''
+        contentHash: input.contentHash || '',
+        postProcessHash: input.postProcessHash || ''
     }
     return JSON.stringify(record)
 }

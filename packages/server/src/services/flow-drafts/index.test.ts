@@ -88,6 +88,7 @@ import {
     uniqueUploadNames
 } from './index'
 import { currentTestSetHash } from '../flow-check/score'
+import { postProcessHash } from './gate'
 
 const canvas = (label: string) => JSON.stringify({ nodes: [{ id: 'chatOpenAI_0', data: { label } }], edges: [] })
 const LIVE = canvas('Live')
@@ -550,7 +551,13 @@ describe('a passing test set before Publish', () => {
         seed()
         const contentHash = await currentTestSetHash('ds-1', ['ev-1'], 'team-a')
         const draftHash = canvasHash(canvas('Draft'))
-        await recordPublishGateResult(flow(), { ...pass, draftHash, contentHash: contentHash || '', ...extra })
+        await recordPublishGateResult(flow(), {
+            ...pass,
+            draftHash,
+            contentHash: contentHash || '',
+            postProcessHash: postProcessHash(chats[0]?.chatbotConfig),
+            ...extra
+        })
         return { contentHash, draftHash }
     }
 
@@ -733,9 +740,44 @@ describe('a passing test set before Publish', () => {
             ...pass,
             evaluatorIds: ['ev-b', 'ev-a'],
             draftHash: canvasHash(canvas('Draft')),
-            contentHash: reverse || ''
+            contentHash: reverse || '',
+            postProcessHash: postProcessHash(chats[0]?.chatbotConfig)
         })
         expect(await draftToPublish(flow())).toBe(canvas('Draft'))
+    })
+
+    test('editing answer post-processing after a pass makes Publish refuse', async () => {
+        await arm()
+        await recordPass()
+        expect(await draftToPublish(flow())).toBe(canvas('Draft'))
+        chats[0].chatbotConfig = JSON.stringify({
+            postProcessing: { enabled: true, customFunction: JSON.stringify('return "rewritten"') }
+        })
+        await expect(draftToPublish(flow())).rejects.toMatchObject({
+            statusCode: 409,
+            message: expect.stringContaining('The answer post-processing has changed since that check.')
+        })
+    })
+
+    test('save, discard, and settings report a changed test set on the response', async () => {
+        await arm()
+        await recordPass()
+        datasetRows[0].output = 'No'
+        const saved = await saveDraft(flow(), canvas('Draft'), context)
+        expect(saved.publishGate.block).toEqual(expect.stringContaining('The test set has changed since that check.'))
+        datasetRows[0].output = 'Yes'
+        const same = await updateDraftSettings(flow(), { publishGate: gate })
+        expect(same.publishGate.block).toBeNull()
+        evaluators.get('ev-1').config = JSON.stringify({ operator: 'Contains', value: 'No' })
+        const settings = await updateDraftSettings(flow(), { publishGate: gate })
+        expect(settings.publishGate.block).toEqual(expect.stringContaining('The test set has changed since that check.'))
+        evaluators.set('ev-1', sampleEval())
+        const ready = await updateDraftSettings(flow(), { publishGate: gate })
+        expect(ready.publishGate.block).toBeNull()
+        datasetRows[0].output = 'No'
+        const discarded = await discardDraft(flow())
+        expect(discarded.publishGate.block).toBe((await getDraftStatus(flow())).publishGate.block)
+        expect(discarded.publishGate.block).toEqual(expect.stringContaining('The draft has changed since that check.'))
     })
 
     test('a harness check result is not stored, and a stored flag does not block Publish', async () => {

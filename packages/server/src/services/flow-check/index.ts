@@ -58,9 +58,9 @@ import {
     triggerStart,
     typeUnavailable
 } from './kinds'
-import { publishGateApplies } from '../flow-drafts/gate'
+import { postProcessHash, publishGateApplies } from '../flow-drafts/gate'
 import { harnessQuestionsFor, harnessQuestionsToRun, replayHarnessQuestion } from './harness'
-import { casesFromDataset, CheckEvaluator, currentTestSetHash, loadEvaluators, readDatasetId, readEvaluatorIds, scoreAnswer } from './score'
+import { CheckEvaluator, loadEvaluators, loadTestSet, readDatasetId, readEvaluatorIds, scoreAnswer } from './score'
 
 // A question list sent without `count` stays capped at 10, which is what this route accepted before.
 export const MAX_QUESTIONS = 10
@@ -178,6 +178,8 @@ interface CheckRecord {
     threshold: number | null
     // Hash of the rows and evaluators this check asked. Empty when the check did not use a dataset.
     contentHash: string
+    // Hash of the post-processing config this check scored against.
+    postProcessHash: string
     evaluators: CheckEvaluator[]
     // Tokens from a side that was dropped when the cap was hit. The case no longer shows them, but they still count.
     spentTokens: number
@@ -599,8 +601,10 @@ export async function startCheck(
         throw new AppError(StatusCodes.BAD_REQUEST, 'Send a datasetId on its own. Do not send questions or count with it.')
     }
     // Resolve the dataset and the evaluators before any other refusal, so a missing one is 404 and starts nothing.
+    // One read: the questions, the scores, and the stored hash all use that copy.
     const workspaceId = String(flow.workspaceId || '')
-    const fromDataset = datasetId ? await casesFromDataset(datasetId, workspaceId) : null
+    const loaded = datasetId ? await loadTestSet(datasetId, evaluatorIds, workspaceId) : null
+    const fromDataset = loaded ? loaded.cases : null
     // The client left while the dataset was loading. Do not store a record or start a replay,
     // and do not stop a check this request did not create.
     if (closed()) throw new AppError(StatusCodes.BAD_REQUEST, 'The check was cancelled before it started.')
@@ -609,8 +613,9 @@ export async function startCheck(
         const refusal = datasetStartRefusal(flow.type, [flow.flowData, draft])
         if (refusal) throw new AppError(StatusCodes.BAD_REQUEST, refusal)
     }
-    const evaluators = await loadEvaluators(evaluatorIds, workspaceId)
-    const contentHash = datasetId ? (await currentTestSetHash(datasetId, evaluatorIds, workspaceId)) || '' : ''
+    const evaluators = loaded ? loaded.evaluators : await loadEvaluators(evaluatorIds, workspaceId)
+    const contentHash = loaded?.contentHash || ''
+    const scoredPostProcess = postProcessHash(flow.chatbotConfig)
     if (closed()) throw new AppError(StatusCodes.BAD_REQUEST, 'The check was cancelled before it started.')
     const unavailable = unavailableFor(flow as DraftFlow, candidate, Boolean(given))
     if (unavailable) throw new AppError(StatusCodes.CONFLICT, unavailable.message)
@@ -687,6 +692,7 @@ export async function startCheck(
         datasetId,
         threshold,
         contentHash,
+        postProcessHash: scoredPostProcess,
         evaluators,
         spentTokens: 0,
         inflight: new Set<AbortController>(),
@@ -885,7 +891,8 @@ async function runCheck(record: CheckRecord, flow: IChatFlow, draft: string, bas
                         failed: verdict.failed,
                         errored: verdict.errored,
                         verdict: verdict.result,
-                        contentHash: record.contentHash
+                        contentHash: record.contentHash,
+                        postProcessHash: record.postProcessHash
                     })
                     .catch((error: Error) => {
                         logger.error(

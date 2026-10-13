@@ -436,6 +436,10 @@ describe('PublishCheckView', () => {
         expect(render({ loadError: 'Recent questions could not be loaded.', setup: null })).toContain(
             'Recent questions could not be loaded. You can still publish.'
         )
+        const reason = 'Publish needs a passing test set at 100%. There is no result for this draft yet.'
+        const gated = render({ loadError: 'Recent questions could not be loaded.', setup: null, gateNote: reason })
+        expect(gated).toContain(reason)
+        expect(gated).not.toContain('You can still publish.')
     })
 
     test('the past-question picker offers 4, 10, 25, 50 and 100, and caps a short history', () => {

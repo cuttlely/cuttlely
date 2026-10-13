@@ -100,6 +100,7 @@ const canvas = (startInputType, reply) =>
 describe('PublishDialog while the check setup is still pending', () => {
     afterEach(() => {
         flowDraftsApi.getCheckSetup.mockReset()
+        flowDraftsApi.getStatus.mockReset()
         document.body.innerHTML = ''
     })
 
@@ -146,6 +147,48 @@ describe('PublishDialog while the check setup is still pending', () => {
         expect(document.body.textContent).toContain('Loading recent questions…')
         expect(document.body.textContent).not.toContain('Check recent runs')
         expect(document.body.textContent).not.toContain('Loading recent runs…')
+        act(() => root.unmount())
+    })
+
+    test('opening the dialog loads the draft, including a gate block', async () => {
+        const reason = 'The test set has changed since that check.'
+        const onDraftStatus = jest.fn()
+        flowDraftsApi.getStatus.mockResolvedValue({
+            data: {
+                publishGate: {
+                    enabled: true,
+                    block: reason,
+                    result: { passRate: 100, verdict: 'passed', passed: 1, failed: 0, errored: 0 }
+                }
+            }
+        })
+        flowDraftsApi.getCheckSetup.mockImplementation(() => new Promise(() => {}))
+        const container = document.createElement('div')
+        document.body.appendChild(container)
+        const root = createRoot(container)
+        await act(async () => {
+            root.render(
+                createElement(
+                    ThemeProvider,
+                    { theme: createTheme() },
+                    createElement(PublishDialog, {
+                        open: true,
+                        chatflow: { id: 'flow-1', type: 'CHATFLOW', name: 'Bakery helper', flowData: canvas('chatInput', 'Reply') },
+                        draftStatus: {
+                            draft: { flowData: canvas('chatInput', 'Oven reply') },
+                            publishGate: { enabled: true, block: null }
+                        },
+                        isDirty: false,
+                        onClose: () => {},
+                        onDraftStatus,
+                        onChatflowUpdated: () => {},
+                        onApplyCanvas: () => {}
+                    })
+                )
+            )
+        })
+        expect(flowDraftsApi.getStatus).toHaveBeenCalledWith('flow-1')
+        expect(onDraftStatus).toHaveBeenCalledWith(expect.objectContaining({ publishGate: expect.objectContaining({ block: reason }) }))
         act(() => root.unmount())
     })
 })
