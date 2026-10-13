@@ -33,11 +33,11 @@ function fakes({ reduced = false, small = false, saveData = false, videos = 1, h
                 if (!video.finishRestart) return
                 // The restarted resource reaches metadata, then can play through. The test does not fire that.
                 video.readyState = 1
-                video.events.loadedmetadata?.()
+                video.emit('loadedmetadata')
                 video.readyState = 4
                 video.networkState = 1
                 open.delete(video)
-                video.events.canplaythrough?.()
+                video.emit('canplaythrough')
             },
             beginFetch() {
                 if (open.has(video)) return
@@ -46,11 +46,22 @@ function fakes({ reduced = false, small = false, saveData = false, videos = 1, h
                 peak = Math.max(peak, open.size)
             },
             addEventListener(type, fn, capture) {
-                this.events[capture === true || capture?.capture ? `${type}:capture` : type] = fn
+                const key = capture === true || capture?.capture ? `${type}:capture` : type
+                const list = this.events[key] || (this.events[key] = [])
+                list.push(fn)
             },
             removeEventListener(type, fn, capture) {
                 const key = capture === true || capture?.capture ? `${type}:capture` : type
-                if (this.events[key] === fn) delete this.events[key]
+                const list = this.events[key]
+                if (!list) return
+                const index = list.indexOf(fn)
+                if (index >= 0) list.splice(index, 1)
+                if (list.length === 0) delete this.events[key]
+            },
+            emit(type) {
+                const list = this.events[type]
+                if (!list) return
+                for (const fn of [...list]) fn()
             },
             events: {}
         }
@@ -99,11 +110,11 @@ function fakes({ reduced = false, small = false, saveData = false, videos = 1, h
         approach: (indexes) => nearObserver().cb(indexes.map((i) => ({ target: list[i], isIntersecting: true }))),
         finish: (i) => {
             open.delete(list[i])
-            list[i].events.canplaythrough()
+            list[i].emit('canplaythrough')
         },
         fail: (i) => {
             open.delete(list[i])
-            list[i].events.error()
+            list[i].emit('error')
         },
         inFlight: () => open.size,
         peak: () => peak,
@@ -246,8 +257,27 @@ test('a fetch already in progress is not restarted by the queue', () => {
     approach([0])
     assert.equal(calls.includes('load 0'), false)
     assert.equal(list[0].currentTime, 0.2)
-    assert.equal(typeof list[0].events.canplaythrough, 'function')
+    assert.equal(list[0].events.canplaythrough.length, 1)
 })
+
+function listenerCounts(video) {
+    const count = (type) => video.events[type]?.length || 0
+    return {
+        loadedmetadata: count('loadedmetadata'),
+        loadeddata: count('loadeddata'),
+        canplay: count('canplay'),
+        progress: count('progress'),
+        seeking: count('seeking')
+    }
+}
+
+const oneRestoreListener = {
+    loadedmetadata: 1,
+    loadeddata: 1,
+    canplay: 1,
+    progress: 1,
+    seeking: 1
+}
 
 function holdTime(video, start) {
     let time = start
@@ -353,25 +383,100 @@ test('a seek ignored at loadedmetadata is applied once that time is seekable', a
     const playsBefore = calls.filter((call) => call === 'play 0').length
     dispatch('doc', 'resume')
     await Promise.resolve()
-    list[0].events.loadedmetadata()
-    list[1].events.loadedmetadata()
+    list[0].emit('loadedmetadata')
+    list[1].emit('loadedmetadata')
     assert.equal(list[0].currentTime, 0)
     assert.equal(list[1].currentTime, 0)
     // Metadata arrived before the saved time was in the seekable range.
-    list[0].events.loadeddata()
-    list[1].events.loadeddata()
+    list[0].emit('loadeddata')
+    list[1].emit('loadeddata')
     assert.equal(list[0].currentTime, 0)
     assert.equal(list[1].currentTime, 0)
     playing.setSeekable(0.576)
     paused.setSeekable(0.361)
-    list[0].events.canplay()
-    list[1].events.canplay()
+    list[0].emit('canplay')
+    list[1].emit('canplay')
     assert.equal(list[0].currentTime, 0.576)
     assert.equal(list[1].currentTime, 0.361)
     assert.equal(calls.filter((call) => call === 'play 0').length, playsBefore + 1)
     assert.equal(calls.filter((call) => call === 'play 1').length, 0)
     assert.equal(list[0].events.canplay, undefined)
     assert.equal(list[1].events.loadeddata, undefined)
+})
+
+test('a second resume keeps the original playhead while the first restore is still open', async () => {
+    const { doc, win, calls, list, approach, show, dispatch } = fakes({ videos: 2 })
+    initDemoVideo(doc, win)
+    approach([0, 1])
+    show(0, true)
+    show(1, false)
+    // Seeks stick only once the range covers them. Playback can move on from 0 in between.
+    const partialTime = (video, start) => {
+        let time = start
+        video.seekable = { length: 0, end: () => 0 }
+        Object.defineProperty(video, 'currentTime', {
+            configurable: true,
+            get: () => time,
+            set: (value) => {
+                if (value === 0) {
+                    time = 0
+                    return
+                }
+                const range = video.seekable
+                if (range && range.length > 0 && range.end(0) >= value) time = value
+            }
+        })
+        return {
+            advance(value) {
+                time = value
+            },
+            setSeekable(end) {
+                video.seekable = { length: end > 0 ? 1 : 0, end: () => end }
+            }
+        }
+    }
+    const playing = partialTime(list[0], 2.5)
+    const paused = partialTime(list[1], 2.5)
+    list[0].readyState = 3
+    list[0].networkState = 2
+    list[1].readyState = 3
+    list[1].networkState = 2
+    dispatch('doc', 'resume')
+    await Promise.resolve()
+    assert.deepEqual(listenerCounts(list[0]), oneRestoreListener)
+    assert.deepEqual(listenerCounts(list[1]), oneRestoreListener)
+    list[0].emit('loadedmetadata')
+    list[1].emit('loadedmetadata')
+    assert.equal(list[0].currentTime, 0)
+    assert.equal(list[1].currentTime, 0)
+    playing.advance(0.4)
+    paused.advance(0.4)
+    assert.equal(list[0].currentTime, 0.4)
+    list[0].readyState = 2
+    list[0].networkState = 2
+    list[1].readyState = 2
+    list[1].networkState = 2
+    dispatch('doc', 'resume')
+    await Promise.resolve()
+    assert.deepEqual(listenerCounts(list[0]), oneRestoreListener)
+    assert.deepEqual(listenerCounts(list[1]), oneRestoreListener)
+    list[0].emit('loadedmetadata')
+    list[1].emit('loadedmetadata')
+    playing.setSeekable(12)
+    paused.setSeekable(12)
+    list[0].emit('canplay')
+    list[1].emit('canplay')
+    assert.equal(list[0].currentTime, 2.5)
+    assert.equal(list[1].currentTime, 2.5)
+    assert.deepEqual(listenerCounts(list[0]), {
+        loadedmetadata: 0,
+        loadeddata: 0,
+        canplay: 0,
+        progress: 0,
+        seeking: 0
+    })
+    assert.equal(calls.filter((call) => call === 'play 1').length, 0)
+    assert.ok(calls.includes('play 0'))
 })
 
 test('a fully buffered held loop is not loaded again on resume', async () => {
@@ -401,14 +506,21 @@ test('a playhead the visitor moved after the reload is not seeked back', async (
     held.arm()
     dispatch('doc', 'resume')
     await Promise.resolve()
-    list[0].events.loadedmetadata()
+    list[0].emit('loadedmetadata')
     assert.equal(list[0].currentTime, 0)
     held.jump(1.2)
-    list[0].events.seeking()
+    list[0].emit('seeking')
     held.setSeekable(2)
-    list[0].events.canplay?.()
+    list[0].emit('canplay')
     assert.equal(list[0].currentTime, 1.2)
     assert.equal(list[0].events.canplay, undefined)
+    // The seek settled the restore, so the next resume reads the visitor's time.
+    list[0].readyState = 2
+    list[0].networkState = 2
+    dispatch('doc', 'resume')
+    await Promise.resolve()
+    list[0].emit('loadedmetadata')
+    assert.equal(list[0].currentTime, 1.2)
 })
 
 test('resume and a back-forward pageshow in one turn restart each held loop once', async () => {
@@ -489,10 +601,10 @@ test('a source error frees the slot only when no candidate is left', () => {
     )
     // The WebM candidate failed and the MP4 candidate is still being tried.
     list[0].networkState = 2
-    list[0].events['error:capture']()
+    list[0].emit('error:capture')
     assert.equal(calls.includes('load 2'), false)
     list[0].networkState = 3
-    list[0].events['error:capture']()
+    list[0].emit('error:capture')
     assert.ok(calls.includes('load 2'))
 })
 

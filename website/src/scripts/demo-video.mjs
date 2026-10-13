@@ -28,9 +28,10 @@ export function canAutoplay(win = window) {
  * On resume, or a back-forward pageshow, every held loop that is not yet fully buffered is
  * load()ed once, playing or paused. The playhead is put back on loadedmetadata, and again on
  * loadeddata, canplay, and progress once that time is seekable, until the element is actually there.
- * A playhead the visitor has moved since the reload is left alone. It plays again only if it
- * should still be on screen. That restart is what lets the listeners above free the slot.
- * A fully buffered loop is not loaded again.
+ * A second freeze before that seek has landed keeps the same saved time and replaces the
+ * listeners, instead of reading the playhead load() just set to 0. A playhead the visitor has
+ * moved since the reload is left alone. It plays again only if it should still be on screen.
+ * That restart is what lets the listeners above free the slot. A fully buffered loop is not loaded again.
  * Safari and Firefox do not fire resume. A socket aborted while the page is hidden, and not
  * restored from the back-forward cache, is started again only if resume was already seen
  * while hidden and the page later becomes visible. Coming back to a visible tab does not
@@ -146,16 +147,22 @@ function watchLoops(videos, win, doc) {
     // Freeze aborts the socket and leaves networkState LOADING, with no error and no emptied.
     // load() runs the resource selection again so the listeners above can free the slot.
     // Chromium ignores currentTime set in loadedmetadata and keeps reporting 0, so the same
-    // time is applied again as soon as the seekable range covers it.
+    // time is applied again as soon as the seekable range covers it. One restore is in flight
+    // per video: a second resume detaches those listeners and keeps the saved time, because
+    // load() has already forced currentTime back to 0 and play() may have moved on from there.
     const PLAYHEAD_TOLERANCE = 0.05
+    const restores = new WeakMap()
     const documentVisible = () => (doc.visibilityState ? doc.visibilityState === 'visible' : doc.hidden !== true)
     const restartHeld = () => {
         for (const video of [...holding]) {
             const readyState = video.readyState || 0
             if (readyState >= 4 || video.networkState !== 2) continue
-            const saved = video.currentTime || 0
+            const previous = restores.get(video)
+            const saved = previous ? previous.saved : video.currentTime || 0
+            if (previous) previous.stop()
             let settled = false
             let assigning = false
+            const entry = { saved }
             const nearSaved = (value) => Math.abs((value || 0) - saved) <= PLAYHEAD_TOLERANCE
             const detach = () => {
                 video.removeEventListener('loadedmetadata', onMeta)
@@ -168,7 +175,9 @@ function watchLoops(videos, win, doc) {
                 if (settled) return
                 settled = true
                 detach()
+                if (restores.get(video) === entry) restores.delete(video)
             }
+            entry.stop = stop
             const seekableCovers = () => {
                 const range = video.seekable
                 return !!range && range.length > 0 && range.end(0) >= saved
@@ -203,6 +212,7 @@ function watchLoops(videos, win, doc) {
                 if (seekableCovers()) assign()
             }
             if (saved > 0) {
+                restores.set(video, entry)
                 video.addEventListener('loadeddata', onBuffered)
                 video.addEventListener('canplay', onBuffered)
                 video.addEventListener('progress', onBuffered)
