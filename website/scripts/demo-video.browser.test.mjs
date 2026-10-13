@@ -1052,7 +1052,9 @@ initVideoDialogs()
             // Headless key events do not activate a focused button. Enter and Space still do in a browser,
             // because the control is a real button; this click is the activation those keys perform.
             const pressed = await evalValue(`(() => {
+            const video = document.querySelector('[data-demo-video]')
             const button = document.querySelector('[data-play-with-sound]')
+            video.volume = 0.3
             const rect = button.getBoundingClientRect()
             button.click()
             return { tag: button.tagName, type: button.type, width: rect.width }
@@ -1070,7 +1072,8 @@ initVideoDialogs()
                     state.heroButtonHidden === true,
                 4000
             )
-            assert.ok(playing.hero.volume > 0.5, `volume ${playing.hero.volume}`)
+            assert.equal(playing.hero.muted, false)
+            assert.equal(playing.hero.volume, 0.3)
             assert.ok(playing.hero.t + 0.05 < before.hero.t, `playhead ${playing.hero.t} did not return before ${before.hero.t}`)
             await evalValue(`(() => {
             const hero = document.querySelector('[data-demo-video]')
@@ -1087,23 +1090,28 @@ initVideoDialogs()
                     state.hero.controls === false
             )
             assert.ok(reset.hero.t < 0.6, `preview playhead ${reset.hero.t}`)
+            await evalValue(`document.querySelector('#full video').volume = 0.3`)
             await evalValue(`document.querySelector('[data-loop-video]').click()`)
             const dialog = await waitFor(
                 'tile preview opened the dialog',
                 (state) => state.dialogOpen === true && state.full && state.full.muted === false && state.full.loop === false
             )
             assert.ok(dialog.full.t < 0.45, `dialog playhead ${dialog.full.t}`)
-            assert.ok(dialog.full.volume > 0.5)
+            assert.equal(dialog.full.muted, false)
+            assert.equal(dialog.full.volume, 0.3)
             await evalValue(`document.querySelector('#full video').currentTime = 1.1`)
             await evalValue(`document.getElementById('full').close()`)
             const closed = await waitFor('dialog paused', (state) => state.dialogOpen === false && state.full.paused === true)
             assert.ok(closed.full.t > 0.8, `closed playhead ${closed.full.t}`)
+            await evalValue(`document.querySelector('#full video').volume = 0.3`)
             await evalValue(`document.querySelector('[data-video-dialog-open]').click()`)
             const again = await waitFor(
                 'dialog reopened at the start',
                 (state) => state.dialogOpen === true && state.full.muted === false && state.full.t < 0.45
             )
             assert.ok(again.full.t < 0.45)
+            assert.equal(again.full.muted, false)
+            assert.equal(again.full.volume, 0.3)
             assert.equal(again.full.loop, false)
             close()
         } finally {

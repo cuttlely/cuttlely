@@ -5,9 +5,6 @@
 /** How many loop downloads may run at once. More than this and they fight for the connection. */
 const MAX_LOADING = 2
 
-/** Full volume. A preview that has been muted should not stay at 0 when the visitor asks for sound. */
-const PLAY_VOLUME = 1
-
 /** Heroes the visitor is watching with sound, so a click on the picture does not jump back to the start. */
 const sounding = new WeakSet()
 
@@ -326,17 +323,31 @@ function restoreSources(video) {
     parkedSources.delete(video)
 }
 
+/** The silent preview: button back, muted, looping, no native controls. Muting does not change volume. */
+function leaveSoundMode(video) {
+    sounding.delete(video)
+    const button = nextPlayButton(video)
+    if (button) button.hidden = false
+    video.defaultMuted = true
+    video.muted = true
+    video.loop = true
+    video.controls = false
+}
+
 /**
  * Seek to the start, then play with sound. load() is not used on this element: it would abort the preview
  * download and drop bytes that are already buffered. Other videos are only paused, so a dialog does not
- * talk over them and the download queue keeps its slots. Pausing first matters once the preview has moved,
- * because a play() issued while the element is still playing can keep the old position.
+ * talk over them and the download queue keeps its slots. A hero that was playing with sound leaves that
+ * mode first, or the close path cannot resume its silent preview. Volume is left alone: muting does not
+ * change it, and a level the visitor set on the controls must survive the next play. Pausing first matters
+ * once the preview has moved, because a play() issued while the element is still playing can keep the old position.
  */
 function playFromStart(video) {
     const doc = video.ownerDocument
     if (doc && typeof doc.querySelectorAll === 'function') {
         for (const other of doc.querySelectorAll('video')) {
             if (other === video) continue
+            if (sounding.has(other)) leaveSoundMode(other)
             try {
                 other.pause()
             } catch {
@@ -348,11 +359,6 @@ function playFromStart(video) {
     video.defaultMuted = false
     video.muted = false
     video.controls = true
-    try {
-        video.volume = PLAY_VOLUME
-    } catch {
-        // A few browsers only expose the hardware volume.
-    }
     let time = 0
     try {
         time = video.currentTime || 0
@@ -405,17 +411,12 @@ function bindHeroPlay(video, win) {
     })
     video.addEventListener('ended', () => {
         if (!sounding.has(video)) return
-        sounding.delete(video)
         try {
             video.pause()
         } catch {
             // Already idle.
         }
-        video.defaultMuted = true
-        video.muted = true
-        video.loop = true
-        video.controls = false
-        button.hidden = false
+        leaveSoundMode(video)
         // Seeking to 0 paints frame 0. On this file that frame is empty, so the poster has to be loaded
         // with the sources detached. load() while they are still attached would refetch.
         if (!canAutoplay(win) && parkSources(video)) {

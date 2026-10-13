@@ -898,12 +898,13 @@ test('the hero play button and the preview start at 0 with sound and do not loop
         addEventListener() {}
     }
     assert.equal(initDemoVideo(doc, win), false)
+    video.volume = 0.4
     button.click()
     assert.equal(video.currentTime, 0)
     assert.equal(video.muted, false)
     assert.equal(video.loop, false)
     assert.equal(video.controls, true)
-    assert.equal(video.volume, 1)
+    assert.equal(video.volume, 0.4)
     assert.equal(button.hidden, true)
     assert.equal(video.calls.includes('load'), false)
     assert.equal(video.paused, false)
@@ -960,6 +961,94 @@ test('without autoplay, ending the hero loads the poster only after its sources 
     assert.equal(video.paused, false)
 })
 
+test('a sounding hero returns to the silent preview when a tile dialog pauses it', () => {
+    const hero = shellVideo({ demoVideo: '' })
+    const heroButton = control({ playWithSound: '' })
+    hero.nextElementSibling = heroButton
+    hero.volume = 0.4
+    const calls = []
+    const handlers = {}
+    const full = {
+        currentTime: 1,
+        muted: true,
+        loop: false,
+        volume: 0.35,
+        controls: true,
+        paused: true,
+        dataset: {},
+        play: () => (calls.push('dialog-play'), (full.paused = false), Promise.resolve()),
+        pause: () => (calls.push('dialog-pause'), (full.paused = true))
+    }
+    const dialog = {
+        querySelector: () => full,
+        showModal: () => calls.push('open'),
+        close: () => (calls.push('close'), handlers.close()),
+        addEventListener: (type, fn) => (handlers[type] = fn)
+    }
+    const tileButton = control({ playWithSound: '', videoDialogOpen: 'v1' })
+    const observers = []
+    const win = {
+        matchMedia: () => ({ matches: false }),
+        navigator: { connection: {} },
+        addEventListener() {},
+        IntersectionObserver: class {
+            constructor(cb, options) {
+                this.cb = cb
+                this.options = options || {}
+                observers.push(this)
+            }
+            observe() {}
+        }
+    }
+    const doc = {
+        hidden: false,
+        visibilityState: 'visible',
+        defaultView: win,
+        addEventListener() {},
+        getElementById: (id) => (id === 'v1' ? dialog : null),
+        querySelectorAll: (selector) => {
+            if (selector === 'video') return [hero, full]
+            if (String(selector).includes('data-video-dialog-open')) return [tileButton]
+            if (String(selector).includes('data-demo-video')) return [hero]
+            return []
+        }
+    }
+    hero.ownerDocument = doc
+    full.ownerDocument = doc
+    assert.equal(initDemoVideo(doc, win), true)
+    const playObserver = observers.find((observer) => observer.options.threshold === 0.5)
+    playObserver.cb([{ target: hero, isIntersecting: true }])
+    heroButton.click()
+    assert.equal(hero.muted, false)
+    assert.equal(hero.loop, false)
+    assert.equal(hero.controls, true)
+    assert.equal(heroButton.hidden, true)
+    assert.equal(hero.volume, 0.4)
+    hero.currentTime = 2.2
+    assert.equal(initVideoDialogs(doc), 1)
+    tileButton.click()
+    assert.equal(hero.paused, true)
+    assert.equal(hero.muted, true)
+    assert.equal(hero.loop, true)
+    assert.equal(hero.controls, false)
+    assert.equal(heroButton.hidden, false)
+    assert.equal(hero.volume, 0.4)
+    assert.equal(full.muted, false)
+    assert.equal(full.volume, 0.35)
+    handlers.click({ target: dialog })
+    assert.equal(hero.paused, false)
+    assert.equal(hero.muted, true)
+    assert.equal(hero.loop, true)
+    assert.equal(hero.controls, false)
+    assert.equal(heroButton.hidden, false)
+    heroButton.click()
+    assert.equal(hero.currentTime, 0)
+    assert.equal(hero.muted, false)
+    assert.equal(hero.loop, false)
+    assert.equal(hero.volume, 0.4)
+    assert.equal(heroButton.hidden, true)
+})
+
 test('after the hero ends on screen the silent preview returns with the play button', () => {
     const video = shellVideo({ demoVideo: '' })
     const button = control({ playWithSound: '' })
@@ -986,11 +1075,12 @@ test('after the hero ends on screen the silent preview returns with the play but
     video.currentTime = 3.4
     video.muted = true
     video.loop = true
+    video.volume = 0.4
     button.click()
     assert.equal(video.currentTime, 0)
     assert.equal(video.muted, false)
     assert.equal(video.loop, false)
-    assert.equal(video.volume, 1)
+    assert.equal(video.volume, 0.4)
     assert.equal(button.hidden, true)
     assert.equal(video.calls.filter((call) => call === 'load').length, loadsBefore)
     video.emit('ended')
@@ -1009,7 +1099,7 @@ test('a tile dialog starts at 0 with sound every time it opens, and closing paus
         currentTime: 6.5,
         muted: true,
         loop: true,
-        volume: 0,
+        volume: 0.35,
         controls: true,
         preload: 'none',
         play: () => (calls.push('play'), Promise.resolve()),
@@ -1037,7 +1127,7 @@ test('a tile dialog starts at 0 with sound every time it opens, and closing paus
     assert.equal(full.currentTime, 0)
     assert.equal(full.muted, false)
     assert.equal(full.loop, false)
-    assert.equal(full.volume, 1)
+    assert.equal(full.volume, 0.35)
     assert.equal(full.controls, true)
     full.currentTime = 4
     handlers.click({ target: dialog })
