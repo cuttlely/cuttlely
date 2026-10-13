@@ -46,10 +46,20 @@ function sumTokenCounts(left: unknown, right: unknown): { input_tokens: number; 
     }
 }
 
-function rethrowAccumulatedToolFailure(error: unknown, usedTools: IUsedTool[], usageMetadata: unknown): never {
+function tracedPair(left: unknown, right?: unknown): { input_tokens: number; output_tokens: number } | undefined {
+    const summed = sumTokenCounts(left, right)
+    if (!summed) return undefined
+    return { input_tokens: summed.input_tokens, output_tokens: summed.output_tokens }
+}
+
+function rethrowAccumulatedToolFailure(error: unknown, usedTools: IUsedTool[], usageMetadata: unknown, nextUsage?: unknown): never {
     const failure = error as { usedTools?: IUsedTool[]; usageMetadata?: unknown }
     if (Array.isArray(failure.usedTools)) usedTools.push(...failure.usedTools)
-    throwToolFailure(error, usedTools, sumTokenCounts(usageMetadata, failure.usageMetadata))
+    const errorHasUsage = failure.usageMetadata !== undefined && failure.usageMetadata !== null
+    // The follow-up model call's tokens are added only when this frame created that response and the
+    // rejection does not already carry them. A nested tool failure already includes that call.
+    const base = errorHasUsage ? usageMetadata : sumTokenCounts(usageMetadata, nextUsage)
+    throwToolFailure(error, usedTools, errorHasUsage ? sumTokenCounts(base, failure.usageMetadata) : base)
 }
 import { DataSource } from 'typeorm'
 import { randomBytes } from 'crypto'
@@ -1118,6 +1128,7 @@ class Agent_Agentflow implements INode {
             let artifacts: any[] = []
             let fileAnnotations: any[] = []
             let additionalTokens = 0
+            let tracedTokens: { input_tokens: number; output_tokens: number } | undefined
             let isWaitingForHumanInput = false
             let reasonContent = ''
             let thinkingDuration: number | undefined
@@ -1170,6 +1181,7 @@ class Agent_Agentflow implements INode {
                 sourceDocuments = result.sourceDocuments
                 artifacts = result.artifacts
                 additionalTokens = result.totalTokens
+                tracedTokens = result.tracedTokens
                 isWaitingForHumanInput = result.isWaitingForHumanInput || false
                 if (result.accumulatedReasonContent !== undefined) {
                     reasonContent = result.accumulatedReasonContent
@@ -1246,6 +1258,7 @@ class Agent_Agentflow implements INode {
                 sourceDocuments = result.sourceDocuments
                 artifacts = result.artifacts
                 additionalTokens = result.totalTokens
+                tracedTokens = result.tracedTokens
                 isWaitingForHumanInput = result.isWaitingForHumanInput || false
                 if (result.accumulatedReasonContent !== undefined) {
                     reasonContent = result.accumulatedReasonContent
@@ -1471,7 +1484,8 @@ class Agent_Agentflow implements INode {
                 fileAnnotations,
                 isStructuredOutput,
                 reasonContentObj,
-                costMetadata
+                costMetadata,
+                tracedTokens
             )
 
             // End analytics tracking
@@ -2067,7 +2081,8 @@ class Agent_Agentflow implements INode {
             total_cost: number
             base_input_cost: number
             base_output_cost: number
-        }
+        },
+        tracedTokens?: { input_tokens: number; output_tokens: number }
     ): any {
         const output: any = {
             content: finalResponse,
@@ -2104,6 +2119,15 @@ class Agent_Agentflow implements INode {
             output.usageMetadata.total_cost = costMetadata.total_cost
             output.usageMetadata.base_input_cost = costMetadata.base_input_cost
             output.usageMetadata.base_output_cost = costMetadata.base_output_cost
+        }
+
+        // Cost stays on the final model call. The tracer reads the sum of every model turn.
+        if (tracedTokens) {
+            output.usageMetadata = {
+                ...(output.usageMetadata ?? {}),
+                input_tokens: tracedTokens.input_tokens,
+                output_tokens: tracedTokens.output_tokens
+            }
         }
 
         if (response.response_metadata) {
@@ -2214,6 +2238,7 @@ class Agent_Agentflow implements INode {
         sourceDocuments: Array<any>
         artifacts: any[]
         totalTokens: number
+        tracedTokens?: { input_tokens: number; output_tokens: number }
         isWaitingForHumanInput?: boolean
         accumulatedReasonContent?: string
         accumulatedReasoningDuration?: number
@@ -2303,6 +2328,7 @@ class Agent_Agentflow implements INode {
                         sourceDocuments,
                         artifacts,
                         totalTokens,
+                        tracedTokens: tracedPair(response.usage_metadata),
                         isWaitingForHumanInput: true,
                         accumulatedReasonContent: accumulatedReasonContent || undefined,
                         accumulatedReasoningDuration: accumulatedReasoningDuration || undefined
@@ -2423,6 +2449,7 @@ class Agent_Agentflow implements INode {
                     sourceDocuments,
                     artifacts,
                     totalTokens,
+                    tracedTokens: tracedPair(response.usage_metadata),
                     accumulatedReasonContent: accumulatedReasonContent || undefined,
                     accumulatedReasoningDuration: accumulatedReasoningDuration || undefined
                 }
@@ -2437,57 +2464,60 @@ class Agent_Agentflow implements INode {
                 sourceDocuments,
                 artifacts,
                 totalTokens,
+                tracedTokens: tracedPair(response.usage_metadata),
                 accumulatedReasonContent: accumulatedReasonContent || undefined,
                 accumulatedReasoningDuration: accumulatedReasoningDuration || undefined
             }
         }
 
-        // Get LLM response after tool calls
+        // The follow-up model call and any later tool turn share one failure path, so a rejected
+        // call still carries the tools and tokens from this turn.
         let newResponse: AIMessageChunk
+        let tracedTokens = tracedPair(response.usage_metadata)
+        let followUp: AIMessageChunk | undefined
+        try {
+            if (isStreamable) {
+                followUp = await this.handleStreamingResponse(
+                    sseStreamer,
+                    llmNodeInstance,
+                    messages,
+                    chatId,
+                    abortController,
+                    isStructuredOutput,
+                    isLastNode
+                )
+            } else {
+                followUp = await llmNodeInstance.invoke(messages, { signal: abortController?.signal })
 
-        if (isStreamable) {
-            newResponse = await this.handleStreamingResponse(
-                sseStreamer,
-                llmNodeInstance,
-                messages,
-                chatId,
-                abortController,
-                isStructuredOutput,
-                isLastNode
-            )
-        } else {
-            newResponse = await llmNodeInstance.invoke(messages, { signal: abortController?.signal })
-
-            // Stream non-streaming response if this is the last node
-            if (isLastNode && sseStreamer && !isStructuredOutput) {
-                sseStreamer.streamTokenEvent(chatId, extractResponseContent(newResponse))
+                // Stream non-streaming response if this is the last node
+                if (isLastNode && sseStreamer && !isStructuredOutput) {
+                    sseStreamer.streamTokenEvent(chatId, extractResponseContent(followUp))
+                }
             }
-        }
+            newResponse = followUp
 
-        // Add tokens from this response
-        if (newResponse.usage_metadata?.total_tokens) {
-            totalTokens += newResponse.usage_metadata.total_tokens
-        }
+            // Add tokens from this response
+            if (newResponse.usage_metadata?.total_tokens) {
+                totalTokens += newResponse.usage_metadata.total_tokens
+            }
 
-        // Accumulate this turn's reasoning content and duration
-        if (newResponse.additional_kwargs?.reasoning_content) {
-            const chunkReason = newResponse.additional_kwargs.reasoning_content as string
-            accumulatedReasonContent += (accumulatedReasonContent ? '\n\n' : '') + chunkReason
-        }
-        if (typeof newResponse.additional_kwargs?.reasoning_duration === 'number') {
-            accumulatedReasoningDuration += newResponse.additional_kwargs.reasoning_duration
-        }
+            // Accumulate this turn's reasoning content and duration
+            if (newResponse.additional_kwargs?.reasoning_content) {
+                const chunkReason = newResponse.additional_kwargs.reasoning_content as string
+                accumulatedReasonContent += (accumulatedReasonContent ? '\n\n' : '') + chunkReason
+            }
+            if (typeof newResponse.additional_kwargs?.reasoning_duration === 'number') {
+                accumulatedReasoningDuration += newResponse.additional_kwargs.reasoning_duration
+            }
 
-        // Check for recursive tool calls and handle them.
-        // A tool that throws on a later turn must keep the tools and tokens from this turn.
-        if (newResponse.tool_calls && newResponse.tool_calls.length > 0) {
-            try {
+            if (newResponse.tool_calls && newResponse.tool_calls.length > 0) {
                 const {
                     response: recursiveResponse,
                     usedTools: recursiveUsedTools,
                     sourceDocuments: recursiveSourceDocuments,
                     artifacts: recursiveArtifacts,
                     totalTokens: recursiveTokens,
+                    tracedTokens: recursiveTracedTokens,
                     isWaitingForHumanInput: recursiveIsWaitingForHumanInput,
                     accumulatedReasonContent: recursiveAccumulatedReasonContent,
                     accumulatedReasoningDuration: recursiveAccumulatedReasoningDuration
@@ -2509,12 +2539,13 @@ class Agent_Agentflow implements INode {
                     accumulatedReasoningDuration
                 })
 
-                // Merge results from recursive tool calls
+                // Merge results from recursive tool calls. The recursive sum already includes this follow-up.
                 newResponse = recursiveResponse
                 usedTools.push(...recursiveUsedTools)
                 sourceDocuments = [...sourceDocuments, ...recursiveSourceDocuments]
                 artifacts = [...artifacts, ...recursiveArtifacts]
                 totalTokens += recursiveTokens
+                tracedTokens = tracedPair(response.usage_metadata, recursiveTracedTokens)
                 isWaitingForHumanInput = recursiveIsWaitingForHumanInput
                 if (recursiveAccumulatedReasonContent !== undefined) {
                     accumulatedReasonContent = recursiveAccumulatedReasonContent
@@ -2522,9 +2553,11 @@ class Agent_Agentflow implements INode {
                 if (recursiveAccumulatedReasoningDuration !== undefined) {
                     accumulatedReasoningDuration = recursiveAccumulatedReasoningDuration
                 }
-            } catch (error) {
-                rethrowAccumulatedToolFailure(error, usedTools, response.usage_metadata)
+            } else {
+                tracedTokens = tracedPair(response.usage_metadata, newResponse.usage_metadata)
             }
+        } catch (error) {
+            rethrowAccumulatedToolFailure(error, usedTools, response.usage_metadata, followUp?.usage_metadata)
         }
 
         return {
@@ -2533,6 +2566,7 @@ class Agent_Agentflow implements INode {
             sourceDocuments,
             artifacts,
             totalTokens,
+            tracedTokens,
             isWaitingForHumanInput,
             accumulatedReasonContent: accumulatedReasonContent || undefined,
             accumulatedReasoningDuration: accumulatedReasoningDuration || undefined
@@ -2578,6 +2612,7 @@ class Agent_Agentflow implements INode {
         sourceDocuments: Array<any>
         artifacts: any[]
         totalTokens: number
+        tracedTokens?: { input_tokens: number; output_tokens: number }
         isWaitingForHumanInput?: boolean
         accumulatedReasonContent?: string
         accumulatedReasoningDuration?: number
@@ -2623,6 +2658,7 @@ class Agent_Agentflow implements INode {
                 sourceDocuments: [],
                 artifacts: [],
                 totalTokens,
+                tracedTokens: tracedPair(response.usage_metadata),
                 accumulatedReasonContent: acc,
                 accumulatedReasoningDuration: dur
             }
@@ -2808,6 +2844,7 @@ class Agent_Agentflow implements INode {
                     sourceDocuments,
                     artifacts,
                     totalTokens,
+                    tracedTokens: tracedPair(response.usage_metadata),
                     accumulatedReasonContent: acc,
                     accumulatedReasoningDuration: dur
                 }
@@ -2815,8 +2852,6 @@ class Agent_Agentflow implements INode {
         }
 
         // Get LLM response after tool calls
-        let newResponse: AIMessageChunk
-
         if (llmNodeInstance && (llmNodeInstance as any).builtInTools && (llmNodeInstance as any).builtInTools.length > 0) {
             toolsInstance.push(...(llmNodeInstance as any).builtInTools)
         }
@@ -2830,50 +2865,57 @@ class Agent_Agentflow implements INode {
             llmNodeInstance = llmNodeInstance.bindTools(toolsInstance)
         }
 
-        if (isStreamable) {
-            newResponse = await this.handleStreamingResponse(
-                sseStreamer,
-                llmNodeInstance,
-                messages,
-                chatId,
-                abortController,
-                isStructuredOutput,
-                isLastNode
-            )
-        } else {
-            newResponse = await llmNodeInstance.invoke(messages, { signal: abortController?.signal })
-
-            // Stream non-streaming response if this is the last node
-            if (isLastNode && sseStreamer && !isStructuredOutput) {
-                sseStreamer.streamTokenEvent(chatId, extractResponseContent(newResponse))
-            }
-        }
-
-        // Add tokens from this response
-        if (newResponse.usage_metadata?.total_tokens) {
-            totalTokens += newResponse.usage_metadata.total_tokens
-        }
-
-        // Accumulate reasoning and duration from checkpoint response and this turn
+        // The follow-up model call and any later tool turn share one failure path, so a rejected
+        // call still carries the tools and tokens from this turn.
+        let newResponse: AIMessageChunk
+        let tracedTokens = tracedPair(response.usage_metadata)
+        let followUp: AIMessageChunk | undefined
         let accumulatedReasonContent = (response.additional_kwargs?.reasoning_content as string) || ''
-        if (newResponse.additional_kwargs?.reasoning_content) {
-            accumulatedReasonContent +=
-                (accumulatedReasonContent ? '\n\n' : '') + (newResponse.additional_kwargs.reasoning_content as string)
-        }
         let accumulatedReasoningDuration =
-            (typeof response.additional_kwargs?.reasoning_duration === 'number' ? response.additional_kwargs.reasoning_duration : 0) +
-            (typeof newResponse.additional_kwargs?.reasoning_duration === 'number' ? newResponse.additional_kwargs.reasoning_duration : 0)
+            typeof response.additional_kwargs?.reasoning_duration === 'number' ? response.additional_kwargs.reasoning_duration : 0
+        try {
+            if (isStreamable) {
+                followUp = await this.handleStreamingResponse(
+                    sseStreamer,
+                    llmNodeInstance,
+                    messages,
+                    chatId,
+                    abortController,
+                    isStructuredOutput,
+                    isLastNode
+                )
+            } else {
+                followUp = await llmNodeInstance.invoke(messages, { signal: abortController?.signal })
 
-        // Check for recursive tool calls and handle them.
-        // A tool that throws on a later turn must keep the tools and tokens from this turn.
-        if (newResponse.tool_calls && newResponse.tool_calls.length > 0) {
-            try {
+                // Stream non-streaming response if this is the last node
+                if (isLastNode && sseStreamer && !isStructuredOutput) {
+                    sseStreamer.streamTokenEvent(chatId, extractResponseContent(followUp))
+                }
+            }
+            newResponse = followUp
+
+            // Add tokens from this response
+            if (newResponse.usage_metadata?.total_tokens) {
+                totalTokens += newResponse.usage_metadata.total_tokens
+            }
+
+            // Accumulate reasoning and duration from checkpoint response and this turn
+            if (newResponse.additional_kwargs?.reasoning_content) {
+                accumulatedReasonContent +=
+                    (accumulatedReasonContent ? '\n\n' : '') + (newResponse.additional_kwargs.reasoning_content as string)
+            }
+            if (typeof newResponse.additional_kwargs?.reasoning_duration === 'number') {
+                accumulatedReasoningDuration += newResponse.additional_kwargs.reasoning_duration
+            }
+
+            if (newResponse.tool_calls && newResponse.tool_calls.length > 0) {
                 const {
                     response: recursiveResponse,
                     usedTools: recursiveUsedTools,
                     sourceDocuments: recursiveSourceDocuments,
                     artifacts: recursiveArtifacts,
                     totalTokens: recursiveTokens,
+                    tracedTokens: recursiveTracedTokens,
                     isWaitingForHumanInput: recursiveIsWaitingForHumanInput,
                     accumulatedReasonContent: recursiveAccumulatedReasonContent,
                     accumulatedReasoningDuration: recursiveAccumulatedReasoningDuration
@@ -2895,12 +2937,13 @@ class Agent_Agentflow implements INode {
                     accumulatedReasoningDuration
                 })
 
-                // Merge results from recursive tool calls
+                // Merge results from recursive tool calls. The recursive sum already includes this follow-up.
                 newResponse = recursiveResponse
                 usedTools.push(...recursiveUsedTools)
                 sourceDocuments = [...sourceDocuments, ...recursiveSourceDocuments]
                 artifacts = [...artifacts, ...recursiveArtifacts]
                 totalTokens += recursiveTokens
+                tracedTokens = tracedPair(response.usage_metadata, recursiveTracedTokens)
                 isWaitingForHumanInput = recursiveIsWaitingForHumanInput
                 if (recursiveAccumulatedReasonContent !== undefined) {
                     accumulatedReasonContent = recursiveAccumulatedReasonContent
@@ -2908,9 +2951,11 @@ class Agent_Agentflow implements INode {
                 if (recursiveAccumulatedReasoningDuration !== undefined) {
                     accumulatedReasoningDuration = recursiveAccumulatedReasoningDuration
                 }
-            } catch (error) {
-                rethrowAccumulatedToolFailure(error, usedTools, response.usage_metadata)
+            } else {
+                tracedTokens = tracedPair(response.usage_metadata, newResponse.usage_metadata)
             }
+        } catch (error) {
+            rethrowAccumulatedToolFailure(error, usedTools, response.usage_metadata, followUp?.usage_metadata)
         }
 
         return {
@@ -2919,6 +2964,7 @@ class Agent_Agentflow implements INode {
             sourceDocuments,
             artifacts,
             totalTokens,
+            tracedTokens,
             isWaitingForHumanInput,
             accumulatedReasonContent: accumulatedReasonContent || undefined,
             accumulatedReasoningDuration: accumulatedReasoningDuration || undefined

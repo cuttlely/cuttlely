@@ -969,6 +969,323 @@ describe('run trace spans', () => {
         expect(model?.attributes['status']).toBe('error')
     })
 
+    function helperSource() {
+        const saved: Record<string, any> = {}
+        const source = {
+            getRepository: (entity: { name?: string } | string) => {
+                const table = typeof entity === 'function' ? entity.name : String(entity)
+                return {
+                    find: async () => [],
+                    findBy: async () => [],
+                    findOne: async () => saved[table] ?? null,
+                    findOneBy: async () => saved[table] ?? null,
+                    create: (value: unknown) => value,
+                    save: async (value: Record<string, unknown>) => {
+                        saved[table] = { id: saved[table]?.id ?? `${table}-1`, ...value }
+                        return saved[table]
+                    },
+                    merge: (target: any, value: any) => Object.assign(target, value),
+                    update: async () => ({ affected: 1 }),
+                    createQueryBuilder: () => {
+                        const qb: any = { where: () => qb, orWhere: () => qb, orderBy: () => qb, getMany: async () => [] }
+                        return qb
+                    }
+                }
+            }
+        }
+        return { saved, source }
+    }
+
+    function usageFromRun(saved: Record<string, any>) {
+        const raw = saved.Execution?.executionData
+        const rows = typeof raw === 'string' ? JSON.parse(raw) : []
+        const agent = rows.find((row: { nodeId?: string }) => row.nodeId === 'agentAgentflow_0')
+        return agent?.data?.output?.usageMetadata as
+            | { input_tokens?: number; output_tokens?: number; input_cost?: number; output_cost?: number; tool_call_tokens?: number }
+            | undefined
+    }
+
+    async function runHelper(label: string, modelSource: string, streaming: boolean, dataSource: unknown = recordingDataSource()) {
+        const agentFile = path.join(__dirname, '../../../components/dist/nodes/agentflow/Agent/Agent.js')
+        const write = (name: string, body: string) => {
+            const file = path.join(dir, `${name}.js`)
+            fs.writeFileSync(file, body)
+            return { filePath: file }
+        }
+        const nodes = {
+            startAgentflow: write(
+                `${label}-start`,
+                `exports.nodeClass = class { async run(nodeData, input) { return { id: nodeData.id, name: 'startAgentflow', input: { question: input }, output: { question: input } } } }\n`
+            ),
+            agentAgentflow: { filePath: agentFile },
+            chatOpenAI: write(`${label}-model`, modelSource),
+            stubMixer: write(
+                `${label}-mixer`,
+                `exports.nodeClass = class { async init() { return { name: 'mixer', description: 'Mix the dough', schema: null, async call() { return 'mixed' } } } }\n`
+            ),
+            stubOven: write(
+                `${label}-oven`,
+                `exports.nodeClass = class { async init() { return { name: 'oven', description: 'Heat the oven', schema: null, async call() { return '350F' } } } }\n`
+            )
+        }
+        const agent = agentNode('agentAgentflow_0', 'agentAgentflow', 'Helper', {
+            agentModel: 'chatOpenAI',
+            agentModelConfig: { modelName: 'gpt-4o-mini', streaming },
+            agentTools: [
+                { agentSelectedTool: 'stubMixer', agentSelectedToolConfig: {} },
+                { agentSelectedTool: 'stubOven', agentSelectedToolConfig: {} }
+            ],
+            agentMessages: []
+        })
+        const flowData = JSON.stringify({
+            nodes: [agentNode('startAgentflow_0', 'startAgentflow', 'Start', { startInputType: 'chatInput' }), agent],
+            edges: [{ id: 'e1', source: 'startAgentflow_0', target: 'agentAgentflow_0' }]
+        })
+        return executeAgentFlow({
+            componentNodes: nodes,
+            incomingInput: { question: 'Heat the oven', streaming: false },
+            chatflow: {
+                id: 'a1b2c3d4-4444-4444-8444-444444444444',
+                name: 'Bakery helper',
+                type: 'AGENTFLOW',
+                flowData,
+                workspaceId: 'ws-1'
+            },
+            chatId: `c0ffee00-0000-4000-8000-${label.length.toString(16).padStart(12, '0')}`,
+            appDataSource: dataSource,
+            telemetry: { sendTelemetry: jest.fn() },
+            usageCacheManager: {},
+            cachePool: {},
+            sseStreamer: new Proxy({}, { get: () => () => undefined }),
+            baseURL: 'http://127.0.0.1',
+            isInternal: true,
+            orgId: 'org-1',
+            workspaceId: 'ws-1',
+            subscriptionId: 'sub-1',
+            productId: 'prod-1',
+            replay: false
+        } as any)
+    }
+
+    it('keeps the tool and this turn tokens when the follow-up model call rejects', async () => {
+        process.env.CUTTLELY_OTEL_TRACES = 'true'
+        process.env.CUTTLELY_OTEL_TRACES_CONTENT = 'false'
+        await expect(
+            runHelper(
+                'follow-up-reject',
+                `exports.nodeClass = class {
+                    async init() {
+                        let turn = 0
+                        return {
+                            bindTools() { return this },
+                            async invoke() {
+                                turn += 1
+                                if (turn === 1) {
+                                    return {
+                                        content: '',
+                                        tool_calls: [{ id: 'call-mixer', name: 'mixer', args: { speed: 'low' }, type: 'tool_call' }],
+                                        usage_metadata: { input_tokens: 10, output_tokens: 4, total_tokens: 14 }
+                                    }
+                                }
+                                throw new Error('429 rate limit')
+                            }
+                        }
+                    }
+                }\n`,
+                false
+            )
+        ).rejects.toThrow('Error in Agent node: 429 rate limit')
+        const tools = memory.spans().filter((span) => span.name === 'tool')
+        const model = memory.spans().find((span) => span.name === 'model')
+        expect(tools.map((span) => span.attributes['tool.name'])).toEqual(['mixer'])
+        expect(tools[0].attributes['status']).toBe('ok')
+        expect(tools[0].attributes['tool.id']).toBe('call-mixer')
+        expect(model?.attributes['tokens.input']).toBe(10)
+        expect(model?.attributes['tokens.output']).toBe(4)
+        expect(model?.attributes['status']).toBe('error')
+    })
+
+    it('keeps the tool and this turn tokens when the follow-up stream rejects', async () => {
+        process.env.CUTTLELY_OTEL_TRACES = 'true'
+        process.env.CUTTLELY_OTEL_TRACES_CONTENT = 'false'
+        await expect(
+            runHelper(
+                'follow-up-stream',
+                `exports.nodeClass = class {
+                    async init() {
+                        let turn = 0
+                        return {
+                            bindTools() { return this },
+                            async stream() {
+                                turn += 1
+                                if (turn === 1) {
+                                    const chunk = {
+                                        content: '',
+                                        tool_call_chunks: [{ name: 'mixer', args: '{"speed":"low"}', id: 'call-mixer', index: 0, type: 'tool_call_chunk' }],
+                                        usage_metadata: { input_tokens: 10, output_tokens: 4, total_tokens: 14 }
+                                    }
+                                    return (async function* () { yield chunk })()
+                                }
+                                throw new Error('429 rate limit')
+                            }
+                        }
+                    }
+                }\n`,
+                true
+            )
+        ).rejects.toThrow('Error in Agent node: 429 rate limit')
+        const tools = memory.spans().filter((span) => span.name === 'tool')
+        const model = memory.spans().find((span) => span.name === 'model')
+        expect(tools.map((span) => span.attributes['tool.name'])).toEqual(['mixer'])
+        expect(tools[0].attributes['status']).toBe('ok')
+        expect(tools[0].attributes['tool.id']).toBe('call-mixer')
+        expect(model?.attributes['tokens.input']).toBe(10)
+        expect(model?.attributes['tokens.output']).toBe(4)
+        expect(model?.attributes['status']).toBe('error')
+    })
+
+    it('keeps both earlier tools when the third model call rejects', async () => {
+        process.env.CUTTLELY_OTEL_TRACES = 'true'
+        process.env.CUTTLELY_OTEL_TRACES_CONTENT = 'false'
+        await expect(
+            runHelper(
+                'third-turn-reject',
+                `exports.nodeClass = class {
+                    async init() {
+                        let turn = 0
+                        return {
+                            bindTools() { return this },
+                            async invoke() {
+                                turn += 1
+                                if (turn === 1) {
+                                    return {
+                                        content: '',
+                                        tool_calls: [{ id: 'call-mixer', name: 'mixer', args: { speed: 'low' }, type: 'tool_call' }],
+                                        usage_metadata: { input_tokens: 10, output_tokens: 4, total_tokens: 14 }
+                                    }
+                                }
+                                if (turn === 2) {
+                                    return {
+                                        content: '',
+                                        tool_calls: [{ id: 'call-oven', name: 'oven', args: { heat: '350' }, type: 'tool_call' }],
+                                        usage_metadata: { input_tokens: 12, output_tokens: 5, total_tokens: 17 }
+                                    }
+                                }
+                                throw new Error('429 rate limit')
+                            }
+                        }
+                    }
+                }\n`,
+                false
+            )
+        ).rejects.toThrow('Error in Agent node: 429 rate limit')
+        const tools = memory.spans().filter((span) => span.name === 'tool')
+        const mixer = tools.find((span) => span.attributes['tool.name'] === 'mixer')
+        const oven = tools.find((span) => span.attributes['tool.name'] === 'oven')
+        const model = memory.spans().find((span) => span.name === 'model')
+        expect(mixer?.attributes['status']).toBe('ok')
+        expect(mixer?.attributes['tool.id']).toBe('call-mixer')
+        expect(oven?.attributes['status']).toBe('ok')
+        expect(oven?.attributes['tool.id']).toBe('call-oven')
+        expect(model?.attributes['tokens.input']).toBe(22)
+        expect(model?.attributes['tokens.output']).toBe(9)
+        expect(model?.attributes['status']).toBe('error')
+    })
+
+    it('records summed tokens for a two-call run and leaves cost on the final call', async () => {
+        process.env.CUTTLELY_OTEL_TRACES = 'true'
+        process.env.CUTTLELY_OTEL_TRACES_CONTENT = 'false'
+        const captured = helperSource()
+        await runHelper(
+            'two-call-ok',
+            `exports.nodeClass = class {
+                async init() {
+                    let turn = 0
+                    return {
+                        bindTools() { return this },
+                        async invoke() {
+                            turn += 1
+                            if (turn === 1) {
+                                return {
+                                    content: '',
+                                    tool_calls: [{ id: 'call-mixer', name: 'mixer', args: { speed: 'low' }, type: 'tool_call' }],
+                                    usage_metadata: { input_tokens: 10, output_tokens: 4, total_tokens: 14 }
+                                }
+                            }
+                            return { content: 'Baked', usage_metadata: { input_tokens: 12, output_tokens: 5, total_tokens: 17 } }
+                        }
+                    }
+                }
+            }\n`,
+            false,
+            captured.source
+        )
+        const model = memory.spans().find((span) => span.name === 'model')
+        const usage = usageFromRun(captured.saved)
+        expect(model?.attributes['tokens.input']).toBe(22)
+        expect(model?.attributes['tokens.output']).toBe(9)
+        expect(model?.attributes['status']).toBe('ok')
+        expect(usage?.input_tokens).toBe(22)
+        expect(usage?.output_tokens).toBe(9)
+        const inputRate = 0.00000015
+        const outputRate = 0.0000006
+        expect(usage?.input_cost).toBeCloseTo(12 * inputRate, 12)
+        expect(usage?.output_cost).toBeCloseTo((5 + (usage?.tool_call_tokens ?? 0)) * outputRate, 12)
+    })
+
+    it('records summed tokens for a three-call run and leaves cost on the final call', async () => {
+        process.env.CUTTLELY_OTEL_TRACES = 'true'
+        process.env.CUTTLELY_OTEL_TRACES_CONTENT = 'false'
+        const captured = helperSource()
+        await runHelper(
+            'three-call-ok',
+            `exports.nodeClass = class {
+                async init() {
+                    let turn = 0
+                    return {
+                        bindTools() { return this },
+                        async invoke() {
+                            turn += 1
+                            if (turn === 1) {
+                                return {
+                                    content: '',
+                                    tool_calls: [{ id: 'call-mixer', name: 'mixer', args: { speed: 'low' }, type: 'tool_call' }],
+                                    usage_metadata: { input_tokens: 10, output_tokens: 4, total_tokens: 14 }
+                                }
+                            }
+                            if (turn === 2) {
+                                return {
+                                    content: '',
+                                    tool_calls: [{ id: 'call-oven', name: 'oven', args: { heat: '350' }, type: 'tool_call' }],
+                                    usage_metadata: { input_tokens: 12, output_tokens: 5, total_tokens: 17 }
+                                }
+                            }
+                            return { content: 'Baked', usage_metadata: { input_tokens: 8, output_tokens: 3, total_tokens: 11 } }
+                        }
+                    }
+                }
+            }\n`,
+            false,
+            captured.source
+        )
+        const model = memory.spans().find((span) => span.name === 'model')
+        const usage = usageFromRun(captured.saved)
+        const tools = memory.spans().filter((span) => span.name === 'tool')
+        expect(tools.map((span) => [span.attributes['tool.name'], span.attributes['status']])).toEqual([
+            ['mixer', 'ok'],
+            ['oven', 'ok']
+        ])
+        expect(model?.attributes['tokens.input']).toBe(30)
+        expect(model?.attributes['tokens.output']).toBe(12)
+        expect(model?.attributes['status']).toBe('ok')
+        expect(usage?.input_tokens).toBe(30)
+        expect(usage?.output_tokens).toBe(12)
+        const inputRate = 0.00000015
+        const outputRate = 0.0000006
+        expect(usage?.input_cost).toBeCloseTo(8 * inputRate, 12)
+        expect(usage?.output_cost).toBeCloseTo((3 + (usage?.tool_call_tokens ?? 0)) * outputRate, 12)
+    })
+
     it('keeps a second approval wait for the same tool pending', async () => {
         process.env.CUTTLELY_OTEL_TRACES = 'true'
         await traceFlow('agentflow', 'flow-again', async () => {
