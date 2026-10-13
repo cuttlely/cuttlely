@@ -291,12 +291,77 @@ describe('harness run spans', () => {
         process.env.CUTTLELY_OTEL_TRACES = 'true'
         const session = openHarnessRunTrace({ name: 'bakery', question: QUESTION })
         session?.event({ type: 'route', phase: 'start', at: T0 })
-        session?.fail(new Error('Client disconnected'))
+        session?.fail(new Error('Client disconnected'), { runId: 'run_11111111-1111-4111-8111-111111111111' })
         const spans = memory.spans()
         const root = spans.find((span) => span.name === 'harness.run')
         expect(root?.attributes.status).toBe('error')
         expect(root?.attributes.error).toBe('Client disconnected')
+        expect(root?.attributes['run.id']).toBe('run_11111111-1111-4111-8111-111111111111')
         expect(contentKeys(spans)).toEqual([])
         expect(JSON.stringify(spans)).not.toContain(QUESTION)
+    })
+
+    it('keeps a runtime specialist token total on the specialist span', () => {
+        process.env.CUTTLELY_OTEL_TRACES = 'true'
+        const session = openHarnessRunTrace({ name: 'bakery', question: QUESTION })
+        session?.event({ type: 'specialist', phase: 'start', name: 'analyst', model: 'analyst-model', at: T0 })
+        session?.event({ type: 'tool', phase: 'start', specialist: 'analyst', name: 'mcp__analyst__query', at: T0 + 10 })
+        session?.event({
+            type: 'tool',
+            phase: 'done',
+            specialist: 'analyst',
+            name: 'mcp__analyst__query',
+            at: T0 + 40,
+            detail: analystDetail()
+        })
+        session?.event({
+            type: 'specialist',
+            phase: 'done',
+            name: 'analyst',
+            status: 'completed',
+            model: 'analyst-model',
+            tokens: { prompt: 20, completion: 5 },
+            at: T0 + 100,
+            tools: [{ name: 'mcp__analyst__query', status: 'done', detail: analystDetail() }],
+            calls: [
+                {
+                    model: 'analyst-model',
+                    startedAt: T0,
+                    endedAt: T0 + 100,
+                    tokens: { prompt: 20, completion: 5 },
+                    aggregate: true
+                }
+            ]
+        })
+        session?.event({
+            type: 'final',
+            at: T0 + 101,
+            text: ANSWER,
+            trace: { status: 'completed', tokens: { prompt: 20, completion: 5 }, specialists: [{ name: 'analyst' }] }
+        })
+        session?.finish({ text: ANSWER })
+        const spans = memory.spans()
+        const specialist = spans.find((span) => span.name === 'harness.specialist')
+        const tool = spans.find((span) => span.name === 'tool')
+        const models = spans.filter((span) => span.name === 'model')
+        expect(models).toEqual([])
+        expect(specialist?.attributes).toMatchObject({
+            'specialist.name': 'analyst',
+            'tokens.total.input': 20,
+            'tokens.total.output': 5,
+            status: 'ok'
+        })
+        expect(specialist?.attributes['tokens.input']).toBeUndefined()
+        expect(specialist?.attributes['tokens.output']).toBeUndefined()
+        expect(specialist?.startTimeMs).toBe(T0)
+        expect(specialist?.endTimeMs).toBe(T0 + 100)
+        expect(tool?.startTimeMs).toBe(T0 + 10)
+        expect(tool?.endTimeMs).toBe(T0 + 40)
+        const inputSum = spans.reduce(
+            (sum, span) => sum + (typeof span.attributes['tokens.input'] === 'number' ? span.attributes['tokens.input'] : 0),
+            0
+        )
+        expect(inputSum).toBe(0)
+        expect(spans.find((span) => span.name === 'harness.run')?.attributes['tokens.total.input']).toBe(20)
     })
 })

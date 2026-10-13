@@ -26,6 +26,10 @@ const WORKSPACE = '11111111-1111-4111-8111-111111111111'
 const CHAT = 'chat-ext'
 const EXTERNAL = 'run_cccccccc-cccc-4ccc-8ccc-cccccccccccc'
 const INLINE = 'run_bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
+const newerRuns = Array.from({ length: 21 }, (_, index) => ({
+    id: `run_dddddddd-dddd-4ddd-8ddd-${String(index).padStart(12, '0')}`,
+    chatId: `other-${index}`
+}))
 const stubDir = path.join(root, 'packages', 'server', 'src', 'services', 'harnesses', 'harness')
 
 await rm(stubDir, { recursive: true, force: true })
@@ -41,7 +45,7 @@ await writeFile(path.join(stubDir, 'gateway.mjs'), 'export async function startG
 await writeFile(
     path.join(stubDir, 'history.mjs'),
     `export function listRuns() {
-  return [{ id: ${JSON.stringify(EXTERNAL)}, chatId: ${JSON.stringify(CHAT)} }]
+  return ${JSON.stringify(newerRuns)}
 }
 `
 )
@@ -55,10 +59,18 @@ export async function runHarness(opts) {
   return { text: 'baked' }
 }
 export async function runQueuedHarness(opts) {
-  if (process.env.CUTTLELY_HARNESS_QUEUE !== 'external' && typeof opts.onRecorded === 'function') {
+  const external = process.env.CUTTLELY_HARNESS_QUEUE === 'external'
+  const fail = process.env.CUTTLELY_HARNESS_STUB_FAIL === '1'
+  if (!external && typeof opts.onRecorded === 'function') {
     opts.onRecorded({ id: ${JSON.stringify(INLINE)}, chatId: opts.chatId })
   }
-  return { text: 'baked' }
+  if (fail) {
+    const error = new Error('oven failed')
+    if (external) error.runId = ${JSON.stringify(EXTERNAL)}
+    throw error
+  }
+  if (external) return { text: 'baked', runId: ${JSON.stringify(EXTERNAL)} }
+  return { text: 'baked', runId: ${JSON.stringify(EXTERNAL)} }
 }
 `
 )
@@ -80,24 +92,63 @@ after(async () => {
     await rm(stubDir, { recursive: true, force: true })
     delete process.env.CUTTLELY_OTEL_TRACES
     delete process.env.CUTTLELY_HARNESS_QUEUE
+    delete process.env.CUTTLELY_HARNESS_STUB_FAIL
 })
 
-function runId() {
-    return memory.spans().find((span) => span.name === 'harness.run')?.attributes['run.id']
+function rootSpan() {
+    return memory.spans().find((span) => span.name === 'harness.run')
 }
 
 describe('harness queue run id on the trace', () => {
-    it('an external queue run puts the saved history id on harness.run', async () => {
+    it('an external queue run keeps its saved id when newer runs fill the history list', async () => {
         process.env.CUTTLELY_HARNESS_QUEUE = 'external'
+        delete process.env.CUTTLELY_HARNESS_STUB_FAIL
         memory.reset()
-        await harnesses.startRun('bakery', { question: 'How many loaves?', chatId: CHAT }, { source: 'api', workspaceId: WORKSPACE })
-        assert.equal(runId(), EXTERNAL)
+        const outcome = await harnesses.startRun(
+            'bakery',
+            { question: 'How many loaves?', chatId: CHAT },
+            { source: 'api', workspaceId: WORKSPACE }
+        )
+        assert.equal(rootSpan()?.attributes['run.id'], EXTERNAL)
+        assert.equal(outcome.payload.runId, undefined)
+        assert.equal(outcome.run.id, EXTERNAL)
     })
 
     it('an inline queue run keeps the id recorded in this process', async () => {
         process.env.CUTTLELY_HARNESS_QUEUE = 'inline'
+        delete process.env.CUTTLELY_HARNESS_STUB_FAIL
         memory.reset()
-        await harnesses.startRun('bakery', { question: 'How many loaves?', chatId: CHAT }, { source: 'api', workspaceId: WORKSPACE })
-        assert.equal(runId(), INLINE)
+        const outcome = await harnesses.startRun(
+            'bakery',
+            { question: 'How many loaves?', chatId: CHAT },
+            { source: 'api', workspaceId: WORKSPACE }
+        )
+        assert.equal(rootSpan()?.attributes['run.id'], INLINE)
+        assert.equal(outcome.payload.runId, undefined)
+        assert.equal(outcome.run.id, INLINE)
+    })
+
+    it('an external queue failure still puts the saved history id on harness.run', async () => {
+        process.env.CUTTLELY_HARNESS_QUEUE = 'external'
+        process.env.CUTTLELY_HARNESS_STUB_FAIL = '1'
+        memory.reset()
+        await assert.rejects(
+            () => harnesses.startRun('bakery', { question: 'How many loaves?', chatId: CHAT }, { source: 'api', workspaceId: WORKSPACE }),
+            /oven failed/
+        )
+        assert.equal(rootSpan()?.attributes['run.id'], EXTERNAL)
+        assert.equal(rootSpan()?.attributes.status, 'error')
+    })
+
+    it('an inline queue failure keeps the id recorded in this process', async () => {
+        process.env.CUTTLELY_HARNESS_QUEUE = 'inline'
+        process.env.CUTTLELY_HARNESS_STUB_FAIL = '1'
+        memory.reset()
+        await assert.rejects(
+            () => harnesses.startRun('bakery', { question: 'How many loaves?', chatId: CHAT }, { source: 'api', workspaceId: WORKSPACE }),
+            /oven failed/
+        )
+        assert.equal(rootSpan()?.attributes['run.id'], INLINE)
+        assert.equal(rootSpan()?.attributes.status, 'error')
     })
 })

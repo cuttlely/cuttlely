@@ -445,12 +445,15 @@ export function noteHermesUsage(context, specialist, status, timing = {}) {
     const tokens = noteUsage(context, status)
     if (!tokens) return null
     if (!context.calls) context.calls = []
+    // One total for the whole specialist turn, including tool time. The run card keeps it.
+    // The trace puts it on the specialist span, not a model span, so the model span does not swallow tool time.
     context.calls.push({
         role: 'specialist',
         name: specialist.name,
         model: publicModelLabel(specialist.model),
         fallback: '',
         tokens,
+        aggregate: true,
         ...(Number.isFinite(timing.startedAt) ? { startedAt: timing.startedAt } : {}),
         ...(Number.isFinite(timing.endedAt) ? { endedAt: timing.endedAt } : {})
     })
@@ -642,6 +645,7 @@ function modelCallRows(calls) {
                 completion: Number(call.tokens.completion) || 0
             }
         }
+        if (call.aggregate === true) row.aggregate = true
         rows.push(row)
     }
     return rows
@@ -2082,4 +2086,4 @@ async function hermesHealthy(baseUrl, fetchImpl, waitMs) {
     return false
 }
 
-export { sessionKey, listHarnesses, directToolSpecialist, listRuns as listHarnessRuns }
+export { sessionKey, listHarnesses, directToolSpecialist }

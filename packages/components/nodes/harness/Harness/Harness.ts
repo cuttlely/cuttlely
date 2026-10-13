@@ -330,16 +330,25 @@ async function runNamedHarness(
             },
             ...(images.length ? { images } : {})
         })
-        if (!runId && harnessTrace && typeof engine.listHarnessRuns === 'function') {
-            const row = engine.listHarnessRuns(harnessName, { limit: 20 }).find((item) => item?.chatId === chatId)
-            if (typeof row?.id === 'string') runId = row.id
-        }
+        const jobRunId = takeJobRunId(payload)
+        if (!runId && jobRunId) runId = jobRunId
         harnessTrace?.finish({ text: typeof payload?.text === 'string' ? payload.text : undefined, runId })
         return payload
     } catch (error) {
-        if ((error as { code?: string }).code !== 'wrong_workspace') harnessTrace?.fail(error)
+        if (!runId && error && typeof error === 'object' && typeof (error as { runId?: unknown }).runId === 'string') {
+            runId = (error as { runId: string }).runId
+        }
+        if ((error as { code?: string }).code !== 'wrong_workspace') harnessTrace?.fail(error, { runId })
         throw harnessFailure((error as Error).message || 'Harness cannot run.', (error as { code?: string }).code)
     }
+}
+
+function takeJobRunId(payload: unknown): string | undefined {
+    if (!payload || typeof payload !== 'object' || Array.isArray(payload) || !('runId' in payload)) return undefined
+    const record = payload as { runId?: unknown }
+    const runId = typeof record.runId === 'string' ? record.runId : undefined
+    delete record.runId
+    return runId
 }
 
 // Traces stay off unless the server has turned them on. A publish check exports nothing.

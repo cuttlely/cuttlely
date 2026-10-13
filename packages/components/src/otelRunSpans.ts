@@ -240,7 +240,7 @@ export interface HarnessTraceInfo {
 export interface HarnessTraceSession {
     event(event: Record<string, unknown>): void
     finish(extra?: { text?: string; runId?: string }): void
-    fail(error: unknown): void
+    fail(error: unknown, extra?: { runId?: string }): void
 }
 
 /**
@@ -312,8 +312,7 @@ class HarnessTraceSessionImpl implements HarnessTraceSession {
             this.ensureRoot(at)
             this.closeLeftovers(at, false)
             if (!this.root) return
-            const runId = extra?.runId
-            if (runId && /^run_[A-Za-z0-9-]{8,80}$/.test(runId)) this.root.setAttribute('run.id', runId)
+            setRunId(this.root, extra?.runId)
             setHarnessRollup(this.root, this.traceTokens)
             writeContent(this.root, this.question, extra?.text ?? this.answer)
             const failed = this.traceStatus === 'failed' || this.traceStatus === 'partial'
@@ -324,7 +323,7 @@ class HarnessTraceSessionImpl implements HarnessTraceSession {
         }
     }
 
-    fail(error: unknown): void {
+    fail(error: unknown, extra?: { runId?: string }): void {
         if (this.closed) return
         this.closed = true
         try {
@@ -332,6 +331,7 @@ class HarnessTraceSessionImpl implements HarnessTraceSession {
             this.ensureRoot(at)
             this.closeLeftovers(at, true)
             if (!this.root) return
+            setRunId(this.root, extra?.runId)
             const message = error instanceof Error ? error.message : String(error || 'The harness run failed.')
             writeContent(this.root, this.question, this.answer)
             endHarnessSpan(this.root, at, 'error', message)
@@ -499,6 +499,9 @@ class HarnessTraceSessionImpl implements HarnessTraceSession {
         for (const call of calls) {
             if (!call || typeof call !== 'object') continue
             const record = call as Record<string, unknown>
+            // A runtime specialist reports one total for the whole turn, including tool time.
+            // That total stays on the specialist span. A model span here would cover the tool calls.
+            if (record.aggregate === true) continue
             const start = numberOr(record.startedAt, fallbackAt)
             const end = numberOr(record.endedAt, start)
             const span = this.child('model', start, parent)
@@ -598,6 +601,11 @@ function setHarnessRollup(span: TraceSpan, tokens: unknown): void {
     const { input, output } = tokenPair(tokens)
     if (input !== undefined) span.setAttribute('tokens.total.input', input)
     if (output !== undefined) span.setAttribute('tokens.total.output', output)
+}
+
+function setRunId(span: TraceSpan | undefined, runId: unknown): void {
+    if (!span || typeof runId !== 'string' || !/^run_[A-Za-z0-9-]{8,80}$/.test(runId)) return
+    span.setAttribute('run.id', runId)
 }
 
 function endHarnessSpan(span: TraceSpan | undefined, at: number, status: 'ok' | 'error' | 'pending', error?: string): void {
