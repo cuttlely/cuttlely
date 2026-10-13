@@ -10334,6 +10334,109 @@ await (async () => {
     )
 })()
 
+await (async () => {
+    const { specialistProfileName, tryProfileName } = await import('./profile.mjs')
+    const longName = 'accounts-payable-invoice-exception-handler-2'
+    const publishedId = `finance--${longName}`
+    check(
+        'a specialist profile id that already fits is unchanged',
+        longName.length === 44 &&
+            publishedId.length === 53 &&
+            specialistProfileName('finance', longName) === publishedId &&
+            specialistProfileName('bakery', 'orders') === 'bakery--orders',
+        specialistProfileName('finance', longName)
+    )
+    const tryName = tryProfileName('f'.repeat(16))
+    const tryId = specialistProfileName(tryName, longName)
+    const shared = 'p' + 'a'.repeat(42)
+    const left = specialistProfileName(tryName, `${shared}-alpha`)
+    const right = specialistProfileName(tryName, `${shared}-beta`)
+    const longHarness = `h${'n'.repeat(59)}`
+    const longPublic = specialistProfileName(longHarness, longName)
+    check(
+        'a long specialist slug fits under a try id and stays distinct',
+        tryName.length === 19 &&
+            tryId.length <= 64 &&
+            /^[a-z0-9][a-z0-9_-]{0,63}$/.test(tryId) &&
+            tryId.startsWith(`${tryName}--`) &&
+            tryId !== `${tryName}--${longName}` &&
+            left !== right &&
+            left.length <= 64 &&
+            right.length <= 64 &&
+            longPublic.length <= 64 &&
+            /^[a-z0-9][a-z0-9_-]{0,63}$/.test(longPublic),
+        JSON.stringify({ tryId, left, right, longPublic })
+    )
+    const stubModel = nodeModel('scriptedChat', { credential: 'cred-team', label: 'Stub', inputs: { modelName: 'gpt-4.1' } })
+    saveHarness(
+        {
+            name: 'finance',
+            chief: { instructions: 'Answer from the specialist.', model: stubModel },
+            specialists: [
+                {
+                    name: longName,
+                    instructions: 'Handle the invoice exception.',
+                    shell: true,
+                    modules: [],
+                    mcpServers: []
+                }
+            ]
+        },
+        { overwrite: true }
+    )
+    const published = compileProfile(getHarness('finance'))
+    const tryFit = 'ab'.repeat(8)
+    const drafted = compileTryProfile({ ...getHarness('finance'), tryId: tryFit }, tryFit)
+    let canvasProfileSeen = false
+    const stubFetch = async (_url, init) => {
+        const body = JSON.parse(init?.body || '{}')
+        if (String(body.model || '').startsWith('try')) {
+            canvasProfileSeen = fs.existsSync(path.join(process.env.CUTTLELY_HERMES_HOME, 'profiles', body.model))
+        }
+        return {
+            ok: true,
+            status: 200,
+            statusText: 'OK',
+            text: async () => JSON.stringify({ output: 'STUB_ANSWER', status: 'completed' })
+        }
+    }
+    const loadNode = async (nodeName) => {
+        if (nodeName !== 'scriptedChat') throw new Error(`unexpected ${nodeName}`)
+        return recordingChat([], () => ({ content: 'STUB_ANSWER' }))
+    }
+    const publicRun = await runHarnessRaw({
+        name: 'finance',
+        chatId: 'public-long',
+        input: 'Review the invoice exception.',
+        loadNode,
+        fetchImpl: stubFetch,
+        baseUrl: 'http://127.0.0.1:8643'
+    })
+    const canvasRun = await runHarnessRaw({
+        name: 'finance',
+        chatId: 'canvas-long',
+        input: 'Review the invoice exception.',
+        loadNode,
+        fetchImpl: stubFetch,
+        baseUrl: 'http://127.0.0.1:8643',
+        record: { ...getHarness('finance'), tryId: tryFit }
+    })
+    const publishedProfile = published.roster.specialists[0].profileName
+    const canvasProfile = drafted.roster.specialists[0].profileName
+    check(
+        'a 44-character specialist runs on the public route and on a canvas try',
+        publishedProfile === publishedId &&
+            fs.existsSync(path.join(process.env.CUTTLELY_HERMES_HOME, 'profiles', publishedProfile)) &&
+            publicRun.text === 'STUB_ANSWER' &&
+            canvasProfile === specialistProfileName(tryProfileName(tryFit), longName) &&
+            canvasProfile.length <= 64 &&
+            canvasProfileSeen &&
+            canvasRun.text === 'STUB_ANSWER' &&
+            !String(canvasRun.text).includes('cannot get its own model profile'),
+        JSON.stringify({ publishedProfile, canvasProfile, seen: canvasProfileSeen, public: publicRun.text, canvas: canvasRun.text })
+    )
+})()
+
 if (failures.length) {
     console.error(`\n${failures.length} check(s) failed`)
     process.exit(1)

@@ -20,6 +20,8 @@ export const SPECIALIST_PLAYBOOKS =
     'Your playbooks are listed under skills. Before you answer, load each playbook whose description fits the question with skill_view, and follow it.'
 const SPECIALIST_STALE_SECONDS = 45
 const PROFILE_ID_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/
+const PROFILE_MAX = 64
+const PROFILE_HASH = 8
 
 // Provider keys are never written into a profile. Tool credentials still cannot smuggle one in under these names.
 const MODEL_ENV_KEYS = [
@@ -102,6 +104,31 @@ function trimLeadingDashes(value) {
     return value.slice(start)
 }
 
+function profileHash(value) {
+    return crypto.createHash('sha256').update(String(value)).digest('hex').slice(0, PROFILE_HASH)
+}
+
+// A try id is "try" plus 16 hex characters, so a long specialist slug no longer fits in 64.
+// Ids that already fit stay as they are. A fitted id keeps a hash of the full slug so two long names cannot collide.
+function fitSpecialistProfile(harness, slug) {
+    const suffix = `-${profileHash(slug)}`
+    let harnessPart = harness
+    let slugRoom = PROFILE_MAX - harnessPart.length - '--'.length - suffix.length
+    if (slugRoom < 1) {
+        const harnessSuffix = `-${profileHash(harness)}`
+        const harnessRoom = PROFILE_MAX - '--'.length - suffix.length - harnessSuffix.length
+        const kept = trimDashEnds(harness.slice(0, Math.max(1, harnessRoom))) || 'h'
+        harnessPart = `${kept}${harnessSuffix}`
+        slugRoom = PROFILE_MAX - harnessPart.length - '--'.length - suffix.length
+    }
+    const slugKept = trimDashEnds(slug.slice(0, Math.max(0, slugRoom)))
+    const fitted = slugKept ? `${harnessPart}--${slugKept}${suffix}` : `${harnessPart}--${profileHash(slug)}`
+    if (fitted.length > PROFILE_MAX || !PROFILE_ID_RE.test(fitted)) {
+        throw new HarnessError('bad_name', `Specialist "${slug}" cannot get its own model profile.`)
+    }
+    return fitted
+}
+
 export function specialistProfileName(harnessName, specialistName) {
     const harness = String(harnessName || '').toLowerCase()
     const slug = trimDashEnds(
@@ -110,10 +137,8 @@ export function specialistProfileName(harnessName, specialistName) {
             .replace(/[^a-z0-9_-]/g, '-')
     )
     const profile = `${harness}--${slug}`
-    if (!PROFILE_ID_RE.test(profile)) {
-        throw new HarnessError('bad_name', `Specialist "${specialistName}" cannot get its own model profile.`)
-    }
-    return profile
+    if (profile.length <= PROFILE_MAX && PROFILE_ID_RE.test(profile)) return profile
+    return fitSpecialistProfile(harness, slug || String(specialistName || 'specialist'))
 }
 
 function serverNameFor(specialist) {
