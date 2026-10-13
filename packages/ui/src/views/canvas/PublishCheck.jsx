@@ -917,6 +917,7 @@ export const PublishGateSettings = ({ dialogProps }) => {
     const [threshold, setThreshold] = useState(gate?.threshold ?? 100)
     const [datasets, setDatasets] = useState([])
     const [evaluators, setEvaluators] = useState([])
+    const [evaluatorsReady, setEvaluatorsReady] = useState(false)
     const [error, setError] = useState('')
     const [saved, setSaved] = useState('')
     const writeChain = useRef(Promise.resolve())
@@ -943,7 +944,10 @@ export const PublishGateSettings = ({ dialogProps }) => {
         evaluatorsApi
             .getAllEvaluators()
             .then((res) => {
-                if (!cancelled) setEvaluators(asList(res.data))
+                if (!cancelled) {
+                    setEvaluators(asList(res.data))
+                    setEvaluatorsReady(true)
+                }
             })
             .catch(() => {
                 if (!cancelled) setEvaluators([])
@@ -995,6 +999,11 @@ export const PublishGateSettings = ({ dialogProps }) => {
         setEvaluatorIds(nextIds)
         if (on) save({ enabled: true, datasetId, evaluatorIds: nextIds, threshold })
     }
+
+    const listedIds = new Set(evaluators.map((item) => item.id))
+    // A saved id that the list no longer returns cannot be unticked unless it is shown. The list
+    // request has to have finished, or every saved id looks missing for a moment.
+    const missingEvaluatorIds = evaluatorsReady ? evaluatorIds.filter((id) => !listedIds.has(id)) : []
 
     return (
         <Box data-testid='publish-gate-settings'>
@@ -1076,26 +1085,44 @@ export const PublishGateSettings = ({ dialogProps }) => {
                 <Typography variant='body2' sx={{ fontWeight: 600 }}>
                     Evaluators
                 </Typography>
-                {evaluators.length === 0 ? (
+                {evaluators.length === 0 && missingEvaluatorIds.length === 0 ? (
                     <Typography variant='body2' color='text.secondary'>
                         No evaluators in this workspace.
                     </Typography>
                 ) : (
-                    evaluators.map((evaluator) => (
-                        <FormControlLabel
-                            key={evaluator.id}
-                            data-testid='publish-gate-evaluator'
-                            control={
-                                <Checkbox
-                                    size='small'
-                                    checked={evaluatorIds.includes(evaluator.id)}
-                                    disabled={chooseLocked}
-                                    onChange={() => toggleEvaluator(evaluator.id)}
-                                />
-                            }
-                            label={evaluator.name}
-                        />
-                    ))
+                    <>
+                        {evaluators.map((evaluator) => (
+                            <FormControlLabel
+                                key={evaluator.id}
+                                data-testid='publish-gate-evaluator'
+                                control={
+                                    <Checkbox
+                                        size='small'
+                                        checked={evaluatorIds.includes(evaluator.id)}
+                                        disabled={chooseLocked}
+                                        onChange={() => toggleEvaluator(evaluator.id)}
+                                    />
+                                }
+                                label={evaluator.name}
+                            />
+                        ))}
+                        {missingEvaluatorIds.map((id) => (
+                            <FormControlLabel
+                                key={id}
+                                data-testid='publish-gate-evaluator-missing'
+                                control={
+                                    <Checkbox
+                                        size='small'
+                                        checked
+                                        disabled={chooseLocked}
+                                        onChange={() => toggleEvaluator(id)}
+                                        inputProps={{ 'aria-label': 'Deleted evaluator' }}
+                                    />
+                                }
+                                label='Deleted evaluator'
+                            />
+                        ))}
+                    </>
                 )}
             </Stack>
             {saved && (

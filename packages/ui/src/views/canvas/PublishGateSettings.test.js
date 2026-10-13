@@ -157,4 +157,44 @@ describe('PublishGateSettings', () => {
         expect(flowDraftsApi.updateSettings.mock.calls.at(-1)[1].publishGate.datasetId).toBe('ds-b')
         act(() => root.unmount())
     })
+
+    test('a deleted evaluator can be removed, and a replacement does not keep its id', async () => {
+        datasetsApi.getAllDatasets.mockResolvedValue({ data: [{ id: 'ds-1', name: 'One' }] })
+        evaluatorsApi.getAllEvaluators.mockResolvedValue({
+            data: [
+                { id: 'ev-1', name: 'Yes' },
+                { id: 'ev-2', name: 'Exact' }
+            ]
+        })
+        flowDraftsApi.updateSettings.mockImplementation((_id, body) => Promise.resolve({ data: { publishGate: body.publishGate } }))
+        const root = await renderSettings({
+            type: 'CHATFLOW',
+            start: 'chatInput',
+            draftStatus: {
+                enabled: true,
+                mode: 'draft',
+                publishGate: { enabled: true, datasetId: 'ds-1', evaluatorIds: ['ev-gone', 'ev-1'], threshold: 100 }
+            }
+        })
+        const missing = document.querySelector('[data-testid="publish-gate-evaluator-missing"]')
+        expect(missing).toBeTruthy()
+        expect(missing.textContent).toContain('Deleted evaluator')
+        const missingInput = missing.querySelector('input')
+        expect(missingInput.checked).toBe(true)
+        await act(async () => {
+            fireEvent.click(missingInput)
+        })
+        expect(flowDraftsApi.updateSettings).toHaveBeenCalledWith('flow-1', {
+            publishGate: { enabled: true, datasetId: 'ds-1', evaluatorIds: ['ev-1'], threshold: 100 }
+        })
+        const exact = [...document.querySelectorAll('[data-testid="publish-gate-evaluator"]')].find((row) =>
+            row.textContent.includes('Exact')
+        )
+        await act(async () => {
+            fireEvent.click(exact.querySelector('input'))
+        })
+        expect(flowDraftsApi.updateSettings.mock.calls.at(-1)[1].publishGate.evaluatorIds).toEqual(['ev-1', 'ev-2'])
+        expect(flowDraftsApi.updateSettings.mock.calls.at(-1)[1].publishGate.evaluatorIds).not.toContain('ev-gone')
+        act(() => root.unmount())
+    })
 })

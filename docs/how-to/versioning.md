@@ -227,7 +227,7 @@ To turn drafts off for the whole server, set `CUTTLELY_DRAFTS=off` (`false`, `0`
 A chatflow or an agentflow can refuse Publish until the current draft passes a saved dataset. The setting is off until you turn it on. It is **Passing test set** in the flow's configuration, next to **Publish instantly**.
 
 1. Open the flow's configuration and select **Passing test set**.
-2. Choose the dataset, tick the evaluators, and set **Pass at** to a whole number from 0 to 100. 100 is the default, so every score must pass. An errored score counts as not passed.
+2. Choose the dataset, tick the evaluators, and set **Pass at** to a whole number from 0 to 100. 100 is the default, so every score must pass. An errored score counts as not passed. An evaluator that was removed from the workspace stays listed as **Deleted evaluator** until it is unticked. Unticking it saves the setting without that id.
 3. Turn on **Require a passing test set before Publish**.
 
 Changing the dataset, the evaluators, or the pass mark sends a save, one at a time, so the later dataset choice is the one stored. Saving the same settings again is kept. One save can turn **Publish instantly** off and this setting on, or the reverse. The off is written first.

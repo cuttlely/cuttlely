@@ -1531,6 +1531,16 @@ describe('a passing test set before Publish', () => {
         expect(stored()).toEqual(before)
     })
 
+    test('a settings write can drop an evaluator that no longer exists', async () => {
+        seed(undefined, [sampleEval('ev-1'), sampleEval('ev-2')])
+        await saveDraft(flow(), canvas('Draft'), context)
+        await updateDraftSettings(flow(), { publishGate: { ...gate, evaluatorIds: ['ev-1', 'ev-2'] } })
+        evaluators.delete('ev-1')
+        await updateDraftSettings(flow(), { publishGate: { ...gate, evaluatorIds: ['ev-2'] } })
+        expect(rows[0].publishGate).toBe(true)
+        expect(JSON.parse(rows[0].publishGateEvaluatorIds)).toEqual(['ev-2'])
+    })
+
     test('evaluator order does not change the test set hash', async () => {
         seed(
             [{ id: 'r1', datasetId: 'ds-1', input: 'Do you have rye?', output: 'Yes', sequenceNo: 1 }],
