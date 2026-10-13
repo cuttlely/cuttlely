@@ -82,6 +82,10 @@ describe('roles and permissions guide', () => {
             spread.some((item) => item === 'chatflows:typo is not in the permission catalog'),
             spread.join('\n')
         )
+        const noSemiConst = permissionLiteralProblems("export const CHATFLOW_UPDATE = 'chatflows:typo'\n", options)
+        assert.deepEqual(noSemiConst, ['chatflows:typo is not in the permission catalog'])
+        const noSemiReturn = permissionLiteralProblems("function templateUsePermission() {\n    return 'agentflows:typo'\n}\n", options)
+        assert.deepEqual(noSemiReturn, ['agentflows:typo is not in the permission catalog'])
     })
 
     it('reads keys from the permission table', () => {

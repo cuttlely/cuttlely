@@ -324,10 +324,11 @@ function exactKeyTokens(text) {
 }
 
 // String constants and helper return values whose text is a permission key, or a comma list of them.
+// UI files omit semicolons, so the statement ends at a newline or a semicolon.
 function assignmentAndReturnKeys(source) {
     const tokens = []
-    const assignRe = /(?:export\s+)?(?:const|let)\s+[A-Za-z_$][\w$]*\s*=\s*([\s\S]*?);/g
-    const returnRe = /return\s+([\s\S]*?);/g
+    const assignRe = /(?:export\s+)?(?:const|let)\s+[A-Za-z_$][\w$]*\s*=\s*([^\n;]*)/g
+    const returnRe = /return\s+([^\n;]*)/g
     for (const re of [assignRe, returnRe]) {
         for (const match of source.matchAll(re)) tokens.push(...exactKeyTokens(match[1]))
     }

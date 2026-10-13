@@ -3,7 +3,7 @@ import path from 'path'
 import { canUseTemplate, templateUsePermission } from './templateUsePermission'
 
 describe('template use permission', () => {
-    test('an agentflows:create-only role sees Use Template on an agentflow template', () => {
+    test('the Use Template button on an agentflow template checks agentflows:create', () => {
         expect(templateUsePermission('AgentflowV2')).toBe('agentflows:create')
         expect(templateUsePermission('Agentflow')).toBe('agentflows:create')
         expect(canUseTemplate(['agentflows:create'], 'AgentflowV2')).toBe(true)
@@ -11,7 +11,7 @@ describe('template use permission', () => {
         expect(canUseTemplate(['chatflows:create'], 'AgentflowV2')).toBe(false)
     })
 
-    test('a chatflow, harness, or ETL template checks chatflows:create', () => {
+    test('the Use Template button on a chatflow, harness, or ETL template checks chatflows:create', () => {
         expect(templateUsePermission('Chatflow')).toBe('chatflows:create')
         expect(templateUsePermission('Harness')).toBe('chatflows:create')
         expect(templateUsePermission('ETL')).toBe('chatflows:create')
@@ -25,5 +25,10 @@ describe('template use permission', () => {
         expect(source).toContain('permission={templateUsePermission(templateType)}')
         expect(source).not.toContain('agentflows.create')
         expect(source).not.toContain('chatflows:create,agentflows:create')
+    })
+
+    test('opening a template still requires the templates page', () => {
+        const source = fs.readFileSync(path.join(__dirname, '../../routes/CanvasRoutes.jsx'), 'utf8')
+        expect(source.match(/permission=\{'templates:marketplace,templates:custom'\}/g)).toHaveLength(2)
     })
 })
