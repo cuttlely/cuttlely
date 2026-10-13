@@ -52,7 +52,7 @@ If the encryption key changes, a saved secret shows **Saved, but this server can
 
 **Analyst**, **Storage** and **Models & keys** have a **Test connection** card that tries the values on the page before you save:
 
--   Analyst: signs in to the separate Postgres and says whether its user is read-only (safer for analyst work).
+-   Analyst: signs in to the separate Postgres and says whether its user is read-only (safer for analyst work). **Query previews in the run trace** is on by default. Each analyst query step stores a short table with the run, the same rows that query already returned. Turn it off to leave those values out of new traces. The row count can still show. Restart to apply.
 -   Storage: S3, Google Cloud or Azure find the bucket, write a small test file and remove it again. Without an access key, the S3 test uses the server's own AWS sign-in (for example an instance role), exactly as Cuttlely will.
 -   Models: fetches your model list and checks its shape.
 
