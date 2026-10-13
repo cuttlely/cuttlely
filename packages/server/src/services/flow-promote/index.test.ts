@@ -620,7 +620,6 @@ describe('three environments, in order', () => {
         expect(bareMain(bare)).toBe(devSha)
 
         asProd()
-        await prodSync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)
         expect((await listIncoming(WS, prodDeps)).flows).toEqual([])
         await expect(promotable(FLOW, devSha, WS, prodDeps, 'dev')).rejects.toMatchObject({
             statusCode: 409,
@@ -662,6 +661,7 @@ describe('three environments, in order', () => {
         expect(bareRef('refs/heads/staging')).toBe(stagingSha)
 
         asProd()
+        await prodSync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)
         await prodSync.sync()
         prodCredentials.clear()
         const arrived = await listIncoming(WS, prodDeps)
