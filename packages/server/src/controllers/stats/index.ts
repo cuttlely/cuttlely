@@ -74,7 +74,8 @@ const getTokenUsage = async (req: Request, res: Response, next: NextFunction) =>
         const parsed = usageRange({
             days: req.query?.days,
             startDate: req.query?.startDate,
-            endDate: req.query?.endDate
+            endDate: req.query?.endDate,
+            range: req.query?.range
         })
         if (!parsed.ok) {
             throw new AppError(StatusCodes.BAD_REQUEST, parsed.message)

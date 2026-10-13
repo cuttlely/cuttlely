@@ -63,15 +63,30 @@ function oneString(value: unknown): string | null {
     return value.trim()
 }
 
-// `days` is 7, 30, or 90 ending today (UTC). `startDate` and `endDate` are an inclusive custom range.
-// A custom range replaces `days`. A range longer than a year is refused.
+const RANGE_ALIAS: Record<string, string> = { '7d': '7', '30d': '30', '90d': '90' }
+
+// `days` is 7, 30, or 90 ending today (UTC). `range` is the same window as 7d, 30d, or 90d.
+// `startDate` and `endDate` are an inclusive custom range. A custom range replaces `days`.
+// `range` cannot be combined with `days` or a custom date. A range longer than a year is refused.
 export function usageRange(
-    query: { days?: unknown; startDate?: unknown; endDate?: unknown },
+    query: { days?: unknown; startDate?: unknown; endDate?: unknown; range?: unknown },
     now: Date = new Date()
 ): { ok: true; range: UsageRange } | { ok: false; message: string } {
     const today = utcDay(now)
     const hasStart = present(query.startDate)
     const hasEnd = present(query.endDate)
+    const hasRange = present(query.range)
+    const hasDays = present(query.days)
+    if (hasRange && (hasDays || hasStart || hasEnd)) {
+        return { ok: false, message: 'range cannot be combined with days, startDate, or endDate.' }
+    }
+    if (hasRange) {
+        const alias = oneString(query.range)
+        const days = alias ? RANGE_ALIAS[alias] : undefined
+        if (!days) return { ok: false, message: 'range must be 7d, 30d, or 90d.' }
+        const span = Number(days)
+        return { ok: true, range: { startDate: shiftUtcDay(today, 1 - span), endDate: today } }
+    }
     if (hasStart || hasEnd) {
         if (!hasStart || !hasEnd) return { ok: false, message: 'startDate and endDate are both required for a custom range.' }
         const startDate = oneString(query.startDate)
@@ -108,8 +123,10 @@ function whole(value: unknown): number {
     return Math.min(Math.round(n), Number.MAX_SAFE_INTEGER)
 }
 
-// An Agent step that called tools sets tool_call_tokens to every model call in the step, the final
-// response included. total_tokens adds that final response again. tool_call_tokens is the step total.
+// An Agent step stores input and output as the sum of every model call, and total_tokens as that same
+// sum. tool_call_tokens is the step total. When those add up, keep the split. Older steps stored only
+// the final response's split, and total_tokens added that response again. tool_call_tokens was still
+// the step total.
 function tokenPair(value: unknown): { inputTokens: number; outputTokens: number } | null {
     if (!value || typeof value !== 'object') return null
     const record = value as Record<string, unknown>

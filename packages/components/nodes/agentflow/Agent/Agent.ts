@@ -1512,13 +1512,6 @@ class Agent_Agentflow implements INode {
             const reasonContentObj =
                 reasonContent !== undefined && reasonContent !== '' ? { thinking: reasonContent, thinkingDuration } : undefined
 
-            const costMetadata = await this.calculateUsageCost(
-                model,
-                modelConfig?.modelName as string | undefined,
-                response.usage_metadata,
-                additionalTokens
-            )
-
             const completed = completeStepUsage({
                 toolInput: stepInputTokens,
                 toolOutput: stepOutputTokens,
@@ -1528,6 +1521,13 @@ class Agent_Agentflow implements INode {
                 summarizer: summarizerUsage,
                 structured: !!isStructuredOutput
             })
+
+            // Price the split after it is final. Adding the final call on top of the step total counted those tokens twice.
+            const costMetadata = await this.calculateUsageCost(
+                model,
+                modelConfig?.modelName as string | undefined,
+                completed.counted ? { input_tokens: completed.inputTokens, output_tokens: completed.outputTokens } : response.usage_metadata
+            )
 
             const output = this.prepareOutputObject(
                 response,
@@ -2095,8 +2095,7 @@ class Agent_Agentflow implements INode {
     private async calculateUsageCost(
         provider: string | undefined,
         modelName: string | undefined,
-        usageMetadata: Record<string, any> | undefined,
-        additionalTokens: number = 0
+        usageMetadata: Record<string, any> | undefined
     ): Promise<
         | {
               input_cost: number
@@ -2109,7 +2108,7 @@ class Agent_Agentflow implements INode {
     > {
         if (!provider || !modelName) return undefined
         const inputTokens = (usageMetadata?.input_tokens ?? 0) as number
-        const outputTokens = ((usageMetadata?.output_tokens ?? 0) as number) + additionalTokens
+        const outputTokens = (usageMetadata?.output_tokens ?? 0) as number
         try {
             const modelConfig = await getModelConfigByModelName(MODEL_TYPE.CHAT, provider, modelName)
             if (!modelConfig) return undefined
@@ -2172,20 +2171,20 @@ class Agent_Agentflow implements INode {
             output.calledTools = response.tool_calls
         }
 
-        // Include token usage metadata with accumulated tokens from tool calls.
-        // stepUsage is the sum of every model call. Cost still uses the final message, so this does not stamp that message.
+        // stepUsage is the sum of every model call. total_tokens is that same sum, which is what the chip and the usage API show.
+        const splitTotal = stepUsage ? stepUsage.inputTokens + stepUsage.outputTokens : undefined
         if (response.usage_metadata) {
             const originalTokens = response.usage_metadata.total_tokens || 0
             output.usageMetadata = {
                 ...response.usage_metadata,
                 ...(stepUsage ? { input_tokens: stepUsage.inputTokens, output_tokens: stepUsage.outputTokens } : {}),
-                total_tokens: originalTokens + additionalTokens,
+                total_tokens: splitTotal != null ? splitTotal : originalTokens + additionalTokens,
                 tool_call_tokens: additionalTokens
             }
         } else if (additionalTokens > 0) {
             output.usageMetadata = {
                 ...(stepUsage ? { input_tokens: stepUsage.inputTokens, output_tokens: stepUsage.outputTokens } : {}),
-                total_tokens: additionalTokens,
+                total_tokens: splitTotal != null ? splitTotal : additionalTokens,
                 tool_call_tokens: additionalTokens
             }
         }

@@ -92,6 +92,7 @@ describe('Agent tool-call token totals', () => {
             { inputTokens: result.inputTokens, outputTokens: result.outputTokens }
         )
         expect(output.usageMetadata.tool_call_tokens).toBe(160)
+        expect(output.usageMetadata.total_tokens).toBe(160)
         expect(output.usageMetadata.input_tokens + output.usageMetadata.output_tokens).toBe(160)
     })
 
@@ -121,6 +122,7 @@ describe('Agent tool-call token totals', () => {
         )
         expect(output.usageMetadata.input_tokens).toBe(20)
         expect(output.usageMetadata.output_tokens).toBe(20)
+        expect(output.usageMetadata.total_tokens).toBe(40)
         expect(output.usageMetadata.tool_call_tokens).toBe(40)
         expect(output.usageMetadata.input_tokens + output.usageMetadata.output_tokens).toBe(output.usageMetadata.tool_call_tokens)
     })
@@ -471,5 +473,151 @@ describe('Agent structured output through invoke', () => {
         expect(result.output.usageMetadata.output_tokens).toBe(24)
         expect(result.output.usageMetadata.input_tokens + result.output.usageMetadata.output_tokens).toBe(72)
         expect(result.output.usageMetadata.tool_call_tokens).toBe(72)
+        expect(result.output.usageMetadata.total_tokens).toBe(72)
+    })
+})
+
+const costFs = require('fs')
+const costOs = require('os')
+const costPath = require('path')
+const costRequireFrom = JSON.stringify(costPath.join(__dirname, 'Agent.tokens.test.ts'))
+const GPT41_MINI_INPUT = 0.0000004
+const GPT41_MINI_OUTPUT = 0.0000016
+
+function writeCostFile(name: string, body: string) {
+    const file = costPath.join(costOs.tmpdir(), `agent-cost-${name}-${process.pid}.js`)
+    costFs.writeFileSync(file, body)
+    return file
+}
+
+function costModelSource(turns: string) {
+    return `
+const { createRequire } = require('module')
+const req = createRequire(${costRequireFrom})
+const { AIMessageChunk } = req('@langchain/core/messages')
+function message(total, toolCalls) {
+  const input = Math.floor(total / 2)
+  const output = total - input
+  return new AIMessageChunk({
+    content: toolCalls && toolCalls.length ? '' : 'done',
+    tool_calls: toolCalls,
+    usage_metadata: { input_tokens: input, output_tokens: output, total_tokens: total }
+  })
+}
+class Node {
+  async init() {
+    const turns = ${turns}
+    let index = 0
+    const model = {
+      bindTools() { return model },
+      async invoke() {
+        const next = turns[index]
+        index += 1
+        if (!next) throw new Error('the test model ran out of responses')
+        return next
+      }
+    }
+    return model
+  }
+}
+module.exports = { nodeClass: Node }
+`
+}
+
+function costToolSource(returnDirect: boolean) {
+    return `
+class Node {
+  async init() {
+    return {
+      name: 'lookup',
+      description: 'look up a loaf',
+      schema: null,
+      returnDirect: ${returnDirect},
+      async call() { return ${returnDirect ? "'the loaf'" : "'found'"} }
+    }
+  }
+}
+module.exports = { nodeClass: Node }
+`
+}
+
+const lookupCall = "[{ id: 'call-1', name: 'lookup', args: { q: 'loaf' }, type: 'tool_call' }]"
+const costModel100Then40 = writeCostFile('100-40', costModelSource(`[message(100, ${lookupCall}), message(40)]`))
+const costModel1004020 = writeCostFile(
+    '100-40-20',
+    costModelSource(`[message(100, ${lookupCall}), message(40, ${lookupCall}), message(20)]`)
+)
+const costModelReturnDirect = writeCostFile('return-direct', costModelSource(`[message(40, ${lookupCall})]`))
+const costTool = writeCostFile('tool', costToolSource(false))
+const costToolDirect = writeCostFile('tool-direct', costToolSource(true))
+
+function expectPricedSplit(
+    usage: {
+        input_tokens: number
+        output_tokens: number
+        total_tokens: number
+        tool_call_tokens: number
+        input_cost: number
+        output_cost: number
+        total_cost: number
+    },
+    input: number,
+    output: number
+) {
+    expect(usage.input_tokens).toBe(input)
+    expect(usage.output_tokens).toBe(output)
+    expect(usage.total_tokens).toBe(input + output)
+    expect(usage.tool_call_tokens).toBe(input + output)
+    expect(usage.input_cost).toBeCloseTo(input * GPT41_MINI_INPUT, 12)
+    expect(usage.output_cost).toBeCloseTo(output * GPT41_MINI_OUTPUT, 12)
+    expect(usage.total_cost).toBeCloseTo(input * GPT41_MINI_INPUT + output * GPT41_MINI_OUTPUT, 12)
+}
+
+async function runPriced(modelFile: string, toolFile: string) {
+    const agent = new AgentNode()
+    return agent.run(
+        {
+            id: 'agent_0',
+            inputs: {
+                agentModel: 'chatOpenAI',
+                agentModelConfig: { modelName: 'gpt-4.1-mini', streaming: false },
+                agentTools: [{ agentSelectedTool: 'stubLookup', agentSelectedToolConfig: {} }],
+                agentMessages: []
+            }
+        },
+        'loaf',
+        {
+            chatId: 'c1',
+            chatflowid: 'f1',
+            sessionId: 's1',
+            prependedChatHistory: [],
+            abortController: new AbortController(),
+            componentNodes: {
+                chatOpenAI: { filePath: modelFile, label: 'OpenAI' },
+                stubLookup: { filePath: toolFile, name: 'stubLookup', label: 'Lookup' }
+            }
+        }
+    )
+}
+
+describe('Agent step cost matches the stored split', () => {
+    it('prices a 100-then-40 run from the stored 70/70 split', async () => {
+        const result = await runPriced(costModel100Then40, costTool)
+        expectPricedSplit(result.output.usageMetadata, 70, 70)
+        expect(result.output.usageMetadata.total_cost).toBeCloseTo(0.00014, 10)
+        expect(result.output.usageMetadata.total_tokens).toBe(140)
+    })
+
+    it('prices a 100-40-20 run from the stored 80/80 split', async () => {
+        const result = await runPriced(costModel1004020, costTool)
+        expectPricedSplit(result.output.usageMetadata, 80, 80)
+        expect(result.output.usageMetadata.total_tokens).toBe(160)
+    })
+
+    it('prices a return-direct answer from the stored 20/20 split', async () => {
+        const result = await runPriced(costModelReturnDirect, costToolDirect)
+        expect(result.output.content).toBe('the loaf')
+        expectPricedSplit(result.output.usageMetadata, 20, 20)
+        expect(result.output.usageMetadata.total_tokens).toBe(40)
     })
 })

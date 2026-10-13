@@ -28,6 +28,31 @@ describe('usageRange', () => {
         expect(usageRange({ startDate: '2025-01-01', endDate: '2026-10-12' }, NOW).ok).toBe(false)
         expect(usageRange({ startDate: '2026-02-31', endDate: '2026-03-01' }, NOW).ok).toBe(false)
     })
+
+    it('accepts range as an alias for 7, 30, and 90 days', () => {
+        expect(usageRange({ range: '7d' }, NOW)).toEqual({ ok: true, range: { startDate: '2026-10-06', endDate: '2026-10-12' } })
+        expect(usageRange({ range: '30d' }, NOW)).toEqual({ ok: true, range: { startDate: '2026-09-13', endDate: '2026-10-12' } })
+        expect(usageRange({ range: '90d' }, NOW)).toEqual({ ok: true, range: { startDate: '2026-07-15', endDate: '2026-10-12' } })
+    })
+
+    it('refuses a range that is not 7d, 30d, or 90d', () => {
+        const parsed = usageRange({ range: 'nope' }, NOW)
+        expect(parsed.ok).toBe(false)
+        if (!parsed.ok) expect(parsed.message).toBe('range must be 7d, 30d, or 90d.')
+        const bare = usageRange({ range: '7' }, NOW)
+        expect(bare.ok).toBe(false)
+        if (!bare.ok) expect(bare.message).toBe('range must be 7d, 30d, or 90d.')
+    })
+
+    it('refuses range combined with days or a start or end date', () => {
+        const withDays = usageRange({ range: '7d', days: '30' }, NOW)
+        const withStart = usageRange({ range: '7d', startDate: '2026-10-01', endDate: '2026-10-03' }, NOW)
+        const withEndOnly = usageRange({ range: '30d', endDate: '2026-10-12' }, NOW)
+        for (const parsed of [withDays, withStart, withEndOnly]) {
+            expect(parsed.ok).toBe(false)
+            if (!parsed.ok) expect(parsed.message).toBe('range cannot be combined with days, startDate, or endDate.')
+        }
+    })
 })
 
 describe('usageLinesFromRun', () => {

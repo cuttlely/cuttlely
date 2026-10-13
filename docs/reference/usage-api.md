@@ -16,15 +16,16 @@ The route returns token counts. It does not return prices.
 
 ## Range
 
-| Query       | Meaning                                                                               |
-| ----------- | ------------------------------------------------------------------------------------- |
-| `days`      | `7`, `30`, or `90`. The window ends today (UTC) and includes today. The default is 7. |
-| `startDate` | First UTC day, `YYYY-MM-DD`. Required together with `endDate`.                        |
-| `endDate`   | Last UTC day, inclusive.                                                              |
-| `flowId`    | One chatflow id, agentflow id, or harness name.                                       |
-| `model`     | One model name, as the run recorded it.                                               |
+| Query       | Meaning                                                                                                      |
+| ----------- | ------------------------------------------------------------------------------------------------------------ |
+| `days`      | `7`, `30`, or `90`. The window ends today (UTC) and includes today. The default is 7.                        |
+| `range`     | `7d`, `30d`, or `90d`. The same window as `days`. Cannot be combined with `days`, `startDate`, or `endDate`. |
+| `startDate` | First UTC day, `YYYY-MM-DD`. Required together with `endDate`.                                               |
+| `endDate`   | Last UTC day, inclusive.                                                                                     |
+| `flowId`    | One chatflow id, agentflow id, or harness name.                                                              |
+| `model`     | One model name, as the run recorded it.                                                                      |
 
-When both `startDate` and `endDate` are set, they replace `days`. A custom range can cover at most 366 days. Anything else returns 400.
+When both `startDate` and `endDate` are set, they replace `days`. A custom range can cover at most 366 days. `range` is that same preset window and cannot be sent with `days` or with either date. Any other `range` value returns 400. Anything else that is not a valid window returns 400.
 
 ## Response
 
