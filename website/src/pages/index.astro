@@ -35,7 +35,7 @@ const tools: { title: string; text: string; href: string; video: ToolVideo }[] =
         video: {
             slug: 'knowledge-pipelines',
             length: '0:35',
-            label: 'A knowledge pipeline runs on a real Cuttlely server: 33 chunks embedded, then a second run embeds nothing because nothing changed, and a search finds the best match.'
+            label: 'A knowledge pipeline on a real Cuttlely server: the first run embeds 33 products and goes from the click to indexed in under a second, with no provider keys and embeddings that ran locally.'
         }
     },
     {
@@ -45,7 +45,7 @@ const tools: { title: string; text: string; href: string; video: ToolVideo }[] =
         video: {
             slug: 'chatflows',
             length: '0:35',
-            label: 'A bakery chatflow on a real Cuttlely server: the test chat adds up an order with a calculator to $25.20, memory carries the order into a follow-up at $29.10, and the chatflow offers an embed, a prediction API and a shareable link.'
+            label: 'A bakery chatflow on a real Cuttlely server: median of 20 runs, 1.1 seconds to first words after two model calls and the calculator, 1.3 seconds to the full answer on the first question, and 1.3 seconds for the follow-up answer, with the order kept.'
         }
     },
     {
@@ -55,7 +55,7 @@ const tools: { title: string; text: string; href: string; video: ToolVideo }[] =
         video: {
             slug: 'agentflows',
             length: '0:30',
-            label: 'A bakery order desk workflow on a real Cuttlely server: the Start card offers chat, form, webhook and schedule, a complaint goes to the care agent, and a price question goes to the order agent.'
+            label: 'A bakery order desk workflow on a real Cuttlely server: median of 20 runs of an equivalent flow with the same branches and questions, not the recorded canvas, 0.9 seconds to first words on the care branch after classifying the message, 1.2 seconds to the full care answer, and 0.8 seconds to first words on the order branch.'
         }
     },
     {
@@ -65,7 +65,7 @@ const tools: { title: string; text: string; href: string; video: ToolVideo }[] =
         video: {
             slug: 'harnesses',
             length: '0:48',
-            label: 'A bakery agent team on a real Cuttlely server: Harness Prime sends a follow-up only to the analyst, the run card shows its tokens and Context kept, a chart of measured prompt sizes over 92 turns compares the team with a single chatbot with tools, and a totals card shows that the team spent more tokens in total, cached included.'
+            label: 'A bakery agent team on a real Cuttlely server: the run finishes in 4.2 seconds, routing takes 855 milliseconds, and at turn 92 the analyst\'s prompt is 3.7 times smaller than a single chatbot\'s, 2,114 versus 7,719 tokens, the first model call of each turn.'
         }
     },
     {
@@ -75,7 +75,7 @@ const tools: { title: string; text: string; href: string; video: ToolVideo }[] =
         video: {
             slug: 'build-with-ai',
             length: '0:31',
-            label: 'Build with AI on a real Cuttlely server: a bakery team is described in plain words, built and saved in 5.3 seconds, and its first starter question is added up to $18.20.'
+            label: 'Build with AI on a real Cuttlely server: a bakery team is described in plain words, built and saved in 5.3 seconds, and its first starter question finishes in 4.0 seconds with both specialists, the menu expert in 701 milliseconds.'
         }
     },
     {
@@ -85,7 +85,7 @@ const tools: { title: string; text: string; href: string; video: ToolVideo }[] =
         video: {
             slug: 'share-and-embed',
             length: '0:27',
-            label: 'Make Public gives a bakery chatflow a shareable link that answers with a table, and one script tag opens the same chat from a button on a made-up bakery website.'
+            label: 'Share and embed on a real Cuttlely server: median of 20 runs, 0.4 seconds to first words on the shared link, 0.8 seconds to the full table, and 0.4 seconds to first words in the embed widget.'
         }
     }
 ]
