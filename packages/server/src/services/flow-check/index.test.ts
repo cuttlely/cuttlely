@@ -1,7 +1,7 @@
 // The publish check runner: limits, stopping, and that it never writes chat history or Live.
 const states = new Map<string, any>()
 let draftsOn = true
-const recordPublishGateResult = jest.fn(async () => undefined)
+const recordPublishGateResult: jest.Mock = jest.fn(async () => undefined)
 jest.mock('../flow-drafts', () => ({
     __esModule: true,
     default: {
@@ -828,7 +828,7 @@ describe('a dataset and evaluators', () => {
             expect.objectContaining({ id: 'flow-1' }),
             expect.objectContaining({ threshold: 0, verdict: 'failed', datasetId: 'ds-1' })
         )
-        const stored = JSON.stringify(recordPublishGateResult.mock.calls.at(-1)?.[1])
+        const stored = JSON.stringify((recordPublishGateResult.mock.calls.at(-1) as unknown[] | undefined)?.[1])
         expect(stored).not.toContain('First?')
         expect(stored).not.toContain('"one"')
         await expect(startCheck(flow() as any, { datasetId: 'ds-1', threshold: 101 }, 'http://x')).rejects.toMatchObject({
