@@ -7461,11 +7461,15 @@ const callerJob = enqueueHarnessJob({
     name: 'queue-worker',
     chatId: 'caller-flow-job',
     input: 'Say hi',
-    flowOptions: { chatflowid: 'caller-flow' }
+    flowOptions: { chatflowid: 'caller-flow', workspaceId: 'ws-caller' }
 })
 const callerPayload = JSON.parse(queueDatabase().prepare('SELECT payload FROM jobs WHERE id = ?').get(callerJob.id).payload)
 queueDatabase().prepare('DELETE FROM jobs WHERE id = ?').run(callerJob.id)
-check('a queued job keeps the caller chatflow id', callerPayload.callerChatflowId === 'caller-flow', JSON.stringify(callerPayload))
+check(
+    'a queued job keeps the caller chatflow id and workspace id',
+    callerPayload.callerChatflowId === 'caller-flow' && callerPayload.workspaceId === 'ws-caller',
+    JSON.stringify(callerPayload)
+)
 {
     const { finishJob, waitForJob } = await import('./queue.mjs')
     const imageJob = enqueueHarnessJob({ name: 'queue-worker', chatId: 'image-bytes-job', input: 'Draw' })
@@ -7696,7 +7700,13 @@ let pooledRun
 try {
     pooledRun = await executeJob({
         id: 'job-pool',
-        payload: { name: 'pool-worker', chatId: 'pool-1', input: 'Say hi', callerChatflowId: 'caller-flow' },
+        payload: {
+            name: 'pool-worker',
+            chatId: 'pool-1',
+            input: 'Say hi',
+            callerChatflowId: 'caller-flow',
+            workspaceId: 'ws-pool'
+        },
         cancelRequested: false
     })
 } catch (error) {
@@ -7707,6 +7717,193 @@ check(
     pooledRun?.text === 'answer:pooled' && pooledRun?.harness === 'pool-worker',
     pooledRun?.message || pooledRun?.text
 )
+{
+    const { claimJob, enqueueHarnessJob: enqueueExternal } = await import('./queue.mjs')
+    const { listRuns } = await import('./history.mjs')
+    const gatewayApi = await import('./gateway.mjs')
+    let modelCalls = 0
+    setWorkerContext(async (record) => ({
+        componentNodes: {},
+        loadNode: async () =>
+            class {
+                async init() {
+                    return {
+                        async invoke() {
+                            modelCalls += 1
+                            return { content: 'answer:ext' }
+                        }
+                    }
+                }
+            },
+        // Copies the harness file, which is the bug the payload team has to override.
+        flowOptions: { workspaceId: record?.workspaceId, chatflowid: record?.chatflowId }
+    }))
+    const externalRoster = (name, workspaceId) =>
+        saveHarness(
+            {
+                name,
+                ...(workspaceId ? { workspaceId } : {}),
+                chief: { instructions: 'Combine.', model: nodeModel('scriptedChat') },
+                specialists: [{ name: 'reader', instructions: 'Read.', modules: [], mcpServers: [] }]
+            },
+            { overwrite: true }
+        )
+    const tokenFor = (name) => {
+        const token = `${name}Token`.padEnd(43, 'x').slice(0, 43)
+        gatewayApi.registerProfileToken({ token, harnessName: name, specialistName: 'reader', profileName: `${name}--reader` })
+        return token
+    }
+    const refuseExternal = async (name, callerWorkspace) => {
+        modelCalls = 0
+        const before = listRuns(name).length
+        const enqueued = enqueueExternal({
+            name,
+            chatId: `${name}-chat`,
+            input: 'question from the other team',
+            flowOptions: { workspaceId: callerWorkspace, chatflowid: 'caller-flow' }
+        })
+        const claimed = claimJob()
+        const owned = claimed?.id === enqueued.id
+        let error
+        let gatewayStatus = 0
+        let gatewayBody = ''
+        const previous = gatewayApi.setGatewayContext(async (record) => ({
+            flowOptions: { workspaceId: record?.workspaceId, chatflowid: record?.chatflowId }
+        }))
+        const gateway = await openGateway()
+        try {
+            if (gateway && owned) {
+                const listed = await localRequest({
+                    port: gateway.port,
+                    method: 'POST',
+                    path: '/harness/tools/list',
+                    token: tokenFor(name),
+                    body: {}
+                })
+                gatewayStatus = listed.status
+                gatewayBody = listed.body
+            }
+            if (owned) {
+                try {
+                    await executeJob(claimed)
+                } catch (err) {
+                    error = err
+                }
+            }
+        } finally {
+            gatewayApi.setGatewayContext(previous)
+            if (gateway) await gateway.close()
+        }
+        return { owned, error, before, after: listRuns(name).length, modelCalls, gatewayStatus, gatewayBody }
+    }
+    externalRoster('extUnassigned')
+    const unassignedJob = await refuseExternal('extUnassigned', 'team-a')
+    check(
+        'an external job does not run a harness that has no team',
+        unassignedJob.owned &&
+            unassignedJob.error?.code === 'wrong_workspace' &&
+            unassignedJob.modelCalls === 0 &&
+            unassignedJob.after === unassignedJob.before &&
+            unassignedJob.gatewayStatus === 502 &&
+            unassignedJob.gatewayBody.includes('another workspace'),
+        JSON.stringify({
+            code: unassignedJob.error?.code,
+            calls: unassignedJob.modelCalls,
+            runs: [unassignedJob.before, unassignedJob.after],
+            gateway: unassignedJob.gatewayStatus,
+            body: unassignedJob.gatewayBody.slice(0, 240)
+        })
+    )
+    externalRoster('extOther', 'team-b')
+    const otherJob = await refuseExternal('extOther', 'team-a')
+    check(
+        'an external job does not run another team harness',
+        otherJob.owned &&
+            otherJob.error?.code === 'wrong_workspace' &&
+            otherJob.modelCalls === 0 &&
+            otherJob.after === otherJob.before &&
+            otherJob.gatewayStatus === 502 &&
+            otherJob.gatewayBody.includes('another workspace'),
+        JSON.stringify({
+            code: otherJob.error?.code,
+            calls: otherJob.modelCalls,
+            runs: [otherJob.before, otherJob.after],
+            gateway: otherJob.gatewayStatus,
+            body: otherJob.gatewayBody.slice(0, 240)
+        })
+    )
+    externalRoster('extSame', 'team-a')
+    modelCalls = 0
+    const sameBefore = listRuns('extSame').length
+    const sameEnqueued = enqueueExternal({
+        name: 'extSame',
+        chatId: 'extSame-chat',
+        input: 'Say hi',
+        flowOptions: { workspaceId: 'team-a', chatflowid: 'caller-flow' }
+    })
+    const sameClaimed = claimJob()
+    let sameText = ''
+    let sameError
+    let sameGateway = 0
+    const previousContext = gatewayApi.setGatewayContext(async (record) => ({
+        flowOptions: { workspaceId: record?.workspaceId, chatflowid: record?.chatflowId }
+    }))
+    const sameGatewayServer = await openGateway()
+    try {
+        if (sameGatewayServer && sameClaimed?.id === sameEnqueued.id) {
+            const listed = await localRequest({
+                port: sameGatewayServer.port,
+                method: 'POST',
+                path: '/harness/tools/list',
+                token: tokenFor('extSame'),
+                body: {}
+            })
+            sameGateway = listed.status
+        }
+        if (sameClaimed?.id === sameEnqueued.id) {
+            try {
+                const result = await executeJob(sameClaimed)
+                sameText = result?.text || ''
+            } catch (err) {
+                sameError = err
+            }
+        }
+    } finally {
+        gatewayApi.setGatewayContext(previousContext)
+        if (sameGatewayServer) await sameGatewayServer.close()
+    }
+    check(
+        'an external job runs a harness in the caller team',
+        sameClaimed?.id === sameEnqueued.id &&
+            sameGateway === 200 &&
+            sameText === 'answer:ext' &&
+            modelCalls > 0 &&
+            listRuns('extSame').length === sameBefore + 1,
+        JSON.stringify({ text: sameText, calls: modelCalls, gateway: sameGateway, error: sameError?.message, claimed: sameClaimed?.id })
+    )
+    externalRoster('extBare')
+    modelCalls = 0
+    const bareBefore = listRuns('extBare').length
+    const bareEnqueued = enqueueExternal({ name: 'extBare', chatId: 'extBare-chat', input: 'question from the other team' })
+    const bareClaimed = claimJob()
+    let bareError
+    if (bareClaimed?.id === bareEnqueued.id) {
+        try {
+            await executeJob(bareClaimed)
+        } catch (err) {
+            bareError = err
+        }
+    }
+    check(
+        'an external job with no caller workspace id is refused',
+        bareClaimed?.id === bareEnqueued.id &&
+            bareError?.code === 'wrong_workspace' &&
+            modelCalls === 0 &&
+            listRuns('extBare').length === bareBefore,
+        JSON.stringify({ code: bareError?.code, calls: modelCalls, claimed: bareClaimed?.id === bareEnqueued.id })
+    )
+    setWorkerContext(bootedPool.contextFor)
+}
 saveHarness(
     {
         name: 'pool-missing',
@@ -7724,7 +7921,7 @@ let missingPool
 try {
     await executeJob({
         id: 'job-pool-missing',
-        payload: { name: 'pool-missing', chatId: 'pool-missing', input: 'Say hi' },
+        payload: { name: 'pool-missing', chatId: 'pool-missing', input: 'Say hi', workspaceId: 'ws-pool' },
         cancelRequested: false
     })
 } catch (error) {
@@ -7761,6 +7958,8 @@ workerChild.stdout.on('data', (chunk) => {
 workerChild.stderr.on('data', (chunk) => {
     workerErr += String(chunk)
 })
+const { claimWorkspace } = await import('./store.mjs')
+claimWorkspace('queue-worker', 'ws-queue')
 let externalRun
 try {
     externalRun = await runQueuedHarness({
@@ -7768,7 +7967,8 @@ try {
         chatId: 'queue-external',
         input: 'Say hi',
         offlineModel: true,
-        timeoutMs: 8000
+        timeoutMs: 8000,
+        flowOptions: { workspaceId: 'ws-queue' }
     })
 } finally {
     workerChild.kill('SIGTERM')

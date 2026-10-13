@@ -24,7 +24,7 @@ import { emitHarnessEvent } from './events.mjs'
 import { CHIEF_MODEL_REQUIRED, HarnessError, STALE_RECORD } from './errors.mjs'
 import { createRun, hermesBaseUrl, stopRun, waitForRun } from './client.mjs'
 import { analystCallsFor, beginAnalystCalls, endAnalystCalls, latestAnalystCursor, takeAnalystResults } from './analyst-capture.mjs'
-import { abortGatewayProfile, setGatewayContext } from './gateway.mjs'
+import { abortGatewayProfile, clearCallerWorkspace, noteCallerWorkspace, setGatewayContext } from './gateway.mjs'
 import { analystToolsMissing } from './runtime/analyst-mcp-status.mjs'
 import { ANALYST_CURSOR_ERRORS, analystPageRequest, analystPageTask } from './runtime/analyst-page.mjs'
 import { analystScopeKey, endAnalystRun, withAnalystScope } from './runtime/analyst-store.mjs'
@@ -268,6 +268,53 @@ async function runTurn(
     }
 ) {
     const flowOptions = ownerFlowOptions(harness, callerFlowOptions)
+    const callerWorkspace = typeof flowOptions.workspaceId === 'string' ? flowOptions.workspaceId : ''
+    if (callerWorkspace) noteCallerWorkspace(harness.name, callerWorkspace)
+    try {
+        return await runTurnBody(harness, {
+            name,
+            chatId,
+            input,
+            baseUrl,
+            fetchImpl,
+            componentNodes,
+            loadNode,
+            forceSpecialistFailure,
+            metadata,
+            timeoutMs,
+            modelBaseUrl,
+            flowOptions,
+            onEvent,
+            signal,
+            budgetMs,
+            images
+        })
+    } finally {
+        if (callerWorkspace) clearCallerWorkspace(harness.name)
+    }
+}
+
+async function runTurnBody(
+    harness,
+    {
+        name,
+        chatId,
+        input,
+        baseUrl,
+        fetchImpl,
+        componentNodes,
+        loadNode,
+        forceSpecialistFailure,
+        metadata,
+        timeoutMs,
+        modelBaseUrl,
+        flowOptions,
+        onEvent,
+        signal,
+        budgetMs,
+        images
+    }
+) {
     assertCurrentRecord(harness)
     const profileStarted = Date.now()
     const needsHermes = (harness.specialists || []).some((specialist) => needsAgentLoop(specialist))
