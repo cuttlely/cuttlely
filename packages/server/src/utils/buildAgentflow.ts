@@ -14,7 +14,14 @@ import {
     generateFollowUpPrompts,
     tracingEnvEnabled
 } from '@cuttlely/components'
-import { attachTraceContinuation, noteFlowOutcome, silenceRunTraces, traceContinuation, traceFlow, tracedNode } from '../metrics/tracing'
+import {
+    noteFlowOutcome,
+    rememberTraceContinuation,
+    silenceRunTraces,
+    traceContinuationFor,
+    traceFlow,
+    tracedNode
+} from '../metrics/tracing'
 import {
     IncomingAgentflowInput,
     INodeData,
@@ -1426,7 +1433,7 @@ const executeNode = async ({
 
         // Stop going through the current route if the node is a human task
         if (!humanInput && reactFlowNode.data.name === 'humanInputAgentflow') {
-            const humanInputAction = attachTraceContinuation({
+            const humanInputAction = {
                 id: uuidv4(),
                 mapping: {
                     approve: 'Proceed',
@@ -1441,7 +1448,8 @@ const executeNode = async ({
                     nodeLabel: reactFlowNode.data.label,
                     input: results.input
                 }
-            })
+            }
+            rememberTraceContinuation(chatflow.id, chatId, humanInputAction.id)
 
             const newWorkflowExecutedData: IAgentflowExecutedData = {
                 nodeId,
@@ -1473,7 +1481,7 @@ const executeNode = async ({
 
         // Stop going through the current route if the node is a agent node waiting for human input before using the tool
         if (reactFlowNode.data.name === 'agentAgentflow' && results?.output?.isWaitingForHumanInput) {
-            const humanInputAction = attachTraceContinuation({
+            const humanInputAction = {
                 id: uuidv4(),
                 mapping: {
                     approve: 'Proceed',
@@ -1488,7 +1496,8 @@ const executeNode = async ({
                     nodeLabel: reactFlowNode.data.label,
                     input: results.input
                 }
-            })
+            }
+            rememberTraceContinuation(chatflow.id, chatId, humanInputAction.id)
 
             const newWorkflowExecutedData: IAgentflowExecutedData = {
                 nodeId,
@@ -1659,16 +1668,21 @@ async function agentflowContinuation(params: IExecuteAgentFlowParams): Promise<{
             },
             order: { createdDate: 'DESC' }
         })
-        const latest = rows?.[0]
+        const latest = rows?.find(
+            (row) => (!row?.sessionId || row.sessionId === params.chatId) && (!row?.agentflowId || row.agentflowId === params.chatflow.id)
+        )
         if (!latest?.executionData) return undefined
-        const data = JSON.parse(latest.executionData) as Array<{ data?: { output?: { humanInputAction?: unknown } } }>
+        const data = JSON.parse(latest.executionData) as Array<{ data?: { output?: { humanInputAction?: { id?: unknown } } } }>
         if (!Array.isArray(data)) return undefined
         for (let index = data.length - 1; index >= 0; index -= 1) {
-            const parent = traceContinuation(data[index]?.data?.output?.humanInputAction)
+            const actionId = data[index]?.data?.output?.humanInputAction?.id
+            if (typeof actionId !== 'string' || !actionId) continue
+            // Ids on the saved action are ignored. Only the server-side record for this action, chat and flow is used.
+            const parent = traceContinuationFor(params.chatflow.id, params.chatId, actionId)
             if (parent) return parent
         }
     } catch {
-        // A resume still runs when the waiting trace id cannot be read. It starts a new trace.
+        // A resume still runs when the waiting trace cannot be read. It starts a new trace.
     }
     return undefined
 }

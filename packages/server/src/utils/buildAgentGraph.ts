@@ -49,7 +49,7 @@ import { Variable } from '../database/entities/Variable'
 import { getWorkspaceSearchOptions } from '../identity/workspaceScope'
 import { DataSource } from 'typeorm'
 import { CachePool } from '../CachePool'
-import { attachTraceContinuation, traceGraphNode } from '../metrics/tracing'
+import { rememberTraceContinuation, traceGraphNode } from '../metrics/tracing'
 
 /**
  * Build Agent Graph
@@ -367,8 +367,9 @@ export const buildAgentGraph = async ({
                                 approveButtonText = node.data.inputs?.approveButtonText || 'Yes'
                                 rejectButtonText = node.data.inputs?.rejectButtonText || 'No'
                             }
-                            finalAction = attachTraceContinuation({
-                                id: uuidv4(),
+                            const actionId = uuidv4()
+                            finalAction = {
+                                id: actionId,
                                 mapping: {
                                     approve: approveButtonText,
                                     reject: rejectButtonText,
@@ -378,7 +379,9 @@ export const buildAgentGraph = async ({
                                     { type: 'approve-button', label: approveButtonText },
                                     { type: 'reject-button', label: rejectButtonText }
                                 ]
-                            })
+                            }
+                            // The action the client sees has no trace ids. The server keeps the parent for this action.
+                            rememberTraceContinuation(chatflowid, chatId, actionId)
                             if (shouldStreamResponse && sseStreamer) {
                                 sseStreamer.streamTokenEvent(chatId, finalResult)
                                 sseStreamer.streamActionEvent(chatId, finalAction)
@@ -772,8 +775,8 @@ const compileSeqAgentsGraph = async (params: SeqAgentsGraphParams) => {
     traceAddedGraphNodes(seqGraph, (name) => {
         const known = seqNodeNames.get(name)
         if (known) return known
-        // An approval tool is added from inside the agent node, named tool_<node id>.
-        if (name.startsWith('tool_')) return { id: name, type: 'seqToolNode' }
+        // The graph names an approval tool tool_<canvas id>. The run card uses that canvas id.
+        if (name.startsWith('tool_')) return { id: name.slice('tool_'.length), type: 'seqToolNode' }
         return { id: name, type: name }
     })
 

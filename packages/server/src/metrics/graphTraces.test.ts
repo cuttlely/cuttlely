@@ -5,8 +5,16 @@ import fs from 'fs'
 import os from 'os'
 import path from 'path'
 import { executeFlow } from '../utils/buildChatflow'
+import { executeAgentFlow } from '../utils/buildAgentflow'
 import { PredictionQueue } from '../queue/PredictionQueue'
-import { installInMemoryTraces, shutdownCuttlelyTraces, traceGraphNode, type FinishedTraceSpan } from './tracing'
+import {
+    installInMemoryTraces,
+    rememberTraceContinuation,
+    shutdownCuttlelyTraces,
+    traceFlow,
+    traceGraphNode,
+    type FinishedTraceSpan
+} from './tracing'
 
 jest.mock('../utils/logger', () => ({
     __esModule: true,
@@ -150,7 +158,7 @@ describe('graph run traces', () => {
             `const { createRequire } = require('module')
             const req = createRequire(${anchor})
             const { START, END, MemorySaver } = req('@langchain/langgraph')
-            const { AIMessage } = req('@langchain/core/messages')
+            const { AIMessage, ToolMessage } = req('@langchain/core/messages')
             if (!global.__cuttlelySeqMemory) global.__cuttlelySeqMemory = new MemorySaver()
             exports.nodeClass = class {
                 async init(nodeData) {
@@ -178,7 +186,17 @@ describe('graph run traces', () => {
                         agentInterruptToolFunc: async (graph, nextNodeName) => {
                             graph.addNode(toolName, async (_state, config) => {
                                 await report(config, { tool: { name: 'lookup', id: 'call-lookup', output: 'rye', runId: 'tool-lookup' } })
-                                return { messages: [new AIMessage({ content: 'rye', additional_kwargs: { nodeId: nodeData.id } })] }
+                                return {
+                                    messages: [new ToolMessage({
+                                        name: 'lookup',
+                                        content: 'rye',
+                                        tool_call_id: 'call-lookup',
+                                        additional_kwargs: {
+                                            nodeId: nodeData.id,
+                                            usedTools: [{ tool: 'lookup', toolInput: { q: 'rye' }, toolOutput: 'rye', id: 'call-lookup' }]
+                                        }
+                                    })]
+                                }
                             })
                             const route = (state) => {
                                 const messages = state.messages || []
@@ -192,21 +210,25 @@ describe('graph run traces', () => {
                             graph.addEdge(toolName, 'baker')
                             return graph
                         },
-                        node: async (_state, config) => {
-                            const round = (global.__cuttlelySeqRound = (global.__cuttlelySeqRound || 0) + 1)
-                            if (round === 1) {
-                                await report(config, { model: 'gpt-4o-mini', input: 50, output: 20, runId: 'seq-1', prompt: 'When is the loaf ready?' })
+                        node: async (state, config) => {
+                            const messages = (state && state.messages) || []
+                            const last = messages[messages.length - 1]
+                            if (last && typeof last._getType === 'function' && last._getType() === 'tool') {
+                                const copied = last.additional_kwargs && last.additional_kwargs.usedTools
                                 return {
                                     messages: [new AIMessage({
-                                        content: '',
-                                        tool_calls: [{ id: 'call-lookup', name: 'lookup', args: { q: 'rye' }, type: 'tool_call' }],
-                                        additional_kwargs: { nodeId: nodeData.id }
+                                        content: 'Loaf is ready.',
+                                        additional_kwargs: { nodeId: nodeData.id, usedTools: copied || [] }
                                     })]
                                 }
                             }
-                            await report(config, { model: 'gpt-4o-mini', input: 10, output: 4, runId: 'seq-2', prompt: 'Thanks' })
+                            await report(config, { model: 'gpt-4o-mini', input: 50, output: 20, runId: 'seq-1', prompt: 'When is the loaf ready?' })
                             return {
-                                messages: [new AIMessage({ content: 'Loaf is ready.', additional_kwargs: { nodeId: nodeData.id } })]
+                                messages: [new AIMessage({
+                                    content: '',
+                                    tool_calls: [{ id: 'call-lookup', name: 'lookup', args: { q: 'rye' }, type: 'tool_call' }],
+                                    additional_kwargs: { nodeId: nodeData.id }
+                                })]
                             }
                         }
                     }
@@ -260,29 +282,82 @@ describe('graph run traces', () => {
     })
 
     function dataSource() {
-        const saved: Record<string, any> = {}
-        return {
-            getRepository: (entity: { name?: string } | string) => {
-                const table = typeof entity === 'function' ? entity.name : String(entity)
+        const messages: Array<Record<string, any>> = []
+        const executions: Array<Record<string, any>> = []
+        const repo = (entity: { name?: string } | string) => {
+            const table = typeof entity === 'function' ? entity.name : String(entity)
+            if (table === 'ChatMessage') {
                 return {
-                    find: async () => [],
-                    findBy: async () => [],
-                    findOne: async () => saved[table] ?? null,
-                    findOneBy: async () => saved[table] ?? null,
+                    find: async () => messages,
+                    findBy: async () => messages,
+                    findOne: async () => messages[messages.length - 1] ?? null,
+                    findOneBy: async () => messages[messages.length - 1] ?? null,
                     create: (value: unknown) => value,
-                    save: async (value: Record<string, unknown>) => {
-                        saved[table] = { id: `${table}-1`, ...value }
-                        return saved[table]
+                    save: async (value: Record<string, any>) => {
+                        const row = { id: value.id || `msg-${messages.length + 1}`, ...value }
+                        const index = messages.findIndex((message) => message.id === row.id)
+                        if (index >= 0) messages[index] = { ...messages[index], ...row }
+                        else messages.push(row)
+                        return row
                     },
                     merge: (target: any, value: any) => Object.assign(target, value),
                     update: async () => ({ affected: 1 }),
                     createQueryBuilder: () => {
-                        const qb: any = { where: () => qb, orWhere: () => qb, orderBy: () => qb, getMany: async () => [] }
+                        const qb: any = {
+                            where: () => qb,
+                            andWhere: () => qb,
+                            orWhere: () => qb,
+                            orderBy: () => qb,
+                            getMany: async () => [...messages]
+                        }
                         return qb
                     }
                 }
             }
+            if (table === 'Execution') {
+                return {
+                    find: async () => [...executions].reverse(),
+                    findBy: async () => executions,
+                    findOne: async () => executions[executions.length - 1] ?? null,
+                    findOneBy: async (where?: { id?: string }) => executions.find((row) => !where?.id || row.id === where.id) ?? null,
+                    create: (value: unknown) => value,
+                    save: async (value: Record<string, any>) => {
+                        const row = { id: value.id || `exec-${executions.length + 1}`, ...value }
+                        const index = executions.findIndex((rowSaved) => rowSaved.id === row.id)
+                        if (index >= 0) executions[index] = { ...executions[index], ...row }
+                        else executions.push(row)
+                        return row
+                    },
+                    merge: (target: any, value: any) => Object.assign(target, value),
+                    update: async () => ({ affected: 1 }),
+                    createQueryBuilder: () => {
+                        const qb: any = {
+                            where: () => qb,
+                            andWhere: () => qb,
+                            orWhere: () => qb,
+                            orderBy: () => qb,
+                            getMany: async () => []
+                        }
+                        return qb
+                    }
+                }
+            }
+            return {
+                find: async () => [],
+                findBy: async () => [],
+                findOne: async () => null,
+                findOneBy: async () => null,
+                create: (value: unknown) => value,
+                save: async (value: Record<string, unknown>) => value,
+                merge: (target: any, value: any) => Object.assign(target, value),
+                update: async () => ({ affected: 1 }),
+                createQueryBuilder: () => {
+                    const qb: any = { where: () => qb, andWhere: () => qb, orWhere: () => qb, orderBy: () => qb, getMany: async () => [] }
+                    return qb
+                }
+            }
         }
+        return { getRepository: repo, messages, executions }
     }
 
     function multiFlowData() {
@@ -348,7 +423,13 @@ describe('graph run traces', () => {
         } as any)
     }
 
-    async function runSeq(question: string, chatId: string, action?: Record<string, unknown>) {
+    async function runSeq(
+        question: string,
+        chatId: string,
+        action: Record<string, unknown> | undefined,
+        source: ReturnType<typeof dataSource>,
+        streamed: Array<Record<string, unknown>>
+    ) {
         return executeFlow({
             componentNodes: {
                 seqStart: { filePath: seqFile },
@@ -364,11 +445,19 @@ describe('graph run traces', () => {
                 workspaceId: 'ws-1'
             },
             chatId,
-            appDataSource: dataSource(),
+            appDataSource: source,
             telemetry: { sendTelemetry: jest.fn() },
             cachePool: {},
             usageCacheManager: {},
-            sseStreamer: new Proxy({}, { get: () => () => undefined }),
+            sseStreamer: new Proxy(
+                {},
+                {
+                    get: (_target, name) => {
+                        if (name === 'streamActionEvent') return (_chatId: string, data: Record<string, unknown>) => streamed.push(data)
+                        return () => undefined
+                    }
+                }
+            ),
             baseURL: 'http://127.0.0.1',
             isInternal: true,
             orgId: 'org-1',
@@ -466,35 +555,255 @@ describe('graph run traces', () => {
         expect(model?.attributes['content.output']).toBe('Loaf is ready.')
     })
 
-    it('continues a Sequential Agents approval on the same trace', async () => {
+    it('continues a Sequential Agents approval on the same trace without putting trace ids on the action', async () => {
         process.env.CUTTLELY_OTEL_TRACES = 'true'
         process.env.CUTTLELY_OTEL_TRACES_CONTENT = 'false'
         const chatId = 'c0ffee00-0000-4000-8000-000000000065'
-        const waiting = await runSeq('When is the loaf ready?', chatId)
-        const action = waiting.action as { traceId?: string; spanId?: string; mapping?: { approve?: string } }
+        const source = dataSource()
+        const streamed: Array<Record<string, unknown>> = []
+        const waiting = await runSeq('When is the loaf ready?', chatId, undefined, source, streamed)
+        const action = waiting.action as { id?: string; traceId?: string; spanId?: string; mapping?: { approve?: string } }
         const waitingRoot = memory.spans().find((span) => span.name === 'chatflow.prediction' && !span.parentSpanId)
-        expect(action.traceId).toBe(waitingRoot?.traceId)
-        expect(action.spanId).toBe(waitingRoot?.spanId)
+        expect(action.id).toBeTruthy()
+        expect(action.traceId).toBeUndefined()
+        expect(action.spanId).toBeUndefined()
         expect(action.mapping?.approve).toBe('Yes')
+        expect(streamed[0]?.traceId).toBeUndefined()
+        expect(streamed[0]?.spanId).toBeUndefined()
+        const savedActions = source.messages.map((message) => message.action).filter((value) => typeof value === 'string')
+        expect(savedActions.length).toBeGreaterThan(0)
+        for (const saved of savedActions) {
+            const parsed = JSON.parse(saved) as { traceId?: string; spanId?: string }
+            expect(parsed.traceId).toBeUndefined()
+            expect(parsed.spanId).toBeUndefined()
+        }
         const pending = memory.spans().find((span) => span.name === 'tool' && span.attributes['tool.name'] === 'lookup')
         expect(pending?.attributes['status']).toBe('pending')
-        expect(pending?.attributes['tool.id']).toBe('call-lookup')
-        expect(tokenSum(memory.spans(), 'seqLLM_0')).toEqual({ input: 50, output: 20 })
+        expect(pending?.attributes['node.id']).toBe('seqLLM_0')
 
-        const resumed = await runSeq('Yes', chatId, action)
+        const forged = { ...action, traceId: 'a'.repeat(32), spanId: 'b'.repeat(16) }
+        const resumed = await runSeq('Yes', chatId, forged, source, streamed)
         expect(resumed.text).toBeTruthy()
         const spans = memory.spans()
         const roots = spans.filter((span) => span.name === 'chatflow.prediction')
         expect(roots).toHaveLength(2)
         expect(new Set(roots.map((span) => span.traceId)).size).toBe(1)
         const child = roots.find((span) => span.parentSpanId === waitingRoot?.spanId)
+        expect(child?.traceId).toBe(waitingRoot?.traceId)
+        expect(child?.traceId).not.toBe(forged.traceId)
         expect(child?.attributes['status']).toBe('ok')
-        const ran = spans.find(
-            (span) => span.name === 'tool' && span.attributes['status'] === 'ok' && span.attributes['tool.id'] === 'call-lookup'
-        )
-        expect(ran?.traceId).toBe(waitingRoot?.traceId)
-        expect(tokenSum(spans, 'seqLLM_0')).toEqual({ input: 60, output: 24 })
+        const ran = spans.filter((span) => span.name === 'tool' && span.attributes['status'] === 'ok')
+        expect(ran).toHaveLength(1)
+        const card = (resumed.agentReasoning as Array<{ nodeId?: string; usedTools?: unknown[] }>).find((step) => step.usedTools?.length)
+        expect(ran[0].attributes['node.id']).toBe('seqLLM_0')
+        expect(ran[0].attributes['node.id']).toBe(card?.nodeId)
+        expect(ran[0].attributes['tool.id']).toBe('call-lookup')
+        expect(spans.filter((span) => span.name === 'tool' && String(span.attributes['node.id']).startsWith('tool_'))).toEqual([])
         expect(contentKeys(spans)).toEqual([])
+    })
+
+    it('ignores a forged trace id on a chatflow approval and still continues the stored trace', async () => {
+        process.env.CUTTLELY_OTEL_TRACES = 'true'
+        const flowId = 'a1b2c3d4-3333-4333-8333-333333333333'
+        const chatId = 'c0ffee00-0000-4000-8000-000000000067'
+        const source = dataSource()
+        const chatFile = path.join(dir, 'plain-chat.js')
+        fs.writeFileSync(chatFile, `exports.nodeClass = class { async init() { return this } async run() { return { text: 'ok' } } }\n`)
+        await traceFlow('chatflow', flowId, async () => {
+            rememberTraceContinuation(flowId, chatId, 'action-keep')
+        })
+        const waitingRoot = memory.spans().find((span) => span.name === 'chatflow.prediction')
+        source.messages.push({
+            id: 'msg-keep',
+            chatId,
+            chatflowid: flowId,
+            action: JSON.stringify({ id: 'action-keep', mapping: { approve: 'Yes', reject: 'No', toolCalls: [] } })
+        })
+        const forgedTrace = 'a'.repeat(32)
+        const forgedSpan = 'b'.repeat(16)
+        await executeFlow({
+            componentNodes: { llmChain: { filePath: chatFile } },
+            incomingInput: {
+                question: 'Yes',
+                history: [],
+                action: { id: 'action-keep', traceId: forgedTrace, spanId: forgedSpan }
+            },
+            chatflow: {
+                id: flowId,
+                name: 'Bakery chat',
+                type: 'CHATFLOW',
+                flowData: JSON.stringify({ nodes: [canvasNode('llmChain_0', 'llmChain', 'Chains')], edges: [] }),
+                workspaceId: 'ws-1'
+            },
+            chatId,
+            appDataSource: source,
+            telemetry: { sendTelemetry: jest.fn() },
+            cachePool: {},
+            usageCacheManager: {},
+            baseURL: 'http://127.0.0.1',
+            isInternal: true,
+            orgId: 'org-1',
+            workspaceId: 'ws-1',
+            subscriptionId: 'sub-1',
+            productId: 'prod-1',
+            replay: false
+        } as any)
+        const child = memory.spans().find((span) => span.name === 'chatflow.prediction' && span.parentSpanId === waitingRoot?.spanId)
+        expect(child?.traceId).toBe(waitingRoot?.traceId)
+        expect(child?.traceId).not.toBe(forgedTrace)
+        expect(child?.parentSpanId).not.toBe(forgedSpan)
+
+        memory.reset()
+        await executeFlow({
+            componentNodes: { llmChain: { filePath: chatFile } },
+            incomingInput: {
+                question: 'Yes',
+                history: [],
+                action: { id: 'not-stored', traceId: forgedTrace, spanId: forgedSpan }
+            },
+            chatflow: {
+                id: flowId,
+                name: 'Bakery chat',
+                type: 'CHATFLOW',
+                flowData: JSON.stringify({ nodes: [canvasNode('llmChain_0', 'llmChain', 'Chains')], edges: [] }),
+                workspaceId: 'ws-1'
+            },
+            chatId,
+            appDataSource: source,
+            telemetry: { sendTelemetry: jest.fn() },
+            cachePool: {},
+            usageCacheManager: {},
+            baseURL: 'http://127.0.0.1',
+            isInternal: true,
+            orgId: 'org-1',
+            workspaceId: 'ws-1',
+            subscriptionId: 'sub-1',
+            productId: 'prod-1',
+            replay: false
+        } as any)
+        const fresh = memory.spans().find((span) => span.name === 'chatflow.prediction')
+        expect(fresh?.parentSpanId).toBeUndefined()
+        expect(fresh?.traceId).not.toBe(forgedTrace)
+    })
+
+    it('continues an agentflow approval from the stored execution and ignores ids on that action', async () => {
+        process.env.CUTTLELY_OTEL_TRACES = 'true'
+        const flowId = 'b7c1a6f2-4444-4444-8444-444444444444'
+        const chatId = 'c0ffee00-0000-4000-8000-000000000068'
+        const source = dataSource()
+        const streamed: Array<Record<string, unknown>> = []
+        const nodeFile = path.join(dir, 'human.js')
+        fs.writeFileSync(
+            nodeFile,
+            `exports.nodeClass = class { async run(nodeData, input) { return { id: nodeData.id, name: nodeData.name, input: { question: input }, output: { content: 'ok' } } } }\n`
+        )
+        const nodes = [
+            {
+                id: 'startAgentflow_0',
+                type: 'agentFlow',
+                position: { x: 0, y: 0 },
+                data: {
+                    id: 'startAgentflow_0',
+                    name: 'startAgentflow',
+                    label: 'Start',
+                    inputs: { startInputType: 'chatInput' },
+                    inputParams: [],
+                    inputAnchors: [],
+                    outputAnchors: [],
+                    outputs: {}
+                }
+            },
+            {
+                id: 'humanInputAgentflow_0',
+                type: 'agentFlow',
+                position: { x: 0, y: 0 },
+                data: {
+                    id: 'humanInputAgentflow_0',
+                    name: 'humanInputAgentflow',
+                    label: 'Ask',
+                    inputs: {},
+                    inputParams: [],
+                    inputAnchors: [],
+                    outputAnchors: [],
+                    outputs: {}
+                }
+            }
+        ]
+        const flowData = JSON.stringify({
+            nodes,
+            edges: [{ id: 'e1', source: 'startAgentflow_0', target: 'humanInputAgentflow_0' }]
+        })
+        const sseStreamer = new Proxy(
+            {},
+            {
+                get: (_target, name) => {
+                    if (name === 'streamActionEvent') return (_chatId: string, data: Record<string, unknown>) => streamed.push(data)
+                    return () => undefined
+                }
+            }
+        )
+        const waiting = await executeAgentFlow({
+            componentNodes: { startAgentflow: { filePath: nodeFile }, humanInputAgentflow: { filePath: nodeFile } },
+            incomingInput: { question: 'When is the loaf ready?', streaming: false },
+            chatflow: { id: flowId, name: 'Ask first', type: 'AGENTFLOW', flowData, workspaceId: 'ws-1' },
+            chatId,
+            appDataSource: source,
+            telemetry: { sendTelemetry: jest.fn() },
+            usageCacheManager: {},
+            cachePool: {},
+            sseStreamer,
+            baseURL: 'http://127.0.0.1',
+            isInternal: true,
+            orgId: 'org-1',
+            workspaceId: 'ws-1',
+            subscriptionId: 'sub-1',
+            productId: 'prod-1',
+            replay: false
+        } as any)
+        const action = waiting.action as { id?: string; traceId?: string; spanId?: string }
+        const waitingRoot = memory.spans().find((span) => span.name === 'agentflow.run' && !span.parentSpanId)
+        expect(action.id).toBeTruthy()
+        expect(action.traceId).toBeUndefined()
+        expect(action.spanId).toBeUndefined()
+        expect(streamed[0]?.traceId).toBeUndefined()
+        const savedExecution = source.executions[source.executions.length - 1]
+        const savedSteps = JSON.parse(savedExecution.executionData) as Array<{
+            data?: { output?: { humanInputAction?: { traceId?: string; spanId?: string } } }
+        }>
+        const savedAction = [...savedSteps].reverse().find((step) => step.data?.output?.humanInputAction)?.data?.output?.humanInputAction
+        expect(savedAction?.traceId).toBeUndefined()
+        expect(savedAction?.spanId).toBeUndefined()
+        savedAction!.traceId = 'c'.repeat(32)
+        savedAction!.spanId = 'd'.repeat(16)
+        savedExecution.executionData = JSON.stringify(savedSteps)
+
+        const resumed = await executeAgentFlow({
+            componentNodes: { startAgentflow: { filePath: nodeFile }, humanInputAgentflow: { filePath: nodeFile } },
+            incomingInput: {
+                question: 'Proceed',
+                streaming: false,
+                humanInput: { type: 'proceed', startNodeId: 'humanInputAgentflow_0' }
+            },
+            chatflow: { id: flowId, name: 'Ask first', type: 'AGENTFLOW', flowData, workspaceId: 'ws-1' },
+            chatId,
+            appDataSource: source,
+            telemetry: { sendTelemetry: jest.fn() },
+            usageCacheManager: {},
+            cachePool: {},
+            sseStreamer,
+            baseURL: 'http://127.0.0.1',
+            isInternal: true,
+            orgId: 'org-1',
+            workspaceId: 'ws-1',
+            subscriptionId: 'sub-1',
+            productId: 'prod-1',
+            replay: false
+        } as any)
+        expect(resumed.text).toBeTruthy()
+        const child = memory.spans().find((span) => span.name === 'agentflow.run' && span.parentSpanId === waitingRoot?.spanId)
+        expect(child?.traceId).toBe(waitingRoot?.traceId)
+        expect(child?.traceId).not.toBe('c'.repeat(32))
+        expect(child?.parentSpanId).not.toBe('d'.repeat(16))
     })
 
     it('exports nothing for a Multi Agents run when traces are off', async () => {

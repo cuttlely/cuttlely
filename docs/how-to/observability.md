@@ -88,9 +88,11 @@ Nothing is sent until `CUTTLELY_OTEL_TRACES` is `true`. A publish check sends no
 | Sequential Agents | `chatflow.prediction`                    | A node span for each step that runs, including a tool step, with the same model and tool spans.                                         |
 | Approval resume   | Child of the waiting run                 | The next prediction continues the waiting trace. See below.                                                                             |
 
-A Sequential Agents approval puts the trace id and the root span id on the action the chat sends back. The next prediction's `chatflow.prediction` span is a child of that root, so both parts are one trace. The waiting tool call stays `pending` until that next prediction runs it.
+A Sequential Agents or chatflow approval keeps the trace id and the root span id on the server, keyed by the action, the chat and the flow. The action that is streamed and saved does not include them. The next prediction continues that trace only when the stored message has the same action id. A trace id sent with the request is ignored.
 
-An agentflow approval stores those same ids on the execution. The resume reads them and continues that trace. The chat does not have to send the ids back.
+An agentflow approval keeps those ids the same way. The resume reads the action id from the stored execution and continues that trace. Ids written onto the saved action are ignored.
+
+The waiting tool call stays `pending` until that next prediction runs it. The step that runs the tool is the only one with a tool span for that call. A later step that copies the tool onto its message does not add another.
 
 Harness runs are not in these traces.
 

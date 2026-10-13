@@ -212,23 +212,42 @@ function endError(span: SpanLike | undefined, error: unknown): void {
 const TRACE_ID = /^[0-9a-f]{32}$/i
 const SPAN_ID = /^[0-9a-f]{16}$/i
 
-/** Trace id and root span id carried on an approval action. Invalid values start a new trace. */
-export function traceContinuation(action: unknown): { traceId: string; spanId: string } | undefined {
-    if (!action || typeof action !== 'object') return undefined
-    const record = action as { traceId?: unknown; spanId?: unknown }
-    if (typeof record.traceId !== 'string' || typeof record.spanId !== 'string') return undefined
-    if (!TRACE_ID.test(record.traceId) || !SPAN_ID.test(record.spanId)) return undefined
-    return { traceId: record.traceId.toLowerCase(), spanId: record.spanId.toLowerCase() }
+interface TraceParent {
+    traceId: string
+    spanId: string
 }
 
-/** Copies the active run's trace onto an approval action. No-op when traces are off, so the action is unchanged. */
-export function attachTraceContinuation<T extends Record<string, unknown>>(action: T): T {
-    if (!tracesRequested() || !installed) return action
+/** Waiting-run trace, keyed by flow, chat and action id. Not part of the action sent to the client. */
+const traceParents = new Map<string, TraceParent>()
+
+function continuationKey(flowId: string, chatId: string, actionId: string): string {
+    return `${flowId}\n${chatId}\n${actionId}`
+}
+
+function activeTraceParent(): TraceParent | undefined {
     const span = api().trace.getActiveSpan() as { spanContext?: () => { traceId?: string; spanId?: string } } | undefined
     const current = span?.spanContext?.()
-    if (!current?.traceId || !current.spanId) return action
-    if (!TRACE_ID.test(current.traceId) || !SPAN_ID.test(current.spanId)) return action
-    return { ...action, traceId: current.traceId, spanId: current.spanId }
+    if (!current?.traceId || !current.spanId) return undefined
+    if (!TRACE_ID.test(current.traceId) || !SPAN_ID.test(current.spanId)) return undefined
+    return { traceId: current.traceId.toLowerCase(), spanId: current.spanId.toLowerCase() }
+}
+
+/**
+ * Remember the active run for an approval that was just stored.
+ * The ids stay here. They are not written onto the action.
+ */
+export function rememberTraceContinuation(flowId: string, chatId: string, actionId: string): void {
+    if (!tracesRequested() || !installed) return
+    if (!flowId || !chatId || !actionId) return
+    const parent = activeTraceParent()
+    if (!parent) return
+    traceParents.set(continuationKey(flowId, chatId, actionId), parent)
+}
+
+/** The parent recorded for this stored approval. A request cannot supply one. */
+export function traceContinuationFor(flowId: string, chatId: string, actionId: string): TraceParent | undefined {
+    if (!flowId || !chatId || !actionId) return undefined
+    return traceParents.get(continuationKey(flowId, chatId, actionId))
 }
 
 function continuedContext(continuedFrom?: { traceId: string; spanId: string }): unknown {
@@ -279,11 +298,10 @@ export async function traceChatflowPrediction<T>(
     flowId: string,
     question: () => unknown,
     fn: () => Promise<T>,
-    action?: unknown
+    continuedFrom?: { traceId: string; spanId: string }
 ): Promise<T> {
     if (replay) return silenceRunTraces(fn)
     if (!tracesRequested()) return fn()
-    // An approval echoes the waiting run's trace id. The new prediction is a child of that root.
     return traceFlow(
         'chatflow',
         flowId,
@@ -292,7 +310,7 @@ export async function traceChatflowPrediction<T>(
             noteFlowOutcome(question(), (result as { text?: unknown } | undefined)?.text)
             return result
         },
-        traceContinuation(action)
+        continuedFrom
     )
 }
 
@@ -696,7 +714,7 @@ function emitGraphStep(
     result: unknown
 ): void {
     const messages = messageList(result)
-    if (bucket.tools.length === 0) bucket.tools = usedToolRows(messages)
+    // usedTools on a message can be a copy of a tool an earlier step already ran. Only this step's callbacks are spans.
     fillToolIds(bucket.tools, [...requestedToolCalls(messages), ...usedToolRows(messages)])
     for (const call of bucket.models) {
         if (!call.error && call.input === 0 && call.output === 0) continue
