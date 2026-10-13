@@ -10,7 +10,9 @@ import { PredictionQueue } from '../queue/PredictionQueue'
 import {
     installInMemoryTraces,
     rememberTraceContinuation,
+    setTraceParentClock,
     shutdownCuttlelyTraces,
+    TRACE_PARENT_TTL_MS,
     traceFlow,
     traceGraphNode,
     type FinishedTraceSpan
@@ -494,6 +496,7 @@ describe('graph run traces', () => {
         const workerModels = spans.filter((span) => span.name === 'model' && span.parentSpanId === worker?.spanId)
         expect(workerModels.map((span) => span.attributes['model.name'])).toEqual(['gpt-4o-mini', 'gpt-4o-mini'])
         expect(tokenSum(spans, 'worker_0')).toEqual({ input: 22, output: 9 })
+        expect(spans.filter((span) => span.name === 'model' && span.attributes['node.id'] === 'supervisor_0')).toHaveLength(1)
         expect(tokenSum(spans, 'supervisor_0')).toEqual({ input: 5, output: 2 })
 
         const tool = spans.find((span) => span.name === 'tool' && span.parentSpanId === worker?.spanId)
@@ -804,6 +807,285 @@ describe('graph run traces', () => {
         expect(child?.traceId).toBe(waitingRoot?.traceId)
         expect(child?.traceId).not.toBe('c'.repeat(32))
         expect(child?.parentSpanId).not.toBe('d'.repeat(16))
+    })
+
+    it('exports one model span for a Condition Agent and does not record a wrapped step twice', async () => {
+        process.env.CUTTLELY_OTEL_TRACES = 'true'
+        const gateFile = path.join(dir, 'gate.js')
+        const anchor = JSON.stringify(path.join(__dirname, 'graphTraces.test.ts'))
+        fs.writeFileSync(
+            gateFile,
+            `const { createRequire } = require('module')
+            const req = createRequire(${anchor})
+            const { START, END } = req('@langchain/langgraph')
+            const { AIMessage } = req('@langchain/core/messages')
+            exports.nodeClass = class {
+                async init(nodeData) {
+                    if (nodeData.name === 'seqStart') return { name: 'start', label: 'Start' }
+                    if (nodeData.name === 'seqEnd') {
+                        return { id: nodeData.id, node: END, name: END, label: 'End', type: 'end', predecessorAgents: [{ name: 'gate', type: 'condition' }] }
+                    }
+                    if (nodeData.name === 'seqConditionAgent') {
+                        return {
+                            id: nodeData.id,
+                            name: 'gate',
+                            label: 'Gate',
+                            type: 'condition',
+                            predecessorAgents: [{ name: 'baker' }],
+                            node: async (_state, config) => {
+                                await report(config, { model: 'gpt-4o-mini', input: 7, output: 3, runId: 'cond-1', prompt: 'Which way?' })
+                                return 'Yes'
+                            }
+                        }
+                    }
+                    return {
+                        id: nodeData.id,
+                        name: 'baker',
+                        label: 'Baker',
+                        type: 'llm',
+                        predecessorAgents: [{ name: START }],
+                        node: async (_state, config) => {
+                            await report(config, { model: 'gpt-4o-mini', input: 4, output: 1, runId: 'step-1', prompt: 'Ask' })
+                            return { messages: [new AIMessage({ content: 'ask', additional_kwargs: { nodeId: nodeData.id } })] }
+                        }
+                    }
+                }
+            }
+            async function report(config, call) {
+                const callbacks = config && config.callbacks
+                const handlers = callbacks && callbacks.handlers ? callbacks.handlers : Array.isArray(callbacks) ? callbacks : []
+                for (const handler of handlers) {
+                    try {
+                        if (typeof handler.handleLLMStart === 'function') await handler.handleLLMStart({ kwargs: { modelName: call.model } }, [call.prompt], call.runId)
+                        if (typeof handler.handleLLMEnd === 'function') {
+                            await handler.handleLLMEnd({
+                                generations: [[{ text: 'Yes', message: { usage_metadata: { input_tokens: call.input, output_tokens: call.output }, response_metadata: { model_name: call.model } } }]]
+                            }, call.runId)
+                        }
+                    } catch (error) {}
+                }
+            }
+            `
+        )
+        const flowData = JSON.stringify({
+            nodes: [
+                canvasNode('seqStart_0', 'seqStart', 'Sequential Agents'),
+                canvasNode('seqLLM_0', 'seqLLMNode', 'Sequential Agents'),
+                {
+                    ...canvasNode('seqConditionAgent_0', 'seqConditionAgent', 'Sequential Agents'),
+                    data: {
+                        ...canvasNode('seqConditionAgent_0', 'seqConditionAgent', 'Sequential Agents').data,
+                        outputAnchors: [{ options: [{ id: 'yes-handle', label: 'Yes' }] }]
+                    }
+                },
+                canvasNode('seqEnd_0', 'seqEnd', 'Sequential Agents')
+            ],
+            edges: [
+                { id: 'e1', source: 'seqStart_0', target: 'seqLLM_0', targetHandle: 'seqLLM_0-input-sequentialNode' },
+                { id: 'e2', source: 'seqLLM_0', target: 'seqConditionAgent_0', targetHandle: 'seqConditionAgent_0-input-sequentialNode' },
+                {
+                    id: 'e3',
+                    source: 'seqConditionAgent_0',
+                    target: 'seqEnd_0',
+                    sourceHandle: 'yes-handle',
+                    targetHandle: 'seqEnd_0-input-sequentialNode'
+                }
+            ]
+        })
+        await executeFlow({
+            componentNodes: {
+                seqStart: { filePath: gateFile },
+                seqLLMNode: { filePath: gateFile },
+                seqConditionAgent: { filePath: gateFile },
+                seqEnd: { filePath: gateFile }
+            },
+            incomingInput: { question: 'Which way?', history: [] },
+            chatflow: {
+                id: 'c8d2b7a3-5555-4555-8555-555555555555',
+                name: 'Gate',
+                type: 'MULTIAGENT',
+                flowData,
+                workspaceId: 'ws-1'
+            },
+            chatId: 'c0ffee00-0000-4000-8000-000000000069',
+            appDataSource: dataSource(),
+            telemetry: { sendTelemetry: jest.fn() },
+            cachePool: {},
+            usageCacheManager: {},
+            sseStreamer: new Proxy({}, { get: () => () => undefined }),
+            baseURL: 'http://127.0.0.1',
+            isInternal: true,
+            orgId: 'org-1',
+            workspaceId: 'ws-1',
+            subscriptionId: 'sub-1',
+            productId: 'prod-1',
+            replay: false
+        } as any)
+        const spans = memory.spans()
+        const condition = spans.filter((span) => span.name === 'model' && span.attributes['node.id'] === 'seqConditionAgent_0')
+        expect(condition).toHaveLength(1)
+        expect(condition[0].attributes['tokens.input']).toBe(7)
+        expect(condition[0].attributes['tokens.output']).toBe(3)
+        const step = spans.filter((span) => span.name === 'model' && span.attributes['node.id'] === 'seqLLM_0')
+        expect(step).toHaveLength(1)
+        expect(step[0].attributes['tokens.input']).toBe(4)
+        expect(step[0].attributes['tokens.output']).toBe(1)
+    })
+
+    it('starts a new agentflow trace when only an older stop is still stored', async () => {
+        process.env.CUTTLELY_OTEL_TRACES = 'true'
+        const flowId = 'b7c1a6f2-6666-4666-8666-666666666666'
+        const chatId = 'c0ffee00-0000-4000-8000-000000000070'
+        const source = dataSource()
+        const nodeFile = path.join(dir, 'two-stop.js')
+        fs.writeFileSync(
+            nodeFile,
+            `exports.nodeClass = class { async run(nodeData, input) { return { id: nodeData.id, name: nodeData.name, input: { question: input }, output: { content: 'ok' } } } }\n`
+        )
+        await traceFlow('agentflow', flowId, async () => {
+            rememberTraceContinuation(flowId, chatId, 'old-action')
+        })
+        const oldRoot = memory.spans().find((span) => span.name === 'agentflow.run')
+        source.executions.push({
+            id: 'exec-two',
+            state: 'STOPPED',
+            sessionId: chatId,
+            agentflowId: flowId,
+            workspaceId: 'ws-1',
+            executionData: JSON.stringify([
+                {
+                    nodeId: 'humanA',
+                    nodeLabel: 'First',
+                    status: 'STOPPED',
+                    data: { name: 'humanInputAgentflow', output: { humanInputAction: { id: 'old-action' } } },
+                    previousNodeIds: []
+                },
+                {
+                    nodeId: 'humanB',
+                    nodeLabel: 'Second',
+                    status: 'STOPPED',
+                    data: { name: 'humanInputAgentflow', output: { humanInputAction: { id: 'new-action' } } },
+                    previousNodeIds: []
+                }
+            ])
+        })
+        const human = (id: string, label: string) => ({
+            id,
+            type: 'agentFlow',
+            position: { x: 0, y: 0 },
+            data: {
+                id,
+                name: 'humanInputAgentflow',
+                label,
+                inputs: {},
+                inputParams: [],
+                inputAnchors: [],
+                outputAnchors: [],
+                outputs: {}
+            }
+        })
+        const flowData = JSON.stringify({
+            nodes: [
+                {
+                    id: 'startAgentflow_0',
+                    type: 'agentFlow',
+                    position: { x: 0, y: 0 },
+                    data: {
+                        id: 'startAgentflow_0',
+                        name: 'startAgentflow',
+                        label: 'Start',
+                        inputs: { startInputType: 'chatInput' },
+                        inputParams: [],
+                        inputAnchors: [],
+                        outputAnchors: [],
+                        outputs: {}
+                    }
+                },
+                human('humanA', 'First'),
+                human('humanB', 'Second')
+            ],
+            edges: []
+        })
+        await executeAgentFlow({
+            componentNodes: { startAgentflow: { filePath: nodeFile }, humanInputAgentflow: { filePath: nodeFile } },
+            incomingInput: { question: 'Proceed', humanInput: { type: 'proceed', startNodeId: 'humanB' } },
+            chatflow: { id: flowId, name: 'Two stops', type: 'AGENTFLOW', flowData, workspaceId: 'ws-1' },
+            chatId,
+            appDataSource: source,
+            telemetry: { sendTelemetry: jest.fn() },
+            usageCacheManager: {},
+            cachePool: {},
+            sseStreamer: new Proxy({}, { get: () => () => undefined }),
+            baseURL: 'http://127.0.0.1',
+            isInternal: true,
+            orgId: 'org-1',
+            workspaceId: 'ws-1',
+            subscriptionId: 'sub-1',
+            productId: 'prod-1',
+            replay: false
+        } as any)
+        const resumed = memory.spans().filter((span) => span.name === 'agentflow.run' && span.spanId !== oldRoot?.spanId)
+        expect(resumed).toHaveLength(1)
+        expect(resumed[0].parentSpanId).toBeUndefined()
+        expect(resumed[0].traceId).not.toBe(oldRoot?.traceId)
+    })
+
+    it('starts a new trace when the stored parent has expired', async () => {
+        process.env.CUTTLELY_OTEL_TRACES = 'true'
+        const flowId = 'a1b2c3d4-7777-4777-8777-777777777777'
+        const chatId = 'c0ffee00-0000-4000-8000-000000000071'
+        const source = dataSource()
+        const chatFile = path.join(dir, 'expired-chat.js')
+        fs.writeFileSync(chatFile, `exports.nodeClass = class { async init() { return this } async run() { return { text: 'ok' } } }\n`)
+        let now = 1_800_000_000_000
+        setTraceParentClock(() => now)
+        try {
+            await traceFlow('chatflow', flowId, async () => {
+                rememberTraceContinuation(flowId, chatId, 'action-expired')
+            })
+            source.messages.push({
+                id: 'msg-expired',
+                chatId,
+                chatflowid: flowId,
+                action: JSON.stringify({ id: 'action-expired' })
+            })
+            now += TRACE_PARENT_TTL_MS
+            await executeFlow({
+                componentNodes: { llmChain: { filePath: chatFile } },
+                incomingInput: {
+                    question: 'Yes',
+                    history: [],
+                    action: { id: 'action-expired', traceId: 'a'.repeat(32), spanId: 'b'.repeat(16) }
+                },
+                chatflow: {
+                    id: flowId,
+                    name: 'Bakery chat',
+                    type: 'CHATFLOW',
+                    flowData: JSON.stringify({ nodes: [canvasNode('llmChain_0', 'llmChain', 'Chains')], edges: [] }),
+                    workspaceId: 'ws-1'
+                },
+                chatId,
+                appDataSource: source,
+                telemetry: { sendTelemetry: jest.fn() },
+                cachePool: {},
+                usageCacheManager: {},
+                baseURL: 'http://127.0.0.1',
+                isInternal: true,
+                orgId: 'org-1',
+                workspaceId: 'ws-1',
+                subscriptionId: 'sub-1',
+                productId: 'prod-1',
+                replay: false
+            } as any)
+        } finally {
+            setTraceParentClock()
+        }
+        const fresh = memory
+            .spans()
+            .filter((span) => span.name === 'chatflow.prediction')
+            .at(-1)
+        expect(fresh?.parentSpanId).toBeUndefined()
+        expect(fresh?.traceId).not.toBe('a'.repeat(32))
     })
 
     it('exports nothing for a Multi Agents run when traces are off', async () => {

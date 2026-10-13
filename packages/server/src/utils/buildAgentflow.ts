@@ -15,6 +15,7 @@ import {
     tracingEnvEnabled
 } from '@cuttlely/components'
 import {
+    finishTraceContinuation,
     noteFlowOutcome,
     rememberTraceContinuation,
     silenceRunTraces,
@@ -1656,7 +1657,23 @@ export function parseStoredForm(formString: string): ParsedFormString {
 /*
  * Function to traverse the flow graph and execute the nodes
  */
-async function agentflowContinuation(params: IExecuteAgentFlowParams): Promise<{ traceId: string; spanId: string } | undefined> {
+function waitingApprovalId(
+    data: Array<{ nodeId?: string; status?: string; data?: { output?: { humanInputAction?: { id?: unknown } } } }>,
+    startNodeId: string | undefined
+): string | undefined {
+    let nodeId = startNodeId
+    if (!nodeId) nodeId = [...data].reverse().find((step) => step.status === 'STOPPED')?.nodeId
+    if (!nodeId) return undefined
+    const step =
+        [...data].reverse().find((item) => item.nodeId === nodeId && item.status === 'STOPPED') ??
+        [...data].reverse().find((item) => item.nodeId === nodeId)
+    const actionId = step?.data?.output?.humanInputAction?.id
+    return typeof actionId === 'string' && actionId ? actionId : undefined
+}
+
+async function agentflowContinuation(
+    params: IExecuteAgentFlowParams
+): Promise<{ parent: { traceId: string; spanId: string }; actionId: string } | undefined> {
     if (!params.incomingInput?.humanInput || params.replay || params.isRecursive) return undefined
     if (process.env.CUTTLELY_OTEL_TRACES !== 'true') return undefined
     try {
@@ -1672,15 +1689,18 @@ async function agentflowContinuation(params: IExecuteAgentFlowParams): Promise<{
             (row) => (!row?.sessionId || row.sessionId === params.chatId) && (!row?.agentflowId || row.agentflowId === params.chatflow.id)
         )
         if (!latest?.executionData) return undefined
-        const data = JSON.parse(latest.executionData) as Array<{ data?: { output?: { humanInputAction?: { id?: unknown } } } }>
+        const data = JSON.parse(latest.executionData) as Array<{
+            nodeId?: string
+            status?: string
+            data?: { output?: { humanInputAction?: { id?: unknown } } }
+        }>
         if (!Array.isArray(data)) return undefined
-        for (let index = data.length - 1; index >= 0; index -= 1) {
-            const actionId = data[index]?.data?.output?.humanInputAction?.id
-            if (typeof actionId !== 'string' || !actionId) continue
-            // Ids on the saved action are ignored. Only the server-side record for this action, chat and flow is used.
-            const parent = traceContinuationFor(params.chatflow.id, params.chatId, actionId)
-            if (parent) return parent
-        }
+        // Same stopped step the resume runs. An older stop still in the map must not become the parent.
+        const actionId = waitingApprovalId(data, params.incomingInput.humanInput.startNodeId)
+        if (!actionId) return undefined
+        const parent = traceContinuationFor(params.chatflow.id, params.chatId, actionId)
+        if (!parent) return undefined
+        return { parent, actionId }
     } catch {
         // A resume still runs when the waiting trace cannot be read. It starts a new trace.
     }
@@ -1693,18 +1713,20 @@ export const executeAgentFlow = async (params: IExecuteAgentFlowParams): Promise
     // When traces are off this is one environment check and the body runs once.
     // isRecursive is the iteration guard: a nested pass joins the active trace instead of starting another root.
     if (!params.isRecursive && process.env.CUTTLELY_OTEL_TRACES === 'true') {
-        // The client does not send the waiting action back. The saved execution carries the trace id.
-        const continuedFrom = await agentflowContinuation(params)
-        return traceFlow(
+        // The client does not send the waiting action back. The stopped step's action id selects the stored parent.
+        const continued = await agentflowContinuation(params)
+        const result = await traceFlow(
             'agentflow',
             params.chatflow.id,
             async () => {
-                const result = await runAgentFlow(params)
-                noteFlowOutcome(params.incomingInput?.question ?? params.incomingInput?.form, result?.text, result?.status)
-                return result
+                const traced = await runAgentFlow(params)
+                noteFlowOutcome(params.incomingInput?.question ?? params.incomingInput?.form, traced?.text, traced?.status)
+                return traced
             },
-            continuedFrom
+            continued?.parent
         )
+        if (continued) finishTraceContinuation(params.chatflow.id, params.chatId, continued.actionId)
+        return result
     }
     return runAgentFlow(params)
 }

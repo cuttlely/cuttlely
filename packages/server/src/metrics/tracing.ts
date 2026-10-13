@@ -212,24 +212,56 @@ function endError(span: SpanLike | undefined, error: unknown): void {
 const TRACE_ID = /^[0-9a-f]{32}$/i
 const SPAN_ID = /^[0-9a-f]{16}$/i
 
+/** An approval that is never resumed is forgotten after a day. */
+export const TRACE_PARENT_TTL_MS = 24 * 60 * 60 * 1000
+/** After a resume finishes, a client retry can still join that trace for this long. */
+export const TRACE_PARENT_GRACE_MS = 2 * 60 * 1000
+/** Oldest approvals are dropped once the process is holding this many. */
+export const TRACE_PARENT_CAP = 1000
+
 interface TraceParent {
     traceId: string
     spanId: string
+    storedAt: number
+    resumeFinishedAt?: number
 }
 
 /** Waiting-run trace, keyed by flow, chat and action id. Not part of the action sent to the client. */
 const traceParents = new Map<string, TraceParent>()
+let traceParentClock: () => number = () => Date.now()
+
+/** Tests move the clock. Production uses the wall clock. */
+export function setTraceParentClock(clock?: () => number): void {
+    traceParentClock = clock ?? (() => Date.now())
+}
 
 function continuationKey(flowId: string, chatId: string, actionId: string): string {
     return `${flowId}\n${chatId}\n${actionId}`
 }
 
-function activeTraceParent(): TraceParent | undefined {
+function activeTraceParent(): Pick<TraceParent, 'traceId' | 'spanId'> | undefined {
     const span = api().trace.getActiveSpan() as { spanContext?: () => { traceId?: string; spanId?: string } } | undefined
     const current = span?.spanContext?.()
     if (!current?.traceId || !current.spanId) return undefined
     if (!TRACE_ID.test(current.traceId) || !SPAN_ID.test(current.spanId)) return undefined
     return { traceId: current.traceId.toLowerCase(), spanId: current.spanId.toLowerCase() }
+}
+
+function parentExpired(entry: TraceParent, now: number): boolean {
+    if (now - entry.storedAt >= TRACE_PARENT_TTL_MS) return true
+    if (entry.resumeFinishedAt !== undefined && now >= entry.resumeFinishedAt + TRACE_PARENT_GRACE_MS) return true
+    return false
+}
+
+function pruneTraceParents(now: number): void {
+    for (const [key, entry] of traceParents) {
+        if (parentExpired(entry, now)) traceParents.delete(key)
+    }
+    while (traceParents.size > TRACE_PARENT_CAP) {
+        const oldest = traceParents.keys().next().value
+        if (oldest === undefined) break
+        traceParents.delete(oldest)
+    }
 }
 
 /**
@@ -241,13 +273,37 @@ export function rememberTraceContinuation(flowId: string, chatId: string, action
     if (!flowId || !chatId || !actionId) return
     const parent = activeTraceParent()
     if (!parent) return
-    traceParents.set(continuationKey(flowId, chatId, actionId), parent)
+    const now = traceParentClock()
+    const key = continuationKey(flowId, chatId, actionId)
+    if (traceParents.has(key)) traceParents.delete(key)
+    pruneTraceParents(now)
+    while (traceParents.size >= TRACE_PARENT_CAP) {
+        const oldest = traceParents.keys().next().value
+        if (oldest === undefined) break
+        traceParents.delete(oldest)
+    }
+    traceParents.set(key, { ...parent, storedAt: now })
 }
 
-/** The parent recorded for this stored approval. A request cannot supply one. */
-export function traceContinuationFor(flowId: string, chatId: string, actionId: string): TraceParent | undefined {
+/** The parent recorded for this stored approval. A request cannot supply one. A miss is undefined. */
+export function traceContinuationFor(flowId: string, chatId: string, actionId: string): { traceId: string; spanId: string } | undefined {
     if (!flowId || !chatId || !actionId) return undefined
-    return traceParents.get(continuationKey(flowId, chatId, actionId))
+    const now = traceParentClock()
+    pruneTraceParents(now)
+    const entry = traceParents.get(continuationKey(flowId, chatId, actionId))
+    if (!entry || parentExpired(entry, now)) {
+        if (entry) traceParents.delete(continuationKey(flowId, chatId, actionId))
+        return undefined
+    }
+    return { traceId: entry.traceId, spanId: entry.spanId }
+}
+
+/** The resume finished. A retry can still join until the grace period ends. */
+export function finishTraceContinuation(flowId: string, chatId: string, actionId: string): void {
+    if (!flowId || !chatId || !actionId) return
+    const entry = traceParents.get(continuationKey(flowId, chatId, actionId))
+    if (!entry || entry.resumeFinishedAt !== undefined) return
+    entry.resumeFinishedAt = traceParentClock()
 }
 
 function continuedContext(continuedFrom?: { traceId: string; spanId: string }): unknown {
@@ -741,6 +797,10 @@ function emitGraphStep(
     }
 }
 
+function isSharedRunTraceHandler(callback: unknown): boolean {
+    return (callback as { name?: string } | undefined)?.name === 'cuttlely_otel'
+}
+
 function attachCollector(config: unknown, collector: object): unknown {
     const record = config && typeof config === 'object' ? (config as { callbacks?: unknown }) : undefined
     const callbacks = record?.callbacks
@@ -748,8 +808,26 @@ function attachCollector(config: unknown, collector: object): unknown {
         ;(callbacks as { handlers: object[] }).handlers.push(collector)
         return config
     }
-    if (Array.isArray(callbacks)) return { ...(record ?? {}), callbacks: [...callbacks, collector] }
+    if (Array.isArray(callbacks)) {
+        const kept = callbacks.filter((callback) => !isSharedRunTraceHandler(callback))
+        return { ...(record ?? {}), callbacks: [...kept, collector] }
+    }
     return { ...(record ?? {}), callbacks: [collector] }
+}
+
+/** Hide the stream's run-trace handler while this step records its own spans, then put it back. */
+function hideSharedRunTraceHandler(config: unknown): () => void {
+    const handlers = (config as { callbacks?: { handlers?: object[] } } | undefined)?.callbacks?.handlers
+    if (!Array.isArray(handlers)) return () => undefined
+    const hidden: Array<{ index: number; handler: object }> = []
+    for (let index = handlers.length - 1; index >= 0; index -= 1) {
+        if (!isSharedRunTraceHandler(handlers[index])) continue
+        hidden.push({ index, handler: handlers[index] })
+        handlers.splice(index, 1)
+    }
+    return () => {
+        for (const item of hidden.reverse()) handlers.splice(Math.min(item.index, handlers.length), 0, item.handler)
+    }
 }
 
 function detachCollector(config: unknown, collector: object): void {
@@ -770,6 +848,7 @@ async function traceNodeBody(
     const bucket = { models: [] as GraphModelCall[], tools: [] as GraphToolCall[] }
     const collector = stepCollector(bucket)
     const next = attachCollector(config, collector)
+    const restoreHandler = hideSharedRunTraceHandler(next)
     try {
         return await withNodeSpan(nodeId, nodeType, async () => {
             try {
@@ -782,6 +861,7 @@ async function traceNodeBody(
             }
         })
     } finally {
+        restoreHandler()
         detachCollector(next, collector)
     }
 }

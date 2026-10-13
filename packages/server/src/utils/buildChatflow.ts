@@ -85,7 +85,7 @@ import { OSS_PRODUCT_ID } from '../identity/ossPlatform'
 import { getWorkspaceSearchOptions } from '../identity/workspaceScope'
 import { OMIT_QUEUE_JOB_DATA } from './constants'
 import { executeAgentFlow } from './buildAgentflow'
-import { traceChatflowPrediction, traceContinuationFor, withNodeSpan } from '../metrics/tracing'
+import { finishTraceContinuation, traceChatflowPrediction, traceContinuationFor, withNodeSpan } from '../metrics/tracing'
 import { getClientAbortSignal, onAbort, runWithAbortSignal } from './clientAbort'
 import { isStreamingValue } from './streaming'
 import { Workspace } from '../database/entities/identity'
@@ -605,8 +605,10 @@ export const executeFlow = async ({
         })
     }
 
-    const continuedFrom = await parentFromStoredAction(appDataSource, chatflow.id, chatId, incomingInput.action)
-    return traceChatflowPrediction(
+    const continuedFrom =
+        replay === true ? undefined : await parentFromStoredAction(appDataSource, chatflow.id, chatId, incomingInput.action)
+    const actionId = incomingInput.action?.id
+    const result = await traceChatflowPrediction(
         replay === true,
         chatflow.id,
         () => incomingInput.question,
@@ -1088,6 +1090,8 @@ export const executeFlow = async ({
         },
         continuedFrom
     )
+    if (continuedFrom && typeof actionId === 'string') finishTraceContinuation(chatflow.id, chatId, actionId)
+    return result
 }
 
 /**

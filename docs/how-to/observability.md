@@ -88,9 +88,11 @@ Nothing is sent until `CUTTLELY_OTEL_TRACES` is `true`. A publish check sends no
 | Sequential Agents | `chatflow.prediction`                    | A node span for each step that runs, including a tool step, with the same model and tool spans.                                         |
 | Approval resume   | Child of the waiting run                 | The next prediction continues the waiting trace. See below.                                                                             |
 
-A Sequential Agents or chatflow approval keeps the trace id and the root span id on the server, keyed by the action, the chat and the flow. The action that is streamed and saved does not include them. The next prediction continues that trace only when the stored message has the same action id. A trace id sent with the request is ignored.
+A Sequential Agents or chatflow approval keeps the trace id and the root span id on the server, keyed by the action, the chat and the flow. The action that is streamed and saved does not include them. The next prediction continues that trace only when the stored message has the same action id. A trace id sent with the request is ignored. The record is kept for at most 24 hours, the oldest records are dropped when the server is holding 1,000 of them, and it is removed two minutes after the resume finishes so a retry can still join.
 
-An agentflow approval keeps those ids the same way. The resume reads the action id from the stored execution and continues that trace. Ids written onto the saved action are ignored.
+An agentflow approval keeps those ids the same way. The resume uses the action on the stopped step it is continuing (the step named by the request, otherwise the last stopped step). Ids written onto the saved action are ignored. If that step's record is already gone, the resume starts a new trace.
+
+A Condition Agent calls its model from the route, not from a graph node. That call is still one model span on the condition step.
 
 The waiting tool call stays `pending` until that next prediction runs it. The step that runs the tool is the only one with a tool span for that call. A later step that copies the tool onto its message does not add another.
 

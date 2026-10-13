@@ -9,10 +9,17 @@ import path from 'path'
 import { executeAgentFlow } from '../utils/buildAgentflow'
 import { executeFlow } from '../utils/buildChatflow'
 import {
+    finishTraceContinuation,
     flushCuttlelyTraces,
     installInMemoryTraces,
     registerCuttlelyTraces,
+    rememberTraceContinuation,
+    setTraceParentClock,
     shutdownCuttlelyTraces,
+    TRACE_PARENT_CAP,
+    TRACE_PARENT_GRACE_MS,
+    TRACE_PARENT_TTL_MS,
+    traceContinuationFor,
     traceFlow,
     tracedNode,
     tracesInstalled,
@@ -1546,5 +1553,57 @@ describe('OTLP HTTP export', () => {
         } finally {
             await new Promise((resolve) => server.close(resolve))
         }
+    })
+})
+
+describe('approval trace retention', () => {
+    let now = 1_700_000_000_000
+
+    beforeAll(() => {
+        installInMemoryTraces()
+    })
+
+    beforeEach(() => {
+        process.env.CUTTLELY_OTEL_TRACES = 'true'
+        now = 1_700_000_000_000
+        setTraceParentClock(() => now)
+    })
+
+    afterEach(() => {
+        delete process.env.CUTTLELY_OTEL_TRACES
+        setTraceParentClock()
+    })
+
+    async function remember(actionId: string): Promise<void> {
+        await traceFlow('chatflow', 'flow-keep', async () => {
+            rememberTraceContinuation('flow-keep', 'chat-keep', actionId)
+        })
+    }
+
+    it('drops a parent after the resume grace period and keeps it for a retry until then', async () => {
+        await remember('action-done')
+        const parent = traceContinuationFor('flow-keep', 'chat-keep', 'action-done')
+        expect(parent?.traceId).toBeTruthy()
+        finishTraceContinuation('flow-keep', 'chat-keep', 'action-done')
+        expect(traceContinuationFor('flow-keep', 'chat-keep', 'action-done')).toEqual(parent)
+        now += TRACE_PARENT_GRACE_MS
+        expect(traceContinuationFor('flow-keep', 'chat-keep', 'action-done')).toBeUndefined()
+    })
+
+    it('drops a parent when the day-long wait expires', async () => {
+        await remember('action-old')
+        expect(traceContinuationFor('flow-keep', 'chat-keep', 'action-old')).toBeDefined()
+        now += TRACE_PARENT_TTL_MS
+        expect(traceContinuationFor('flow-keep', 'chat-keep', 'action-old')).toBeUndefined()
+    })
+
+    it('evicts the oldest parent when the cap is full', async () => {
+        await traceFlow('chatflow', 'flow-keep', async () => {
+            for (let index = 0; index < TRACE_PARENT_CAP + 1; index += 1) {
+                rememberTraceContinuation('flow-keep', 'chat-keep', `action-${index}`)
+            }
+        })
+        expect(traceContinuationFor('flow-keep', 'chat-keep', 'action-0')).toBeUndefined()
+        expect(traceContinuationFor('flow-keep', 'chat-keep', `action-${TRACE_PARENT_CAP}`)?.traceId).toBeTruthy()
     })
 })

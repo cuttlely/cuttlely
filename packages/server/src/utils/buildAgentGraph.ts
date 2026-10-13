@@ -703,7 +703,7 @@ const compileMultiAgentsGraph = async (params: MultiAgentsGraphParams) => {
                 },
                 {
                     recursionLimit: supervisorResult?.recursionLimit ?? 100,
-                    callbacks: [loggerHandler, ...withoutRunTraceHandler(callbacks)],
+                    callbacks: [loggerHandler, ...callbacks],
                     configurable: config
                 }
             )
@@ -898,7 +898,8 @@ const compileSeqAgentsGraph = async (params: SeqAgentsGraphParams) => {
             } else {
                 conditionalEdges[conditionNodeId] = {
                     nodes: { [conditionOutputAnchorLabel]: nodeInstance.name },
-                    func: conditionNode.data.instance.node
+                    // The route calls the model outside addNode. Wrap it so that call is still a step span.
+                    func: traceGraphNode(conditionNode.data.id, conditionNode.data.name, conditionNode.data.instance.node)
                 }
             }
         }
@@ -971,7 +972,7 @@ const compileSeqAgentsGraph = async (params: SeqAgentsGraphParams) => {
                                 seqGraph = await agentInstance.agentInterruptToolFunc(
                                     seqGraph,
                                     undefined,
-                                    nextNode.data.instance.node,
+                                    traceGraphNode(nextNode.data.id, nextNode.data.name, nextNode.data.instance.node),
                                     interruptedRouteMapping[conditionNode]
                                 )
                             } else {
@@ -1150,7 +1151,7 @@ const compileSeqAgentsGraph = async (params: SeqAgentsGraphParams) => {
             }
         }
         return await graph.stream(humanMsg, {
-            callbacks: [loggerHandler, ...withoutRunTraceHandler(callbacks)],
+            callbacks: [loggerHandler, ...callbacks],
             configurable: config
         })
     } catch (e) {
@@ -1168,11 +1169,6 @@ function traceAddedGraphNodes(graph: { addNode: (...args: any[]) => any }, resol
         const meta = resolve(name)
         return original(key, traceGraphNode(meta.id, meta.type, action), options)
     }
-}
-
-/** The graph records its own model and tool spans. The shared run-trace handler would record them again. */
-function withoutRunTraceHandler(callbacks: readonly any[]): any[] {
-    return callbacks.filter((callback) => callback?.name !== 'cuttlely_otel')
 }
 
 const getSortedDepthNodes = (depthQueue: IDepthQueue) => {
