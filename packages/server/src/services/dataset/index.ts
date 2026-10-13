@@ -1,9 +1,10 @@
 import { Request } from 'express'
 import { StatusCodes } from 'http-status-codes'
 import { Readable } from 'stream'
-import { In, LessThanOrEqual } from 'typeorm'
+import { In, LessThanOrEqual, MoreThanOrEqual } from 'typeorm'
 import { ChatFlow, EnumChatflowType } from '../../database/entities/ChatFlow'
 import { ChatMessage } from '../../database/entities/ChatMessage'
+import { ChatMessageFeedback } from '../../database/entities/ChatMessageFeedback'
 import { Dataset } from '../../database/entities/Dataset'
 import { DatasetRow } from '../../database/entities/DatasetRow'
 import { AppError } from '../../errors/appError'
@@ -12,6 +13,14 @@ import { hasAnyPermission } from '../../identity/rbac'
 import { getRunningExpressApp } from '../../utils/getRunningExpressApp'
 
 const CHAT_MESSAGE_SOURCE = 'chat_message'
+const CHAT_RATING_SOURCE = 'chat_rating'
+const RATING_VALUES = new Set(['THUMBS_UP', 'THUMBS_DOWN'])
+// One call does not copy an unbounded history. Callers can ask for fewer.
+export const RATING_IMPORT_CAP = 500
+const RATING_PAGE = 200
+const RATING_PREVIEW_ROWS = 5
+const RATING_PREVIEW_CHARS = 160
+const RATING_DAY_MS = 24 * 60 * 60 * 1000
 
 function viewPermissionForFlow(type: string | undefined): string {
     if (type === EnumChatflowType.AGENTFLOW || type === EnumChatflowType.MULTIAGENT) return 'agentflows:view'
@@ -368,6 +377,10 @@ const updateDatasetRow = async (id: string, body: any) => {
 
         item.input = body.input
         item.output = body.output
+        // Filling the expected answer clears the marker. Clearing a thumbs-down row brings the marker back.
+        if (item.needsExpectedAnswer || item.sourceRating === 'THUMBS_DOWN') {
+            item.needsExpectedAnswer = !String(body.output ?? '').trim()
+        }
         const result = await appServer.AppDataSource.getRepository(DatasetRow).save(item)
         await changeUpdateOnDataset(item.datasetId, body.workspaceId)
         return result
@@ -434,6 +447,41 @@ const patchDeleteRows = async (ids: string[] = [], workspaceId: string) => {
     }
 }
 
+// The nearest earlier user message in the same chat. Empty when that question is missing.
+async function questionBeforeAnswer(message: ChatMessage): Promise<string | null> {
+    const appServer = getRunningExpressApp()
+    const questions = await appServer.AppDataSource.getRepository(ChatMessage).find({
+        where: {
+            chatflowid: message.chatflowid,
+            chatId: message.chatId,
+            role: 'userMessage',
+            createdDate: LessThanOrEqual(message.createdDate)
+        },
+        order: { createdDate: 'DESC', id: 'DESC' },
+        take: 1
+    })
+    const question = questions[0]
+    const input = String(question?.content ?? '')
+    if (!question || input.trim().length === 0) return null
+    return input
+}
+
+function clipRatingPreview(text: string): string {
+    const value = text.replace(/\s+/g, ' ').trim()
+    if (value.length <= RATING_PREVIEW_CHARS) return value
+    return `${value.slice(0, RATING_PREVIEW_CHARS)}…`
+}
+
+type RatingPlan = {
+    feedbackId: string
+    messageId: string
+    input: string
+    output: string
+    rating: 'THUMBS_UP' | 'THUMBS_DOWN'
+    needsExpectedAnswer: boolean
+    row: DatasetRow
+}
+
 // Save one chat answer as a dataset row. The input is the question that led to that answer.
 // output defaults to the answer. A second save of the same answer into the same dataset returns the row already stored.
 const addDatasetRowFromChatMessage = async (
@@ -476,19 +524,8 @@ const addDatasetRowFromChatMessage = async (
             throw new AppError(StatusCodes.BAD_REQUEST, 'This message is not an answer.')
         }
 
-        const questions = await appServer.AppDataSource.getRepository(ChatMessage).find({
-            where: {
-                chatflowid: message.chatflowid,
-                chatId: message.chatId,
-                role: 'userMessage',
-                createdDate: LessThanOrEqual(message.createdDate)
-            },
-            order: { createdDate: 'DESC', id: 'DESC' },
-            take: 1
-        })
-        const question = questions[0]
-        const input = String(question?.content ?? '')
-        if (!question || input.trim().length === 0) {
+        const input = await questionBeforeAnswer(message)
+        if (!input) {
             throw new AppError(StatusCodes.BAD_REQUEST, 'No question was found for this answer.')
         }
         const output = typeof body.output === 'string' ? body.output : String(message.content ?? '')
@@ -534,6 +571,172 @@ const addDatasetRowFromChatMessage = async (
     }
 }
 
+// Copy rated answers from one flow into a dataset. A dry run counts them and does not write.
+// A thumbs-up row expects the answer that was given. A thumbs-down row does not: the expected answer stays empty.
+const addDatasetRowsFromRatings = async (
+    body: {
+        datasetId?: unknown
+        flowId?: unknown
+        rating?: unknown
+        days?: unknown
+        limit?: unknown
+        dryRun?: unknown
+    },
+    workspaceId: string,
+    req: Request
+) => {
+    try {
+        if (typeof workspaceId !== 'string' || workspaceId.length === 0) {
+            throw new AppError(StatusCodes.NOT_FOUND, 'Dataset not found')
+        }
+        if (typeof body?.datasetId !== 'string' || body.datasetId.length === 0) {
+            throw new AppError(StatusCodes.BAD_REQUEST, 'datasetId is required')
+        }
+        if (typeof body?.flowId !== 'string' || body.flowId.length === 0) {
+            throw new AppError(StatusCodes.BAD_REQUEST, 'flowId is required')
+        }
+        if (typeof body?.rating !== 'string' || !RATING_VALUES.has(body.rating)) {
+            throw new AppError(StatusCodes.BAD_REQUEST, 'rating must be THUMBS_UP or THUMBS_DOWN.')
+        }
+        if (typeof body?.days !== 'number' || !Number.isInteger(body.days) || body.days < 1 || body.days > 90) {
+            throw new AppError(StatusCodes.BAD_REQUEST, 'days must be a whole number from 1 to 90.')
+        }
+        if (body.limit !== undefined && body.limit !== null) {
+            if (typeof body.limit !== 'number' || !Number.isInteger(body.limit) || body.limit < 1) {
+                throw new AppError(StatusCodes.BAD_REQUEST, 'limit must be a whole number of at least 1.')
+            }
+        }
+        if (body.dryRun !== undefined && typeof body.dryRun !== 'boolean') {
+            throw new AppError(StatusCodes.BAD_REQUEST, 'dryRun must be true or false.')
+        }
+        const rating = body.rating as 'THUMBS_UP' | 'THUMBS_DOWN'
+        const days = body.days
+        const limit = typeof body.limit === 'number' ? Math.min(body.limit, RATING_IMPORT_CAP) : RATING_IMPORT_CAP
+        const dryRun = body.dryRun === true
+        const since = new Date(Date.now() - days * RATING_DAY_MS)
+
+        const appServer = getRunningExpressApp()
+        const dataset = await appServer.AppDataSource.getRepository(Dataset).findOneBy({
+            id: body.datasetId,
+            workspaceId
+        })
+        if (!dataset) throw new AppError(StatusCodes.NOT_FOUND, `Dataset ${body.datasetId} not found`)
+        const flow = await appServer.AppDataSource.getRepository(ChatFlow).findOneBy({
+            id: body.flowId,
+            workspaceId
+        })
+        if (!flow) throw new AppError(StatusCodes.NOT_FOUND, `Flow ${body.flowId} not found`)
+        if (!(await hasAnyPermission(req, viewPermissionForFlow(flow.type)))) {
+            throw new AppError(StatusCodes.FORBIDDEN, 'You do not have permission to view this flow.')
+        }
+
+        const feedbackRepo = appServer.AppDataSource.getRepository(ChatMessageFeedback)
+        const messageRepo = appServer.AppDataSource.getRepository(ChatMessage)
+        const rowRepo = appServer.AppDataSource.getRepository(DatasetRow)
+        const planned: RatingPlan[] = []
+        const seenMessages = new Set<string>()
+        let skipped = 0
+        let offset = 0
+        while (planned.length < limit) {
+            const page = await feedbackRepo.find({
+                where: {
+                    chatflowid: flow.id,
+                    rating,
+                    createdDate: MoreThanOrEqual(since)
+                },
+                order: { createdDate: 'DESC', id: 'DESC' },
+                take: RATING_PAGE,
+                skip: offset
+            })
+            if (!page.length) break
+            const messageIds = [...new Set(page.map((item) => item.messageId).filter((id) => typeof id === 'string' && id.length > 0))]
+            const messages = messageIds.length ? await messageRepo.find({ where: { id: In(messageIds) } }) : []
+            const messageById = new Map(messages.map((item) => [item.id, item]))
+            const existing = messageIds.length
+                ? await rowRepo.find({
+                      where: { datasetId: dataset.id, sourceMessageId: In(messageIds) },
+                      select: { id: true, sourceMessageId: true }
+                  })
+                : []
+            const stored = new Set(existing.map((item) => item.sourceMessageId).filter((id): id is string => Boolean(id)))
+            for (const feedback of page) {
+                if (planned.length >= limit) break
+                const message = messageById.get(feedback.messageId)
+                if (!message || message.role !== 'apiMessage' || message.chatflowid !== flow.id) continue
+                if (stored.has(message.id) || seenMessages.has(message.id)) {
+                    if (!seenMessages.has(message.id)) skipped += 1
+                    seenMessages.add(message.id)
+                    continue
+                }
+                const input = await questionBeforeAnswer(message)
+                if (!input) continue
+                seenMessages.add(message.id)
+                const thumbsDown = rating === 'THUMBS_DOWN'
+                const answer = String(message.content ?? '')
+                const row = new DatasetRow()
+                row.datasetId = dataset.id
+                row.input = input
+                row.output = thumbsDown ? '' : answer
+                row.sourceType = CHAT_RATING_SOURCE
+                row.sourceMessageId = message.id
+                row.sourceFlowId = flow.id
+                row.sourceDate = feedback.createdDate
+                row.sourceFeedbackId = feedback.id
+                row.sourceRating = rating
+                row.sourceFeedbackText = feedback.content ? String(feedback.content) : null
+                row.sourceRejectedAnswer = thumbsDown ? answer : null
+                row.needsExpectedAnswer = thumbsDown
+                planned.push({
+                    feedbackId: feedback.id,
+                    messageId: message.id,
+                    input,
+                    output: row.output,
+                    rating,
+                    needsExpectedAnswer: thumbsDown,
+                    row
+                })
+            }
+            if (page.length < RATING_PAGE) break
+            offset += page.length
+        }
+
+        const preview = planned.slice(0, RATING_PREVIEW_ROWS).map((item) => ({
+            input: clipRatingPreview(item.input),
+            output: clipRatingPreview(item.output),
+            rating: item.rating,
+            feedbackId: item.feedbackId,
+            messageId: item.messageId,
+            needsExpectedAnswer: item.needsExpectedAnswer
+        }))
+        if (dryRun) {
+            return { dryRun: true, count: planned.length, skipped, preview }
+        }
+        if (!planned.length) {
+            return { dryRun: false, count: 0, skipped, preview }
+        }
+
+        await appServer.AppDataSource.transaction(async (entityManager) => {
+            const rows = entityManager.getRepository(DatasetRow)
+            const maxValueEntity = await rows.find({
+                where: { datasetId: dataset.id },
+                order: { sequenceNo: 'DESC' },
+                take: 1
+            })
+            let sequenceNo = maxValueEntity.length > 0 ? maxValueEntity[0].sequenceNo + 1 : 0
+            for (const item of planned) {
+                item.row.sequenceNo = sequenceNo
+                sequenceNo += 1
+                await rows.save(item.row)
+            }
+            await changeUpdateOnDataset(dataset.id, workspaceId, entityManager)
+        })
+        return { dryRun: false, count: planned.length, skipped, preview }
+    } catch (error) {
+        if (error instanceof AppError) throw error
+        throw new AppError(StatusCodes.INTERNAL_SERVER_ERROR, `Error: datasetService.addDatasetRowsFromRatings - ${getErrorMessage(error)}`)
+    }
+}
+
 export default {
     getAllDatasets,
     getDataset,
@@ -542,6 +745,7 @@ export default {
     deleteDataset,
     addDatasetRow,
     addDatasetRowFromChatMessage,
+    addDatasetRowsFromRatings,
     updateDatasetRow,
     deleteDatasetRow,
     patchDeleteRows,

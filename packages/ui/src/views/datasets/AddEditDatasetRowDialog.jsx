@@ -16,6 +16,7 @@ import { IconX, IconDatabase } from '@tabler/icons-react'
 
 // API
 import datasetApi from '@/api/dataset'
+import { datasetRowNeedsExpectedAnswer } from '@/views/datasets/datasetRowLabel'
 
 // Hooks
 
@@ -196,6 +197,13 @@ const AddEditDatasetRowDialog = ({ show, dialogProps, onCancel, onConfirm }) => 
                     />
                 </Box>
                 <Box sx={{ p: 2 }}>
+                    {datasetRowNeedsExpectedAnswer(row) ? (
+                        <Typography sx={{ mb: 1 }}>
+                            This row needs an expected answer. The rating is not a correct answer.
+                            {row.sourceRejectedAnswer ? ` Rejected answer: ${row.sourceRejectedAnswer}` : ''}
+                            {row.sourceFeedbackText ? ` Feedback: ${row.sourceFeedbackText}` : ''}
+                        </Typography>
+                    ) : null}
                     <div style={{ display: 'flex', flexDirection: 'row' }}>
                         <Typography>
                             Anticipated Output<span style={{ color: 'red' }}>&nbsp;*</span>

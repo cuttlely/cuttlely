@@ -58,6 +58,7 @@ import { AddTokenUsageDay1791900000000 } from './1791900000000-AddTokenUsageDay'
 import { AddModelPriceOverride1793000000000 } from './1793000000000-AddModelPriceOverride'
 import { BinCollationOnTokenUsageDayModel1794000000000 } from './1794000000000-BinCollationOnTokenUsageDayModel'
 import { AddDatasetRowSource1795000000000 } from './1795000000000-AddDatasetRowSource'
+import { AddDatasetRowRating1796000000000 } from './1796000000000-AddDatasetRowRating'
 
 import { AddAuthTables1720230151482 } from './1720230151482-AddAuthTables'
 import { AddWorkspace1720230151484 } from './1720230151484-AddWorkspace'
@@ -142,5 +143,6 @@ export const mysqlMigrations = [
     AddTokenUsageDay1791900000000,
     AddModelPriceOverride1793000000000,
     BinCollationOnTokenUsageDayModel1794000000000,
-    AddDatasetRowSource1795000000000
+    AddDatasetRowSource1795000000000,
+    AddDatasetRowRating1796000000000
 ]

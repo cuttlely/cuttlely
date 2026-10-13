@@ -14,6 +14,8 @@ import { LLMEvaluationRunner } from '../evaluations/LLMEvaluationRunner'
 import { COMPARE_COUNT_MAX, CheckScore } from './compare'
 
 export const MAX_QUESTION_CHARS = 2000
+// Shown on a model score when the dataset row has no expected answer yet.
+export const NEEDS_EXPECTED_ANSWER = 'This row needs an expected answer.'
 // The same cut the check uses for an answer, so a long expected answer does not sit in memory in full.
 const MAX_EXPECTED_CHARS = 4000
 
@@ -77,6 +79,11 @@ export function readEvaluatorIds(body: { evaluatorIds?: unknown } | null | undef
         ids.push(trimmed)
     }
     return ids
+}
+
+// Null means the question did not come from a dataset. A string that is only space is an empty expected answer.
+export function missingExpectedAnswer(expected: string | null): boolean {
+    return typeof expected === 'string' && expected.trim().length === 0
 }
 
 function clipExpected(text: unknown): string {
@@ -314,7 +321,13 @@ export async function scoreAnswer(input: ScoreInput): Promise<{ scores: CheckSco
     }
     let tokens: number | null = null
     let llmMessage: string | undefined
-    if (llm.length) {
+    // A blank expected answer is a dataset row nobody has filled in. Recent questions pass null and still grade.
+    // A model evaluator compares against that answer, so it is Error and the model is not called.
+    // Text, JSON, and numeric evaluators do not read it, and they still run.
+    if (llm.length && missingExpectedAnswer(input.expected)) {
+        llmMessage = NEEDS_EXPECTED_ANSWER
+        for (const evaluator of llm) byId.set(evaluator.id, 'Error')
+    } else if (llm.length) {
         const graded = await gradeWithLlm(input, llm)
         tokens = graded.tokens
         llmMessage = graded.message

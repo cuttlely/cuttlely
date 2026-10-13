@@ -47,7 +47,7 @@ On a chatflow, an agentflow that starts with a chat message, or a harness, the P
 2. Tick the evaluators to score with. That list is hidden when your role cannot view evaluators.
 3. Select **Run check**.
 
-Each row runs in the order saved on the dataset. The row input is the question and the row output is the expected answer, shown under the question. At most 100 rows are asked, and a row with an empty question or a question longer than 2,000 characters is skipped. Each side shows Pass, Fail or Error for every evaluator, and a pass rate. An answer that failed to run scores Error. A model grade that is only a number stays Error, because this check does not turn that number into Pass or Fail. A yes or no in the grade is Pass or Fail. A numeric evaluator uses the tokens and the time the check already records. A numeric check of prompt tokens, completion tokens, or a token total the run did not report scores Error, not Fail. A model evaluator uses the model credential saved on the flow, and only a credential this workspace can use. If that model cannot be started, the text, JSON and numeric scores stay, and each model score is Error. A provider that reports grading usage nowhere does not move the token cap, so that check is bounded only by the time limit. The pass rate does not block Publish. A check with no evaluators still shows the expected answer and compares the two answers as before.
+Each row runs in the order saved on the dataset. The row input is the question and the row output is the expected answer, shown under the question. A row with no expected answer still runs. Text, JSON, and numeric evaluators score that answer. A model evaluator needs the expected answer, so it scores Error and the grading model is not called. At most 100 rows are asked, and a row with an empty question or a question longer than 2,000 characters is skipped. Each side shows Pass, Fail or Error for every evaluator, and a pass rate. An answer that failed to run scores Error. A model grade that is only a number stays Error, because this check does not turn that number into Pass or Fail. A yes or no in the grade is Pass or Fail. A numeric evaluator uses the tokens and the time the check already records. A numeric check of prompt tokens, completion tokens, or a token total the run did not report scores Error, not Fail. A model evaluator uses the model credential saved on the flow, and only a credential this workspace can use. If that model cannot be started, the text, JSON and numeric scores stay, and each model score is Error. A provider that reports grading usage nowhere does not move the token cap, so that check is bounded only by the time limit. The pass rate does not block Publish. A check with no evaluators still shows the expected answer and compares the two answers as before.
 
 The same rules as the recent-question check apply: nothing is written down, results stay in memory for 30 minutes, and a flow that starts with a form, a webhook or a schedule cannot use a dataset. The steps are in [Check recent questions before you publish](./versioning.md#check-recent-questions-before-you-publish). The request fields are in [Start a check](../reference/drafts-api.md#start-a-check).
 
@@ -63,7 +63,24 @@ There is a path from an answer someone already received back to a dataset. On an
 
 The row records where it came from: source `chat_message`, the message id, the flow id, and the date of the answer. Saving that same answer into the same dataset again returns the row already stored and does not add a second one. The flow and the dataset both have to belong to the current team. A flow or a dataset from another team is not found. The role also needs permission to view that kind of flow: `chatflows:view` for a chatflow, a harness, or a pipeline, `agentflows:view` for an agentflow, and `assistants:view` for an assistant.
 
-That dataset can be the one the Publish dialog checks. See [Check a dataset before you publish](#check-a-dataset-before-you-publish).
+That dataset can be the one the Publish dialog checks. See [Check a dataset before you publish](#check-a-dataset-before-you-publish). Rated answers for a whole flow are in [Turn ratings into tests](#turn-ratings-into-tests).
+
+## Turn ratings into tests
+
+A rating on an answer can become a row without saving each one by hand. In the message viewer, set **Feedback** to **Positive** or **Negative** only. **Add rated answers to test set** is hidden when both are selected, or when neither is.
+
+1. Select **Add rated answers to test set**. The button is hidden when the role cannot create or update datasets.
+2. Choose how many days to look back, from 1 to 90, and a dataset. The limit defaults to 500 and cannot add more than 500 new rows in one call.
+3. Select **See how many**. That is a dry run: it shows how many rows would be added, how many are already in the dataset, and a short preview. It does not write.
+4. Select **Add rated answers**.
+
+The window is the rating's date, not the date of the answer. Newest ratings are taken first. A message already stored in that dataset, including one saved with **Add to test set**, is skipped and counted. An answer with no question is left out.
+
+A thumbs-up row uses the answer as the expected output. A thumbs-down row does not: the question is stored, the expected answer stays empty, and the row is marked **needs expected answer**. The rejected answer and any feedback text stay on the row, with the feedback id, the rating, the message, the flow, and the date of the rating. Open the row on the dataset and type the expected answer. Saving a non-empty expected answer clears the marker.
+
+The same team and permission rules as **Add to test set** apply. The flow and the dataset have to belong to the current team. A flow or a dataset from another team is not found. The role needs `datasets:create` or `datasets:update`, and permission to view that kind of flow.
+
+That dataset can drive the Publish check. A row that still needs an expected answer is asked like any other row. Text, JSON, and numeric evaluators score the answer. A model evaluator scores Error and the grading model is not called, because it compares the answer with the expected one. Fill in the expected answer and run the check again. See [Check a dataset before you publish](#check-a-dataset-before-you-publish).
 
 ## What a run calls
 

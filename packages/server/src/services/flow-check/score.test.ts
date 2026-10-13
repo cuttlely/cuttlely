@@ -18,6 +18,9 @@ test('dataset rows stay in sequence order, within the question cap', () => {
     const many = Array.from({ length: 101 }, (_, index) => ({ input: `q${index}`, output: `a${index}`, sequenceNo: index }))
     expect(questionsFromDataset(many)).toHaveLength(100)
     expect(questionsFromDataset(many)[0].question).toBe('q0')
+    expect(questionsFromDataset([{ input: 'Why was the loaf late?', output: '', sequenceNo: 1 }])).toEqual([
+        { question: 'Why was the loaf late?', expected: '' }
+    ])
 })
 
 test('numeric evaluators see the check token total and the run time', () => {

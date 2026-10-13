@@ -95,7 +95,7 @@ jest.mock('@cuttlely/components', () => ({ EvaluationRunner: { metrics: new Map(
 jest.mock('../../utils/logger', () => ({ __esModule: true, default: { error: jest.fn(), debug: jest.fn() } }))
 
 import { checks, getCheck, getCheckSetup, priceHooks, replayHooks, startCheck, stopCheck } from './index'
-import { scoreHooks } from './score'
+import { NEEDS_EXPECTED_ANSWER, scoreHooks } from './score'
 import { noteGraderTokens } from '../evaluations/LLMEvaluationRunner'
 
 const canvas = (word: string, extra: any[] = []) =>
@@ -1089,6 +1089,40 @@ describe('a dataset and evaluators', () => {
         expect(errored.cases[0].draft?.scores).toEqual([{ id: 'text-1', name: 'Mentions mango', result: 'Error' }])
         expect(errored.summary.scores?.draft?.errored).toBe(3)
         expect(errored.summary.scores?.draft?.failed).toBe(0)
+    })
+
+    test('a row with no expected answer scores model evaluators as Error and still runs the others', async () => {
+        datasets.set('ds-empty', { id: 'ds-empty', name: 'Needs answers', workspaceId: 'team-a' })
+        datasetRows.push(
+            { id: 'filled', datasetId: 'ds-empty', input: 'Where is the rye?', output: 'In the back.', sequenceNo: 0 },
+            { id: 'blank', datasetId: 'ds-empty', input: 'Why was the loaf late?', output: '', sequenceNo: 1 }
+        )
+        saveEvaluator('text-1', 'text', { operator: 'ContainsAny', value: 'mango' }, 'team-a', 'Mentions mango')
+        saveEvaluator('num-1', 'numeric', { operator: 'greaterThan', measure: 'totalTokens', value: '10' }, 'team-a', 'Enough tokens')
+        saveEvaluator('llm-1', 'llm', { prompt: 'Grade {actualOutput} against {expectedOutput}', outputSchema: [] }, 'team-a', 'Graded')
+        const graded: Array<{ question: string }> = []
+        scoreHooks.gradeLlm = async (data) => {
+            graded.push({ question: data.input })
+            return [{ pass: true }]
+        }
+        states.set('flow-1', { chatflowId: 'flow-1', draftFlowData: modelCanvas('PAPAYA'), publishInstantly: false })
+        const started = await startCheck(
+            flow({ flowData: modelCanvas('MANGO') }) as any,
+            { datasetId: 'ds-empty', evaluatorIds: ['llm-1', 'text-1', 'num-1'] },
+            'http://x'
+        )
+        await settle()
+        const done = await getCheck(flow({ flowData: modelCanvas('MANGO') }), started.id)
+        expect(done.cases.map((item) => item.expected)).toEqual(['In the back.', ''])
+        expect(done.cases[0].live?.scores?.map((score) => score.result)).toEqual(['Pass', 'Pass', 'Pass'])
+        expect(done.cases[1].live?.scores).toEqual([
+            { id: 'llm-1', name: 'Graded', result: 'Error', message: NEEDS_EXPECTED_ANSWER },
+            { id: 'text-1', name: 'Mentions mango', result: 'Pass' },
+            { id: 'num-1', name: 'Enough tokens', result: 'Pass' }
+        ])
+        expect(done.cases[1].draft?.scores?.map((score) => score.result)).toEqual(['Error', 'Fail', 'Pass'])
+        expect(graded.map((item) => item.question)).toEqual(['Where is the rye?', 'Where is the rye?'])
+        expect(writes.save).not.toHaveBeenCalled()
     })
 
     test('a dataset or evaluator from another workspace is 404 and starts nothing', async () => {

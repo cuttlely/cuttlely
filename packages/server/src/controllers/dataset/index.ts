@@ -132,6 +132,37 @@ const addDatasetRowFromChatMessage = async (req: Request, res: Response, next: N
     }
 }
 
+const addDatasetRowsFromRatings = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+        if (!req.body) {
+            throw new AppError(StatusCodes.PRECONDITION_FAILED, `Error: datasetService.addDatasetRowsFromRatings - body not provided!`)
+        }
+        const workspaceId = req.user?.activeWorkspaceId
+        if (!workspaceId) {
+            throw new AppError(
+                StatusCodes.NOT_FOUND,
+                `Error: datasetController.addDatasetRowsFromRatings - workspace ${workspaceId} not found!`
+            )
+        }
+        const body = stripProtectedFields(req.body)
+        const apiResponse = await datasetService.addDatasetRowsFromRatings(
+            {
+                datasetId: body.datasetId,
+                flowId: body.flowId,
+                rating: body.rating,
+                days: body.days,
+                limit: body.limit,
+                dryRun: body.dryRun
+            },
+            workspaceId,
+            req
+        )
+        return res.json(apiResponse)
+    } catch (error) {
+        next(error)
+    }
+}
+
 const updateDatasetRow = async (req: Request, res: Response, next: NextFunction) => {
     try {
         if (!req.body) {
@@ -205,6 +236,7 @@ export default {
     deleteDataset,
     addDatasetRow,
     addDatasetRowFromChatMessage,
+    addDatasetRowsFromRatings,
     updateDatasetRow,
     deleteDatasetRow,
     patchDeleteRows,
