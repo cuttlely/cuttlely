@@ -703,6 +703,79 @@ check(
             !truncatedCaption.includes('/harnesses/'),
         JSON.stringify({ singleCaption, proseCaption, lastCaption, truncatedCaption, proseGrounded })
     )
+    const bareTruncated = previewStep({
+        rows: Array.from({ length: 40 }, (_, i) => ({ id: i + 1, title: `Ticket ${i + 1}` })),
+        truncated: true
+    })
+    const oddSummary = previewStep({
+        rows: Array.from({ length: 40 }, (_, i) => ({ id: i + 1, title: `Ticket ${i + 1}` })),
+        truncated: true,
+        summary: 'not a page line'
+    })
+    const bareCaption = analystPreviewCaption(bareTruncated)
+    const oddCaption = analystPreviewCaption(oddSummary)
+    check(
+        'a truncated result with no page line says show more and that the answer can show fewer',
+        bareTruncated.nextPage === true &&
+            bareCaption ===
+                'Showing 5 of 40 rows. The answer can show fewer rows than the query returned. Say show more for the next page.' &&
+            !bareCaption.includes('in this chat') &&
+            oddSummary.nextPage === true &&
+            oddCaption === bareCaption,
+        JSON.stringify({ bareCaption, oddCaption })
+    )
+    function legacyView(body) {
+        return analystStepView({
+            name: 'mcp__analyst__query',
+            status: 'done',
+            detail: JSON.stringify({ result: JSON.stringify(body) })
+        })
+    }
+    const legacyFinished = legacyView({
+        rows: [
+            { id: 1, title: 'Ticket 1' },
+            { id: 2, title: 'Ticket 2' },
+            { id: 3, title: 'Ticket 3' }
+        ],
+        truncated: false
+    })
+    const legacyLast = legacyView({
+        rows: [
+            { id: 101, title: 'Ticket 101' },
+            { id: 102, title: 'Ticket 102' }
+        ],
+        truncated: false,
+        summary: 'rows 101-150 of 150 (page 2 of 2, last page)'
+    })
+    const legacyTruncated = legacyView({
+        rows: [
+            { id: 1, title: 'Ticket 1' },
+            { id: 2, title: 'Ticket 2' }
+        ],
+        truncated: true,
+        summary: 'rows 1-100 of 150 (page 1 of 2, say "show more" for the next page)'
+    })
+    const legacyFinishedCaption = analystPreviewCaption(legacyFinished)
+    const legacyLastCaption = analystPreviewCaption(legacyLast)
+    const legacyTruncatedCaption = analystPreviewCaption(legacyTruncated)
+    check(
+        'a trace saved before previews uses the same caption as a new trace with that page line',
+        legacyFinished.legacy === true &&
+            legacyFinished.nextPage === false &&
+            legacyFinishedCaption === '3 rows.' &&
+            !legacyFinishedCaption.includes('in this chat') &&
+            !legacyFinishedCaption.includes('Say show more') &&
+            legacyLast.legacy === true &&
+            legacyLast.nextPage === false &&
+            legacyLastCaption === '2 rows. The rest of these rows are in the answer in this chat.' &&
+            !legacyLastCaption.includes('Say show more') &&
+            !legacyLastCaption.includes('can show fewer') &&
+            legacyTruncated.legacy === true &&
+            legacyTruncated.nextPage === true &&
+            legacyTruncatedCaption === '2 rows. The rest of these rows are in the answer in this chat. Say show more for the next page.' &&
+            !legacyTruncatedCaption.includes('can show fewer'),
+        JSON.stringify({ legacyFinishedCaption, legacyLastCaption, legacyTruncatedCaption })
+    )
     const overCap = analystQueryPreview(
         { rows: Array.from({ length: 150 }, (_, i) => ({ id: i + 1, tag: `past-cap-${i}` })) },
         { CUTTLELY_ANALYST_ROW_CAP: '10' }

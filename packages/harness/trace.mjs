@@ -313,7 +313,7 @@ export function analystStepView(tool) {
             rows: legacy.rows,
             summary: legacy.summary,
             moreRows: false,
-            nextPage: false,
+            nextPage: legacy.truncated === true,
             moreColumns: false,
             columnCount: legacy.columns.length,
             legacy: true
@@ -349,22 +349,18 @@ export function publicToolStep(tool, env) {
     return next
 }
 
-// Rows land in the answer only when the tool result carries a page line. That is the same test
-// groundAnalystSpecialistText and preserveAnalystRows use. A finished page with no page line keeps
-// the specialist's own wording, which can name fewer rows than the query returned.
+// Rows land in the answer only when the summary is a page line. That is the same test
+// groundAnalystSpecialistText and preserveAnalystRows use. truncated alone is not that test:
+// a result can be marked truncated and still have no page line, and then the specialist's wording stays.
 function rowsRestoredInAnswer(view) {
-    if (!view || view.legacy) return false
-    if (view.nextPage) return true
+    if (!view) return false
     return isAnalystCapSummary(view.summary)
 }
 
-// The caption under a query preview. "Say show more" is only for a result the analyst marked truncated.
+// The caption under a query preview. "Say show more" follows truncated. The in-chat sentence follows the page line.
+// An older trace uses the same sentences as a new one with the same summary.
 export function analystPreviewCaption(view) {
     if (!view) return ''
-    if (view.legacy) {
-        const count = view.rows.length
-        return `${count} row${count === 1 ? '' : 's'} this query returned. The answer can show fewer.`
-    }
     const shown = view.rows.length
     const total = view.rowCount
     const parts = []
@@ -373,7 +369,7 @@ export function analystPreviewCaption(view) {
     if (view.moreColumns && view.columnCount > view.columns.length) {
         parts.push(`Showing ${view.columns.length} of ${view.columnCount} columns.`)
     }
-    if (shown < total && rowsRestoredInAnswer(view)) parts.push('The rest of these rows are in the answer in this chat.')
+    if (rowsRestoredInAnswer(view)) parts.push('The rest of these rows are in the answer in this chat.')
     else if (shown < total) parts.push('The answer can show fewer rows than the query returned.')
     if (view.nextPage) parts.push('Say show more for the next page.')
     return parts.join(' ')

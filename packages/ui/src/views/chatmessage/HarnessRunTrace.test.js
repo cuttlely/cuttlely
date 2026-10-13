@@ -59,6 +59,15 @@ describe('analyst query preview caption', () => {
         expect(html).not.toContain('<a ')
     })
 
+    test('a truncated result with no page line says show more and that the answer can show fewer', () => {
+        const html = caption(previewView({ rowCount: 40, nextPage: true }))
+        expect(html).toContain('Showing 5 of 40 rows.')
+        expect(html).toContain('The answer can show fewer rows than the query returned.')
+        expect(html).toContain('Say show more for the next page.')
+        expect(html).not.toContain('in this chat')
+        expect(html).not.toContain('<a ')
+    })
+
     test('a truncated page says show more and stays in this chat', () => {
         const html = caption(
             previewView({
