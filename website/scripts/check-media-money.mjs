@@ -14,7 +14,8 @@ const mediaDir = path.join(root, 'public', 'media')
 const INTERVAL = 0.5
 
 // A symbol may sit a word away from its amount (`$ | 25.20`), and the amount may be whole (`$25`).
-const SYMBOL = /[$€£](?:\s|\|)*\d[\d,]*(?:\.\d+)?/
+// The symbol is its own mark: not glued to a letter or digit on either side, so a misread id does not count.
+const SYMBOL = /(?<![A-Za-z0-9])[$€£](?:\s|\|)*\d[\d,]*(?:\.\d+)?(?![A-Za-z])/
 const SPELLED =
     '(?:(?:twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety)[-\\s](?:one|two|three|four|five|six|seven|eight|nine)|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred|thousand|a|an)'
 const AMOUNT = `(?:${SPELLED}|\\d[\\d,]*(?:\\.\\d+)?)`
@@ -89,8 +90,8 @@ export function moneyIn(tsv) {
         const parts = row.split('\t')
         if (parts.length < 12 || !parts[11].trim()) continue
         const conf = Number(parts[10])
-        // Tesseract uses -1 for a structural row. A real word stays, including a dim currency glyph.
-        if (!Number.isFinite(conf) || conf < 0) continue
+        // A dim glyph is a misread of a rule, a 5, or a box. Amount text sits above this.
+        if (!Number.isFinite(conf) || conf < 85) continue
         // page, block, paragraph, line — the same line in another block is a different line.
         const key = [parts[1], parts[2], parts[3], parts[4]].join('\t')
         const bag = lines.get(key) || []

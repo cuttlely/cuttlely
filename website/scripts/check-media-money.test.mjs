@@ -15,7 +15,18 @@ const positives = [
     '€20'
 ]
 
-const negatives = ['3 items', '1.3 s', '3.7x', '2,114', 'five items', '0.8 s', 'A price question', 'median of 5 runs']
+const negatives = [
+    '3 items',
+    '1.3 s',
+    '3.7x',
+    '2,114',
+    'five items',
+    '0.8 s',
+    'A price question',
+    'median of 5 runs',
+    'b$58-6537',
+    '$3d2-484e'
+]
 
 test('currency matcher flags amounts and leaves plain figures alone', () => {
     for (const line of positives) assert.equal(lineHasMoney(line), true, line)
@@ -29,6 +40,8 @@ test('a symbol split from its amount is a hit once the OCR line is joined', () =
     assert.deepEqual(moneyIn(tsv), ['Price | $ | 25.20'])
     const plain = [header, word(1, '3'), word(2, 'items')].join('\n')
     assert.deepEqual(moneyIn(plain), [])
+    const dim = [header, word(1, 'Total'), `5\t1\t1\t1\t1\t2\t40\t0\t10\t10\t60\t$25`].join('\n')
+    assert.deepEqual(moneyIn(dim), [])
 })
 
 test('homepage media shows no currency amount', async () => {
