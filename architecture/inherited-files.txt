@@ -1827,6 +1827,8 @@ packages/ui/src/views/canvas/CredentialInputHandler.jsx
 packages/ui/src/views/canvas/NodeInputHandler.jsx
 packages/ui/src/views/canvas/NodeOutputHandler.jsx
 packages/ui/src/views/canvas/StickyNote.jsx
+packages/ui/src/views/canvas/canvasSavePermission.js
+packages/ui/src/views/canvas/canvasSavePermission.test.js
 packages/ui/src/views/canvas/index.css
 packages/ui/src/views/canvas/index.jsx
 packages/ui/src/views/chatbot/index.jsx
@@ -1869,6 +1871,8 @@ packages/ui/src/views/docstore/UpsertHistoryDetailsDialog.jsx
 packages/ui/src/views/docstore/UpsertHistorySideDrawer.jsx
 packages/ui/src/views/docstore/VectorStoreConfigure.jsx
 packages/ui/src/views/docstore/VectorStoreQuery.jsx
+packages/ui/src/views/docstore/chunkPermissions.js
+packages/ui/src/views/docstore/chunkPermissions.test.js
 packages/ui/src/views/docstore/index.jsx
 packages/ui/src/views/evaluations/ChartLatency.jsx
 packages/ui/src/views/evaluations/ChartPassPrnt.jsx
@@ -1892,10 +1896,14 @@ packages/ui/src/views/marketplaces/MarketplaceCanvas.jsx
 packages/ui/src/views/marketplaces/MarketplaceCanvasHeader.jsx
 packages/ui/src/views/marketplaces/MarketplaceCanvasNode.jsx
 packages/ui/src/views/marketplaces/index.jsx
+packages/ui/src/views/marketplaces/templateUsePermission.js
+packages/ui/src/views/marketplaces/templateUsePermission.test.js
 packages/ui/src/views/organization/index.jsx
 packages/ui/src/views/roles/CreateEditRoleDialog.css
 packages/ui/src/views/roles/CreateEditRoleDialog.jsx
 packages/ui/src/views/roles/index.jsx
+packages/ui/src/views/roles/rolePermissions.js
+packages/ui/src/views/roles/rolePermissions.test.js
 packages/ui/src/views/schedule/ScheduleHistoryDrawer.jsx
 packages/ui/src/views/schedule/ScheduleHistoryFAB.jsx
 packages/ui/src/views/serverlogs/index.jsx
