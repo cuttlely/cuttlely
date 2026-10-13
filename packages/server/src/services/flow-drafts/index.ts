@@ -10,6 +10,7 @@ import crypto from 'crypto'
 import { StatusCodes } from 'http-status-codes'
 import { type EntityManager } from 'typeorm'
 import { ChatFlow } from '../../database/entities/ChatFlow'
+import { Dataset } from '../../database/entities/Dataset'
 import { FlowVersionState } from '../../database/entities/FlowVersionState'
 import { AppError } from '../../errors/appError'
 import { containsBase64File, updateFlowDataWithFilePaths } from '../../utils/fileRepository'
@@ -29,7 +30,7 @@ import {
     sameGateSettings,
     testSetChangedReason
 } from './gate'
-import { currentTestSetHash } from '../flow-check/score'
+import { currentTestSetHash, loadEvaluators } from '../flow-check/score'
 
 // Test seam. A race test changes the flow's type after a draft save has started and before it writes.
 export const draftWriteHooks: { beforeDraftWrite: null | (() => Promise<void>) } = { beforeDraftWrite: null }
@@ -466,6 +467,9 @@ export async function updateDraftSettings(
             'This flow has unpublished changes. Publish or discard them before turning on Publish instantly.'
         )
     }
+    // The ids are resolved in this flow's workspace before anything is written. A missing id and an id
+    // from another workspace are the same 404, and the stored settings stay as they were.
+    if (gate?.enabled && gate.datasetId) await assertGateTargets(flow.workspaceId, gate.datasetId, gate.evaluatorIds)
     if (!state && !nextInstant && !nextGate) return statusFrom(flow, null)
     const row = state || repo().create({ chatflowId: flow.id, workspaceId: flow.workspaceId, publishInstantly: false, publishGate: false })
     if (hasInstant) row.publishInstantly = nextInstant
@@ -491,6 +495,14 @@ export interface GateResultInput {
     errored: number
     verdict: 'passed' | 'failed'
     contentHash?: string
+}
+
+// The same workspace lookup the dataset check uses. A missing workspace matches nothing.
+async function assertGateTargets(workspaceId: string, datasetId: string, evaluatorIds: string[]): Promise<void> {
+    if (!workspaceId) throw new AppError(StatusCodes.NOT_FOUND, `Dataset ${datasetId} not found`)
+    const dataset = await getRunningExpressApp().AppDataSource.getRepository(Dataset).findOneBy({ id: datasetId, workspaceId })
+    if (!dataset) throw new AppError(StatusCodes.NOT_FOUND, `Dataset ${datasetId} not found`)
+    await loadEvaluators(evaluatorIds, workspaceId)
 }
 
 // Writes the last gate result onto the flow row. A check that does not match the current gate settings

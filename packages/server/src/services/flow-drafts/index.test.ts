@@ -541,6 +541,7 @@ describe('a passing test set before Publish', () => {
     }
 
     async function arm(extra: Record<string, unknown> = {}) {
+        seed()
         await saveDraft(flow(), canvas('Draft'), context)
         await updateDraftSettings(flow(), { publishGate: { ...gate, ...extra } })
     }
@@ -563,6 +564,7 @@ describe('a passing test set before Publish', () => {
         await expect(updateDraftSettings(flow(), { publishGate: { ...gate, threshold: 101 } })).rejects.toMatchObject({ statusCode: 400 })
         await expect(updateDraftSettings(flow(), { publishGate: { ...gate, threshold: -1 } })).rejects.toMatchObject({ statusCode: 400 })
         await expect(updateDraftSettings(flow(), { publishGate: { ...gate, threshold: 1.5 } })).rejects.toMatchObject({ statusCode: 400 })
+        seed()
         await expect(updateDraftSettings(flow(), { publishGate: { ...gate, threshold: 0 } })).resolves.toMatchObject({
             publishGate: { enabled: true, threshold: 0 }
         })
@@ -666,13 +668,64 @@ describe('a passing test set before Publish', () => {
         await expect(draftToPublish(flow())).rejects.toMatchObject({ statusCode: 409, message: expect.stringContaining(stale) })
     })
 
+    test('a missing dataset, a missing evaluator, or an id from another workspace is not stored', async () => {
+        seed()
+        datasets.delete('ds-1')
+        await expect(updateDraftSettings(flow(), { publishGate: gate })).rejects.toMatchObject({
+            statusCode: 404,
+            message: 'Dataset ds-1 not found'
+        })
+        expect(rows).toEqual([])
+        seed()
+        evaluators.delete('ev-1')
+        await expect(updateDraftSettings(flow(), { publishGate: gate })).rejects.toMatchObject({
+            statusCode: 404,
+            message: 'Evaluator ev-1 not found'
+        })
+        expect(rows).toEqual([])
+
+        await arm()
+        const stored = () => ({
+            publishGate: rows[0].publishGate,
+            datasetId: rows[0].publishGateDatasetId,
+            evaluatorIds: rows[0].publishGateEvaluatorIds,
+            threshold: rows[0].publishGateThreshold
+        })
+        const before = stored()
+
+        await expect(updateDraftSettings(flow(), { publishGate: { ...gate, datasetId: 'missing-ds' } })).rejects.toMatchObject({
+            statusCode: 404,
+            message: 'Dataset missing-ds not found'
+        })
+        expect(stored()).toEqual(before)
+
+        await expect(updateDraftSettings(flow(), { publishGate: { ...gate, evaluatorIds: ['missing-ev'] } })).rejects.toMatchObject({
+            statusCode: 404,
+            message: 'Evaluator missing-ev not found'
+        })
+        expect(stored()).toEqual(before)
+
+        datasets.set('ds-other', { id: 'ds-other', workspaceId: 'team-b' })
+        evaluators.set('ev-other', { ...sampleEval('ev-other'), workspaceId: 'team-b' })
+        await expect(updateDraftSettings(flow(), { publishGate: { ...gate, datasetId: 'ds-other' } })).rejects.toMatchObject({
+            statusCode: 404,
+            message: 'Dataset ds-other not found'
+        })
+        expect(stored()).toEqual(before)
+        await expect(updateDraftSettings(flow(), { publishGate: { ...gate, evaluatorIds: ['ev-other'] } })).rejects.toMatchObject({
+            statusCode: 404,
+            message: 'Evaluator ev-other not found'
+        })
+        expect(stored()).toEqual(before)
+    })
+
     test('evaluator order does not change the test set hash', async () => {
-        await saveDraft(flow(), canvas('Draft'), context)
-        await updateDraftSettings(flow(), { publishGate: { ...gate, evaluatorIds: ['ev-b', 'ev-a'] } })
         seed(
             [{ id: 'r1', datasetId: 'ds-1', input: 'Do you have rye?', output: 'Yes', sequenceNo: 1 }],
             [sampleEval('ev-b'), sampleEval('ev-a')]
         )
+        await saveDraft(flow(), canvas('Draft'), context)
+        await updateDraftSettings(flow(), { publishGate: { ...gate, evaluatorIds: ['ev-b', 'ev-a'] } })
         const forward = await currentTestSetHash('ds-1', ['ev-a', 'ev-b'], 'team-a')
         const reverse = await currentTestSetHash('ds-1', ['ev-b', 'ev-a'], 'team-a')
         expect(forward).toBe(reverse)
