@@ -10,7 +10,7 @@ import Tooltip from '@mui/material/Tooltip'
 
 // project imports
 import NodeCardWrapper from '@/ui-component/cards/NodeCardWrapper'
-import NodeTooltip from '@/ui-component/tooltip/NodeTooltip'
+import NodeActionBar, { useCardHover } from './NodeActionBar'
 import NodeInputHandler from './NodeInputHandler'
 import NodeOutputHandler from './NodeOutputHandler'
 import CompactCardBody, { COMPACT_CARD_WIDTH } from './CompactCardBody'
@@ -19,8 +19,7 @@ import NodeInfoDialog from '@/ui-component/dialog/NodeInfoDialog'
 
 // const
 import { baseURL } from '@/store/constant'
-import { IconTrash, IconCopy, IconInfoCircle, IconAlertTriangle } from '@tabler/icons-react'
-import { flowContext } from '@/store/context/ReactFlowContext'
+import { IconAlertTriangle } from '@tabler/icons-react'
 import { normalizeNodeData } from '@/utils/normalizeCanvasFlow'
 import { missingNodeInfo } from '@/utils/missingNode'
 import MissingNodeCard from './MissingNodeCard'
@@ -34,7 +33,6 @@ const CanvasNode = ({ data }) => {
     normalizeNodeData(data)
     const theme = useTheme()
     const canvas = useSelector((state) => state.canvas)
-    const { deleteNode, duplicateNode } = useContext(flowContext)
     const { panelNodeId, compact } = useContext(CanvasPanelContext)
     const edges = useEdges()
     const inPanel = panelNodeId === data.id
@@ -44,21 +42,8 @@ const CanvasNode = ({ data }) => {
     const [showInfoDialog, setShowInfoDialog] = useState(false)
     const [infoDialogProps, setInfoDialogProps] = useState({})
     const [warningMessage, setWarningMessage] = useState('')
-    const [open, setOpen] = useState(false)
     const [isForceCloseNodeInfo, setIsForceCloseNodeInfo] = useState(null)
-
-    const handleClose = () => {
-        setOpen(false)
-    }
-
-    const handleOpen = () => {
-        setOpen(true)
-    }
-
-    const getNodeInfoOpenStatus = () => {
-        if (isForceCloseNodeInfo) return false
-        else return !canvas.canvasDialogShow && open
-    }
+    const { hovered, hoverProps } = useCardHover()
 
     const nodeOutdatedMessage = (oldVersion, newVersion) => `Node version ${oldVersion} outdated\nUpdate to latest version ${newVersion}`
 
@@ -106,62 +91,26 @@ const CanvasNode = ({ data }) => {
 
     return (
         <>
-            <NodeCardWrapper
-                content={false}
-                sx={{
-                    padding: 0,
-                    borderColor: getBorderColor(),
-                    ...(compact ? { width: COMPACT_CARD_WIDTH } : {})
-                }}
-                border={false}
-            >
-                <NodeTooltip
-                    open={getNodeInfoOpenStatus()}
-                    onClose={handleClose}
-                    onOpen={handleOpen}
-                    disableFocusListener={true}
-                    title={
-                        <div
-                            style={{
-                                background: 'transparent',
-                                display: 'flex',
-                                flexDirection: 'column'
-                            }}
-                        >
-                            <IconButton
-                                title='Duplicate'
-                                onClick={() => {
-                                    duplicateNode(data.id)
-                                }}
-                                sx={{ height: '35px', width: '35px', '&:hover': { color: theme?.palette.primary.main } }}
-                                color={theme?.customization?.isDarkMode ? theme.colors?.paper : 'inherit'}
-                            >
-                                <IconCopy />
-                            </IconButton>
-                            <IconButton
-                                title='Delete'
-                                onClick={() => {
-                                    deleteNode(data.id)
-                                }}
-                                sx={{ height: '35px', width: '35px', '&:hover': { color: 'red' } }}
-                                color={theme?.customization?.isDarkMode ? theme.colors?.paper : 'inherit'}
-                            >
-                                <IconTrash />
-                            </IconButton>
-                            <IconButton
-                                title='Info'
-                                onClick={() => {
-                                    setInfoDialogProps({ data })
-                                    setShowInfoDialog(true)
-                                }}
-                                sx={{ height: '35px', width: '35px', '&:hover': { color: theme?.palette.secondary.main } }}
-                                color={theme?.customization?.isDarkMode ? theme.colors?.paper : 'inherit'}
-                            >
-                                <IconInfoCircle />
-                            </IconButton>
-                        </div>
-                    }
-                    placement='right-start'
+            <Box {...hoverProps} sx={{ position: 'relative' }}>
+                {!isForceCloseNodeInfo && (
+                    <NodeActionBar
+                        data={data}
+                        hovered={hovered}
+                        selected={Boolean(data.selected || inPanel)}
+                        onInfo={() => {
+                            setInfoDialogProps({ data })
+                            setShowInfoDialog(true)
+                        }}
+                    />
+                )}
+                <NodeCardWrapper
+                    content={false}
+                    sx={{
+                        padding: 0,
+                        borderColor: getBorderColor(),
+                        ...(compact ? { width: COMPACT_CARD_WIDTH } : {})
+                    }}
+                    border={false}
                 >
                     <Box>
                         <div style={{ display: 'flex', flexDirection: 'row', alignItems: 'center' }}>
@@ -307,8 +256,8 @@ const CanvasNode = ({ data }) => {
                             </div>
                         )}
                     </Box>
-                </NodeTooltip>
-            </NodeCardWrapper>
+                </NodeCardWrapper>
+            </Box>
             <AdditionalParamsDialog
                 show={showDialog}
                 dialogProps={dialogProps}

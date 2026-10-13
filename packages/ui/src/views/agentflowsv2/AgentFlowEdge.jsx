@@ -1,4 +1,4 @@
-import { EdgeLabelRenderer, getBezierPath } from 'reactflow'
+import { EdgeLabelRenderer, getBezierPath, useStoreApi } from 'reactflow'
 import { memo, useState, useContext } from 'react'
 import PropTypes from 'prop-types'
 import { useDispatch } from 'react-redux'
@@ -40,6 +40,10 @@ const AgentFlowEdge = ({ id, sourceX, sourceY, targetX, targetY, sourcePosition,
     const [isHovered, setIsHovered] = useState(false)
     const { deleteEdge } = useContext(flowContext)
     const dispatch = useDispatch()
+    const store = useStoreApi()
+    const selectEdge = () => {
+        store.getState().addSelectedEdges([id])
+    }
 
     const onEdgeClick = (evt, id) => {
         evt.stopPropagation()
@@ -71,7 +75,8 @@ const AgentFlowEdge = ({ id, sourceX, sourceY, targetX, targetY, sourcePosition,
             </defs>
             <path
                 id={`${id}-selector`}
-                className='agent-flow-edge-selector'
+                className='agent-flow-edge-selector react-flow__edge-interaction'
+                onClick={selectEdge}
                 style={{
                     stroke: 'transparent',
                     strokeWidth: 15,
@@ -84,7 +89,8 @@ const AgentFlowEdge = ({ id, sourceX, sourceY, targetX, targetY, sourcePosition,
             />
             <path
                 id={id}
-                className='agent-flow-edge'
+                className='agent-flow-edge react-flow__edge-path'
+                onClick={selectEdge}
                 style={{
                     strokeWidth: selected ? 3 : 2,
                     stroke: `url(#${gradientId})`,

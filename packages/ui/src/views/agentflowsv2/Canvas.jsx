@@ -34,6 +34,7 @@ import ScheduleHistoryFAB from '@/views/schedule/ScheduleHistoryFAB'
 import WebhookListenerFAB from '@/views/webhooklistener/WebhookListenerFAB'
 import ValidationPopUp from '@/views/chatmessage/ValidationPopUp'
 import { flowContext } from '@/store/context/ReactFlowContext'
+import { CanvasPanelContext } from '@/store/context/CanvasPanelContext'
 
 // API
 import nodesApi from '@/api/nodes'
@@ -45,6 +46,7 @@ import useApi from '@/hooks/useApi'
 import useConfirm from '@/hooks/useConfirm'
 import useCanvasLook from '@/hooks/useCanvasLook'
 import { isNewLook, panelNode } from '@/utils/canvasLook'
+import { createCanvasDeleteQueue, panelStateWhenNodesChange } from '@/views/canvas/cardActions'
 
 // icons
 import {
@@ -107,7 +109,7 @@ const AgentflowCanvas = () => {
         draftStatusRef.current = status
         setDraftStatusState(status)
     }
-    const { reactFlowInstance, setReactFlowInstance } = useContext(flowContext)
+    const { reactFlowInstance, setReactFlowInstance, deleteSelection, applyingDelete, bindCanvasState } = useContext(flowContext)
     // Build with AI: starter questions wait here until the first save puts them in the chat settings.
     const builderStartersRef = useRef([])
     const [builtResult, setBuiltResult] = useState(null)
@@ -121,12 +123,32 @@ const AgentflowCanvas = () => {
     // ==============================|| ReactFlow ||============================== //
 
     const [nodes, setNodes, onNodesChange] = useNodesState()
+    // Keyboard Delete and Backspace emit remove changes. Those go through deleteNode and deleteEdge. The pipeline
+    // canvas uses the chatflow handler, which does the same.
     // New look: a click on a card opens its settings in a side panel instead of the dialog.
     const [canvasLook, setCanvasLook] = useCanvasLook()
     const newLook = isNewLook(canvasLook)
     const [panelNodeId, setPanelNodeId] = useState(null)
     const [panelProps, setPanelProps] = useState({})
     const [edges, setEdges, onEdgesChange] = useEdgesState()
+    bindCanvasState(setNodes, setEdges)
+    const deleteSelectionRef = useRef(deleteSelection)
+    deleteSelectionRef.current = deleteSelection
+    const deleteQueue = useMemo(() => createCanvasDeleteQueue((batch) => deleteSelectionRef.current?.(batch)), [])
+    const handleNodesChange = useCallback(
+        (changes) => {
+            if (applyingDelete?.current) onNodesChange(changes)
+            else deleteQueue.nodes(changes, onNodesChange)
+        },
+        [applyingDelete, deleteQueue, onNodesChange]
+    )
+    const handleEdgesChange = useCallback(
+        (changes) => {
+            if (applyingDelete?.current) onEdgesChange(changes)
+            else deleteQueue.edges(changes, onEdgesChange)
+        },
+        [applyingDelete, deleteQueue, onEdgesChange]
+    )
 
     const isScheduleFlow = useMemo(() => {
         if (!nodes || nodes.length === 0) return false
@@ -892,7 +914,33 @@ const AgentflowCanvas = () => {
     }, [getNodesApi.data, chatflowId])
 
     // The panel closes when its card is deleted or the switch turns the new look off.
-    const panelOpen = Boolean(panelNode(nodes, newLook ? panelNodeId : null))
+    const openPanel = panelNode(nodes, newLook ? panelNodeId : null)
+    const panelOpen = Boolean(openPanel)
+    const panelOpenRef = useRef(false)
+    panelOpenRef.current = panelOpen
+    // Duplicating while the panel is open selects the copy and moves the panel onto it.
+    const onDuplicated = useCallback((created) => {
+        const newId = created?.id
+        if (!newId || !panelOpenRef.current) return
+        setPanelNodeId(newId)
+        if (!created.data) return
+        setPanelProps({
+            data: created.data,
+            inputParams: (created.data.inputParams || []).filter((inputParam) => !inputParam.hidden)
+        })
+    }, [])
+    const panelContext = useMemo(
+        () => ({ panelNodeId: panelOpen ? panelNodeId : null, compact: false, onDuplicated }),
+        [panelNodeId, panelOpen, onDuplicated]
+    )
+    // A deleted card must not leave its id or its saved settings open for the next card that reuses the id.
+    useEffect(() => {
+        const next = panelStateWhenNodesChange({ panelNodeId, panelProps, nodes })
+        if (next.panelNodeId !== panelNodeId) {
+            setPanelNodeId(null)
+            setPanelProps({})
+        }
+    }, [nodes, panelNodeId, panelProps])
 
     return (
         <>
@@ -946,142 +994,144 @@ const AgentflowCanvas = () => {
                 </AppBar>
                 <Box sx={{ pt: { xs: '120px', md: '70px' }, height: '100vh', width: '100%' }}>
                     <ReactFlowProvider>
-                        <div className='reactflow-parent-wrapper'>
-                            <div className='reactflow-wrapper' ref={reactFlowWrapper}>
-                                <ReactFlow
-                                    nodes={nodes}
-                                    edges={edges}
-                                    onNodesChange={onNodesChange}
-                                    onNodeClick={onNodeClick}
-                                    onNodeDoubleClick={onNodeDoubleClick}
-                                    onPaneClick={() => setPanelNodeId(null)}
-                                    onEdgesChange={onEdgesChange}
-                                    onDrop={onDrop}
-                                    onDragOver={onDragOver}
-                                    onNodeDragStop={setDirty}
-                                    nodeTypes={nodeTypes}
-                                    edgeTypes={edgeTypes}
-                                    onConnect={onConnect}
-                                    onInit={setReactFlowInstance}
-                                    fitView
-                                    deleteKeyCode={canvas.canvasDialogShow ? null : ['Delete']}
-                                    minZoom={0.5}
-                                    snapGrid={[25, 25]}
-                                    snapToGrid={isSnappingEnabled}
-                                    connectionLineComponent={ConnectionLine}
-                                >
-                                    <Controls
-                                        className={customization.isDarkMode ? 'dark-mode-controls' : ''}
-                                        style={{
-                                            display: 'flex',
-                                            flexDirection: 'row',
-                                            left: '50%',
-                                            transform: 'translate(-50%, -50%)'
-                                        }}
+                        <CanvasPanelContext.Provider value={panelContext}>
+                            <div className='reactflow-parent-wrapper'>
+                                <div className='reactflow-wrapper' ref={reactFlowWrapper}>
+                                    <ReactFlow
+                                        nodes={nodes}
+                                        edges={edges}
+                                        onNodesChange={handleNodesChange}
+                                        onNodeClick={onNodeClick}
+                                        onNodeDoubleClick={onNodeDoubleClick}
+                                        onPaneClick={() => setPanelNodeId(null)}
+                                        onEdgesChange={handleEdgesChange}
+                                        onDrop={onDrop}
+                                        onDragOver={onDragOver}
+                                        onNodeDragStop={setDirty}
+                                        nodeTypes={nodeTypes}
+                                        edgeTypes={edgeTypes}
+                                        onConnect={onConnect}
+                                        onInit={setReactFlowInstance}
+                                        fitView
+                                        deleteKeyCode={canvas.canvasDialogShow ? null : ['Delete', 'Backspace']}
+                                        minZoom={0.5}
+                                        snapGrid={[25, 25]}
+                                        snapToGrid={isSnappingEnabled}
+                                        connectionLineComponent={ConnectionLine}
                                     >
-                                        <button
-                                            className='react-flow__controls-button react-flow__controls-interactive'
-                                            onClick={() => {
-                                                setIsSnappingEnabled(!isSnappingEnabled)
+                                        <Controls
+                                            className={customization.isDarkMode ? 'dark-mode-controls' : ''}
+                                            style={{
+                                                display: 'flex',
+                                                flexDirection: 'row',
+                                                left: '50%',
+                                                transform: 'translate(-50%, -50%)'
                                             }}
-                                            title='toggle snapping'
-                                            aria-label='toggle snapping'
                                         >
-                                            {isSnappingEnabled ? <IconMagnetFilled /> : <IconMagnetOff />}
-                                        </button>
-                                        <button
-                                            className='react-flow__controls-button react-flow__controls-interactive'
-                                            onClick={() => {
-                                                setIsBackgroundEnabled(!isBackgroundEnabled)
-                                            }}
-                                            title='toggle background'
-                                            aria-label='toggle background'
-                                        >
-                                            {isBackgroundEnabled ? <IconArtboard /> : <IconArtboardOff />}
-                                        </button>
-                                        <button
-                                            className='react-flow__controls-button react-flow__controls-interactive'
-                                            onClick={() => setCanvasLook(newLook ? 'classic' : 'panel')}
-                                            title={
-                                                newLook
-                                                    ? 'New look (settings in a side panel): on'
-                                                    : 'New look (settings in a side panel): off'
-                                            }
-                                            aria-label='toggle side panel'
-                                            aria-pressed={newLook}
-                                        >
-                                            {newLook ? <IconLayoutSidebarRightFilled /> : <IconLayoutSidebarRight />}
-                                        </button>
-                                    </Controls>
-                                    <MiniMap
-                                        nodeStrokeWidth={3}
-                                        nodeColor={customization.isDarkMode ? '#2d2d2d' : '#e2e2e2'}
-                                        nodeStrokeColor={customization.isDarkMode ? '#525252' : '#fff'}
-                                        maskColor={customization.isDarkMode ? 'rgb(45, 45, 45, 0.6)' : 'rgb(240, 240, 240, 0.6)'}
-                                        style={{
-                                            backgroundColor: customization.isDarkMode ? theme.palette.background.default : '#fff'
-                                        }}
-                                    />
-                                    {isBackgroundEnabled && <Background color='#aaa' gap={16} />}
-                                    <AddNodes
-                                        isAgentCanvas={true}
-                                        isAgentflowv2={true}
-                                        nodesData={getNodesApi.data}
-                                        node={selectedNode}
-                                        buildKind='workflow'
-                                        onBuilt={onBuilt}
-                                    />
-                                    <BuildLandingDialog
-                                        show={Boolean(builtResult)}
-                                        title={builtResult?.title}
-                                        onStartNew={startNewBuilt}
-                                        onReplace={replaceWithBuilt}
-                                        onCancel={() => setBuiltResult(null)}
-                                    />
-                                    <EditNodeDialog
-                                        show={editNodeDialogOpen}
-                                        dialogProps={editNodeDialogProps}
-                                        onCancel={() => setEditNodeDialogOpen(false)}
-                                    />
-                                    {isSyncNodesButtonEnabled && (
-                                        <Fab
-                                            sx={{
-                                                left: 60,
-                                                top: 20,
-                                                color: 'white',
-                                                background: 'orange',
-                                                '&:hover': {
-                                                    background: 'orange',
-                                                    backgroundImage: `linear-gradient(rgb(0 0 0/10%) 0 0)`
+                                            <button
+                                                className='react-flow__controls-button react-flow__controls-interactive'
+                                                onClick={() => {
+                                                    setIsSnappingEnabled(!isSnappingEnabled)
+                                                }}
+                                                title='toggle snapping'
+                                                aria-label='toggle snapping'
+                                            >
+                                                {isSnappingEnabled ? <IconMagnetFilled /> : <IconMagnetOff />}
+                                            </button>
+                                            <button
+                                                className='react-flow__controls-button react-flow__controls-interactive'
+                                                onClick={() => {
+                                                    setIsBackgroundEnabled(!isBackgroundEnabled)
+                                                }}
+                                                title='toggle background'
+                                                aria-label='toggle background'
+                                            >
+                                                {isBackgroundEnabled ? <IconArtboard /> : <IconArtboardOff />}
+                                            </button>
+                                            <button
+                                                className='react-flow__controls-button react-flow__controls-interactive'
+                                                onClick={() => setCanvasLook(newLook ? 'classic' : 'panel')}
+                                                title={
+                                                    newLook
+                                                        ? 'New look (settings in a side panel): on'
+                                                        : 'New look (settings in a side panel): off'
                                                 }
+                                                aria-label='toggle side panel'
+                                                aria-pressed={newLook}
+                                            >
+                                                {newLook ? <IconLayoutSidebarRightFilled /> : <IconLayoutSidebarRight />}
+                                            </button>
+                                        </Controls>
+                                        <MiniMap
+                                            nodeStrokeWidth={3}
+                                            nodeColor={customization.isDarkMode ? '#2d2d2d' : '#e2e2e2'}
+                                            nodeStrokeColor={customization.isDarkMode ? '#525252' : '#fff'}
+                                            maskColor={customization.isDarkMode ? 'rgb(45, 45, 45, 0.6)' : 'rgb(240, 240, 240, 0.6)'}
+                                            style={{
+                                                backgroundColor: customization.isDarkMode ? theme.palette.background.default : '#fff'
                                             }}
-                                            size='small'
-                                            aria-label='sync'
-                                            title='Sync Nodes'
-                                            onClick={() => syncNodes()}
-                                        >
-                                            <IconRefreshAlert />
-                                        </Fab>
-                                    )}
-                                    {isScheduleFlow ? (
-                                        <ScheduleHistoryFAB chatflowid={chatflowId} onOpenChange={setChatPopupOpen} />
-                                    ) : isWebhookFlow ? (
-                                        <WebhookListenerFAB chatflowid={chatflowId} onOpenChange={setChatPopupOpen} />
-                                    ) : (
-                                        <ChatPopUp isAgentCanvas={true} chatflowid={chatflowId} onOpenChange={setChatPopupOpen} />
-                                    )}
-                                    {!chatPopupOpen && <ValidationPopUp isAgentCanvas={true} chatflowid={chatflowId} />}
-                                </ReactFlow>
+                                        />
+                                        {isBackgroundEnabled && <Background color='#aaa' gap={16} />}
+                                        <AddNodes
+                                            isAgentCanvas={true}
+                                            isAgentflowv2={true}
+                                            nodesData={getNodesApi.data}
+                                            node={selectedNode}
+                                            buildKind='workflow'
+                                            onBuilt={onBuilt}
+                                        />
+                                        <BuildLandingDialog
+                                            show={Boolean(builtResult)}
+                                            title={builtResult?.title}
+                                            onStartNew={startNewBuilt}
+                                            onReplace={replaceWithBuilt}
+                                            onCancel={() => setBuiltResult(null)}
+                                        />
+                                        <EditNodeDialog
+                                            show={editNodeDialogOpen}
+                                            dialogProps={editNodeDialogProps}
+                                            onCancel={() => setEditNodeDialogOpen(false)}
+                                        />
+                                        {isSyncNodesButtonEnabled && (
+                                            <Fab
+                                                sx={{
+                                                    left: 60,
+                                                    top: 20,
+                                                    color: 'white',
+                                                    background: 'orange',
+                                                    '&:hover': {
+                                                        background: 'orange',
+                                                        backgroundImage: `linear-gradient(rgb(0 0 0/10%) 0 0)`
+                                                    }
+                                                }}
+                                                size='small'
+                                                aria-label='sync'
+                                                title='Sync Nodes'
+                                                onClick={() => syncNodes()}
+                                            >
+                                                <IconRefreshAlert />
+                                            </Fab>
+                                        )}
+                                        {isScheduleFlow ? (
+                                            <ScheduleHistoryFAB chatflowid={chatflowId} onOpenChange={setChatPopupOpen} />
+                                        ) : isWebhookFlow ? (
+                                            <WebhookListenerFAB chatflowid={chatflowId} onOpenChange={setChatPopupOpen} />
+                                        ) : (
+                                            <ChatPopUp isAgentCanvas={true} chatflowid={chatflowId} onOpenChange={setChatPopupOpen} />
+                                        )}
+                                        {!chatPopupOpen && <ValidationPopUp isAgentCanvas={true} chatflowid={chatflowId} />}
+                                    </ReactFlow>
+                                </div>
+                                {panelOpen && (
+                                    <EditNodeDialog
+                                        variant='panel'
+                                        show={true}
+                                        dialogProps={panelProps}
+                                        onCancel={() => setPanelNodeId(null)}
+                                    />
+                                )}
                             </div>
-                            {panelOpen && (
-                                <EditNodeDialog
-                                    variant='panel'
-                                    show={true}
-                                    dialogProps={panelProps}
-                                    onCancel={() => setPanelNodeId(null)}
-                                />
-                            )}
-                        </div>
+                        </CanvasPanelContext.Provider>
                     </ReactFlowProvider>
                 </Box>
                 <ConfirmDialog />

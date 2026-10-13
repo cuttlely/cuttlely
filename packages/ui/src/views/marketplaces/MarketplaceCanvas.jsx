@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useContext, useEffect, useMemo, useRef, useState } from 'react'
 import ReactFlow, { Controls, Background, ReactFlowProvider, useNodesState, useEdgesState } from 'reactflow'
 import 'reactflow/dist/style.css'
 import '@/views/canvas/index.css'
@@ -20,8 +20,10 @@ import StickyNote from '../canvas/StickyNote'
 import NodeSidePanel from '../canvas/NodeSidePanel'
 import useCanvasLook from '@/hooks/useCanvasLook'
 import { CanvasPanelContext } from '@/store/context/CanvasPanelContext'
+import { flowContext } from '@/store/context/ReactFlowContext'
 import { isNewLook, panelNode } from '@/utils/canvasLook'
 import { isLegacyTemplate } from '@/utils/legacyAgentflows'
+import { templatePreviewProps } from './templatePreview'
 
 // icons
 import {
@@ -67,6 +69,8 @@ const MarketplaceCanvas = () => {
     const openPanelNode = panelNode(nodes, newLook ? panelNodeId : null)
     const openPanelNodeId = openPanelNode?.id ?? null
     const panelContext = useMemo(() => ({ panelNodeId: openPanelNodeId, compact: newLook }), [openPanelNodeId, newLook])
+    const parentFlow = useContext(flowContext)
+    const readOnlyFlow = useMemo(() => ({ ...parentFlow, readOnly: true, deleteNode: () => {}, duplicateNode: () => {} }), [parentFlow])
 
     // ==============================|| useEffect ||============================== //
 
@@ -141,73 +145,76 @@ const MarketplaceCanvas = () => {
                 </AppBar>
                 <Box sx={{ pt: '70px', height: '100vh', width: '100%' }}>
                     <ReactFlowProvider>
-                        <CanvasPanelContext.Provider value={panelContext}>
-                            <div className='reactflow-parent-wrapper'>
-                                <div className='reactflow-wrapper' ref={reactFlowWrapper}>
-                                    <ReactFlow
-                                        nodes={nodes}
-                                        edges={edges}
-                                        onNodesChange={onNodesChange}
-                                        onEdgesChange={onEdgesChange}
-                                        nodesDraggable={false}
-                                        onNodeClick={(event, node) => setPanelNodeId(node.type === 'stickyNote' ? null : node.id)}
-                                        onPaneClick={() => setPanelNodeId(null)}
-                                        nodeTypes={nodeTypes}
-                                        edgeTypes={edgeTypes}
-                                        fitView
-                                        minZoom={0.1}
-                                        snapGrid={[25, 25]}
-                                        snapToGrid={isSnappingEnabled}
-                                    >
-                                        <Controls
-                                            className={customization.isDarkMode ? 'dark-mode-controls' : ''}
-                                            style={{
-                                                display: 'flex',
-                                                flexDirection: 'row',
-                                                left: '50%',
-                                                transform: 'translate(-50%, -50%)'
-                                            }}
+                        <flowContext.Provider value={readOnlyFlow}>
+                            <CanvasPanelContext.Provider value={panelContext}>
+                                <div className='reactflow-parent-wrapper'>
+                                    <div className='reactflow-wrapper' ref={reactFlowWrapper}>
+                                        <ReactFlow
+                                            nodes={nodes}
+                                            edges={edges}
+                                            onNodesChange={onNodesChange}
+                                            onEdgesChange={onEdgesChange}
+                                            nodesDraggable={false}
+                                            {...templatePreviewProps}
+                                            onNodeClick={(event, node) => setPanelNodeId(node.type === 'stickyNote' ? null : node.id)}
+                                            onPaneClick={() => setPanelNodeId(null)}
+                                            nodeTypes={nodeTypes}
+                                            edgeTypes={edgeTypes}
+                                            fitView
+                                            minZoom={0.1}
+                                            snapGrid={[25, 25]}
+                                            snapToGrid={isSnappingEnabled}
                                         >
-                                            <button
-                                                className='react-flow__controls-button react-flow__controls-interactive'
-                                                onClick={() => {
-                                                    setIsSnappingEnabled(!isSnappingEnabled)
+                                            <Controls
+                                                className={customization.isDarkMode ? 'dark-mode-controls' : ''}
+                                                style={{
+                                                    display: 'flex',
+                                                    flexDirection: 'row',
+                                                    left: '50%',
+                                                    transform: 'translate(-50%, -50%)'
                                                 }}
-                                                title='toggle snapping'
-                                                aria-label='toggle snapping'
                                             >
-                                                {isSnappingEnabled ? <IconMagnetFilled /> : <IconMagnetOff />}
-                                            </button>
-                                            <button
-                                                className='react-flow__controls-button react-flow__controls-interactive'
-                                                onClick={() => {
-                                                    setIsBackgroundEnabled(!isBackgroundEnabled)
-                                                }}
-                                                title='toggle background'
-                                                aria-label='toggle background'
-                                            >
-                                                {isBackgroundEnabled ? <IconArtboard /> : <IconArtboardOff />}
-                                            </button>
-                                            <button
-                                                className='react-flow__controls-button react-flow__controls-interactive'
-                                                onClick={() => setCanvasLook(newLook ? 'classic' : 'panel')}
-                                                title={
-                                                    newLook
-                                                        ? 'New card look (compact cards, settings in a side panel): on'
-                                                        : 'New card look (compact cards, settings in a side panel): off'
-                                                }
-                                                aria-label='toggle side panel'
-                                                aria-pressed={newLook}
-                                            >
-                                                {newLook ? <IconLayoutSidebarRightFilled /> : <IconLayoutSidebarRight />}
-                                            </button>
-                                        </Controls>
-                                        {isBackgroundEnabled && <Background color='#aaa' gap={16} />}
-                                    </ReactFlow>
+                                                <button
+                                                    className='react-flow__controls-button react-flow__controls-interactive'
+                                                    onClick={() => {
+                                                        setIsSnappingEnabled(!isSnappingEnabled)
+                                                    }}
+                                                    title='toggle snapping'
+                                                    aria-label='toggle snapping'
+                                                >
+                                                    {isSnappingEnabled ? <IconMagnetFilled /> : <IconMagnetOff />}
+                                                </button>
+                                                <button
+                                                    className='react-flow__controls-button react-flow__controls-interactive'
+                                                    onClick={() => {
+                                                        setIsBackgroundEnabled(!isBackgroundEnabled)
+                                                    }}
+                                                    title='toggle background'
+                                                    aria-label='toggle background'
+                                                >
+                                                    {isBackgroundEnabled ? <IconArtboard /> : <IconArtboardOff />}
+                                                </button>
+                                                <button
+                                                    className='react-flow__controls-button react-flow__controls-interactive'
+                                                    onClick={() => setCanvasLook(newLook ? 'classic' : 'panel')}
+                                                    title={
+                                                        newLook
+                                                            ? 'New card look (compact cards, settings in a side panel): on'
+                                                            : 'New card look (compact cards, settings in a side panel): off'
+                                                    }
+                                                    aria-label='toggle side panel'
+                                                    aria-pressed={newLook}
+                                                >
+                                                    {newLook ? <IconLayoutSidebarRightFilled /> : <IconLayoutSidebarRight />}
+                                                </button>
+                                            </Controls>
+                                            {isBackgroundEnabled && <Background color='#aaa' gap={16} />}
+                                        </ReactFlow>
+                                    </div>
+                                    {openPanelNode && <NodeSidePanel node={openPanelNode} onClose={() => setPanelNodeId(null)} readOnly />}
                                 </div>
-                                {openPanelNode && <NodeSidePanel node={openPanelNode} onClose={() => setPanelNodeId(null)} readOnly />}
-                            </div>
-                        </CanvasPanelContext.Provider>
+                            </CanvasPanelContext.Provider>
+                        </flowContext.Provider>
                     </ReactFlowProvider>
                 </Box>
             </Box>

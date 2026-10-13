@@ -94,6 +94,7 @@ const VersionCanvas = () => {
             deleteNode: noop,
             deleteEdge: noop,
             duplicateNode: noop,
+            readOnly: true,
             onAgentflowNodeStatusUpdate: noop,
             clearAgentflowNodeStatus: noop,
             onNodeDataChange: noop
