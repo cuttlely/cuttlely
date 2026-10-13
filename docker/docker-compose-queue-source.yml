@@ -39,6 +39,8 @@ services:
             - MODE=queue
             - QUEUE_NAME=cuttlely-queue # Ensure this matches worker
             - REDIS_URL=redis://redis:6379 # Use service name 'redis'
+            # Blank is unset: traces use cuttlely, and Service name in Admin stays editable.
+            - METRICS_SERVICE_NAME=${METRICS_SERVICE_NAME:-}
         depends_on:
             - redis
         networks:
@@ -65,6 +67,8 @@ services:
             - MODE=queue
             - QUEUE_NAME=cuttlely-queue # Ensure this matches worker
             - REDIS_URL=redis://redis:6379 # Use service name 'redis'
+            # Blank is unset: traces use cuttlely, and Service name in Admin stays editable.
+            - METRICS_SERVICE_NAME=${METRICS_SERVICE_NAME:-}
         depends_on:
             - redis
             - cuttlely

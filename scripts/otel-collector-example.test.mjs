@@ -172,7 +172,13 @@ test('the Tempo recipe mounts a config that listens on every interface', () => {
 })
 
 test('both compose files pass the trace variables from .env', () => {
-    const names = ['CUTTLELY_OTEL_TRACES', 'CUTTLELY_OTEL_TRACES_ENDPOINT', 'CUTTLELY_OTEL_TRACES_PROTOCOL', 'CUTTLELY_OTEL_TRACES_CONTENT']
+    const names = [
+        'CUTTLELY_OTEL_TRACES',
+        'CUTTLELY_OTEL_TRACES_ENDPOINT',
+        'CUTTLELY_OTEL_TRACES_PROTOCOL',
+        'CUTTLELY_OTEL_TRACES_CONTENT',
+        'METRICS_SERVICE_NAME'
+    ]
     for (const file of ['docker-compose.yml', 'docker/docker-compose.yml']) {
         const doc = yaml.load(fs.readFileSync(path.join(ROOT, file), 'utf8'))
         const service = doc.services.cuttlely
@@ -181,4 +187,11 @@ test('both compose files pass the trace variables from .env', () => {
         }
         assert.ok(service.extra_hosts.includes('host.docker.internal:host-gateway'), file)
     }
+    const queue = yaml.load(fs.readFileSync(path.join(ROOT, 'docker/docker-compose-queue-source.yml'), 'utf8'))
+    const passed = 'METRICS_SERVICE_NAME=${METRICS_SERVICE_NAME:-}'
+    for (const serviceName of ['cuttlely', 'cuttlely-worker']) {
+        assert.ok(queue.services[serviceName].environment.includes(passed), serviceName)
+    }
+    const example = fs.readFileSync(path.join(ROOT, 'docker/.env.example'), 'utf8')
+    assert.match(example, /^# METRICS_SERVICE_NAME=cuttlely$/m)
 })

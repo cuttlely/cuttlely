@@ -17,18 +17,18 @@ Traces and metrics are separate switches. You can send traces with metrics off, 
 
 The example collector below has a traces pipeline only. It does not print metrics. A metrics pipeline is a separate block in your own collector config.
 
-`METRICS_SERVICE_NAME` is the service name on each trace. When it is unset, traces use `cuttlely`. The same variable is **Service name** under **Admin** > **Server settings** > **Integrations** > **Metrics**, and that field is shown when **Metrics** is on. Set the variable in the environment when you want the name on traces and you are leaving metrics off. The trace resource also carries the server version.
+`METRICS_SERVICE_NAME` is the service name on each trace. When it is unset or blank, traces use `cuttlely`. A blank value is not a host setting, so **Service name** under **Admin** > **Server settings** > **Integrations** > **Metrics** stays editable. That field is shown when **Metrics** is on. Compose passes the variable from `.env`. Set it there when you want the name on traces and you are leaving metrics off. The trace resource also carries the server version.
 
 ## Turn traces on
 
 Set these in the server environment, or under **Admin** > **Server settings** > **Integrations** > **Traces**, then restart. A value set by the host is locked on that page.
 
-| Variable                        | On the Traces page              | Default       | What it does                                                                                                                                                  |
-| ------------------------------- | ------------------------------- | ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `CUTTLELY_OTEL_TRACES`          | **Run traces**                  | Off           | `true` sends traces. Anything else, including unset, sends nothing and does not create a tracer.                                                              |
-| `CUTTLELY_OTEL_TRACES_ENDPOINT` | **Trace collector address**     | Not set       | Collector address. Required when traces are on. Shown when **Run traces** is on.                                                                              |
-| `CUTTLELY_OTEL_TRACES_PROTOCOL` | **Trace protocol**              | HTTP (`http`) | `http`, `grpc`, or `proto`. The page lists them as HTTP, gRPC, and Protobuf.                                                                                  |
-| `CUTTLELY_OTEL_TRACES_CONTENT`  | **Include question and answer** | Off           | **Sensitive.** `true` adds question, answer, prompt, and tool text. See [What stays off the span](#what-stays-off-the-span). Shown when **Run traces** is on. |
+| Variable                        | On the Traces page                | Default       | What it does                                                                                                                                                                                                                                                                                                                                                                 |
+| ------------------------------- | --------------------------------- | ------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `CUTTLELY_OTEL_TRACES`          | **Run traces**                    | Off           | `true` sends traces. Anything else, including unset, sends nothing and does not create a tracer.                                                                                                                                                                                                                                                                             |
+| `CUTTLELY_OTEL_TRACES_ENDPOINT` | **Trace collector address**       | Not set       | Collector address. Required when traces are on. Shown when **Run traces** is on.                                                                                                                                                                                                                                                                                             |
+| `CUTTLELY_OTEL_TRACES_PROTOCOL` | **Trace protocol**                | HTTP (`http`) | `http`, `grpc`, or `proto`. The page lists them as HTTP, gRPC, and Protobuf.                                                                                                                                                                                                                                                                                                 |
+| `CUTTLELY_OTEL_TRACES_CONTENT`  | **Include prompts and tool text** | Off           | **Sensitive.** Adds `content.input` and `content.output`, cut at 4,000 characters: the question and the answer, the model prompt and reply, tool arguments and results, a specialist's task, analyst SQL when the tool detail still has it, and the analyst run-card preview. Leave this off unless you trust the collector with that text. Shown when **Run traces** is on. |
 
 HTTP and protobuf use a path such as `http://localhost:4318/v1/traces`. gRPC uses the collector port without that path, for example `http://localhost:4317`.
 
@@ -51,11 +51,9 @@ Turning traces on does not claim the process-wide tracer. A span another library
 
 ## What stays off the span
 
-`CUTTLELY_OTEL_TRACES_CONTENT` defaults to off. Leave it off unless the collector is somewhere you trust with the text people type and the text tools return. That text can include a question, an answer, a prompt, tool arguments, tool results, analyst SQL, and the rows an analyst query returned.
+`CUTTLELY_OTEL_TRACES_CONTENT` defaults to off. **Sensitive.** It adds `content.input` and `content.output`, cut at 4,000 characters: the question and the answer, the model prompt and reply, tool arguments and results, a specialist's task, analyst SQL when the tool detail still has it, and the analyst run-card preview. Leave this off unless you trust the collector with that text. A string is kept. A message object is kept when it has `text`, `content`, or `question`. Any other object is left out, so a credential object is not copied onto the span.
 
-The switch adds `content.input` and `content.output`. Text is cut at 4,000 characters. A string is kept. A message object is kept when it has `text`, `content`, or `question`. Any other object is left out, so a credential object is not copied onto the span.
-
-With the switch off, spans do not include the question, the answer, the prompt, tool text, SQL, rows, or the run-card preview. An analyst query still has `tool.rows`, which is the row count on the settled chip, not the rows.
+With the switch off, spans do not include that text. An analyst query still has `tool.rows`, which is the row count on the settled chip, not the rows or the preview.
 
 ## Local collector
 
@@ -192,18 +190,18 @@ For an agentflow step, `tokens.input` and `tokens.output` are the sum of the mod
 
 ### Chatflow, including Multi Agents and Sequential Agents
 
-| Span                  | Attributes                                                                                                                                                      |
-| --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `chatflow.prediction` | `flow.id`, `flow.kind` (`chatflow`), `status` (`ok` or `error`), and `error` when the run fails                                                                 |
-| `node`                | `node.id`, `node.type`, `flow.id`, `flow.kind`, `status`, and `error` when that node fails                                                                      |
-| `model`               | `model.name` when Cuttlely knows it, `tokens.input`, `tokens.output`, `node.id`, `node.type`, `flow.id`, `flow.kind`, `status`, and `error` when the call fails |
-| `tool`                | `tool.name`, `tool.id` when the call has one, `node.id`, `node.type`, `flow.id`, `flow.kind`, `status`, and `error` when the tool fails                         |
+| Span                  | Attributes                                                                                                                                                                                                                                    |
+| --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `chatflow.prediction` | `flow.id`, `flow.kind` (`chatflow`), `status` (`ok` or `error`), and `error` when the run fails                                                                                                                                               |
+| `node`                | `node.id`, `node.type`, `flow.id`, `flow.kind`, `status`, and `error` when that node fails                                                                                                                                                    |
+| `model`               | `model.name` when Cuttlely knows it, `tokens.input`, `tokens.output`, `node.id`, `node.type`, `flow.id`, `flow.kind`, `status`, and `error` when the call fails                                                                               |
+| `tool`                | `tool.name`, `node.id`, `node.type`, `flow.id`, `flow.kind`, `status`, and `error` when the tool fails. A span from the model callback does not set `tool.id`. A Multi Agents or Sequential Agents span sets `tool.id` when the call has one. |
 
 With content on, the prediction, the model span, and the tool span also have `content.input` and `content.output`.
 
-A chatflow model or tool span started from the model callback copies `node.id`, `node.type`, `flow.id`, and `flow.kind` from the node that is running. That tool span has `tool.name`. It does not set `tool.id`.
+A chatflow model span started from the model callback copies `node.id`, `node.type`, `flow.id`, and `flow.kind` from the node that is running. A chatflow tool span started from that same callback sets `tool.name` and does not set `tool.id`. The callback's tool id list is only a fallback for the tool name.
 
-For a Multi Agents or Sequential Agents step, each model call has its own model span, including a model call a nested chain in that step dispatches, and each tool call has its own tool span. Those token counts use the same fields a usage record reads, and they add up to that step's total. `tool.id` is taken from the model generation when the worker message does not repeat it.
+For a Multi Agents or Sequential Agents step, each model call has its own model span, including a model call a nested chain in that step dispatches, and each tool call has its own tool span. Those token counts use the same fields a usage record reads, and they add up to that step's total. Those tool spans set `tool.id` from the model generation when the call has an id, including when the worker message does not repeat it. They are not the callback tool spans above.
 
 ### Agentflow
 
@@ -274,7 +272,7 @@ A graph node that ends in error marks the run span `error` as well. The predicti
 
 `tokens.input` and `tokens.output` are set when the model reports them.
 
-With `CUTTLELY_OTEL_TRACES_CONTENT` left off, spans do not include the question, the answer, the prompt, or tool text. With it on, `content.input` and `content.output` hold that text. Treat those attributes as sensitive.
+With `CUTTLELY_OTEL_TRACES_CONTENT` left off, spans do not include the question, the answer, the model prompt and reply, tool arguments and results, a specialist's task, analyst SQL, or the analyst run-card preview. With it on, `content.input` and `content.output` hold that text. Treat those attributes as sensitive.
 
 A publish check does not send these traces.
 

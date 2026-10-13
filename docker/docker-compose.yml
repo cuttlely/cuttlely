@@ -67,6 +67,8 @@ services:
             CUTTLELY_OTEL_TRACES_ENDPOINT: ${CUTTLELY_OTEL_TRACES_ENDPOINT:-}
             CUTTLELY_OTEL_TRACES_PROTOCOL: ${CUTTLELY_OTEL_TRACES_PROTOCOL:-}
             CUTTLELY_OTEL_TRACES_CONTENT: ${CUTTLELY_OTEL_TRACES_CONTENT:-}
+            # Blank is unset: traces use cuttlely, and Service name in Admin stays editable.
+            METRICS_SERVICE_NAME: ${METRICS_SERVICE_NAME:-}
             TRUST_PROXY: ${TRUST_PROXY:-}
             WORKOS_API_KEY: ${WORKOS_API_KEY:-}
             WORKOS_CLIENT_ID: ${WORKOS_CLIENT_ID:-}
