@@ -637,16 +637,33 @@ describe('three environments, in order', () => {
         const waiting = await getIncoming(FLOW, 'ws-staging', stagingDeps)
         expect(waiting.missingCredentials).toEqual([OPENAI])
         expect(waiting.checkUnavailable).toMatchObject({ code: 'new-flow' })
+        expect(
+            waiting.placements.map((item) => ({
+                server: item.server,
+                place: item.place,
+                state: item.state,
+                sha: item.version?.sha ?? null
+            }))
+        ).toEqual([
+            { server: 'dev', place: 'previous', state: 'seen', sha: devSha },
+            { server: 'staging', place: 'here', state: 'none', sha: null },
+            { server: 'prod', place: 'later', state: 'local-only', sha: null }
+        ])
         stagingCredentials.set('stg-key', { id: 'stg-key', ref: OPENAI })
         expect((await getIncoming(FLOW, 'ws-staging', stagingDeps)).missingCredentials).toEqual([])
 
-        const row = {
+        const blank = {
             id: FLOW,
             name: 'Support bot',
             type: 'CHATFLOW',
-            flowData: canvas('ALPHA', 'stg-key'),
+            flowData: '{"nodes":[],"edges":[]}',
             workspaceId: 'ws-staging'
         } as ChatFlow
+        const staged = await getVersion(blank, devSha, stagingDeps.readOptions!('ws-staging'))
+        expect(staged?.flowData).toContain('ALPHA')
+        expect(staged?.flowData).toContain('stg-key')
+        expect(staged?.flowData).not.toContain(DEV_KEY)
+        const row = { ...blank, name: staged!.name, flowData: staged!.flowData } as ChatFlow
         stagingFlows.set(FLOW, row)
         await recordFlowVersion(row, {
             kind: 'promote',
@@ -672,14 +689,51 @@ describe('three environments, in order', () => {
         const onProd = await getIncoming(FLOW, WS, prodDeps)
         expect(onProd.missingCredentials).toEqual([OPENAI])
         expect(onProd.checkUnavailable).toMatchObject({ code: 'new-flow' })
+        expect(
+            onProd.placements.map((item) => ({ server: item.server, place: item.place, state: item.state, sha: item.version?.sha ?? null }))
+        ).toEqual([
+            { server: 'dev', place: 'earlier', state: 'seen', sha: devSha },
+            { server: 'staging', place: 'previous', state: 'seen', sha: stagingSha },
+            { server: 'prod', place: 'here', state: 'none', sha: null }
+        ])
+        expect(
+            execFileSync('git', ['for-each-ref', '--format=%(refname)', 'refs/versions'], {
+                cwd: prodDir,
+                encoding: 'utf8',
+                env: gitEnv(prodDir)
+            })
+        ).not.toMatch(/refs\/versions\/peek-/)
         prodCredentials.set(PROD_KEY, { id: PROD_KEY, ref: OPENAI })
         expect((await getIncoming(FLOW, WS, prodDeps)).missingCredentials).toEqual([])
+        const prodBlank = {
+            id: FLOW,
+            name: 'Support bot',
+            type: 'CHATFLOW',
+            flowData: '{"nodes":[],"edges":[]}',
+            workspaceId: WS
+        } as ChatFlow
+        const lived = await getVersion(prodBlank, stagingSha, prodDeps.readOptions!(WS))
+        expect(lived?.flowData).toContain('ALPHA')
+        expect(lived?.flowData).toContain(PROD_KEY)
+        expect(lived?.flowData).not.toContain('stg-key')
+        expect(lived?.flowData).not.toContain(DEV_KEY)
         await expect(promotable(FLOW, stagingSha, WS, prodDeps, 'dev')).rejects.toMatchObject({
             statusCode: 409,
             message: 'Promotion only moves to the next environment.'
         })
         await expect(promotable(FLOW, devSha, WS, prodDeps)).rejects.toMatchObject({ statusCode: 409 })
         await expect(promotable(FLOW, stagingSha, WS, prodDeps, 'staging')).resolves.toMatchObject({ latest: { sha: stagingSha } })
+        const prodRow = { ...prodBlank, name: lived!.name, flowData: lived!.flowData } as ChatFlow
+        prodFlows.set(FLOW, prodRow)
+        await recordFlowVersion(prodRow, {
+            kind: 'promote',
+            title: 'Promoted from Staging',
+            promotedFrom: stagingSha,
+            lookupCredentials: async (flowData) => namesFor(flowData)
+        })
+        await flushVersions()
+        await prodSync.sync()
+        expect(prodFlows.get(FLOW)?.flowData).toContain('ALPHA')
         expect(bareRef('refs/heads/prod')).toBeNull()
     })
 })
@@ -698,6 +752,7 @@ describe('a saved Dev and Prod pair is unchanged', () => {
         const sha = rev(prodDir, INCOMING_REF)!
         expect(bareMain(bare)).toBe(rev(devDir, 'refs/heads/main'))
         await expect(promotable(FLOW, sha, WS, deps)).resolves.toMatchObject({ latest: { sha } })
+        expect((await getIncoming(FLOW, WS, deps)).placements).toEqual([])
         expect(gitCalls.some((args) => args.join(' ').includes('refs/heads/staging'))).toBe(false)
     })
 })
