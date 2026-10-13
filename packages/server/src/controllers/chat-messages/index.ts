@@ -238,7 +238,8 @@ const removeAllChatMessages = async (req: Request, res: Response, next: NextFunc
                             orgId,
                             sessionId,
                             memoryType,
-                            isClearFromViewMessageDialog
+                            isClearFromViewMessageDialog,
+                            workspaceId
                         )
                     } catch (e) {
                         console.error('Error clearing chat messages')
@@ -265,7 +266,8 @@ const removeAllChatMessages = async (req: Request, res: Response, next: NextFunc
                     orgId,
                     sessionId,
                     memoryType,
-                    isClearFromViewMessageDialog
+                    isClearFromViewMessageDialog,
+                    workspaceId
                 )
             } catch (e) {
                 return res.status(500).send('Error clearing chat messages')

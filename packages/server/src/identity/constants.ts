@@ -38,7 +38,10 @@ export const OWNER_ROLE = 'owner'
 export const OPEN_SOURCE_FEATURES = {
     'feat:users': 'true',
     'feat:roles': 'true',
-    'feat:workspaces': 'true'
+    'feat:workspaces': 'true',
+    'feat:datasets': 'true',
+    'feat:evaluators': 'true',
+    'feat:evaluations': 'true'
 } as const
 
 export function workosConfigured(env: NodeJS.ProcessEnv = process.env): boolean {
