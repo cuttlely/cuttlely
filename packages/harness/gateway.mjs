@@ -191,56 +191,93 @@ function tryMarkerMatches(home) {
     return fs.readFileSync(marker, 'utf8').trim() === home
 }
 
-function harnessIsSaved(name) {
+// 'saved' stays. 'unknown' (the store threw) stays. Only a confirmed miss can be removed.
+function savedHarnessState(name) {
     try {
-        return Boolean(getHarness(name))
+        return getHarness(name) ? 'saved' : 'absent'
     } catch {
-        return false
+        return 'unknown'
     }
 }
 
 // A canvas try home is removable only when it carries the try marker, is not a saved harness,
-// and has no live lock. A fitted specialist uses that same home (its parent).
+// and has no live lock.
 function abandonedTryHome(home) {
     if (!TRY_HOME.test(home || '')) return false
-    if (harnessIsSaved(home)) return false
+    if (savedHarnessState(home) !== 'absent') return false
     if (!tryMarkerMatches(home)) return false
     if (tryLockIsLive(home)) return false
     return true
 }
 
+// A specialist or fitted profile follows its try home. It is also a leftover when that home's
+// directory or try marker is already gone, as long as the home is not a saved harness and not locked.
+function abandonedChild(home) {
+    if (!TRY_HOME.test(home || '')) return false
+    if (tryLockIsLive(home)) return false
+    if (savedHarnessState(home) !== 'absent') return false
+    if (tryMarkerMatches(home)) return true
+    const dir = path.join(hermesHome(), 'profiles', home)
+    return !fs.existsSync(dir) || !fs.existsSync(path.join(dir, 'harness-try'))
+}
+
 function abandonedTryEntry(entry, parentMarker) {
     const home = tryHomeOf(entry)
-    if (home) return abandonedTryHome(home)
+    if (home && entry === home) return abandonedTryHome(home)
+    if (home) return abandonedChild(home)
     if (!TRYX_HOME.test(entry)) return false
-    return abandonedTryHome(parentMarker)
+    return abandonedChild(parentMarker)
 }
 
 function removeProfileTree(entry) {
     const dir = path.join(hermesHome(), 'profiles', entry)
-    const env = readEnvFile(path.join(dir, '.env'))
-    if (env.OPENAI_API_KEY) forgetProfileToken(env.OPENAI_API_KEY)
-    fs.rmSync(dir, { recursive: true, force: true })
-    fs.rmSync(path.join(dataRoot(), 'workspaces', entry), { recursive: true, force: true })
+    try {
+        const env = readEnvFile(path.join(dir, '.env'))
+        if (env.OPENAI_API_KEY) forgetProfileToken(env.OPENAI_API_KEY)
+    } catch {
+        // This entry can still be deleted. The others are a separate call.
+    }
+    try {
+        fs.rmSync(dir, { recursive: true, force: true })
+    } catch {
+        // EBUSY on this directory does not stop the rest of the sweep.
+    }
+    try {
+        fs.rmSync(path.join(dataRoot(), 'workspaces', entry), { recursive: true, force: true })
+    } catch {
+        // The profile removal above already finished or failed on its own.
+    }
 }
 
 // Leftover canvas tries (and fitted profiles that belonged to one) are not a live run after a crash.
 // A saved harness whose name looks like a try, and a try with a live lock file, stay.
+// Returns every entry this sweep decided is abandoned, including one whose removal failed.
 export function sweepAbandonedTryProfiles() {
+    const abandoned = new Set()
     const root = path.join(hermesHome(), 'profiles')
-    if (!fs.existsSync(root)) return
+    if (!fs.existsSync(root)) return abandoned
     const drop = []
     for (const entry of fs.readdirSync(root)) {
         const marker = readParent(path.join(root, entry))
-        if (abandonedTryEntry(entry, marker)) drop.push(entry)
+        if (!abandonedTryEntry(entry, marker)) continue
+        drop.push(entry)
+        abandoned.add(entry)
     }
-    for (const entry of drop) removeProfileTree(entry)
+    for (const entry of drop) {
+        try {
+            removeProfileTree(entry)
+        } catch {
+            // One entry must not abort the sweep. Its token stays out of the map.
+        }
+    }
+    return abandoned
 }
 
-function ingestProfileTokens() {
+function ingestProfileTokens(abandoned = new Set()) {
     const root = path.join(hermesHome(), 'profiles')
     if (!fs.existsSync(root)) return
     for (const entry of fs.readdirSync(root)) {
+        if (abandoned.has(entry)) continue
         const dir = path.join(root, entry)
         const env = readEnvFile(path.join(dir, '.env'))
         const token = env.OPENAI_API_KEY || ''
@@ -265,9 +302,9 @@ function ingestProfileTokens() {
 // A process start loads tokens only after abandoned tries are gone.
 export function bootHarnessGateway() {
     tokensLoaded = false
-    sweepAbandonedTryProfiles()
+    const abandoned = sweepAbandonedTryProfiles()
     tokensLoaded = true
-    ingestProfileTokens()
+    ingestProfileTokens(abandoned)
 }
 
 function loadTokensOnce() {

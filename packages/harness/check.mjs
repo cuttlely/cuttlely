@@ -10744,6 +10744,233 @@ await (async () => {
 
 await (async () => {
     const profiles = path.join(process.env.CUTTLELY_HERMES_HOME, 'profiles')
+    const { processStartTicks, TRY_LOCK_NAME, tryLockIsLive } = await import('./try-live.mjs')
+    const { bootHarnessGateway, registerProfileToken } = await import('./gateway.mjs')
+    const started = processStartTicks(process.pid)
+    const envFor = (token, harness) =>
+        `OPENAI_API_KEY=${token}\nOPENAI_BASE_URL=http://127.0.0.1:43118/v1\nCUTTLELY_GATEWAY_HARNESS=${harness}\nCUTTLELY_GATEWAY_SPECIALIST=clerk\nCUTTLELY_GATEWAY_TRY=1\n`
+    const plant = (name, token, lock) => {
+        const dir = path.join(profiles, name)
+        const spec = `${name}--clerk`
+        fs.mkdirSync(path.join(dir, 'memory'), { recursive: true })
+        fs.mkdirSync(path.join(profiles, spec), { recursive: true })
+        fs.writeFileSync(path.join(dir, 'harness-try'), `${name}\n`)
+        fs.writeFileSync(path.join(dir, TRY_LOCK_NAME), JSON.stringify(lock))
+        fs.writeFileSync(path.join(dir, 'SOUL.md'), `${name}\n`)
+        fs.writeFileSync(path.join(profiles, spec, 'harness-parent'), `${name}\n`)
+        fs.writeFileSync(path.join(profiles, spec, '.env'), envFor(token, name))
+        fs.mkdirSync(path.join(process.env.CUTTLELY_DATA_DIR, 'workspaces', spec), { recursive: true })
+        fs.writeFileSync(path.join(process.env.CUTTLELY_DATA_DIR, 'workspaces', spec, 'keep.txt'), `${name}\n`)
+        return { dir, spec }
+    }
+    const aged30Name = `try${'31'.repeat(8)}`
+    const aged61Name = `try${'61'.repeat(8)}`
+    const recycledName = `try${'4c'.repeat(8)}`
+    const deadName = `try${'4d'.repeat(8)}`
+    const aged30Token = 'M'.repeat(43)
+    const aged61Token = 'N'.repeat(43)
+    const recycledToken = 'Q'.repeat(43)
+    const deadToken = 'R'.repeat(43)
+    const owner = { pid: process.pid, startedAt: started }
+    const aged30 = plant(aged30Name, aged30Token, { ...owner, at: Date.now() - 31 * 60 * 1000 })
+    const aged61 = plant(aged61Name, aged61Token, { ...owner, at: Date.now() - 61 * 60 * 1000 })
+    const recycled = plant(recycledName, recycledToken, { pid: process.pid, startedAt: `${started}9`, at: Date.now() })
+    const exited = spawnSync(process.execPath, ['-e', 'process.exit(0)'])
+    const dead = plant(deadName, deadToken, { pid: exited.pid, startedAt: '0', at: Date.now() })
+    const liveBefore = {
+        aged30: tryLockIsLive(aged30Name),
+        aged61: tryLockIsLive(aged61Name),
+        recycled: tryLockIsLive(recycledName),
+        dead: tryLockIsLive(deadName)
+    }
+    bootHarnessGateway()
+    const gateway = await openGateway()
+    const status = async (token) => (await localRequest({ port: gateway.port, method: 'GET', path: '/v1/models', token })).status
+    const aged30Status = await status(aged30Token)
+    const aged61Status = await status(aged61Token)
+    const recycledStatus = await status(recycledToken)
+    const deadStatus = await status(deadToken)
+    await gateway.close()
+    check(
+        'a long-lived lock stays while the owner process matches, and a dead or reused pid does not',
+        Boolean(started) &&
+            liveBefore.aged30 === true &&
+            liveBefore.aged61 === true &&
+            liveBefore.recycled === false &&
+            liveBefore.dead === false &&
+            aged30Status === 200 &&
+            aged61Status === 200 &&
+            fs.existsSync(aged30.dir) &&
+            fs.existsSync(path.join(profiles, aged30.spec)) &&
+            fs.existsSync(aged61.dir) &&
+            fs.existsSync(path.join(process.env.CUTTLELY_DATA_DIR, 'workspaces', aged61.spec)) &&
+            recycledStatus === 401 &&
+            deadStatus === 401 &&
+            !fs.existsSync(recycled.dir) &&
+            !fs.existsSync(dead.dir) &&
+            !fs.existsSync(path.join(profiles, recycled.spec)) &&
+            !fs.existsSync(path.join(process.env.CUTTLELY_DATA_DIR, 'workspaces', dead.spec)),
+        JSON.stringify({ started, liveBefore, aged30Status, aged61Status, recycledStatus, deadStatus, exited: exited.pid })
+    )
+
+    const longId = '6b'.repeat(8)
+    const longName = `try${longId}`
+    const longToken = 'T'.repeat(43)
+    const longDir = path.join(profiles, longName)
+    const longSpec = `${longName}--clerk`
+    const longFit = `tryx${'56'.repeat(8)}`
+    plant(longName, longToken, { ...owner, at: Date.now() - 61 * 60 * 1000 })
+    fs.mkdirSync(path.join(profiles, longFit), { recursive: true })
+    fs.writeFileSync(path.join(profiles, longFit, 'harness-parent'), `${longName}\n`)
+    fs.writeFileSync(path.join(profiles, longFit, 'SOUL.md'), 'LONG-FIT\n')
+    registerProfileToken({
+        token: longToken,
+        harnessName: longName,
+        specialistName: 'clerk',
+        modelKey: 'k',
+        profileName: longSpec,
+        tryProfile: true
+    })
+    const script = path.join(process.env.CUTTLELY_DATA_DIR, 'sweep-long.mjs')
+    fs.writeFileSync(
+        script,
+        `import { bootHarnessGateway } from ${JSON.stringify(path.join(root, 'packages/harness/gateway.mjs'))}\nbootHarnessGateway()\n`
+    )
+    const child = spawn(process.execPath, [script], { env: process.env, stdio: ['ignore', 'pipe', 'pipe'] })
+    const stderr = []
+    child.stderr.on('data', (chunk) => stderr.push(chunk))
+    const code = await new Promise((resolve) => child.on('close', resolve))
+    const again = await openGateway()
+    const during = (await localRequest({ port: again.port, method: 'GET', path: '/v1/models', token: longToken })).status
+    const duringDirs =
+        fs.existsSync(longDir) &&
+        fs.existsSync(path.join(profiles, longSpec)) &&
+        fs.readFileSync(path.join(profiles, longFit, 'SOUL.md'), 'utf8').includes('LONG-FIT')
+    await discardTryProfile(longId)
+    const after = (await localRequest({ port: again.port, method: 'GET', path: '/v1/models', token: longToken })).status
+    await again.close()
+    check(
+        'a worker that starts during a long try leaves that try in place',
+        code === 0 && during === 200 && duringDirs && after === 401 && !fs.existsSync(longDir),
+        JSON.stringify({ code, during, after, duringDirs, stderr: Buffer.concat(stderr).toString('utf8').slice(0, 400) })
+    )
+})()
+
+await (async () => {
+    const profiles = path.join(process.env.CUTTLELY_HERMES_HOME, 'profiles')
+    const { bootHarnessGateway } = await import('./gateway.mjs')
+    const parent = `try${'b'.repeat(16)}`
+    const child = `${parent}--clerk`
+    const fitted = `tryx${'34'.repeat(8)}`
+    const childToken = 'C'.repeat(43)
+    const fittedToken = 'L'.repeat(43)
+    const parentDir = path.join(profiles, parent)
+    const childDir = path.join(profiles, child)
+    const fittedDir = path.join(profiles, fitted)
+    const parentWork = path.join(process.env.CUTTLELY_DATA_DIR, 'workspaces', parent)
+    const childWork = path.join(process.env.CUTTLELY_DATA_DIR, 'workspaces', child)
+    const envFor = (token, harness) =>
+        `OPENAI_API_KEY=${token}\nOPENAI_BASE_URL=http://127.0.0.1:43118/v1\nCUTTLELY_GATEWAY_HARNESS=${harness}\nCUTTLELY_GATEWAY_SPECIALIST=clerk\nCUTTLELY_GATEWAY_TRY=1\n`
+    fs.mkdirSync(parentDir, { recursive: true })
+    fs.writeFileSync(path.join(parentDir, 'harness-try'), `${parent}\n`)
+    fs.writeFileSync(path.join(parentDir, 'SOUL.md'), 'ORPHAN-PARENT\n')
+    fs.mkdirSync(parentWork, { recursive: true })
+    fs.writeFileSync(path.join(parentWork, 'keep.txt'), 'PARENT-WORK\n')
+    fs.mkdirSync(childDir, { recursive: true })
+    fs.writeFileSync(path.join(childDir, 'harness-parent'), `${parent}\n`)
+    fs.writeFileSync(path.join(childDir, '.env'), envFor(childToken, parent))
+    fs.mkdirSync(childWork, { recursive: true })
+    fs.writeFileSync(path.join(childWork, 'keep.txt'), 'CHILD-WORK\n')
+    fs.mkdirSync(fittedDir, { recursive: true })
+    fs.writeFileSync(path.join(fittedDir, 'harness-parent'), `${parent}\n`)
+    fs.writeFileSync(path.join(fittedDir, '.env'), envFor(fittedToken, parent))
+    fs.writeFileSync(path.join(fittedDir, 'SOUL.md'), 'ORPHAN-FIT\n')
+    const unknown = `try${'8'.repeat(16)}`
+    const unknownToken = 'U'.repeat(43)
+    const unknownDir = path.join(profiles, unknown)
+    fs.mkdirSync(path.join(process.env.CUTTLELY_DATA_DIR, 'harnesses'), { recursive: true })
+    fs.writeFileSync(path.join(process.env.CUTTLELY_DATA_DIR, 'harnesses', `${unknown}.json`), '{')
+    fs.mkdirSync(unknownDir, { recursive: true })
+    fs.writeFileSync(path.join(unknownDir, 'harness-try'), `${unknown}\n`)
+    fs.writeFileSync(path.join(unknownDir, '.env'), envFor(unknownToken, unknown))
+    const financeId = 'finance--accounts-payable-invoice-exception-handler-2'
+    const financeToken = readProfileEnv(financeId).OPENAI_API_KEY
+    const financeEnv = path.join(profiles, financeId, '.env')
+    const savedName = 'try12345678'
+    const savedToken = 'S'.repeat(43)
+    const savedEnv = path.join(profiles, `${savedName}--clerk`, '.env')
+    const realRm = fs.rmSync
+    let armed = true
+    fs.rmSync = function rmSync(target, options) {
+        const text = String(target)
+        if (armed && (text === parentWork || text === childDir || text === fittedDir)) {
+            const error = new Error('EBUSY')
+            error.code = 'EBUSY'
+            throw error
+        }
+        return realRm.call(fs, target, options)
+    }
+    let failed = null
+    try {
+        try {
+            bootHarnessGateway()
+        } catch (error) {
+            failed = error
+        }
+        armed = false
+        const gateway = await openGateway()
+        const status = async (token) => (await localRequest({ port: gateway.port, method: 'GET', path: '/v1/models', token })).status
+        const first = {
+            child: await status(childToken),
+            fitted: await status(fittedToken),
+            finance: await status(financeToken),
+            saved: await status(savedToken),
+            unknown: await status(unknownToken)
+        }
+        const childLeft = fs.existsSync(childDir)
+        const fittedLeft = fs.existsSync(fittedDir)
+        bootHarnessGateway()
+        const second = {
+            child: await status(childToken),
+            fitted: await status(fittedToken),
+            finance: await status(financeToken),
+            saved: await status(savedToken),
+            unknown: await status(unknownToken)
+        }
+        await gateway.close()
+        check(
+            'a busy parent workspace does not keep a specialist token, and the next start removes that specialist',
+            !failed &&
+                childLeft &&
+                fittedLeft &&
+                first.child === 401 &&
+                first.fitted === 401 &&
+                first.finance === 200 &&
+                first.saved === 200 &&
+                first.unknown === 200 &&
+                fs.existsSync(financeEnv) &&
+                fs.existsSync(savedEnv) &&
+                fs.existsSync(unknownDir) &&
+                second.child === 401 &&
+                second.fitted === 401 &&
+                second.finance === 200 &&
+                second.saved === 200 &&
+                second.unknown === 200 &&
+                !fs.existsSync(childDir) &&
+                !fs.existsSync(childWork) &&
+                !fs.existsSync(fittedDir) &&
+                fs.existsSync(financeEnv) &&
+                fs.existsSync(savedEnv) &&
+                fs.readFileSync(savedEnv, 'utf8').includes(savedToken),
+            JSON.stringify({ failed: failed?.message, first, second, childLeft, fittedLeft })
+        )
+    } finally {
+        fs.rmSync = realRm
+    }
+})()
+
+await (async () => {
+    const profiles = path.join(process.env.CUTTLELY_HERMES_HOME, 'profiles')
     const { tryRuntime } = await import('./profile.mjs')
     const tryId = '9'.repeat(16)
     const name = `try${tryId}`
