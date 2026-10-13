@@ -13,6 +13,7 @@ const onScreen = new WeakSet()
 
 const heroBound = new WeakSet()
 const previewBound = new WeakSet()
+const narrationErrorBound = new WeakSet()
 
 /** Source elements lifted off a hero so load() can paint the poster without fetching the file again. */
 const parkedSources = new WeakMap()
@@ -35,6 +36,21 @@ function beginNarration(video) {
 function endNarration(video) {
     const doc = video?.ownerDocument
     if (doc && narrating.get(doc) === video) narrating.delete(doc)
+}
+
+/**
+ * A media error after play() resolved never fires ended, so the button would stay hidden and
+ * previews would stay blocked. Only the video that is still narrating settles. A stale error
+ * from a video that another narration already replaced does nothing.
+ */
+function bindNarrationError(video) {
+    if (!video || narrationErrorBound.has(video) || typeof video.addEventListener !== 'function') return
+    narrationErrorBound.add(video)
+    video.addEventListener('error', () => {
+        const doc = video.ownerDocument
+        if (!doc || narrating.get(doc) !== video) return
+        settleNarration(video, doc.defaultView)
+    })
 }
 
 /** Narrow screens, navigator.connection.saveData and reduced motion get the poster and play only when tapped. */
@@ -382,6 +398,7 @@ function playFromStart(video) {
     // A refused hero parks its sources. They have to be back before play(), including a replay.
     // A dialog is not parked, so this leaves that file attached for the next open.
     restoreSources(video)
+    bindNarrationError(video)
     const doc = video.ownerDocument
     if (doc && typeof doc.querySelectorAll === 'function') {
         for (const other of doc.querySelectorAll('video')) {
@@ -536,7 +553,10 @@ function watchNarrationScroll(videos, win) {
 /** Plays the demo video and the tile loops while they are on screen, when autoplay is fine for this visitor. */
 export function initDemoVideo(doc = document, win = window) {
     const videos = [...doc.querySelectorAll('[data-demo-video], [data-loop-video]')]
-    for (const video of videos) bindHeroPlay(video, win)
+    for (const video of videos) {
+        bindHeroPlay(video, win)
+        bindNarrationError(video)
+    }
     if (!videos.length || !('IntersectionObserver' in win) || !canAutoplay(win)) {
         // Nothing starts on its own, so a tap on the narrated demo should play it with its sound.
         for (const video of videos) if ('demoVideo' in (video.dataset ?? {})) video.muted = false
@@ -566,6 +586,7 @@ export function initVideoDialogs(doc = document) {
         const video = dialog?.querySelector('video')
         if (!video || typeof dialog.showModal !== 'function') continue
         count++
+        bindNarrationError(video)
         const open = (event) => {
             event?.preventDefault?.()
             dialog.showModal()

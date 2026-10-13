@@ -1323,6 +1323,135 @@ test('a rejected hero play returns the silent preview and resumes an admitted lo
     assert.equal(tile.calls.includes('play'), true)
 })
 
+test('an error after a sounding hero play restores the button and muted previews', async () => {
+    const hero = shellVideo({ demoVideo: '' })
+    const heroButton = control({ playWithSound: '' })
+    hero.nextElementSibling = heroButton
+    const tile = shellVideo({ loopVideo: '' })
+    const previews = [hero, tile]
+    const observers = []
+    const win = {
+        matchMedia: () => ({ matches: false }),
+        navigator: { connection: {} },
+        addEventListener() {},
+        IntersectionObserver: class {
+            constructor(cb, options) {
+                this.cb = cb
+                this.options = options || {}
+                observers.push(this)
+            }
+            observe() {}
+        }
+    }
+    const doc = {
+        hidden: false,
+        visibilityState: 'visible',
+        defaultView: win,
+        addEventListener() {},
+        querySelectorAll: (selector) => {
+            if (selector === 'video' || String(selector).includes('data-demo-video') || String(selector).includes('data-loop-video'))
+                return previews
+            return []
+        }
+    }
+    for (const preview of previews) preview.ownerDocument = doc
+    initDemoVideo(doc, win)
+    const playObserver = observers.find((observer) => observer.options.threshold === 0.5)
+    playObserver.cb(previews.map((target) => ({ target, isIntersecting: true })))
+    heroButton.click()
+    await Promise.resolve()
+    assert.equal(hero.paused, false)
+    assert.equal(hero.muted, false)
+    assert.equal(heroButton.hidden, true)
+    for (const preview of previews) preview.calls.length = 0
+    hero.emit('error')
+    assert.equal(heroButton.hidden, false)
+    assert.equal(hero.muted, true)
+    assert.equal(hero.defaultMuted, true)
+    assert.equal(hero.loop, true)
+    assert.equal(hero.controls, false)
+    assert.equal(tile.paused, false)
+    assert.equal(tile.muted, true)
+    assert.equal(tile.loop, true)
+    assert.equal(tile.calls.includes('play'), true)
+})
+
+test('an error on a non-narrating element does not end the current session', async () => {
+    const hero = shellVideo({ demoVideo: '' })
+    const heroButton = control({ playWithSound: '' })
+    hero.nextElementSibling = heroButton
+    const tile = shellVideo({ loopVideo: '' })
+    const full = shellVideo({})
+    full.volume = 0.35
+    const handlers = {}
+    const dialog = {
+        querySelector: () => full,
+        showModal() {},
+        close: () => handlers.close?.(),
+        addEventListener: (type, fn) => (handlers[type] = fn)
+    }
+    const tileButton = control({ videoDialogOpen: 'v1' })
+    const previews = [hero, tile]
+    const observers = []
+    const win = {
+        matchMedia: () => ({ matches: false }),
+        navigator: { connection: {} },
+        addEventListener() {},
+        IntersectionObserver: class {
+            constructor(cb, options) {
+                this.cb = cb
+                this.options = options || {}
+                observers.push(this)
+            }
+            observe() {}
+        }
+    }
+    const doc = {
+        hidden: false,
+        visibilityState: 'visible',
+        defaultView: win,
+        addEventListener() {},
+        getElementById: () => dialog,
+        querySelectorAll: (selector) => {
+            if (selector === 'video') return [...previews, full]
+            if (String(selector).includes('data-video-dialog-open')) return [tileButton]
+            if (String(selector).includes('data-demo-video') || String(selector).includes('data-loop-video')) return previews
+            return []
+        }
+    }
+    for (const preview of previews) preview.ownerDocument = doc
+    full.ownerDocument = doc
+    initDemoVideo(doc, win)
+    const playObserver = observers.find((observer) => observer.options.threshold === 0.5)
+    playObserver.cb(previews.map((target) => ({ target, isIntersecting: true })))
+    initVideoDialogs(doc)
+    heroButton.click()
+    await Promise.resolve()
+    assert.equal(heroButton.hidden, true)
+    assert.equal(hero.muted, false)
+    assert.equal(hero.paused, false)
+    tile.calls.length = 0
+    tile.emit('error')
+    assert.equal(heroButton.hidden, true)
+    assert.equal(hero.muted, false)
+    assert.equal(hero.paused, false)
+    assert.equal(hero.controls, true)
+    assert.equal(tile.paused, true)
+    assert.equal(tile.calls.includes('play'), false)
+    hero.currentTime = 4
+    tileButton.click()
+    await Promise.resolve()
+    assert.equal(full.paused, false)
+    assert.equal(full.muted, false)
+    hero.emit('error')
+    assert.equal(full.paused, false)
+    assert.equal(full.muted, false)
+    assert.equal(full.controls, true)
+    assert.equal(hero.currentTime, 4)
+    assert.equal(tile.paused, true)
+    assert.equal(tile.calls.includes('play'), false)
+})
+
 test('a rejected dialog play resumes the previews it paused', async () => {
     const previews = [0, 1].map(() => shellVideo({ loopVideo: '' }))
     const handlers = {}
