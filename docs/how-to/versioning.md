@@ -32,7 +32,7 @@ Each row has:
 
 -   A name that says what changed, written by Cuttlely from the change itself: `Changed System Message on Conversation Chain`, `Moved nodes`, `Changed credential, Temperature on ChatOpenAI`, `Created Bakery helper`. Field names are the labels you see on the node.
 -   **Edited by** and the person who saved it.
--   What happened (`Created`, `Saved`, `Restored`, `Published`, `Rolled back`, `Promoted from Dev`, or `Deleted`), the time, and a short version id.
+-   What happened (`Created`, `Saved`, `Restored`, `Published`, `Rolled back`, `Promoted from` the previous environment, or `Deleted`), the time, and a short version id. The secondary line uses that same environment name. On the saved Dev and Prod pair it is Dev.
 
 A save that changes nothing adds no version. Unsaved changes on the canvas are not in history. The panel says so while the canvas has unsaved changes: `You have unsaved changes. They show up here after you save.`
 
@@ -285,6 +285,8 @@ Setup does not stop at a GitHub page: after **Sign Up** you land in Cuttlely, so
 
 ![The Version History page under Admin. One GitHub card says Keep a copy of every version in your own GitHub repository, shows a Not connected chip, explains that keys are never copied, and has a Connect GitHub button. Below it, This server is, with Dev, Prod and Not set.](../images/versioning/github-not-connected.png)
 
+When the environment list cannot be read, that card shows `The environment list could not be read. Save it again.` It does not offer Dev and Prod. It asks which row is this server, then saves that identity with the full list. The saved pair is dev then prod. Save stays off until a row is chosen. When the saved GitHub connection cannot be read, the card still shows the list and shows `The saved GitHub connection could not be read. Disconnect and connect again.` It does not ask you to save the list again. Saving the saved Dev and Prod pair in place of a named list that still parses, when that save would not change what this server reads or copies, is refused with `The environment list on this server is still valid, so it was not replaced.`
+
 ### Which GitHub token to use
 
 The card asks for a GitHub token once. Make it a fine-grained token that reaches only the one repository you copy to, and only that repository's contents. Select the **i** at the end of the **GitHub token** box to see the same list in the card.
@@ -383,13 +385,36 @@ On Prod the card says it gets new versions from Dev. It looks every few minutes;
 
 To switch a server between Dev and Prod, disconnect GitHub first.
 
+### Add Staging between Dev and Prod
+
+The same repository can hold more than two environments. List them in promotion order. Each one has a name, the branch it publishes to, and a server identity. An existing Dev and Prod setup is already that list: dev, then prod, and you do not have to change it.
+
+To add Staging, save this on each server with `PUT /api/v1/flow-versions/environment`, and set `environment` to that server's identity (`dev`, `staging` or `prod`). The list is stored on that server only. Save the same list on every server. Once a server has recorded a fingerprint of that list with a copy, a Prod server whose list still leaves Staging out reads Dev's versions and then stops: nothing new is offered to promote, and versions already offered stay as they are. Until that fingerprint exists, Prod can still read the place its own list names. Disconnect GitHub first if the server is already connected and this changes what it reads or copies.
+
+```json
+{
+    "environment": "staging",
+    "environments": [
+        { "name": "Dev", "branch": "main", "server": "dev" },
+        { "name": "Staging", "branch": "staging", "server": "staging" },
+        { "name": "Prod", "branch": "prod", "server": "prod" }
+    ]
+}
+```
+
+Dev still publishes to the repository. Staging reads those versions, and you promote the ones you want to Live on Staging. Staging then publishes its own versions, including what you promoted, for Prod to read. Prod promotes from Staging the same way it used to promote from Dev: the behavior check, the credential names, and **Promote to Live**. Prod does not take a version straight from Dev while Staging is in between.
+
+On Staging and on Prod the page shows the chain Dev, Staging, Prod, and says promotion moves a version to the next environment. Staging's versions are the ones Dev published. Prod's versions are the ones Staging published. With only Dev and Prod, the page does not show a chain and works as before.
+
+The fields are in [History settings](../reference/versioning-settings.md#environments).
+
 ### See what is new
 
-The **Chatflows** and **Agentflows** lists on Prod show the same news above the flows, one line per flow: **New flow from Dev** for a flow Prod does not have yet, and **New version available from Dev** for one it has. Only the owner sees it.
+The **Chatflows** and **Agentflows** lists name the previous environment: **New flow from** that environment for a flow this server does not have yet, and **New version available from** that environment for one it has. Only the owner sees it. On the saved Dev and Prod pair that name is Dev, as in the picture.
 
 ![The Chatflows list on Prod. A banner at the top of the page reads 3 flows have a new version from Dev, with Review All. Order status and Catering quotes are each marked New flow from Dev, and Bakery helper is marked New version available from Dev. Each has a Review button. The flows themselves are listed below the What are you building? card.](../images/versioning/promote-banner.png)
 
-**Review all** opens the **From Dev** page with every flow that has something new.
+**Review all** opens the promote page with every flow that has something new. On the saved Dev and Prod pair its title is **From Dev**.
 
 ![The From Dev page. It explains that Dev and this server share one GitHub repository and that nothing goes Live here until you promote it. Under 3 flows have a new version from Dev are three cards: Order status and Catering quotes, each New flow from Dev with 1 version published on Dev, and Bakery helper, New version available from Dev, with 2 changes on Dev since the last promote.](../images/versioning/promote-list.png)
 
@@ -397,20 +422,20 @@ The **Chatflows** and **Agentflows** lists on Prod show the same news above the 
 
 Select a flow to open its review page:
 
--   **What changes on this server** compares the version from Dev with what is Live on Prod now.
--   **What changed on Dev** lists the versions Dev published since the last promote, newest first.
--   **Credentials** says whether Prod has every credential the flow uses. See [Credentials stay on each server](#credentials-stay-on-each-server).
--   **Check recent questions** runs the questions people asked on this server lately on Live and on the version from Dev, side by side, the same way as [Check recent questions before you publish](#check-recent-questions-before-you-publish), including the past-question count. A form, webhook or schedule agentflow instead replays inputs recorded on this server, not on Dev. That box is titled **Check recent runs** and uses the same **Past runs** choices. When fewer runs exist than the choice, the picker is labeled **Requested runs**. If this server has no such run yet, the box says no past runs exist yet and how to create one here. It is optional.
+-   **What changes on this server** compares the version from the previous environment with what is Live here now. On the saved Dev and Prod pair that version is Dev's.
+-   **What changed on** the previous environment lists the versions it published since the last promote, newest first. On the saved pair the heading is **What changed on Dev**.
+-   **Credentials** says whether this server has every credential the flow uses. See [Credentials stay on each server](#credentials-stay-on-each-server).
+-   **Check recent questions** runs the questions this server's users asked lately on Live and on the version from the previous environment, side by side, the same way as [Check recent questions before you publish](#check-recent-questions-before-you-publish), including the past-question count. A form, webhook or schedule agentflow instead replays inputs recorded on this server, not on the previous environment. That box is titled **Check recent runs** and uses the same **Past runs** choices. When fewer runs exist than the choice, the picker is labeled **Requested runs**. If this server has no such run yet, the box says no past runs exist yet and how to create one here. It is optional. On the saved pair that version is Dev's.
 
 ![The review page for Bakery helper, marked New version available from Dev. What changes on this server lists Changed ChatOpenAI: temperature and Changed Conversation Chain: system message prompt. What changed on Dev lists two versions by Rosa Diaz. Credentials says Every credential it uses is on this server. Below is Check recent questions with two recent questions picked and a Run Check button.](../images/versioning/promote-review.png)
 
 ![The check after it ran. 2 of 2 answered differently. For What time do you open on Saturday?, Live says We open at 7 AM on Saturday and From Dev says We open at 8 am on Saturday. For Do you have gluten-free bread?, Live says Yes, we offer gluten-free bread at Rosa's Bakery and From Dev says Yes, we bake gluten-free bread on Tuesdays.](../images/versioning/promote-check.png)
 
-When it looks right, select **Promote to Live**. The version from Dev is Live on Prod right away, and Prod's version history shows it as **Promoted from Dev**.
+When it looks right, select **Promote to Live**. The version from the previous environment is Live here right away. History titles it `Promoted from` that environment, and the secondary line uses the same name. On the saved Dev and Prod pair both say Dev.
 
 ![Promoted. This version is now Live on this server. History shows it as promoted from Dev. The buttons are Open The Flow, Roll Back, and All New Versions From Dev.](../images/versioning/promote-done.png)
 
-**Roll back** puts the previous Live version back in one step, the same as **Roll back live to this version** in version history. Rolling back does not offer the same version from Dev again; the next version Dev publishes shows up as usual.
+**Roll back** puts the previous Live version back in one step, the same as **Roll back live to this version** in version history. Rolling back does not offer the same version from the previous environment again; the next version that environment publishes shows up as usual. On the saved Dev and Prod pair that environment is Dev.
 
 ![Version history of Bakery helper on Prod. The newest version, marked Published and Live, is Promoted from Dev: Changed ChatOpenAI, Conversation Chain, with the note Promoted from Dev just now. Below it is Promoted from Dev: Created Bakery helper. Each has Roll Back Live To This Version.](../images/versioning/promote-history.png)
 

@@ -585,7 +585,29 @@ export {
     classifyReadFailure,
     authEnv
 } from './github'
-export type { ServerRole, GithubState, GithubStatus, GithubRepoChoice, GithubRepoList, GithubCredentialStore, GithubDeps } from './github'
+export type {
+    ServerRole,
+    GithubState,
+    GithubStatus,
+    GithubRepoChoice,
+    GithubRepoList,
+    GithubCredentialStore,
+    GithubDeps,
+    NamedEnvironment
+} from './github'
+export {
+    LEGACY_ENVIRONMENTS,
+    legacyEnvironments,
+    isLegacyChain,
+    parseEnvironmentFile,
+    parseEnvironments,
+    parseEnvironmentsAllowingLegacy,
+    slotFor,
+    syncPlan,
+    adjacentError,
+    sourceTitle
+} from './environments'
+export type { EnvironmentConfig, EnvironmentSlot, SyncPlan } from './environments'
 export { SYSTEM_AUTHOR, USER_EMAIL_DOMAIN, versionAuthor, actorFromUser } from './author'
 
 export default {

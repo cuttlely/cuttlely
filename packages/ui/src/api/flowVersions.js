@@ -15,7 +15,8 @@ const createGithubRepo = (body) => client.post('/flow-versions/github/repos/new'
 const connectGithub = (body) => client.put('/flow-versions/github', body)
 const disconnectGithub = () => client.delete('/flow-versions/github')
 const syncGithub = () => client.post('/flow-versions/github/push')
-const setEnvironment = (environment) => client.put('/flow-versions/environment', { environment })
+const setEnvironment = (environment, environments) =>
+    client.put('/flow-versions/environment', environments ? { environment, environments } : { environment })
 
 // Promote, on a server labeled Prod: new versions from Dev. For the owner only.
 const incomingPath = (chatflowId) => `/flow-versions/incoming/${encodeURIComponent(chatflowId)}`
