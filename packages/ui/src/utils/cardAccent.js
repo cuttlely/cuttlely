@@ -1,36 +1,37 @@
 import { alpha, darken, lighten } from '@mui/material/styles'
 
-// A component colour wins. Otherwise the category picks a hue that sits with the violet theme.
-// Similar kinds share a family: language cards are violet, documents are green, tools are warm.
-export const NEUTRAL_CARD_ACCENT = '#6B6578'
+// A component colour wins. Otherwise the category picks a hue.
+// Categories that commonly sit on one canvas get different hues, at a vividness close to the workflow cards,
+// so a prompt, a chat model and a chain do not all read as the same violet.
+export const NEUTRAL_CARD_ACCENT = '#90A4AE'
 
 export const CATEGORY_CARD_ACCENTS = {
     'Agent Flows': '#4DD0E1',
-    Agents: '#9333EA',
-    Analytic: '#6366F1',
-    Cache: '#CA8A04',
-    Chains: '#6D4AFF',
-    'Chat Models': '#6A3DF2',
-    'Document Loaders': '#0F766E',
-    Embeddings: '#2563EB',
-    ETL: '#0F9F6E',
-    Graph: '#0284C7',
-    Harness: '#5E43E0',
-    LLMs: '#7C4DFF',
-    Memory: '#C2410C',
-    Moderation: '#F43F5E',
-    'Multi Agents': '#A855F7',
-    'Output Parsers': '#7A5AF8',
-    Prompts: '#8B5CF6',
-    'Record Manager': '#059669',
-    Retrievers: '#0891B2',
-    'Sequential Agents': '#9D4EDD',
-    SpeechToText: '#0EA5E9',
-    'Text Splitters': '#0D9488',
-    Tools: '#EA580C',
-    'Tools (MCP)': '#D97706',
-    Utilities: '#64748B',
-    'Vector Stores': '#3B82F6'
+    Agents: '#AB47BC',
+    Analytic: '#EC407A',
+    Cache: '#FDD835',
+    Chains: '#1E88E5',
+    'Chat Models': '#7C4DFF',
+    'Document Loaders': '#43A047',
+    Embeddings: '#5C6BC0',
+    ETL: '#8BC34A',
+    Graph: '#00695C',
+    Harness: '#E040FB',
+    LLMs: '#9575CD',
+    Memory: '#FF6E40',
+    Moderation: '#FF8A80',
+    'Multi Agents': '#7E57C2',
+    'Output Parsers': '#FFB300',
+    Prompts: '#FF4081',
+    'Record Manager': '#A1887F',
+    Retrievers: '#29B6F6',
+    'Sequential Agents': '#CE93D8',
+    SpeechToText: '#0277BD',
+    'Text Splitters': '#C0CA33',
+    Tools: '#00BCD4',
+    'Tools (MCP)': '#00897B',
+    Utilities: '#78909C',
+    'Vector Stores': '#26A69A'
 }
 
 const HEX = /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/

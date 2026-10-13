@@ -49,16 +49,9 @@ function hue(value) {
     return result < 0 ? result + 360 : result
 }
 
-function hueSpan(categories) {
-    const values = categories.map((category) => hue(CATEGORY_CARD_ACCENTS[category]))
-    let span = 0
-    for (const left of values) {
-        for (const right of values) {
-            const delta = Math.abs(left - right)
-            span = Math.max(span, Math.min(delta, 360 - delta))
-        }
-    }
-    return span
+function hueDistance(left, right) {
+    const delta = Math.abs(hue(CATEGORY_CARD_ACCENTS[left]) - hue(CATEGORY_CARD_ACCENTS[right]))
+    return Math.min(delta, 360 - delta)
 }
 
 function sourceCategories() {
@@ -103,23 +96,32 @@ describe('card accent', () => {
         }
     })
 
-    it('keeps similar kinds of card in one hue family', () => {
-        expect(
-            hueSpan([
-                'Chat Models',
-                'LLMs',
-                'Chains',
-                'Prompts',
-                'Output Parsers',
-                'Agents',
-                'Multi Agents',
-                'Sequential Agents',
-                'Harness'
-            ])
-        ).toBeLessThanOrEqual(40)
-        expect(hueSpan(['Document Loaders', 'Text Splitters', 'Record Manager', 'ETL'])).toBeLessThanOrEqual(20)
-        expect(hueSpan(['Embeddings', 'Vector Stores', 'Retrievers', 'Graph'])).toBeLessThanOrEqual(40)
-        expect(hueSpan(['Tools', 'Tools (MCP)', 'Memory', 'Cache'])).toBeLessThanOrEqual(30)
+    it('gives neighbouring categories clearly different hues', () => {
+        // Chat models and completion models share a violet. They are not placed next to each other.
+        expect(hueDistance('Chat Models', 'LLMs')).toBeLessThanOrEqual(20)
+        const apart = [
+            ['Prompts', 'Chat Models', 60],
+            ['Chat Models', 'Chains', 40],
+            ['Prompts', 'Chains', 80],
+            ['Memory', 'Tools', 80],
+            ['Memory', 'Chains', 80],
+            ['Tools', 'Agents', 40],
+            ['Agents', 'Chat Models', 30],
+            ['Agents', 'Prompts', 40],
+            ['Agents', 'Memory', 40],
+            ['Document Loaders', 'Text Splitters', 40],
+            ['Text Splitters', 'Embeddings', 40],
+            ['Embeddings', 'Vector Stores', 40],
+            ['Vector Stores', 'Retrievers', 20],
+            ['Retrievers', 'Chains', 8],
+            ['Tools', 'Tools (MCP)', 12],
+            ['Output Parsers', 'Memory', 20],
+            ['Output Parsers', 'Chains', 60],
+            ['Cache', 'Memory', 20]
+        ]
+        for (const [left, right, minimum] of apart) {
+            expect(hueDistance(left, right)).toBeGreaterThanOrEqual(minimum)
+        }
         const accents = new Set(Object.values(CATEGORY_CARD_ACCENTS))
         expect(accents.size).toBe(Object.keys(CATEGORY_CARD_ACCENTS).length)
     })
