@@ -38,7 +38,7 @@ export function ossIdentity(): OssIdentity {
     }
 }
 
-/** Logs, files, login activity, account, and SSO stay off. Datasets, evaluators, and evaluations are on (D55). */
+/** Datasets, evaluators, and evaluations are on (D55). Server logs use logs:view (D56). The commercial logs flag, files, login activity, account, and SSO stay off. */
 const CLOSED_FEATURES = new Set(['feat:account', 'feat:files', 'feat:login-activity', 'feat:logs', 'feat:sso-config'])
 
 export function denyClosedFeature(feature: string): RequestHandler {

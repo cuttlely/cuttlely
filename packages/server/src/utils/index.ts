@@ -1633,7 +1633,7 @@ export const redactCredentialWithPasswordType = (
  * Get sessionId
  * Hierarchy of sessionId (top down)
  * API/Embed:
- * (1) overrideConfig.sessionId only when it equals the caller-owned chat id (D55)
+ * (1) overrideConfig.sessionId only when it equals the caller-owned chat id (D21)
  * (2) incomingInput.chatId only when it equals that same id
  *
  * API/Embed + UI:

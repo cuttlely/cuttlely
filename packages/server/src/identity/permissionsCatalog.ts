@@ -11,6 +11,7 @@
  * by the identity schema, plus the users, roles, and team keys the UI
  * already sends. Share, export, import, and SSO are left out.
  * Datasets, evaluators, and evaluations stay, matching the routes (D55).
+ * Server logs are `logs:view` on a role and are not offered on an API key (D56).
  */
 
 import { PERSONAL_WORKSPACE_PERMISSIONS } from '../database/identitySchema'
@@ -35,11 +36,12 @@ const ALLOWED_PREFIXES = new Set([
     'evaluations',
     'users',
     'roles',
-    'workspace'
+    'workspace',
+    'logs'
 ])
 
-/** The API-key service rejects workspace and admin grants. Users and roles are the same class of grant. */
-const API_KEY_EXCLUDED_PREFIXES = new Set(['workspace', 'users', 'roles', 'admin'])
+/** The API-key service rejects workspace, admin, and server-log grants. Users and roles are the same class of grant. */
+const API_KEY_EXCLUDED_PREFIXES = new Set(['workspace', 'users', 'roles', 'admin', 'logs'])
 
 const ADMIN_KEYS = [
     'users:manage',
@@ -51,6 +53,9 @@ const ADMIN_KEYS = [
     'workspace:add-user',
     'workspace:unlink-user'
 ]
+
+/** Server log files. Not offered on an API key. The organization owner passes without this grant. */
+const LOG_KEYS = ['logs:view']
 
 export interface PermissionChoice {
     key: string
@@ -118,7 +123,7 @@ export function permissionsAfterPlatformFilter(
 export function catalogKeys(): string[] {
     const stored = JSON.parse(PERSONAL_WORKSPACE_PERMISSIONS) as unknown
     const fromStore = Array.isArray(stored) ? stored.filter((item): item is string => typeof item === 'string') : []
-    const keys = [...fromStore, ...ADMIN_KEYS].filter(kept)
+    const keys = [...fromStore, ...ADMIN_KEYS, ...LOG_KEYS].filter(kept)
     return [...new Set(keys)]
 }
 

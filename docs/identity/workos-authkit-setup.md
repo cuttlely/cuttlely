@@ -266,7 +266,7 @@ Never leave `CUTTLELY_LOCAL_ADMIN=true` on a public deploy. It puts a password f
 
 ## 9. Troubleshooting
 
-**Where to look.** On Render: your web service **Logs** tab. Locally: the terminal running the start script, and `LOG_PATH` if set (the Blueprint sets `/var/cuttlely/logs`). On the WorkOS side: the dashboard's **Events** or **Logs** pages for the environment, which show failed authorizations and the reason.
+**Where to look.** On Render: your web service **Logs** tab. Locally: the terminal running the start script, and `LOG_PATH` if set (the Blueprint sets `/var/cuttlely/logs`). The same files are under **Admin** > **Logs** in the app for an owner or a role with `logs:view`. On the WorkOS side: the dashboard's **Events** or **Logs** pages for the environment, which show failed authorizations and the reason.
 
 | Symptom                                                                                                                                              | Cause and fix                                                                                                                                                                                                                                                                                                      |
 | ---------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
