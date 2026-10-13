@@ -365,11 +365,11 @@ To put another environment between them, send the ordered list. Each entry has a
 }
 ```
 
-`environment` has to be one of the `server` values, or `null`. Sending `environment` alone later picks another server in the list that is already saved. A server that is not in the list is 400.
+`environment` has to be one of the `server` values, or `null`. Sending `environment` alone later picks another server in the list that is already saved. A server that is not in the list is 400. On a named list, connect is refused until `environment` is one of those servers. Saving a longer list while this server still publishes the same branch rewrites the fingerprint on the versions already copied, so the next environment can read them without a new version.
 
 The first environment copies its versions to its branch. Each later one reads the previous environment's branch and can promote from it. The last environment only reads. One in the middle reads the previous branch and copies its own published versions, including promotions, to its own branch, so the next environment can read them. Promotion does not skip: Dev to Prod is refused while Staging is between them. On every hop the behavior check and the credential-name check still run.
 
-Switching this server, or saving a list that changes what it reads or copies, while a repository is connected is 409; disconnect first. Nothing on GitHub changes either way. A saved Dev or Prod label with no list behaves as before: Dev copies to `main`, and Prod reads `main`.
+Switching this server, or saving a list that changes what it reads or copies, while a repository is connected is 409; disconnect first. A saved Dev or Prod label with no list behaves as before: Dev copies to `main`, and Prod reads `main`. A list change that keeps the same read and the same copy rewrites the fingerprint on the versions already copied.
 
 ### How copying works
 

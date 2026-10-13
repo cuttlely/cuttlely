@@ -75,4 +75,22 @@ describe('GithubCard environment names', () => {
         expect(html).not.toContain('value="dev"')
         expect(html).not.toContain('value="prod"')
     })
+
+    test('an unset environment on a named list asks for a choice and does not say versions are waiting', () => {
+        const html = wrap(
+            status({
+                role: 'copy',
+                environment: null,
+                state: 'stopped',
+                waiting: null,
+                message: "Pick this server's environment. Nothing is copied until you do.",
+                environments: chain
+            })
+        )
+        expect(html).toContain('Pick this server')
+        expect(html).not.toContain('waiting to be copied')
+        expect(html).toContain('value="dev"')
+        expect(html).toContain('value="staging"')
+        expect(html).toContain('value="prod"')
+    })
 })

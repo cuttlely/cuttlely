@@ -157,6 +157,7 @@ const LIST_MISMATCH =
 const LIST_UNREADABLE = 'The environment list could not be read. Save it again.'
 const LIST_UNVERIFIED = 'These versions have no environment list recorded yet, so nothing new is offered.'
 const LIST_NOTE_FAILED = 'Could not record the environment list with this copy.'
+const PICK_ENVIRONMENT = "Pick this server's environment. Nothing is copied until you do."
 // A second publisher can land its note between our fetch and our push. Retry that race a few times, then stop.
 const NOTE_PUSH_ATTEMPTS = 4
 const NOTE_REMOTE_CACHE = 'refs/notes/remote-list'
@@ -439,8 +440,9 @@ export class GithubSync {
     private lastCheckedAt: string | null = null
     // A non-retryable copy failure. Reads keep polling, but the copy stays stopped until Try again, disconnect, or connect.
     private copyHold: string | null = null
-    // The commit whose environment-list note is already on the remote. Later passes do not publish it again.
+    // The commit and list fingerprint whose note was read back from the remote. A later pass still reads it again.
     private notedHead: string | null = null
+    private notedFingerprint: string | null = null
 
     constructor(deps: GithubDeps) {
         this.deps = deps
@@ -608,8 +610,22 @@ export class GithubSync {
                 ...link,
                 state: 'stopped',
                 promotes: false,
+                waiting: null,
                 role: 'copy',
                 message: LIST_UNREADABLE
+            }
+        }
+        if (!plan.reads && !plan.copies) {
+            // A named list with no environment chosen does not copy and does not read. Do not count local versions as waiting.
+            const link = this.savedConnection()
+            return {
+                ...blank,
+                ...link,
+                state: 'stopped',
+                promotes: false,
+                waiting: null,
+                role: 'copy',
+                message: PICK_ENVIRONMENT
             }
         }
         if (blank.role === 'read') {
@@ -809,6 +825,9 @@ export class GithubSync {
         if (connected && !current.invalid && changed) {
             throw new GithubError(409, 'Disconnect GitHub before changing what this server reads or copies.')
         }
+        const beforeFingerprint = current.invalid ? null : environmentListFingerprint(current.environments)
+        const afterFingerprint = environmentListFingerprint(nextChain)
+        const fingerprintChanged = beforeFingerprint !== afterFingerprint
         await this.deps.store().ensure()
         const file = this.rolePath()
         if (isLegacyChain(nextChain)) {
@@ -819,6 +838,22 @@ export class GithubSync {
             if (nextEnv) body.environment = nextEnv
             fs.writeFileSync(file, JSON.stringify(body) + '\n')
         }
+        const sourceChanged = before.sourceBranch !== after.sourceBranch
+        // Versions read from the previous source must not stay promotable after the list is repaired or the source changes.
+        if (current.invalid || sourceChanged) {
+            await runGit(this.deps.store().dir, ['update-ref', '-d', INCOMING_REF]).catch(() => undefined)
+            if (current.invalid || this.message === LIST_UNREADABLE) {
+                this.state = 'waiting'
+                this.message = ''
+                this.nextTryAt = null
+                this.copyHold = null
+            }
+        }
+        if (fingerprintChanged) {
+            this.notedHead = null
+            this.notedFingerprint = null
+        }
+        if (connected && (current.invalid || sourceChanged || fingerprintChanged)) await this.sync()
         return this.status()
     }
 
@@ -933,6 +968,7 @@ export class GithubSync {
         const savedEnv = this.readEnvironment()
         if (savedEnv.invalid) throw new GithubError(409, 'The environment list could not be read. Save it again.')
         const plan = syncPlan(savedEnv.environments, savedEnv.environment)
+        if (!plan.reads && !plan.copies) throw new GithubError(409, PICK_ENVIRONMENT)
         const reading = plan.reads && !plan.copies
         const legacy = isLegacyChain(savedEnv.environments)
 
@@ -1054,7 +1090,7 @@ export class GithubSync {
         try {
             // The last environment copies nothing, so its own saves never start a copy.
             if (this.state === 'stopped' || !this.plan().copies) return
-            this.schedule(this.deps.debounceMs ?? 3000)
+            this.schedule(this.deps.debounceMs ?? 3000, true)
         } catch {
             // never break a save
         }
@@ -1085,6 +1121,7 @@ export class GithubSync {
         this.lastCheckedAt = null
         this.copyHold = null
         this.notedHead = null
+        this.notedFingerprint = null
     }
 
     private clearTimer(): void {
@@ -1093,13 +1130,19 @@ export class GithubSync {
         if (this.state === 'retrying') this.nextTryAt = null
     }
 
-    private schedule(delayMs: number): void {
+    private schedule(delayMs: number, followUp = false): void {
         if (this.timer) {
             if (this.state === 'retrying') return
             clearTimeout(this.timer)
         }
         this.timer = setTimeout(() => {
             this.timer = null
+            if (this.running) {
+                // A save during a copy runs again when this pass finishes. A poll that comes due mid-pass waits.
+                if (followUp) this.again = true
+                else this.schedule(delayMs, false)
+                return
+            }
             void this.sync()
         }, delayMs)
         if (typeof this.timer.unref === 'function') this.timer.unref()
@@ -1120,6 +1163,12 @@ export class GithubSync {
                     if (plan.invalid) {
                         this.state = 'stopped'
                         this.message = LIST_UNREADABLE
+                        this.nextTryAt = null
+                        return
+                    }
+                    if (!plan.reads && !plan.copies) {
+                        this.state = 'stopped'
+                        this.message = PICK_ENVIRONMENT
                         this.nextTryAt = null
                         return
                     }
@@ -1356,8 +1405,11 @@ export class GithubSync {
     ): Promise<boolean> {
         if (!head) return true
         if (plan.invalid || !plan.environments.length || generation !== this.generation) return false
-        if (this.notedHead === head) return true
         const fingerprint = environmentListFingerprint(plan.environments)
+        // Done only when this commit and this list were recorded, and the remote note still says so.
+        if (this.notedHead === head && this.notedFingerprint === fingerprint && (await this.remoteNoteMatches(config, head, fingerprint))) {
+            return true
+        }
         const dir = this.deps.store().dir
         for (let attempt = 0; attempt < NOTE_PUSH_ATTEMPTS; attempt++) {
             if (generation !== this.generation) return false
@@ -1369,6 +1421,7 @@ export class GithubSync {
             const pushed = await this.pushRemoteNotes(config)
             if (pushed === 'ok' && (await this.remoteNoteMatches(config, head, fingerprint))) {
                 this.notedHead = head
+                this.notedFingerprint = fingerprint
                 return true
             }
         }
