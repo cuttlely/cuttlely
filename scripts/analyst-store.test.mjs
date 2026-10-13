@@ -47,7 +47,7 @@ import {
     resetAnalystStoreForTests,
     rowPageSummary
 } from './analyst-store.mjs'
-import { ANALYST_CURSOR_ERRORS, analystPageRequest, parseSimpleSelect } from './analyst-page.mjs'
+import { ANALYST_CURSOR_ERRORS, analystPageRequest, parseSimpleSelect, resultLengthSql } from './analyst-page.mjs'
 import { analystShownRows, presentAnalystToolResult } from '../packages/harness/context.mjs'
 import { analystChipRows } from '../packages/harness/trace.mjs'
 import { queryAnalyst as runtimeQueryAnalyst } from '../packages/harness/runtime/analyst-store.mjs'
@@ -828,6 +828,80 @@ describe('analyst sqlite storage', () => {
             await fill('loose')
             await assertWideTailStaysInOrder((input) => query('keyed', input), 'SELECT n, note FROM keyed ORDER BY n')
             await assertWideTailStaysInOrder((input) => query('loose', input), 'SELECT n, note FROM loose ORDER BY n LIMIT 100000')
+        } finally {
+            resetAnalystStoreForTests()
+            fs.rmSync(dir, { recursive: true, force: true })
+        }
+    })
+
+    it('refuses a page jump when later notes contain emoji', async () => {
+        const dir = tempDir()
+        const env = { ...sqliteEnv(dir), CUTTLELY_ANALYST_ROW_CAP: '100' }
+        const sqliteOpen = (file) => new DatabaseSync(file)
+        const scope = 'emoji-notes'
+        const emoji = '😀'.repeat(80)
+        try {
+            await queryAnalyst('CREATE TABLE nums (n INTEGER PRIMARY KEY, note TEXT)', { env, sqliteOpen, scope })
+            await queryAnalyst(
+                `WITH RECURSIVE c(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM c WHERE n < 300) INSERT INTO nums (n, note) SELECT n, CASE WHEN n <= 100 THEN '' ELSE '${emoji}' END FROM c`,
+                { env, sqliteOpen, scope }
+            )
+            const db = new DatabaseSync(analystSqliteFile(env))
+            const lengthSql = resultLengthSql('SELECT n, note FROM nums ORDER BY n', ['n', 'note'], 'sqlite')
+            const measured = db.prepare(lengthSql).all()
+            const stored = db.prepare('SELECT n, note FROM nums ORDER BY n').all()
+            assert.equal(measured.length, 300)
+            for (let i = 0; i < stored.length; i += 1) {
+                const js = `n: ${stored[i].n}, note: ${stored[i].note ?? 'null'}`.length
+                assert.ok(measured[i].analyst_line_len >= js)
+            }
+            db.close()
+            const query = (input) => queryAnalyst(input, { env, sqliteOpen, scope })
+            const first = await query('SELECT n, note FROM nums ORDER BY n')
+            assert.equal(first.rows.length, 100)
+            assert.equal(first.rows.at(-1).n, 100)
+            assert.match(first.summary, /^rows 1-100 of 300 \(more rows available, say "show more" for the next page\)$/)
+            assert.equal(/page \d+/.test(first.summary), false)
+            await assert.rejects(query({ cursor: first.cursor, page: 3 }), (error) => {
+                assert.equal(error.message, ANALYST_CURSOR_ERRORS.page)
+                return true
+            })
+            const seen = []
+            let page = first
+            let guard = 0
+            while (page) {
+                guard += 1
+                assert.ok(guard < 20)
+                for (const row of page.rows) seen.push(row.n)
+                if (!page.cursor || String(page.summary || '').includes('last page')) break
+                const next = await query({ cursor: page.cursor })
+                assert.equal(next.rows[0].n, seen.at(-1) + 1)
+                page = next
+            }
+            assert.deepEqual(
+                seen,
+                Array.from({ length: 300 }, (_, index) => index + 1)
+            )
+            const offset = await query('SELECT n, note FROM nums ORDER BY n LIMIT 100000')
+            assert.equal(/page \d+/.test(String(offset.summary || '')), false)
+            await assert.rejects(query({ cursor: offset.cursor, page: 3 }), (error) => {
+                assert.equal(error.message, ANALYST_CURSOR_ERRORS.page)
+                return true
+            })
+            const offsetSeen = []
+            page = offset
+            guard = 0
+            while (page) {
+                guard += 1
+                assert.ok(guard < 20)
+                for (const row of page.rows) offsetSeen.push(row.n)
+                if (!page.cursor || String(page.summary || '').includes('last page')) break
+                page = await query({ cursor: page.cursor })
+            }
+            assert.deepEqual(
+                offsetSeen,
+                Array.from({ length: 300 }, (_, index) => index + 1)
+            )
         } finally {
             resetAnalystStoreForTests()
             fs.rmSync(dir, { recursive: true, force: true })
@@ -1764,6 +1838,41 @@ describe('analyst URL path', () => {
         } finally {
             resetAnalystStoreForTests()
             await admin.query(`DROP DATABASE IF EXISTS ${dbName}`).catch(() => {})
+            await admin.query(`DROP ROLE IF EXISTS ${role}`).catch(() => {})
+            await admin.end().catch(() => {})
+        }
+    })
+
+    it('refuses a page jump when later values are dates', async (t) => {
+        const admin = await postgresAdmin()
+        if (!admin) {
+            t.skip('analyst URL path: local postgres admin is not reachable')
+            return
+        }
+        const suffix = randomBytes(4).toString('hex')
+        const dbName = `analyst_dates_${suffix}`
+        const role = `dates_${suffix}`
+        const password = randomBytes(18).toString('base64url')
+        const env = { CUTTLELY_ANALYST_ROW_CAP: '250' }
+        try {
+            await admin.query(`CREATE ROLE ${role} LOGIN PASSWORD '${password}'`)
+            await admin.query(`CREATE DATABASE ${dbName} OWNER ${role}`)
+            const cfg = adminConfig()
+            const url = postgresUrl({ user: role, password, host: cfg.host, port: cfg.port, database: dbName })
+            const owner = new Client({ connectionString: url })
+            await owner.connect()
+            await owner.query('CREATE TABLE days (n integer PRIMARY KEY, noted date)')
+            await owner.query(
+                "INSERT INTO days SELECT g, CASE WHEN g <= 250 THEN NULL ELSE DATE '2026-10-13' END FROM generate_series(1, 600) g"
+            )
+            await owner.end()
+            const run = (input) => withAnalystScope(`dates-${suffix}`, () => queryAnalystUrl(url, input, { env }))
+            await assertWideTailStaysInOrder(run, 'SELECT n, noted FROM days ORDER BY n')
+            resetAnalystStoreForTests()
+            await assertWideTailStaysInOrder(run, 'SELECT n, noted FROM days ORDER BY n LIMIT 100000')
+        } finally {
+            resetAnalystStoreForTests()
+            await admin.query(`DROP DATABASE IF EXISTS ${dbName} WITH (FORCE)`).catch(() => {})
             await admin.query(`DROP ROLE IF EXISTS ${role}`).catch(() => {})
             await admin.end().catch(() => {})
         }

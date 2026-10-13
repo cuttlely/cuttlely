@@ -348,16 +348,35 @@ export function keysetSql({ selectList, table, where, keys, last, limit, offset 
     return { sql, params }
 }
 
-// One integer per result row, in the same order as the paged statement. Callers use it to
-// learn the handoff walk without returning the table.
-export function resultLengthSql(innerSql, columnNames) {
+// A Date printed with toString() in a long timezone name stays under this.
+const ANALYST_DATE_LINE_FLOOR = 128
+// `${plainObject}` is "[object Object]".
+const ANALYST_JSON_LINE_FLOOR = 15
+
+function sqlLiteral(value) {
+    return `'${String(value).replace(/'/g, "''")}'`
+}
+
+// A lower bound on the characters `${value}` adds. NULL means this type has no bound.
+// Text uses UTF-8 bytes, which are at least the UTF-16 units the handoff counts.
+function valueLengthExpr(name, engine) {
+    const id = quoteIdent(name)
+    if (engine === 'postgres') {
+        return `CASE WHEN ${id} IS NULL THEN 4 WHEN pg_typeof(${id})::text IN ('smallint', 'integer', 'bigint') THEN length(${id}::text) WHEN pg_typeof(${id})::text = 'boolean' THEN length(${id}::text) WHEN pg_typeof(${id})::text IN ('text', 'character varying', 'character', 'name') THEN octet_length(${id}::text) WHEN pg_typeof(${id})::text IN ('date', 'timestamp without time zone', 'timestamp with time zone') THEN GREATEST(octet_length(${id}::text), ${ANALYST_DATE_LINE_FLOOR}) WHEN pg_typeof(${id})::text IN ('json', 'jsonb') THEN GREATEST(octet_length(${id}::text), ${ANALYST_JSON_LINE_FLOOR}) ELSE NULL END`
+    }
+    return `CASE typeof(${id}) WHEN 'null' THEN 4 WHEN 'integer' THEN length(CAST(${id} AS TEXT)) WHEN 'text' THEN length(CAST(${id} AS BLOB)) ELSE NULL END`
+}
+
+// One integer per result row, in the same order as the paged statement. The integer is at least
+// the handoff line length. A NULL length means a column type cannot be bounded.
+export function resultLengthSql(innerSql, columnNames, engine = 'sqlite') {
     const names = (columnNames || []).filter((name) => name !== 'analyst_rowid' && !String(name).startsWith('analyst_key_'))
     if (!names.length || names.some((name) => !/^[A-Za-z_][A-Za-z0-9_]*$/.test(String(name)))) return null
+    if (engine !== 'sqlite' && engine !== 'postgres') return null
     const expr = names
         .map((name, index) => {
             const prefix = `${index === 0 ? '' : ', '}${name}: `
-            const literal = `'${prefix.replace(/'/g, "''")}'`
-            return `length(${literal} || COALESCE(CAST(${quoteIdent(name)} AS TEXT), 'null'))`
+            return `(length(${sqlLiteral(prefix)}) + (${valueLengthExpr(name, engine)}))`
         })
         .join(' + ')
     const source = String(innerSql || '').trim()

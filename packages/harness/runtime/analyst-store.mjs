@@ -4,6 +4,7 @@
 // The role password is encrypted with the credential key. It is not an env var.
 
 import { fork } from 'node:child_process'
+import { DatabaseSync } from 'node:sqlite'
 import { createRequire } from 'node:module'
 import { AsyncLocalStorage } from 'node:async_hooks'
 import { createHash, randomBytes } from 'node:crypto'
@@ -1071,7 +1072,7 @@ async function postgresTie(runner, table) {
 
 async function planSelect(runner, engine, statement) {
     const simple = parseSimpleSelect(statement)
-    if (!simple) return { mode: 'offset', statement }
+    if (!simple) return { mode: 'offset', statement, engine }
     let columns = []
     let tie = null
     try {
@@ -1083,11 +1084,11 @@ async function planSelect(runner, engine, statement) {
             tie = await postgresTie(runner, simple.table)
         }
     } catch {
-        return { mode: 'offset', statement, simple }
+        return { mode: 'offset', statement, simple, engine }
     }
     const keys = tie ? safeOrderKeys(simple.orders, columns, tie) : null
-    if (!keys) return { mode: 'offset', statement, simple }
-    return { mode: 'keyset', statement, simple, keys }
+    if (!keys) return { mode: 'offset', statement, simple, engine }
+    return { mode: 'keyset', statement, simple, keys, engine }
 }
 
 async function countSimple(runner, simple) {
@@ -1179,6 +1180,7 @@ function finishPage(rawRows, paging, plan) {
         mode: plan.mode,
         simple: plan.simple || null,
         keys: plan.keys || null,
+        engine: plan.engine || null,
         rows: plan.mode === 'buffer' ? plan.rows : null,
         total: paging.total,
         page: paging.page,
@@ -1249,12 +1251,19 @@ async function measureResultWalk(runner, plan, columnNames, pageSize, total) {
             unlimited: true
         }).sql
     }
-    const sql = resultLengthSql(inner, columnNames)
+    const engine = plan.engine === 'postgres' ? 'postgres' : plan.engine === 'sqlite' ? 'sqlite' : null
+    const sql = engine ? resultLengthSql(inner, columnNames, engine) : null
     if (!sql) return null
     try {
         const rows = await runner.all(sql, [])
-        const lengths = rows.map((row) => Number(row.analyst_line_len))
-        if (!lengths.length || lengths.some((n) => !Number.isInteger(n) || n < 0)) return null
+        const lengths = []
+        for (const row of rows) {
+            if (row?.analyst_line_len == null) return null
+            const n = Number(row.analyst_line_len)
+            if (!Number.isInteger(n) || n < 0) return null
+            lengths.push(n)
+        }
+        if (!lengths.length) return null
         if (Number.isFinite(total) && lengths.length !== total) return null
         return analystPagesFromLineLengths(lengths, pageSize)
     } catch {
@@ -1798,11 +1807,18 @@ function memoryLengthRunner(rows) {
         async all(sql, params = []) {
             const text = String(sql || '')
             if (text.includes('analyst_line_len')) {
-                return list.map((row) => ({
-                    analyst_line_len: Object.entries(stripPageColumns(row))
-                        .map(([key, value]) => `${key}: ${value}`)
-                        .join(', ').length
-                }))
+                const db = new DatabaseSync(':memory:')
+                try {
+                    db.exec('CREATE TABLE nums (n INTEGER, note TEXT)')
+                    const insert = db.prepare('INSERT INTO nums (n, note) VALUES (?, ?)')
+                    for (const row of list) insert.run(row.n, row.note == null ? null : String(row.note))
+                    return db
+                        .prepare(text)
+                        .all(...params)
+                        .map((row) => ({ analyst_line_len: row.analyst_line_len }))
+                } finally {
+                    db.close()
+                }
             }
             let offset = 0
             let limit = list.length
@@ -1846,10 +1862,11 @@ export async function openPlannedAnalystPage(rows, options = {}) {
             ? {
                   mode,
                   statement,
+                  engine: 'sqlite',
                   simple: { selectList: 'n, note', table: 'nums', where: '', orders: [{ name: 'n', dir: 'asc' }] },
                   keys: [{ name: 'n', dir: 'asc' }]
               }
-            : { mode, statement }
+            : { mode, statement, engine: 'sqlite' }
     return readSelectPage(memoryLengthRunner(rows), plan, paging)
 }
 
@@ -1912,6 +1929,7 @@ function replayCursor(token, input, pagingBase) {
             statement: state.statement,
             simple: state.simple,
             keys: state.keys,
+            engine: state.engine || null,
             rows: state.rows
         },
         paging: {
