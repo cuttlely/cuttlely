@@ -1,0 +1,34 @@
+# Run the Publish check against a Cuttlely server you already operate.
+# This workflow does not start Cuttlely.
+#
+# Repository secret: CUTTLELY_API_KEY
+#   An API key with both view and update for the flow:
+#   chatflows:view and chatflows:update, or agentflows:view and agentflows:update.
+#   Update starts the check. View is required to read the result.
+# Repository variables: CUTTLELY_URL, CUTTLELY_FLOW_ID
+#   The server origin, and the flow id from the canvas address bar.
+#   pnpm dev serves the API on port 3000. scripts/start-cuttlely.sh and npx cuttlely start listen on port 43117.
+# The flow needs a draft and at least one past question. See docs/how-to/ci-gate.md.
+# Cancelling this job stops the server-side check.
+
+name: Cuttlely draft check
+
+on:
+    pull_request:
+
+jobs:
+    check:
+        runs-on: ubuntu-latest
+        steps:
+            - name: Check the draft
+              env:
+                  CUTTLELY_API_KEY: ${{ secrets.CUTTLELY_API_KEY }}
+                  CUTTLELY_URL: ${{ vars.CUTTLELY_URL }}
+                  CUTTLELY_FLOW_ID: ${{ vars.CUTTLELY_FLOW_ID }}
+              run: |
+                  npx --yes cuttlely check \
+                    --flow "$CUTTLELY_FLOW_ID" \
+                    --server "$CUTTLELY_URL" \
+                    --timeout 300 \
+                    --fail-on-changed \
+                    --json check.json

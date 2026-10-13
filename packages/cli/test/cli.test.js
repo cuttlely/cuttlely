@@ -1,9 +1,12 @@
 import assert from 'node:assert/strict'
+import { spawn } from 'node:child_process'
 import { mkdtempSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
+import { createServer } from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
+import { DEFAULT_QUESTION_COUNT, DEFAULT_SERVER, DEFAULT_TIMEOUT_SECONDS, selectVerdict } from '../lib/check.js'
 import {
     CONTAINER_NAME,
     DATA_DIR,
@@ -13,6 +16,7 @@ import {
     UsageError,
     VERSION,
     VOLUME_NAME,
+    commandFailureCode,
     containerRunArgs,
     main,
     parseArgs,
@@ -335,4 +339,644 @@ test('a taken port is reported without opening the browser', async () => {
     assert.equal(await main(['start'], { ...io, docker, open: (url) => opened.push(url) }), 1)
     assert.match(io.errors(), /Port 43117 is in use/)
     assert.equal(opened.length, 0)
+})
+
+const REPO = join(ROOT, '..', '..')
+const KEY = 'test-key'
+
+function checkBody(overrides = {}) {
+    return {
+        id: 'check-1',
+        status: 'done',
+        stopReason: null,
+        error: null,
+        total: 1,
+        completed: 1,
+        draftChanged: false,
+        liveEmpty: false,
+        summary: { ran: 1, same: 1, changed: 0, errors: 0, liveTokens: 10, draftTokens: 11, liveMedianMs: 100, draftMedianMs: 90 },
+        cases: [
+            {
+                question: 'What time do you open on Saturday?',
+                live: { text: 'We open at 8 AM on Saturdays.', error: null, tokens: 10, ms: 100 },
+                draft: { text: 'We open at 8 AM on Saturdays.', error: null, tokens: 11, ms: 90 },
+                same: true
+            }
+        ],
+        ...overrides
+    }
+}
+
+function changedBody() {
+    return checkBody({
+        summary: { ran: 1, same: 0, changed: 1, errors: 0, liveTokens: 10, draftTokens: 12, liveMedianMs: 100, draftMedianMs: 80 },
+        cases: [
+            {
+                question: 'What time do you open on Saturday?',
+                live: { text: 'We open at 8 AM on Saturdays.', error: null, tokens: 10, ms: 100 },
+                draft: { text: 'We open at 7 AM on Saturdays.', error: null, tokens: 12, ms: 80 },
+                same: false
+            }
+        ]
+    })
+}
+
+function httpResult(status, body) {
+    const text = typeof body === 'string' ? body : JSON.stringify(body)
+    return { status, ok: status >= 200 && status < 300, text: async () => text }
+}
+
+function scriptedFetch(steps) {
+    const calls = []
+    const fetch = async (url, init) => {
+        calls.push({ url, init, body: init && init.body })
+        const next = steps.shift()
+        if (!next) throw new Error(`unexpected ${init && init.method} ${url}`)
+        return typeof next === 'function' ? next(url, init) : next
+    }
+    return { fetch, calls }
+}
+
+function checkIo(extra = {}) {
+    const io = capture()
+    return { ...io, env: { CUTTLELY_API_KEY: KEY }, sleep: async () => {}, ...extra }
+}
+
+test('check help documents the command and the exit codes', async () => {
+    const help = capture()
+    assert.equal(await main(['check', '--help'], help), 0)
+    assert.match(help.text(), /cuttlely check --flow <id>/)
+    assert.match(help.text(), /CUTTLELY_API_KEY/)
+    assert.match(help.text(), /chatflows:view and chatflows:update/)
+    assert.match(help.text(), /agentflows:view and agentflows:update/)
+    assert.match(help.text(), /--fail-on-changed/)
+    assert.match(help.text(), /0 {2}The check finished/)
+    assert.match(help.text(), /1 {2}--fail-on-changed was set/)
+    assert.match(help.text(), /2 {2}The check timed out/)
+    assert.match(help.text(), /A check the server marks stopped or failed also exits 2/)
+    assert.match(help.text(), /Cancelling the command stops the server-side check/)
+    assert.match(help.text(), /If the draft is saved, published, or discarded while the check runs, the command exits 2/)
+    assert.equal(DEFAULT_SERVER, `http://127.0.0.1:${DEFAULT_PORT}`)
+    assert.equal(parseArgs(['check', '--flow', 'flow-1']).server, null)
+    assert.equal(parseArgs(['check', '--flow', 'flow-1']).timeoutSeconds, null)
+    assert.equal(DEFAULT_TIMEOUT_SECONDS, 300)
+    assert.equal(DEFAULT_QUESTION_COUNT, 4)
+})
+
+test('check exits 0 when the draft answers match, and writes the JSON result', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'cuttlely-check-'))
+    const jsonPath = join(dir, 'check.json')
+    const io = checkIo()
+    const { fetch, calls } = scriptedFetch([httpResult(202, checkBody({ status: 'running', completed: 0 })), httpResult(200, checkBody())])
+    const code = await main(['check', '--flow', 'flow-1', '--json', jsonPath, '--fail-on-changed'], { ...io, fetch })
+    assert.equal(code, 0)
+    assert.equal(calls[0].init.method, 'POST')
+    assert.equal(calls[0].url, `${DEFAULT_SERVER}/api/v1/flow-drafts/flow-1/check`)
+    assert.equal(calls[0].init.headers.Authorization, `Bearer ${KEY}`)
+    assert.equal(calls[0].init.redirect, 'manual')
+    assert.deepEqual(JSON.parse(calls[0].body), { count: 4 })
+    assert.equal(calls[1].init.method, 'GET')
+    assert.equal(calls[1].url, `${DEFAULT_SERVER}/api/v1/flow-drafts/flow-1/check/check-1`)
+    assert.match(io.text(), /Questions: 1 ran, 1 same, 0 changed, 0 errors/)
+    assert.doesNotMatch(`${io.text()}\n${io.errors()}`, /test-key/)
+    const saved = JSON.parse(readFileSync(jsonPath, 'utf8'))
+    assert.equal(saved.id, 'check-1')
+    assert.equal(saved.status, 'done')
+    assert.equal(saved.summary.changed, 0)
+})
+
+test('check exits 0 without --fail-on-changed when an answer changed, and 1 with it', async () => {
+    const report = checkIo()
+    const open = scriptedFetch([httpResult(202, changedBody())])
+    assert.equal(await main(['check', '--flow', 'flow-1', '--server', 'http://127.0.0.1:3000'], { ...report, fetch: open.fetch }), 0)
+    assert.match(report.text(), /1 changed/)
+    assert.match(report.text(), /Live: We open at 8 AM on Saturdays\./)
+    assert.match(report.text(), /Draft: We open at 7 AM on Saturdays\./)
+    assert.equal(report.errors(), '')
+    assert.equal(open.calls[0].url, 'http://127.0.0.1:3000/api/v1/flow-drafts/flow-1/check')
+
+    const gate = checkIo()
+    const files = new Map()
+    const gated = scriptedFetch([httpResult(202, changedBody())])
+    const code = await main(['check', '--flow', 'flow-1', '--fail-on-changed', '--json', 'check.json'], {
+        ...gate,
+        fetch: gated.fetch,
+        writeFile: (file, text) => files.set(file, text)
+    })
+    assert.equal(code, 1)
+    assert.match(gate.errors(), /1 answer changed\./)
+    assert.equal(JSON.parse(files.get('check.json')).summary.changed, 1)
+    assert.deepEqual(selectVerdict(changedBody(), { failOnChanged: true }), { code: 1, label: 'changed' })
+    assert.deepEqual(selectVerdict(changedBody(), { failOnChanged: false }), { code: 0, label: 'pass' })
+})
+
+test('check exits 2 on timeout and asks the server to stop', async () => {
+    const io = checkIo()
+    let clock = 0
+    const running = checkBody({ status: 'running', completed: 0, summary: null, cases: [] })
+    const { fetch, calls } = scriptedFetch([
+        httpResult(202, running),
+        httpResult(200, running),
+        httpResult(200, running),
+        httpResult(200, running),
+        httpResult(200, { id: 'check-1', status: 'stopped' })
+    ])
+    const slept = []
+    const code = await main(['check', '--flow', 'flow-1', '--timeout', '2', '--json', 'partial.json'], {
+        ...io,
+        fetch,
+        now: () => clock,
+        sleep: async (ms) => {
+            slept.push(ms)
+            clock += ms
+        },
+        writeFile: (file, text) => io.out(`wrote ${file} ${text.length}`)
+    })
+    assert.equal(code, 2)
+    assert.match(io.errors(), /Timed out after 2s waiting for check check-1/)
+    assert.deepEqual(slept, [1000, 1000])
+    assert.deepEqual(
+        calls.map((call) => call.init.method),
+        ['POST', 'GET', 'GET', 'GET', 'DELETE']
+    )
+    assert.match(io.text(), /wrote partial.json/)
+})
+
+test('check reads a result that finishes within --timeout 1', async () => {
+    const io = checkIo()
+    let clock = 0
+    const running = checkBody({ status: 'running', completed: 0 })
+    const done = checkBody()
+    const files = new Map()
+    const slept = []
+    const { fetch, calls } = scriptedFetch([httpResult(202, running), httpResult(200, running), httpResult(200, done)])
+    const code = await main(['check', '--flow', 'flow-1', '--timeout', '1', '--fail-on-changed', '--json', 'done.json'], {
+        ...io,
+        fetch,
+        now: () => clock,
+        sleep: async (ms) => {
+            slept.push(ms)
+            clock += ms
+        },
+        writeFile: (file, text) => files.set(file, text)
+    })
+    assert.equal(code, 0)
+    assert.deepEqual(slept, [1000])
+    assert.equal(clock, 1000)
+    assert.doesNotMatch(io.errors(), /Timed out/)
+    assert.deepEqual(
+        calls.map((call) => call.init.method),
+        ['POST', 'GET', 'GET']
+    )
+    assert.equal(JSON.parse(files.get('done.json')).status, 'done')
+    assert.equal(JSON.parse(files.get('done.json')).summary.changed, 0)
+})
+
+test('check exits 2 on 403 from the poll, stops the check, and does not print the key', async () => {
+    const io = checkIo()
+    const running = checkBody({ status: 'running', completed: 0 })
+    const { fetch, calls } = scriptedFetch([
+        httpResult(202, running),
+        httpResult(403, { statusCode: 403, success: false, message: `Forbidden ${KEY}` }),
+        httpResult(200, { id: 'check-1', status: 'stopped' })
+    ])
+    const code = await main(['check', '--flow', 'flow-1', '--fail-on-changed'], { ...io, fetch })
+    assert.equal(code, 2)
+    assert.match(io.errors(), /chatflows:view and chatflows:update/)
+    assert.match(io.errors(), /agentflows:view and agentflows:update/)
+    assert.doesNotMatch(`${io.text()}\n${io.errors()}`, /test-key/)
+    assert.deepEqual(
+        calls.map((call) => call.init.method),
+        ['POST', 'GET', 'DELETE']
+    )
+    assert.equal(calls[2].url, `${DEFAULT_SERVER}/api/v1/flow-drafts/flow-1/check/check-1`)
+})
+
+test('check stops the run when a poll returns 500, even if the stop fails', async () => {
+    const io = checkIo()
+    const running = checkBody({ status: 'running', completed: 0 })
+    const { fetch, calls } = scriptedFetch([
+        httpResult(202, running),
+        httpResult(500, { message: 'Database unreachable' }),
+        () => Promise.reject(new Error('stop failed'))
+    ])
+    const code = await main(['check', '--flow', 'flow-1'], { ...io, fetch })
+    assert.equal(code, 2)
+    assert.match(io.errors(), /Check failed \(500\): Database unreachable/)
+    assert.doesNotMatch(io.errors(), /stop failed/)
+    assert.deepEqual(
+        calls.map((call) => call.init.method),
+        ['POST', 'GET', 'DELETE']
+    )
+    assert.equal(calls[2].url, `${DEFAULT_SERVER}/api/v1/flow-drafts/flow-1/check/check-1`)
+})
+
+test('check stops the run when a poll cannot reach the server', async () => {
+    const io = checkIo()
+    const running = checkBody({ status: 'running', completed: 0 })
+    const { fetch, calls } = scriptedFetch([
+        httpResult(202, running),
+        () => Promise.reject(new Error('connect ECONNREFUSED')),
+        httpResult(200, { id: 'check-1', status: 'stopped' })
+    ])
+    const code = await main(['check', '--flow', 'flow-1'], { ...io, fetch })
+    assert.equal(code, 2)
+    assert.match(io.errors(), /Could not reach/)
+    assert.match(io.errors(), /ECONNREFUSED/)
+    assert.deepEqual(
+        calls.map((call) => call.init.method),
+        ['POST', 'GET', 'DELETE']
+    )
+    assert.equal(calls[2].init.method, 'DELETE')
+})
+
+test('check exits 2 on 403 from the start and makes no further calls', async () => {
+    const io = checkIo()
+    const { fetch, calls } = scriptedFetch([httpResult(403, { statusCode: 403, success: false, message: `Forbidden ${KEY}` })])
+    const code = await main(['check', '--flow', 'flow-1'], { ...io, fetch })
+    assert.equal(code, 2)
+    assert.match(io.errors(), /chatflows:view and chatflows:update/)
+    assert.match(io.errors(), /agentflows:view and agentflows:update/)
+    assert.doesNotMatch(io.errors(), /test-key/)
+    assert.equal(calls.length, 1)
+    assert.equal(calls[0].init.method, 'POST')
+})
+
+test('check exits 2 when the API key is missing and does not call the server', async () => {
+    const io = capture()
+    const { fetch, calls } = scriptedFetch([])
+    assert.equal(await main(['check', '--flow', 'flow-1'], { ...io, env: {}, fetch }), 2)
+    assert.match(io.errors(), /CUTTLELY_API_KEY is not set/)
+    assert.equal(calls.length, 0)
+    const blank = capture()
+    assert.equal(await main(['check', '--flow', 'flow-1'], { ...blank, env: { CUTTLELY_API_KEY: '   ' }, fetch }), 2)
+    assert.equal(calls.length, 0)
+})
+
+test('check exits 2 on a server error, a missing draft, and a failed check', async () => {
+    const missing = checkIo()
+    const noDraft = scriptedFetch([
+        httpResult(409, { statusCode: 409, success: false, message: 'There are no unpublished changes to check.' })
+    ])
+    assert.equal(await main(['check', '--flow', 'flow-1'], { ...missing, fetch: noDraft.fetch }), 2)
+    assert.match(missing.errors(), /No draft to check/)
+    assert.equal(noDraft.calls.length, 1)
+
+    const broken = checkIo()
+    const failure = scriptedFetch([httpResult(500, { message: 'Database unreachable' })])
+    assert.equal(await main(['check', '--flow', 'flow-1'], { ...broken, fetch: failure.fetch }), 2)
+    assert.match(broken.errors(), /Check failed \(500\): Database unreachable/)
+
+    const refused = checkIo()
+    const down = scriptedFetch([() => Promise.reject(new Error('connect ECONNREFUSED'))])
+    assert.equal(await main(['check', '--flow', 'flow-1'], { ...refused, fetch: down.fetch }), 2)
+    assert.match(refused.errors(), /ECONNREFUSED/)
+
+    const failed = checkIo()
+    const done = scriptedFetch([httpResult(202, checkBody({ status: 'failed', error: 'The check could not run.' }))])
+    assert.equal(await main(['check', '--flow', 'flow-1', '--fail-on-changed'], { ...failed, fetch: done.fetch }), 2)
+    assert.match(failed.errors(), /The check failed\. The check could not run\./)
+
+    const stale = checkIo()
+    const moved = scriptedFetch([httpResult(202, checkBody({ draftChanged: true }))])
+    assert.equal(await main(['check', '--flow', 'flow-1', '--fail-on-changed'], { ...stale, fetch: moved.fetch }), 2)
+    assert.match(stale.errors(), /draft changed while the check was running/)
+
+    const echoed = checkIo()
+    const leak = scriptedFetch([httpResult(401, { error: `Unauthorized ${KEY}` })])
+    assert.equal(await main(['check', '--flow', 'flow-1'], { ...echoed, fetch: leak.fetch }), 2)
+    assert.match(echoed.errors(), /\[redacted\]/)
+    assert.doesNotMatch(echoed.errors(), /test-key/)
+})
+
+test('check usage errors exit 2 without calling the server', async () => {
+    const valueOptions = [
+        { flag: '--flow', invalid: '../etc', needsFlow: false },
+        { flag: '--server', invalid: 'file:///tmp', needsFlow: true },
+        { flag: '--timeout', invalid: '0', needsFlow: true },
+        { flag: '--json', invalid: 'bad\u0000name', needsFlow: true }
+    ]
+    const rows = []
+    for (const option of valueOptions) {
+        const head = option.needsFlow ? ['check', '--flow', 'flow-1'] : ['check']
+        rows.push([...head, option.flag, ''])
+        rows.push([...head, `${option.flag}=`])
+        rows.push([...head, option.flag])
+        rows.push([...head, option.flag, '--fail-on-changed'])
+        rows.push([...head, option.flag, option.invalid])
+        rows.push([...head, `${option.flag}=${option.invalid}`])
+    }
+    rows.push(
+        ['check', '--flow', 'flow-1', '--json', 'ok.json', '--json='],
+        ['check', '--flow', 'flow-1', '--json', 'ok.json', '--json', ''],
+        ['check', '--flow', 'flow-1', '--flow='],
+        ['check', '--flow', 'flow-1', '--server', 'http://127.0.0.1:9', '--server='],
+        ['check', '--flow', 'flow-1', '--timeout', '5', '--timeout='],
+        ['check', '--flow', 'flow-1', '--server', 'http://user:secret@127.0.0.1:43117'],
+        ['--bogus', 'check', '--flow', 'flow-1'],
+        ['check', '--flow', 'flow-1', '--bogus'],
+        ['check', '--bogus'],
+        ['check', '--flow', 'check', '--bogus'],
+        ['--bogus', 'check', '--flow', 'check'],
+        ['--fail-on-changed', 'check', '--flow', ''],
+        ['--env-file', 'check', 'check', '--flow', ''],
+        ['--port', '1', 'check', '--json='],
+        ['-p', '0', 'check', '--flow', 'flow-1'],
+        ['--tag', 'bad tag', 'check'],
+        ['check', '--port', '0'],
+        ['check', '--port='],
+        ['check', '--tag', 'bad tag'],
+        ['check', '--tag='],
+        ['check', '--env-file='],
+        ['check', '-p', ''],
+        ['check', '--flow', 'flow-1', '--port', '8080'],
+        ['check', '--fail-on-changed='],
+        ['check', '--flow', 'flow-1', '--fail-on-changed=true'],
+        ['check', '--flow', 'flow-1', 'extra']
+    )
+    for (const args of rows) {
+        const io = capture()
+        const calls = []
+        const code = await main(args, {
+            ...io,
+            fetch: async () => {
+                calls.push(1)
+                throw new Error('should not request')
+            }
+        })
+        assert.equal(code, 2, args.join(' '))
+        assert.match(io.errors(), /Run cuttlely|must be|needs|Not a valid|CUTTLELY_API_KEY|not a check option|Unknown/, args.join(' '))
+        assert.equal(calls.length, 0, args.join(' '))
+        assert.equal(commandFailureCode(args), 2, args.join(' '))
+    }
+})
+
+test('other commands keep their exit codes when check is not the command', async () => {
+    const startPort = capture()
+    assert.equal(await main(['start', '--port', '0'], startPort), 1)
+    assert.match(startPort.errors(), /Port must be a number/)
+    assert.equal(commandFailureCode(['start', '--port', '0']), 1)
+
+    const startFlow = capture()
+    assert.equal(await main(['start', '--flow', 'flow-1'], startFlow), 1)
+    assert.match(startFlow.errors(), /Unknown option --flow/)
+
+    const flowNamedCheck = capture()
+    const calls = []
+    assert.equal(
+        await main(['--flow', 'check'], {
+            ...flowNamedCheck,
+            fetch: async () => {
+                calls.push(1)
+                throw new Error('should not request')
+            }
+        }),
+        1
+    )
+    assert.match(flowNamedCheck.errors(), /Unknown option --flow/)
+    assert.equal(calls.length, 0)
+    assert.equal(commandFailureCode(['--flow', 'check']), 1)
+    assert.equal(commandFailureCode(['--tag', '1.0.0', 'start']), 1)
+    assert.equal(commandFailureCode(['--env-file', 'check']), 1)
+    assert.equal(commandFailureCode(['-p', 'check']), 1)
+})
+
+test('check talks to a local server', async () => {
+    const seen = []
+    const server = createServer((req, res) => {
+        const chunks = []
+        req.on('data', (chunk) => chunks.push(chunk))
+        req.on('end', () => {
+            seen.push({
+                method: req.method,
+                url: req.url,
+                authorization: req.headers.authorization,
+                body: Buffer.concat(chunks).toString('utf8')
+            })
+            const body = req.method === 'POST' ? checkBody({ status: 'running', completed: 0 }) : checkBody()
+            res.writeHead(req.method === 'POST' ? 202 : 200, { 'Content-Type': 'application/json' })
+            res.end(JSON.stringify(body))
+        })
+    })
+    await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve))
+    try {
+        const { port } = server.address()
+        const io = checkIo({ sleep: async () => {} })
+        const code = await main(
+            ['check', '--flow', 'flow-1', '--server', `http://127.0.0.1:${port}`, '--fail-on-changed', '--timeout', '30'],
+            io
+        )
+        assert.equal(code, 0)
+        assert.equal(seen[0].method, 'POST')
+        assert.equal(seen[0].url, '/api/v1/flow-drafts/flow-1/check')
+        assert.equal(seen[0].authorization, `Bearer ${KEY}`)
+        assert.deepEqual(JSON.parse(seen[0].body), { count: 4 })
+        assert.equal(seen[1].method, 'GET')
+        assert.match(io.text(), /0 changed/)
+        assert.doesNotMatch(`${io.text()}\n${io.errors()}`, /test-key/)
+    } finally {
+        await new Promise((resolve) => server.close(resolve))
+    }
+})
+
+function runningBody() {
+    return checkBody({ id: 'check-signal', status: 'running', completed: 0 })
+}
+
+function cliAgainst(port, extraArgs = []) {
+    return spawn(
+        process.execPath,
+        [
+            join(ROOT, 'bin', 'cuttlely.js'),
+            'check',
+            '--flow',
+            'flow-1',
+            '--server',
+            `http://127.0.0.1:${port}`,
+            '--timeout',
+            '30',
+            ...extraArgs
+        ],
+        {
+            env: { ...process.env, CUTTLELY_API_KEY: KEY },
+            stdio: ['ignore', 'pipe', 'pipe']
+        }
+    )
+}
+
+test('SIGTERM and SIGINT stop the server-side check, and a finished check does not', async () => {
+    const methods = []
+    let releaseGet = () => {}
+    let mode = 'signal'
+    const server = createServer((req, res) => {
+        req.on('data', () => {})
+        req.on('end', () => {
+            methods.push(req.method)
+            if (req.method === 'POST') {
+                res.writeHead(202, { 'content-type': 'application/json' })
+                res.end(JSON.stringify(runningBody()))
+                return
+            }
+            if (req.method === 'GET') {
+                releaseGet()
+                const body = mode === 'finish' ? checkBody({ id: 'check-signal' }) : runningBody()
+                res.writeHead(200, { 'content-type': 'application/json' })
+                res.end(JSON.stringify(body))
+                return
+            }
+            res.writeHead(200, { 'content-type': 'application/json' })
+            res.end(JSON.stringify({ id: 'check-signal', status: 'stopped' }))
+        })
+    })
+    await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve))
+    const { port } = server.address()
+    const exitOf = (child) =>
+        new Promise((resolve, reject) => {
+            const timer = setTimeout(() => {
+                child.kill('SIGKILL')
+                reject(new Error('cli did not exit'))
+            }, 8000)
+            child.on('close', (code) => {
+                clearTimeout(timer)
+                resolve(code)
+            })
+        })
+    try {
+        for (const signal of ['SIGTERM', 'SIGINT']) {
+            methods.length = 0
+            mode = 'signal'
+            const gotGet = new Promise((resolve) => {
+                releaseGet = resolve
+            })
+            const child = cliAgainst(port)
+            await gotGet
+            child.kill(signal)
+            assert.equal(await exitOf(child), 2, signal)
+            assert.ok(methods.includes('POST'), signal)
+            assert.ok(methods.includes('GET'), signal)
+            assert.ok(methods.includes('DELETE'), signal)
+            assert.equal(methods.filter((method) => method === 'DELETE').length, 1, signal)
+        }
+        methods.length = 0
+        mode = 'finish'
+        const child = cliAgainst(port)
+        assert.equal(await exitOf(child), 0)
+        assert.deepEqual(methods, ['POST', 'GET'])
+    } finally {
+        await new Promise((resolve) => server.close(resolve))
+    }
+})
+
+// Enough of YAML to parse the example workflow: maps, lists, and literal blocks.
+// The CLI package cannot import a YAML library from outside itself.
+function parseYaml(text) {
+    const lines = String(text).replace(/\r\n/g, '\n').split('\n')
+    if (lines.some((line) => line.includes('\t'))) throw new Error('YAML tabs are not allowed')
+    let i = 0
+    const indentOf = (line) => line.match(/^ */)[0].length
+    const unquote = (value) => {
+        if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) return value.slice(1, -1)
+        if (value.startsWith('{') || value.startsWith('[')) throw new Error('flow collections are not supported')
+        return value
+    }
+    const readLiteral = (parentIndent) => {
+        const collected = []
+        let contentIndent = null
+        while (i < lines.length) {
+            const line = lines[i]
+            if (line.trim() === '') {
+                collected.push('')
+                i += 1
+                continue
+            }
+            const indent = indentOf(line)
+            if (contentIndent === null) {
+                if (indent <= parentIndent) break
+                contentIndent = indent
+            }
+            if (indent < contentIndent) break
+            collected.push(line.slice(contentIndent))
+            i += 1
+        }
+        while (collected.length && collected[collected.length - 1] === '') collected.pop()
+        return collected.join('\n')
+    }
+    const parseBlock = (parentIndent) => {
+        let level = null
+        let mode = null
+        const map = {}
+        const seq = []
+        while (i < lines.length) {
+            while (i < lines.length && (lines[i].trim() === '' || /^\s*#/.test(lines[i]))) i += 1
+            if (i >= lines.length) break
+            const indent = indentOf(lines[i])
+            if (indent <= parentIndent) break
+            if (level === null) level = indent
+            if (indent < level) break
+            if (indent > level) throw new Error(`line ${i + 1}: unexpected indent`)
+            const trimmed = lines[i].slice(indent)
+            if (trimmed.startsWith('- ')) {
+                if (mode === 'map') throw new Error(`line ${i + 1}: mixed list and map`)
+                mode = 'seq'
+                const rest = trimmed.slice(2).trim()
+                i += 1
+                if (!rest) {
+                    seq.push(parseBlock(level))
+                    continue
+                }
+                const colon = rest.indexOf(':')
+                if (colon === -1) {
+                    seq.push(unquote(rest))
+                    continue
+                }
+                const key = rest.slice(0, colon).trim()
+                const value = rest.slice(colon + 1).trim()
+                const item = {}
+                if (value === '|' || value === '|-' || value === '|+') item[key] = readLiteral(level)
+                else if (value === '') item[key] = parseBlock(level)
+                else item[key] = unquote(value)
+                const more = parseBlock(level)
+                if (more && typeof more === 'object' && !Array.isArray(more)) Object.assign(item, more)
+                seq.push(item)
+                continue
+            }
+            if (mode === 'seq') break
+            mode = 'map'
+            const colon = trimmed.indexOf(':')
+            if (colon <= 0) throw new Error(`line ${i + 1}: expected a key`)
+            const key = trimmed.slice(0, colon).trim()
+            const value = trimmed.slice(colon + 1).trim()
+            i += 1
+            if (value === '|' || value === '|-' || value === '|+') map[key] = readLiteral(level)
+            else if (value === '') map[key] = parseBlock(level)
+            else map[key] = unquote(value)
+        }
+        if (mode === 'seq') return seq
+        return map
+    }
+    return parseBlock(-1)
+}
+
+test('the example workflow is valid YAML and runs cuttlely check', () => {
+    const file = join(REPO, 'examples', 'ci', 'cuttlely-check.yml')
+    const text = readFileSync(file, 'utf8')
+    const doc = parseYaml(text)
+    assert.equal(doc.name, 'Cuttlely draft check')
+    assert.deepEqual(doc.on, { pull_request: {} })
+    const step = doc.jobs.check.steps[0]
+    assert.equal(step.name, 'Check the draft')
+    assert.match(step.run, /npx --yes cuttlely check/)
+    assert.match(step.run, /--fail-on-changed/)
+    assert.match(step.run, /--json check\.json/)
+    assert.equal(step.env.CUTTLELY_API_KEY, '${{ secrets.CUTTLELY_API_KEY }}')
+    assert.doesNotMatch(text, /sk-|ghp_|Bearer [A-Za-z0-9]/)
+    assert.throws(() => parseYaml('jobs: [\n'), /flow collections/)
+    assert.throws(() => parseYaml('not a mapping\n'), /expected a key/)
+    const guide = readFileSync(join(REPO, 'docs', 'how-to', 'ci-gate.md'), 'utf8')
+    assert.match(guide, /examples\/ci\/cuttlely-check\.yml/)
+    assert.match(guide, /Exit codes/)
+    const index = readFileSync(join(REPO, 'docs', 'README.md'), 'utf8')
+    assert.match(index, /how-to\/ci-gate\.md/)
+    const api = readFileSync(join(REPO, 'docs', 'reference', 'drafts-api.md'), 'utf8')
+    assert.match(api, /how-to\/ci-gate\.md/)
 })
