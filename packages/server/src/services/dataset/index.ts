@@ -25,6 +25,7 @@ export const RATING_SCAN_CAP = 1000
 const RATING_PREVIEW_ROWS = 5
 const RATING_PREVIEW_CHARS = 160
 const RATING_DAY_MS = 24 * 60 * 60 * 1000
+const RATING_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 type RatingCursor = { createdDate: Date; id: string }
 
@@ -40,7 +41,7 @@ function parseRatingCursor(value: unknown): RatingCursor | null {
         throw new AppError(StatusCodes.BAD_REQUEST, 'cursor must be a createdDate and an id.')
     }
     const cursor = value as { createdDate?: unknown; id?: unknown }
-    if (typeof cursor.id !== 'string' || cursor.id.length === 0) {
+    if (typeof cursor.id !== 'string' || !RATING_ID_PATTERN.test(cursor.id)) {
         throw new AppError(StatusCodes.BAD_REQUEST, 'cursor must be a createdDate and an id.')
     }
     if (typeof cursor.createdDate !== 'string' && !(cursor.createdDate instanceof Date)) {
@@ -92,15 +93,24 @@ function isDatabaseBusy(error: unknown): boolean {
     )
 }
 
-// Sqlite has one connection. A second BEGIN fails and its rollback can undo the first write.
+// SQLite has one connection. Two BEGIN calls, even for different datasets, fail, and the failed rollback can undo the first write.
+// Other drivers keep a queue per dataset.
 const ratingWrites = new Map<string, Promise<unknown>>()
+const SQLITE_RATING_QUEUE = 'sqlite'
+
+function ratingWriteKey(datasetId: string): string {
+    const type = getRunningExpressApp().AppDataSource.options.type
+    if (type === 'sqlite') return SQLITE_RATING_QUEUE
+    return datasetId
+}
 
 function writeRatingsInTurn<T>(datasetId: string, work: () => Promise<T>): Promise<T> {
-    const previous = ratingWrites.get(datasetId) || Promise.resolve()
+    const key = ratingWriteKey(datasetId)
+    const previous = ratingWrites.get(key) || Promise.resolve()
     const run = previous.catch(() => undefined).then(work)
-    ratingWrites.set(datasetId, run)
+    ratingWrites.set(key, run)
     return run.finally(() => {
-        if (ratingWrites.get(datasetId) === run) ratingWrites.delete(datasetId)
+        if (ratingWrites.get(key) === run) ratingWrites.delete(key)
     })
 }
 
@@ -720,8 +730,7 @@ const addDatasetRowsFromRatings = async (
         let offset = 0
         let scanned = 0
         let lastScanned: ChatMessageFeedback | null = null
-        while (planned.length < limit) {
-            if (scanned >= RATING_SCAN_CAP) break
+        while (planned.length < limit && scanned < RATING_SCAN_CAP) {
             const take = Math.min(RATING_PAGE, RATING_SCAN_CAP - scanned)
             const page = await loadRatingFeedback(feedbackRepo, {
                 flowId: flow.id,
@@ -732,9 +741,6 @@ const addDatasetRowsFromRatings = async (
                 take
             })
             if (!page.length) break
-            scanned += page.length
-            offset += page.length
-            lastScanned = page[page.length - 1]
             const messageIds = [...new Set(page.map((item) => item.messageId).filter((id) => typeof id === 'string' && id.length > 0))]
             const messages = messageIds.length ? await messageRepo.find({ where: { id: In(messageIds) } }) : []
             const messageById = new Map(messages.map((item) => [item.id, item]))
@@ -745,8 +751,12 @@ const addDatasetRowsFromRatings = async (
                   })
                 : []
             const stored = new Set(existing.map((item) => item.sourceMessageId).filter((id): id is string => Boolean(id)))
+            let inspected = 0
             for (const feedback of page) {
-                if (planned.length >= limit) break
+                if (planned.length >= limit || scanned >= RATING_SCAN_CAP) break
+                scanned += 1
+                inspected += 1
+                lastScanned = feedback
                 const message = messageById.get(feedback.messageId)
                 if (!message || message.role !== 'apiMessage' || message.chatflowid !== flow.id) continue
                 if (stored.has(message.id) || seenMessages.has(message.id)) {
@@ -782,12 +792,14 @@ const addDatasetRowsFromRatings = async (
                     row
                 })
             }
-            if (page.length < take) break
+            offset += inspected
+            // A short page is the end of the window. A partial page still has ratings this call did not read.
+            if (inspected < page.length || page.length < take) break
         }
 
-        // A full cap is not truncated until one older rating is still in the window.
+        // Probe from the last rating this call actually read. A full page, including an exact cap, stays untruncated when nothing is older.
         let truncated = false
-        if (scanned >= RATING_SCAN_CAP && lastScanned) {
+        if (lastScanned) {
             const more = await loadRatingFeedback(feedbackRepo, {
                 flowId: flow.id,
                 rating,

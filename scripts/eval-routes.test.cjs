@@ -1908,6 +1908,15 @@ describe('evaluation routes', () => {
                 cursor: { createdDate: 'not-a-date', id: 'fb' }
             })
             assert.equal(badCursor.status, 400, JSON.stringify(badCursor.body))
+            const badCursorId = await api.post('/datasets/rows/from-ratings').send({
+                datasetId: dataset.id,
+                flowId: flow.id,
+                rating: 'THUMBS_DOWN',
+                days: 7,
+                dryRun: true,
+                cursor: { createdDate: new Date().toISOString(), id: 'not-a-uuid' }
+            })
+            assert.equal(badCursorId.status, 400, JSON.stringify(badCursorId.body))
             assert.equal(await dataSource.getRepository(DatasetRow).count({ where: { datasetId: dataset.id } }), beforeRows)
 
             const capped = await api.post('/datasets/rows/from-ratings').send({
@@ -2367,6 +2376,170 @@ describe('evaluation routes', () => {
             assert.equal(separate.length, 3)
             assert.equal(new Set(separate.map((row) => row.sourceMessageId)).size, 3)
             assert.equal(new Set(separate.map((row) => row.sequenceNo)).size, 3)
+        } finally {
+            asOwner()
+            await cleanup()
+        }
+    })
+
+    it('writes two datasets at the same time without failing', async () => {
+        const { dataSource, api, cleanup } = await openSqlite()
+        const when = new Date(Date.now() - 20 * 60 * 1000)
+        try {
+            asOwner()
+            const flow = await dataSource.getRepository(ChatFlow).save({
+                name: 'Bakery desk',
+                flowData: '{}',
+                type: 'CHATFLOW',
+                workspaceId: WORKSPACE
+            })
+            const datasets = []
+            for (const name of ['Left ratings', 'Right ratings']) {
+                datasets.push(
+                    await dataSource.getRepository(Dataset).save({
+                        name,
+                        description: 'Made-up rows',
+                        workspaceId: WORKSPACE
+                    })
+                )
+            }
+            for (let index = 0; index < 8; index += 1) {
+                const at = new Date(when.getTime() + index * 1000)
+                await dataSource.getRepository(ChatMessage).save({
+                    role: 'userMessage',
+                    chatflowid: flow.id,
+                    content: `Question ${index}`,
+                    chatType: 'INTERNAL',
+                    chatId: `chat-two-${index}`,
+                    createdDate: new Date(at.getTime() - 500)
+                })
+                const answer = await dataSource.getRepository(ChatMessage).save({
+                    role: 'apiMessage',
+                    chatflowid: flow.id,
+                    content: `Answer ${index}`,
+                    chatType: 'INTERNAL',
+                    chatId: `chat-two-${index}`,
+                    createdDate: at
+                })
+                await dataSource.getRepository(ChatMessageFeedback).save({
+                    chatflowid: flow.id,
+                    chatId: `chat-two-${index}`,
+                    messageId: answer.id,
+                    rating: 'THUMBS_DOWN',
+                    content: 'No.',
+                    createdDate: at
+                })
+            }
+            const [left, right] = await Promise.all(
+                datasets.map((dataset) =>
+                    api.post('/datasets/rows/from-ratings').send({
+                        datasetId: dataset.id,
+                        flowId: flow.id,
+                        rating: 'THUMBS_DOWN',
+                        days: 1
+                    })
+                )
+            )
+            assert.equal(left.status, 200, JSON.stringify(left.body))
+            assert.equal(right.status, 200, JSON.stringify(right.body))
+            assert.equal(left.body.count, 8)
+            assert.equal(right.body.count, 8)
+            for (const dataset of datasets) {
+                const rows = await dataSource.getRepository(DatasetRow).find({ where: { datasetId: dataset.id } })
+                assert.equal(rows.length, 8)
+                assert.equal(new Set(rows.map((row) => row.sequenceNo)).size, 8)
+            }
+        } finally {
+            asOwner()
+            await cleanup()
+        }
+    })
+
+    it('a limit that stops mid-page continues from the last rating it read', async () => {
+        const { dataSource, api, cleanup } = await openSqlite()
+        const now = Date.now()
+        try {
+            asOwner()
+            const dataset = await dataSource.getRepository(Dataset).save({
+                name: 'Mid page',
+                description: 'Made-up rows',
+                workspaceId: WORKSPACE
+            })
+            const flow = await dataSource.getRepository(ChatFlow).save({
+                name: 'Bakery desk',
+                flowData: '{}',
+                type: 'CHATFLOW',
+                workspaceId: WORKSPACE
+            })
+            const feedbacks = []
+            for (let index = 0; index < 5; index += 1) {
+                const at = new Date(now - index * 60 * 60 * 1000)
+                await dataSource.getRepository(ChatMessage).save({
+                    role: 'userMessage',
+                    chatflowid: flow.id,
+                    content: `Question ${index}`,
+                    chatType: 'INTERNAL',
+                    chatId: `chat-mid-${index}`,
+                    createdDate: new Date(at.getTime() - 1000)
+                })
+                const answer = await dataSource.getRepository(ChatMessage).save({
+                    role: 'apiMessage',
+                    chatflowid: flow.id,
+                    content: `Answer ${index}`,
+                    chatType: 'INTERNAL',
+                    chatId: `chat-mid-${index}`,
+                    createdDate: at
+                })
+                const feedback = await dataSource.getRepository(ChatMessageFeedback).save({
+                    chatflowid: flow.id,
+                    chatId: `chat-mid-${index}`,
+                    messageId: answer.id,
+                    rating: 'THUMBS_DOWN',
+                    content: 'No.',
+                    createdDate: at
+                })
+                feedbacks.push({ answer, feedback })
+            }
+            await dataSource.getRepository(DatasetRow).save({
+                datasetId: dataset.id,
+                input: 'Question 0',
+                output: '',
+                sequenceNo: 0,
+                sourceType: 'chat_rating',
+                sourceMessageId: feedbacks[0].answer.id,
+                sourceFlowId: flow.id,
+                sourceFeedbackId: feedbacks[0].feedback.id,
+                sourceRating: 'THUMBS_DOWN',
+                needsExpectedAnswer: true
+            })
+            const first = await api.post('/datasets/rows/from-ratings').send({
+                datasetId: dataset.id,
+                flowId: flow.id,
+                rating: 'THUMBS_DOWN',
+                days: 1,
+                limit: 2,
+                dryRun: true
+            })
+            assert.equal(first.status, 200, JSON.stringify(first.body))
+            assert.equal(first.body.count, 2)
+            assert.equal(first.body.skipped, 1)
+            assert.equal(first.body.truncated, true)
+            assert.equal(first.body.cursor.id, feedbacks[2].feedback.id)
+            assert.notEqual(first.body.cursor.id, feedbacks[4].feedback.id)
+            const continued = await api.post('/datasets/rows/from-ratings').send({
+                datasetId: dataset.id,
+                flowId: flow.id,
+                rating: 'THUMBS_DOWN',
+                days: 1,
+                cursor: first.body.cursor
+            })
+            assert.equal(continued.status, 200, JSON.stringify(continued.body))
+            assert.equal(continued.body.count, 2)
+            const rows = await dataSource.getRepository(DatasetRow).find({ where: { datasetId: dataset.id } })
+            const storedIds = new Set(rows.map((row) => row.sourceMessageId))
+            assert.equal(storedIds.has(feedbacks[3].answer.id), true)
+            assert.equal(storedIds.has(feedbacks[4].answer.id), true)
+            assert.equal(rows.length, 3)
         } finally {
             asOwner()
             await cleanup()
