@@ -20,7 +20,7 @@ import flowDraftsApi from '@/api/flowDrafts'
 import datasetsApi from '@/api/dataset'
 import evaluatorsApi from '@/api/evaluators'
 import { useAuth } from '@/hooks/useAuth'
-import { apiErrorMessage } from '@/utils/flowDrafts'
+import { apiErrorMessage, datasetGateBlock } from '@/utils/flowDrafts'
 import {
     checkKind,
     checkTitle,
@@ -879,6 +879,8 @@ export const PublishGateSettings = ({ dialogProps }) => {
     const gate = draftStatus?.publishGate
     const locked = Boolean(draftStatus?.publishInstantly)
     const canChoose = hasPermission('datasets:view') && hasPermission('evaluators:view')
+    const startBlock = datasetGateBlock(chatflow?.type, [chatflow?.flowData, draftStatus?.draft?.flowData])
+    const chooseLocked = locked || !canChoose || Boolean(startBlock)
     const [on, setOn] = useState(Boolean(gate?.enabled))
     const [datasetId, setDatasetId] = useState(gate?.datasetId || '')
     const [evaluatorIds, setEvaluatorIds] = useState(gate?.evaluatorIds || [])
@@ -962,6 +964,11 @@ export const PublishGateSettings = ({ dialogProps }) => {
                     Turn off Publish instantly before requiring a passing test set.
                 </Alert>
             )}
+            {startBlock && (
+                <Alert severity='warning' sx={{ mb: 1 }} data-testid='publish-gate-start'>
+                    {startBlock}
+                </Alert>
+            )}
             {!canChoose && (
                 <Alert severity='info' sx={{ mb: 1 }}>
                     You need permission to view datasets and evaluators before requiring a passing test set.
@@ -971,7 +978,7 @@ export const PublishGateSettings = ({ dialogProps }) => {
                 control={
                     <Checkbox
                         checked={on}
-                        disabled={locked || !canChoose}
+                        disabled={locked || (!canChoose && !on)}
                         onChange={(event) => {
                             const next = event.target.checked
                             setOn(next)
@@ -991,7 +998,7 @@ export const PublishGateSettings = ({ dialogProps }) => {
                     size='small'
                     label='Dataset'
                     value={datasetId}
-                    disabled={locked || !canChoose}
+                    disabled={chooseLocked}
                     onChange={(event) => {
                         const nextId = event.target.value
                         setDatasetId(nextId)
@@ -1012,7 +1019,7 @@ export const PublishGateSettings = ({ dialogProps }) => {
                     type='number'
                     label='Pass at'
                     value={threshold}
-                    disabled={locked || !canChoose}
+                    disabled={chooseLocked}
                     onChange={(event) => setThreshold(event.target.value)}
                     onBlur={() => {
                         const mark = passMarkNumber(threshold)
@@ -1043,7 +1050,7 @@ export const PublishGateSettings = ({ dialogProps }) => {
                                 <Checkbox
                                     size='small'
                                     checked={evaluatorIds.includes(evaluator.id)}
-                                    disabled={locked || !canChoose}
+                                    disabled={chooseLocked}
                                     onChange={() => toggleEvaluator(evaluator.id)}
                                 />
                             }
