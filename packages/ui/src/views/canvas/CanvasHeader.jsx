@@ -41,7 +41,15 @@ import chatflowsApi from '@/api/chatflows'
 import flowDraftsApi from '@/api/flowDrafts'
 import flowVersionsApi from '@/api/flowVersions'
 import { exactTime, lastEditedText, lastEditedVersion } from '@/utils/versionHistory'
-import { STALE_DRAFT_WARNING, apiErrorMessage, badgeText, draftBadge, showDraftChrome } from '@/utils/flowDrafts'
+import {
+    STALE_DRAFT_WARNING,
+    apiErrorMessage,
+    badgeText,
+    canvasAfterDiscard,
+    canvasAfterRollback,
+    draftBadge,
+    showDraftChrome
+} from '@/utils/flowDrafts'
 import { reservedHarnessNameMessage } from '@/utils/harnessChatReady'
 
 // Hooks
@@ -541,7 +549,8 @@ const CanvasHeader = ({
         try {
             const res = await flowDraftsApi.discardDraft(chatflow.id)
             onDraftStatus(res.data)
-            onApplyCanvas(chatflow.flowData || '')
+            const live = canvasAfterDiscard(chatflow)
+            if (live) onApplyCanvas(live)
             setPublishOpen(false)
             enqueueSnackbar({
                 message: 'Draft discarded. Live is unchanged.',
@@ -555,10 +564,20 @@ const CanvasHeader = ({
         }
     }
 
-    const onRolledBack = (data) => {
+    const onRolledBack = async (data) => {
         if (data?.status) onDraftStatus(data.status)
-        if (data?.chatflow) onChatflowUpdated(data.chatflow)
-        if (!data?.status?.draft) onApplyCanvas(data?.chatflow?.flowData || '')
+        let fetched = ''
+        if (!data?.status?.draft && !data?.chatflow?.flowData && chatflow?.id) {
+            try {
+                const res = await chatflowsApi.getSpecificChatflow(chatflow.id)
+                fetched = res.data?.flowData || ''
+            } catch {
+                fetched = ''
+            }
+        }
+        const next = canvasAfterRollback(chatflow, data, fetched)
+        if (data?.chatflow || next.chatflow?.flowData) onChatflowUpdated(next.chatflow)
+        if (next.apply) onApplyCanvas(next.apply)
         enqueueSnackbar({
             message: data?.status?.draft ? 'Rolled back Live. Your draft is still here.' : 'Rolled back Live.',
             options: { key: new Date().getTime() + Math.random(), variant: 'success' }
