@@ -166,8 +166,33 @@ export function previousUserQuestion(messages, index) {
     return ''
 }
 
+// The run stores the question it actually used. The prop is only the live card
+// before that final event, or a trace saved before questions were stored.
+// A chat bubble or a later edit of the Try it box can differ from that question.
+export function questionForTrace(trace, question) {
+    const stored = typeof trace?.question === 'string' ? trace.question.trim() : ''
+    if (stored) return stored
+    return typeof question === 'string' ? question : ''
+}
+
+// Try it keeps the textarea editable after the run. The card uses the prompt
+// that was sent, not whatever is in the box now.
+export function tryItTraceQuestion(submittedQuestion) {
+    return typeof submittedQuestion === 'string' ? submittedQuestion : ''
+}
+
+// history.mjs previewText keeps 240 characters and appends … when it cuts.
+// Wording past that cut (a count or a total) must not be treated as present.
+const INPUT_PREVIEW_LIMIT = 240
+
+export function questionFromInputPreview(preview) {
+    if (typeof preview !== 'string' || !preview) return ''
+    if (preview.length > INPUT_PREVIEW_LIMIT && preview.endsWith('…')) return ''
+    return preview
+}
+
 const HarnessRunTrace = ({ trace, question }) => {
-    const asked = typeof question === 'string' && question.trim() ? question : trace?.question || ''
+    const asked = questionForTrace(trace, question)
     const theme = useTheme()
     const customization = useSelector((state) => state.customization)
     const [openName, setOpenName] = useState('')

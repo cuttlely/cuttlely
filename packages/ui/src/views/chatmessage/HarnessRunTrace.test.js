@@ -4,7 +4,13 @@ import { Provider } from 'react-redux'
 import { createStore } from 'redux'
 import { ThemeProvider, createTheme } from '@mui/material/styles'
 
-import HarnessRunTrace, { QueryRows } from './HarnessRunTrace'
+import HarnessRunTrace, {
+    QueryRows,
+    previousUserQuestion,
+    questionForTrace,
+    questionFromInputPreview,
+    tryItTraceQuestion
+} from './HarnessRunTrace'
 
 const theme = createTheme()
 
@@ -97,6 +103,79 @@ describe('analyst query preview caption', () => {
         expect(howMany).not.toContain('in this chat')
         expect(total).not.toContain('in this chat')
         expect(missing).not.toContain('in this chat')
+    })
+})
+
+const pageLine = () =>
+    previewView({
+        rowCount: 100,
+        nextPage: true,
+        summary: 'rows 1-100 of 150 (page 1 of 2, say "show more" for the next page)'
+    })
+
+describe('which question the caption uses', () => {
+    test('the trace question wins over a different prop', () => {
+        const asked = questionForTrace({ question: 'How many tickets are in the table?' }, 'List every ticket')
+        expect(asked).toBe('How many tickets are in the table?')
+        const html = caption(pageLine(), asked)
+        expect(html).toContain('The answer can show fewer rows than the query returned.')
+        expect(html).toContain('Say show more for the next page.')
+        expect(html).not.toContain('in this chat')
+        expect(questionForTrace({}, 'List every ticket')).toBe('List every ticket')
+        expect(questionForTrace({ question: '   ' }, 'List every ticket')).toBe('List every ticket')
+    })
+
+    test('an edited Try it textarea does not change a finished card', () => {
+        const submitted = 'How many tickets are in the table?'
+        const edited = 'List every ticket'
+        const prop = tryItTraceQuestion(submitted)
+        expect(prop).toBe(submitted)
+        expect(prop).not.toBe(edited)
+        const asked = questionForTrace({ question: submitted }, edited)
+        expect(asked).toBe(submitted)
+        const html = caption(pageLine(), asked)
+        expect(html).toContain('The answer can show fewer rows than the query returned.')
+        expect(html).not.toContain('in this chat')
+    })
+
+    test('a tool-path trace task wins over the chat bubble', () => {
+        const messages = [
+            { type: 'userMessage', message: 'List every ticket' },
+            { type: 'apiMessage', message: 'There are 150 tickets.' }
+        ]
+        const bubble = previousUserQuestion(messages, 1)
+        expect(bubble).toBe('List every ticket')
+        const asked = questionForTrace({ question: 'How many tickets are in the table?' }, bubble)
+        expect(asked).toBe('How many tickets are in the table?')
+        const html = caption(pageLine(), asked)
+        expect(html).toContain('The answer can show fewer rows than the query returned.')
+        expect(html).not.toContain('in this chat')
+    })
+
+    test('a truncated history preview passes no question', () => {
+        const full = `${'Look at the tickets table and describe the open work. '.repeat(8)}How many tickets are in the table?`
+        expect(full.length).toBeGreaterThan(240)
+        const preview = `${full.slice(0, 240)}…`
+        expect(preview).not.toMatch(/how many|total/i)
+        expect(questionFromInputPreview(preview)).toBe('')
+        const html = caption(pageLine(), questionForTrace({}, questionFromInputPreview(preview)))
+        expect(html).toContain('The answer can show fewer rows than the query returned.')
+        expect(html).not.toContain('in this chat')
+        expect(caption(pageLine(), preview)).toContain('in this chat')
+    })
+
+    test('an uncut history preview is still used as the question', () => {
+        const listing = 'List every ticket'
+        const count = 'How many tickets are in the table?'
+        expect(listing.length).toBeLessThanOrEqual(240)
+        expect(count.endsWith('…')).toBe(false)
+        expect(questionFromInputPreview(listing)).toBe(listing)
+        expect(questionFromInputPreview(count)).toBe(count)
+        const listed = caption(pageLine(), questionForTrace({}, questionFromInputPreview(listing)))
+        expect(listed).toContain('The rest of these rows are in the answer in this chat.')
+        const counted = caption(pageLine(), questionForTrace({}, questionFromInputPreview(count)))
+        expect(counted).toContain('The answer can show fewer rows than the query returned.')
+        expect(counted).not.toContain('in this chat')
     })
 })
 
