@@ -237,3 +237,7 @@ Duplicate and Delete sit on the card while the pointer is over it and while the 
 ## D61. The card action bar moves below the card when the top of the canvas would cover it
 
 The Duplicate and Delete bar stays above the card until that place would leave it above the visible canvas or under a floating canvas button. It then sits below the card, so the buttons stay fully visible and clickable. This adds to D60.
+
+## D62. The action row stays under the pointer, and a deleted card closes its panel
+
+The row touches the card, including the space between the buttons and the card, so moving onto Duplicate or Delete does not close the row. Deleting the card whose panel is open clears that panel on every canvas. A later card that reuses the id does not open on the deleted settings. A template preview ignores Delete and Backspace. This adds to D60.

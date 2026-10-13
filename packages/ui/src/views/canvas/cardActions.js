@@ -35,6 +35,14 @@ export function actionBarSide({ card, bar, canvas, overlays = [], gap = 4 } = {}
     return 'above'
 }
 
+// The open panel must not survive its card. A new card can reuse that id, and would otherwise open on the deleted settings.
+export function panelStateWhenNodesChange({ panelNodeId = null, panelProps = {}, nodes } = {}) {
+    if (!panelNodeId) return { panelNodeId: null, panelProps: panelProps || {} }
+    const present = Array.isArray(nodes) && nodes.some((node) => node && node.id === panelNodeId)
+    if (present) return { panelNodeId, panelProps: panelProps || {} }
+    return { panelNodeId: null, panelProps: {} }
+}
+
 // The panel always has a close control. Duplicate and Delete match the card, and stay off when the canvas is read-only.
 export function panelHeaderActions({ nodeName, readOnly = false } = {}) {
     return {

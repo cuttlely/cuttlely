@@ -18,6 +18,7 @@ import MarketplaceCanvasHeader from '@/views/marketplaces/MarketplaceCanvasHeade
 import StickyNote from './StickyNote'
 import EditNodeDialog from '@/views/agentflowsv2/EditNodeDialog'
 import { flowContext } from '@/store/context/ReactFlowContext'
+import { templatePreviewProps } from '@/views/marketplaces/templatePreview'
 
 // icons
 import { IconMagnetFilled, IconMagnetOff, IconArtboard, IconArtboardOff } from '@tabler/icons-react'
@@ -115,6 +116,7 @@ const MarketplaceCanvasV2 = () => {
                                     onEdgesChange={onEdgesChange}
                                     onNodeDoubleClick={onNodeDoubleClick}
                                     onInit={setReactFlowInstance}
+                                    {...templatePreviewProps}
                                     nodeTypes={nodeTypes}
                                     edgeTypes={edgeTypes}
                                     fitView

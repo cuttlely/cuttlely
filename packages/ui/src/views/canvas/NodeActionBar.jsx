@@ -34,7 +34,9 @@ const NodeActionBar = ({ data, hovered = false, selected = false, includeInfo = 
             card: card.getBoundingClientRect(),
             bar: bar.getBoundingClientRect(),
             canvas: canvas.getBoundingClientRect(),
-            overlays
+            overlays,
+            // The bridge padding is inside the measured row, and the row touches the card.
+            gap: 0
         })
         setSide((current) => (current === next ? current : next))
     })
@@ -52,54 +54,63 @@ const NodeActionBar = ({ data, hovered = false, selected = false, includeInfo = 
                 position: 'absolute',
                 zIndex: 20,
                 left: '50%',
+                // The row shares the card's box. Padding on the card side is the bridge, so the pointer
+                // never crosses empty space and the row does not unmount on the way to a button.
                 top: side === 'below' ? '100%' : 0,
-                transform: side === 'below' ? 'translate(-50%, 4px)' : 'translate(-50%, calc(-100% - 4px))',
-                display: 'flex',
-                gap: 0.25,
-                p: 0.25,
-                borderRadius: 1,
-                border: '1px solid',
-                borderColor: 'divider',
-                bgcolor: 'background.paper',
-                color: 'text.primary'
+                transform: side === 'below' ? 'translate(-50%, 0)' : 'translate(-50%, -100%)',
+                pt: side === 'below' ? '4px' : 0,
+                pb: side === 'below' ? 0 : '4px'
             }}
         >
-            {names.includes('duplicate') && (
-                <IconButton
-                    title='Duplicate'
-                    aria-label='Duplicate'
-                    data-testid='card-duplicate'
-                    size='small'
-                    onClick={copy}
-                    sx={{ color: 'inherit' }}
-                >
-                    <IconCopy size={18} />
-                </IconButton>
-            )}
-            {names.includes('delete') && (
-                <IconButton
-                    title='Delete'
-                    aria-label='Delete'
-                    data-testid='card-delete'
-                    size='small'
-                    onClick={() => deleteNode(data.id)}
-                    sx={{ color: 'inherit' }}
-                >
-                    <IconTrash size={18} />
-                </IconButton>
-            )}
-            {names.includes('info') && (
-                <IconButton
-                    title='Info'
-                    aria-label='Info'
-                    data-testid='card-info'
-                    size='small'
-                    onClick={() => onInfo?.()}
-                    sx={{ color: 'inherit' }}
-                >
-                    <IconInfoCircle size={18} />
-                </IconButton>
-            )}
+            <Box
+                sx={{
+                    display: 'flex',
+                    gap: 0.25,
+                    p: 0.25,
+                    borderRadius: 1,
+                    border: '1px solid',
+                    borderColor: 'divider',
+                    bgcolor: 'background.paper',
+                    color: 'text.primary'
+                }}
+            >
+                {names.includes('duplicate') && (
+                    <IconButton
+                        title='Duplicate'
+                        aria-label='Duplicate'
+                        data-testid='card-duplicate'
+                        size='small'
+                        onClick={copy}
+                        sx={{ color: 'inherit' }}
+                    >
+                        <IconCopy size={18} />
+                    </IconButton>
+                )}
+                {names.includes('delete') && (
+                    <IconButton
+                        title='Delete'
+                        aria-label='Delete'
+                        data-testid='card-delete'
+                        size='small'
+                        onClick={() => deleteNode(data.id)}
+                        sx={{ color: 'inherit' }}
+                    >
+                        <IconTrash size={18} />
+                    </IconButton>
+                )}
+                {names.includes('info') && (
+                    <IconButton
+                        title='Info'
+                        aria-label='Info'
+                        data-testid='card-info'
+                        size='small'
+                        onClick={() => onInfo?.()}
+                        sx={{ color: 'inherit' }}
+                    >
+                        <IconInfoCircle size={18} />
+                    </IconButton>
+                )}
+            </Box>
         </Box>
     )
 }
@@ -112,7 +123,7 @@ NodeActionBar.propTypes = {
     onInfo: PropTypes.func
 }
 
-// Hover on the card, including the bar above it. The bar is a child, so moving onto it does not count as leaving.
+// Hover on the card and its action row together. The row is a child and touches the card, so leaving is only after both.
 export function useCardHover() {
     const [hovered, setHovered] = useState(false)
     return {

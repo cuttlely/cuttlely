@@ -4,7 +4,7 @@ import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { ThemeProvider, createTheme } from '@mui/material/styles'
 
-import { actionBarSide, cardActionNames, panelHeaderActions, showCardActions } from './cardActions'
+import { actionBarSide, cardActionNames, panelHeaderActions, panelStateWhenNodesChange, showCardActions } from './cardActions'
 import NodePanelHeader from './NodePanelHeader'
 
 const theme = createTheme({
@@ -58,6 +58,35 @@ describe('action bar side', () => {
         const lower = { left: 500, top: 140, width: 180, right: 680, bottom: 220 }
         const button = { left: 540, top: 100, right: 620, bottom: 140 }
         expect(actionBarSide({ card: lower, bar, canvas, overlays: [button] })).toBe('below')
+    })
+})
+
+describe('panel id after a card is deleted', () => {
+    test('clears the open panel when its card is gone, so a reused id does not show the deleted settings', () => {
+        const settings = { template: 'Hello from the deleted card' }
+        const open = {
+            panelNodeId: 'promptTemplate_0',
+            panelProps: { data: { id: 'promptTemplate_0', inputs: settings } },
+            nodes: [{ id: 'promptTemplate_0', data: { inputs: settings } }]
+        }
+        const deleted = panelStateWhenNodesChange({ ...open, nodes: [] })
+        expect(deleted).toEqual({ panelNodeId: null, panelProps: {} })
+        const reused = panelStateWhenNodesChange({
+            ...deleted,
+            nodes: [{ id: 'promptTemplate_0', data: { inputs: { template: '' } } }]
+        })
+        expect(reused.panelNodeId).toBe(null)
+        expect(reused.panelProps).toEqual({})
+        expect(JSON.stringify(reused)).not.toContain('Hello from the deleted card')
+    })
+
+    test('keeps the panel while its card is still on the canvas', () => {
+        const state = panelStateWhenNodesChange({
+            panelNodeId: 'promptTemplate_0',
+            panelProps: { data: { id: 'promptTemplate_0' } },
+            nodes: [{ id: 'promptTemplate_0' }]
+        })
+        expect(state.panelNodeId).toBe('promptTemplate_0')
     })
 })
 

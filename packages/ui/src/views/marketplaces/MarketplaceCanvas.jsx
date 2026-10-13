@@ -23,6 +23,7 @@ import { CanvasPanelContext } from '@/store/context/CanvasPanelContext'
 import { flowContext } from '@/store/context/ReactFlowContext'
 import { isNewLook, panelNode } from '@/utils/canvasLook'
 import { isLegacyTemplate } from '@/utils/legacyAgentflows'
+import { templatePreviewProps } from './templatePreview'
 
 // icons
 import {
@@ -154,6 +155,7 @@ const MarketplaceCanvas = () => {
                                             onNodesChange={onNodesChange}
                                             onEdgesChange={onEdgesChange}
                                             nodesDraggable={false}
+                                            {...templatePreviewProps}
                                             onNodeClick={(event, node) => setPanelNodeId(node.type === 'stickyNote' ? null : node.id)}
                                             onPaneClick={() => setPanelNodeId(null)}
                                             nodeTypes={nodeTypes}

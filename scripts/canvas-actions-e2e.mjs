@@ -191,7 +191,80 @@ async function exercise(page, base, { route, nodeId }) {
     await page.waitForTimeout(300)
     if ((await panel.count()) !== 0) throw new Error(`${nodeId} Escape left the panel open`)
 
-    await checkTopEdge(page, card, nodeId)
+    await checkHoverClicks(page, nodeId, 'above')
+    const survivor = await remainingCardId(page, nodeId)
+    await checkTopEdge(page, page.locator(`.react-flow__node[data-id="${survivor}"]`), survivor)
+    await checkHoverClicks(page, survivor, 'below')
+}
+
+async function remainingCardId(page, removedId) {
+    const ids = await page.locator('.react-flow__node').evaluateAll((els) => els.map((el) => el.getAttribute('data-id')))
+    const survivor = ids.find((id) => id && id !== removedId && !id.startsWith('startAgentflow'))
+    if (!survivor) throw new Error(`no card left after deleting ${removedId}`)
+    return survivor
+}
+
+async function deselect(page) {
+    const pane = page.locator('.react-flow__pane').first()
+    const box = await pane.boundingBox()
+    await pane.click({ position: { x: 24, y: Math.max(24, box.height - 120) } })
+    await page.waitForTimeout(200)
+}
+
+async function moveFromCardToButton(page, card, testId) {
+    if (await card.evaluate((el) => el.classList.contains('selected'))) await deselect(page)
+    if (await card.evaluate((el) => el.classList.contains('selected'))) throw new Error(`${testId} card stayed selected`)
+    const box = await card.boundingBox()
+    if (!box) throw new Error(`${testId} card has no box`)
+    await page.mouse.move(box.x + box.width / 2, box.y + Math.min(22, box.height / 2))
+    await page.waitForTimeout(250)
+    const button = card.locator(`[data-testid="${testId}"]`)
+    await button.waitFor({ timeout: 3000 })
+    const buttonBox = await button.boundingBox()
+    await page.mouse.move(buttonBox.x + buttonBox.width / 2, buttonBox.y + buttonBox.height / 2, { steps: 12 })
+    await page.waitForTimeout(200)
+    if ((await button.count()) !== 1) throw new Error(`${testId} unmounted while the pointer moved onto it`)
+    await button.click()
+}
+
+// Hover an unselected card, cross onto Duplicate and click it, then do the same for Delete.
+async function dragCardVertically(page, card, targetTop) {
+    const cardBox = await card.boundingBox()
+    if (!cardBox) throw new Error('card has no box to drag')
+    const handleX = cardBox.x + Math.min(28, cardBox.width / 2)
+    const handleY = cardBox.y + Math.min(18, cardBox.height / 2)
+    await page.mouse.move(handleX, handleY)
+    await page.mouse.down()
+    await page.mouse.move(handleX, targetTop + (handleY - cardBox.y), { steps: 12 })
+    await page.mouse.up()
+    await page.waitForTimeout(300)
+}
+
+async function checkHoverClicks(page, nodeId, placement) {
+    const card = page.locator(`.react-flow__node[data-id="${nodeId}"]`)
+    await card.waitFor({ timeout: 10000 })
+    const paneBox = await page.locator('.react-flow').first().boundingBox()
+    if (placement === 'below') await dragCardVertically(page, card, paneBox.y)
+    else await dragCardVertically(page, card, paneBox.y + paneBox.height * 0.45)
+    await deselect(page)
+    const probe = await card.boundingBox()
+    await page.mouse.move(probe.x + probe.width / 2, probe.y + Math.min(20, probe.height / 2))
+    await page.waitForTimeout(250)
+    const side = await card.locator('[data-testid="card-actions"]').getAttribute('data-placement')
+    if (side !== placement) throw new Error(`${nodeId} bar was ${side}, expected ${placement}`)
+    await page.mouse.move(8, 8)
+    await page.waitForTimeout(200)
+    const before = await page.locator('.react-flow__node').count()
+    await moveFromCardToButton(page, card, 'card-duplicate')
+    await page.waitForTimeout(400)
+    if ((await page.locator('.react-flow__node').count()) !== before + 1) {
+        throw new Error(`${nodeId} hover duplicate (${placement}) did not add a card`)
+    }
+    await moveFromCardToButton(page, card, 'card-delete')
+    await page.waitForTimeout(400)
+    if ((await page.locator(`.react-flow__node[data-id="${nodeId}"]`).count()) !== 0) {
+        throw new Error(`${nodeId} hover delete (${placement}) left the card`)
+    }
 }
 
 // A card at the top of the view used to lose its buttons above the canvas, under the floating buttons.

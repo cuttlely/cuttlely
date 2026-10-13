@@ -46,6 +46,7 @@ import useApi from '@/hooks/useApi'
 import useConfirm from '@/hooks/useConfirm'
 import useCanvasLook from '@/hooks/useCanvasLook'
 import { isNewLook, panelNode } from '@/utils/canvasLook'
+import { panelStateWhenNodesChange } from '@/views/canvas/cardActions'
 
 // icons
 import {
@@ -910,6 +911,14 @@ const AgentflowCanvas = () => {
         () => ({ panelNodeId: panelOpen ? panelNodeId : null, compact: false, onDuplicated }),
         [panelNodeId, panelOpen, onDuplicated]
     )
+    // A deleted card must not leave its id or its saved settings open for the next card that reuses the id.
+    useEffect(() => {
+        const next = panelStateWhenNodesChange({ panelNodeId, panelProps, nodes })
+        if (next.panelNodeId !== panelNodeId) {
+            setPanelNodeId(null)
+            setPanelProps({})
+        }
+    }, [nodes, panelNodeId, panelProps])
 
     return (
         <>

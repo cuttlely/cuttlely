@@ -76,6 +76,7 @@ import { CHATFLOW_NEEDS_ENDING_NODE, chatflowCanChat } from '@/utils/chatflowRea
 import { harnessChatBlock, reservedHarnessNameMessage } from '@/utils/harnessChatReady'
 import { nodeMoved } from '@/utils/canvasDirty'
 import { panelNode, panToKeepInView } from '@/utils/canvasLook'
+import { panelStateWhenNodesChange } from '@/views/canvas/cardActions'
 import { flowiseCanvasJson } from '@/utils/flowiseImport'
 import { hydrateLangflowFlow, isLangflowExport, langflowToFlowise } from '@/utils/langflowImport'
 import { hydrateRawCanvasNodes, normalizeCanvasFlow, repairFlowEdges, specsByName, stripRawCanvasMarker } from '@/utils/normalizeCanvasFlow'
@@ -1175,6 +1176,11 @@ const Canvas = () => {
         () => ({ panelNodeId: openPanelNodeId, compact: sidePanelOn, onDuplicated }),
         [openPanelNodeId, sidePanelOn, onDuplicated]
     )
+    // A deleted card must not leave its id open. The next card of that type reuses the id.
+    useEffect(() => {
+        const next = panelStateWhenNodesChange({ panelNodeId, nodes })
+        if (next.panelNodeId !== panelNodeId) setPanelNodeId(null)
+    }, [nodes, panelNodeId])
 
     // The panel narrows the canvas. Pan so the card you clicked does not end up behind it.
     useEffect(() => {
