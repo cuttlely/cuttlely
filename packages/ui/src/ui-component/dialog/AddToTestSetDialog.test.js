@@ -54,6 +54,42 @@ describe('questionBeforeAnswer', () => {
         const first = { id: 'a0', type: 'apiMessage', message: 'Earlier.' }
         expect(questionBeforeAnswer([user, first, answer], answer)).toBe('')
     })
+
+    test('stays inside the same chat session and memory', () => {
+        const own = {
+            id: 'u-own',
+            type: 'userMessage',
+            message: 'own session question',
+            chatId: 'chat-1',
+            sessionId: 'sess-1',
+            memoryType: 'buffer'
+        }
+        const otherSession = {
+            id: 'u-other',
+            type: 'userMessage',
+            message: 'other session question',
+            chatId: 'chat-1',
+            sessionId: 'sess-2',
+            memoryType: 'buffer'
+        }
+        const otherMemory = {
+            id: 'u-window',
+            type: 'userMessage',
+            message: 'window question',
+            chatId: 'chat-1',
+            sessionId: 'sess-1',
+            memoryType: 'window'
+        }
+        const sessionAnswer = {
+            id: 'a-session',
+            type: 'apiMessage',
+            message: 'yes',
+            chatId: 'chat-1',
+            sessionId: 'sess-1',
+            memoryType: 'buffer'
+        }
+        expect(questionBeforeAnswer([own, otherSession, otherMemory, sessionAnswer], sessionAnswer)).toBe('own session question')
+    })
 })
 
 describe('AddToTestSetForm', () => {

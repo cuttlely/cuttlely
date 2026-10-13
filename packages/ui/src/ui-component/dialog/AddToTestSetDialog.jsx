@@ -16,11 +16,23 @@ export function canAddAnswerToDataset(hasPermission) {
     return hasPermission('datasets:update') && hasPermission('datasets:view')
 }
 
+function sameChatSession(left, right) {
+    const key = (message) => ({
+        chatId: message?.chatId ?? null,
+        memoryType: message?.memoryType ?? null,
+        sessionId: message?.sessionId ?? null
+    })
+    const a = key(left)
+    const b = key(right)
+    return a.chatId === b.chatId && a.memoryType === b.memoryType && a.sessionId === b.sessionId
+}
+
 export function questionBeforeAnswer(messages, answer) {
     if (!answer || !Array.isArray(messages)) return ''
     const index = messages.findIndex((item) => item === answer || (answer.id && item.id === answer.id))
     if (index < 0) return ''
     for (let i = index - 1; i >= 0; i -= 1) {
+        if (!sameChatSession(messages[i], answer)) continue
         const role = messages[i].type || messages[i].role
         if (role === 'timeMessage') continue
         if (role === 'userMessage') return String(messages[i].message ?? messages[i].content ?? '')

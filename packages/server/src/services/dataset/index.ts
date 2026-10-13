@@ -336,19 +336,15 @@ const addDatasetRow = async (body: any) => {
 }
 
 const changeUpdateOnDataset = async (id: string, workspaceId: string, entityManager?: any) => {
-    const appServer = getRunningExpressApp()
-    const dataset = await appServer.AppDataSource.getRepository(Dataset).findOneBy({
+    const repo = entityManager ? entityManager.getRepository(Dataset) : getRunningExpressApp().AppDataSource.getRepository(Dataset)
+    const dataset = await repo.findOneBy({
         id: id,
         workspaceId: workspaceId
     })
     if (!dataset) throw new AppError(StatusCodes.NOT_FOUND, `Dataset ${id} not found`)
 
     dataset.updatedDate = new Date()
-    if (entityManager) {
-        await entityManager.getRepository(Dataset).save(dataset)
-    } else {
-        await appServer.AppDataSource.getRepository(Dataset).save(dataset)
-    }
+    await repo.save(dataset)
 }
 
 // Update row for a dataset
@@ -476,8 +472,9 @@ const addDatasetRowFromChatMessage = async (
             throw new AppError(StatusCodes.BAD_REQUEST, 'This message is not an answer.')
         }
 
-        // The turn is the message immediately before this answer. An earlier question does not belong to a later answer.
-        const previous = await appServer.AppDataSource.getRepository(ChatMessage)
+        // The turn is the message immediately before this answer in the same chat session.
+        // Another session or memory on the same chatId is a different conversation.
+        const previousQuery = appServer.AppDataSource.getRepository(ChatMessage)
             .createQueryBuilder('m')
             .where('m.chatflowid = :chatflowid', { chatflowid: message.chatflowid })
             .andWhere('m.chatId = :chatId', { chatId: message.chatId })
@@ -486,9 +483,11 @@ const addDatasetRowFromChatMessage = async (
                 createdDate: message.createdDate,
                 id: message.id
             })
-            .orderBy('m.createdDate', 'DESC')
-            .addOrderBy('m.id', 'DESC')
-            .getOne()
+        if (message.sessionId == null) previousQuery.andWhere('m.sessionId IS NULL')
+        else previousQuery.andWhere('m.sessionId = :sessionId', { sessionId: message.sessionId })
+        if (message.memoryType == null) previousQuery.andWhere('m.memoryType IS NULL')
+        else previousQuery.andWhere('m.memoryType = :memoryType', { memoryType: message.memoryType })
+        const previous = await previousQuery.orderBy('m.createdDate', 'DESC').addOrderBy('m.id', 'DESC').getOne()
         const input = previous?.role === 'userMessage' ? String(previous.content ?? '') : ''
         if (!previous || previous.role !== 'userMessage' || input.trim().length === 0) {
             throw new AppError(StatusCodes.BAD_REQUEST, 'No question was found for this answer.')
@@ -518,10 +517,13 @@ const addDatasetRowFromChatMessage = async (
         created.sourceFlowId = flow.id
         created.sourceDate = message.createdDate
         try {
-            const saved = await rows.save(created)
-            await changeUpdateOnDataset(dataset.id, workspaceId)
-            return saved
+            return await appServer.AppDataSource.transaction(async (manager) => {
+                const saved = await manager.getRepository(DatasetRow).save(created)
+                await changeUpdateOnDataset(dataset.id, workspaceId, manager)
+                return saved
+            })
         } catch (error) {
+            if (error instanceof AppError) throw error
             if (!isUniqueViolation(error)) throw error
             const again = await rows.findOneBy({ datasetId: dataset.id, sourceMessageId: message.id })
             if (again) return again
