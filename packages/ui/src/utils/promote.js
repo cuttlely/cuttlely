@@ -150,6 +150,18 @@ export const readLine = (status, timeAgo) => {
 }
 
 // The card's subtitle on a server that only reads.
+// One line under an environment name on the review page.
+export const placementLine = (item) => {
+    if (item?.state === 'seen' && item.version) {
+        const title = item.version.title || 'Untitled version'
+        return item.version.shortSha ? `${title} · Version ${item.version.shortSha}` : title
+    }
+    if (item?.state === 'local-only') return 'Only on that server'
+    if (item?.state === 'unseen') return 'Could not be read from here'
+    if (item?.place === 'here') return 'Not on this server yet'
+    return 'Not there yet'
+}
+
 export const readIntro = (status) => {
     const from = previousEnvironmentTitle(status)
     return from === 'Dev'

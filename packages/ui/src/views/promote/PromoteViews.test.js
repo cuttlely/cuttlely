@@ -204,6 +204,34 @@ describe('PromoteDetailView', () => {
         expect(html).toContain('What it adds here')
     })
 
+    test('names the version of the selected flow on each environment', () => {
+        const html = render({
+            detail: detail({
+                environments: [
+                    { name: 'Dev', server: 'dev' },
+                    { name: 'Staging', server: 'staging' },
+                    { name: 'Prod', server: 'prod' }
+                ],
+                source: 'dev',
+                target: 'staging',
+                placements: [
+                    { server: 'dev', name: 'Dev', place: 'previous', state: 'seen', version },
+                    { server: 'staging', name: 'Staging', place: 'here', state: 'none', version: null },
+                    { server: 'prod', name: 'Prod', place: 'later', state: 'local-only', version: null }
+                ]
+            }),
+            sourceTitle: 'Dev'
+        })
+        expect(html).toContain('Where this version is')
+        expect(html).toContain('Answer with the code word PAPAYA')
+        expect(html).toContain('Version aaaaaaa')
+        expect(html).toContain('Not on this server yet')
+        expect(html).toContain('This server')
+        expect(html).toContain('Only on that server')
+        expect(html).toContain('data-server="prod"')
+        expect(render()).not.toContain('Where this version is')
+    })
+
     test('shows why the check cannot run instead of the check', () => {
         const html = render({
             detail: detail({ checkUnavailable: { code: 'new-flow', message: 'Nothing is Live here to compare with yet.' } })
