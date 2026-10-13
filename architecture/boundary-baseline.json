@@ -2435,6 +2435,22 @@
             "reason": "Pack manifest files ship with the vector store pack."
         },
         {
+            "path": "packages/server/src/database/migrations/mariadb/1795000000000-AddDatasetRowSource.ts",
+            "reason": "Dataset row provenance migrations and the dialog that saves a chat answer into a dataset."
+        },
+        {
+            "path": "packages/server/src/database/migrations/mysql/1795000000000-AddDatasetRowSource.ts",
+            "reason": "Dataset row provenance migrations and the dialog that saves a chat answer into a dataset."
+        },
+        {
+            "path": "packages/server/src/database/migrations/postgres/1795000000000-AddDatasetRowSource.ts",
+            "reason": "Dataset row provenance migrations and the dialog that saves a chat answer into a dataset."
+        },
+        {
+            "path": "packages/server/src/database/migrations/sqlite/1795000000000-AddDatasetRowSource.ts",
+            "reason": "Dataset row provenance migrations and the dialog that saves a chat answer into a dataset."
+        },
+        {
             "path": "packages/server/src/errors/appError/index.test.ts",
             "reason": "Shared server error class has its own module. Core callers import that module."
         },
@@ -2481,6 +2497,14 @@
         {
             "path": "packages/server/src/utils/telemetry-geoip-missing.test.ts",
             "reason": "Server unit test for geolocation when the database package is absent."
+        },
+        {
+            "path": "packages/ui/src/ui-component/dialog/AddToTestSetDialog.jsx",
+            "reason": "Dataset row provenance migrations and the dialog that saves a chat answer into a dataset."
+        },
+        {
+            "path": "packages/ui/src/ui-component/dialog/AddToTestSetDialog.test.js",
+            "reason": "Dataset row provenance migrations and the dialog that saves a chat answer into a dataset."
         }
     ]
 }
