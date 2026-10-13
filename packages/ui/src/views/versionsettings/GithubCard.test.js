@@ -110,6 +110,26 @@ describe('GithubCard environment names', () => {
         expect(html).toContain('value="prod"')
     })
 
+    test('an unreadable environment list can be saved again and does not describe Dev and Prod', () => {
+        const html = wrap(
+            status({
+                connected: true,
+                role: 'copy',
+                environment: null,
+                environments: [],
+                state: 'stopped',
+                message: 'The environment list could not be read. Save it again.'
+            })
+        )
+        expect(html).toContain('The environment list could not be read. Save it again.')
+        expect(html).toContain('data-testid="environment-repair"')
+        expect(html).toContain('Save the list')
+        expect(html).toContain('value="Dev"')
+        expect(html).toContain('value="Prod"')
+        expect(html).not.toContain('Dev copies its published versions to GitHub')
+        expect(html).not.toContain('>Not set<')
+    })
+
     test('loadRepos leaves a middle environment with nothing picked', () => {
         const empty = [{ repo: 'acme/empty', private: true, empty: true }]
         expect(repoPickAfterLoad(empty, true)).toBe('')

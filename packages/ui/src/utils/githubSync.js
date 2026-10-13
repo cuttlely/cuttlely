@@ -124,6 +124,20 @@ export const checkRepoName = (name) => {
 
 const SAVED_PAIR_HINT = 'Dev copies its published versions to GitHub. Prod reads them from there, and you choose what to promote to Live.'
 
+export const UNREADABLE_LIST = 'The environment list could not be read. Save it again.'
+
+export const listUnreadable = (status) => typeof status?.message === 'string' && status.message.includes('could not be read')
+
+// The full list a repair save sends. An environment-only save is refused while the file cannot be read.
+export const repairListBody = (rows, environment) => ({
+    environment: environment || null,
+    environments: (Array.isArray(rows) ? rows : []).map((row) => ({
+        name: String(row?.name || '').trim(),
+        branch: String(row?.branch || '').trim(),
+        server: String(row?.server || '').trim()
+    }))
+})
+
 const environmentLabel = (env) => {
     const name = String(env?.name || '')
     if (name.toLowerCase() === 'dev') return 'Dev'
@@ -134,6 +148,7 @@ const environmentLabel = (env) => {
 // What each environment does, from the list this server saved. The saved Dev and Prod pair keeps its sentence.
 export const environmentHint = (environments) => {
     const chain = Array.isArray(environments) ? environments : []
+    if (!chain.length) return ''
     if (chain.length < 2 || isSavedDevProdPair(chain)) return SAVED_PAIR_HINT
     return (
         chain

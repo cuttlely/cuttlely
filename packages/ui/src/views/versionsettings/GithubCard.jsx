@@ -49,6 +49,9 @@ import {
     NEW_TOKEN,
     environmentHint,
     environmentSwitchNote,
+    listUnreadable,
+    repairListBody,
+    UNREADABLE_LIST,
     ownCredentials,
     checkRepoName,
     filterRepos,
@@ -335,6 +338,12 @@ const GithubCard = ({ onStatus, initialStatus = null, initialStep = 'idle' }) =>
         }
     }
 
+    const [repairRows, setRepairRows] = useState([
+        { name: 'Dev', branch: 'main', server: 'dev' },
+        { name: 'Prod', branch: 'main', server: 'prod' }
+    ])
+    const unreadable = listUnreadable(status)
+
     const changeEnvironment = async (_event, value) => {
         if (value === null || value === undefined) return
         setError('')
@@ -344,6 +353,22 @@ const GithubCard = ({ onStatus, initialStatus = null, initialStep = 'idle' }) =>
         } catch (err) {
             setError(messageOf(err))
         }
+    }
+
+    const saveRepair = async () => {
+        setError('')
+        try {
+            const body = repairListBody(repairRows, null)
+            const res = await flowVersionsApi.setEnvironment(body.environment, body.environments)
+            setStatus(res.data)
+        } catch (err) {
+            setError(messageOf(err))
+        }
+    }
+
+    const editRepair = (index, field) => (event) => {
+        const value = event.target.value
+        setRepairRows((rows) => rows.map((row, at) => (at === index ? { ...row, [field]: value } : row)))
     }
 
     return (
@@ -663,41 +688,85 @@ const GithubCard = ({ onStatus, initialStatus = null, initialStep = 'idle' }) =>
                                     <Box sx={{ flex: 1 }}>
                                         <Typography variant='h5'>This server is</Typography>
                                         <Typography variant='caption' color='text.secondary'>
-                                            {environmentHint(status.environments)}
+                                            {unreadable ? UNREADABLE_LIST : environmentHint(status.environments)}
                                         </Typography>
-                                        {connected && (
+                                        {connected && !unreadable && (
                                             <Typography variant='caption' color='text.secondary' sx={{ display: 'block' }}>
                                                 {environmentSwitchNote(status)}
                                             </Typography>
                                         )}
                                     </Box>
-                                    <ToggleButtonGroup
-                                        exclusive
-                                        size='small'
-                                        value={status.environment || ''}
-                                        onChange={changeEnvironment}
-                                        aria-label={
-                                            isSavedDevProdPair(status.environments) ? 'This server is Dev or Prod' : 'This server is'
-                                        }
-                                    >
-                                        {isSavedDevProdPair(status.environments)
-                                            ? [
-                                                  <ToggleButton key='dev' value='dev' sx={{ px: 2.5 }}>
-                                                      Dev
-                                                  </ToggleButton>,
-                                                  <ToggleButton key='prod' value='prod' sx={{ px: 2.5 }}>
-                                                      Prod
-                                                  </ToggleButton>
-                                              ]
-                                            : (status.environments || []).map((env) => (
-                                                  <ToggleButton key={env.server} value={env.server} sx={{ px: 2.5 }}>
-                                                      {env.name}
-                                                  </ToggleButton>
-                                              ))}
-                                        <ToggleButton value='' sx={{ px: 2 }}>
-                                            Not set
-                                        </ToggleButton>
-                                    </ToggleButtonGroup>
+                                    {unreadable ? (
+                                        <Stack spacing={1} data-testid='environment-repair' sx={{ minWidth: { sm: 360 } }}>
+                                            {repairRows.map((row, index) => (
+                                                <Stack key={index} direction='row' spacing={1}>
+                                                    <TextField
+                                                        size='small'
+                                                        label='Name'
+                                                        value={row.name}
+                                                        onChange={editRepair(index, 'name')}
+                                                        inputProps={{ 'data-testid': `repair-name-${index}` }}
+                                                    />
+                                                    <TextField
+                                                        size='small'
+                                                        label='Server'
+                                                        value={row.server}
+                                                        onChange={editRepair(index, 'server')}
+                                                        inputProps={{ 'data-testid': `repair-server-${index}` }}
+                                                    />
+                                                    <TextField
+                                                        size='small'
+                                                        label='Copies to'
+                                                        value={row.branch}
+                                                        onChange={editRepair(index, 'branch')}
+                                                        inputProps={{ 'data-testid': `repair-copy-${index}` }}
+                                                    />
+                                                </Stack>
+                                            ))}
+                                            <Button
+                                                size='small'
+                                                onClick={() => setRepairRows((rows) => [...rows, { name: '', branch: '', server: '' }])}
+                                            >
+                                                Add an environment
+                                            </Button>
+                                            <Button
+                                                size='small'
+                                                variant='contained'
+                                                data-testid='save-environment-list'
+                                                onClick={saveRepair}
+                                            >
+                                                Save the list
+                                            </Button>
+                                        </Stack>
+                                    ) : (
+                                        <ToggleButtonGroup
+                                            exclusive
+                                            size='small'
+                                            value={status.environment || ''}
+                                            onChange={changeEnvironment}
+                                            aria-label={
+                                                isSavedDevProdPair(status.environments) ? 'This server is Dev or Prod' : 'This server is'
+                                            }
+                                        >
+                                            {isSavedDevProdPair(status.environments)
+                                                ? [
+                                                      <ToggleButton key='dev' value='dev' sx={{ px: 2.5 }}>
+                                                          Dev
+                                                      </ToggleButton>,
+                                                      <ToggleButton key='prod' value='prod' sx={{ px: 2.5 }}>
+                                                          Prod
+                                                      </ToggleButton>
+                                                  ]
+                                                : (status.environments || []).map((env) => (
+                                                      <ToggleButton key={env.server} value={env.server} sx={{ px: 2.5 }}>
+                                                          {env.name}
+                                                      </ToggleButton>
+                                                  ))}
+                                            <ToggleButton value='' sx={{ px: 2 }}>
+                                                Not set
+                                            </ToggleButton>
+                                        </ToggleButtonGroup>
+                                    )}
                                 </Stack>
                             </>
                         )}

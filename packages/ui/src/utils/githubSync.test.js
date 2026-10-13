@@ -3,6 +3,7 @@ import {
     checkRepoName,
     environmentHint,
     environmentSwitchNote,
+    repairListBody,
     filterRepos,
     ownCredentials,
     pollMs,
@@ -120,6 +121,8 @@ describe('githubSync helpers', () => {
             { name: 'Staging', branch: 'staging', server: 'staging' },
             { name: 'Prod', branch: 'prod', server: 'prod' }
         ]
+        expect(environmentHint([])).toBe('')
+        expect(environmentHint([])).not.toContain('Dev copies')
         expect(environmentHint(pair)).toContain('Dev copies')
         expect(environmentHint(pair)).toContain('Prod reads')
         expect(environmentHint(chain)).toContain('Staging reads Dev and copies what it publishes')
@@ -131,6 +134,21 @@ describe('githubSync helpers', () => {
         expect(environmentSwitchNote({ environment: 'staging', environments: chain })).toContain('Staging reads Dev')
         expect(environmentSwitchNote({ environment: 'staging', environments: chain })).toContain('Prod reads Staging')
         expect(environmentSwitchNote({ environment: 'dev', environments: chain })).toContain('Staging reads Dev')
+        expect(
+            repairListBody(
+                [
+                    { name: 'Dev', branch: 'main', server: 'dev' },
+                    { name: ' Prod ', branch: ' main ', server: 'prod' }
+                ],
+                null
+            )
+        ).toEqual({
+            environment: null,
+            environments: [
+                { name: 'Dev', branch: 'main', server: 'dev' },
+                { name: 'Prod', branch: 'main', server: 'prod' }
+            ]
+        })
         // No Git words on screen.
         for (const word of ['push', 'commit', 'branch', 'clone', 'scope']) expect(text.toLowerCase()).not.toContain(word)
     })
