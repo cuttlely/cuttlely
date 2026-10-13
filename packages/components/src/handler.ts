@@ -22,6 +22,7 @@ import { LunaryHandler } from '@langchain/community/callbacks/handlers/lunary'
 
 import { getCredentialData, getCredentialParam, getEnvironmentVariable } from './utils'
 import { applyEnvTracingProviders, tracingEnvEnabled } from './tracingEnv'
+import { otelRunCallback } from './otelRunSpans'
 import { EvaluationRunTracer } from '../evaluation/EvaluationRunTracer'
 import { ICommonObject, IDatabaseEntity, INodeData, IServerSideEventStreamer } from './Interface'
 
@@ -517,7 +518,9 @@ class ExtendedLunaryHandler extends LunaryHandler {
 
 export const additionalCallbacks = async (nodeData: INodeData, options: ICommonObject) => {
     try {
-        if (!options.analytic && !tracingEnvEnabled()) return []
+        // One check when run traces are off: no handler is constructed.
+        const otel = options?.cuttlelyReplay ? undefined : otelRunCallback()
+        if (!options.analytic && !tracingEnvEnabled() && !otel) return []
 
         const initial = options.analytic ? JSON.parse(options.analytic) : {}
         // A Cuttlely publish check replay keeps only the providers it was given (its token counter), so
@@ -526,6 +529,7 @@ export const additionalCallbacks = async (nodeData: INodeData, options: ICommonO
             ? { analytic: initial, envCredentials: {} as Record<string, ICommonObject> }
             : applyEnvTracingProviders(initial)
         const callbacks: any = []
+        if (otel) callbacks.push(otel)
 
         for (const provider in analytic) {
             const providerStatus = analytic[provider].status as boolean
