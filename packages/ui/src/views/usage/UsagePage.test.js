@@ -174,6 +174,16 @@ describe('Usage page', () => {
         act(() => root.unmount())
     })
 
+    it('shrinks the Flow and Model labels so they sit above the selected value', async () => {
+        const root = await renderPage({ isOwner: false })
+        for (const name of ['Flow', 'Model']) {
+            const label = Array.from(document.querySelectorAll('label')).find((node) => node.textContent === name)
+            expect(label).toBeTruthy()
+            expect(label.getAttribute('data-shrink')).toBe('true')
+        }
+        act(() => root.unmount())
+    })
+
     it('shows the empty state when finished runs have not recorded tokens', async () => {
         usageApi.getUsage.mockResolvedValue({ data: emptyUsage })
         const root = await renderPage({ isOwner: false })

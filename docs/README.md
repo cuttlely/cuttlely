@@ -15,7 +15,7 @@ New here? Start with [Your first 10 minutes](../README.md#your-first-10-minutes)
 
 -   [Harnesses](./how-to/harnesses.md). A team of specialists that Harness Prime sends work to. Build one from a description, try it, and call it from a chatflow.
 -   [How the customer care demo works](./how-to/customer-care-demo.md). Specialists that each own one system, a step that waits for another's finding, and amounts that come from code, so you can build the same kind of team on your own data.
--   [Context and tokens](./how-to/context-and-tokens.md). How a team keeps each prompt to the job in front of it, and where a run shows the tokens it used.
+-   [Context and tokens](./how-to/context-and-tokens.md). How a team keeps each prompt to the job in front of it, where a run shows the tokens it used, and [usage over time](./how-to/context-and-tokens.md#usage-over-time).
 -   [Analyst mode](./how-to/analyst.md). A specialist with its own database that creates tables and answers from them. Turn it on with `CUTTLELY_ANALYST=auto`; on Render, see [Analyst database](./how-to/render.md#analyst-database).
 -   [ETL](./how-to/etl.md). Pipelines that load, clean, split, embed and store your data for search, on a schedule if you like.
 -   [Evaluations](./how-to/evaluations.md). Datasets of example questions, evaluators that grade an answer, and a run of those examples against a chatflow or agentflow.

@@ -8,13 +8,17 @@ A signed-in session can call it, and so can an API key. The totals are only for 
 
 The Usage page at `/usage` shows this route. [Usage over time](../how-to/context-and-tokens.md#usage-over-time) describes the chart, the per-flow table, and the price editor.
 
-A finished chatflow, agentflow, Multi Agents canvas, or Sequential Agents canvas adds its tokens under that flow's id. Those canvases count the model calls the graph already reports. A harness run started from the harness API adds its tokens under the harness name. A chatflow whose only node is a harness stores the team's route, specialist, and handoff tokens on the chatflow. A chatflow whose Tool Agent calls the harness tool stores those same tokens on the chatflow, because the tool's answer text does not carry them. The harness model calls are not also added by the chatflow counter. The harness name does not get a second copy. An Agent step that calls tools stores the sum of each model call's input tokens and output tokens, including calls from before a tool approval, a structured-output conversion, and a memory summary. A Sequential Agents interrupt writes the waiting action onto the chat message before that action is streamed. The daily total is written when the run finishes. The resume reads that saved action and does not use usage sent on the request. If the resume cannot read the saved action, or the action has no saved id, the resume fails and no partial total is written. An agentflow Agent that calls a harness adds that harness payload to the same flow total as the Agent's own calls. A run that did not report token counts adds nothing. A failed write does not change the run's answer.
+A finished chatflow, agentflow, Multi Agents canvas, or Sequential Agents canvas adds its tokens under that flow's id. The canvas test chat on those flows is a finished run, so it counts. Those canvases count the model calls the graph already reports. A harness run started from the harness API adds its tokens under the harness name. A chatflow whose only node is a harness stores the team's route, specialist, and handoff tokens on the chatflow. A chatflow whose Tool Agent calls the harness tool stores those same tokens on the chatflow, because the tool's answer text does not carry them. The harness model calls are not also added by the chatflow counter. The harness name does not get a second copy. An Agent step that calls tools stores the sum of each model call's input tokens and output tokens, including calls from before a tool approval, a structured-output conversion, and a memory summary. A Sequential Agents interrupt writes the waiting action onto the chat message before that action is streamed. The daily total is written when the run finishes. The resume reads that saved action and does not use usage sent on the request. If the resume cannot read the saved action, or the action has no saved id, the resume fails and no partial total is written. An agentflow Agent that calls a harness adds that harness payload to the same flow total as the Agent's own calls. A run that did not report token counts adds nothing. A failed write does not change the run's answer.
 
-The caller needs `chatflows:view` or `agentflows:view`. Without either, the route returns 403. The workspace owner is allowed. The same permission gates `GET /api/v1/stats/:id`.
+The daily total is written only when the run finishes. A run that errors after the model has already answered is not included. A chatflow whose run throws, a harness run that throws, and an agentflow that ends in an error or is cancelled leave those tokens off the total. A knowledge pipeline run is not added.
+
+The caller needs `chatflows:view` or `agentflows:view`. Without either, the route returns 403. The organization owner is allowed without those keys. A request with neither a signed-in session nor a valid API key returns 401. The same permission gates `GET /api/v1/stats/:id`.
 
 A publish check counts toward usage. Replaying a question before you publish spends tokens, and those tokens are added to that flow's daily total.
 
-The route returns token counts and an estimated cost. The cost is computed when you read the route, from the prices in effect then, not from a price stored with the tokens. Every dollar figure is an estimate. It is not an invoice.
+The route returns token counts and an estimated cost. The cost is computed when you read the route, from the prices in effect then, not from a price stored with the tokens. Changing a price changes the estimate for days already recorded. Every dollar figure is an estimate. It is not an invoice. Each estimate counts hundred-millionths of a US dollar, and a half unit rounds up. A price of 0 is a known price: those tokens add $0. That is different from `no price`.
+
+The token rows belong to the caller's workspace. A price override belongs to the organization, so every workspace in that organization uses the same prices, and a workspace does not use another organization's override.
 
 ## Range
 
@@ -27,15 +31,38 @@ The route returns token counts and an estimated cost. The cost is computed when 
 | `flowId`    | One chatflow id, agentflow id, or harness name.                                                              |
 | `model`     | One model name, as the run recorded it.                                                                      |
 
-When both `startDate` and `endDate` are set, they replace `days`. A custom range can cover at most 366 days. `range` is that same preset window and cannot be sent with `days` or with either date. Any other `range` value returns 400. Anything else that is not a valid window returns 400.
+When both `startDate` and `endDate` are set, they replace `days`. A custom range can cover at most 366 days. `range` is that same preset window and cannot be sent with `days` or with either date. Anything else that is not a valid window returns 400, with one of these messages:
+
+| Request                                                 | 400 message                                                       |
+| ------------------------------------------------------- | ----------------------------------------------------------------- |
+| `range` together with `days`, `startDate`, or `endDate` | `range cannot be combined with days, startDate, or endDate.`      |
+| `range` other than `7d`, `30d`, or `90d`                | `range must be 7d, 30d, or 90d.`                                  |
+| Only one of `startDate` and `endDate`                   | `startDate and endDate are both required for a custom range.`     |
+| A date that is not `YYYY-MM-DD`                         | `startDate and endDate must be UTC dates in the form YYYY-MM-DD.` |
+| `endDate` before `startDate`                            | `endDate must be on or after startDate.`                          |
+| More than 366 days                                      | `A custom range can cover at most 366 days.`                      |
+| `days` other than `7`, `30`, or `90`                    | `days must be 7, 30, or 90.`                                      |
 
 ## Response
 
-`days` lists every UTC day in the range, including days with no tokens. `flows` and `models` list only rows that have tokens. Both lists are sorted by id.
+`days` lists every UTC day in the range, including days with no tokens. `flows` and `models` list only rows that have tokens. Flows are sorted by id. Models are sorted by name.
 
 Each of those rows, and `totals`, also has `estimatedCostUsd` and `price`. `price` is `known` when every model in that row has a price, `partial` when some do, and `no price` when none do. `estimatedCostUsd` is US dollars. It is `null` when `price` is `no price`, so a missing price is not shown as zero. A `partial` row is only the models that have a price. `totals.unpricedModels` lists the model names that need a price. A day with no tokens has `estimatedCostUsd` of `0` and `price` of `known`.
 
-`estimates` is `true` on every response. The prices are US dollars per million tokens. Defaults come from [the model list](./model-list.md). An organization owner can replace one model's price; see [Model prices](#model-prices). A harness line is stored as the node label, a middle dot, and the catalog id, for example `xAI Grok · grok-4.7`. An override on that full string wins. Otherwise the price is the catalog id after the last `·`. A plain catalog id is unchanged. A string with no catalog match is `no price`.
+`estimates` is `true` on every 200 response. The prices are US dollars per million tokens. Defaults come from [the model list](./model-list.md). An organization owner can replace one model's price; see [Model prices](#model-prices). A harness line is stored as the node label, a middle dot, and the catalog id, for example `ChatOpenAI · gpt-4.1-mini`. An override on that full string wins. Otherwise the price is the catalog id after the last `·`. A plain catalog id is unchanged. A string with no catalog match is `no price`. A model name that looks like a secret is stored as `unknown`. Two names that differ only by case stay two rows and are priced apart. A stored model name is cut at 255 characters.
+
+| Field                  | Where                 | Meaning                                                                                  |
+| ---------------------- | --------------------- | ---------------------------------------------------------------------------------------- |
+| `startDate`, `endDate` | top                   | Inclusive UTC days in the window.                                                        |
+| `estimates`            | top                   | Always `true`. The dollar figures are estimates.                                         |
+| `day`                  | `days[]`              | One UTC day. Days with no tokens are included.                                           |
+| `flowId`               | `flows[]`             | Chatflow id, agentflow id, or harness name. Only flows with tokens. Sorted by id.        |
+| `model`                | `models[]`            | The name the run recorded. Only models with tokens. Sorted by name.                      |
+| `inputTokens`          | each row and `totals` | Input tokens in that bucket.                                                             |
+| `outputTokens`         | each row and `totals` | Output tokens in that bucket.                                                            |
+| `estimatedCostUsd`     | each row and `totals` | US dollars, or `null` when `price` is `no price`. `0` on a day with no tokens.           |
+| `price`                | each row and `totals` | `known`, `partial`, or `no price`. A day with no tokens is `known`.                      |
+| `unpricedModels`       | `totals`              | Model names that need a price, sorted. Empty when every model in the window has a price. |
 
 ```json
 {
@@ -90,15 +117,59 @@ Only the organization owner can call these routes. Anyone else, including an API
 }
 ```
 
-`PUT /api/v1/model-prices` sets an override for the caller's organization. The body is `{ "model": "gpt-4.1-mini", "input": 0.5, "output": 2 }`. `input` and `output` are US dollars per million tokens, from 0 to 1000000, with at most 8 decimal places. The response is that model's row after the write. Setting the same model again replaces the override.
+| Field       | Meaning                                                                            |
+| ----------- | ---------------------------------------------------------------------------------- |
+| `unit`      | Always `usd_per_million_tokens`.                                                   |
+| `estimates` | Always `true`.                                                                     |
+| `model`     | Catalog id, or the name the owner set an override for.                             |
+| `default`   | `{ "input", "output" }` from the model list, or `null` when the list has no price. |
+| `override`  | `{ "input", "output" }` the owner set, or `null`.                                  |
+| `effective` | The override when one is set, otherwise `default`. `null` when both are missing.   |
 
-`DELETE /api/v1/model-prices` clears the override. The body is `{ "model": "gpt-4.1-mini" }`, or the same name in the `model` query. The response is that model's row with `override` set back to `null`. Estimates read after a set or a clear use the new effective price.
+`input` and `output` on those objects are US dollars per million tokens.
 
-A model the list does not know can still be given an override. Until it has one, usage shows `no price` for it.
+`PUT /api/v1/model-prices` sets an override for the caller's organization. The body is `{ "model": "gpt-4.1-mini", "input": 0.5, "output": 2 }`. `input` and `output` are required. Each is a number from 0 to 1000000, with at most 8 decimal places. `0` is allowed and prices those tokens at $0. Scientific notation is refused. The response is that model's row after the write, the same fields as one entry in `models`. Setting the same model again replaces the override.
+
+`DELETE /api/v1/model-prices` clears the override. The body is `{ "model": "gpt-4.1-mini" }`, or the same name in the `model` query. The response is that model's row with `override` set back to `null`. Clearing a model that has no override returns that same row. Estimates read after a set or a clear use the new effective price.
+
+A model the list does not know can still be given an override. Until it has one, usage shows `no price` for it. A name longer than 255 characters is refused. A name that looks like a secret is refused here. On a usage write, that same kind of name is stored as `unknown` instead of being refused.
+
+A workspace with no organization returns 400, `This workspace has no organization.` Other 400 messages:
+
+| Body or query                              | 400 message                                                      |
+| ------------------------------------------ | ---------------------------------------------------------------- |
+| Missing `model`                            | `model is required.`                                             |
+| `model` longer than 255 characters         | `model is too long.`                                             |
+| `model` that looks like a secret           | `model looks like a secret. Use the model name.`                 |
+| `input` or `output` in scientific notation | `input must be a plain number of US dollars per million tokens.` |
+| `input` or `output` outside 0 to 1000000   | `input must be a number from 0 to 1000000.`                      |
+| More than 8 decimal places                 | `input can have at most 8 decimal places.`                       |
+
+The `output` messages use the word `output` in place of `input`.
+
+An API key is refused on these three routes, including a key that would be allowed to read usage. Call them from a signed-in organization owner session. A bearer API key on `GET`, `PUT`, or `DELETE /api/v1/model-prices` returns 403. A request with neither a signed-in session nor a valid API key returns 401. The usage route above still accepts an API key that has `chatflows:view` or `agentflows:view`.
+
+`CUTTLELY_LOCAL_ADMIN=true` enables password sign-in for an owner account that already exists. It does not create that account. A fresh install with the flag on has no users, and `POST /api/v1/auth/login` returns 401 until the owner is created on the [setup page](../how-to/sign-in.md#in-the-browser) or with [`pnpm user`](../how-to/sign-in.md#in-a-terminal). The examples below are that password sign-in. `POST /api/v1/auth/login` takes `{ "email", "password" }` and keeps the `cuttlely-local-session` cookie. That sign-in, and every later write that sends the cookie, also needs the header `x-request-from: internal`. Without that header the cookie is not accepted on `PUT` or `DELETE`, and the route returns 401.
+
+An owner who signs in with AuthKit already has a `wos-session` cookie in the browser. Send that cookie on `PUT` and `DELETE` with the same `x-request-from: internal` header. Do not use the password login below unless `pnpm user` has set a local password.
 
 ```bash
-curl -s "$CUTTLELY_URL/api/v1/model-prices" \
-  -H "Authorization: Bearer $CUTTLELY_API_KEY"
+curl -s -c "$COOKIE_JAR" -X POST "$CUTTLELY_URL/api/v1/auth/login" \
+  -H "Content-Type: application/json" \
+  -H "x-request-from: internal" \
+  -d "{\"email\":\"$CUTTLELY_OWNER_EMAIL\",\"password\":\"$CUTTLELY_OWNER_PASSWORD\"}"
 ```
 
-An API key is refused on these three routes. Call them from a signed-in owner session. The usage route above still accepts an API key that has `chatflows:view` or `agentflows:view`.
+```bash
+curl -s -b "$COOKIE_JAR" -X PUT "$CUTTLELY_URL/api/v1/model-prices" \
+  -H "Content-Type: application/json" \
+  -H "x-request-from: internal" \
+  -d '{"model":"gpt-4.1-mini","input":0.5,"output":2}'
+```
+
+```bash
+curl -s -b "$COOKIE_JAR" -X DELETE "$CUTTLELY_URL/api/v1/model-prices?model=gpt-4.1-mini" \
+  -H "x-request-from: internal"
+```
+
+`$CUTTLELY_OWNER_EMAIL` and `$CUTTLELY_OWNER_PASSWORD` are the organization owner's own values. `$COOKIE_JAR` is a file path for the session cookie.
