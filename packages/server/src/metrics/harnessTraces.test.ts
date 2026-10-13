@@ -279,6 +279,27 @@ describe('harness run spans', () => {
         expect(sqlTool?.attributes['tool.rows']).toBe(2)
     })
 
+    it('keeps at most 200 characters of the run-card task on the specialist span', () => {
+        process.env.CUTTLELY_OTEL_TRACES = 'true'
+        process.env.CUTTLELY_OTEL_TRACES_CONTENT = 'true'
+        const task = 'loaf '.repeat(120)
+        const session = openHarnessRunTrace({ name: 'bakery', workspaceId: WORKSPACE, question: QUESTION })
+        session?.event({ type: 'specialist', phase: 'start', name: 'analyst', task, at: T0 })
+        session?.event({
+            type: 'specialist',
+            phase: 'done',
+            name: 'analyst',
+            status: 'completed',
+            task,
+            at: T0 + 10
+        })
+        session?.finish({ text: ANSWER })
+        const specialist = memory.spans().find((span) => span.name === 'harness.specialist')
+        expect(task.length).toBeGreaterThan(200)
+        expect(specialist?.attributes['content.input']).toBe(task.slice(0, 200))
+        expect(String(specialist?.attributes['content.input']).length).toBe(200)
+    })
+
     it('does not put a non-id workspace value on the span', () => {
         process.env.CUTTLELY_OTEL_TRACES = 'true'
         const session = openHarnessRunTrace({ name: 'bakery', workspaceId: 'not-a-team', question: QUESTION })
