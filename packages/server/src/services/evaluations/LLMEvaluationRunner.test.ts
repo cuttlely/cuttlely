@@ -193,6 +193,12 @@ test('a credential from another workspace is not decrypted and the grade is Erro
         workspaceId: 'team-b',
         encryptedData: 'ciphertext-from-team-b'
     })
+    // Without a key, decryption fails before AES.decrypt, so the test would stay green even if the workspace were not passed.
+    mockDecrypt.mockReturnValue({ toString: () => '{}' })
+    const savedKey = process.env.CUTTLELY_SECRETKEY_OVERWRITE
+    const savedOtherKey = process.env.FLOWISE_SECRETKEY_OVERWRITE
+    process.env.CUTTLELY_SECRETKEY_OVERWRITE = 'grader-test-key'
+    if (savedOtherKey !== undefined && savedOtherKey !== 'grader-test-key') process.env.FLOWISE_SECRETKEY_OVERWRITE = 'grader-test-key'
     const flowData = JSON.stringify({
         nodes: [
             {
@@ -205,22 +211,32 @@ test('a credential from another workspace is not decrypted and the grade is Erro
             }
         ]
     })
-    const graded = await scoreAnswer({
-        evaluators: [{ id: 'llm-1', name: 'Graded', type: 'llm', prompt: 'Grade {actualOutput}', outputSchema: [] } as any],
-        question: 'Q',
-        expected: null,
-        text: 'ok',
-        error: null,
-        tokens: 4,
-        ms: 5,
-        workspaceId: 'team-a',
-        flowData
-    })
-    expect(graded.scores).toEqual([{ id: 'llm-1', name: 'Graded', result: 'Error', message: 'The grading model could not be started.' }])
-    expect(mockFindCredential).toHaveBeenCalledWith({ id: 'cred-foreign' })
-    expect(node.nodeClass.modelCalls).toBe(0)
-    expect(mockDecrypt).not.toHaveBeenCalled()
-    expect(JSON.stringify(graded)).not.toContain('ciphertext-from-team-b')
+    try {
+        const graded = await scoreAnswer({
+            evaluators: [{ id: 'llm-1', name: 'Graded', type: 'llm', prompt: 'Grade {actualOutput}', outputSchema: [] } as any],
+            question: 'Q',
+            expected: null,
+            text: 'ok',
+            error: null,
+            tokens: 4,
+            ms: 5,
+            workspaceId: 'team-a',
+            flowData
+        })
+        expect(graded.scores).toEqual([
+            { id: 'llm-1', name: 'Graded', result: 'Error', message: 'The grading model could not be started.' }
+        ])
+        expect(mockFindCredential).toHaveBeenCalledWith({ id: 'cred-foreign' })
+        expect(node.nodeClass.lastOptions.workspaceId).toBe('team-a')
+        expect(node.nodeClass.modelCalls).toBe(0)
+        expect(mockDecrypt).not.toHaveBeenCalled()
+        expect(JSON.stringify(graded)).not.toContain('ciphertext-from-team-b')
+    } finally {
+        if (savedKey === undefined) delete process.env.CUTTLELY_SECRETKEY_OVERWRITE
+        else process.env.CUTTLELY_SECRETKEY_OVERWRITE = savedKey
+        if (savedOtherKey === undefined) delete process.env.FLOWISE_SECRETKEY_OVERWRITE
+        else process.env.FLOWISE_SECRETKEY_OVERWRITE = savedOtherKey
+    }
 })
 
 test('a node that fails to start says the grading model could not be started', async () => {
