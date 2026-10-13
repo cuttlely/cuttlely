@@ -232,16 +232,10 @@ The analyst still returns at most 100 rows and stops a statement after 15 second
 
 ## D60. Card actions stay available while a card's settings panel is open
 
-Duplicate and Delete sit on the card while the pointer is over it and while the card is selected, including while its settings panel is open. The panel header has the same two actions and a Close button that uses the theme text color. The start card cannot be duplicated. A read-only canvas, a template preview or a saved version, has neither action. Deleting the card from the panel closes the panel. Duplicating while the panel is open selects the copy and moves the panel onto it. Escape and a click on empty canvas still close the panel. Keyboard Delete still removes the selected card when focus is on the canvas, and still does not remove a card while a panel field has focus. Why: the actions were easy to miss, and the close icon used a color that disappeared on a dark panel.
+Duplicate and Delete sit on the card while the pointer is over it and while the card is selected, including while its settings panel is open. The panel header has the same two actions and a Close button that uses the theme text color. The start card cannot be duplicated. A read-only canvas, a template preview or a saved version, has neither action. Deleting the card from the panel closes the panel. Duplicating while the panel is open selects the copy and moves the panel onto it. Escape and a click on empty canvas still close the panel. Keyboard Delete removes the selected card when focus is on the canvas, and does not remove a card while a panel field has focus.
 
-## D61. The card action bar moves below the card when the top of the canvas would cover it
+The bar stays above the card until that place would leave it above the visible canvas or under a floating canvas button. It then sits below the card, so the buttons stay fully visible and clickable. The row touches the card, including the space between the buttons and the card, so moving onto Duplicate or Delete does not close the row. Deleting the card whose panel is open clears that panel on every canvas. A later card that reuses the id does not open on the deleted settings. A template preview ignores Delete and Backspace.
 
-The Duplicate and Delete bar stays above the card until that place would leave it above the visible canvas or under a floating canvas button. It then sits below the card, so the buttons stay fully visible and clickable. This adds to D60.
+On the chatflow, harness, pipeline, and workflow canvases, Backspace removes the selected card when focus is on the canvas, the same way Delete does. A canvas dialog still turns that shortcut off. Backspace inside a focused panel field only edits that field.
 
-## D62. The action row stays under the pointer, and a deleted card closes its panel
-
-The row touches the card, including the space between the buttons and the card, so moving onto Duplicate or Delete does not close the row. Deleting the card whose panel is open clears that panel on every canvas. A later card that reuses the id does not open on the deleted settings. A template preview ignores Delete and Backspace. This adds to D60.
-
-## D63. Backspace deletes a selected card the same way Delete does
-
-On the chatflow, harness, pipeline, and workflow canvases, Backspace removes the selected card when focus is on the canvas. A canvas dialog still turns that shortcut off. Backspace inside a focused panel field only edits that field. This adds to D60.
+Why: the actions were easy to miss, and the close icon used a color that disappeared on a dark panel.
