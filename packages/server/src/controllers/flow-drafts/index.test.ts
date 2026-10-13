@@ -313,6 +313,24 @@ describe('the publish check', () => {
         expect(res.status).toHaveBeenCalledWith(202)
     })
 
+    it('a consumed body on a live socket still starts the check', async () => {
+        granted.add('chatflows:update')
+        checkService.startCheck.mockImplementation(async () => ({ id: 'c-live', status: 'running' }))
+        const req = checkRequest({ count: 4 }) as any
+        req.destroyed = true
+        req.aborted = false
+        req.on = jest.fn()
+        req.socket = { destroyed: false, on: jest.fn() }
+        const res = accepted() as any
+        res.on = jest.fn()
+        res.writableFinished = false
+        await controller.startCheck(req, res, jest.fn())
+        expect(checkService.startCheck).toHaveBeenCalled()
+        expect(checkService.stopCheck).not.toHaveBeenCalled()
+        expect(res.status).toHaveBeenCalledWith(202)
+        expect(res.json).toHaveBeenCalledWith({ id: 'c-live', status: 'running' })
+    })
+
     it('stops only the check this request created when the client is already gone', async () => {
         granted.add('chatflows:update')
         checkService.startCheck.mockResolvedValue({ id: 'cli-new', status: 'running' })

@@ -164,9 +164,11 @@ const getCheckSetup = async (req: Request, res: Response, next: NextFunction) =>
     }
 }
 
+// Do not use req.destroyed. express.json() ends the request stream after it reads the body,
+// and that sets destroyed while the socket is still open and the client is still waiting.
 const clientGone = (req: Request) => {
-    const incoming = req as Request & { aborted?: boolean; destroyed?: boolean }
-    return Boolean(incoming.destroyed || incoming.aborted || req.socket?.destroyed)
+    const incoming = req as Request & { aborted?: boolean }
+    return Boolean(incoming.aborted || req.socket?.destroyed)
 }
 
 const startCheck = async (req: Request, res: Response, next: NextFunction) => {
