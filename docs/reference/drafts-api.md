@@ -36,12 +36,12 @@ Draft routes are status, save, discard, settings, publish, and rollback. Check r
 
 An agentflow check looks at the Start input on Live and on the draft. Both canvases that have a Start node must use the same input. A canvas with no Start node does not block the other side, so a flow that was never published can still be checked.
 
-| Start input    | Stored value     | What the check routes replay                                                                                        |
-| -------------- | ---------------- | ------------------------------------------------------------------------------------------------------------------- |
-| **Chat Input** | `chatInput`      | Recent questions. `datasetId` is accepted.                                                                          |
-| **Form**       | `formInput`      | Recorded form submissions, newest distinct first. `datasetId` is 400.                                               |
-| **Webhook**    | `webhookTrigger` | Recorded webhook calls, newest distinct first. `datasetId` is 400.                                                  |
-| **Schedule**   | `scheduleInput`  | Recorded schedule inputs, newest distinct first. A schedule that sent a form is read as a form. `datasetId` is 400. |
+| Input Type          | Stored value     | What the check routes replay                                                                                        |
+| ------------------- | ---------------- | ------------------------------------------------------------------------------------------------------------------- |
+| **Chat Input**      | `chatInput`      | Recent questions. `datasetId` is accepted.                                                                          |
+| **Form Input**      | `formInput`      | Recorded form submissions, newest distinct first. `datasetId` is 400.                                               |
+| **Webhook Trigger** | `webhookTrigger` | Recorded webhook calls, newest distinct first. `datasetId` is 400.                                                  |
+| **Schedule Input**  | `scheduleInput`  | Recorded schedule inputs, newest distinct first. A schedule that sent a form is read as a form. `datasetId` is 400. |
 
 Two different starts, a Start node whose input type is blank, or no Start node on either canvas are not replayed. `POST .../check` is 409 `The check asks questions, so it works on agentflows that start with a chat message.` Chatflows and harnesses are not in this table: they have no Start input, and they replay questions.
 
