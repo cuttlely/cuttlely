@@ -32,6 +32,7 @@ import UpsertHistoryDialog from '@/views/vectorstore/UpsertHistoryDialog'
 import ViewLeadsDialog from '@/ui-component/dialog/ViewLeadsDialog'
 import ExportAsTemplateDialog from '@/ui-component/dialog/ExportAsTemplateDialog'
 import { Available } from '@/ui-component/rbac/available'
+import { canvasSavePermission } from './canvasSavePermission'
 import VersionHistoryDrawer from '@/views/canvas/VersionHistoryDrawer'
 import PublishDialog from '@/views/canvas/PublishDialog'
 
@@ -181,7 +182,7 @@ const CanvasHeader = ({
     const enqueueSnackbar = (...args) => dispatch(enqueueSnackbarAction(...args))
     const closeSnackbar = (...args) => dispatch(closeSnackbarAction(...args))
 
-    const [savePermission, setSavePermission] = useState(isAgentCanvas ? 'agentflows:create' : 'chatflows:create')
+    const savePermission = canvasSavePermission(isAgentCanvas)
 
     const title = isEtlCanvas ? 'Pipeline' : isHarnessCanvas ? 'Harness' : isAgentCanvas ? 'Agents' : 'Chatflow'
 
@@ -380,14 +381,12 @@ const CanvasHeader = ({
 
     const onConfirmSaveName = (flowName) => {
         setFlowDialogOpen(false)
-        setSavePermission(isAgentCanvas ? 'agentflows:update' : 'chatflows:update')
         handleSaveFlow(flowName)
     }
 
     useEffect(() => {
         if (updateChatflowApi.data) {
             setFlowName(updateChatflowApi.data.name)
-            setSavePermission(isAgentCanvas ? 'agentflows:update' : 'chatflows:update')
             dispatch({ type: SET_CHATFLOW, chatflow: updateChatflowApi.data })
         }
         setEditingFlowName(false)

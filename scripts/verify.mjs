@@ -157,7 +157,8 @@ const STEPS = [
             'src/layout/MainLayout/Sidebar/MenuList/activeRoute.test.js',
             'src/views/evaluations/evaluationFlows.test.js',
             'src/views/roles/rolePermissions.test.js',
-            'src/views/docstore/chunkPermissions.test.js'
+            'src/views/docstore/chunkPermissions.test.js',
+            'src/views/canvas/canvasSavePermission.test.js'
         ],
         env: { CI: 'true' }
     },

@@ -1826,6 +1826,8 @@ packages/ui/src/views/canvas/CredentialInputHandler.jsx
 packages/ui/src/views/canvas/NodeInputHandler.jsx
 packages/ui/src/views/canvas/NodeOutputHandler.jsx
 packages/ui/src/views/canvas/StickyNote.jsx
+packages/ui/src/views/canvas/canvasSavePermission.js
+packages/ui/src/views/canvas/canvasSavePermission.test.js
 packages/ui/src/views/canvas/index.css
 packages/ui/src/views/canvas/index.jsx
 packages/ui/src/views/chatbot/index.jsx
