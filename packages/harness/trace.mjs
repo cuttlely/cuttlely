@@ -1,4 +1,4 @@
-import { isAnalystCapSummary, sourceName } from './context.mjs'
+import { isAnalystCapSummary, sourceName, wantsAnalystRows } from './context.mjs'
 
 const TASK_LIMIT = 500
 
@@ -350,17 +350,18 @@ export function publicToolStep(tool, env) {
     return next
 }
 
-// Rows land in the answer only when the summary is a page line. That is the same test
-// groundAnalystSpecialistText and preserveAnalystRows use. truncated alone is not that test:
-// a result can be marked truncated and still have no page line, and then the specialist's wording stays.
-function rowsRestoredInAnswer(view) {
+// Rows are written back only when the summary is a page line AND the question asks for the rows.
+// That is the same pair of tests preserveAnalystRows uses. A missing question is not that case.
+function rowsRestoredInAnswer(view, question) {
     if (!view) return false
+    const asked = typeof question === 'string' ? question.trim() : ''
+    if (!asked || !wantsAnalystRows(asked)) return false
     return isAnalystCapSummary(view.summary)
 }
 
-// The caption under a query preview. "Say show more" follows truncated. The in-chat sentence follows the page line.
-// An older trace uses the same sentences as a new one with the same summary.
-export function analystPreviewCaption(view) {
+// The caption under a query preview. "Say show more" follows truncated.
+// The in-chat sentence follows the page line and the same question the handoff used.
+export function analystPreviewCaption(view, question) {
     if (!view) return ''
     const shown = view.rows.length
     const total = view.rowCount
@@ -370,7 +371,7 @@ export function analystPreviewCaption(view) {
     if (view.moreColumns && view.columnCount > view.columns.length) {
         parts.push(`Showing ${view.columns.length} of ${view.columnCount} columns.`)
     }
-    if (rowsRestoredInAnswer(view)) parts.push('The rest of these rows are in the answer in this chat.')
+    if (rowsRestoredInAnswer(view, question)) parts.push('The rest of these rows are in the answer in this chat.')
     else if (shown < total) parts.push('The answer can show fewer rows than the query returned.')
     if (view.nextPage) parts.push('Say show more for the next page.')
     return parts.join(' ')
@@ -627,7 +628,8 @@ export function buildRunTrace({
     handoffTokens = null,
     handoffFallback = '',
     handoffStatus = '',
-    directDetail = null
+    directDetail = null,
+    question = ''
 } = {}) {
     const routeMs = timings.routeMs ?? 0
     const specialistsMs = timings.specialistsMs ?? timings.toolMs ?? 0
@@ -686,7 +688,8 @@ export function buildRunTrace({
                       fallback: handoffFallback || '',
                       tokens: handoffTokens
                   },
-        ...(direct && directDetail ? { directDetail } : {})
+        ...(direct && directDetail ? { directDetail } : {}),
+        ...(String(question || '').trim() ? { question: String(question) } : {})
     }
 }
 

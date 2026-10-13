@@ -213,7 +213,7 @@ const HarnessHome = () => {
                                 </Button>
                             )}
                         </Stack>
-                        {liveTrace && <HarnessRunTrace trace={liveTrace} />}
+                        {liveTrace && <HarnessRunTrace trace={liveTrace} question={question} />}
                         {runError && <Alert severity='error'>{runError}</Alert>}
                         {(output || running) && (
                             <Box
@@ -279,7 +279,7 @@ const HarnessHome = () => {
                             <Stack sx={{ gap: 1 }}>
                                 <Typography variant='h5'>Run</Typography>
                                 {selected.trace ? (
-                                    <HarnessRunTrace trace={selected.trace} />
+                                    <HarnessRunTrace trace={selected.trace} question={selected.trace.question || selected.inputPreview} />
                                 ) : (
                                     <Typography variant='body2'>
                                         {selected.status} · {latencyLabel(selected)} · {tokenLabel(selected.tokens)}

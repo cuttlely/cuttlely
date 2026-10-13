@@ -87,11 +87,11 @@ Meta.propTypes = {
 
 // The preview starts closed. The chip shows the row count; opening it shows the short table.
 // The caption stays in this chat. It does not link away to the harness page.
-export function QueryRows({ view }) {
+export function QueryRows({ view, question }) {
     return (
         <Box sx={{ pt: 0.5 }}>
             <Typography variant='caption' color='text.secondary' component='p' sx={{ mb: 0.5 }}>
-                {analystPreviewCaption(view)}
+                {analystPreviewCaption(view, question || '')}
             </Typography>
             <Box sx={{ maxHeight: 320, overflow: 'auto', border: '1px solid', borderColor: 'divider', borderRadius: 1 }}>
                 <Box component='table' sx={{ borderCollapse: 'collapse', width: '100%', fontSize: 12 }}>
@@ -152,10 +152,22 @@ export function QueryRows({ view }) {
 }
 
 QueryRows.propTypes = {
-    view: PropTypes.object
+    view: PropTypes.object,
+    question: PropTypes.string
 }
 
-const HarnessRunTrace = ({ trace }) => {
+export function previousUserQuestion(messages, index) {
+    const list = messages || []
+    for (let i = index - 1; i >= 0; i -= 1) {
+        const item = list[i]
+        if (item?.type !== 'userMessage' && item?.type !== 'usermessagewaiting') continue
+        return typeof item.message === 'string' ? item.message : ''
+    }
+    return ''
+}
+
+const HarnessRunTrace = ({ trace, question }) => {
+    const asked = typeof question === 'string' && question.trim() ? question : trace?.question || ''
     const theme = useTheme()
     const customization = useSelector((state) => state.customization)
     const [openName, setOpenName] = useState('')
@@ -319,7 +331,7 @@ const HarnessRunTrace = ({ trace }) => {
                                             No tool calls recorded
                                         </Typography>
                                     )}
-                                    {openRows >= 0 ? <QueryRows view={rowViews[openRows]} /> : null}
+                                    {openRows >= 0 ? <QueryRows view={rowViews[openRows]} question={asked} /> : null}
                                     {specialist.sources?.length ? (
                                         <Typography variant='caption' color='text.secondary'>
                                             {`Sources: ${specialist.sources.map((source) => source.name).join(', ')}`}
@@ -409,7 +421,8 @@ const HarnessRunTrace = ({ trace }) => {
 }
 
 HarnessRunTrace.propTypes = {
-    trace: PropTypes.object
+    trace: PropTypes.object,
+    question: PropTypes.string
 }
 
 export default HarnessRunTrace

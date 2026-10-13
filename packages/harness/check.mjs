@@ -666,9 +666,10 @@ check(
         truncated: true,
         summary: 'rows 1-100 of 150 (page 1 of 2, say "show more" for the next page)'
     })
-    const singleCaption = analystPreviewCaption(singlePage)
-    const lastCaption = analystPreviewCaption(lastPage)
-    const truncatedCaption = analystPreviewCaption(truncatedPage)
+    const listingQuestion = 'List every ticket'
+    const singleCaption = analystPreviewCaption(singlePage, listingQuestion)
+    const lastCaption = analystPreviewCaption(lastPage, listingQuestion)
+    const truncatedCaption = analystPreviewCaption(truncatedPage, listingQuestion)
     const proseRows = Array.from({ length: 40 }, (_, i) => ({ account: `Account ${i + 1}`, arr: 1000 - i }))
     const proseAnswer = 'The top 10 accounts are Account 1 through Account 10.'
     const proseGrounded = groundAnalystSpecialistText(
@@ -684,7 +685,7 @@ check(
         'analyst'
     )
     const proseView = previewStep({ rows: proseRows, truncated: false })
-    const proseCaption = analystPreviewCaption(proseView)
+    const proseCaption = analystPreviewCaption(proseView, listingQuestion)
     check(
         'a finished page preview does not say show more, and a truncated page does',
         singlePage.rowCount === 40 &&
@@ -712,8 +713,8 @@ check(
         truncated: true,
         summary: 'not a page line'
     })
-    const bareCaption = analystPreviewCaption(bareTruncated)
-    const oddCaption = analystPreviewCaption(oddSummary)
+    const bareCaption = analystPreviewCaption(bareTruncated, listingQuestion)
+    const oddCaption = analystPreviewCaption(oddSummary, listingQuestion)
     check(
         'a truncated result with no page line says show more and that the answer can show fewer',
         bareTruncated.nextPage === true &&
@@ -755,9 +756,10 @@ check(
         truncated: true,
         summary: 'rows 1-100 of 150 (page 1 of 2, say "show more" for the next page)'
     })
-    const legacyFinishedCaption = analystPreviewCaption(legacyFinished)
-    const legacyLastCaption = analystPreviewCaption(legacyLast)
-    const legacyTruncatedCaption = analystPreviewCaption(legacyTruncated)
+    const legacyFinishedCaption = analystPreviewCaption(legacyFinished, listingQuestion)
+    const legacyLastCaption = analystPreviewCaption(legacyLast, listingQuestion)
+    const legacyTruncatedCaption = analystPreviewCaption(legacyTruncated, listingQuestion)
+    const legacyCountCaption = analystPreviewCaption(legacyTruncated, 'How many tickets are in the table?')
     check(
         'a trace saved before previews uses the same caption as a new trace with that page line',
         legacyFinished.legacy === true &&
@@ -773,8 +775,32 @@ check(
             legacyTruncated.legacy === true &&
             legacyTruncated.nextPage === true &&
             legacyTruncatedCaption === '2 rows. The rest of these rows are in the answer in this chat. Say show more for the next page.' &&
-            !legacyTruncatedCaption.includes('can show fewer'),
-        JSON.stringify({ legacyFinishedCaption, legacyLastCaption, legacyTruncatedCaption })
+            !legacyTruncatedCaption.includes('can show fewer') &&
+            legacyCountCaption === '2 rows. Say show more for the next page.' &&
+            !legacyCountCaption.includes('in this chat'),
+        JSON.stringify({ legacyFinishedCaption, legacyLastCaption, legacyTruncatedCaption, legacyCountCaption })
+    )
+    const asked = (text) => analystPreviewCaption(truncatedPage, text)
+    const listingCaption = asked('List every ticket')
+    const selectCaption = asked('Select * from tickets')
+    const howManyCaption = asked('How many tickets are in the table?')
+    const totalCaption = asked('What is the total in the table?')
+    const missingCaption = asked()
+    const lastHowMany = analystPreviewCaption(lastPage, 'How many tickets are in the table?')
+    check(
+        'a page line puts rows in the answer only when the question asks for them',
+        listingCaption ===
+            'Showing 5 of 100 rows. The rest of these rows are in the answer in this chat. Say show more for the next page.' &&
+            selectCaption === listingCaption &&
+            howManyCaption ===
+                'Showing 5 of 100 rows. The answer can show fewer rows than the query returned. Say show more for the next page.' &&
+            !howManyCaption.includes('in this chat') &&
+            totalCaption === howManyCaption &&
+            missingCaption === howManyCaption &&
+            lastHowMany === 'Showing 5 of 50 rows. The answer can show fewer rows than the query returned.' &&
+            !lastHowMany.includes('Say show more') &&
+            !lastHowMany.includes('in this chat'),
+        JSON.stringify({ listingCaption, selectCaption, howManyCaption, totalCaption, missingCaption, lastHowMany })
     )
     const overCap = analystQueryPreview(
         { rows: Array.from({ length: 150 }, (_, i) => ({ id: i + 1, tag: `past-cap-${i}` })) },

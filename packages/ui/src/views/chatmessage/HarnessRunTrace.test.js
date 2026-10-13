@@ -28,8 +28,8 @@ function previewView({ rowCount, nextPage, summary = '' }) {
     }
 }
 
-function caption(view) {
-    return renderToStaticMarkup(createElement(ThemeProvider, { theme }, createElement(QueryRows, { view })))
+function caption(view, question = 'List every ticket') {
+    return renderToStaticMarkup(createElement(ThemeProvider, { theme }, createElement(QueryRows, { view, question })))
 }
 
 describe('analyst query preview caption', () => {
@@ -81,6 +81,22 @@ describe('analyst query preview caption', () => {
         expect(html).toContain('Say show more for the next page.')
         expect(html).not.toContain('/harnesses/')
         expect(html).not.toContain('<a ')
+    })
+
+    test('a count or a total does not claim the rows are in this chat', () => {
+        const view = previewView({
+            rowCount: 100,
+            nextPage: true,
+            summary: 'rows 1-100 of 150 (page 1 of 2, say "show more" for the next page)'
+        })
+        const howMany = caption(view, 'How many tickets are in the table?')
+        const total = caption(view, 'What is the total in the table?')
+        const missing = caption(view, '')
+        expect(howMany).toContain('The answer can show fewer rows than the query returned.')
+        expect(howMany).toContain('Say show more for the next page.')
+        expect(howMany).not.toContain('in this chat')
+        expect(total).not.toContain('in this chat')
+        expect(missing).not.toContain('in this chat')
     })
 })
 

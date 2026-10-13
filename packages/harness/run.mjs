@@ -12,6 +12,7 @@ import {
     fitSpecialistPrompt,
     groundAnalystSpecialistText,
     isAnalystCapSummary,
+    wantsAnalystRows,
     stripTrailingAnalystStatus,
     isAnalystQueryTool,
     sourceNames,
@@ -463,7 +464,8 @@ async function runRoster(context, input) {
         handoffModel: handoffLast?.model || '',
         handoffTokens: sumCallTokens(handoffCalls),
         handoffFallback: handoffLast?.fallback || '',
-        handoffStatus: handoffCalls.length ? 'done' : 'skipped'
+        handoffStatus: handoffCalls.length ? 'done' : 'skipped',
+        question
     })
     console.info(
         `[harness] ${context.name} route ${timings.routeMs}ms, specialists ${timings.specialistsMs}ms (` +
@@ -1367,14 +1369,6 @@ function specialistPrompt(context, specialist, task, instructions, history = con
     return fitted.messages
 }
 
-function wantsAnalystRows(question) {
-    const text = String(question || '')
-    const aggregate = /\b(how many|count|number of|total|sum|average|avg|mean)\b/i.test(text)
-    const listing = /\b(list|show|select\s+\*|all rows|every row|each row)\b/i.test(text)
-    if (aggregate && !listing) return false
-    return true
-}
-
 function isAnalystStatusLine(line) {
     const text = String(line || '').trim()
     if (!text) return false
@@ -1838,7 +1832,8 @@ async function runDirectTool(context, specialist, input) {
             fillMs: timings.fillMs,
             toolMs: timings.toolMs,
             input: publicTask(filledInput)
-        }
+        },
+        question
     })
     const payload = { text, harness: name, agents, sources: output.documents, artifacts: [], timings, report, trace }
     emit(context, 'final', { text, agents, sources: output.documents, artifacts: [], timings, report, trace })

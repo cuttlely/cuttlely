@@ -57,7 +57,7 @@ import StarterPromptsCard from '@/ui-component/cards/StarterPromptsCard'
 import AgentReasoningCard from './AgentReasoningCard'
 import AgentExecutedDataCard from './AgentExecutedDataCard'
 import ThinkingCard from './ThinkingCard'
-import HarnessRunTrace from './HarnessRunTrace'
+import HarnessRunTrace, { previousUserQuestion } from './HarnessRunTrace'
 import { emptyTrace, failTrace, reduceHarnessEvent, traceFromPayload } from '../../../../../packages/harness/trace.mjs'
 import { ImageButton, ImageSrc, ImageBackdrop, ImageMarked } from '@/ui-component/button/ImageButton'
 import CopyToClipboardButton from '@/ui-component/button/CopyToClipboardButton'
@@ -2715,7 +2715,12 @@ const ChatMessage = ({ open, chatflowid, isAgentCanvas, isDialog, previews, setP
                                                 customization={customization}
                                             />
                                         )}
-                                        {message.harnessTrace ? <HarnessRunTrace trace={message.harnessTrace} /> : null}
+                                        {message.harnessTrace ? (
+                                            <HarnessRunTrace
+                                                trace={message.harnessTrace}
+                                                question={previousUserQuestion(messages, index)}
+                                            />
+                                        ) : null}
                                         {message.agentReasoning && message.agentReasoning.length > 0 && !message.harnessTrace && (
                                             <div style={{ display: 'block', flexDirection: 'row', width: '100%' }}>
                                                 {message.agentReasoning.map((agent, index) => (
