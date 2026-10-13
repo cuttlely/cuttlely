@@ -62,9 +62,13 @@ const repositoryFor = (entity: { name?: string }) => {
     return fakeRepo
 }
 const manager = { getRepository: repositoryFor }
+const appDataSource: any = {
+    getRepository: repositoryFor,
+    transaction: async (fn: any) => fn(manager)
+}
 jest.mock('../../utils/getRunningExpressApp', () => ({
     getRunningExpressApp: () => ({
-        AppDataSource: { getRepository: repositoryFor, transaction: async (fn: any) => fn(manager) },
+        AppDataSource: appDataSource,
         usageCacheManager: {}
     })
 }))
@@ -98,7 +102,7 @@ import {
     typeHasDrafts,
     uniqueUploadNames
 } from './index'
-import { currentTestSetHash } from '../flow-check/score'
+import { askedRowsFromDataset, currentTestSetHash } from '../flow-check/score'
 import { postProcessHash } from './gate'
 
 const canvas = (label: string) => JSON.stringify({ nodes: [{ id: 'chatOpenAI_0', data: { label } }], edges: [] })
@@ -111,6 +115,89 @@ const flow = (overrides: Record<string, unknown> = {}) => ({
     ...overrides
 })
 const context = { userId: 'user-1', orgId: 'org-1', subscriptionId: 'sub-1' }
+
+// Postgres aborts the transaction on a unique violation. Later statements fail with 25P02 until
+// the savepoint is rolled back.
+function usePostgresQueryRunner(save: (row: any, abort: () => void) => Promise<any>) {
+    let aborted = false
+    const queries = []
+    const abortedError = () => {
+        const error = new Error('current transaction is aborted, commands ignored until end of transaction block')
+        error.code = '25P02'
+        return error
+    }
+    const guard = () => {
+        if (aborted) throw abortedError()
+    }
+    const chain = {
+        setLock() {
+            return chain
+        },
+        where() {
+            return chain
+        },
+        async getOne() {
+            guard()
+            return chats[0]
+        }
+    }
+    const stateRepo = {
+        create: (data) => ({ ...data }),
+        async save(row) {
+            guard()
+            return save(row, () => {
+                aborted = true
+            })
+        },
+        async findOneBy(where) {
+            guard()
+            return fakeRepo.findOneBy(where)
+        },
+        async update(where, patch) {
+            guard()
+            return fakeRepo.update(where, patch)
+        },
+        createQueryBuilder() {
+            return chain
+        }
+    }
+    const chat = {
+        async findOneBy(where) {
+            guard()
+            return chatRepo.findOneBy(where)
+        },
+        createQueryBuilder() {
+            return chain
+        }
+    }
+    const runner = {
+        isTransactionActive: true,
+        async connect() {},
+        async startTransaction() {},
+        async commitTransaction() {},
+        async rollbackTransaction() {},
+        async release() {},
+        manager: {
+            async query(sql) {
+                queries.push(sql)
+                if (aborted && !/rollback to savepoint/i.test(sql)) throw abortedError()
+                if (/rollback to savepoint/i.test(sql)) aborted = false
+            },
+            getRepository(entity) {
+                return entity?.name === 'ChatFlow' ? chat : stateRepo
+            }
+        }
+    }
+    appDataSource.options = { type: 'postgres' }
+    appDataSource.createQueryRunner = () => runner
+    return {
+        queries,
+        restore() {
+            delete appDataSource.options
+            delete appDataSource.createQueryRunner
+        }
+    }
+}
 
 const original = process.env.CUTTLELY_DRAFTS
 beforeEach(() => {
@@ -125,6 +212,8 @@ beforeEach(() => {
     chats.push({ id: 'flow-1', type: 'CHATFLOW', workspaceId: 'team-a' })
     draftWriteHooks.beforeDraftWrite = null
     draftWriteHooks.beforeSettingsWrite = null
+    delete appDataSource.options
+    delete appDataSource.createQueryRunner
     jest.clearAllMocks()
     process.env.CUTTLELY_DRAFTS = 'on'
 })
@@ -602,6 +691,40 @@ describe('Publish instantly', () => {
         expect(rows[0].draftFlowData).toBe(canvas('Draft'))
     })
 
+    test('a flag turned on before the conditional retry keeps both from staying on', async () => {
+        rows.push({
+            id: 'state-1',
+            chatflowId: 'flow-1',
+            workspaceId: 'team-a',
+            publishInstantly: false,
+            publishGate: false
+        })
+        const original = fakeRepo.update.getMockImplementation()
+        let instantWrites = 0
+        fakeRepo.update.mockImplementation(async (where, patch) => {
+            if (patch.publishInstantly === true) {
+                instantWrites += 1
+                if (instantWrites === 1) return { affected: 0 }
+                rows[0].publishGate = true
+            }
+            return original(where, patch)
+        })
+        try {
+            await expect(setPublishInstantly(flow(), true)).rejects.toMatchObject({
+                statusCode: 400,
+                message: 'Turn off the passing test set before turning on Publish instantly.'
+            })
+            expect(instantWrites).toBe(2)
+            expect(rows[0].publishInstantly).toBe(false)
+            expect(rows[0].publishGate).toBe(true)
+            const writes = fakeRepo.update.mock.calls.filter((call) => call[1]?.publishInstantly === true)
+            expect(writes[0][0]).toMatchObject({ chatflowId: 'flow-1', publishGate: false })
+            expect(writes[1][0]).toMatchObject({ chatflowId: 'flow-1', publishGate: false })
+        } finally {
+            fakeRepo.update.mockImplementation(original)
+        }
+    })
+
     test('a passing test set turned on before the settings lock keeps Publish instantly off', async () => {
         draftWriteHooks.beforeSettingsWrite = async () => {
             rows.push({
@@ -832,6 +955,42 @@ describe('a passing test set before Publish', () => {
         expect(rows[0].publishGate).toBe(false)
     })
 
+    test('a postgres unique violation rolls back to the savepoint before the draft re-read', async () => {
+        let thrown = false
+        const runner = usePostgresQueryRunner(async (row, abort) => {
+            if (!thrown && row.draftFlowData && !rows.some((item) => item.chatflowId === row.chatflowId)) {
+                thrown = true
+                rows.push({
+                    id: 'settings-first',
+                    chatflowId: row.chatflowId,
+                    workspaceId: row.workspaceId,
+                    publishInstantly: false,
+                    publishGate: true,
+                    publishGateDatasetId: 'ds-1',
+                    liveSha: 'abc123'
+                })
+                abort()
+                const error = new Error('duplicate key value violates unique constraint "IDX_flow_version_state_chatflowId"')
+                error.code = '23505'
+                throw error
+            }
+            return fakeRepo.save(row)
+        })
+        try {
+            const status = await saveDraft(flow(), canvas('First draft'), context)
+            expect(runner.queries.some((sql) => sql === 'SAVEPOINT cuttlely_state_insert')).toBe(true)
+            expect(runner.queries.some((sql) => sql === 'ROLLBACK TO SAVEPOINT cuttlely_state_insert')).toBe(true)
+            expect(rows).toHaveLength(1)
+            expect(rows[0].draftFlowData).toEqual(expect.stringContaining('First draft'))
+            expect(rows[0].publishGate).toBe(true)
+            expect(rows[0].publishGateDatasetId).toBe('ds-1')
+            expect(rows[0].liveSha).toBe('abc123')
+            expect(status.draft?.flowData).toEqual(expect.stringContaining('First draft'))
+        } finally {
+            runner.restore()
+        }
+    })
+
     test('a settings insert that wins the row keeps its settings when the first draft save hits the unique key', async () => {
         const original = fakeRepo.save.getMockImplementation()
         let thrown = false
@@ -870,6 +1029,136 @@ describe('a passing test set before Publish', () => {
         }
     })
 
+    test('a postgres unique violation rolls back to the savepoint before the settings re-read', async () => {
+        seed()
+        let thrown = false
+        const runner = usePostgresQueryRunner(async (row, abort) => {
+            if (!thrown && row.publishGate === true && !rows.some((item) => item.chatflowId === row.chatflowId)) {
+                thrown = true
+                rows.push({
+                    id: 'draft-first',
+                    chatflowId: row.chatflowId,
+                    workspaceId: row.workspaceId,
+                    publishInstantly: false,
+                    publishGate: false,
+                    draftFlowData: canvas('First draft'),
+                    liveSha: 'abc123'
+                })
+                abort()
+                const error = new Error('duplicate key value violates unique constraint "IDX_flow_version_state_chatflowId"')
+                error.code = '23505'
+                throw error
+            }
+            return fakeRepo.save(row)
+        })
+        try {
+            await updateDraftSettings(flow(), { publishGate: gate })
+            expect(runner.queries.some((sql) => sql === 'ROLLBACK TO SAVEPOINT cuttlely_state_insert')).toBe(true)
+            expect(rows).toHaveLength(1)
+            expect(rows[0].draftFlowData).toEqual(expect.stringContaining('First draft'))
+            expect(rows[0].liveSha).toBe('abc123')
+            expect(rows[0].publishGate).toBe(true)
+            expect(rows[0].publishGateDatasetId).toBe('ds-1')
+        } finally {
+            runner.restore()
+        }
+    })
+
+    test('a result for the previous gate settings does not replace a newer pass', async () => {
+        await arm()
+        const stored = await recordPass()
+        const original = fakeRepo.findOneBy.getMockImplementation()
+        let snapped = false
+        fakeRepo.findOneBy.mockImplementation(async (where) => {
+            const row = rows.find((item) => item.chatflowId === where.chatflowId) || null
+            if (!row || snapped) return row
+            snapped = true
+            const copy = { ...row }
+            row.publishGateDatasetId = 'ds-other'
+            return copy
+        })
+        try {
+            const outcome = await recordPublishGateResult(flow(), {
+                ...pass,
+                draftHash: stored.draftHash,
+                contentHash: 'stale',
+                postProcessHash: postProcessHash(chats[0]?.chatbotConfig),
+                checkId: 'check-stale'
+            })
+            expect(outcome).toBe('ignored')
+            expect(rows[0].publishGateDatasetId).toBe('ds-other')
+            expect(rows[0].publishGateResult).toEqual(expect.stringContaining(stored.draftHash))
+            expect(rows[0].publishGateResult).not.toContain('stale')
+            const write = fakeRepo.update.mock.calls.filter((call) => call[1]?.publishGateResult).at(-1)
+            expect(write?.[0]).toMatchObject({
+                chatflowId: 'flow-1',
+                publishGate: true,
+                publishGateDatasetId: 'ds-1',
+                publishGateThreshold: 100
+            })
+        } finally {
+            fakeRepo.findOneBy.mockImplementation(original)
+        }
+    })
+
+    test('an edit past 4,000 characters makes a stored pass out of date', async () => {
+        const prefix = 'a'.repeat(4000)
+        const longRow = { id: 'r1', datasetId: 'ds-1', input: 'Do you have rye?', output: `${prefix}tail`, sequenceNo: 1 }
+        seed([longRow])
+        await saveDraft(flow(), canvas('Draft'), context)
+        await updateDraftSettings(flow(), { publishGate: gate })
+        const contentHash = await currentTestSetHash('ds-1', ['ev-1'], 'team-a')
+        expect(askedRowsFromDataset([longRow])[0].expected).toBe(
+            askedRowsFromDataset([{ ...longRow, output: `${prefix}other` }])[0].expected
+        )
+        await recordPublishGateResult(flow(), {
+            ...pass,
+            draftHash: canvasHash(canvas('Draft')),
+            contentHash: contentHash || '',
+            postProcessHash: postProcessHash(chats[0]?.chatbotConfig)
+        })
+        datasetRows[0].output = `${prefix}other`
+        expect(await currentTestSetHash('ds-1', ['ev-1'], 'team-a')).not.toBe(contentHash)
+        await expect(draftToPublish(flow())).rejects.toMatchObject({
+            statusCode: 409,
+            message: expect.stringContaining('The test set has changed since that check.')
+        })
+    })
+
+    test('a Live start that changes to a form before the settings lock refuses the passing test set', async () => {
+        const chatCanvas = JSON.stringify({
+            nodes: [{ id: 'start', data: { name: 'startAgentflow', inputs: { startInputType: 'chatInput' } } }],
+            edges: []
+        })
+        const formCanvas = JSON.stringify({
+            nodes: [{ id: 'start', data: { name: 'startAgentflow', inputs: { startInputType: 'formInput' } } }],
+            edges: []
+        })
+        seed()
+        chats[0].type = 'AGENTFLOW'
+        chats[0].flowData = chatCanvas
+        draftWriteHooks.beforeSettingsWrite = async () => {
+            chats[0].flowData = formCanvas
+        }
+        await expect(updateDraftSettings(flow({ type: 'AGENTFLOW', flowData: chatCanvas }), { publishGate: gate })).rejects.toMatchObject({
+            statusCode: 400,
+            message: 'A dataset check asks each row as a chat message. This flow starts with a form, so it cannot use a dataset.'
+        })
+        expect(rows).toEqual([])
+    })
+
+    test('a type change before the settings lock refuses the passing test set', async () => {
+        seed()
+        draftWriteHooks.beforeSettingsWrite = async () => {
+            chats[0].type = 'HARNESS'
+        }
+        await expect(updateDraftSettings(flow(), { publishGate: gate })).rejects.toMatchObject({
+            statusCode: 400,
+            message: 'A passing test set before Publish is for chatflows and agentflows.'
+        })
+        expect(rows).toEqual([])
+    })
+
     test('a form draft saved before the settings lock refuses the passing test set and writes nothing', async () => {
         const chatCanvas = JSON.stringify({
             nodes: [{ id: 'start', data: { name: 'startAgentflow', inputs: { startInputType: 'chatInput' } } }],
@@ -880,6 +1169,8 @@ describe('a passing test set before Publish', () => {
             edges: []
         })
         seed()
+        chats[0].type = 'AGENTFLOW'
+        chats[0].flowData = chatCanvas
         draftWriteHooks.beforeSettingsWrite = async () => {
             rows.push({
                 chatflowId: 'flow-1',

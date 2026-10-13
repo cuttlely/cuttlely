@@ -386,10 +386,14 @@ export async function saveDraft(flow: DraftFlow, flowData: unknown, context: Sav
               }
         if (!state && !draftPatch.draftFlowData) return statusFrom(flow, null)
         if (!state) {
-            try {
-                return statusFrom(
-                    flow,
-                    await stateRepo.save(
+            // SQLite takes no row lock, so a settings insert can win the first row. Keep that row
+            // and write only the draft columns. On Postgres the unique violation aborts the
+            // transaction, so the re-read runs only after rolling back to the savepoint.
+            let saved: FlowVersionState | null = null
+            await insertStateOrRecover(
+                manager,
+                async () => {
+                    saved = await stateRepo.save(
                         stateRepo.create({
                             chatflowId: flow.id,
                             workspaceId: flow.workspaceId,
@@ -397,16 +401,15 @@ export async function saveDraft(flow: DraftFlow, flowData: unknown, context: Sav
                             ...draftPatch
                         })
                     )
-                )
-            } catch (error) {
-                // SQLite takes no row lock, so a settings insert can win the first row. Keep that row
-                // and write only the draft columns. A raw database error is not the response.
-                if (!isUniqueViolation(error)) throw error
-                const existing = await stateRepo.findOneBy({ chatflowId: flow.id })
-                if (!existing) throw new AppError(StatusCodes.CONFLICT, OVERLAPPED_SAVE)
-                await stateRepo.update({ chatflowId: flow.id }, draftPatch)
-                return statusFrom(flow, await stateRepo.findOneBy({ chatflowId: flow.id }))
-            }
+                },
+                async () => {
+                    const existing = await stateRepo.findOneBy({ chatflowId: flow.id })
+                    if (!existing) throw new AppError(StatusCodes.CONFLICT, OVERLAPPED_SAVE)
+                    await stateRepo.update({ chatflowId: flow.id }, draftPatch)
+                    saved = await stateRepo.findOneBy({ chatflowId: flow.id })
+                }
+            )
+            return statusFrom(flow, saved)
         }
         // Only the draft columns. A settings or gate-result write that landed after this read stays.
         await stateRepo.update({ chatflowId: flow.id }, draftPatch)
@@ -564,25 +567,48 @@ export async function updateDraftSettings(
     await withChatflowLock(flow.id, async (manager) => {
         if (draftWriteHooks.beforeSettingsWrite) await draftWriteHooks.beforeSettingsWrite()
         const stateRepo = manager.getRepository(FlowVersionState)
+        // A direct Live update can change the type or the start after the unlocked read.
+        const lockedFlow = await flowUnderLock(manager, flow)
         let row = await stateRepo.findOneBy({ chatflowId: flow.id })
         if (!row) {
             if (!nextInstant && !nextGate) return
-            try {
-                await stateRepo.save(stateRepo.create(newSettingsRow(flow, nextInstant, gate)))
-                return
-            } catch (error) {
-                if (!isUniqueViolation(error)) throw error
-                row = await stateRepo.findOneBy({ chatflowId: flow.id })
-                if (!row) throw new AppError(StatusCodes.CONFLICT, OVERLAPPED_SAVE)
-            }
+            refuseLockedSettings(lockedFlow, emptyLockedRow(), hasInstant, nextInstant, gate)
+            let inserted = false
+            await insertStateOrRecover(
+                manager,
+                async () => {
+                    await stateRepo.save(stateRepo.create(newSettingsRow(flow, nextInstant, gate)))
+                    inserted = true
+                },
+                async () => {
+                    row = await stateRepo.findOneBy({ chatflowId: flow.id })
+                    if (!row) throw new AppError(StatusCodes.CONFLICT, OVERLAPPED_SAVE)
+                }
+            )
+            if (inserted) return
         }
         if (!row) throw new AppError(StatusCodes.CONFLICT, OVERLAPPED_SAVE)
         // The read above the lock can be stale. A draft, the other flag, or a start that cannot
         // take a dataset may have landed. Refuse before any settings column is written.
-        refuseLockedSettings(flow, row, hasInstant, nextInstant, gate)
+        refuseLockedSettings(lockedFlow, row, hasInstant, nextInstant, gate)
         await applySettingsUpdate(stateRepo, flow.id, hasInstant, nextInstant, gate)
     })
     return withTestSet(flow, statusFrom(flow, await getState(flow.id)))
+}
+
+function emptyLockedRow(): FlowVersionState {
+    return { publishInstantly: false, publishGate: false, draftFlowData: null } as FlowVersionState
+}
+
+// The chatflow row this lock is holding. Type and Live canvas are whatever is stored now.
+async function flowUnderLock(manager: EntityManager, flow: DraftFlow): Promise<DraftFlow> {
+    const chat = await manager.getRepository(ChatFlow).findOneBy({ id: flow.id })
+    if (!chat) throw new AppError(StatusCodes.NOT_FOUND, `Chatflow ${flow.id} not found`)
+    return {
+        ...flow,
+        type: chat.type || flow.type,
+        flowData: typeof chat.flowData === 'string' ? chat.flowData : flow.flowData
+    }
 }
 
 function newSettingsRow(
@@ -637,7 +663,7 @@ function refuseLockedSettings(
 // Off flags go first, so one request can turn Publish instantly off and the passing test set on,
 // or the reverse. The on is then conditional on the other flag still being off.
 async function applySettingsUpdate(
-    stateRepo: { update: (where: object, patch: object) => Promise<{ affected?: number | null }> },
+    stateRepo: StateWriter,
     flowId: string,
     hasInstant: boolean,
     nextInstant: boolean,
@@ -679,23 +705,64 @@ function isUniqueViolation(error: unknown): boolean {
     return /unique constraint|duplicate key|duplicate entry/i.test(String(err?.message || ''))
 }
 
+// Postgres aborts the whole transaction on a unique violation. A savepoint lets the re-read and the
+// column update run on the same connection. Other engines do not abort, so they only need the catch.
+async function insertStateOrRecover(manager: EntityManager, insert: () => Promise<void>, recover: () => Promise<void>): Promise<void> {
+    const driver = (getRunningExpressApp().AppDataSource as { options?: { type?: string } } | undefined)?.options?.type
+    const query = driver === 'postgres' && typeof manager.query === 'function' ? (sql: string) => manager.query(sql) : null
+    if (query) await query('SAVEPOINT cuttlely_state_insert')
+    try {
+        await insert()
+        if (query) await query('RELEASE SAVEPOINT cuttlely_state_insert')
+    } catch (error) {
+        if (query) {
+            try {
+                await query('ROLLBACK TO SAVEPOINT cuttlely_state_insert')
+            } catch {
+                throw error
+            }
+        }
+        if (!isUniqueViolation(error)) throw error
+        await recover()
+    }
+}
+
+type StateWriter = {
+    update: (where: any, patch: any) => Promise<{ affected?: number | null }>
+    findOneBy: (where: any) => Promise<FlowVersionState | null>
+}
+
+function patchAlreadyStored(row: FlowVersionState | null, patch: Partial<FlowVersionState>): boolean {
+    if (!row) return false
+    return (Object.keys(patch) as Array<keyof FlowVersionState>).every((key) => row[key] === patch[key])
+}
+
 // MySQL and MariaDB report 0 changed rows when the values are already stored. That is a save,
-// not proof that the other flag is on. Re-read, and return 400 only when that flag really is on.
+// not proof that the other flag is on. Re-read on this locked repository. When the values are
+// not already stored, repeat the same conditional update. A 400 means the other flag is on, or
+// the conditional update still matched no row.
 async function updateUnlessOtherFlag(
-    stateRepo: { update: (where: object, patch: object) => Promise<{ affected?: number | null }> },
+    stateRepo: StateWriter,
     flowId: string,
     where: { chatflowId: string; publishInstantly?: boolean; publishGate?: boolean },
     patch: Partial<FlowVersionState>,
     otherFlagOn: (row: FlowVersionState) => boolean,
     turningGateOn: boolean
 ): Promise<void> {
+    const refuse = () => {
+        throw new AppError(StatusCodes.BAD_REQUEST, conflictingSettingsMessage(turningGateOn))
+    }
+    const read = () => stateRepo.findOneBy({ chatflowId: flowId })
     const updated = await stateRepo.update(where, patch)
     if (updated?.affected) return
-    const row = await getState(flowId)
-    if (!row || otherFlagOn(row)) throw new AppError(StatusCodes.BAD_REQUEST, conflictingSettingsMessage(turningGateOn))
-    const same = (Object.keys(patch) as Array<keyof FlowVersionState>).every((key) => row[key] === patch[key])
-    if (same) return
-    await stateRepo.update({ chatflowId: flowId }, patch)
+    const row = await read()
+    if (!row || otherFlagOn(row)) refuse()
+    if (patchAlreadyStored(row, patch)) return
+    const retried = await stateRepo.update(where, patch)
+    if (retried?.affected) return
+    const again = await read()
+    if (patchAlreadyStored(again, patch)) return
+    refuse()
 }
 
 export interface GateResultInput {
@@ -795,7 +862,19 @@ export async function recordPublishGateResult(flow: DraftFlow, input: GateResult
         postProcessHash: input.postProcessHash || '',
         ...(input.checkId ? { checkId: input.checkId } : {})
     }
-    await repo().update({ chatflowId: flow.id }, { publishGateResult: gateResultRecord(record) })
+    // The where is the gate this check read. A newer pass, or a gate that changed, does not match,
+    // and this check leaves that row alone.
+    const updated = await repo().update(
+        {
+            chatflowId: flow.id,
+            publishGate: true,
+            publishGateDatasetId: state.publishGateDatasetId ?? null,
+            publishGateEvaluatorIds: state.publishGateEvaluatorIds ?? null,
+            publishGateThreshold: state.publishGateThreshold ?? null
+        },
+        { publishGateResult: gateResultRecord(record) }
+    )
+    if (updated?.affected === 0) return 'ignored'
     return 'stored'
 }
 
