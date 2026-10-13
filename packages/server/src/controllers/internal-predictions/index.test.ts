@@ -5,13 +5,19 @@ jest.mock('../../services/chatflows', () => ({
     __esModule: true,
     default: { getChatflowByIdForWorkspace: jest.fn(async () => ({ id: 'flow-1', type: 'CHATFLOW' })) }
 }))
-jest.mock('../../services/harnesses', () => ({ __esModule: true, default: {} }))
+const startCanvasRun = jest.fn(async () => ({ chatId: 'c1', run: null, payload: { text: 'from the draft' } }))
+jest.mock('../../services/harnesses', () => ({
+    __esModule: true,
+    default: { startCanvasRun: (...args: any[]) => (startCanvasRun as (...a: any[]) => any)(...args) }
+}))
 jest.mock('../../utils/sessionOwnership', () => ({ bindRequestSession: jest.fn() }))
 const sseStreamer = { addClient: jest.fn(), removeClient: jest.fn(), streamMetadataEvent: jest.fn(), streamErrorEvent: jest.fn() }
 jest.mock('../../utils/getRunningExpressApp', () => ({ getRunningExpressApp: () => ({ sseStreamer }) }))
 
 import controller from './index'
 import predictionsService from '../../services/predictions'
+
+const chatflows = () => jest.requireMock('../../services/chatflows').default
 
 test('the canvas test chat asks for the draft', async () => {
     const res: any = { json: jest.fn() }
@@ -22,6 +28,31 @@ test('the canvas test chat asks for the draft', async () => {
     )
     expect(utilBuildChatflow).toHaveBeenCalledWith(expect.anything(), true, undefined, { testDraft: true })
     expect(res.json).toHaveBeenCalledWith({ text: 'ok' })
+})
+
+test('a harness canvas run uses the draft path', async () => {
+    startCanvasRun.mockClear()
+    utilBuildChatflow.mockClear()
+    chatflows().getChatflowByIdForWorkspace.mockResolvedValueOnce({
+        id: 'flow-1',
+        name: 'bakery-team',
+        type: 'HARNESS',
+        flowData: '{"nodes":[],"edges":[]}',
+        workspaceId: 'team-a'
+    })
+    const res: any = { json: jest.fn() }
+    await controller.createInternalPrediction(
+        { params: { id: 'flow-1' }, body: { question: 'hi' }, user: { activeWorkspaceId: 'team-a' } } as any,
+        res,
+        jest.fn()
+    )
+    expect(startCanvasRun).toHaveBeenCalledWith(
+        expect.objectContaining({ id: 'flow-1', name: 'bakery-team', type: 'HARNESS' }),
+        { question: 'hi' },
+        { source: 'playground' }
+    )
+    expect(utilBuildChatflow).not.toHaveBeenCalled()
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ text: 'from the draft' }))
 })
 
 test('the prediction API runs Live', async () => {
