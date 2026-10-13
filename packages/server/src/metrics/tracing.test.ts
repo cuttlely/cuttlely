@@ -590,6 +590,124 @@ describe('run trace spans', () => {
         expect(tool?.attributes['error']).toBe('oven exploded')
     })
 
+    it('records a thrown tool through Agent.run', async () => {
+        process.env.CUTTLELY_OTEL_TRACES = 'true'
+        const agentFile = path.join(__dirname, '../../../components/dist/nodes/agentflow/Agent/Agent.js')
+        const write = (name: string, body: string) => {
+            const file = path.join(dir, `${name}.js`)
+            fs.writeFileSync(file, body)
+            return { filePath: file }
+        }
+        const nodes = {
+            startAgentflow: write(
+                'agent-run-start',
+                `exports.nodeClass = class { async run(nodeData, input) { return { id: nodeData.id, name: 'startAgentflow', input: { question: input }, output: { question: input } } } }\n`
+            ),
+            agentAgentflow: { filePath: agentFile },
+            stubChatModel: write(
+                'agent-run-model',
+                `exports.nodeClass = class {
+                    async init() {
+                        return {
+                            bindTools() { return this },
+                            async invoke() {
+                                return {
+                                    content: '',
+                                    tool_calls: [{ id: 'call-oven', name: 'oven', args: { heat: '350' } }],
+                                    usage_metadata: { input_tokens: 15, output_tokens: 6, total_tokens: 21 }
+                                }
+                            }
+                        }
+                    }
+                }\n`
+            ),
+            stubOven: write(
+                'agent-run-oven',
+                `exports.nodeClass = class {
+                    async init() {
+                        return { name: 'oven', description: 'Heat the oven', schema: null, async call() { throw new Error('oven exploded') } }
+                    }
+                }\n`
+            )
+        }
+        const agent = {
+            ...agentNode('agentAgentflow_0', 'agentAgentflow', 'Helper', {
+                agentModel: 'stubChatModel',
+                agentModelConfig: { modelName: 'gpt-4o-mini', streaming: false },
+                agentTools: [{ agentSelectedTool: 'stubOven', agentSelectedToolConfig: {} }],
+                agentMessages: []
+            })
+        }
+        const flowData = JSON.stringify({
+            nodes: [agentNode('startAgentflow_0', 'startAgentflow', 'Start', { startInputType: 'chatInput' }), agent],
+            edges: [{ id: 'e1', source: 'startAgentflow_0', target: 'agentAgentflow_0' }]
+        })
+        await expect(
+            executeAgentFlow({
+                componentNodes: nodes,
+                incomingInput: { question: 'Heat the oven', streaming: false },
+                chatflow: {
+                    id: 'a1b2c3d4-1111-4111-8111-111111111111',
+                    name: 'Bakery helper',
+                    type: 'AGENTFLOW',
+                    flowData,
+                    workspaceId: 'ws-1'
+                },
+                chatId: 'c0ffee00-0000-4000-8000-000000000041',
+                appDataSource: recordingDataSource(),
+                telemetry: { sendTelemetry: jest.fn() },
+                usageCacheManager: {},
+                cachePool: {},
+                sseStreamer: new Proxy({}, { get: () => () => undefined }),
+                baseURL: 'http://127.0.0.1',
+                isInternal: true,
+                orgId: 'org-1',
+                workspaceId: 'ws-1',
+                subscriptionId: 'sub-1',
+                productId: 'prod-1',
+                replay: false
+            } as any)
+        ).rejects.toThrow('Error in Agent node: oven exploded')
+        const spans = memory.spans()
+        const root = spans.find((span) => span.name === 'agentflow.run')
+        const model = spans.find((span) => span.name === 'model')
+        const tool = spans.find((span) => span.name === 'tool')
+        const node = spans.find((span) => span.name === 'node' && span.attributes['node.id'] === 'agentAgentflow_0')
+        expect(root?.attributes['status']).toBe('error')
+        expect(node?.attributes['status']).toBe('error')
+        expect(model?.attributes['tokens.input']).toBe(15)
+        expect(model?.attributes['tokens.output']).toBe(6)
+        expect(model?.attributes['status']).toBe('error')
+        expect(tool?.attributes['tool.name']).toBe('oven')
+        expect(tool?.attributes['tool.id']).toBe('call-oven')
+        expect(tool?.attributes['status']).toBe('error')
+        expect(tool?.attributes['error']).toBe('oven exploded')
+    })
+
+    it('keeps a second approval wait for the same tool pending', async () => {
+        process.env.CUTTLELY_OTEL_TRACES = 'true'
+        await traceFlow('agentflow', 'flow-again', async () => {
+            await tracedNode('agentAgentflow_0', 'agentAgentflow', { agentModelConfig: { modelName: 'gpt-4o-mini' } }, async () => ({
+                output: {
+                    isWaitingForHumanInput: true,
+                    usedTools: [{ id: 'call-1', tool: 'oven', toolInput: { heat: '350' }, toolOutput: '350F' }],
+                    calledTools: [
+                        { id: 'call-1', name: 'oven' },
+                        { id: 'call-2', name: 'oven' }
+                    ],
+                    usageMetadata: { input_tokens: 9, output_tokens: 4 }
+                }
+            }))
+        })
+        const tools = memory.spans().filter((span) => span.name === 'tool' && span.attributes['tool.name'] === 'oven')
+        const ok = tools.filter((span) => span.attributes['status'] === 'ok')
+        const pending = tools.filter((span) => span.attributes['status'] === 'pending')
+        expect(ok).toHaveLength(1)
+        expect(ok[0].attributes['tool.id']).toBe('call-1')
+        expect(pending).toHaveLength(1)
+        expect(pending[0].attributes['tool.id']).toBe('call-2')
+    })
+
     it('exports zero spans when a replay inits an output prediction chain', async () => {
         process.env.CUTTLELY_OTEL_TRACES = 'true'
         const seen = { replay: false }

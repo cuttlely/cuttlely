@@ -363,16 +363,27 @@ function executedToolName(record: { tool?: unknown; name?: unknown } | undefined
     return 'tool'
 }
 
+function toolCallId(record: { id?: unknown } | undefined): string | undefined {
+    return typeof record?.id === 'string' && record.id ? record.id : undefined
+}
+
+function toolSpanAttrs(name: string, id?: string): Record<string, string | undefined> {
+    return { 'tool.name': name, ...(id ? { 'tool.id': id } : {}) }
+}
+
 function recordLateTools(result: unknown, nodeId: string, nodeType: string): void {
     const output = (result as { output?: { usedTools?: unknown; calledTools?: unknown } } | undefined)?.output
     const used = Array.isArray(output?.usedTools) ? output.usedTools : []
     const called = Array.isArray(output?.calledTools) ? output.calledTools : []
-    const ran = new Set<string>()
+    const ranIds = new Set<string>()
+    const namelessRan = new Map<string, number>()
     for (const tool of used) {
-        const record = tool as { tool?: unknown; name?: unknown; error?: unknown; toolInput?: unknown; toolOutput?: unknown }
+        const record = tool as { tool?: unknown; name?: unknown; id?: unknown; error?: unknown; toolInput?: unknown; toolOutput?: unknown }
         const name = executedToolName(record)
-        ran.add(name)
-        const span = openChild('tool', nodeId, nodeType, { 'tool.name': name })
+        const id = toolCallId(record)
+        if (id) ranIds.add(id)
+        else namelessRan.set(name, (namelessRan.get(name) || 0) + 1)
+        const span = openChild('tool', nodeId, nodeType, toolSpanAttrs(name, id))
         if (!span) continue
         if (record?.error) {
             endError(span, record.error)
@@ -381,11 +392,22 @@ function recordLateTools(result: unknown, nodeId: string, nodeType: string): voi
         writeContent(span, record?.toolInput, record?.toolOutput)
         endOk(span)
     }
-    // calledTools is the model's request list. A tool that did not run (it is waiting for approval) is not a success.
+    // calledTools is the model's request list. Match a request to a run by tool-call id.
+    // The same tool name can run once and then be requested again while it waits for approval.
     for (const tool of called) {
-        const name = executedToolName(tool as { name?: unknown })
-        if (ran.has(name)) continue
-        endPending(openChild('tool', nodeId, nodeType, { 'tool.name': name }))
+        const record = tool as { name?: unknown; id?: unknown }
+        const name = executedToolName(record)
+        const id = toolCallId(record)
+        if (id) {
+            if (ranIds.has(id)) continue
+        } else {
+            const left = namelessRan.get(name) || 0
+            if (left > 0) {
+                namelessRan.set(name, left - 1)
+                continue
+            }
+        }
+        endPending(openChild('tool', nodeId, nodeType, toolSpanAttrs(name, id)))
     }
 }
 

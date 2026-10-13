@@ -1557,7 +1557,11 @@ class Agent_Agentflow implements INode {
             if (error instanceof Error && error.message === 'Aborted') {
                 throw error
             }
-            throw new Error(`Error in Agent node: ${error instanceof Error ? error.message : String(error)}`)
+            const wrapped = new Error(`Error in Agent node: ${error instanceof Error ? error.message : String(error)}`)
+            const trace = error as { usedTools?: IUsedTool[]; usageMetadata?: unknown }
+            if (trace.usedTools) (wrapped as Error & { usedTools?: IUsedTool[] }).usedTools = trace.usedTools
+            if (trace.usageMetadata !== undefined) (wrapped as Error & { usageMetadata?: unknown }).usageMetadata = trace.usageMetadata
+            throw wrapped
         }
     }
 
@@ -2346,7 +2350,8 @@ class Agent_Agentflow implements INode {
                     usedTools.push({
                         tool: toolCall.name,
                         toolInput: toolInput ?? toolCall.args,
-                        toolOutput
+                        toolOutput,
+                        id: toolCall.id
                     })
                 } catch (e) {
                     if (options.analyticHandlers && toolIds) {
@@ -2369,7 +2374,8 @@ class Agent_Agentflow implements INode {
                         tool: selectedTool.name,
                         toolInput,
                         toolOutput: '',
-                        error: getErrorMessage(e)
+                        error: getErrorMessage(e),
+                        id: toolCall.id
                     })
                     sseStreamer?.streamUsedToolsEvent(chatId, flatten(usedTools))
                     throwToolFailure(e, usedTools, response.usage_metadata)
@@ -2718,7 +2724,8 @@ class Agent_Agentflow implements INode {
                         usedTools.push({
                             tool: toolCall.name,
                             toolInput: toolInput ?? toolCall.args,
-                            toolOutput
+                            toolOutput,
+                            id: toolCall.id
                         })
                     } catch (e) {
                         if (options.analyticHandlers && toolIds) {
@@ -2741,7 +2748,8 @@ class Agent_Agentflow implements INode {
                             tool: selectedTool.name,
                             toolInput,
                             toolOutput: '',
-                            error: getErrorMessage(e)
+                            error: getErrorMessage(e),
+                            id: toolCall.id
                         })
                         sseStreamer?.streamUsedToolsEvent(chatId, flatten(usedTools))
                         throwToolFailure(e, usedTools, response.usage_metadata)
