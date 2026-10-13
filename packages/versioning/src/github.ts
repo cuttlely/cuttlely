@@ -41,6 +41,9 @@ export type { NamedEnvironment }
 
 export type GithubState = 'off' | 'not-connected' | 'up-to-date' | 'waiting' | 'copying' | 'retrying' | 'stopped'
 
+// LIST_UNREADABLE is the environment file. CONNECTION_UNREADABLE is the connection file.
+export type GithubStatusCode = 'LIST_UNREADABLE' | 'CONNECTION_UNREADABLE' | null
+
 export interface GithubStatus {
     // History is on. With history off there is nothing to copy.
     enabled: boolean
@@ -52,6 +55,8 @@ export interface GithubStatus {
     state: GithubState
     // One plain sentence for the screen. Never holds the token or raw git output.
     message: string
+    // Which failure `message` is, when two sentences both say something could not be read. Null otherwise.
+    code: GithubStatusCode
     // Versions saved on this server that are not on GitHub yet. Null when not known.
     waiting: number | null
     lastCopiedAt: string | null
@@ -156,6 +161,11 @@ const ENVIRONMENT_NOTE_LOCAL = 'refs/notes/environment-list'
 const LIST_MISMATCH =
     "This server's environment list does not match the list used to publish these versions. Save the same list on every server, then select Try again."
 const LIST_UNREADABLE = 'The environment list could not be read. Save it again.'
+const CONNECTION_UNREADABLE = 'The saved GitHub connection could not be read. Disconnect and connect again.'
+const LIST_STILL_VALID = 'The environment list on this server is still valid, so it was not replaced.'
+
+const statusCode = (message: string): GithubStatusCode =>
+    message === LIST_UNREADABLE ? 'LIST_UNREADABLE' : message === CONNECTION_UNREADABLE ? 'CONNECTION_UNREADABLE' : null
 const LIST_UNVERIFIED = 'These versions have no environment list recorded yet, so nothing new is offered.'
 const LIST_NOTE_FAILED = 'Could not record the environment list with this copy.'
 const PICK_ENVIRONMENT = "Pick this server's environment. Nothing is copied until you do."
@@ -478,7 +488,7 @@ export class GithubSync {
             if (typeof saved?.repo !== 'string' || typeof saved?.credential?.id !== 'string') throw new Error('bad file')
             return saved
         } catch {
-            throw new GithubError(409, 'The saved GitHub connection could not be read. Disconnect and connect again.')
+            throw new GithubError(409, CONNECTION_UNREADABLE)
         }
     }
 
@@ -591,6 +601,7 @@ export class GithubSync {
             url: null,
             state: 'not-connected',
             message: 'Not connected. History stays on this server.',
+            code: null,
             waiting: null,
             lastCopiedAt: null,
             lastCopiedVersion: null,
@@ -622,7 +633,8 @@ export class GithubSync {
                 promotes: false,
                 waiting: null,
                 role: 'copy',
-                message: LIST_UNREADABLE
+                message: LIST_UNREADABLE,
+                code: 'LIST_UNREADABLE'
             }
         }
         if (!plan.reads && !plan.copies) {
@@ -660,7 +672,8 @@ export class GithubSync {
                 repo: saved ? saved.repo : null,
                 credential: saved ? { id: saved.credential.id, name: saved.credential.name } : null,
                 state: 'stopped',
-                message: (error as Error).message
+                message: (error as Error).message,
+                code: statusCode((error as Error).message)
             }
         }
         if (!config) return blank
@@ -690,6 +703,7 @@ export class GithubSync {
                 : null,
             state,
             message,
+            code: statusCode(message),
             waiting,
             lastCopiedAt: this.lastCopiedAt,
             lastCopiedVersion: this.lastCopiedVersion,
@@ -732,6 +746,7 @@ export class GithubSync {
                 : null,
             state,
             message,
+            code: statusCode(message),
             nextTryAt: this.nextTryAt && state === 'retrying' ? new Date(this.nextTryAt).toISOString() : null,
             connectedAt: config.connectedAt,
             lastCheckedAt: this.lastCheckedAt,
@@ -858,6 +873,17 @@ export class GithubSync {
         // An unreadable file is not a real plan. Saving the list again is how the operator fixes it.
         if (connected && !current.invalid && changed) {
             throw new GithubError(409, 'Disconnect GitHub before changing what this server reads or copies.')
+        }
+        // The saved pair is stored as one environment field. That write must not replace a named list that still parses
+        // when the read and copy plan stays the same: the disconnect check above does not see that save.
+        if (
+            !current.invalid &&
+            environmentsInput !== undefined &&
+            isLegacyChain(nextChain) &&
+            !isLegacyChain(current.environments) &&
+            !changed
+        ) {
+            throw new GithubError(409, LIST_STILL_VALID)
         }
         const beforeFingerprint = current.invalid ? null : environmentListFingerprint(current.environments)
         const afterFingerprint = environmentListFingerprint(nextChain)

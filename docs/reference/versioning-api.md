@@ -232,6 +232,7 @@ The connect, disconnect, copy and label routes answer with the status. It never 
     "url": "https://github.com/acme/cuttlely-flows",
     "state": "up-to-date",
     "message": "Up to date. Every version on this server is on GitHub.",
+    "code": null,
     "waiting": 0,
     "lastCopiedAt": "2026-10-08T23:41:05.000Z",
     "lastCopiedVersion": "3413dc1",
@@ -255,6 +256,7 @@ The connect, disconnect, copy and label routes answer with the status. It never 
 | `credential`        | The **Github API** credential that holds the token: its id and name, never the token.                                                                    |
 | `state`             | One of the states below.                                                                                                                                 |
 | `message`           | One plain sentence for the screen.                                                                                                                       |
+| `code`              | `LIST_UNREADABLE` when the environment file cannot be read, `CONNECTION_UNREADABLE` when the connection file cannot be read, or `null`.                  |
 | `waiting`           | Versions on this server that are not on GitHub yet. `null` when it cannot be counted.                                                                    |
 | `lastCopiedAt`      | When the last copy finished, since the server started. `null` before the first copy.                                                                     |
 | `lastCopiedVersion` | The short id of the newest version on GitHub after that copy.                                                                                            |
@@ -365,7 +367,7 @@ To put another environment between them, send the ordered list. Each entry has a
 }
 ```
 
-`environment` has to be one of the `server` values, or `null`. Sending `environment` alone later picks another server in the list that is already saved. If that file cannot be read, sending `environment` alone, including `null`, is 409 `The environment list could not be read. Save it again.` and nothing is written. Send the list again to repair it. A server that is not in the list is 400. On a named list, connect is refused until `environment` is one of those servers. Saving a longer list while this server still publishes the same branch rewrites the fingerprint on the versions already copied, so the next environment can read them without a new version.
+`environment` has to be one of the `server` values, or `null`. Sending `environment` alone later picks another server in the list that is already saved. If that file cannot be read, sending `environment` alone, including `null`, is 409 `The environment list could not be read. Save it again.` and nothing is written. Send the list again to repair it. `GET /github` then sets `code` to `LIST_UNREADABLE` and `environments` to an empty list. A connection file that cannot be read is a different failure: `code` is `CONNECTION_UNREADABLE`, the sentence is `The saved GitHub connection could not be read. Disconnect and connect again.`, and the saved list is still returned. Saving the saved Dev and Prod pair in place of a named list that still parses, when that save would not change what this server reads or copies, is 409 `The environment list on this server is still valid, so it was not replaced.` and the file is left as it is. A server that is not in the list is 400. On a named list, connect is refused until `environment` is one of those servers. Saving a longer list while this server still publishes the same branch rewrites the fingerprint on the versions already copied, so the next environment can read them without a new version.
 
 The first environment copies its versions to its branch. Each later one reads the previous environment's branch and can promote from it. The last environment only reads. One in the middle reads the previous branch and copies its own published versions, including promotions, to its own branch, so the next environment can read them. Promotion does not skip: Dev to Prod is refused while Staging is between them. On every hop the behavior check and the credential-name check still run.
 

@@ -125,8 +125,10 @@ export const checkRepoName = (name) => {
 const SAVED_PAIR_HINT = 'Dev copies its published versions to GitHub. Prod reads them from there, and you choose what to promote to Live.'
 
 export const UNREADABLE_LIST = 'The environment list could not be read. Save it again.'
+export const LIST_UNREADABLE_CODE = 'LIST_UNREADABLE'
 
-export const listUnreadable = (status) => typeof status?.message === 'string' && status.message.includes('could not be read')
+// The environment file only. A connection file that cannot be read uses a different sentence and a different code.
+export const listUnreadable = (status) => status?.code === LIST_UNREADABLE_CODE || status?.message === UNREADABLE_LIST
 
 // The saved pair: both publish names match, and the names are dev and prod. A capitalized name is a different list.
 export const SAVED_REPAIR_ROWS = [

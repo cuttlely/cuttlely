@@ -97,7 +97,11 @@ export const rollbackTarget = (versions = [], promotedSha) => {
     return target ? target.sha : null
 }
 
-export const listUnreadable = (status) => typeof status?.message === 'string' && status.message.includes('could not be read')
+const UNREADABLE_LIST = 'The environment list could not be read. Save it again.'
+const LIST_UNREADABLE_CODE = 'LIST_UNREADABLE'
+
+// The environment file only. A connection file that cannot be read uses a different sentence and a different code.
+export const listUnreadable = (status) => status?.code === LIST_UNREADABLE_CODE || status?.message === UNREADABLE_LIST
 
 // The environment this server reads from. "Dev" for the saved pair. Empty when the list file cannot be read.
 export const previousEnvironmentTitle = (status) => {

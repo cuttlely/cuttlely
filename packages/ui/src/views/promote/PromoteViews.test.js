@@ -134,6 +134,29 @@ describe('PromoteListView', () => {
         expect(html).toContain('Version History')
         expect(html).not.toContain('Promoting works on a server that has a previous environment')
     })
+
+    test('a corrupt GitHub connection keeps the list and the disconnect guidance', () => {
+        const chain = [
+            { name: 'Dev', server: 'dev' },
+            { name: 'Staging', server: 'staging' },
+            { name: 'Prod', server: 'prod' }
+        ]
+        const html = render({
+            list: list([], { environments: chain, source: 'staging', target: 'prod' }),
+            status: {
+                environments: chain,
+                environment: 'prod',
+                state: 'stopped',
+                code: 'CONNECTION_UNREADABLE',
+                message: 'The saved GitHub connection could not be read. Disconnect and connect again.'
+            }
+        })
+        expect(html).toContain('The saved GitHub connection could not be read. Disconnect and connect again.')
+        expect(html).toContain('Staging')
+        expect(html).toContain('data-testid="environment-chain"')
+        expect(html).not.toContain('The environment list could not be read')
+        expect(html).not.toContain('Save it again')
+    })
 })
 
 describe('PromoteDetailView', () => {

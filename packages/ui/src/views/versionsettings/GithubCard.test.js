@@ -141,6 +141,28 @@ describe('GithubCard environment names', () => {
         })
     })
 
+    test('a corrupt GitHub connection keeps the saved list and the disconnect guidance', () => {
+        const html = wrap(
+            status({
+                connected: false,
+                role: 'copy',
+                environment: 'dev',
+                environments: chain,
+                state: 'stopped',
+                code: 'CONNECTION_UNREADABLE',
+                message: 'The saved GitHub connection could not be read. Disconnect and connect again.'
+            })
+        )
+        expect(html).toContain('The saved GitHub connection could not be read. Disconnect and connect again.')
+        expect(html).toContain('value="dev"')
+        expect(html).toContain('value="staging"')
+        expect(html).toContain('value="prod"')
+        expect(html).toContain('Dev copies its published versions')
+        expect(html).not.toContain('data-testid="environment-repair"')
+        expect(html).not.toContain('The environment list could not be read')
+        expect(html).not.toContain('Save the list')
+    })
+
     test('a saved pair repair and a three-environment repair include the chosen server', () => {
         expect(repairListBody(SAVED_REPAIR_ROWS, 'dev')).toEqual({
             environment: 'dev',

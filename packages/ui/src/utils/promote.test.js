@@ -42,6 +42,21 @@ describe('promote helpers', () => {
         expect(promotePageTitle(unreadable, null)).not.toBe('From Dev')
         expect(promotePageDescription(unreadable, null)).toBe('New versions could not be loaded.')
         expect(promoteLoadError(unreadable)).toBe('New versions could not be loaded.')
+        const connection = {
+            environments: [
+                { name: 'Dev', server: 'dev' },
+                { name: 'Staging', server: 'staging' },
+                { name: 'Prod', server: 'prod' }
+            ],
+            environment: 'prod',
+            state: 'stopped',
+            code: 'CONNECTION_UNREADABLE',
+            message: 'The saved GitHub connection could not be read. Disconnect and connect again.'
+        }
+        expect(previousEnvironmentTitle(connection)).toBe('Staging')
+        expect(promotePageTitle(connection, null)).toBe('From Staging')
+        expect(promotePageDescription(connection, null)).toBe('Review what Staging published and promote it to Live on this server')
+        expect(promoteLoadError(connection)).toBe('New versions from Staging could not be loaded.')
         expect(promotePath('a b')).toBe('/promote/a%20b')
     })
 

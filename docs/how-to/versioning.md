@@ -279,7 +279,7 @@ Setup does not stop at a GitHub page: after **Sign Up** you land in Cuttlely, so
 
 ![The Version History page under Admin. One GitHub card says Keep a copy of every version in your own GitHub repository, shows a Not connected chip, explains that keys are never copied, and has a Connect GitHub button. Below it, This server is, with Dev, Prod and Not set.](../images/versioning/github-not-connected.png)
 
-When the environment list cannot be read, that card does not offer Dev and Prod. It asks which row is this server, then saves that identity with the full list. The saved pair is dev then prod. Save stays off until a row is chosen.
+When the environment list cannot be read, that card does not offer Dev and Prod. It asks which row is this server, then saves that identity with the full list. The saved pair is dev then prod. Save stays off until a row is chosen. When the saved GitHub connection cannot be read, the card still shows the list and says to disconnect and connect again. It does not ask you to save the list again.
 
 ### Which GitHub token to use
 

@@ -1409,7 +1409,9 @@ describe('Dev or Prod label', () => {
         fs.writeFileSync(role, '{')
         const broken = await sync.status()
         expect(broken.state).toBe('stopped')
-        expect(broken.message).toContain('could not be read')
+        expect(broken.code).toBe('LIST_UNREADABLE')
+        expect(broken.environments).toEqual([])
+        expect(broken.message).toBe('The environment list could not be read. Save it again.')
         const repaired = await sync.setEnvironment('prod', chain)
         expect(refOf(versionsDir(), 'refs/versions/incoming')).toBeNull()
         expect(repaired.message).not.toContain('could not be read')
@@ -1464,6 +1466,38 @@ describe('Dev or Prod label', () => {
         expect(gitCalls.filter((call) => call.args[0] === 'push' && call.args.some((arg) => arg.includes('refs/heads/main'))).length).toBe(
             pushes
         )
+    })
+
+    test('a corrupt connection keeps a valid list and a saved-pair save does not replace it', async () => {
+        const chain = [
+            { name: 'Dev', branch: 'main', server: 'dev' },
+            { name: 'Staging', branch: 'staging', server: 'staging' },
+            { name: 'Prod', branch: 'prod', server: 'prod' }
+        ]
+        sync = makeSync({ checkEveryMs: 60_000, retryMs: [60_000] })
+        setGithubForTests(sync)
+        await sync.setEnvironment('dev', chain)
+        await save('One')
+        await sync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)
+        const role = path.join(versionsDir(), '.git', 'versions-environment.json')
+        const savedList = fs.readFileSync(role, 'utf8')
+        fs.writeFileSync(path.join(versionsDir(), '.git', 'versions-github.json'), '{')
+        const status = await sync.status()
+        expect(status.code).toBe('CONNECTION_UNREADABLE')
+        expect(status.message).toBe('The saved GitHub connection could not be read. Disconnect and connect again.')
+        expect(status.environments).toEqual(chain)
+        expect(status.environment).toBe('dev')
+        await expect(
+            sync.setEnvironment('dev', [
+                { name: 'dev', branch: 'main', server: 'dev' },
+                { name: 'prod', branch: 'main', server: 'prod' }
+            ])
+        ).rejects.toMatchObject({
+            status: 409,
+            message: 'The environment list on this server is still valid, so it was not replaced.'
+        })
+        expect(fs.readFileSync(role, 'utf8')).toBe(savedList)
+        expect((await sync.status()).environments).toEqual(chain)
     })
 
     test('an environment-only save does not repair an unreadable list or publish a note', async () => {
