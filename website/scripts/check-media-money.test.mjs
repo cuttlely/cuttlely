@@ -1,6 +1,35 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { scanMedia } from './check-media-money.mjs'
+import { lineHasMoney, moneyIn, scanMedia } from './check-media-money.mjs'
+
+const positives = [
+    'Price | $ | 25.20',
+    'twenty-five dollars and twenty cents',
+    'Total $25',
+    '$ 25.20',
+    '10 dollars',
+    'two euros',
+    'five pounds',
+    '20 cents',
+    '£ 10',
+    '€20'
+]
+
+const negatives = ['3 items', '1.3 s', '3.7x', '2,114', 'five items', '0.8 s', 'A price question', 'median of 5 runs']
+
+test('currency matcher flags amounts and leaves plain figures alone', () => {
+    for (const line of positives) assert.equal(lineHasMoney(line), true, line)
+    for (const line of negatives) assert.equal(lineHasMoney(line), false, line)
+})
+
+test('a symbol split from its amount is a hit once the OCR line is joined', () => {
+    const header = 'level\tpage_num\tblock_num\tpar_num\tline_num\tword_num\tleft\ttop\twidth\theight\tconf\ttext'
+    const word = (n, text) => `5\t1\t1\t1\t1\t${n}\t${n * 20}\t0\t10\t10\t90\t${text}`
+    const tsv = [header, word(1, 'Price'), word(2, '|'), word(3, '$'), word(4, '|'), word(5, '25.20')].join('\n')
+    assert.deepEqual(moneyIn(tsv), ['Price | $ | 25.20'])
+    const plain = [header, word(1, '3'), word(2, 'items')].join('\n')
+    assert.deepEqual(moneyIn(plain), [])
+})
 
 test('homepage media shows no currency amount', async () => {
     const result = await scanMedia()

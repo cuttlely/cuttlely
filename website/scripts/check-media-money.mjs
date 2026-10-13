@@ -13,10 +13,21 @@ const mediaDir = path.join(root, 'public', 'media')
 /** Half a second. The same interval the audit used. */
 const INTERVAL = 0.5
 
-const MONEY = /[$€£]\s*\d[\d,]*\.\d+/
-const USD = /\bUSD\b/
-const BESIDE =
-    /(?:\d+\.\d{2}\W{0,12}(?:dollars?|euros?|pounds?|USD|EUR|GBP)\b|\b(?:dollars?|euros?|pounds?|USD|EUR|GBP)\W{0,12}\d+\.\d{2})/i
+// A symbol may sit a word away from its amount (`$ | 25.20`), and the amount may be whole (`$25`).
+const SYMBOL = /[$€£](?:\s|\|)*\d[\d,]*(?:\.\d+)?/
+const SPELLED =
+    '(?:(?:twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety)[-\\s](?:one|two|three|four|five|six|seven|eight|nine)|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred|thousand|a|an)'
+const AMOUNT = `(?:${SPELLED}|\\d[\\d,]*(?:\\.\\d+)?)`
+const UNIT = '(?:dollars?|cents?|euros?|pounds?)'
+// "twenty-five dollars", "20 cents", "two euros", "five pounds", and the same with the unit first.
+const NAMED = new RegExp(`\\b(?:${AMOUNT}\\s+${UNIT}|${UNIT}\\s+${AMOUNT})\\b`, 'i')
+const USD_AMOUNT = /\b(?:USD\s*\d[\d,]*(?:\.\d+)?|\d[\d,]*(?:\.\d+)?\s*USD)\b/i
+
+/** True when a single line of text names a currency amount. */
+export function lineHasMoney(text) {
+    const line = String(text)
+    return SYMBOL.test(line) || NAMED.test(line) || USD_AMOUNT.test(line)
+}
 
 function tool(name) {
     const found = spawnSync('which', [name], { encoding: 'utf8' })
@@ -71,24 +82,26 @@ function ocr(image) {
     })
 }
 
-function moneyIn(tsv) {
-    const hits = []
+/** OCR words joined by block, paragraph and line, then checked as one line. */
+export function moneyIn(tsv) {
     const lines = new Map()
     for (const row of tsv.split('\n').slice(1)) {
         const parts = row.split('\t')
         if (parts.length < 12 || !parts[11].trim()) continue
         const conf = Number(parts[10])
-        if (conf < 70) continue
-        const text = parts[11].trim()
-        const line = parts[4]
-        const bag = lines.get(line) || []
-        bag.push(text)
-        lines.set(line, bag)
-        if (MONEY.test(text) || USD.test(text)) hits.push(text)
+        // Tesseract uses -1 for a structural row. A real word stays, including a dim currency glyph.
+        if (!Number.isFinite(conf) || conf < 0) continue
+        // page, block, paragraph, line — the same line in another block is a different line.
+        const key = [parts[1], parts[2], parts[3], parts[4]].join('\t')
+        const bag = lines.get(key) || []
+        bag.push({ order: Number(parts[5]) || 0, text: parts[11].trim() })
+        lines.set(key, bag)
     }
+    const hits = []
     for (const words of lines.values()) {
-        const line = words.join(' ')
-        if (BESIDE.test(line) && !hits.some((hit) => line.includes(hit))) hits.push(line)
+        words.sort((a, b) => a.order - b.order)
+        const line = words.map((word) => word.text).join(' ')
+        if (lineHasMoney(line)) hits.push(line)
     }
     return hits
 }
