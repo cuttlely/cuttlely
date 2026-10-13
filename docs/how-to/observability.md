@@ -189,7 +189,7 @@ For a Multi Agents or Sequential Agents step, each model call has its own model 
 
 For an agentflow step, `tokens.input` and `tokens.output` on the model span are the sum of the model calls in that step. That is the total the run card stores for the step.
 
-### Harness
+### Harness runs
 
 The server builds these spans from the events the run card already records. Each span's start and end are the event times. The route, each specialist, each tool, and the handoff are the same steps the run card shows. The harness runtime does not load a tracer.
 
@@ -210,7 +210,7 @@ A harness tool span carries `tool.name` and `status`, and `tool.rows` when that 
 
 `tokens.input` and `tokens.output` are only on model spans, so a sum of those attributes is the run total. `harness.run`, the route, each specialist, and the handoff may also carry `tokens.total.input` and `tokens.total.output`. Those are the rollup the run card shows. Do not add them to the model spans.
 
-An analyst query is a tool whose name is `query` or ends with `__query`. `tool.rows` is the row count from that result. The span does not include the rows or the SQL unless content is on. With content on, `content.input` is the SQL when the event has it, and `content.output` is the rows. The run span's `content.input` is the question and `content.output` is the answer. A specialist span's `content.input` is that specialist's task. Other harness tool detail is `content.output` only when it is plain text.
+An analyst query is a tool whose name is `query` or ends with `__query`. `tool.rows` is the row count from that tool result. The run card can also save a short preview of those rows. The preview is not a span attribute. The span does not include the rows or the SQL unless content is on. With content on, `content.input` is the SQL when the event has it, and `content.output` is the rows from that result. The run span's `content.input` is the question and `content.output` is the answer. A specialist span's `content.input` is that specialist's task. Other harness tool detail is `content.output` only when it is plain text.
 
 `POST /api/v1/harnesses/:name/runs` exports this tree. A draft try on the harness canvas and a publish-check replay export nothing. Turning traces off does not create spans for any of these runs.
 
