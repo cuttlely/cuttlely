@@ -1,6 +1,6 @@
 # Roles and permissions
 
-A role is a named list of permission keys. A workspace is a team: chatflows, harnesses, pipelines, credentials, and the other records belong to one team, and the person works in the team that is active. The first account is the organization owner. Everyone else gets a role on a team, and that role is what they can open.
+A role is a named list of permission keys. A workspace is a team: chatflows, harnesses, pipelines, credentials, and the other records belong to one team, and the person works in the team that is active. A harness and its runs belong to that one team. The harness routes answer 404 for a harness in another team, the same as a missing harness, and saving a name that another team already uses answers 409. The first account is the organization owner. Everyone else gets a role on a team, and that role is what they can open.
 
 Sign in first. [Sign in](./sign-in.md) creates the owner account.
 

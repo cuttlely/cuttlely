@@ -6,6 +6,7 @@ const Module = require('node:module')
 const { createRequire } = require('node:module')
 const { tmpdir } = require('node:os')
 const path = require('node:path')
+const { pathToFileURL } = require('node:url')
 const { after, before, describe, it } = require('node:test')
 
 const componentStub = path.join(tmpdir(), 'cuttlely-components-stub.cjs')
@@ -493,7 +494,170 @@ describe('workspace isolation', () => {
             .send({})
         assert.equal(noWorkspace.status, 401)
     })
+
+    // Removing the workspace comparison in requireHarness makes the other team's get, runs and create run return the row.
+    it('scopes harnesses to the active workspace', async () => {
+        const dataDir = fs.mkdtempSync(path.join(tmpdir(), 'cuttlely-harness-scope-'))
+        const previous = {
+            data: process.env.CUTTLELY_DATA_DIR,
+            hermes: process.env.CUTTLELY_HERMES_HOME,
+            warm: process.env.CUTTLELY_WARM_HERMES,
+            fallback: process.env.CUTTLELY_ETL_DEFAULT_WORKSPACE_ID
+        }
+        process.env.CUTTLELY_DATA_DIR = dataDir
+        process.env.CUTTLELY_HERMES_HOME = path.join(dataDir, 'hermes')
+        process.env.CUTTLELY_WARM_HERMES = 'false'
+        delete process.env.CUTTLELY_ETL_DEFAULT_WORKSPACE_ID
+        const harnessDir = path.join(dataDir, 'harnesses')
+        fs.mkdirSync(harnessDir, { recursive: true })
+        const roster = (name, workspaceId, extra = {}) => ({
+            name,
+            ...(workspaceId ? { workspaceId } : {}),
+            ...extra,
+            chief: { instructions: 'Answer.', model: { nodeName: 'chatOpenAI', inputs: { modelName: 'gpt-4.1-mini' } } },
+            specialists: [{ name: 'reader', instructions: 'Read.', modules: [], mcpServers: [] }]
+        })
+        const writeHarness = (record) => fs.writeFileSync(path.join(harnessDir, `${record.name}.json`), JSON.stringify(record, null, 2))
+        try {
+            writeHarness(roster('OwnTeam', WS1, { description: 'ours' }))
+            writeHarness(roster('OtherTeam', WS2, { description: 'theirs', chatflowId: 'other-canvas' }))
+            writeHarness(roster('LegacyTeam', undefined, { chatflowId: own.chatflow, description: 'before teams' }))
+            writeHarness(roster('OrphanTeam', undefined, { description: 'no canvas' }))
+            const history = await import(pathToFileURL(path.join(__dirname, '../packages/harness/history.mjs')).href)
+            const otherRun = history.beginHarnessRun({ name: 'OtherTeam', chatId: 'c-other', source: 'api', input: 'other-team-question' })
+            const ownRun = history.beginHarnessRun({ name: 'OwnTeam', chatId: 'c-own', source: 'api', input: 'own-team-question' })
+            assert.equal(typeof otherRun.id, 'string')
+            assert.equal(typeof ownRun.id, 'string')
+
+            const harnesses = loadService('./src/services/harnesses/index.ts')
+            const names = (rows) => rows.map((row) => row.name).sort()
+            assert.deepEqual(names(await harnesses.listHarnesses(WS1)), ['LegacyTeam', 'OwnTeam'])
+            assert.deepEqual(names(await harnesses.listHarnesses(WS2)), ['OtherTeam'])
+            const legacy = JSON.parse(fs.readFileSync(path.join(harnessDir, 'LegacyTeam.json'), 'utf8'))
+            assert.equal(legacy.workspaceId, WS1)
+            assert.equal((await harnesses.getHarness('OwnTeam', WS1)).description, 'ours')
+            await missingHarness(() => harnesses.getHarness('OtherTeam', WS1))
+            await missingHarness(() => harnesses.getHarness('OwnTeam', WS2))
+            assert.equal((await harnesses.listRuns('OwnTeam', WS1)).length, 1)
+            await missingHarness(() => harnesses.listRuns('OtherTeam', WS1))
+            const trace = await harnesses.getRun('OwnTeam', ownRun.id, WS1)
+            assert.equal(trace.inputPreview, 'own-team-question')
+            await missingHarness(() => harnesses.getRun('OtherTeam', otherRun.id, WS1))
+            await missingHarness(() => harnesses.assertRunRequest('OtherTeam', { question: 'hello' }, WS1))
+            const allowed = await harnesses.assertRunRequest('OwnTeam', { question: 'hello' }, WS1)
+            assert.equal(allowed.harness.name, 'OwnTeam')
+
+            await assert.rejects(
+                () => harnesses.saveHarness({ ...roster('OtherTeam', WS1), overwrite: true }, WS1),
+                (error) => {
+                    assert.equal(error.statusCode, 409)
+                    assert.match(error.message, /another team/)
+                    return true
+                }
+            )
+            assert.equal(JSON.parse(fs.readFileSync(path.join(harnessDir, 'OtherTeam.json'), 'utf8')).workspaceId, WS2)
+            const saved = await harnesses.saveHarness({ ...roster('OwnTeam', WS2), description: 'updated', overwrite: true }, WS1)
+            assert.equal(saved.workspaceId, WS1)
+            assert.equal(saved.description, 'updated')
+
+            await missingHarness(() => harnesses.deleteHarness('OtherTeam', WS1))
+            assert.equal(fs.existsSync(path.join(harnessDir, 'OtherTeam.json')), true)
+            assert.deepEqual(await harnesses.deleteHarness('OwnTeam', WS1), { name: 'OwnTeam', deleted: true })
+            assert.equal(fs.existsSync(path.join(harnessDir, 'OwnTeam.json')), false)
+
+            assert.ok(!names(await harnesses.listHarnesses(WS1)).includes('OrphanTeam'))
+            assert.ok(!names(await harnesses.listHarnesses(WS2)).includes('OrphanTeam'))
+            await missingHarness(() => harnesses.getHarness('OrphanTeam', WS1))
+            process.env.CUTTLELY_ETL_DEFAULT_WORKSPACE_ID = WS1
+            assert.ok(names(await harnesses.listHarnesses(WS1)).includes('OrphanTeam'))
+            assert.equal(JSON.parse(fs.readFileSync(path.join(harnessDir, 'OrphanTeam.json'), 'utf8')).workspaceId, WS1)
+            await missingHarness(() => harnesses.getHarness('OrphanTeam', WS2))
+
+            await assert.rejects(
+                () => harnesses.listHarnesses(''),
+                (error) => {
+                    assert.equal(error.statusCode, 400)
+                    return true
+                }
+            )
+
+            const started = []
+            harnesses.startRun = async (...args) => {
+                started.push(args)
+                return { chatId: 'c1', run: { id: 'run_1' }, payload: { text: 'ok' } }
+            }
+            const controller = loadService('./src/controllers/harnesses/index.ts')
+            const key = { permissions: ['chatflows:create'], activeWorkspaceId: WS1, activeOrganizationId: ORG, isOrganizationAdmin: false }
+            writeHarness(roster('OwnTeam', WS1))
+            const owned = await callController(controller.createRun, {
+                params: { name: 'OwnTeam' },
+                body: { question: 'hello' },
+                get: () => undefined,
+                user: key
+            })
+            assert.equal(owned.error, null)
+            assert.equal(owned.res.body.text, 'ok')
+            assert.equal(started.length, 1)
+            assert.equal(started[0][2].workspaceId, WS1)
+            const refused = await callController(controller.createRun, {
+                params: { name: 'OtherTeam' },
+                body: { question: 'hello' },
+                get: () => undefined,
+                user: key
+            })
+            assert.equal(refused.error.statusCode, 404)
+            assert.equal(started.length, 1)
+            const otherKey = await callController(controller.getRun, {
+                params: { name: 'OtherTeam', runId: otherRun.id },
+                user: key
+            })
+            assert.equal(otherKey.error.statusCode, 404)
+            assert.equal(otherKey.res.body, null)
+        } finally {
+            restoreEnv(previous)
+            fs.rmSync(dataDir, { recursive: true, force: true })
+        }
+    })
 })
+
+async function missingHarness(run) {
+    await assert.rejects(run, (error) => {
+        assert.equal(error.statusCode, 404)
+        assert.match(error.message, /not found/i)
+        return true
+    })
+}
+
+function restoreEnv(previous) {
+    for (const [key, envName] of [
+        ['data', 'CUTTLELY_DATA_DIR'],
+        ['hermes', 'CUTTLELY_HERMES_HOME'],
+        ['warm', 'CUTTLELY_WARM_HERMES'],
+        ['fallback', 'CUTTLELY_ETL_DEFAULT_WORKSPACE_ID']
+    ]) {
+        if (previous[key] === undefined) delete process.env[envName]
+        else process.env[envName] = previous[key]
+    }
+}
+
+function callController(method, req) {
+    return new Promise((resolve) => {
+        const res = {
+            statusCode: 200,
+            body: null,
+            status(code) {
+                this.statusCode = code
+                return this
+            },
+            json(body) {
+                this.body = body
+                resolve({ res: this, error: null })
+                return this
+            }
+        }
+        method(req, res, (error) => resolve({ res, error }))
+    })
+}
 
 async function saveCredential(ds, workspaceId, name) {
     const row = await ds.getRepository(Credential).save({ name, credentialName: 'openAIApi', encryptedData: 'cipher', workspaceId })

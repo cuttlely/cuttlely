@@ -18,8 +18,13 @@ import controller from './index'
 
 test('POST /api/v1/harnesses/:name/runs does not receive a draft roster', async () => {
     const res: any = { json: jest.fn() }
-    await controller.createRun({ params: { name: 'bakery-team' }, body: { question: 'hi' }, get: () => undefined } as any, res, jest.fn())
-    expect(startRun).toHaveBeenCalledWith('bakery-team', { question: 'hi' }, { source: 'api' })
+    await controller.createRun(
+        { params: { name: 'bakery-team' }, body: { question: 'hi' }, get: () => undefined, user: { activeWorkspaceId: 'team-a' } } as any,
+        res,
+        jest.fn()
+    )
+    expect(assertRunRequest).toHaveBeenCalledWith('bakery-team', { question: 'hi' }, 'team-a')
+    expect(startRun).toHaveBeenCalledWith('bakery-team', { question: 'hi' }, { source: 'api', workspaceId: 'team-a' })
     expect((startRun.mock.calls[0] as any[])[2]).not.toHaveProperty('record')
     expect(startCanvasRun).not.toHaveBeenCalled()
     expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ text: 'live' }))

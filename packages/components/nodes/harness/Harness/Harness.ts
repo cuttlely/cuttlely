@@ -55,14 +55,17 @@ class Harness_Harness implements INode {
     }
 
     loadMethods = {
-        listHarnesses: async (): Promise<INodeOptionsValue[]> => {
+        listHarnesses: async (_nodeData: INodeData, options?: ICommonObject): Promise<INodeOptionsValue[]> => {
             const engine = await loadHarnessEngine()
+            const workspaceId = typeof options?.workspaceId === 'string' ? options.workspaceId : ''
             const harnesses = engine.listHarnesses()
-            return harnesses.map((harness: { name: string; description?: string }) => ({
-                label: harness.name,
-                name: harness.name,
-                description: harness.description
-            }))
+            return harnesses
+                .filter((harness: { name: string; workspaceId?: string }) => Boolean(workspaceId) && harness.workspaceId === workspaceId)
+                .map((harness: { name: string; description?: string }) => ({
+                    label: harness.name,
+                    name: harness.name,
+                    description: harness.description
+                }))
         }
     }
 

@@ -4518,6 +4518,37 @@ await expectCase('a caller from another workspace is rejected', async () => {
     )
 })
 
+await expectCase('a save does not adopt a harness from another workspace', async () => {
+    saveHarness(
+        {
+            name: 'maClash',
+            chatflowId: 'canvas-w1',
+            workspaceId: 'w1',
+            chief: { model: { provider: 'xai', model: 'grok-4.7', credentialId: 'cred-xai' } },
+            specialists: [{ name: 'reader', modules: [], mcpServers: [] }]
+        },
+        { overwrite: true }
+    )
+    const clash = await capture(() =>
+        saveHarness(
+            {
+                name: 'maClash',
+                chatflowId: 'canvas-w1',
+                workspaceId: 'w2',
+                chief: { model: { provider: 'xai', model: 'grok-4.7', credentialId: 'cred-xai' } },
+                specialists: [{ name: 'reader', modules: [], mcpServers: [] }]
+            },
+            { overwrite: true }
+        )
+    )
+    const kept = getHarness('maClash')
+    check(
+        'a save does not adopt a harness from another workspace',
+        clash.error?.code === 'name_clash' && kept?.workspaceId === 'w1' && kept?.chatflowId === 'canvas-w1',
+        clash.error?.message || kept?.workspaceId
+    )
+})
+
 await expectCase('chatflow tool cannot call the calling chat flow', async () => {
     class ChatflowProbe {
         static httpCalls = 0

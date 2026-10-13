@@ -24,6 +24,7 @@ import { getErrorMessage } from '../../errors/utils'
 import { ScheduleBeat } from '../../schedule/ScheduleBeat'
 import documentStoreService from '../../services/documentstore'
 import etlService, { orgIdForWorkspace } from '../../services/etl'
+import harnessesService from '../../services/harnesses'
 import scheduleService from '../../services/schedule'
 import {
     constructGraphs,
@@ -831,6 +832,8 @@ async function syncHarnessCanvas(chatflow: ChatFlow) {
         logger.warn(`[harness] workspace org lookup failed: ${getErrorMessage(error)}`)
     }
     try {
+        // A name that already belongs to another team is refused before the file is written.
+        await harnessesService.assertNameAvailable(chatflow.name, chatflow.workspaceId)
         // Warnings are logged by the harness sync. The chatflow response has no warnings field.
         await engine.syncHarnessFromFlow({
             name: chatflow.name,
@@ -851,6 +854,8 @@ async function syncHarnessCanvas(chatflow: ChatFlow) {
             }
         })
     } catch (error) {
+        if (error instanceof AppError) throw error
+        if ((error as { code?: string })?.code === 'name_clash') throw new AppError(StatusCodes.CONFLICT, getErrorMessage(error))
         throw new AppError(StatusCodes.BAD_REQUEST, getErrorMessage(error))
     }
 }
