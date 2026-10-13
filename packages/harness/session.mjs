@@ -67,6 +67,14 @@ function connection(harnessName, { create }) {
         memoryPut: db.prepare(
             `INSERT INTO memory (session_key, summary, pins, updated_at) VALUES (?, ?, ?, ?)
              ON CONFLICT(session_key) DO UPDATE SET summary = excluded.summary, pins = excluded.pins, updated_at = excluded.updated_at`
+        ),
+        userTurns: db.prepare(
+            `SELECT m.content AS content, m.created_at AS createdAt, m.id AS id
+             FROM messages m
+             JOIN sessions s ON s.session_key = m.session_key
+             WHERE s.harness_name = ? AND m.role = 'user'
+             ORDER BY m.created_at DESC, m.id DESC
+             LIMIT ?`
         )
     }
     connections.set(file, entry)
@@ -217,6 +225,24 @@ export function appendTurn(harnessName, chatId, question, answer, pins = []) {
     ])
     refreshMemory(harnessName, chatId, [...pinsFromText(question), ...pinsFromText(answer), ...pins])
     return key
+}
+
+// Full user prompts for this harness, newest first. The run list stores only a short preview.
+export function listUserTurns(harnessName, { limit = 2000 } = {}) {
+    const entry = connection(harnessName, { create: false })
+    if (!entry) return []
+    const cap = Number.isFinite(limit) ? Math.min(5000, Math.max(1, Math.floor(limit))) : 2000
+    if (!entry.userTurns) {
+        entry.userTurns = entry.db.prepare(
+            `SELECT m.content AS content, m.created_at AS createdAt, m.id AS id
+             FROM messages m
+             JOIN sessions s ON s.session_key = m.session_key
+             WHERE s.harness_name = ? AND m.role = 'user'
+             ORDER BY m.created_at DESC, m.id DESC
+             LIMIT ?`
+        )
+    }
+    return entry.userTurns.all(harnessName, cap)
 }
 
 export function readMessages(harnessName, chatId, limit) {
