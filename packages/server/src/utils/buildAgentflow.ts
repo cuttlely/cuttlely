@@ -1200,7 +1200,29 @@ const executeNode = async ({
 
         if (agentFlowExecutedData.length) {
             const lastNodeOutput = agentFlowExecutedData[agentFlowExecutedData.length - 1]?.data?.output as ICommonObject | undefined
-            humanInputAction = lastNodeOutput?.humanInputAction
+            const action = lastNodeOutput?.humanInputAction
+            const usage = lastNodeOutput?.usageMetadata as
+                | { input_tokens?: number; output_tokens?: number; tool_call_tokens?: number }
+                | undefined
+            const priorInput = Number(usage?.input_tokens) || 0
+            const priorOutput = Number(usage?.output_tokens) || 0
+            const priorTool = Number(usage?.tool_call_tokens) || 0
+            // The resume deletes this stopped step. Keep its summed tokens on the action the agent reads,
+            // so the finished step still includes the model calls from before the approval.
+            humanInputAction =
+                action && (priorInput || priorOutput || priorTool)
+                    ? {
+                          ...action,
+                          data: {
+                              ...(action.data || {}),
+                              priorUsage: {
+                                  input_tokens: priorInput,
+                                  output_tokens: priorOutput,
+                                  tool_call_tokens: priorTool || priorInput + priorOutput
+                              }
+                          }
+                      }
+                    : action
         }
 
         // This is when human in the loop is resumed
