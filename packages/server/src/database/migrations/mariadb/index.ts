@@ -57,6 +57,7 @@ import { AddTokenUsageDay1791900000000 } from './1791900000000-AddTokenUsageDay'
 import { AddPublishGate1792000000000 } from './1792000000000-AddPublishGate'
 import { AddModelPriceOverride1793000000000 } from './1793000000000-AddModelPriceOverride'
 import { BinCollationOnTokenUsageDayModel1794000000000 } from './1794000000000-BinCollationOnTokenUsageDayModel'
+import { AddDatasetRowSource1795000000000 } from './1795000000000-AddDatasetRowSource'
 
 import { AddAuthTables1720230151482 } from './1720230151482-AddAuthTables'
 import { AddWorkspace1725437498242 } from './1725437498242-AddWorkspace'
@@ -140,5 +141,6 @@ export const mariadbMigrations = [
     AddTokenUsageDay1791900000000,
     AddPublishGate1792000000000,
     AddModelPriceOverride1793000000000,
-    BinCollationOnTokenUsageDayModel1794000000000
+    BinCollationOnTokenUsageDayModel1794000000000,
+    AddDatasetRowSource1795000000000
 ]
