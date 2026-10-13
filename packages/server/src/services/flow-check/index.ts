@@ -964,6 +964,9 @@ async function runCheck(record: CheckRecord, flow: IChatFlow, draft: string, bas
         } else {
             // Store the verdict before status is done, so a poll cannot see a finished check with nothing saved yet.
             // A harness check can replay a dataset. It does not store a pass: the gate cannot be turned on for one.
+            // A failed write clears any older pass and fails the check. Leaving the check done would let that
+            // older pass publish even though this check did not store its result.
+            let stored = true
             if (
                 publishGateApplies(flow.type) &&
                 record.fromDataset &&
@@ -972,8 +975,8 @@ async function runCheck(record: CheckRecord, flow: IChatFlow, draft: string, bas
                 flowDraftsService.recordPublishGateResult
             ) {
                 const verdict = draftVerdict(summarize(record.cases, record.liveEmpty).scores?.draft, record.threshold)
-                await flowDraftsService
-                    .recordPublishGateResult(flow as DraftFlow, {
+                try {
+                    await flowDraftsService.recordPublishGateResult(flow as DraftFlow, {
                         draftHash: record.draftHash,
                         datasetId: record.datasetId,
                         evaluatorIds: record.evaluators.map((evaluator) => evaluator.id),
@@ -986,13 +989,27 @@ async function runCheck(record: CheckRecord, flow: IChatFlow, draft: string, bas
                         contentHash: record.contentHash,
                         postProcessHash: record.postProcessHash
                     })
-                    .catch((error: Error) => {
+                } catch (error) {
+                    stored = false
+                    logger.error(
+                        `[server]: could not store the publish gate result for flow ${flow.id}: ${
+                            (error as Error)?.message || 'unknown error'
+                        }`
+                    )
+                    try {
+                        await flowDraftsService.clearPublishGateResult(flow as DraftFlow)
+                    } catch (clearError) {
                         logger.error(
-                            `[server]: could not store the publish gate result for flow ${flow.id}: ${error?.message || 'unknown error'}`
+                            `[server]: could not clear the publish gate result for flow ${flow.id}: ${
+                                (clearError as Error)?.message || 'unknown error'
+                            }`
                         )
-                    })
+                    }
+                    record.status = 'failed'
+                    record.error = 'The test set result could not be saved.'
+                }
             }
-            record.status = 'done'
+            if (stored) record.status = 'done'
         }
     } catch (error) {
         record.status = 'failed'

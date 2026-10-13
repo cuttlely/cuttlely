@@ -19,7 +19,7 @@ import {
 import flowDraftsApi from '@/api/flowDrafts'
 import useConfirm from '@/hooks/useConfirm'
 import { CHANGE_COLORS } from '@/utils/versionHistory'
-import { POLL_MS } from '@/utils/publishCheck'
+import { POLL_MS, pollGateCheck } from '@/utils/publishCheck'
 import {
     STALE_DRAFT_WARNING,
     apiErrorMessage,
@@ -148,6 +148,18 @@ const PublishDialog = ({ open, chatflow, draftStatus, isDirty, onClose, onDraftS
 
     const onStatus = useRef(onDraftStatus)
     onStatus.current = onDraftStatus
+    const mounted = useRef(true)
+    const gateGeneration = useRef(0)
+    useEffect(() => {
+        if (!open) gateGeneration.current += 1
+    }, [open])
+    useEffect(
+        () => () => {
+            mounted.current = false
+            gateGeneration.current += 1
+        },
+        []
+    )
     useEffect(() => {
         if (!open || !chatflow?.id) return
         let cancelled = false
@@ -179,6 +191,8 @@ const PublishDialog = ({ open, chatflow, draftStatus, isDirty, onClose, onDraftS
     const onRunGate = async () => {
         const gate = draftStatus?.publishGate
         if (!chatflow?.id || !gate?.enabled || gateBusy || busy) return
+        const generation = ++gateGeneration.current
+        const stopped = () => !mounted.current || gateGeneration.current !== generation
         setGateBusy(true)
         setError('')
         try {
@@ -188,19 +202,25 @@ const PublishDialog = ({ open, chatflow, draftStatus, isDirty, onClose, onDraftS
                 threshold: gate.threshold ?? 100,
                 includeRiskySteps: runAnyway
             })
-            let view = started.data
-            for (let i = 0; i < 200 && view?.status === 'running'; i += 1) {
-                await new Promise((resolve) => setTimeout(resolve, POLL_MS))
-                const next = await flowDraftsApi.getCheck(chatflow.id, view.id)
-                view = next.data
-            }
+            if (stopped()) return
+            // Closing the dialog stops this poll. It does not stop the check, so a run already
+            // started can still record a pass for the draft it scored.
+            const view = await pollGateCheck({
+                view: started.data,
+                pollMs: POLL_MS,
+                shouldStop: stopped,
+                sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+                read: async () => (await flowDraftsApi.getCheck(chatflow.id, started.data?.id)).data
+            })
+            if (stopped()) return
             const status = await flowDraftsApi.getStatus(chatflow.id)
+            if (stopped()) return
             if (status.data) onDraftStatus(status.data)
             if (view?.status !== 'done') setError(view?.error || 'The test set did not finish.')
         } catch (err) {
-            setError(apiErrorMessage(err, 'The test set could not start.'))
+            if (!stopped()) setError(apiErrorMessage(err, 'The test set could not start.'))
         } finally {
-            setGateBusy(false)
+            if (mounted.current && gateGeneration.current === generation) setGateBusy(false)
         }
     }
 

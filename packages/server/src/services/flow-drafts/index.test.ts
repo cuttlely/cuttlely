@@ -24,6 +24,7 @@ const fakeRepo = {
 const chatRepo = {
     findOneBy: jest.fn(async (where: any) => chats.find((row) => row.id === where.id) || null)
 }
+let duringDatasetLookup: null | (() => Promise<void>) = null
 const datasets = new Map<string, any>()
 const datasetRows: any[] = []
 const evaluators = new Map<string, any>()
@@ -33,6 +34,11 @@ const repositoryFor = (entity: { name?: string }) => {
     if (name === 'Dataset') {
         return {
             findOneBy: async (where: any) => {
+                if (duringDatasetLookup) {
+                    const run = duringDatasetLookup
+                    duringDatasetLookup = null
+                    await run()
+                }
                 const row = where?.id ? datasets.get(where.id) : null
                 if (!row || row.workspaceId !== where.workspaceId) return null
                 return row
@@ -84,6 +90,7 @@ import {
     setPublishInstantly,
     updateDraftSettings,
     recordPublishGateResult,
+    clearPublishGateResult,
     typeHasDrafts,
     uniqueUploadNames
 } from './index'
@@ -108,6 +115,7 @@ beforeEach(() => {
     datasets.clear()
     datasetRows.length = 0
     evaluators.clear()
+    duringDatasetLookup = null
     chats.push({ id: 'flow-1', type: 'CHATFLOW', workspaceId: 'team-a' })
     draftWriteHooks.beforeDraftWrite = null
     jest.clearAllMocks()
@@ -609,6 +617,52 @@ describe('a passing test set before Publish', () => {
         })
         return { contentHash, draftHash }
     }
+
+    test('a draft save during target validation survives the settings write', async () => {
+        seed()
+        rows.push({
+            id: 'state-1',
+            chatflowId: 'flow-1',
+            workspaceId: 'team-a',
+            publishInstantly: false,
+            publishGate: false,
+            draftFlowData: null,
+            liveSha: 'abc123',
+            publishedDate: new Date('2026-10-01T00:00:00Z')
+        })
+        duringDatasetLookup = async () => {
+            await saveDraft(flow(), canvas('Saved during validation'), context)
+        }
+        const status = await updateDraftSettings(flow(), { publishGate: gate })
+        expect(rows).toHaveLength(1)
+        expect(rows[0].draftFlowData).toEqual(expect.stringContaining('Saved during validation'))
+        expect(rows[0].liveSha).toBe('abc123')
+        expect(rows[0].publishGate).toBe(true)
+        expect(rows[0].publishGateDatasetId).toBe('ds-1')
+        expect(rows[0].publishGateEvaluatorIds).toBe(JSON.stringify(['ev-1']))
+        expect(rows[0].publishGateThreshold).toBe(100)
+        const settingsWrite = fakeRepo.update.mock.calls.find((call) => call[1]?.publishGate === true)
+        expect(settingsWrite?.[1]).toEqual({
+            publishGate: true,
+            publishGateDatasetId: 'ds-1',
+            publishGateEvaluatorIds: JSON.stringify(['ev-1']),
+            publishGateThreshold: 100
+        })
+        expect(status.publishGate.enabled).toBe(true)
+        expect(status.draft?.flowData).toEqual(expect.stringContaining('Saved during validation'))
+    })
+
+    test('clearing a stored gate result leaves the draft in place', async () => {
+        await saveDraft(flow(), canvas('Draft'), context)
+        rows[0].publishGate = true
+        rows[0].publishGateResult = JSON.stringify({ verdict: 'passed' })
+        const saves = fakeRepo.save.mock.calls.length
+        await clearPublishGateResult(flow())
+        expect(rows[0].publishGateResult).toBeNull()
+        expect(rows[0].draftFlowData).toEqual(expect.stringContaining('Draft'))
+        expect(rows[0].publishGate).toBe(true)
+        expect(fakeRepo.save.mock.calls.length).toBe(saves)
+    })
 
     test('stays off, and Publish is unchanged', async () => {
         await saveDraft(flow(), canvas('Draft'), context)

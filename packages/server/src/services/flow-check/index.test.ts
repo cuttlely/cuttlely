@@ -2,12 +2,14 @@
 const states = new Map<string, any>()
 let draftsOn = true
 const recordPublishGateResult: jest.Mock = jest.fn(async () => undefined)
+const clearPublishGateResult: jest.Mock = jest.fn(async () => undefined)
 jest.mock('../flow-drafts', () => ({
     __esModule: true,
     default: {
         getState: async (id: string) => states.get(id) || null,
         isDraftsEnabled: () => draftsOn,
-        recordPublishGateResult: (...args: unknown[]) => recordPublishGateResult(...args)
+        recordPublishGateResult: (...args: unknown[]) => recordPublishGateResult(...args),
+        clearPublishGateResult: (...args: unknown[]) => clearPublishGateResult(...args)
     },
     canvasHash: (flowData: string) => `hash:${flowData}`
 }))
@@ -1059,6 +1061,19 @@ describe('a dataset and evaluators', () => {
             statusCode: 400,
             message: 'threshold is only used with a dataset.'
         })
+    })
+
+    test('a failed gate write clears the stored result and fails the check', async () => {
+        recordPublishGateResult.mockRejectedValueOnce(new Error('disk full'))
+        const started = await startCheck(flow() as any, { datasetId: 'ds-1', threshold: 0 }, 'http://x')
+        await settle()
+        const failed = await getCheck(flow(), started.id)
+        expect(failed.status).toBe('failed')
+        expect(failed.error).toBe('The test set result could not be saved.')
+        expect(failed.error).not.toContain('disk full')
+        expect(failed.verdict).toBeNull()
+        expect(clearPublishGateResult).toHaveBeenCalledWith(expect.objectContaining({ id: 'flow-1' }))
+        expect(recordPublishGateResult).toHaveBeenCalled()
     })
 
     test('a write during scoring cannot pair a pass with the new test set hash', async () => {

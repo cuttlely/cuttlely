@@ -495,18 +495,43 @@ export async function updateDraftSettings(
     // The ids are resolved in this flow's workspace before anything is written. A missing id and an id
     // from another workspace are the same 404, and the stored settings stay as they were.
     if (gate?.enabled && gate.datasetId) await assertGateTargets(flow.workspaceId, gate.datasetId, gate.evaluatorIds)
-    if (!state && !nextInstant && !nextGate) return withTestSet(flow, statusFrom(flow, null))
-    const row = state || repo().create({ chatflowId: flow.id, workspaceId: flow.workspaceId, publishInstantly: false, publishGate: false })
-    if (hasInstant) row.publishInstantly = nextInstant
-    if (gate?.enabled) {
-        row.publishGate = true
-        row.publishGateDatasetId = gate.datasetId
-        row.publishGateEvaluatorIds = JSON.stringify(gate.evaluatorIds)
-        row.publishGateThreshold = gate.threshold
-    } else if (gate && !gate.enabled) {
-        row.publishGate = false
+    // A draft save or a publish can land during that lookup. Write only the settings columns, then
+    // re-read, so the stale row from before the lookup cannot put the old draft or publication back.
+    const patch = settingsPatch(hasInstant, nextInstant, gate)
+    const current = await getState(flow.id)
+    if (!current) {
+        if (!nextInstant && !nextGate) return withTestSet(flow, statusFrom(flow, null))
+        await repo().save(
+            repo().create({
+                chatflowId: flow.id,
+                workspaceId: flow.workspaceId,
+                publishInstantly: false,
+                publishGate: false,
+                ...patch
+            })
+        )
+    } else if (Object.keys(patch).length) {
+        await repo().update({ chatflowId: flow.id }, patch)
     }
-    return withTestSet(flow, statusFrom(flow, await repo().save(row)))
+    return withTestSet(flow, statusFrom(flow, await getState(flow.id)))
+}
+
+function settingsPatch(
+    hasInstant: boolean,
+    nextInstant: boolean,
+    gate: { enabled: boolean; datasetId: string | null; evaluatorIds: string[]; threshold: number | null } | null
+): Partial<FlowVersionState> {
+    const patch: Partial<FlowVersionState> = {}
+    if (hasInstant) patch.publishInstantly = nextInstant
+    if (gate?.enabled) {
+        patch.publishGate = true
+        patch.publishGateDatasetId = gate.datasetId
+        patch.publishGateEvaluatorIds = JSON.stringify(gate.evaluatorIds)
+        patch.publishGateThreshold = gate.threshold
+    } else if (gate && !gate.enabled) {
+        patch.publishGate = false
+    }
+    return patch
 }
 
 export interface GateResultInput {
@@ -562,6 +587,12 @@ export async function recordPublishGateResult(flow: DraftFlow, input: GateResult
     await repo().update({ chatflowId: flow.id }, { publishGateResult: gateResultRecord(record) })
 }
 
+// Drops the stored gate result and leaves the draft and the other settings alone. A check whose
+// write failed calls this so an older pass cannot publish.
+export async function clearPublishGateResult(flow: Pick<DraftFlow, 'id'>): Promise<void> {
+    await repo().update({ chatflowId: flow.id }, { publishGateResult: null })
+}
+
 // The canvas the flow's own test runs: the draft when the flow saves to drafts and has one,
 // otherwise Live. The canvas test chat calls this, and so does a pipeline preview that omits the canvas.
 // Every other caller reads Live.
@@ -591,6 +622,7 @@ export default {
     setPublishInstantly,
     updateDraftSettings,
     recordPublishGateResult,
+    clearPublishGateResult,
     flowDataForTestChat,
     deleteStateFor
 }

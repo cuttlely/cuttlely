@@ -235,6 +235,63 @@ describe('PublishDialog while the check setup is still pending', () => {
         expect(document.body.textContent).not.toContain('Run the test set')
         act(() => root.unmount())
     })
+
+    test('closing the dialog stops polling a gate run and does not stop the check', async () => {
+        flowDraftsApi.getCheckSetup.mockImplementation(() => new Promise(() => {}))
+        flowDraftsApi.getStatus.mockResolvedValue({ data: { publishGate: { enabled: true, block: null } } })
+        flowDraftsApi.startCheck.mockResolvedValue({
+            data: { id: 'check-1', status: 'running', limits: { maxSeconds: 1800 } }
+        })
+        flowDraftsApi.getCheck.mockResolvedValue({ data: { id: 'check-1', status: 'done' } })
+        flowDraftsApi.stopCheck.mockResolvedValue({ data: { id: 'check-1', status: 'stopped' } })
+        const container = document.createElement('div')
+        document.body.appendChild(container)
+        const root = createRoot(container)
+        await act(async () => {
+            root.render(
+                createElement(
+                    ThemeProvider,
+                    { theme: createTheme() },
+                    createElement(PublishDialog, {
+                        open: true,
+                        chatflow: { id: 'flow-1', type: 'CHATFLOW', name: 'Bakery helper', flowData: canvas('chatInput', 'Reply') },
+                        draftStatus: {
+                            draft: { flowData: canvas('chatInput', 'Oven reply') },
+                            publishGate: {
+                                enabled: true,
+                                datasetId: 'ds-1',
+                                evaluatorIds: ['ev-1'],
+                                threshold: 100,
+                                block: 'Publish needs a passing test set at 100%. There is no result for this draft yet.'
+                            }
+                        },
+                        isDirty: false,
+                        onClose: () => {},
+                        onDraftStatus: () => {},
+                        onChatflowUpdated: () => {},
+                        onApplyCanvas: () => {}
+                    })
+                )
+            )
+        })
+        const button = [...document.body.querySelectorAll('button')].find((item) => item.textContent === 'Run the test set')
+        expect(button).toBeTruthy()
+        await act(async () => {
+            button.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+        })
+        expect(flowDraftsApi.startCheck).toHaveBeenCalledWith('flow-1', {
+            datasetId: 'ds-1',
+            evaluatorIds: ['ev-1'],
+            threshold: 100,
+            includeRiskySteps: false
+        })
+        act(() => root.unmount())
+        await act(async () => {
+            await new Promise((resolve) => setTimeout(resolve, 1100))
+        })
+        expect(flowDraftsApi.stopCheck).not.toHaveBeenCalled()
+        expect(flowDraftsApi.getCheck).not.toHaveBeenCalled()
+    })
 })
 
 const graph = (label, path) =>
