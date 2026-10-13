@@ -19,9 +19,14 @@ export const ANALYST_CURSOR_ERRORS = {
     past: PAGE_PAST
 }
 
-export function rowPageSummary({ start, end, total, page, pages, more }) {
+export function rowPageSummary({ start, end, total, page, pages, more, hidePageNumber = false }) {
     const known = Number.isFinite(total)
     const range = known ? `rows ${start}-${end} of ${total}` : `rows ${start}-${end}`
+    // After a short page the cursor will not honor an arbitrary page number, so the line does not offer one.
+    if (hidePageNumber) {
+        if (more) return `${range} (more rows available, say "show more" for the next page)`
+        return `${range} (last page)`
+    }
     if (known && Number.isFinite(pages)) {
         if (more) return `${range} (page ${page} of ${pages}, say "show more" for the next page)`
         return `${range} (page ${page} of ${pages}, last page)`
@@ -310,7 +315,7 @@ export function projectSelect(selectList, keys) {
     return projected
 }
 
-export function keysetSql({ selectList, table, where, keys, last, limit, offset = 0 }) {
+export function keysetSql({ selectList, table, where, keys, last, limit, offset = 0, unlimited = false }) {
     const params = []
     let seek = ''
     if (last) {
@@ -332,13 +337,76 @@ export function keysetSql({ selectList, table, where, keys, last, limit, offset 
     const whereSql = [where ? `(${where})` : '', seek].filter(Boolean).join(' AND ')
     const orderSql = keys.map((key) => `${orderName(key)} ${key.dir === 'desc' ? 'DESC' : 'ASC'}`).join(', ')
     const projected = projectSelect(selectList, keys)
-    let sql = `SELECT ${projected} FROM ${quoteIdent(table)}${whereSql ? ` WHERE ${whereSql}` : ''} ORDER BY ${orderSql} LIMIT ?`
+    let sql = `SELECT ${projected} FROM ${quoteIdent(table)}${whereSql ? ` WHERE ${whereSql}` : ''} ORDER BY ${orderSql}`
+    if (unlimited) return { sql, params }
+    sql += ' LIMIT ?'
     params.push(limit)
     if (offset) {
         sql += ' OFFSET ?'
         params.push(offset)
     }
     return { sql, params }
+}
+
+// A Date printed with toString() in a long timezone name stays under this.
+const ANALYST_DATE_LINE_FLOOR = 128
+// `${plainObject}` is "[object Object]". The floor also covers the longest
+// JavaScript number string, String(-Number.MAX_VALUE), which is 24 characters.
+// An array stringifies with a comma between elements and can be longer than
+// the JSON text, so an array has no bound.
+const ANALYST_JSON_LINE_FLOOR = 24
+
+function sqlLiteral(value) {
+    return `'${String(value).replace(/'/g, "''")}'`
+}
+
+// A lower bound on the characters `${value}` adds. NULL means this type has no bound.
+// Text, varchar, and name use UTF-8 bytes, which are at least the UTF-16 units the handoff counts.
+// character(n) uses octet_length of the value itself. On that type this is the detoasted padded
+// byte count, so a compressed wide value is not shorter than the handoff line. That call is only
+// emitted when the column type is character, because octet_length is not defined for every type.
+function valueLengthExpr(name, engine, pgType) {
+    const id = quoteIdent(name)
+    if (engine === 'postgres' && pgType === 'character') {
+        return `CASE WHEN ${id} IS NULL THEN 4 ELSE octet_length(${id}) END`
+    }
+    if (engine === 'postgres') {
+        return `CASE WHEN ${id} IS NULL THEN 4 WHEN pg_typeof(${id})::text IN ('smallint', 'integer', 'bigint') THEN length(${id}::text) WHEN pg_typeof(${id})::text = 'boolean' THEN length(${id}::text) WHEN pg_typeof(${id})::text IN ('text', 'character varying', 'name') THEN octet_length(${id}::text) WHEN pg_typeof(${id})::text IN ('date', 'timestamp without time zone', 'timestamp with time zone') THEN GREATEST(octet_length(${id}::text), ${ANALYST_DATE_LINE_FLOOR}) WHEN pg_typeof(${id})::text IN ('json', 'jsonb') AND jsonb_typeof(to_jsonb(${id})) = 'array' THEN NULL WHEN pg_typeof(${id})::text IN ('json', 'jsonb') THEN GREATEST(octet_length(${id}::text), ${ANALYST_JSON_LINE_FLOOR}) ELSE NULL END`
+    }
+    return `CASE typeof(${id}) WHEN 'null' THEN 4 WHEN 'integer' THEN length(CAST(${id} AS TEXT)) WHEN 'text' THEN length(CAST(${id} AS BLOB)) ELSE NULL END`
+}
+
+// One integer per result row, in the same order as the paged statement. The integer is at least
+// the handoff line length. A NULL length means a column type cannot be bounded.
+export function columnTypeSql(innerSql, columnNames) {
+    const names = (columnNames || []).filter((name) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(String(name)))
+    if (!names.length) return null
+    const source = String(innerSql || '').trim()
+    if (!source) return null
+    const limited = hasTopLevelLimit(source) ? source : `${source}\nLIMIT 1`
+    const cols = names.map((name) => `pg_typeof(${quoteIdent(name)})::text AS ${quoteIdent(name)}`).join(', ')
+    return `SELECT ${cols} FROM (${limited}) AS analyst_types`
+}
+
+export function resultLengthSql(innerSql, columnNames, engine = 'sqlite', columnTypes = null) {
+    const names = (columnNames || []).filter((name) => name !== 'analyst_rowid' && !String(name).startsWith('analyst_key_'))
+    if (!names.length || names.some((name) => !/^[A-Za-z_][A-Za-z0-9_]*$/.test(String(name)))) return null
+    if (engine !== 'sqlite' && engine !== 'postgres') return null
+    const expr = names
+        .map((name, index) => {
+            const prefix = `${index === 0 ? '' : ', '}${name}: `
+            const pgType = columnTypes && columnTypes[name]
+            return `(length(${sqlLiteral(prefix)}) + (${valueLengthExpr(name, engine, pgType)}))`
+        })
+        .join(' + ')
+    const source = String(innerSql || '').trim()
+    if (!source) return null
+    const limited = hasTopLevelLimit(source) ? source : `${source}\nLIMIT 9223372036854775807`
+    return `SELECT analyst_line_len FROM (
+    SELECT ${expr} AS analyst_line_len, row_number() OVER () AS analyst_line_ord
+    FROM (${limited}) AS analyst_src
+) AS analyst_line
+ORDER BY analyst_line_ord`
 }
 
 export function offsetSql(statement, limit, offset) {
@@ -375,14 +443,28 @@ export function pageKeyValue(row, key) {
 
 // `more` is the extra row from LIMIT pageSize+1. A count that is larger than
 // the rows in hand does not invent another page or a cursor.
-export function describeAnalystPage(keptCount, { page, pageSize, total, more }) {
+// `walked` is how many pages the row cap and the handoff budget actually
+// produce. An unknown walk is not treated as agreement: ceil(total / pageSize)
+// is too small once a later page is short, and that count names a page the
+// cursor must not open.
+export function describeAnalystPage(keptCount, { page, pageSize, total, more, startOffset, cut = false, walked = null }) {
     if (!keptCount || (!more && page <= 1)) return { summary: '', truncated: false, multi: false }
-    const start = (page - 1) * pageSize + 1
+    const uniformStart = (page - 1) * pageSize
+    const startBase = Number.isInteger(startOffset) ? startOffset : uniformStart
+    const start = startBase + 1
     const end = start + keptCount - 1
     const fetchedThrough = end + (more ? 1 : 0)
     let known = Number.isFinite(total) ? total : null
-    if (known != null && (known < fetchedThrough || (more && known <= pageSize))) known = null
-    const pages = !more ? page : known == null ? null : Math.max(page + 1, Math.ceil(known / pageSize))
+    if (known != null && (known < fetchedThrough || (more && known <= pageSize && startBase === 0))) known = null
+    const uniform = known != null && pageSize > 0 ? Math.ceil(known / pageSize) : null
+    const countAgrees = uniform != null && Number.isInteger(walked) && walked === uniform
+    // A short earlier page means later page numbers are not stable indexes. Do not name a page or a page count.
+    const unaligned = startBase !== uniformStart || Boolean(cut) || !countAgrees
+    let pages = null
+    if (!unaligned) {
+        if (!more) pages = page
+        else if (uniform != null) pages = Math.max(page + 1, uniform)
+    }
     return {
         summary: rowPageSummary({
             start,
@@ -390,7 +472,8 @@ export function describeAnalystPage(keptCount, { page, pageSize, total, more }) 
             total: known,
             page,
             pages,
-            more: Boolean(more)
+            more: Boolean(more),
+            hidePageNumber: unaligned
         }),
         truncated: Boolean(more),
         multi: true
