@@ -234,7 +234,9 @@ const VersionHistoryDrawer = ({ open, chatflow, isDirty, draftMode, onClose, onR
                                             Edited by {authorLabel(version)}
                                         </Box>
                                         <Box component='span' sx={{ display: 'block' }}>
-                                            {`${kindLabel(version.kind)} ${relativeTime(version.date)} · ${version.shortSha}`}
+                                            {`${kindLabel(version.kind, version.title)} ${relativeTime(version.date)} · ${
+                                                version.shortSha
+                                            }`}
                                         </Box>
                                         {hiddenNote(version) && (
                                             <Box component='span' sx={{ display: 'block', color: theme.palette.warning.dark }}>

@@ -10,12 +10,12 @@ import { IconRocket, IconSparkles } from '@tabler/icons-react'
 import flowVersionsApi from '@/api/flowVersions'
 import { useAuth } from '@/hooks/useAuth'
 import { OWNER_PERMISSION } from '@/utils/githubSync'
-import { incomingLabel, incomingSummary, promotePath } from '@/utils/promote'
+import { incomingLabel, incomingSummary, promotePath, sourceTitleOf } from '@/utils/promote'
 
 const SHOWN = 3
 
 // What the banner shows, from plain props.
-export const FromDevBannerView = ({ flows }) => {
+export const FromDevBannerView = ({ flows, sourceTitle = 'Dev' }) => {
     const theme = useTheme()
     if (!flows?.length) return null
     const shown = flows.slice(0, SHOWN)
@@ -36,7 +36,7 @@ export const FromDevBannerView = ({ flows }) => {
             <Stack direction='row' spacing={1} alignItems='center' justifyContent='space-between'>
                 <Stack direction='row' spacing={1} alignItems='center'>
                     <IconRocket size={20} color={theme.palette.primary.main} />
-                    <Typography variant='h5'>{incomingSummary(flows)}</Typography>
+                    <Typography variant='h5'>{incomingSummary(flows, sourceTitle)}</Typography>
                 </Stack>
                 <Button size='small' component={RouterLink} to={promotePath()}>
                     Review all
@@ -54,7 +54,7 @@ export const FromDevBannerView = ({ flows }) => {
                             {flow.name}
                         </Typography>
                         <Typography variant='body2' color='text.secondary' noWrap sx={{ flex: 1 }}>
-                            {incomingLabel(flow)}
+                            {incomingLabel(flow, sourceTitle)}
                         </Typography>
                         <Button size='small' variant='outlined' component={RouterLink} to={promotePath(flow.flowId)}>
                             Review
@@ -70,13 +70,14 @@ export const FromDevBannerView = ({ flows }) => {
         </Box>
     )
 }
-FromDevBannerView.propTypes = { flows: PropTypes.array }
+FromDevBannerView.propTypes = { flows: PropTypes.array, sourceTitle: PropTypes.string }
 
 // types: only flows of these types are listed (the chatflows page shows chatflows, and so on).
 const FromDevBanner = ({ types }) => {
     const { hasPermission } = useAuth()
     const owner = hasPermission(OWNER_PERMISSION)
     const [flows, setFlows] = useState([])
+    const [incoming, setIncoming] = useState(null)
     const key = (types || []).join(',')
     useEffect(() => {
         if (!owner) return undefined
@@ -86,15 +87,20 @@ const FromDevBanner = ({ types }) => {
             .then((res) => {
                 if (cancelled) return
                 const wanted = key ? key.split(',') : null
+                setIncoming(res.data || null)
                 setFlows((res.data?.flows || []).filter((flow) => !wanted || wanted.includes(flow.type || 'CHATFLOW')))
             })
-            .catch(() => !cancelled && setFlows([]))
+            .catch(() => {
+                if (cancelled) return
+                setIncoming(null)
+                setFlows([])
+            })
         return () => {
             cancelled = true
         }
     }, [owner, key])
     if (!owner) return null
-    return <FromDevBannerView flows={flows} />
+    return <FromDevBannerView flows={flows} sourceTitle={sourceTitleOf(incoming)} />
 }
 FromDevBanner.propTypes = { types: PropTypes.array }
 

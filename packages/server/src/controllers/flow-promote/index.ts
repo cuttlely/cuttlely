@@ -15,7 +15,14 @@ import { getRunningExpressApp } from '../../utils/getRunningExpressApp'
 import { checkUsageLimit } from '../../utils/quotaUsage'
 import { missingCredentialsMessage, putVersionLive } from '../flow-versions'
 
-const VERB = 'Promoted from Dev'
+const verb = () => flowPromoteService.promoteVerb?.() || 'Promoted from Dev'
+const sourceName = () => flowPromoteService.promoteSource?.() || 'Dev'
+const missingVersion = () =>
+    sourceName() === 'Dev'
+        ? 'There is no new version from Dev for this flow.'
+        : `There is no new version from ${sourceName()} for this flow.`
+const missingCheck = () =>
+    sourceName() === 'Dev' ? 'There is no new version from Dev to check.' : `There is no new version from ${sourceName()} to check.`
 
 function workspaceOf(req: Request): string {
     const workspaceId = req.user?.activeWorkspaceId
@@ -47,13 +54,16 @@ const promote = async (req: Request, res: Response, next: NextFunction) => {
         const workspaceId = workspaceOf(req)
         const orgId = req.user?.activeOrganizationId
         if (!orgId) throw new AppError(StatusCodes.NOT_FOUND, 'Organization not found.')
-        const candidate = await flowPromoteService.promotable(req.params.chatflowId, req.body?.sha, workspaceId)
+        const from = typeof req.body?.from === 'string' ? req.body.from : undefined
+        const candidate = from
+            ? await flowPromoteService.promotable(req.params.chatflowId, req.body?.sha, workspaceId, undefined, from)
+            : await flowPromoteService.promotable(req.params.chatflowId, req.body?.sha, workspaceId)
         const { latest, row } = candidate
         const drafts = flowDraftsService.isDraftsEnabled()
         if (row) {
             const result = await putVersionLive(req, row, latest.sha, {
                 kind: 'promote',
-                verb: VERB,
+                verb: verb(),
                 title: latest.title,
                 promotedFrom: latest.sha
             })
@@ -68,7 +78,7 @@ const promote = async (req: Request, res: Response, next: NextFunction) => {
         // A flow this server does not have yet: created with Dev's id, so its next versions find it.
         const blank = { id: latest.flowId, name: latest.name, type: 'CHATFLOW', flowData: '{"nodes":[],"edges":[]}', workspaceId }
         const version = await flowVersionsService.getVersion(blank, latest.sha)
-        if (!version) throw new AppError(StatusCodes.NOT_FOUND, 'There is no new version from Dev for this flow.')
+        if (!version) throw new AppError(StatusCodes.NOT_FOUND, missingVersion())
         if (version.missingCredentials.length) {
             throw new AppError(StatusCodes.CONFLICT, missingCredentialsMessage(version.missingCredentials))
         }
@@ -95,7 +105,7 @@ const promote = async (req: Request, res: Response, next: NextFunction) => {
             {
                 versionRecord: {
                     kind: 'promote',
-                    title: flowVersionsService.restoreTitle(latest.sha, latest.title, VERB),
+                    title: flowVersionsService.restoreTitle(latest.sha, latest.title, verb()),
                     promotedFrom: latest.sha
                 },
                 onVersionQueued: (result) => {
@@ -135,7 +145,7 @@ async function checkTarget(req: Request): Promise<{ flow: ChatFlow; candidate: C
         key: `${flow.id}:promote`,
         canvas: incoming?.flowData ?? null,
         unavailable: !incoming
-            ? { code: 'no-draft', message: 'There is no new version from Dev to check.' }
+            ? { code: 'no-draft', message: missingCheck() }
             : typeUnavailable(incoming.type, flow.type) ??
               (!incoming.flowData
                   ? { code: 'credentials', message: 'Add the missing credentials first. The check runs the new version with them.' }

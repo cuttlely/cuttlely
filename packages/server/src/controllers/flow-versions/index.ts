@@ -328,7 +328,9 @@ const createGithubRepo = async (req: Request, res: Response, next: NextFunction)
 
 const setEnvironment = async (req: Request, res: Response, next: NextFunction) => {
     try {
-        return res.json(await flowVersionsService.getGithub().setEnvironment(req.body?.environment ?? null))
+        const body = req.body && typeof req.body === 'object' ? req.body : {}
+        const environments = Object.prototype.hasOwnProperty.call(body, 'environments') ? body.environments : undefined
+        return res.json(await flowVersionsService.getGithub().setEnvironment(body.environment ?? null, environments))
     } catch (error) {
         next(githubError(error))
     }
