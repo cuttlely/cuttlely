@@ -4,7 +4,7 @@ import { useSelector } from 'react-redux'
 import { Background, Handle, Position, useUpdateNodeInternals, NodeToolbar, NodeResizer } from 'reactflow'
 
 // material-ui
-import { styled, useTheme, alpha, darken, lighten } from '@mui/material/styles'
+import { styled, useTheme } from '@mui/material/styles'
 import { Avatar, Box, Typography, Tooltip } from '@mui/material'
 
 // project imports
@@ -12,6 +12,7 @@ import MainCard from '@/ui-component/cards/MainCard'
 import { flowContext } from '@/store/context/ReactFlowContext'
 import NodeInfoDialog from '@/ui-component/dialog/NodeInfoDialog'
 import NodeActionBar from '@/views/canvas/NodeActionBar'
+import { cardAccentChrome, cardAccentColor } from '@/utils/cardAccent'
 
 // icons
 import { IconCheck, IconExclamationMark, IconCircleChevronRightFilled, IconLoader } from '@tabler/icons-react'
@@ -65,15 +66,12 @@ const IterationNode = ({ data }) => {
         }
     }, [reactFlowInstance, data.id])
 
-    const defaultColor = '#666666' // fallback color if data.color is not present
-    const nodeColor = data.color || defaultColor
-
-    // Get different shades of the color based on state
-    const getStateColor = () => {
-        if (data.selected) return nodeColor
-        if (isHovered) return alpha(nodeColor, 0.8)
-        return alpha(nodeColor, 0.5)
-    }
+    const nodeColor = cardAccentColor(data)
+    const chrome = cardAccentChrome(nodeColor, {
+        selected: Boolean(data.selected),
+        hovered: isHovered,
+        dark: customization.isDarkMode
+    })
 
     const getOutputAnchors = () => {
         return data.outputAnchors ?? []
@@ -96,13 +94,6 @@ const IterationNode = ({ data }) => {
         const outputCount = getOutputAnchors().length
         // Use exactly 60px as minimum height
         return Math.max(60, outputCount * 20 + 40)
-    }
-
-    const getBackgroundColor = () => {
-        if (customization.isDarkMode) {
-            return isHovered ? darken(nodeColor, 0.7) : darken(nodeColor, 0.8)
-        }
-        return isHovered ? lighten(nodeColor, 0.8) : lighten(nodeColor, 0.9)
     }
 
     const getStatusBackgroundColor = (status) => {
@@ -211,17 +202,17 @@ const IterationNode = ({ data }) => {
             <CardWrapper
                 content={false}
                 sx={{
-                    borderColor: getStateColor(),
+                    borderColor: chrome.borderColor,
                     borderWidth: '1px',
-                    boxShadow: data.selected ? `0 0 0 1px ${getStateColor()} !important` : 'none',
+                    boxShadow: data.selected ? `0 0 0 1px ${chrome.borderColor} !important` : 'none',
                     minHeight: Math.max(getMinimumHeight(), 250),
                     minWidth: 300,
                     width: cardDimensions.width,
                     height: cardDimensions.height,
-                    backgroundColor: getBackgroundColor(),
+                    backgroundColor: chrome.backgroundColor,
                     display: 'flex',
                     '&:hover': {
-                        boxShadow: data.selected ? `0 0 0 1px ${getStateColor()} !important` : 'none'
+                        boxShadow: data.selected ? `0 0 0 1px ${chrome.borderColor} !important` : 'none'
                     }
                 }}
                 border={false}
