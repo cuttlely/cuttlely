@@ -55,6 +55,7 @@ Conventions, do and don't, and lessons a newcomer would otherwise relearn. Add a
 
 ## Lessons
 
+-   **A sync pass must not re-read the environment file to pick a branch.** If the file becomes unreadable after the pass starts, substituting main publishes a Staging server onto Dev's branch and makes a reader fetch Dev. Capture the plan once, and skip the fetch and the push when the plan is invalid or the branch is missing.
 -   **A green `pnpm verify` is not a real-model run.** Model-dependent behaviour (routing, analyst answers, row grounding) has passed every check and still failed with a real model. Run the guide prompts against a real model before calling such a change done.
 -   **LangChain chat models read provider keys from the environment.** A node with a deleted credential still answered from a server env key. The harness checks that a required credential exists before calling `init`.
 -   **OpenAI-compatible servers treat a missing `tool_choice` as `auto`.** The runtime omits it on its final turn; defaulting to `required` made the model loop on tool calls. The gateway maps a missing value to `auto`.
