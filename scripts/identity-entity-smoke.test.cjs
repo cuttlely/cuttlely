@@ -330,7 +330,12 @@ describe('identity postgres schema', () => {
             const ran = await dataSource.runMigrations()
             assert.deepEqual(
                 ran.map((migration) => migration.name),
-                ['HashApiKey1783000000000', 'AddFlowVersionState1784000000000', 'AddTokenUsageDay1791900000000']
+                [
+                    'HashApiKey1783000000000',
+                    'AddFlowVersionState1784000000000',
+                    'AddTokenUsageDay1791900000000',
+                    'AddPublishGate1792000000000'
+                ]
             )
             assert.equal((await dataSource.runMigrations()).length, 0)
             const owner = await dataSource.query(
@@ -424,7 +429,12 @@ describe('identity mariadb schema', () => {
             const ran = await dataSource.runMigrations()
             assert.deepEqual(
                 ran.map((migration) => migration.name),
-                ['HashApiKey1783000000000', 'AddFlowVersionState1784000000000', 'AddTokenUsageDay1791900000000']
+                [
+                    'HashApiKey1783000000000',
+                    'AddFlowVersionState1784000000000',
+                    'AddTokenUsageDay1791900000000',
+                    'AddPublishGate1792000000000'
+                ]
             )
             assert.equal((await dataSource.runMigrations()).length, 0)
             const owner = await dataSource.query(
@@ -597,7 +607,12 @@ describe('identity mysql 8 schema', () => {
             const ran = await dataSource.runMigrations()
             assert.deepEqual(
                 ran.map((migration) => migration.name),
-                ['HashApiKey1783000000000', 'AddFlowVersionState1784000000000', 'AddTokenUsageDay1791900000000']
+                [
+                    'HashApiKey1783000000000',
+                    'AddFlowVersionState1784000000000',
+                    'AddTokenUsageDay1791900000000',
+                    'AddPublishGate1792000000000'
+                ]
             )
             assert.equal((await dataSource.runMigrations()).length, 0)
             const shape = await captureMysql((sql) => dataSource.query(sql))
@@ -638,7 +653,12 @@ describe('identity sqlite upgrade', () => {
             const ran = await dataSource.runMigrations()
             assert.deepEqual(
                 ran.map((migration) => migration.name),
-                ['HashApiKey1783000000000', 'AddFlowVersionState1784000000000', 'AddTokenUsageDay1791900000000']
+                [
+                    'HashApiKey1783000000000',
+                    'AddFlowVersionState1784000000000',
+                    'AddTokenUsageDay1791900000000',
+                    'AddPublishGate1792000000000'
+                ]
             )
             assert.equal((await dataSource.runMigrations()).length, 0)
             const shape = await captureSqlite((sql) => dataSource.query(sql))

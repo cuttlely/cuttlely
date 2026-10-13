@@ -1675,6 +1675,41 @@
                     "nullable": false,
                     "default": "datetime('now')",
                     "pk": 0
+                },
+                {
+                    "name": "publishGate",
+                    "type": "boolean",
+                    "nullable": false,
+                    "default": "0",
+                    "pk": 0
+                },
+                {
+                    "name": "publishGateDatasetId",
+                    "type": "varchar",
+                    "nullable": true,
+                    "default": null,
+                    "pk": 0
+                },
+                {
+                    "name": "publishGateEvaluatorIds",
+                    "type": "TEXT",
+                    "nullable": true,
+                    "default": null,
+                    "pk": 0
+                },
+                {
+                    "name": "publishGateThreshold",
+                    "type": "INTEGER",
+                    "nullable": true,
+                    "default": null,
+                    "pk": 0
+                },
+                {
+                    "name": "publishGateResult",
+                    "type": "TEXT",
+                    "nullable": true,
+                    "default": null,
+                    "pk": 0
                 }
             ],
             "foreignKeys": [],
@@ -4644,6 +4679,36 @@
                     "type": "timestamp",
                     "nullable": false,
                     "default": "now()"
+                },
+                {
+                    "name": "publishGate",
+                    "type": "boolean",
+                    "nullable": false,
+                    "default": "false"
+                },
+                {
+                    "name": "publishGateDatasetId",
+                    "type": "varchar",
+                    "nullable": true,
+                    "default": null
+                },
+                {
+                    "name": "publishGateEvaluatorIds",
+                    "type": "text",
+                    "nullable": true,
+                    "default": null
+                },
+                {
+                    "name": "publishGateThreshold",
+                    "type": "integer",
+                    "nullable": true,
+                    "default": null
+                },
+                {
+                    "name": "publishGateResult",
+                    "type": "text",
+                    "nullable": true,
+                    "default": null
                 }
             ],
             "foreignKeys": [],
@@ -7809,6 +7874,46 @@
                     "default": "current_timestamp(6)",
                     "extra": "on update current_timestamp(6)",
                     "collation": null
+                },
+                {
+                    "name": "publishGate",
+                    "type": "tinyint(1)",
+                    "nullable": false,
+                    "default": "0",
+                    "extra": "",
+                    "collation": null
+                },
+                {
+                    "name": "publishGateDatasetId",
+                    "type": "varchar(255)",
+                    "nullable": true,
+                    "default": "NULL",
+                    "extra": "",
+                    "collation": "utf8mb4_unicode_520_ci"
+                },
+                {
+                    "name": "publishGateEvaluatorIds",
+                    "type": "longtext",
+                    "nullable": true,
+                    "default": "NULL",
+                    "extra": "",
+                    "collation": "utf8mb4_unicode_520_ci"
+                },
+                {
+                    "name": "publishGateThreshold",
+                    "type": "int(11)",
+                    "nullable": true,
+                    "default": "NULL",
+                    "extra": "",
+                    "collation": null
+                },
+                {
+                    "name": "publishGateResult",
+                    "type": "longtext",
+                    "nullable": true,
+                    "default": "NULL",
+                    "extra": "",
+                    "collation": "utf8mb4_unicode_520_ci"
                 }
             ],
             "foreignKeys": [],
@@ -11381,6 +11486,46 @@
                     "default": "CURRENT_TIMESTAMP(6)",
                     "extra": "DEFAULT_GENERATED on update CURRENT_TIMESTAMP(6)",
                     "collation": null
+                },
+                {
+                    "name": "publishGate",
+                    "type": "tinyint(1)",
+                    "nullable": false,
+                    "default": "0",
+                    "extra": "",
+                    "collation": null
+                },
+                {
+                    "name": "publishGateDatasetId",
+                    "type": "varchar(255)",
+                    "nullable": true,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_0900_ai_ci"
+                },
+                {
+                    "name": "publishGateEvaluatorIds",
+                    "type": "longtext",
+                    "nullable": true,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_0900_ai_ci"
+                },
+                {
+                    "name": "publishGateThreshold",
+                    "type": "int(11)",
+                    "nullable": true,
+                    "default": null,
+                    "extra": "",
+                    "collation": null
+                },
+                {
+                    "name": "publishGateResult",
+                    "type": "longtext",
+                    "nullable": true,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_0900_ai_ci"
                 }
             ],
             "foreignKeys": [],
