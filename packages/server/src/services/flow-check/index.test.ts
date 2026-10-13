@@ -897,7 +897,6 @@ describe('grading limits', () => {
     })
 
     test('a grader that never resolves times out and frees the check', async () => {
-        jest.setTimeout(20000)
         process.env.CUTTLELY_CHECK_MAX_SECONDS = '10'
         scoreHooks.gradeLlm = () => new Promise(() => undefined)
         replayHooks.run = async () => ({ text: 'ok', metrics: [JSON.stringify({ totalTokens: 4 })] })
@@ -913,7 +912,7 @@ describe('grading limits', () => {
         scoreHooks.gradeLlm = null
         const again = await startCheck(flow({ flowData: gradedCanvas('MANGO') }) as any, { questions: ['Next'] }, 'http://x')
         expect(again.status).toBe('running')
-    })
+    }, 20000)
 
     test('grader tokens push the check over the cap before the next question', async () => {
         process.env.CUTTLELY_CHECK_MAX_TOKENS = '1000'
