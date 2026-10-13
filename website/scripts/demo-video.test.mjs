@@ -139,8 +139,14 @@ test('starts loading about a viewport away, two at a time, in page order', () =>
     const { doc, win, calls, list, observers, approach, finish } = fakes({ videos: 4 })
     assert.equal(initDemoVideo(doc, win), true)
     assert.equal(observers.length, 2)
-    assert.equal(observers.some((observer) => observer.options.threshold === 0.5), true)
-    assert.equal(observers.some((observer) => observer.options.rootMargin === '100% 0px'), true)
+    assert.equal(
+        observers.some((observer) => observer.options.threshold === 0.5),
+        true
+    )
+    assert.equal(
+        observers.some((observer) => observer.options.rootMargin === '100% 0px'),
+        true
+    )
     // Reported out of page order on purpose. The first two downloads follow the page.
     approach([3, 1, 0, 2])
     assert.deepEqual(
@@ -243,6 +249,38 @@ test('a fetch already in progress is not restarted by the queue', () => {
     assert.equal(typeof list[0].events.canplaythrough, 'function')
 })
 
+function holdTime(video, start) {
+    let time = start
+    let ignoreNextRestore = false
+    Object.defineProperty(video, 'currentTime', {
+        configurable: true,
+        get: () => time,
+        set: (value) => {
+            if (value === 0) {
+                time = 0
+                return
+            }
+            if (ignoreNextRestore) {
+                ignoreNextRestore = false
+                return
+            }
+            time = value
+        }
+    })
+    video.seekable = { length: 0, end: () => 0 }
+    return {
+        arm: () => {
+            ignoreNextRestore = true
+        },
+        setSeekable(end) {
+            video.seekable = { length: end > 0 ? 1 : 0, end: () => end }
+        },
+        jump(value) {
+            time = value
+        }
+    }
+}
+
 function trackTime(video, start) {
     const times = []
     let time = start
@@ -281,18 +319,96 @@ test('resume restarts a playing loop and a paused one, then the next loops start
     assert.ok(playing.includes(0.49))
     assert.ok(paused.includes(0.2))
     assert.ok(calls.includes('play 0'))
-    assert.equal(
-        calls.filter((call) => call === 'play 1').length,
-        0
-    )
+    assert.equal(calls.filter((call) => call === 'play 1').length, 0)
     const loads = calls.filter((call) => call.startsWith('load'))
-    assert.deepEqual(loads.filter((call) => call === 'load 0'), ['load 0', 'load 0'])
-    assert.deepEqual(loads.filter((call) => call === 'load 1'), ['load 1', 'load 1'])
+    assert.deepEqual(
+        loads.filter((call) => call === 'load 0'),
+        ['load 0', 'load 0']
+    )
+    assert.deepEqual(
+        loads.filter((call) => call === 'load 1'),
+        ['load 1', 'load 1']
+    )
     assert.equal(loads.includes('load 2') && loads.includes('load 3'), true)
     assert.equal(list[2].preload, 'auto')
     assert.equal(list[3].preload, 'auto')
     assert.equal(inFlight(), 2)
     assert.equal(peak(), 2)
+})
+
+test('a seek ignored at loadedmetadata is applied once that time is seekable', async () => {
+    const { doc, win, calls, list, approach, show, dispatch } = fakes({ videos: 2 })
+    initDemoVideo(doc, win)
+    approach([0, 1])
+    show(0, true)
+    show(1, false)
+    const playing = holdTime(list[0], 0.576)
+    const paused = holdTime(list[1], 0.361)
+    list[0].readyState = 3
+    list[0].networkState = 2
+    list[1].readyState = 3
+    list[1].networkState = 2
+    playing.arm()
+    paused.arm()
+    const playsBefore = calls.filter((call) => call === 'play 0').length
+    dispatch('doc', 'resume')
+    await Promise.resolve()
+    list[0].events.loadedmetadata()
+    list[1].events.loadedmetadata()
+    assert.equal(list[0].currentTime, 0)
+    assert.equal(list[1].currentTime, 0)
+    // Metadata arrived before the saved time was in the seekable range.
+    list[0].events.loadeddata()
+    list[1].events.loadeddata()
+    assert.equal(list[0].currentTime, 0)
+    assert.equal(list[1].currentTime, 0)
+    playing.setSeekable(0.576)
+    paused.setSeekable(0.361)
+    list[0].events.canplay()
+    list[1].events.canplay()
+    assert.equal(list[0].currentTime, 0.576)
+    assert.equal(list[1].currentTime, 0.361)
+    assert.equal(calls.filter((call) => call === 'play 0').length, playsBefore + 1)
+    assert.equal(calls.filter((call) => call === 'play 1').length, 0)
+    assert.equal(list[0].events.canplay, undefined)
+    assert.equal(list[1].events.loadeddata, undefined)
+})
+
+test('a fully buffered held loop is not loaded again on resume', async () => {
+    const { doc, win, calls, list, approach, dispatch } = fakes({ videos: 1 })
+    initDemoVideo(doc, win)
+    approach([0])
+    const times = trackTime(list[0], 0.5)
+    list[0].readyState = 4
+    list[0].networkState = 2
+    dispatch('doc', 'resume')
+    await Promise.resolve()
+    assert.deepEqual(
+        calls.filter((call) => call.startsWith('load')),
+        ['load 0']
+    )
+    assert.equal(list[0].currentTime, 0.5)
+    assert.deepEqual(times, [])
+})
+
+test('a playhead the visitor moved after the reload is not seeked back', async () => {
+    const { doc, win, list, approach, dispatch } = fakes({ videos: 1 })
+    initDemoVideo(doc, win)
+    approach([0])
+    const held = holdTime(list[0], 0.576)
+    list[0].readyState = 3
+    list[0].networkState = 2
+    held.arm()
+    dispatch('doc', 'resume')
+    await Promise.resolve()
+    list[0].events.loadedmetadata()
+    assert.equal(list[0].currentTime, 0)
+    held.jump(1.2)
+    list[0].events.seeking()
+    held.setSeekable(2)
+    list[0].events.canplay?.()
+    assert.equal(list[0].currentTime, 1.2)
+    assert.equal(list[0].events.canplay, undefined)
 })
 
 test('resume and a back-forward pageshow in one turn restart each held loop once', async () => {

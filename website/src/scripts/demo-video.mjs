@@ -26,9 +26,11 @@ export function canAutoplay(win = window) {
  * - the element is already NETWORK_NO_SOURCE or HAVE_ENOUGH_DATA when the slot opens
  * A stalled download keeps its slot. A frozen page aborts the fetch without those events.
  * On resume, or a back-forward pageshow, every held loop that is not yet fully buffered is
- * load()ed once, playing or paused. Its playhead is restored on loadedmetadata, and it plays
- * again only if it should still be on screen. That restart is what lets the listeners above
- * free the slot. A fully buffered loop is not loaded again.
+ * load()ed once, playing or paused. The playhead is put back on loadedmetadata, and again on
+ * loadeddata, canplay, and progress once that time is seekable, until the element is actually there.
+ * A playhead the visitor has moved since the reload is left alone. It plays again only if it
+ * should still be on screen. That restart is what lets the listeners above free the slot.
+ * A fully buffered loop is not loaded again.
  * Safari and Firefox do not fire resume. A socket aborted while the page is hidden, and not
  * restored from the back-forward cache, is started again only if resume was already seen
  * while hidden and the page later becomes visible. Coming back to a visible tab does not
@@ -143,16 +145,68 @@ function watchLoops(videos, win, doc) {
 
     // Freeze aborts the socket and leaves networkState LOADING, with no error and no emptied.
     // load() runs the resource selection again so the listeners above can free the slot.
+    // Chromium ignores currentTime set in loadedmetadata and keeps reporting 0, so the same
+    // time is applied again as soon as the seekable range covers it.
+    const PLAYHEAD_TOLERANCE = 0.05
     const documentVisible = () => (doc.visibilityState ? doc.visibilityState === 'visible' : doc.hidden !== true)
     const restartHeld = () => {
         for (const video of [...holding]) {
             const readyState = video.readyState || 0
             if (readyState >= 4 || video.networkState !== 2) continue
             const saved = video.currentTime || 0
+            let settled = false
+            let assigning = false
+            const nearSaved = (value) => Math.abs((value || 0) - saved) <= PLAYHEAD_TOLERANCE
+            const detach = () => {
+                video.removeEventListener('loadedmetadata', onMeta)
+                video.removeEventListener('loadeddata', onBuffered)
+                video.removeEventListener('canplay', onBuffered)
+                video.removeEventListener('progress', onBuffered)
+                video.removeEventListener('seeking', onSeeking)
+            }
+            const stop = () => {
+                if (settled) return
+                settled = true
+                detach()
+            }
+            const seekableCovers = () => {
+                const range = video.seekable
+                return !!range && range.length > 0 && range.end(0) >= saved
+            }
+            const assign = () => {
+                assigning = true
+                try {
+                    video.currentTime = saved
+                } finally {
+                    assigning = false
+                }
+                if (nearSaved(video.currentTime)) stop()
+            }
+            // A seeking event we did not cause, landing somewhere else, is the visitor.
+            const onSeeking = () => {
+                if (assigning || settled) return
+                const now = video.currentTime || 0
+                if (now <= PLAYHEAD_TOLERANCE || nearSaved(now)) return
+                stop()
+            }
             const onMeta = () => {
                 video.removeEventListener('loadedmetadata', onMeta)
-                if (saved > 0) video.currentTime = saved
+                if (!settled && saved > 0) assign()
                 if (wantsPlay.has(video)) video.play().catch(() => {})
+            }
+            const onBuffered = () => {
+                if (settled || !(saved > 0)) return
+                if (nearSaved(video.currentTime)) {
+                    stop()
+                    return
+                }
+                if (seekableCovers()) assign()
+            }
+            if (saved > 0) {
+                video.addEventListener('loadeddata', onBuffered)
+                video.addEventListener('canplay', onBuffered)
+                video.addEventListener('progress', onBuffered)
+                video.addEventListener('seeking', onSeeking)
             }
             video.addEventListener('loadedmetadata', onMeta)
             video.load()
