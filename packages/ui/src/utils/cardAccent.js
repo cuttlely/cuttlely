@@ -15,7 +15,7 @@ export const CATEGORY_CARD_ACCENTS = {
     'Document Loaders': '#43A047',
     Embeddings: '#5C6BC0',
     ETL: '#8BC34A',
-    Graph: '#00695C',
+    Graph: '#009688',
     Harness: '#E040FB',
     LLMs: '#9575CD',
     Memory: '#FF6E40',
@@ -43,6 +43,16 @@ export function expandHex(value) {
         return `#${hex[1]}${hex[1]}${hex[2]}${hex[2]}${hex[3]}${hex[3]}`.toUpperCase()
     }
     return hex.toUpperCase()
+}
+
+// Light-theme summary lines sit on the tint. #9e9e9e falls under 4.5:1 there.
+// #626262 stays lighter than the title (#616161) and clears 4.5:1 on every tint, including hover.
+// Dark theme summary text is already white, which clears 4.5:1 on the dark tints.
+export const CARD_SECONDARY_TEXT_LIGHT = '#626262'
+export const CARD_SECONDARY_TEXT_DARK = '#FFFFFF'
+
+export function cardSecondaryText(dark) {
+    return dark ? CARD_SECONDARY_TEXT_DARK : CARD_SECONDARY_TEXT_LIGHT
 }
 
 export function cardAccentColor(node) {

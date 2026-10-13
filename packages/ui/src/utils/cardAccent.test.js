@@ -2,7 +2,14 @@ import fs from 'fs'
 import path from 'path'
 import { alpha } from '@mui/material/styles'
 
-import { CATEGORY_CARD_ACCENTS, NEUTRAL_CARD_ACCENT, cardAccentChrome, cardAccentColor, cardAccentSx } from './cardAccent'
+import {
+    CATEGORY_CARD_ACCENTS,
+    NEUTRAL_CARD_ACCENT,
+    cardAccentChrome,
+    cardAccentColor,
+    cardAccentSx,
+    cardSecondaryText
+} from './cardAccent'
 
 const LIGHT_TEXT = '#616161'
 const DARK_TEXT = '#FFFFFF'
@@ -147,6 +154,22 @@ describe('card accent', () => {
                 }
             }
         }
+        const graphHover = cardAccentChrome(CATEGORY_CARD_ACCENTS.Graph, { hovered: true })
+        expect(contrast(LIGHT_TEXT, graphHover.backgroundColor)).toBeGreaterThanOrEqual(4.8)
+    })
+
+    it('keeps summary text at AA on every tint and lighter than the title in the light theme', () => {
+        expect(luminance(cardSecondaryText(false))).toBeGreaterThan(luminance(LIGHT_TEXT))
+        const colours = [...Object.values(CATEGORY_CARD_ACCENTS), NEUTRAL_CARD_ACCENT]
+        for (const accent of colours) {
+            for (const dark of [false, true]) {
+                const ink = cardSecondaryText(dark)
+                for (const hoveredState of [false, true]) {
+                    const chrome = cardAccentChrome(accent, { hovered: hoveredState, dark })
+                    expect(contrast(ink, chrome.backgroundColor)).toBeGreaterThanOrEqual(4.5)
+                }
+            }
+        }
     })
 
     it('is what the chatflow, preview, and workflow cards paint with', () => {
@@ -159,6 +182,8 @@ describe('card accent', () => {
             expect(source).toMatch(/cardAccentSx\(accent/)
             expect(source).toMatch(/CardAccentIcon/)
         }
+        expect(fs.readFileSync(path.join(root, 'views/canvas/CompactCardBody.jsx'), 'utf8')).toMatch(/cardSecondaryText\(/)
+        expect(canvas).toMatch(/cardSecondaryText\(/)
         expect(workflow).toMatch(/cardAccentColor\(data\)/)
         expect(workflow).toMatch(/cardAccentChrome\(/)
         expect(note).not.toMatch(/cardAccent/)

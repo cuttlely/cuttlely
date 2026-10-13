@@ -25,7 +25,7 @@ import { missingNodeInfo } from '@/utils/missingNode'
 import MissingNodeCard from './MissingNodeCard'
 import { canvasOutputKey } from '@/utils/canvasFieldKey'
 import { cardPlugParams } from '@/utils/canvasLook'
-import { cardAccentColor, cardAccentSx } from '@/utils/cardAccent'
+import { cardAccentColor, cardAccentSx, cardSecondaryText } from '@/utils/cardAccent'
 import { CanvasPanelContext } from '@/store/context/CanvasPanelContext'
 import CardAccentIcon from './CardAccentIcon'
 
@@ -167,7 +167,15 @@ const CanvasNode = ({ data }) => {
                                             <NodeInputHandler key={inputParam.id || inputParam.name} inputAnchor={inputParam} data={data} />
                                         ))}
                                         {data.inputParams.some((param) => !param.hidden && param.display !== false) && (
-                                            <Typography sx={{ px: 2, py: 1.5, textAlign: 'center' }} color='text.secondary' variant='body2'>
+                                            <Typography
+                                                sx={{
+                                                    px: 2,
+                                                    py: 1.5,
+                                                    textAlign: 'center',
+                                                    color: cardSecondaryText(Boolean(customization?.isDarkMode))
+                                                }}
+                                                variant='body2'
+                                            >
                                                 Settings are open in the side panel.
                                             </Typography>
                                         )}
