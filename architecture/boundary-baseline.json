@@ -316,6 +316,11 @@
             "to": "packages/server/src/routes/credentials/index.ts"
         },
         {
+            "from": "packages/server/src/identity/rbac.routes.test.ts",
+            "to": "packages/server/src/routes/stats/index.ts",
+            "reason": "The permission test imports the stats router so it can check the view gate."
+        },
+        {
             "from": "packages/server/src/identity/rbac.ts",
             "to": "packages/server/src/DataSource.ts"
         },
@@ -1403,6 +1408,10 @@
             "reason": "Jest transformer that records ts-jest compile time for the node load budget"
         },
         {
+            "path": "packages/components/nodes/agentflow/Agent/Agent.tokens.test.ts",
+            "reason": "The Agent token test and the multi-agent usage test stay next to the inherited nodes they exercise."
+        },
+        {
             "path": "packages/node-pack-caches-memory/credentials/DynamodbMemoryApi.credential.ts",
             "reason": "Cache and memory backend nodes live in the caches and memory pack. Memory that needs no outside service stays in components."
         },
@@ -2407,12 +2416,24 @@
             "reason": "The node list and pack index sign-in test stays with the inherited nodes routes."
         },
         {
+            "path": "packages/server/src/services/evaluations/LLMEvaluationRunner.test.ts",
+            "reason": "The publish check test counts grader tokens with the runner's reader, and the grader tests sit beside that runner."
+        },
+        {
             "path": "packages/server/src/services/evaluations/grader-node-fixture.js",
             "reason": "The publish check test counts grader tokens with the runner's reader, and the grader tests sit beside that runner."
         },
         {
-            "path": "packages/server/src/services/evaluations/LLMEvaluationRunner.test.ts",
-            "reason": "The publish check test counts grader tokens with the runner's reader, and the grader tests sit beside that runner."
+            "path": "packages/server/src/utils/buildAgentflow.harness-usage.test.ts",
+            "reason": "The agentflow harness usage test stays next to the agentflow runner it exercises."
+        },
+        {
+            "path": "packages/server/src/utils/buildAgentflow.resume-usage.test.ts",
+            "reason": "The loop resume usage test stays next to the agentflow runner it exercises."
+        },
+        {
+            "path": "packages/server/src/utils/buildAgentGraph.usage.test.ts",
+            "reason": "The Agent token test and the multi-agent usage test stay next to the inherited nodes they exercise."
         },
         {
             "path": "packages/server/src/services/executions/index.test.ts",

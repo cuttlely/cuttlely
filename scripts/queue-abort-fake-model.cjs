@@ -74,9 +74,19 @@ function patchChat(exported) {
             text += token
             if (runManager) await runManager.handleLLMNewToken(token)
         }
+        const usage_metadata = { input_tokens: 11, output_tokens: 4, total_tokens: 15 }
         return {
-            generations: [{ text, message: new AIMessage({ content: text }) }],
-            llmOutput: { tokenUsage: { promptTokens: 1, completionTokens: 1, totalTokens: 2 } }
+            generations: [
+                {
+                    text,
+                    message: new AIMessage({
+                        content: text,
+                        usage_metadata,
+                        response_metadata: { model_name: 'fake-chat' }
+                    })
+                }
+            ],
+            llmOutput: { tokenUsage: { promptTokens: 11, completionTokens: 4, totalTokens: 15 } }
         }
     }
     ChatOpenAI.prototype._streamResponseChunks = async function* fakeStream(messages, options, runManager) {

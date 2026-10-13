@@ -1,8 +1,10 @@
 import { StatusCodes } from 'http-status-codes'
 import { Request, Response, NextFunction } from 'express'
 import statsService from '../../services/stats'
+import { queryTokenUsage, usageRange } from '../../services/usage'
 import { ChatMessageRatingType, ChatType } from '../../Interface'
 import { AppError } from '../../errors/appError'
+import { getRunningExpressApp } from '../../utils/getRunningExpressApp'
 
 const getChatflowStats = async (req: Request, res: Response, next: NextFunction) => {
     try {
@@ -63,6 +65,37 @@ const getChatflowStats = async (req: Request, res: Response, next: NextFunction)
     }
 }
 
+const getTokenUsage = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+        const activeWorkspaceId = req.user?.activeWorkspaceId
+        if (!activeWorkspaceId) {
+            throw new AppError(StatusCodes.UNAUTHORIZED, `Error: statsController.getTokenUsage - unauthorized!`)
+        }
+        const parsed = usageRange({
+            days: req.query?.days,
+            startDate: req.query?.startDate,
+            endDate: req.query?.endDate,
+            range: req.query?.range
+        })
+        if (!parsed.ok) {
+            throw new AppError(StatusCodes.BAD_REQUEST, parsed.message)
+        }
+        const flowId = typeof req.query?.flowId === 'string' ? req.query.flowId : undefined
+        const model = typeof req.query?.model === 'string' ? req.query.model : undefined
+        const apiResponse = await queryTokenUsage(getRunningExpressApp().AppDataSource, {
+            workspaceId: activeWorkspaceId,
+            startDate: parsed.range.startDate,
+            endDate: parsed.range.endDate,
+            flowId,
+            model
+        })
+        return res.json(apiResponse)
+    } catch (error) {
+        next(error)
+    }
+}
+
 export default {
-    getChatflowStats
+    getChatflowStats,
+    getTokenUsage
 }
