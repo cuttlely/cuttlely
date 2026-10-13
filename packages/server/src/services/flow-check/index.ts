@@ -387,18 +387,37 @@ async function questionsToRun(
     }
 }
 
+// The caller (the HTTP handler) reports this when the client has already gone away.
+export interface StartWatch {
+    closed?: () => boolean
+}
+
+// A record that never started its replay must not keep the flow's one running slot.
+function abandonUnstarted(record: CheckRecord) {
+    record.stopRequested = true
+    record.stopReason = 'stopped'
+    record.status = 'stopped'
+    record.finishedAt = Date.now()
+    for (const controller of record.inflight) controller.abort()
+}
+
 export async function startCheck(
     flow: IChatFlow,
     body: { questions?: unknown; includeRiskySteps?: unknown; count?: unknown },
     baseURL: string,
-    given?: Candidate
+    given?: Candidate,
+    watch?: StartWatch
 ): Promise<CheckView> {
     purge()
+    const closed = () => Boolean(watch?.closed?.())
     const candidate = await candidateFor(flow as DraftFlow, given)
     const draft = candidate.canvas
     const unavailable = unavailableFor(flow as DraftFlow, candidate, Boolean(given))
     if (unavailable) throw new AppError(StatusCodes.CONFLICT, unavailable.message)
     const { questions, selection } = await questionsToRun(flow.id, body || {})
+    // The client left during the question scan. Do not store a record or start a replay,
+    // and do not stop a check this request did not create.
+    if (closed()) throw new AppError(StatusCodes.BAD_REQUEST, 'The check was cancelled before it started.')
     if (body?.includeRiskySteps !== undefined && typeof body.includeRiskySteps !== 'boolean')
         throw new AppError(StatusCodes.BAD_REQUEST, 'includeRiskySteps must be true or false.')
     const includeRiskySteps = body?.includeRiskySteps === true
@@ -436,6 +455,12 @@ export async function startCheck(
         stopRequested: false
     }
     checks.set(candidate.key, record)
+    // The socket closed after the record was stored and before the 202 was written.
+    // Stop this record only. A check already running for the flow was refused above.
+    if (closed()) {
+        abandonUnstarted(record)
+        return view(record, record.draftHash)
+    }
     // Runs in the background; the dialog polls GET for progress.
     void runCheck(record, flow, draft as string, baseURL)
     return view(record, record.draftHash)
