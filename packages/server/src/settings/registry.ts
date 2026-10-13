@@ -1012,6 +1012,60 @@ export const SETTINGS: SettingDef[] = [
         showWhen: { key: 'ENABLE_METRICS', equals: ['true'] }
     },
     {
+        key: 'CUTTLELY_OTEL_TRACES',
+        section: 'integrations',
+        group: 'Traces',
+        label: 'Run traces',
+        help: 'Sends an OpenTelemetry trace for each chatflow prediction and each agentflow run. Off sends nothing.',
+        type: 'switch',
+        ...TRUE_FALSE,
+        defaultLabel: 'Off',
+        defaultValue: 'false',
+        risk: 'low'
+    },
+    {
+        key: 'CUTTLELY_OTEL_TRACES_ENDPOINT',
+        section: 'integrations',
+        group: 'Traces',
+        label: 'Trace collector address',
+        help: 'Where run traces are sent. Use the collector traces path.',
+        type: 'text',
+        defaultLabel: 'Not set',
+        placeholder: 'http://localhost:4318/v1/traces',
+        risk: 'low',
+        showWhen: { key: 'CUTTLELY_OTEL_TRACES', equals: ['true'] }
+    },
+    {
+        key: 'CUTTLELY_OTEL_TRACES_PROTOCOL',
+        section: 'integrations',
+        group: 'Traces',
+        label: 'Trace protocol',
+        help: 'How traces are sent to the collector: HTTP, gRPC, or protobuf.',
+        type: 'select',
+        options: [
+            { value: 'http', label: 'HTTP' },
+            { value: 'grpc', label: 'gRPC' },
+            { value: 'proto', label: 'Protobuf' }
+        ],
+        defaultLabel: 'HTTP',
+        defaultValue: 'http',
+        risk: 'low',
+        showWhen: { key: 'CUTTLELY_OTEL_TRACES', equals: ['true'] }
+    },
+    {
+        key: 'CUTTLELY_OTEL_TRACES_CONTENT',
+        section: 'integrations',
+        group: 'Traces',
+        label: 'Include question and answer',
+        help: 'Sensitive. Records the question and the answer on each trace. Leave this off unless you trust the collector with that text.',
+        type: 'switch',
+        ...TRUE_FALSE,
+        defaultLabel: 'Off',
+        defaultValue: 'false',
+        risk: 'high',
+        showWhen: { key: 'CUTTLELY_OTEL_TRACES', equals: ['true'] }
+    },
+    {
         key: 'E2B_APIKEY',
         section: 'integrations',
         group: 'Code sandbox',

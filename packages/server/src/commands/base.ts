@@ -167,6 +167,10 @@ export abstract class BaseCommand extends Command {
         METRICS_OPEN_TELEMETRY_METRIC_ENDPOINT: Flags.string(),
         METRICS_OPEN_TELEMETRY_PROTOCOL: Flags.string(),
         METRICS_OPEN_TELEMETRY_DEBUG: Flags.string(),
+        CUTTLELY_OTEL_TRACES: Flags.string(),
+        CUTTLELY_OTEL_TRACES_ENDPOINT: Flags.string(),
+        CUTTLELY_OTEL_TRACES_PROTOCOL: Flags.string(),
+        CUTTLELY_OTEL_TRACES_CONTENT: Flags.string(),
 
         // Proxy
         GLOBAL_AGENT_HTTP_PROXY: Flags.string(),
