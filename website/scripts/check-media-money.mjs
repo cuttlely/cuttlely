@@ -13,42 +13,64 @@ const mediaDir = path.join(root, 'public', 'media')
 /** Half a second. The same interval the audit used. */
 const INTERVAL = 0.5
 
-// A symbol may sit a word away from its amount (`$ | 25.20`), and the amount may be whole (`$25`).
-// The symbol is its own mark: not glued to a letter or digit on either side, so a misread id does not count.
-// A whole amount needs at least two digits. One digit is how a rule or an S is misread.
-const SYMBOL = /(?<![A-Za-z0-9])[$€£](?:\s|\|)*(\d[\d,]*\.\d+|\d{2,}[\d,]*)(?![A-Za-z])/g
+// A symbol may sit a word away from its amount (`$ | 25.20`). A space after the symbol is fine (`$ 1,000`).
+// The amount may be one digit (`$5`), a plain run (`$1000`, `$0.00`), or thousands with a 1–3 digit first group (`$1,234`).
+// The symbol is its own mark: not glued to a letter or digit on either side.
+const NUMBER = String.raw`(?:\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+(?:\.\d+)?)`
+const SYMBOL_SRC = String.raw`(?<![A-Za-z0-9])[$€£](?:\s|\|)*(${NUMBER})(?![A-Za-z])`
 const SPELLED =
-    '(?:(?:twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety)[-\\s](?:one|two|three|four|five|six|seven|eight|nine)|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred|thousand|a|an)'
+    '(?:(?:twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety)[-\\s](?:one|two|three|four|five|six|seven|eight|nine)|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred|thousand)'
 const AMOUNT = `(?:${SPELLED}|\\d[\\d,]*(?:\\.\\d+)?)`
 const UNIT = '(?:dollars?|cents?|euros?|pounds?)'
 // "twenty-five dollars", "20 cents", "two euros", "five pounds", and the same with the unit first.
-const NAMED = new RegExp(`\\b(?:${AMOUNT}\\s+${UNIT}|${UNIT}\\s+${AMOUNT})\\b`, 'i')
-const USD_AMOUNT = /\b(?:USD\s*\d[\d,]*(?:\.\d+)?|\d[\d,]*(?:\.\d+)?\s*USD)\b/i
+// "a" and "an" are not amounts, so "a pound of flour" is not a hit.
+const NAMED_SRC = `\\b(?:${AMOUNT}\\s+${UNIT}|${UNIT}\\s+${AMOUNT})\\b`
+const USD_SRC = String.raw`\b(?:USD\s*\d[\d,]*(?:\.\d+)?|\d[\d,]*(?:\.\d+)?\s*USD)\b`
 
-/** True when a single line of text names a currency amount. */
-export function lineHasMoney(text) {
-    const line = String(text)
-    if (NAMED.test(line) || USD_AMOUNT.test(line)) return true
-    SYMBOL.lastIndex = 0
+/** Punctuation before "in" or "out" is a space, so "$33,out" reads like "$33 out". */
+function softenTracePunctuation(text) {
+    return String(text).replace(/[^\s\w$€£.]+(?=\s*(?:in|out)\b)/gi, ' ')
+}
+
+/**
+ * A currency amount on one line, or null.
+ * `decimal` and `spelled` are the low-confidence shapes. `whole2` is a two-digit whole amount.
+ * `whole3` is a three-digit whole amount. Anything else valid is `other`.
+ */
+function classifyAmount(text) {
+    const line = softenTracePunctuation(text)
+    if (new RegExp(NAMED_SRC, 'i').test(line) || new RegExp(USD_SRC, 'i').test(line)) return { kind: 'spelled' }
+    const symbol = new RegExp(SYMBOL_SRC, 'g')
     let match
-    while ((match = SYMBOL.exec(line))) {
+    while ((match = symbol.exec(line))) {
         const amount = match[1]
-        const digits = amount.replace(/\D/g, '')
-        if (/^0+$/.test(digits)) continue
         const whole = !amount.includes('.')
-        // Four bare digits are an id misread (`$1384`). A real whole amount is shorter, or grouped.
-        if (whole && !amount.includes(',') && digits.length > 3) continue
         const after = line.slice(match.index + match[0].length)
         // "533 out" misread as "$33 out" is a token count, not an amount.
         if (whole && /^\s+(?:in|out)\b/i.test(after)) continue
-        return true
+        if (!whole) return { kind: 'decimal' }
+        const digits = amount.replace(/\D/g, '').length
+        if (digits === 2) return { kind: 'whole2' }
+        if (digits === 3) return { kind: 'whole3' }
+        return { kind: 'other' }
     }
-    return false
+    return null
 }
 
-/** A low-confidence word that already names an amount, unlike a bare `:s£`. */
-function lowConfidenceAmount(text) {
-    return lineHasMoney(text)
+/** True when a single line of text names a currency amount. */
+export function lineHasMoney(text) {
+    return classifyAmount(text) !== null
+}
+
+/**
+ * Below confidence 85, keep a decimal or a spelled unit, and a two-digit whole amount only at 60 or higher.
+ * A three-digit whole token below 85 is dropped. A bare `:s£` never names an amount.
+ */
+function lowConfidenceAmount(text, conf) {
+    const hit = classifyAmount(text)
+    if (!hit) return false
+    if (hit.kind === 'decimal' || hit.kind === 'spelled') return true
+    return hit.kind === 'whole2' && conf >= 60
 }
 
 function tool(name) {
@@ -112,9 +134,10 @@ export function moneyIn(tsv) {
         if (parts.length < 12 || !parts[11].trim()) continue
         const conf = Number(parts[10])
         const text = parts[11].trim()
-        // A dim glyph is usually a rule or a box. A dim word that already names an amount still counts.
+        // A dim glyph is usually a rule or a box. Below 85, only a decimal, a spelled unit,
+        // or a two-digit whole amount at confidence 60 or higher still counts.
         if (!Number.isFinite(conf) || conf < 0) continue
-        if (conf < 85 && !lowConfidenceAmount(text)) continue
+        if (conf < 85 && !lowConfidenceAmount(text, conf)) continue
         // page, block, paragraph, line — the same line in another block is a different line.
         const key = [parts[1], parts[2], parts[3], parts[4]].join('\t')
         const bag = lines.get(key) || []

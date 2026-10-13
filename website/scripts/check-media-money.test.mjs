@@ -12,7 +12,14 @@ const positives = [
     'five pounds',
     '20 cents',
     '£ 10',
-    '€20'
+    '€20',
+    '$1,234',
+    '£1,000',
+    '$5',
+    '$1000',
+    '$0.00',
+    '$ 1,000',
+    '$12,345'
 ]
 
 const negatives = [
@@ -25,7 +32,11 @@ const negatives = [
     'A price question',
     'median of 5 runs',
     'b$58-6537',
-    '$3d2-484e'
+    '$3d2-484e',
+    'a pound of flour',
+    'a dollar bill',
+    '$33,out',
+    '$541 in'
 ]
 
 test('currency matcher flags amounts and leaves plain figures alone', () => {
@@ -46,6 +57,15 @@ test('a symbol split from its amount is a hit once the OCR line is joined', () =
     assert.deepEqual(moneyIn([header, row(1, ':s£', 60)].join('\n')), [])
     assert.deepEqual(moneyIn([header, row(1, '$33', 74), row(2, 'out', 90)].join('\n')), [])
     assert.deepEqual(moneyIn([header, row(1, '$1384', 70)].join('\n')), [])
+    assert.deepEqual(moneyIn([header, row(1, '$541', 29)].join('\n')), [])
+    assert.deepEqual(moneyIn([header, row(1, '$81', 56)].join('\n')), [])
+    assert.deepEqual(moneyIn([header, row(1, '$81', 60)].join('\n')), ['$81'])
+    assert.deepEqual(moneyIn([header, row(1, '$33,out', 28)].join('\n')), [])
+    assert.deepEqual(moneyIn([header, row(1, '$25.20', 40)].join('\n')), ['$25.20'])
+    assert.deepEqual(moneyIn([header, row(1, '$100', 84)].join('\n')), [])
+    assert.deepEqual(moneyIn([header, row(1, '$100', 85)].join('\n')), ['$100'])
+    assert.deepEqual(moneyIn([header, row(1, '$5', 90)].join('\n')), ['$5'])
+    assert.deepEqual(moneyIn([header, row(1, '$0.00', 40)].join('\n')), ['$0.00'])
 })
 
 test('homepage media shows no currency amount', async () => {

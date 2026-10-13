@@ -1,5 +1,8 @@
-// OCRs the entrance of each homepage closing card. A figure that is not the
-// sourced value fails the test. Without tesseract or ffmpeg the check skips.
+// OCRs sampled frames of each homepage closing card. A figure that is not the
+// sourced value fails the test. The customer-care card is sampled from its
+// first appearance through the end of the hold, and each sourced figure has
+// to be read, in card order. A listed file that is not on disk fails the test.
+// Without tesseract or ffmpeg the OCR portion skips.
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
 import fs from 'node:fs'
@@ -15,10 +18,11 @@ function tool(name) {
     return spawnSync('which', [name], { encoding: 'utf8' }).status === 0
 }
 
-/** @type {{file: string, from: number, to: number, allow: number[]}[]} */
+/** @type {{file: string, from: number, to: number, allow: number[], require?: number[]}[]} */
 const cards = [
-    { file: 'customer-care-demo.mp4', from: 71.0, to: 73.0, allow: [0.8, 1.9, 19.8] },
-    { file: 'customer-care-demo.webm', from: 71.0, to: 73.0, allow: [0.8, 1.9, 19.8] },
+    // The home page serves both sources (website/src/pages/index.astro). The card holds to the end of the 78.4 s recording.
+    { file: 'customer-care-demo.mp4', from: 71.0, to: 78.2, allow: [0.8, 1.9, 19.8], require: [0.8, 1.9, 19.8] },
+    { file: 'customer-care-demo.webm', from: 71.0, to: 78.2, allow: [0.8, 1.9, 19.8], require: [0.8, 1.9, 19.8] },
     { file: 'products/chatflows-loop.mp4', from: 32.0, to: 34.2, allow: [1.1, 1.3] },
     { file: 'products/chatflows.mp4', from: 32.0, to: 34.2, allow: [1.1, 1.3] },
     { file: 'products/agentflows-loop.mp4', from: 26.8, to: 29.2, allow: [0.9, 1.2, 0.8] },
@@ -42,6 +46,25 @@ function closeEnough(value, allow) {
     return allow.some((ok) => Math.abs(value - ok) <= 0.08)
 }
 
+function nearest(value, allow) {
+    let best = null
+    let bestDist = 0.08
+    for (const ok of allow) {
+        const dist = Math.abs(value - ok)
+        if (dist <= bestDist) {
+            best = ok
+            bestDist = dist
+        }
+    }
+    return best
+}
+
+function median(values) {
+    const sorted = [...values].sort((a, b) => a - b)
+    const mid = Math.floor(sorted.length / 2)
+    return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2
+}
+
 function figuresIn(tsv) {
     const found = []
     for (const row of tsv.split('\n').slice(1)) {
@@ -56,8 +79,9 @@ function figuresIn(tsv) {
         const match = DECIMAL.exec(text) || MILLIS.exec(text)
         if (!match) continue
         const value = Number(match[1])
-        if (!Number.isFinite(value)) continue
-        found.push({ value, text, conf })
+        const left = Number(parts[6])
+        if (!Number.isFinite(value) || !Number.isFinite(left)) continue
+        found.push({ value, text, conf, left })
     }
     return found
 }
@@ -81,7 +105,9 @@ function ocrFrame(file, at, dest) {
     return figuresIn(read.stdout)
 }
 
-test('closing card entrance shows only the sourced figures', () => {
+test('closing card samples show only the sourced figures', () => {
+    const missing = cards.filter((card) => !fs.existsSync(path.join(media, card.file))).map((card) => `${card.file} is missing`)
+    assert.deepEqual(missing, [], missing.join('\n'))
     if (!tool('tesseract') || !tool('ffmpeg')) {
         console.log('tesseract or ffmpeg is not installed, so the closing-card check was skipped')
         return
@@ -91,14 +117,29 @@ test('closing card entrance shows only the sourced figures', () => {
     try {
         for (const card of cards) {
             const file = path.join(media, card.file)
-            if (!fs.existsSync(file)) continue
+            const seen = new Map()
             for (let at = card.from; at <= card.to + 0.001; at += 0.4) {
                 const stamp = Math.round(at * 10) / 10
                 const found = ocrFrame(file, stamp, tmp)
                 for (const figure of found) {
-                    if (!closeEnough(figure.value, card.allow)) {
+                    const key = nearest(figure.value, card.allow)
+                    if (key === null) {
                         bad.push(`${card.file} @ ${stamp.toFixed(1)}s: ${figure.text}`)
+                        continue
                     }
+                    const lefts = seen.get(key) || []
+                    lefts.push(figure.left)
+                    seen.set(key, lefts)
+                }
+            }
+            for (const value of card.require || []) {
+                if (!seen.has(value)) bad.push(`${card.file}: did not read ${value}`)
+            }
+            const required = card.require || []
+            if (required.length > 1 && required.every((value) => seen.has(value))) {
+                const order = required.map((value) => median(seen.get(value)))
+                for (let i = 1; i < order.length; i += 1) {
+                    if (!(order[i] > order[i - 1])) bad.push(`${card.file}: figures are out of card order`)
                 }
             }
         }
