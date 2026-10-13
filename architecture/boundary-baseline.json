@@ -493,6 +493,11 @@
         },
         {
             "from": "packages/server/src/services/flow-check/index.ts",
+            "to": "packages/server/src/services/executions/index.ts",
+            "reason": "The publish check reads recent execution records to replay form, webhook and schedule inputs."
+        },
+        {
+            "from": "packages/server/src/services/flow-check/index.ts",
             "to": "packages/server/src/utils/buildChatflow.ts"
         },
         {
@@ -502,6 +507,11 @@
         {
             "from": "packages/server/src/services/flow-check/index.ts",
             "to": "packages/server/src/utils/logger.ts"
+        },
+        {
+            "from": "packages/server/src/services/flow-check/inputs.ts",
+            "to": "packages/server/src/utils/buildAgentflow.ts",
+            "reason": "The publish check reads stored form lines with the same parser that restores a form from an execution."
         },
         {
             "from": "packages/server/src/services/flow-drafts/index.ts",
@@ -2350,6 +2360,10 @@
         {
             "path": "packages/server/src/utils/buildAgentGraph.usage.test.ts",
             "reason": "The Agent token test and the multi-agent usage test stay next to the inherited nodes they exercise."
+        },
+        {
+            "path": "packages/server/src/services/executions/index.test.ts",
+            "reason": "The executions paging test lives next to the service it checks."
         },
         {
             "path": "packages/server/src/utils/telemetry-geoip-missing.test.ts",
