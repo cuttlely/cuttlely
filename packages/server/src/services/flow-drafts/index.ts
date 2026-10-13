@@ -10,7 +10,6 @@ import crypto from 'crypto'
 import { StatusCodes } from 'http-status-codes'
 import { type EntityManager } from 'typeorm'
 import { ChatFlow } from '../../database/entities/ChatFlow'
-import { Dataset } from '../../database/entities/Dataset'
 import { FlowVersionState } from '../../database/entities/FlowVersionState'
 import { AppError } from '../../errors/appError'
 import { containsBase64File, updateFlowDataWithFilePaths } from '../../utils/fileRepository'
@@ -30,7 +29,7 @@ import {
     sameGateSettings,
     testSetChangedReason
 } from './gate'
-import { currentTestSetHash, loadEvaluators } from '../flow-check/score'
+import { casesFromDataset, currentTestSetHash, loadEvaluators } from '../flow-check/score'
 
 // Test seam. A race test changes the flow's type after a draft save has started and before it writes.
 export const draftWriteHooks: { beforeDraftWrite: null | (() => Promise<void>) } = { beforeDraftWrite: null }
@@ -497,11 +496,10 @@ export interface GateResultInput {
     contentHash?: string
 }
 
-// The same workspace lookup the dataset check uses. A missing workspace matches nothing.
+// The same workspace lookup the dataset check uses. A missing id and an id from another workspace
+// are both 404, and the caller has not written the settings yet.
 async function assertGateTargets(workspaceId: string, datasetId: string, evaluatorIds: string[]): Promise<void> {
-    if (!workspaceId) throw new AppError(StatusCodes.NOT_FOUND, `Dataset ${datasetId} not found`)
-    const dataset = await getRunningExpressApp().AppDataSource.getRepository(Dataset).findOneBy({ id: datasetId, workspaceId })
-    if (!dataset) throw new AppError(StatusCodes.NOT_FOUND, `Dataset ${datasetId} not found`)
+    await casesFromDataset(datasetId, workspaceId)
     await loadEvaluators(evaluatorIds, workspaceId)
 }
 
