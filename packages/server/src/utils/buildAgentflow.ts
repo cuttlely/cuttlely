@@ -2250,8 +2250,9 @@ export const executeAgentFlow = async ({
                     isObjectNotEmpty(incomingInput.form)
                 ) {
                     // First run: Start was given the readable lines. Persist the marked encoding instead.
-                    nodeResult.output.form = formObjectToStoredLines(incomingInput.form)
-                    agentflowRuntime.form = incomingInput.form
+                    const submitted = incomingInput.form || {}
+                    nodeResult.output.form = formObjectToStoredLines(submitted)
+                    agentflowRuntime.form = submitted
                 } else {
                     agentflowRuntime.form = nodeResult.output.form
                 }
