@@ -61,13 +61,23 @@ const executeModule = (binding, input, options) => executeModuleRaw(binding, inp
 const { attachHarnessToChatMessage } = await import('./payload.mjs')
 const { chatModelEdge } = await import('./flow-graph.mjs')
 const {
+    TRACE_PREVIEW_BYTES,
+    TRACE_PREVIEW_CELL_CHARS,
+    TRACE_PREVIEW_COLUMNS,
+    TRACE_PREVIEW_ROWS,
     TRACE_ROW_LIMIT,
     analystChipRows,
+    analystQueryPreview,
+    analystStepView,
+    analystTracePreviewsEnabled,
+    analystTraceRowCap,
     emptyTrace,
     explainTruncation,
+    publicToolStep,
     reduceHarnessEvent,
     routeSummary,
     settleToolChips,
+    snapshotSpecialist,
     toolChipLabel,
     traceFromPayload
 } = await import('./trace.mjs')
@@ -580,6 +590,166 @@ check(
                 detail: JSON.stringify({ result: JSON.stringify({ rows: [] }) })
             }) === null &&
             analystChipRows({ name: 'mcp__analyst__query', status: 'done' }) === null
+    )
+    const previewRows = Array.from({ length: 40 }, (_, i) => ({
+        id: i + 1,
+        region: i % 2 === 0 ? 'west' : 'east',
+        amount: 1000 - i,
+        note: `note-${i}-${'x'.repeat(80)}`,
+        extra: `only-on-row-${i}`
+    }))
+    const previewBody = {
+        rows: previewRows,
+        truncated: true,
+        summary: 'rows 1-40 of 150 (page 1 of 2, say "show more" for the next page)'
+    }
+    const shaped = analystQueryPreview(previewBody, {})
+    const shapedBytes = new TextEncoder().encode(JSON.stringify(shaped.preview)).length
+    const shapedText = JSON.stringify(shaped)
+    const keptPreviewRows = shaped.preview.rows.length
+    check(
+        'a query preview is capped by rows and bytes and reports the row count',
+        shaped.rowCount === 40 &&
+            keptPreviewRows <= TRACE_PREVIEW_ROWS &&
+            keptPreviewRows >= 1 &&
+            shaped.preview.columns.length <= TRACE_PREVIEW_COLUMNS &&
+            shaped.preview.columnCount === 5 &&
+            shaped.preview.moreRows === true &&
+            shaped.preview.moreColumns === true &&
+            shapedBytes <= TRACE_PREVIEW_BYTES &&
+            shaped.preview.rows.every((row) => row.every((cell) => cell.length <= TRACE_PREVIEW_CELL_CHARS)) &&
+            !shapedText.includes('only-on-row-39') &&
+            !shapedText.includes('x'.repeat(80)) &&
+            shaped.preview.summary.startsWith('rows 1-40 of 150'),
+        JSON.stringify({ rowCount: shaped.rowCount, rows: keptPreviewRows, columns: shaped.preview.columns, bytes: shapedBytes })
+    )
+    const wideNames = ['alpha_column_name_is_long', 'beta_column_name_is_long', 'gamma_column_name_is_long', 'delta_column_name_is_long']
+    const wideBody = {
+        rows: Array.from({ length: 8 }, (_, i) => {
+            const row = {}
+            for (const name of wideNames) row[name] = `wide-row-${i}-${'v'.repeat(200)}`
+            return row
+        }),
+        summary: 's'.repeat(300)
+    }
+    const wide = analystQueryPreview(wideBody, {})
+    const wideBytes = new TextEncoder().encode(JSON.stringify(wide.preview)).length
+    check(
+        'a query preview shrinks until it fits the byte cap',
+        wide.rowCount === 8 &&
+            wide.preview.rows.length < TRACE_PREVIEW_ROWS &&
+            wide.preview.rows.length >= 1 &&
+            wideBytes <= TRACE_PREVIEW_BYTES &&
+            !JSON.stringify(wide).includes('wide-row-7') &&
+            wide.preview.rows.every((row) => row.every((cell) => cell.length <= TRACE_PREVIEW_CELL_CHARS)),
+        JSON.stringify({ rows: wide.preview.rows.length, bytes: wideBytes })
+    )
+    const overCap = analystQueryPreview(
+        { rows: Array.from({ length: 150 }, (_, i) => ({ id: i + 1, tag: `past-cap-${i}` })) },
+        { CUTTLELY_ANALYST_ROW_CAP: '10' }
+    )
+    const overText = JSON.stringify(overCap)
+    check(
+        'a query preview never keeps rows past the row cap',
+        analystTraceRowCap({ CUTTLELY_ANALYST_ROW_CAP: '10' }) === 10 &&
+            analystTraceRowCap({ CUTTLELY_ANALYST_ROW_CAP: '5000' }) === 1000 &&
+            analystTraceRowCap({ CUTTLELY_ANALYST_ROW_CAP: '0' }) === 100 &&
+            analystTraceRowCap({ CUTTLELY_ANALYST_ROW_CAP: 'nope' }) === 100 &&
+            analystTraceRowCap({}) === 100 &&
+            overCap.rowCount === 10 &&
+            !overText.includes('past-cap-10') &&
+            !overText.includes('past-cap-149'),
+        overText.slice(0, 400)
+    )
+    const hidden = publicToolStep(
+        {
+            name: 'mcp__analyst__query',
+            status: 'done',
+            detail: JSON.stringify({ result: JSON.stringify({ rows: [{ region: 'west', secretNote: 'do-not-store-this-cell' }] }) })
+        },
+        { CUTTLELY_ANALYST_TRACE_PREVIEW: 'false' }
+    )
+    check(
+        'query previews are omitted when the setting is off',
+        analystTracePreviewsEnabled({ CUTTLELY_ANALYST_TRACE_PREVIEW: 'false' }) === false &&
+            analystTracePreviewsEnabled({}) === true &&
+            hidden.preview == null &&
+            hidden.detail == null &&
+            hidden.rowCount === 1 &&
+            !JSON.stringify(hidden).includes('do-not-store-this-cell'),
+        JSON.stringify(hidden)
+    )
+    const published = snapshotSpecialist({
+        calls: [],
+        tools: [
+            {
+                specialist: 'analyst',
+                name: 'mcp__analyst__query',
+                status: 'done',
+                detail: JSON.stringify({
+                    result: JSON.stringify({
+                        rows: [{ id: 1, region: 'west' }],
+                        summary: 'one row',
+                        cursor: 'page-cursor-should-not-leak'
+                    })
+                })
+            }
+        ],
+        name: 'analyst'
+    })
+    check(
+        'the published query step stores the preview and not the page cursor',
+        published.tools[0].rowCount === 1 &&
+            published.tools[0].preview.rows[0][0] === '1' &&
+            published.tools[0].detail == null &&
+            !JSON.stringify(published.tools[0]).includes('page-cursor-should-not-leak'),
+        JSON.stringify(published.tools[0])
+    )
+    const older = traceFromPayload({
+        harness: 'chief-of-staff',
+        agents: [
+            {
+                name: 'analyst',
+                status: 'completed',
+                task: 'Show the rows.',
+                tools: [
+                    {
+                        name: 'mcp__analyst__query',
+                        status: 'done',
+                        detail: JSON.stringify({
+                            result: JSON.stringify({
+                                rows: [
+                                    { region: 'west', amount: 10 },
+                                    { region: 'east', amount: 20 }
+                                ],
+                                summary: 'two rows'
+                            })
+                        })
+                    }
+                ]
+            }
+        ],
+        timings: { routeMs: 1, specialistsMs: 1, handoffMs: 1 },
+        report: {}
+    })
+    const olderView = analystStepView(older.specialists[0].tools[0])
+    const bare = traceFromPayload({
+        harness: 'chief-of-staff',
+        agents: [{ name: 'analyst', status: 'completed', tools: [{ name: 'mcp__analyst__query', status: 'done' }] }],
+        timings: {},
+        report: {}
+    })
+    check(
+        'a trace from before query previews still renders',
+        older.status === 'completed' &&
+            older.specialists[0].tools[0].preview == null &&
+            olderView.legacy === true &&
+            olderView.rowCount === 2 &&
+            olderView.rows[0][0] === 'west' &&
+            bare.specialists[0].tools.length === 1 &&
+            analystStepView(bare.specialists[0].tools[0]) === null &&
+            routeSummary(bare) === 'Harness Prime sent work to analyst',
+        JSON.stringify({ older: olderView, bare: bare.specialists[0].tools })
     )
 }
 check(
@@ -9332,10 +9502,12 @@ check(
         !String(mixTools[0].detail || '').includes('page 1 of 2') &&
         String(mixTools[1].detail || '').includes('rowCount":1') &&
         !String(mixTools[1].detail || '').includes('Ticket 001') &&
-        String(mixTools[2].detail || '').includes('Ticket 001') &&
-        String(mixTools[2].detail || '').includes('page 1 of 2') &&
-        !String(mixTools[2].detail || '').includes('rowCount":0'),
-    JSON.stringify(mixTools.map((tool) => tool.detail))
+        String(mixTools[2].preview ? JSON.stringify(mixTools[2].preview) : '').includes('Ticket 001') &&
+        String(mixTools[2].preview?.summary || '').includes('page 1 of 2') &&
+        mixTools[2].rowCount === 1 &&
+        mixTools[2].detail == null &&
+        !JSON.stringify(mixTools[2]).includes('rowCount":0'),
+    JSON.stringify(mixTools.map((tool) => tool.preview || tool.detail))
 )
 const gapRun = await runHarness({
     name: 'analyst-ground',
@@ -9369,8 +9541,8 @@ const gapRun = await runHarness({
 const gapTools = queryChips(gapRun.trace)
 check(
     'a select result is not attached when it cannot be matched to its chip',
-    gapTools.length === 3 && gapTools.every((tool) => !String(tool.detail || '').includes('Ticket 009')),
-    JSON.stringify(gapTools.map((tool) => tool.detail))
+    gapTools.length === 3 && gapTools.every((tool) => !JSON.stringify(tool).includes('Ticket 009')),
+    JSON.stringify(gapTools)
 )
 const twoRun = await runHarness({
     name: 'analyst-ground',
@@ -9404,11 +9576,13 @@ const twoTools = queryChips(twoRun.trace)
 check(
     'two selects in one run each keep their own rows',
     twoTools.length === 2 &&
-        String(twoTools[0].detail || '').includes('left') &&
-        !String(twoTools[0].detail || '').includes('right') &&
-        String(twoTools[1].detail || '').includes('right') &&
-        !String(twoTools[1].detail || '').includes('left'),
-    JSON.stringify(twoTools.map((tool) => tool.detail))
+        String(JSON.stringify(twoTools[0].preview || {})).includes('left') &&
+        !String(JSON.stringify(twoTools[0].preview || {})).includes('right') &&
+        String(JSON.stringify(twoTools[1].preview || {})).includes('right') &&
+        !String(JSON.stringify(twoTools[1].preview || {})).includes('left') &&
+        twoTools[0].detail == null &&
+        twoTools[1].detail == null,
+    JSON.stringify(twoTools.map((tool) => tool.preview || tool.detail))
 )
 const oldTools = [
     { name: 'mcp__analyst__query', status: 'done', detail: '{"command":"OK","rowCount":0}' },

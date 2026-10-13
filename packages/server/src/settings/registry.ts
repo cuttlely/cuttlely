@@ -448,6 +448,18 @@ export const SETTINGS: SettingDef[] = [
         placeholder: 'postgres://user:password@host:5432/database',
         risk: 'high'
     },
+    {
+        key: 'CUTTLELY_ANALYST_TRACE_PREVIEW',
+        section: 'analyst',
+        group: 'Run trace',
+        label: 'Query previews in the run trace',
+        help: 'Saves a short table with each analyst query step. The preview holds rows that query already returned to that chat. Turn this off to leave those values out of saved runs. The row count can still show.',
+        type: 'switch',
+        ...TRUE_FALSE,
+        defaultLabel: 'On',
+        defaultValue: 'true',
+        risk: 'medium'
+    },
 
     // Models & keys
     {

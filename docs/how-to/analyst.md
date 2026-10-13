@@ -62,7 +62,7 @@ Each specialist **Chat Model** input can stay empty. The specialist uses Harness
 
 ![The chief-of-staff harness with PostgreSQL MCP settings open. Available Actions has QUERY selected, and the line under it starts with Run one SQL statement in the isolated analyst store (SQLite). Connect Credential reads Auto mode: isolated analyst store, no credential needed.](../images/analyst/postgres-mcp-query.png)
 
-**Try it** is on `/harnesses/chief-of-staff`. The chat on the harness canvas (`/harnesscanvas/<id>`) sends to the same runs API, `POST /api/v1/harnesses/chief-of-staff/runs`. It does not build the canvas as a chatflow. The trace on that page shows who ran, the model, and tool names with done, retried, or failed chips. It does not show the tool rows. The answer shows the rows and, when the tool stopped at the cap, a page line such as `rows 1-100 of 150 (page 1 of 2, say "show more" for the next page)`. The raw tool text is also in the agent runtime profile database, `state.db`, under that specialist. The panel is described in [Harnesses](./harnesses.md).
+**Try it** is on `/harnesses/chief-of-staff`. The chat on the harness canvas (`/harnesscanvas/<id>`) sends to the same runs API, `POST /api/v1/harnesses/chief-of-staff/runs`. It does not build the canvas as a chatflow. The trace on that page shows who ran, the model, and tool names with done, retried, or failed chips. An analyst query chip also shows how many rows that query returned, and a short preview of them. The answer shows the rows and, when the tool stopped at the cap, a page line such as `rows 1-100 of 150 (page 1 of 2, say "show more" for the next page)`. The raw tool text is also in the agent runtime profile database, `state.db`, under that specialist. The panel is described in [Harnesses](./harnesses.md).
 
 This is the canvas chat after the sales prompt from [Prompts](#prompts). The Run card names the analyst, its model, and the tool count. The rows are in the answer.
 
@@ -141,7 +141,7 @@ Row cap:
 Use the analyst database for a row cap check. Create a tickets table and insert 150 rows, then select all rows.
 ```
 
-The model writes the INSERT itself. Check the row count the tool reports. A first try can insert fewer than 150 rows and say so. When the insert is 150, the tool returns 100 rows and `truncated: true`. The table still holds 150. The tool result includes `rows 1-100 of 150 (page 1 of 2, say "show more" for the next page)`. Harness Prime's answer keeps those rows, or a list capped at the rows the tool returned, and that page line word for word. A short paraphrase such as "the select returned 100 rows" is not the answer. The handoff keeps that line even when the rest of the prompt is shortened. The trace shows the tool name and a done, retried, or failed chip. It does not list the rows. A `tool_call · retried` chip is a batched local call the agent runtime rejected; the reason is on the chip, and the specialist then calls the tool once.
+The model writes the INSERT itself. Check the row count the tool reports. A first try can insert fewer than 150 rows and say so. When the insert is 150, the tool returns 100 rows and `truncated: true`. The table still holds 150. The tool result includes `rows 1-100 of 150 (page 1 of 2, say "show more" for the next page)`. Harness Prime's answer keeps those rows, or a list capped at the rows the tool returned, and that page line word for word. A short paraphrase such as "the select returned 100 rows" is not the answer. The handoff keeps that line even when the rest of the prompt is shortened. The trace shows the tool name, a done, retried, or failed chip, the row count, and a short preview of the rows. A `tool_call · retried` chip is a batched local call the agent runtime rejected; the reason is on the chip, and the specialist then calls the tool once.
 
 What that answer looks like, and how to get rows 101-150, is in [Paging through large results](#paging-through-large-results).
 
@@ -169,15 +169,19 @@ An answer that fits on one page has no page line and nothing to page. That inclu
 
 The cursor lasts 15 minutes. It is dropped when Cuttlely restarts. It works only in the chat that ran the query. After 15 minutes, `show more` gets the direct reply `This page cursor expired. Re-run the query.` Send the question again for a new first page. A bad cursor, or one from another chat, also says to re-run the query. That message is an expected result, so it does not pause the analyst tool.
 
-### Every row on the run card
+### Query preview on the run card
 
-The answer can show only the top rows, for example the top 10 accounts. The run card keeps every row each analyst query returned, up to the 100-row cap. Open the analyst row and select a query chip that says `· N rows`:
+The answer can show only the top rows, for example the top 10 accounts. The run card shows how many rows the query returned and a short preview. Open the analyst row and select a query chip that says `· N rows`. The table starts closed.
 
-![Try it on the bakery-auto-timeout harness. The prompt asks the analyst to query every order sorted by qty and answer in one sentence. The analyst row is open. The chip reads mcp__analyst__query · done · 100 rows, and below it the caption 100 rows this query returned. The answer can show fewer, a table with order_id, item and qty, and the page line rows 1-100 of 150. The answer names only the six orders with the highest qty.](../images/analyst/run-card-rows.png)
+The preview is the first few rows and the first few columns. A long value is cut short. When the query returned more rows than the table shows, the caption says so and points to the analyst page for this chat. Say `show more` for the next page. The page line under the table is the same line as in the answer, such as `rows 1-100 of 150 (page 1 of 2, say "show more" for the next page)`.
 
-The table shows the first 100 rows of each query, the same rows the analyst received. Select the chip again to close it.
+The preview is saved with the run trace, in **Try it**, in the canvas chat, and in a saved chat. It holds only rows that query already returned to this chat, in this workspace. It does not hold rows past the row cap, and it does not hold the page cursor. A run saved before previews still opens. Its chips render, and a chip that already stored its rows still lists those rows.
 
-The list is the rows as the tool returned them, with the page line under them. A chip for a create, an insert or a failed statement has no row list.
+To leave row values out of new traces, turn off **Query previews in the run trace** under **Admin** > **Server settings** > **Analyst**, then restart. The chip can still say how many rows came back. [Server settings](./server-settings.md).
+
+![Try it on the chief-of-staff harness. The analyst row is open. The chip reads mcp__analyst__query · done · 100 rows. The preview is open and shows the first rows of a tickets table, id and title, with Ticket 1 through Ticket 5. The caption says Showing 5 of 100 rows, and points to the analyst page. The page line reads rows 1-100 of 150.](../images/analyst/trace-query-preview.png)
+
+A chip for a create, an insert, or a failed statement has no preview.
 
 The 100-row limit itself is the **Row cap** rule under [Safety](#safety). The trace and the page line are also covered in [Harnesses](./harnesses.md).
 
@@ -315,7 +319,7 @@ Encode the password, restart, and select **QUERY** again.
 
 **The xAI Grok chat model on Harness Prime needs a credential. Select one on that node and save the harness.** The sample model is still connected and has no key. Delete it, add **OpenAI**, select the credential, and save. The label in that sentence is the chat-model node you left on Harness Prime. [Harnesses](./harnesses.md).
 
-**The answer is a few words and the rows are missing.** Open the analyst row on the run card and select the query chip that says `· N rows`. It lists every row that query returned. Read the answer for the page line after them, such as `rows 1-100 of N (page 1 of 2, say "show more" for the next page)`. Getting the next page is [Paging through large results](#paging-through-large-results). A change such as a create or a drop is a short sentence, not raw tool JSON. The agent runtime profile `state.db` for that specialist also has the tool text.
+**The answer is a few words and the rows are missing.** Open the analyst row on the run card and select the query chip that says `· N rows`. It shows the row count and a short preview. Read the answer for the rest of that page, and for the page line after them, such as `rows 1-100 of N (page 1 of 2, say "show more" for the next page)`. Getting the next page is [Paging through large results](#paging-through-large-results). A change such as a create or a drop is a short sentence, not raw tool JSON. The agent runtime profile `state.db` for that specialist also has the tool text.
 
 **Harness Prime answered directly, and the answer is about the database.** A SQL statement, the words "analyst database", or a message that starts with `Analyst:` has to go to the analyst. Prime does not answer those. Send the prompt again. The run should name the analyst, not "answered directly".
 

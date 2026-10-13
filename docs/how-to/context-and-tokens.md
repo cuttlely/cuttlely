@@ -42,7 +42,7 @@ rows 1-100 of 150 (page 1 of 2, say "show more" for the next page)
 
 Say `show more`, `next page` or `page 2` in that same chat. The analyst fetches the next page of the same select. It does not run the question as a new query, and it does not send the earlier rows to the model again. The next turn's history keeps the page line from the previous answer. The last page reads `rows 101-150 of 150 (page 2 of 2, last page)`.
 
-The page cursor lasts 15 minutes and only works in the chat that ran the query. The full paging rules, including a count that has nothing to page, are in [Paging through large results](./analyst.md#paging-through-large-results). The run card still lists every row that page returned, up to the 100-row cap, when you open the query chip. Harness Prime's answer can show fewer.
+The page cursor lasts 15 minutes and only works in the chat that ran the query. The full paging rules, including a count that has nothing to page, are in [Paging through large results](./analyst.md#paging-through-large-results). The run card shows the row count and a short preview when you open the query chip. The preview is stored with the run trace. Harness Prime's answer can show fewer rows than the query returned.
 
 ## Playbooks load when a question needs them
 

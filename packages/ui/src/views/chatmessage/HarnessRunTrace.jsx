@@ -4,7 +4,7 @@ import { useSelector } from 'react-redux'
 import { alpha, useTheme } from '@mui/material/styles'
 import { Box, Chip, Collapse, Stack, Tooltip, Typography } from '@mui/material'
 import { IconCheck, IconChevronDown, IconChevronRight, IconX } from '@tabler/icons-react'
-import { analystChipRows, formatDuration, formatTokens, routeSummary, toolChipLabel } from '../../../../../packages/harness/trace.mjs'
+import { analystStepView, formatDuration, formatTokens, routeSummary, toolChipLabel } from '../../../../../packages/harness/trace.mjs'
 
 const FILL_NOTE = {
     none: 'The tool took the question as its input.',
@@ -78,13 +78,47 @@ Meta.propTypes = {
     children: PropTypes.node
 }
 
-// Every row an analyst query returned, as the run kept it. The answer can show fewer.
-function QueryRows({ view }) {
-    const count = view.rows.length
+function harnessPageId(name) {
+    const value = String(name || '')
+    return /^[A-Za-z][A-Za-z0-9_-]{0,63}$/.test(value) ? value : ''
+}
+
+function previewCaption(view) {
+    if (view.legacy) {
+        const count = view.rows.length
+        return `${count} row${count === 1 ? '' : 's'} this query returned. The answer can show fewer.`
+    }
+    const shown = view.rows.length
+    const total = view.rowCount
+    const parts = []
+    if (shown < total) parts.push(`Showing ${shown} of ${total} rows.`)
+    else parts.push(`${total} row${total === 1 ? '' : 's'}.`)
+    if (view.moreColumns && view.columnCount > view.columns.length) {
+        parts.push(`Showing ${view.columns.length} of ${view.columnCount} columns.`)
+    }
+    return parts.join(' ')
+}
+
+// The preview starts closed. The chip shows the row count; opening it shows the short table.
+function QueryRows({ view, harnessId }) {
+    const more = !view.legacy && (view.moreRows || view.rows.length < view.rowCount)
     return (
         <Box sx={{ pt: 0.5 }}>
             <Typography variant='caption' color='text.secondary' component='p' sx={{ mb: 0.5 }}>
-                {`${count} row${count === 1 ? '' : 's'} this query returned. The answer can show fewer.`}
+                {previewCaption(view)}
+                {more ? (
+                    <>
+                        {' More rows are in the answer on the '}
+                        {harnessId ? (
+                            <Box component='a' href={`/harnesses/${harnessId}`} sx={{ color: 'inherit' }}>
+                                analyst page
+                            </Box>
+                        ) : (
+                            'analyst page'
+                        )}
+                        {' for this chat. Say show more for the next page.'}
+                    </>
+                ) : null}
             </Typography>
             <Box sx={{ maxHeight: 320, overflow: 'auto', border: '1px solid', borderColor: 'divider', borderRadius: 1 }}>
                 <Box component='table' sx={{ borderCollapse: 'collapse', width: '100%', fontSize: 12 }}>
@@ -145,7 +179,8 @@ function QueryRows({ view }) {
 }
 
 QueryRows.propTypes = {
-    view: PropTypes.object
+    view: PropTypes.object,
+    harnessId: PropTypes.string
 }
 
 const HarnessRunTrace = ({ trace }) => {
@@ -213,7 +248,8 @@ const HarnessRunTrace = ({ trace }) => {
                 {(trace.specialists || []).map((specialist) => {
                     const open = openName === specialist.name
                     const toolCount = specialist.tools?.length || 0
-                    const rowViews = (specialist.tools || []).map((tool) => analystChipRows(tool))
+                    const rowViews = (specialist.tools || []).map((tool) => analystStepView(tool))
+                    const harnessId = harnessPageId(trace.harness)
                     const openRows = rowViews.findIndex((view, index) => view && rowsKey === `${specialist.name}:${index}`)
                     return (
                         <Box key={specialist.name}>
@@ -268,16 +304,26 @@ const HarnessRunTrace = ({ trace }) => {
                                             {specialist.tools.map((tool, index) => {
                                                 const view = rowViews[index]
                                                 const key = `${specialist.name}:${index}`
-                                                const chip = view ? (
+                                                const expandable = Boolean(view?.rows?.length)
+                                                const countLabel =
+                                                    view && view.rowCount != null
+                                                        ? `${toolChipLabel(tool)} · ${view.rowCount} row${view.rowCount === 1 ? '' : 's'}`
+                                                        : toolChipLabel(tool)
+                                                const chip = expandable ? (
                                                     <Chip
                                                         size='small'
                                                         variant={openRows === index ? 'filled' : 'outlined'}
                                                         color={tool.status === 'failed' ? 'error' : 'default'}
-                                                        label={`${toolChipLabel(tool)} · ${view.rows.length} row${
-                                                            view.rows.length === 1 ? '' : 's'
-                                                        }`}
+                                                        label={countLabel}
                                                         aria-expanded={openRows === index}
                                                         onClick={() => setRowsKey(rowsKey === key ? '' : key)}
+                                                    />
+                                                ) : view ? (
+                                                    <Chip
+                                                        size='small'
+                                                        variant='outlined'
+                                                        color={tool.status === 'failed' ? 'error' : 'default'}
+                                                        label={countLabel}
                                                     />
                                                 ) : (
                                                     <Chip
@@ -302,7 +348,7 @@ const HarnessRunTrace = ({ trace }) => {
                                             No tool calls recorded
                                         </Typography>
                                     )}
-                                    {openRows >= 0 ? <QueryRows view={rowViews[openRows]} /> : null}
+                                    {openRows >= 0 ? <QueryRows view={rowViews[openRows]} harnessId={harnessId} /> : null}
                                     {specialist.sources?.length ? (
                                         <Typography variant='caption' color='text.secondary'>
                                             {`Sources: ${specialist.sources.map((source) => source.name).join(', ')}`}
