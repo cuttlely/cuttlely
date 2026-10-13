@@ -59,7 +59,15 @@ import {
     tokenHint
 } from '@/utils/githubSync'
 import GithubTokenHelp from './GithubTokenHelp'
-import { incomingSummary, isSavedDevProdPair, promotePath, readIntro, readLine, sourceTitleOf } from '@/utils/promote'
+import {
+    incomingSummary,
+    isSavedDevProdPair,
+    previousEnvironmentTitle,
+    promotePath,
+    readIntro,
+    readLine,
+    sourceTitleOf
+} from '@/utils/promote'
 
 const pop = keyframes`
   0% { transform: scale(0.4); opacity: 0; }
@@ -210,6 +218,7 @@ const GithubCard = ({ onStatus, initialStatus = null }) => {
     }, [reviews, connected, status?.incomingVersion, status?.lastCheckedAt])
     const incomingFlows = incoming?.flows || []
     const sourceTitle = sourceTitleOf(incoming)
+    const readsFrom = previousEnvironmentTitle(status)
     const tokenBody = tokenChoice === NEW_TOKEN ? { token } : { credentialId: tokenChoice }
     const shown = useMemo(() => filterRepos(repos, query), [repos, query])
 
@@ -450,7 +459,7 @@ const GithubCard = ({ onStatus, initialStatus = null }) => {
                                 {status.state === 'stopped' && <Alert severity='error'>{status.message}</Alert>}
                                 <Typography color='text.secondary'>
                                     {reading
-                                        ? 'Connect the repository your Dev server copies to. This server reads new versions from it, never writes to it, and puts nothing Live until you promote it.'
+                                        ? `Connect the repository your ${readsFrom} server copies to. This server reads new versions from it, never writes to it, and puts nothing Live until you promote it.`
                                         : 'Your history always stays on this server. Connect GitHub to keep a second copy there, updated a few seconds after each change. Keys are never copied: credentials go by name only.'}
                                 </Typography>
                                 <Button variant='contained' size='large' startIcon={<IconBrandGithub size={20} />} onClick={startConnect}>
@@ -532,7 +541,7 @@ const GithubCard = ({ onStatus, initialStatus = null }) => {
                                 <Typography variant='h5'>2. Pick where to keep it</Typography>
                                 <Typography variant='body2' color='text.secondary'>
                                     {reading
-                                        ? `Signed in as ${account}. Pick the repository your Dev server copies to.`
+                                        ? `Signed in as ${account}. Pick the repository your ${readsFrom} server copies to.`
                                         : `Signed in as ${account}. Pick an empty repository, or make a new private one.`}
                                 </Typography>
                                 {repos.length > 6 && (

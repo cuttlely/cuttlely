@@ -59,6 +59,21 @@ describe('GithubCard environment names', () => {
         expect(html).not.toContain('from Dev')
     })
 
+    test('before connect, a three-environment Prod server names the previous environment', () => {
+        const html = wrap(
+            status({
+                connected: false,
+                role: 'read',
+                environment: 'prod',
+                environments: chain,
+                state: 'not-connected',
+                message: 'Not connected. Connect the repository Staging copies to, to see its new versions here.'
+            })
+        )
+        expect(html).toContain('your Staging server copies to')
+        expect(html).not.toContain('your Dev server')
+    })
+
     test('a two-entry list that is not Dev and Prod uses those server identities', () => {
         const html = wrap(
             status({

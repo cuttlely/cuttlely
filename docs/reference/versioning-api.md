@@ -328,7 +328,7 @@ or `{ "credentialId": "<credential id>" }`. Asks GitHub which repositories the t
 }
 ```
 
-`empty` is `true` when GitHub reports no content. Only an empty repository, or one this server copied to before, can be connected. A token GitHub refuses, or GitHub out of reach, is 400 with a plain message.
+`empty` is `true` when GitHub reports no content. What can be connected is the rule in [Connect](#connect): with the saved Dev and Prod pair, an empty repository or one whose `main` is already part of this server's history; with a named list, this server's own publish branch, and a read-only server does not need `main`. A token GitHub refuses, or GitHub out of reach, is 400 with a plain message.
 
 ### Create a repository
 
@@ -365,7 +365,7 @@ To put another environment between them, send the ordered list. Each entry has a
 }
 ```
 
-`environment` has to be one of the `server` values, or `null`. Sending `environment` alone later picks another server in the list that is already saved. A server that is not in the list is 400. On a named list, connect is refused until `environment` is one of those servers. Saving a longer list while this server still publishes the same branch rewrites the fingerprint on the versions already copied, so the next environment can read them without a new version.
+`environment` has to be one of the `server` values, or `null`. Sending `environment` alone later picks another server in the list that is already saved. If that file cannot be read, sending `environment` alone, including `null`, is 409 `The environment list could not be read. Save it again.` and nothing is written. Send the list again to repair it. A server that is not in the list is 400. On a named list, connect is refused until `environment` is one of those servers. Saving a longer list while this server still publishes the same branch rewrites the fingerprint on the versions already copied, so the next environment can read them without a new version.
 
 The first environment copies its versions to its branch. Each later one reads the previous environment's branch and can promote from it. The last environment only reads. One in the middle reads the previous branch and copies its own published versions, including promotions, to its own branch, so the next environment can read them. Promotion does not skip: Dev to Prod is refused while Staging is between them. On every hop the behavior check and the credential-name check still run.
 

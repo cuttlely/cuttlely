@@ -149,8 +149,8 @@ export const PromoteListView = ({ list, status, loading, error, checking, onChec
     if (list && !list.connected) {
         return (
             <Alert severity='info' data-testid='promote-not-connected'>
-                Connect this server to the repository your Dev server copies to, on the{' '}
-                <RouterLink to='/version-history'>Version History</RouterLink> page. New versions from Dev show up here.
+                Connect this server to the repository your {sourceTitle} server copies to, on the{' '}
+                <RouterLink to='/version-history'>Version History</RouterLink> page. New versions from {sourceTitle} show up here.
             </Alert>
         )
     }

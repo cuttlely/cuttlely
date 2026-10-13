@@ -1357,10 +1357,46 @@ describe('Dev or Prod label', () => {
         expect(refOf(versionsDir(), 'refs/versions/incoming')).toBe(head)
         fs.writeFileSync(path.join(versionsDir(), '.git', 'versions-environment.json'), '{')
         expect((await sync.status()).message).toContain('could not be read')
-        const repaired = await sync.setEnvironment('prod')
+        const repaired = await sync.setEnvironment('prod', [
+            { name: 'dev', branch: 'main', server: 'dev' },
+            { name: 'prod', branch: 'main', server: 'prod' }
+        ])
         expect(repaired.message).not.toContain('could not be read')
         expect(repaired.state).toBe('up-to-date')
         expect(refOf(versionsDir(), 'refs/versions/incoming')).toBe(head)
+    })
+
+    test('an environment-only save does not repair an unreadable list or publish a note', async () => {
+        const chain = [
+            { name: 'Dev', branch: 'main', server: 'dev' },
+            { name: 'Staging', branch: 'staging', server: 'staging' },
+            { name: 'Prod', branch: 'prod', server: 'prod' }
+        ]
+        sync = makeSync({ checkEveryMs: 60_000, retryMs: [60_000] })
+        setGithubForTests(sync)
+        await sync.setEnvironment('dev', chain)
+        await save('One')
+        await sync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)
+        const head = plainGit(versionsDir(), 'rev-parse', 'HEAD').trim()
+        const fingerprint = remoteNote(bare, head, path.join(tmp, 'note-named'))
+        const role = path.join(versionsDir(), '.git', 'versions-environment.json')
+        fs.writeFileSync(role, '{')
+        const broken = fs.readFileSync(role, 'utf8')
+        const calls = gitCalls.length
+        await expect(sync.setEnvironment('dev')).rejects.toMatchObject({
+            status: 409,
+            message: 'The environment list could not be read. Save it again.'
+        })
+        await expect(sync.setEnvironment(null)).rejects.toMatchObject({
+            status: 409,
+            message: 'The environment list could not be read. Save it again.'
+        })
+        expect(fs.readFileSync(role, 'utf8')).toBe(broken)
+        expect(gitCalls.length).toBe(calls)
+        expect(remoteNote(bare, head, path.join(tmp, 'note-still-named'))).toBe(fingerprint)
+        const status = await sync.status()
+        expect(status.state).toBe('stopped')
+        expect(status.message).toContain('could not be read')
     })
 
     test('a named list with no environment is not waiting and cannot connect', async () => {

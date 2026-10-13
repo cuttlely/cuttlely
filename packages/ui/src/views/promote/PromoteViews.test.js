@@ -68,7 +68,24 @@ describe('PromoteListView', () => {
         })
         expect(first).toContain('first in the list, so it does not promote')
         expect(first).not.toContain('labeled Prod')
-        expect(render({ list: list([], { connected: false }) })).toContain('Connect this server to the repository')
+        expect(render({ list: list([], { connected: false }) })).toContain(
+            'Connect this server to the repository your Dev server copies to'
+        )
+        const named = render({
+            list: list([], {
+                connected: false,
+                environments: [
+                    { name: 'Dev', server: 'dev' },
+                    { name: 'Staging', server: 'staging' },
+                    { name: 'Prod', server: 'prod' }
+                ],
+                source: 'staging',
+                target: 'prod'
+            })
+        })
+        expect(named).toContain('your Staging server copies to')
+        expect(named).toContain('New versions from Staging show up here')
+        expect(named).not.toContain('from Dev')
         expect(render({ list: list([]), status: { lastCheckedAt: at } })).toContain('Looked 2 minutes ago')
     })
 })

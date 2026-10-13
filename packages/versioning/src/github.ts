@@ -794,6 +794,9 @@ export class GithubSync {
     async setEnvironment(value: unknown, environmentsInput?: unknown): Promise<GithubStatus> {
         if (!this.deps.enabled()) throw new GithubError(409, 'Version history is off on this server.')
         const current = this.readEnvironment()
+        // An environment-only save cannot invent the Dev and Prod pair when the file does not parse.
+        // That would delete a named list and rewrite the fingerprint on versions already copied.
+        if (current.invalid && environmentsInput === undefined) throw new GithubError(409, LIST_UNREADABLE)
         let nextChain = current.invalid ? legacyEnvironments() : current.environments
         let nextEnv: string | null
         if (environmentsInput !== undefined) {
