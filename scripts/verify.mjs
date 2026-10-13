@@ -108,6 +108,14 @@ const STEPS = [
         ]
     },
     {
+        // Own process. This script and harness-draft-usage both stub
+        // packages/server/src/services/harnesses/harness, and node --test runs those files together.
+        name: 'harness-queue-trace',
+        fast: true,
+        command: process.execPath,
+        args: [path.join(ROOT, 'scripts', 'harness-queue-trace.test.mjs')]
+    },
+    {
         // Every link in docs/, the README quickstart, CHANGELOG, SECURITY and CREDITS resolves for the website.
         // Network-free and writes nothing; the full site build is `npm run build` in website/.
         name: 'website-docs',
@@ -161,6 +169,7 @@ const STEPS = [
             'src/layout/MainLayout/Sidebar/MenuList/activeRoute.test.js',
             'src/views/evaluations/evaluationFlows.test.js',
             'src/views/canvas/cardActions.test.js',
+            'src/utils/cardAccent.test.js',
             'src/views/marketplaces/templatePreview.test.js',
             'src/views/roles/rolePermissions.test.js',
             'src/views/docstore/chunkPermissions.test.js',
@@ -320,7 +329,7 @@ function parseArgs(argv) {
             console.log('pnpm verify [--fast] [--skip <step>]')
             console.log(`steps: ${STEPS.map((step) => step.name).join(', ')}`)
             console.log(
-                '--fast runs lint, boundaries, typecheck, verify-test, website-docs, chat-widget, versioning, hermes-vendor, unit, server-settings-ui, handoff-test, render-blueprint, and identity-migration'
+                '--fast runs lint, boundaries, typecheck, verify-test, harness-queue-trace, website-docs, chat-widget, versioning, hermes-vendor, unit, server-settings-ui, handoff-test, render-blueprint, and identity-migration'
             )
             console.log('unit Jest workers default to 50%. Set CUTTLELY_VERIFY_JEST_WORKERS to a positive integer or a percentage.')
             console.log(
