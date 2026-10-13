@@ -38,7 +38,7 @@ export function ossIdentity(): OssIdentity {
     }
 }
 
-/** Datasets, evaluations, logs, and the other closed flags stay off (D36, D50). */
+/** Datasets, evaluations, login activity, and the commercial logs flag stay off. Server logs use logs:view (D55). */
 const CLOSED_FEATURES = new Set([
     'feat:account',
     'feat:datasets',
