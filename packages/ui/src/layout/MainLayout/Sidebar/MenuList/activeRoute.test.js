@@ -30,6 +30,7 @@ describe('Sidebar active item', () => {
         expect(activeOn('/harnesses/support-team')).toEqual(['harnesses'])
         expect(activeOn('/workspace-users/team-1')).toEqual(['workspaces'])
         expect(activeOn('/users')).toEqual(['users'])
+        expect(activeOn('/usage')).toEqual(['usage'])
         expect(activeOn('/logs')).toEqual(['serverLogs'])
         expect(isGroupActive(admin, '/logs')).toBe(true)
         expect(isGroupActive(admin, '/agentflows')).toBe(false)
@@ -48,6 +49,15 @@ describe('Sidebar active item', () => {
         expect(shown(['datasets:view'])).not.toContain('evaluations')
         expect(shown([])).not.toEqual(expect.arrayContaining(['datasets', 'evaluators', 'evaluations']))
         expect(menuItemAllowed({ permission: 'datasets:view' }, [], true)).toBe(true)
+    })
+
+    it('hides Usage unless the role can view chatflows or agentflows', () => {
+        const shown = (permissions) => allItems.filter((item) => menuItemAllowed(item, permissions, false)).map((item) => item.id)
+        expect(shown(['tools:view'])).not.toContain('usage')
+        expect(shown([])).not.toContain('usage')
+        expect(shown(['chatflows:view'])).toContain('usage')
+        expect(shown(['agentflows:view'])).toContain('usage')
+        expect(menuItemAllowed({ permission: 'chatflows:view,agentflows:view' }, [], true)).toBe(true)
     })
 
     it('marks nothing on a page with no sidebar item, and never matches the root address', () => {

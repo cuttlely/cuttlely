@@ -1075,6 +1075,11 @@
             "to": "packages/ui/src/store/constant.js"
         },
         {
+            "from": "packages/ui/src/api/usage.js",
+            "to": "packages/ui/src/api/client.js",
+            "reason": "The Usage page uses the shared page header, card, and API client."
+        },
+        {
             "from": "packages/ui/src/hooks/useCanvasLook.js",
             "to": "packages/ui/src/store/context/ConfigContext.jsx"
         },
@@ -1333,6 +1338,16 @@
         {
             "from": "packages/ui/src/views/setup/GithubStep.jsx",
             "to": "packages/ui/src/ui-component/extended/Logo.jsx"
+        },
+        {
+            "from": "packages/ui/src/views/usage/UsagePage.jsx",
+            "to": "packages/ui/src/layout/MainLayout/ViewHeader.jsx",
+            "reason": "The Usage page uses the shared page header, card, and API client."
+        },
+        {
+            "from": "packages/ui/src/views/usage/UsagePage.jsx",
+            "to": "packages/ui/src/ui-component/cards/MainCard.jsx",
+            "reason": "The Usage page uses the shared page header, card, and API client."
         },
         {
             "from": "packages/ui/src/views/versions/VersionCanvas.jsx",
