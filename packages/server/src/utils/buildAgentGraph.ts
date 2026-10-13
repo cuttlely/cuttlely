@@ -45,10 +45,55 @@ import {
 import { AppError } from '../errors/appError'
 import { getErrorMessage } from '../errors/utils'
 import logger from './logger'
+import { ChatMessage } from '../database/entities/ChatMessage'
 import { Variable } from '../database/entities/Variable'
 import { getWorkspaceSearchOptions } from '../identity/workspaceScope'
 import { DataSource } from 'typeorm'
 import { CachePool } from '../CachePool'
+import { utilAddChatMessage } from './addChatMesage'
+import { applyCarriedUsage, ChatflowTokenUsage, recordCompletedRun, withCarriedUsage } from '../services/usage'
+
+const RESUME_READ_ERROR = 'Cannot resume this approval because the waiting usage could not be read.'
+const RESUME_MISSING_ERROR = 'Cannot resume this approval because the waiting usage was not saved.'
+
+// The canvas posts the action it was streamed. That copy can omit or invent priorUsage.
+// The saved chat message is the copy written by the server, so the resume reads that.
+// An action with no id is not a resume the shipped clients send. It fails and writes nothing.
+async function storedPriorUsage(
+    appDataSource: DataSource,
+    chatId: string,
+    sessionId: string | undefined,
+    actionId: string
+): Promise<{ found: true; priorUsage: unknown } | { found: false }> {
+    if (typeof appDataSource?.getRepository !== 'function') {
+        throw new Error(RESUME_READ_ERROR)
+    }
+    const repo = appDataSource.getRepository(ChatMessage)
+    if (typeof repo?.createQueryBuilder !== 'function') {
+        throw new Error(RESUME_READ_ERROR)
+    }
+    let rows: Array<{ action?: string | null }> = []
+    try {
+        rows = await repo
+            .createQueryBuilder('chat_message')
+            .where('chat_message.chatId = :chatId', { chatId })
+            .orWhere('chat_message.sessionId = :sessionId', { sessionId })
+            .orderBy('chat_message.createdDate', 'DESC')
+            .getMany()
+    } catch {
+        throw new Error(RESUME_READ_ERROR)
+    }
+    for (const row of rows) {
+        if (!row?.action || typeof row.action !== 'string') continue
+        try {
+            const saved = JSON.parse(row.action) as { id?: string; priorUsage?: unknown }
+            if (saved?.id === actionId) return { found: true, priorUsage: saved.priorUsage }
+        } catch {
+            // A message action that is not JSON is not this interrupt.
+        }
+    }
+    return { found: false }
+}
 
 /**
  * Build Agent Graph
@@ -103,6 +148,29 @@ export const buildAgentGraph = async ({
         const analytic = agentflow.analytic
         const uploads = incomingInput.uploads
 
+        const chatflowTokenUsage = new ChatflowTokenUsage()
+        const requestedAction = incomingInput.action
+        // priorUsage on the request is ignored. The saved interrupted message is the only source.
+        const actionObject =
+            requestedAction && typeof requestedAction === 'object' && !Array.isArray(requestedAction)
+                ? (requestedAction as Record<string, unknown>)
+                : undefined
+        const withoutRequestUsage = (action: Record<string, unknown>) => {
+            const { priorUsage: _requestUsage, ...rest } = action
+            return rest
+        }
+        let seededAction: unknown = actionObject ? withoutRequestUsage(actionObject) : requestedAction
+        if (actionObject && Object.keys(actionObject).length > 0) {
+            const actionId = typeof actionObject.id === 'string' ? actionObject.id : ''
+            if (!actionId) throw new Error(RESUME_MISSING_ERROR)
+            const saved = await storedPriorUsage(appDataSource, chatId, sessionId, actionId)
+            if (!saved.found) throw new Error(RESUME_MISSING_ERROR)
+            seededAction =
+                saved.priorUsage === undefined
+                    ? withoutRequestUsage(actionObject)
+                    : { ...withoutRequestUsage(actionObject), priorUsage: saved.priorUsage }
+        }
+        applyCarriedUsage(chatflowTokenUsage, seededAction)
         const options = {
             orgId,
             workspaceId,
@@ -117,7 +185,11 @@ export const buildAgentGraph = async ({
             cachePool,
             uploads,
             baseURL,
-            signal: signal ?? new AbortController()
+            signal: signal ?? new AbortController(),
+            // additionalCallbacks puts this on the graph, the same way a chatflow counts model calls.
+            tokenUsageCallback: chatflowTokenUsage,
+            // A harness tool on this canvas records against the chatflow. Harness.run does not.
+            recordTokenUsage: recordCompletedRun
         }
 
         let streamResults
@@ -366,18 +438,38 @@ export const buildAgentGraph = async ({
                                 approveButtonText = node.data.inputs?.approveButtonText || 'Yes'
                                 rejectButtonText = node.data.inputs?.rejectButtonText || 'No'
                             }
-                            finalAction = {
-                                id: uuidv4(),
-                                mapping: {
-                                    approve: approveButtonText,
-                                    reject: rejectButtonText,
-                                    toolCalls: lastMessageRaw.tool_calls
+                            finalAction = withCarriedUsage(
+                                {
+                                    id: uuidv4(),
+                                    mapping: {
+                                        approve: approveButtonText,
+                                        reject: rejectButtonText,
+                                        toolCalls: lastMessageRaw.tool_calls
+                                    },
+                                    elements: [
+                                        { type: 'approve-button', label: approveButtonText },
+                                        { type: 'reject-button', label: rejectButtonText }
+                                    ]
                                 },
-                                elements: [
-                                    { type: 'approve-button', label: approveButtonText },
-                                    { type: 'reject-button', label: rejectButtonText }
-                                ]
+                                chatflowTokenUsage
+                            )
+                            // Save the action before it is streamed. A client can approve as soon as the event arrives.
+                            if (!flowConfig.apiMessageId) {
+                                throw new Error('Cannot save this approval because the chat message id is missing.')
                             }
+                            await utilAddChatMessage(
+                                {
+                                    id: flowConfig.apiMessageId,
+                                    role: 'apiMessage',
+                                    content: finalResult || ' ',
+                                    chatflowid,
+                                    chatId,
+                                    sessionId,
+                                    chatType: 'INTERNAL',
+                                    action: JSON.stringify(finalAction)
+                                },
+                                appDataSource
+                            )
                             if (shouldStreamResponse && sseStreamer) {
                                 sseStreamer.streamTokenEvent(chatId, finalResult)
                                 sseStreamer.streamActionEvent(chatId, finalAction)
@@ -409,7 +501,8 @@ export const buildAgentGraph = async ({
                     sourceDocuments: totalSourceDocuments,
                     artifacts: totalArtifacts,
                     usedTools: totalUsedTools,
-                    agentReasoning
+                    agentReasoning,
+                    tokenUsage: chatflowTokenUsage
                 }
             }
         } catch (e) {
