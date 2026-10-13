@@ -28,6 +28,29 @@ function throwToolFailure(cause: unknown, usedTools: IUsedTool[], usageMetadata:
     failure.usageMetadata = usageMetadata
     throw failure
 }
+
+function tokenField(usage: Record<string, unknown> | undefined, key: string): number {
+    const value = usage?.[key]
+    return typeof value === 'number' && Number.isFinite(value) ? value : 0
+}
+
+/** Add the token counts from two model turns. A missing side contributes nothing. */
+function sumTokenCounts(left: unknown, right: unknown): { input_tokens: number; output_tokens: number; total_tokens: number } | undefined {
+    const a = left && typeof left === 'object' ? (left as Record<string, unknown>) : undefined
+    const b = right && typeof right === 'object' ? (right as Record<string, unknown>) : undefined
+    if (!a && !b) return undefined
+    return {
+        input_tokens: tokenField(a, 'input_tokens') + tokenField(b, 'input_tokens'),
+        output_tokens: tokenField(a, 'output_tokens') + tokenField(b, 'output_tokens'),
+        total_tokens: tokenField(a, 'total_tokens') + tokenField(b, 'total_tokens')
+    }
+}
+
+function rethrowAccumulatedToolFailure(error: unknown, usedTools: IUsedTool[], usageMetadata: unknown): never {
+    const failure = error as { usedTools?: IUsedTool[]; usageMetadata?: unknown }
+    if (Array.isArray(failure.usedTools)) usedTools.push(...failure.usedTools)
+    throwToolFailure(error, usedTools, sumTokenCounts(usageMetadata, failure.usageMetadata))
+}
 import { DataSource } from 'typeorm'
 import { randomBytes } from 'crypto'
 import {
@@ -2455,47 +2478,52 @@ class Agent_Agentflow implements INode {
             accumulatedReasoningDuration += newResponse.additional_kwargs.reasoning_duration
         }
 
-        // Check for recursive tool calls and handle them
+        // Check for recursive tool calls and handle them.
+        // A tool that throws on a later turn must keep the tools and tokens from this turn.
         if (newResponse.tool_calls && newResponse.tool_calls.length > 0) {
-            const {
-                response: recursiveResponse,
-                usedTools: recursiveUsedTools,
-                sourceDocuments: recursiveSourceDocuments,
-                artifacts: recursiveArtifacts,
-                totalTokens: recursiveTokens,
-                isWaitingForHumanInput: recursiveIsWaitingForHumanInput,
-                accumulatedReasonContent: recursiveAccumulatedReasonContent,
-                accumulatedReasoningDuration: recursiveAccumulatedReasoningDuration
-            } = await this.handleToolCalls({
-                response: newResponse,
-                messages,
-                toolsInstance,
-                sseStreamer,
-                chatId,
-                input,
-                options,
-                abortController,
-                llmNodeInstance,
-                isStreamable,
-                isLastNode,
-                iterationContext,
-                isStructuredOutput,
-                accumulatedReasonContent,
-                accumulatedReasoningDuration
-            })
+            try {
+                const {
+                    response: recursiveResponse,
+                    usedTools: recursiveUsedTools,
+                    sourceDocuments: recursiveSourceDocuments,
+                    artifacts: recursiveArtifacts,
+                    totalTokens: recursiveTokens,
+                    isWaitingForHumanInput: recursiveIsWaitingForHumanInput,
+                    accumulatedReasonContent: recursiveAccumulatedReasonContent,
+                    accumulatedReasoningDuration: recursiveAccumulatedReasoningDuration
+                } = await this.handleToolCalls({
+                    response: newResponse,
+                    messages,
+                    toolsInstance,
+                    sseStreamer,
+                    chatId,
+                    input,
+                    options,
+                    abortController,
+                    llmNodeInstance,
+                    isStreamable,
+                    isLastNode,
+                    iterationContext,
+                    isStructuredOutput,
+                    accumulatedReasonContent,
+                    accumulatedReasoningDuration
+                })
 
-            // Merge results from recursive tool calls
-            newResponse = recursiveResponse
-            usedTools.push(...recursiveUsedTools)
-            sourceDocuments = [...sourceDocuments, ...recursiveSourceDocuments]
-            artifacts = [...artifacts, ...recursiveArtifacts]
-            totalTokens += recursiveTokens
-            isWaitingForHumanInput = recursiveIsWaitingForHumanInput
-            if (recursiveAccumulatedReasonContent !== undefined) {
-                accumulatedReasonContent = recursiveAccumulatedReasonContent
-            }
-            if (recursiveAccumulatedReasoningDuration !== undefined) {
-                accumulatedReasoningDuration = recursiveAccumulatedReasoningDuration
+                // Merge results from recursive tool calls
+                newResponse = recursiveResponse
+                usedTools.push(...recursiveUsedTools)
+                sourceDocuments = [...sourceDocuments, ...recursiveSourceDocuments]
+                artifacts = [...artifacts, ...recursiveArtifacts]
+                totalTokens += recursiveTokens
+                isWaitingForHumanInput = recursiveIsWaitingForHumanInput
+                if (recursiveAccumulatedReasonContent !== undefined) {
+                    accumulatedReasonContent = recursiveAccumulatedReasonContent
+                }
+                if (recursiveAccumulatedReasoningDuration !== undefined) {
+                    accumulatedReasoningDuration = recursiveAccumulatedReasoningDuration
+                }
+            } catch (error) {
+                rethrowAccumulatedToolFailure(error, usedTools, response.usage_metadata)
             }
         }
 
@@ -2836,47 +2864,52 @@ class Agent_Agentflow implements INode {
             (typeof response.additional_kwargs?.reasoning_duration === 'number' ? response.additional_kwargs.reasoning_duration : 0) +
             (typeof newResponse.additional_kwargs?.reasoning_duration === 'number' ? newResponse.additional_kwargs.reasoning_duration : 0)
 
-        // Check for recursive tool calls and handle them
+        // Check for recursive tool calls and handle them.
+        // A tool that throws on a later turn must keep the tools and tokens from this turn.
         if (newResponse.tool_calls && newResponse.tool_calls.length > 0) {
-            const {
-                response: recursiveResponse,
-                usedTools: recursiveUsedTools,
-                sourceDocuments: recursiveSourceDocuments,
-                artifacts: recursiveArtifacts,
-                totalTokens: recursiveTokens,
-                isWaitingForHumanInput: recursiveIsWaitingForHumanInput,
-                accumulatedReasonContent: recursiveAccumulatedReasonContent,
-                accumulatedReasoningDuration: recursiveAccumulatedReasoningDuration
-            } = await this.handleToolCalls({
-                response: newResponse,
-                messages,
-                toolsInstance,
-                sseStreamer,
-                chatId,
-                input,
-                options,
-                abortController,
-                llmNodeInstance,
-                isStreamable,
-                isLastNode,
-                iterationContext,
-                isStructuredOutput,
-                accumulatedReasonContent,
-                accumulatedReasoningDuration
-            })
+            try {
+                const {
+                    response: recursiveResponse,
+                    usedTools: recursiveUsedTools,
+                    sourceDocuments: recursiveSourceDocuments,
+                    artifacts: recursiveArtifacts,
+                    totalTokens: recursiveTokens,
+                    isWaitingForHumanInput: recursiveIsWaitingForHumanInput,
+                    accumulatedReasonContent: recursiveAccumulatedReasonContent,
+                    accumulatedReasoningDuration: recursiveAccumulatedReasoningDuration
+                } = await this.handleToolCalls({
+                    response: newResponse,
+                    messages,
+                    toolsInstance,
+                    sseStreamer,
+                    chatId,
+                    input,
+                    options,
+                    abortController,
+                    llmNodeInstance,
+                    isStreamable,
+                    isLastNode,
+                    iterationContext,
+                    isStructuredOutput,
+                    accumulatedReasonContent,
+                    accumulatedReasoningDuration
+                })
 
-            // Merge results from recursive tool calls
-            newResponse = recursiveResponse
-            usedTools.push(...recursiveUsedTools)
-            sourceDocuments = [...sourceDocuments, ...recursiveSourceDocuments]
-            artifacts = [...artifacts, ...recursiveArtifacts]
-            totalTokens += recursiveTokens
-            isWaitingForHumanInput = recursiveIsWaitingForHumanInput
-            if (recursiveAccumulatedReasonContent !== undefined) {
-                accumulatedReasonContent = recursiveAccumulatedReasonContent
-            }
-            if (recursiveAccumulatedReasoningDuration !== undefined) {
-                accumulatedReasoningDuration = recursiveAccumulatedReasoningDuration
+                // Merge results from recursive tool calls
+                newResponse = recursiveResponse
+                usedTools.push(...recursiveUsedTools)
+                sourceDocuments = [...sourceDocuments, ...recursiveSourceDocuments]
+                artifacts = [...artifacts, ...recursiveArtifacts]
+                totalTokens += recursiveTokens
+                isWaitingForHumanInput = recursiveIsWaitingForHumanInput
+                if (recursiveAccumulatedReasonContent !== undefined) {
+                    accumulatedReasonContent = recursiveAccumulatedReasonContent
+                }
+                if (recursiveAccumulatedReasoningDuration !== undefined) {
+                    accumulatedReasoningDuration = recursiveAccumulatedReasoningDuration
+                }
+            } catch (error) {
+                rethrowAccumulatedToolFailure(error, usedTools, response.usage_metadata)
             }
         }
 

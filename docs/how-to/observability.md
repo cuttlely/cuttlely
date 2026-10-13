@@ -75,6 +75,8 @@ One trace per run. The root span is `chatflow.prediction` or `agentflow.run`.
 
 With `CUTTLELY_OTEL_TRACES_CONTENT` left off, spans do not include the question, the answer, the prompt, or tool text. With it on, `content.input` and `content.output` hold that text. Treat those attributes as sensitive.
 
+Turning traces on does not claim the process-wide tracer. A span another library starts with the global tracer, including a prompt a flow analytics callback records, is not sent to this collector.
+
 A publish check does not send these traces.
 
 The tree follows the run: the prediction or the agentflow run is the root, each node is a child, and model and tool calls are children of the node that made them.

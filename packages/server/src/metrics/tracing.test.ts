@@ -684,6 +684,291 @@ describe('run trace spans', () => {
         expect(tool?.attributes['error']).toBe('oven exploded')
     })
 
+    it('keeps the first tool and both model turns when a later tool throws', async () => {
+        process.env.CUTTLELY_OTEL_TRACES = 'true'
+        process.env.CUTTLELY_OTEL_TRACES_CONTENT = 'false'
+        const agentFile = path.join(__dirname, '../../../components/dist/nodes/agentflow/Agent/Agent.js')
+        const write = (name: string, body: string) => {
+            const file = path.join(dir, `${name}.js`)
+            fs.writeFileSync(file, body)
+            return { filePath: file }
+        }
+        const nodes = {
+            startAgentflow: write(
+                'two-tool-start',
+                `exports.nodeClass = class { async run(nodeData, input) { return { id: nodeData.id, name: 'startAgentflow', input: { question: input }, output: { question: input } } } }\n`
+            ),
+            agentAgentflow: { filePath: agentFile },
+            stubChatModel: write(
+                'two-tool-model',
+                `exports.nodeClass = class {
+                    async init() {
+                        let turn = 0
+                        return {
+                            bindTools() { return this },
+                            async invoke() {
+                                turn += 1
+                                if (turn === 1) {
+                                    return {
+                                        content: '',
+                                        tool_calls: [{ id: 'call-mixer', name: 'mixer', args: { speed: 'low' }, type: 'tool_call' }],
+                                        usage_metadata: { input_tokens: 10, output_tokens: 4, total_tokens: 14 }
+                                    }
+                                }
+                                return {
+                                    content: '',
+                                    tool_calls: [{ id: 'call-oven', name: 'oven', args: { heat: '350' }, type: 'tool_call' }],
+                                    usage_metadata: { input_tokens: 12, output_tokens: 5, total_tokens: 17 }
+                                }
+                            }
+                        }
+                    }
+                }\n`
+            ),
+            stubMixer: write(
+                'two-tool-mixer',
+                `exports.nodeClass = class {
+                    async init() {
+                        return { name: 'mixer', description: 'Mix the dough', schema: null, async call() { return 'mixed' } }
+                    }
+                }\n`
+            ),
+            stubOven: write(
+                'two-tool-oven',
+                `exports.nodeClass = class {
+                    async init() {
+                        return { name: 'oven', description: 'Heat the oven', schema: null, async call() { throw new Error('oven exploded') } }
+                    }
+                }\n`
+            )
+        }
+        const agent = agentNode('agentAgentflow_0', 'agentAgentflow', 'Helper', {
+            agentModel: 'stubChatModel',
+            agentModelConfig: { modelName: 'gpt-4o-mini', streaming: false },
+            agentTools: [
+                { agentSelectedTool: 'stubMixer', agentSelectedToolConfig: {} },
+                { agentSelectedTool: 'stubOven', agentSelectedToolConfig: {} }
+            ],
+            agentMessages: []
+        })
+        const flowData = JSON.stringify({
+            nodes: [agentNode('startAgentflow_0', 'startAgentflow', 'Start', { startInputType: 'chatInput' }), agent],
+            edges: [{ id: 'e1', source: 'startAgentflow_0', target: 'agentAgentflow_0' }]
+        })
+        await expect(
+            executeAgentFlow({
+                componentNodes: nodes,
+                incomingInput: { question: 'Heat the oven', streaming: false },
+                chatflow: {
+                    id: 'a1b2c3d4-2222-4222-8222-222222222222',
+                    name: 'Bakery helper',
+                    type: 'AGENTFLOW',
+                    flowData,
+                    workspaceId: 'ws-1'
+                },
+                chatId: 'c0ffee00-0000-4000-8000-000000000051',
+                appDataSource: recordingDataSource(),
+                telemetry: { sendTelemetry: jest.fn() },
+                usageCacheManager: {},
+                cachePool: {},
+                sseStreamer: new Proxy({}, { get: () => () => undefined }),
+                baseURL: 'http://127.0.0.1',
+                isInternal: true,
+                orgId: 'org-1',
+                workspaceId: 'ws-1',
+                subscriptionId: 'sub-1',
+                productId: 'prod-1',
+                replay: false
+            } as any)
+        ).rejects.toThrow('Error in Agent node: oven exploded')
+        const tools = memory.spans().filter((span) => span.name === 'tool')
+        const mixer = tools.find((span) => span.attributes['tool.name'] === 'mixer')
+        const oven = tools.find((span) => span.attributes['tool.name'] === 'oven')
+        const model = memory.spans().find((span) => span.name === 'model')
+        expect(mixer?.attributes['status']).toBe('ok')
+        expect(mixer?.attributes['tool.id']).toBe('call-mixer')
+        expect(oven?.attributes['status']).toBe('error')
+        expect(oven?.attributes['tool.id']).toBe('call-oven')
+        expect(oven?.attributes['error']).toBe('oven exploded')
+        expect(model?.attributes['tokens.input']).toBe(22)
+        expect(model?.attributes['tokens.output']).toBe(9)
+        expect(model?.attributes['status']).toBe('error')
+    })
+
+    it('keeps the resumed tool and both model turns when the next tool throws', async () => {
+        process.env.CUTTLELY_OTEL_TRACES = 'true'
+        process.env.CUTTLELY_OTEL_TRACES_CONTENT = 'false'
+        const agentFile = path.join(__dirname, '../../../components/dist/nodes/agentflow/Agent/Agent.js')
+        const write = (name: string, body: string) => {
+            const file = path.join(dir, `${name}.js`)
+            fs.writeFileSync(file, body)
+            return { filePath: file }
+        }
+        const chatId = 'c0ffee00-0000-4000-8000-000000000052'
+        const flowId = 'a1b2c3d4-3333-4333-8333-333333333333'
+        const execution = {
+            id: 'exec-resume-1',
+            state: 'STOPPED',
+            workspaceId: 'ws-1',
+            sessionId: chatId,
+            agentflowId: flowId,
+            executionData: JSON.stringify([
+                {
+                    nodeId: 'agentAgentflow_0',
+                    nodeLabel: 'Helper',
+                    status: 'STOPPED',
+                    previousNodeIds: [],
+                    data: {
+                        id: 'agentAgentflow_0',
+                        name: 'agentAgentflow',
+                        state: {},
+                        output: {
+                            content: '',
+                            isWaitingForHumanInput: true,
+                            humanInputAction: {
+                                id: 'action-1',
+                                data: {
+                                    nodeId: 'agentAgentflow_0',
+                                    nodeLabel: 'Helper',
+                                    input: {
+                                        messages: [
+                                            { role: 'user', content: 'Heat the oven' },
+                                            {
+                                                content: '',
+                                                tool_calls: [
+                                                    { id: 'call-mixer', name: 'mixer', args: { speed: 'low' }, type: 'tool_call' }
+                                                ],
+                                                usage_metadata: { input_tokens: 10, output_tokens: 4, total_tokens: 14 }
+                                            }
+                                        ]
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            ])
+        }
+        const saved: Record<string, any> = { Execution: execution }
+        const resumeSource = {
+            getRepository: (entity: { name?: string } | string) => {
+                const table = typeof entity === 'function' ? entity.name : String(entity)
+                return {
+                    find: async () => (table === 'Execution' ? [saved.Execution] : []),
+                    findBy: async () => (table === 'Execution' ? [saved.Execution] : []),
+                    findOne: async () => saved[table] ?? null,
+                    findOneBy: async () => saved[table] ?? null,
+                    create: (value: unknown) => value,
+                    save: async (value: Record<string, unknown>) => {
+                        saved[table] = { id: saved[table]?.id ?? `${table}-1`, ...value }
+                        return saved[table]
+                    },
+                    merge: (target: any, value: any) => Object.assign(target, value),
+                    update: async () => ({ affected: 1 }),
+                    createQueryBuilder: () => {
+                        const qb: any = { where: () => qb, orWhere: () => qb, orderBy: () => qb, getMany: async () => [] }
+                        return qb
+                    }
+                }
+            }
+        }
+        const nodes = {
+            startAgentflow: write(
+                'resume-throw-start',
+                `exports.nodeClass = class { async run(nodeData, input) { return { id: nodeData.id, name: 'startAgentflow', input: { question: input }, output: { question: input } } } }\n`
+            ),
+            agentAgentflow: { filePath: agentFile },
+            stubChatModel: write(
+                'resume-throw-model',
+                `exports.nodeClass = class {
+                    async init() {
+                        return {
+                            bindTools() { return this },
+                            async invoke() {
+                                return {
+                                    content: '',
+                                    tool_calls: [{ id: 'call-oven', name: 'oven', args: { heat: '350' }, type: 'tool_call' }],
+                                    usage_metadata: { input_tokens: 12, output_tokens: 5, total_tokens: 17 }
+                                }
+                            }
+                        }
+                    }
+                }\n`
+            ),
+            stubMixer: write(
+                'resume-throw-mixer',
+                `exports.nodeClass = class {
+                    async init() {
+                        return { name: 'mixer', description: 'Mix the dough', schema: null, async call() { return 'mixed' } }
+                    }
+                }\n`
+            ),
+            stubOven: write(
+                'resume-throw-oven',
+                `exports.nodeClass = class {
+                    async init() {
+                        return { name: 'oven', description: 'Heat the oven', schema: null, async call() { throw new Error('oven exploded') } }
+                    }
+                }\n`
+            )
+        }
+        const agent = agentNode('agentAgentflow_0', 'agentAgentflow', 'Helper', {
+            agentModel: 'stubChatModel',
+            agentModelConfig: { modelName: 'gpt-4o-mini', streaming: false },
+            agentTools: [
+                { agentSelectedTool: 'stubMixer', agentSelectedToolConfig: {} },
+                { agentSelectedTool: 'stubOven', agentSelectedToolConfig: {} }
+            ],
+            agentMessages: []
+        })
+        const flowData = JSON.stringify({
+            nodes: [agentNode('startAgentflow_0', 'startAgentflow', 'Start', { startInputType: 'chatInput' }), agent],
+            edges: [{ id: 'e1', source: 'startAgentflow_0', target: 'agentAgentflow_0' }]
+        })
+        await expect(
+            executeAgentFlow({
+                componentNodes: nodes,
+                incomingInput: {
+                    question: 'Heat the oven',
+                    streaming: false,
+                    humanInput: { type: 'proceed', startNodeId: 'agentAgentflow_0' }
+                },
+                chatflow: {
+                    id: flowId,
+                    name: 'Bakery helper',
+                    type: 'AGENTFLOW',
+                    flowData,
+                    workspaceId: 'ws-1'
+                },
+                chatId,
+                appDataSource: resumeSource,
+                telemetry: { sendTelemetry: jest.fn() },
+                usageCacheManager: {},
+                cachePool: {},
+                sseStreamer: new Proxy({}, { get: () => () => undefined }),
+                baseURL: 'http://127.0.0.1',
+                isInternal: true,
+                orgId: 'org-1',
+                workspaceId: 'ws-1',
+                subscriptionId: 'sub-1',
+                productId: 'prod-1',
+                replay: false
+            } as any)
+        ).rejects.toThrow('Error in Agent node: oven exploded')
+        const tools = memory.spans().filter((span) => span.name === 'tool')
+        const mixer = tools.find((span) => span.attributes['tool.name'] === 'mixer')
+        const oven = tools.find((span) => span.attributes['tool.name'] === 'oven')
+        const model = memory.spans().find((span) => span.name === 'model')
+        expect(mixer?.attributes['status']).toBe('ok')
+        expect(mixer?.attributes['tool.id']).toBe('call-mixer')
+        expect(oven?.attributes['status']).toBe('error')
+        expect(oven?.attributes['tool.id']).toBe('call-oven')
+        expect(oven?.attributes['error']).toBe('oven exploded')
+        expect(model?.attributes['tokens.input']).toBe(22)
+        expect(model?.attributes['tokens.output']).toBe(9)
+        expect(model?.attributes['status']).toBe('error')
+    })
+
     it('keeps a second approval wait for the same tool pending', async () => {
         process.env.CUTTLELY_OTEL_TRACES = 'true'
         await traceFlow('agentflow', 'flow-again', async () => {
@@ -835,6 +1120,49 @@ describe('OTLP HTTP export', () => {
             await traceFlow('chatflow', 'flow-local', async () => 'ok')
             await flushCuttlelyTraces()
             expect(hits.n).toBeGreaterThan(0)
+        } finally {
+            await new Promise((resolve) => server.close(resolve))
+        }
+    })
+
+    it('does not export a global tracer span when content is off', async () => {
+        const bodies: Buffer[] = []
+        const server = http.createServer((req, res) => {
+            const chunks: Buffer[] = []
+            req.on('data', (chunk) => chunks.push(chunk))
+            req.on('end', () => {
+                bodies.push(Buffer.concat(chunks))
+                res.writeHead(200)
+                res.end()
+            })
+        })
+        await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()))
+        const address = server.address()
+        const port = typeof address === 'object' && address ? address.port : 0
+        try {
+            process.env.CUTTLELY_OTEL_TRACES = 'true'
+            process.env.CUTTLELY_OTEL_TRACES_CONTENT = 'false'
+            process.env.CUTTLELY_OTEL_TRACES_ENDPOINT = `http://127.0.0.1:${port}/v1/traces`
+            process.env.CUTTLELY_OTEL_TRACES_PROTOCOL = 'http'
+            registerCuttlelyTraces()
+            expect(tracesInstalled()).toBe(true)
+            const { trace } = require('@opentelemetry/api') as {
+                trace: {
+                    getTracer: (name: string) => {
+                        startSpan: (name: string) => { setAttribute: (k: string, v: string) => void; end: () => void }
+                    }
+                }
+            }
+            const foreign = trace.getTracer('openinference').startSpan('openinference.chain')
+            foreign.setAttribute('input.value', 'secret prompt that must not export')
+            foreign.end()
+            await traceFlow('chatflow', 'flow-own-collector', async () => 'ok')
+            await flushCuttlelyTraces()
+            const payload = Buffer.concat(bodies).toString('utf8')
+            expect(payload).toContain('chatflow.prediction')
+            expect(payload).toContain('flow-own-collector')
+            expect(payload).not.toContain('openinference.chain')
+            expect(payload).not.toContain('secret prompt that must not export')
         } finally {
             await new Promise((resolve) => server.close(resolve))
         }

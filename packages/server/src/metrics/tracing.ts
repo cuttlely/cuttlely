@@ -104,13 +104,9 @@ export function registerCuttlelyTraces(): void {
         })
         const next = new NodeTracerProvider({ resource })
         next.addSpanProcessor(new BatchSpanProcessor(exporter))
-        // Publishes this provider as the process tracer. Spans below are created from this
-        // provider directly, so a flow analytics provider that registered first does not drop them.
-        try {
-            next.register()
-        } catch {
-            // Already registered by another provider. This exporter still receives our spans.
-        }
+        // Do not call register(). That claims the process-wide tracer, and a later analytics
+        // callback would export its spans, including prompts, through this processor.
+        // Spans below are created with provider.getTracer, so they still export.
         provider = next
         installed = true
         setCuttlelyTracer(() => provider.getTracer('cuttlely'))
