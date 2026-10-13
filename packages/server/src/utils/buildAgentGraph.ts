@@ -984,7 +984,8 @@ const compileSeqAgentsGraph = async (params: SeqAgentsGraphParams) => {
             const conditionNodeOutputAnchorId = conditionEdge.sourceHandle
 
             const conditionNode = reactFlowNodes.find((node) => node.id === conditionNodeId)
-            const conditionOutputAnchorLabel = conditionRouteLabel(conditionNode?.data.outputAnchors, conditionNodeOutputAnchorId)
+            if (!conditionNode) continue
+            const conditionOutputAnchorLabel = conditionRouteLabel(conditionNode.data.outputAnchors, conditionNodeOutputAnchorId)
 
             if (!conditionOutputAnchorLabel) continue
 
