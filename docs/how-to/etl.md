@@ -4,7 +4,7 @@ An ETL pipeline loads files, cleans them, splits them into chunks, embeds the ch
 
 Use ETL when an answer has to come from your own data, such as a product catalog, a handbook, or a code repository, and that data changes over time. A run only embeds what changed since the last run, keeps every saved version, and can run on a schedule. For a single document you paste into one chat flow, a document store is enough. To answer from the data in a chat, connect the pipeline to a [harness](./harnesses.md) or a chatflow with the **ETL Retriever**.
 
-Install first: [Docker](./docker.md), [From source](./from-source.md), or [Render](./render.md). The account is [Sign in](./sign-in.md). Every save of a pipeline is also kept in [Version history](./versioning.md). The canvas pictures here show classic cards, with every setting on the card, except the Build with AI pictures, which show compact cards. With the default compact cards, select a card to change the same settings in its side panel. See [Canvas cards](./canvas.md).
+Install first: [Docker](./docker.md), [From source](./from-source.md), or [Render](./render.md). The account is [Sign in](./sign-in.md). A canvas save stores a draft. **Publish** is what scheduled runs read, and that publish is kept in [Version history](./versioning.md). The canvas pictures here show classic cards, with every setting on the card, except the Build with AI pictures, which show compact cards. With the default compact cards, select a card to change the same settings in its side panel. See [Canvas cards](./canvas.md).
 
 The steps below use the **Outdoor Catalog** sample: a CSV of 33 outdoor products in `samples/etl/data/outdoor-catalog.csv`. It embeds with **Local Hash Embeddings**, which run on the server with no provider key. The last part connects the pipeline to a harness with an OpenAI model.
 
@@ -41,7 +41,7 @@ The sample is saved as version 1 and opens on its canvas, `/etlcanvas/<id>`. **P
 
 The header has **Version history**, **Save Pipeline**, and **Settings** at the top right. **Preview**, **Run**, and **Schedule** open the **Pipeline** panel on the matching tab. The panel's first line reads `v1 · 0 chunks indexed` until a run has written the store.
 
-An orange triangle on a card and an orange **Sync Nodes** button next to **+** mean a node was saved with an older version of that node than the app has now. Select **Sync Nodes**, then save. The save creates a new version.
+An orange triangle on a card and an orange **Sync Nodes** button next to **+** mean a node was saved with an older version of that node than the app has now. Select **Sync Nodes**, then save. The save stores a draft. **Publish** creates a new pipeline version.
 
 ## Build a pipeline with AI
 
@@ -72,9 +72,19 @@ Select a card to check or change its settings, then [preview](#preview-the-data)
 
 Build with AI always makes a new pipeline. When the canvas already has cards, the new pipeline opens in a new tab, so nothing on this canvas is lost. With classic cards, the same button builds the same pipeline with full-size cards. Harnesses and chatflows have the same button: see [Build a team with AI](./harnesses.md#build-a-team-with-ai) and [Build a chatflow with AI](./canvas.md#build-a-chatflow-with-ai).
 
+## Drafts and Publish
+
+A pipeline canvas saves to a **Draft**. Scheduled runs, **Start run**, and a full rebuild keep using the published pipeline until you **Publish**. The canvas says **Draft, not live yet** while a draft is waiting.
+
+**Preview** is how you try the draft. It runs the canvas you are looking at, including edits you have not saved yet, and it does not write to the store. There is no separate dry run of **Start run**: that button writes to the store, and it writes the published pipeline, not the draft.
+
+**Publish** opens a dialog that lists what changed, in the same words as version history: nodes added, nodes removed, and changed settings. A pipeline has no question check. **Discard draft** puts the published canvas back. **Roll back Live to this version** changes what runs read at once. **Open as draft** puts an older version on the canvas and leaves runs alone until you publish.
+
+The first save of a new pipeline creates the published pipeline, so a run has something to read. The next canvas save is a draft. A pipeline that already exists stays as it is after an upgrade. The first edit after that starts a draft. `PUT /api/v1/chatflows/:id` still writes the published pipeline. See [Drafts and Publish](./versioning.md#drafts-and-publish).
+
 ## Preview the data
 
-Preview runs the pipeline on a few documents and shows what each step would produce. It never writes to the store.
+Preview runs the pipeline on a few documents and shows what each step would produce. It uses the canvas, which is the draft when you have one, and it never writes to the store.
 
 1. Select **Preview**.
 2. Leave **Documents per source** at `5`, or pick `3`, `10`, or `25`.
@@ -100,7 +110,7 @@ A problem shows as a red message above the steps, for example a path that does n
 
 ## Run the pipeline
 
-A run reads every source, embeds the chunks, and writes them to the store. Save the pipeline first. A run uses the last saved version, and the panel says `Save your changes first. Each save that changes the pipeline creates a new version.` while there are unsaved changes.
+A run reads every source, embeds the chunks, and writes them to the store. Save the pipeline first. A run uses the published pipeline, not the draft. While the canvas has unsaved changes, the panel says `Save your changes first. A save stores a draft. Preview uses this canvas and does not write to the store.` After that save, and until you publish, it says `This run uses the published pipeline and writes to the store. The draft is not included until you Publish. Preview uses the draft and does not write.`
 
 1. Select **Run**.
 2. Leave **Incremental** selected.
@@ -127,7 +137,7 @@ The panel's first line now reads `v1 · serving v1 · 33 chunks indexed`. **Serv
 | Part                                              | Meaning                                                                                                                                                                                               |
 | ------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Run** and 8 characters                          | The start of the run id. The same id is in **History**.                                                                                                                                               |
-| `v1 · incremental · attempt 1 · started just now` | The version the run uses, the mode, and how many times it has been tried. A run keeps the version it started on, even if you save again while it runs.                                                |
+| `v1 · incremental · attempt 1 · started just now` | The version the run uses, the mode, and how many times it has been tried. A run keeps the version it started on, even if you edit the canvas while it runs.                                           |
 | Status chip                                       | `queued`, `running`, `paused`, `succeeded`, `partial`, `failed`, or `cancelled`.                                                                                                                      |
 | Progress bar                                      | Bytes read of the total.                                                                                                                                                                              |
 | **Embedded**                                      | Chunks embedded and written by this run.                                                                                                                                                              |
@@ -166,24 +176,24 @@ A pipeline made with [Build with AI](#build-a-pipeline-with-ai) also lists its s
 
 ### Better matches
 
-Local Hash Embeddings match words, not meaning. In the example, the Summit Bivy Shelter is the one built for alpine starts, but the family tent scores slightly higher because it shares more words with the question. To match on meaning, replace **Local Hash Embeddings** with a provider embeddings node, such as **OpenAI Embeddings**, select its credential, save, and run a **Full rebuild**.
+Local Hash Embeddings match words, not meaning. In the example, the Summit Bivy Shelter is the one built for alpine starts, but the family tent scores slightly higher because it shares more words with the question. To match on meaning, replace **Local Hash Embeddings** with a provider embeddings node, such as **OpenAI Embeddings**, select its credential, **Publish**, and run a **Full rebuild**. A canvas save alone leaves the rebuild on the published pipeline.
 
 ## When a run fails
 
-To see a failure, change **Paths** on the Streaming Files node to a file that does not exist, such as `products-2026.csv` in the same folder, and save. The save creates version 2.
+To see a failure, change **Paths** on the Streaming Files node to a file that does not exist, such as `products-2026.csv` in the same folder, and save. The save stores a draft. **Preview** shows the missing file, and it does not write to the store. A run still uses the published pipeline until you **Publish**. Publish creates the next pipeline version.
 
 **Preview** shows the problem before you run.
 
 ![The Preview tab for v2 with a red message: Streaming Files: File or folder products-2026.csv was not found on the server. Load reads 0 documents and says No documents came out of the sources.](../images/etl/etl-preview-missing-file.png)
 
-A run of that version fails with the same message.
+After you publish, a run of that version fails with the same message.
 
 ![A failed run of version 2. Split, Embed, Store, and Delete removed have empty circles. A red message says File or folder products-2026.csv was not found on the server. Retry From Checkpoint and Cancel buttons are below it, and the last log line is red. Try retrieval still searches version 1.](../images/etl/etl-run-failed.png)
 
 This run failed before it wrote anything, so the served data is as it was. The panel still reads `serving v1`, and **Try retrieval** still searches version 1. A run can also fail partway, for example when the embeddings provider stops answering. The batches it wrote before it stopped are already in the store, and search can return them. Retry the run, or start a new one, so the store matches a finished run again.
 
 -   **Retry From Checkpoint** starts the same run again from where it stopped, on the same version, as attempt 2. Use it when the cause was outside the pipeline, such as a provider outage or a rate limit.
--   When the pipeline itself is wrong, fix the node, save, and select **Start Run**. A retry would run the old version again.
+-   When the pipeline itself is wrong, fix the node, **Publish**, and select **Start Run**. A retry would run the old version again, and a canvas save alone does not change it.
 -   **Cancel** ends the failed run. It stays in **History** as `cancelled`.
 
 ### Which folders a pipeline can read
@@ -198,7 +208,7 @@ A **Code Repository** source can also read the Cuttlely checkout itself while `C
 
 ## Restore an earlier version
 
-Every save that changes nodes, inputs, credentials, or connections creates a version. Moving nodes does not. **Versions** lists them, newest first.
+**Publish**, **Roll back**, and a save through the API create a version when nodes, inputs, credentials, or connections change. A canvas save stores a draft and does not. Moving nodes does not. **Versions** lists the published versions, newest first.
 
 1. Select **Versions** in the panel.
 2. Select **Restore** on the version you want.
@@ -209,7 +219,7 @@ The canvas loads that version. Nothing is saved yet: an asterisk appears before 
 
 ![The canvas after Restore on version 1. An asterisk before Outdoor Catalog shows the change is not saved. Paths on Streaming Files reads outdoor-catalog.csv again.](../images/etl/etl-version-restored.png)
 
-3. Select **Save Pipeline**. The restore is saved as a new version, version 3. Versions 1 and 2 stay in the list.
+3. Select **Save Pipeline**. The canvas stores a draft. Select **Publish**. The published pipeline is a new version, version 3. Versions 1 and 2 stay in the list.
 4. Run the pipeline. When the run succeeds, version 3 is serving.
 
 ![The Versions tab after the save and the run. Version 3 has latest and serving chips. Versions 2 and 1 each have a Restore button.](../images/etl/etl-versions-after.png)

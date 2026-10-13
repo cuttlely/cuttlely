@@ -896,12 +896,8 @@ const Canvas = () => {
             }
             const built = takeSavedBuild(loaded.id)
             if (built) builtNotice(built)
-            // Pipeline canvases still save straight to Live. A harness canvas loads draft status
-            // with the other canvases: the canvas shows the draft, and runs keep serving Live until Publish.
-            if (isEtlCanvas) {
-                paint(null)
-                return
-            }
+            // Chatflow, agentflow, harness and pipeline canvases load draft status the same way.
+            // The canvas shows the draft. Harness runs and pipeline runs keep serving Live until Publish.
             flowDraftsApi
                 .getStatus(loaded.id)
                 .then((res) => paint(res.data))
@@ -937,7 +933,7 @@ const Canvas = () => {
             } else {
                 saveChatflowSuccess()
             }
-            if (!draft && !isEtlCanvas) {
+            if (!draft) {
                 flowDraftsApi
                     .getStatus(chatflow.id)
                     .then((res) => setDraftStatus(res.data))
@@ -1334,6 +1330,7 @@ const Canvas = () => {
                                                 chatflowId={chatflow?.id}
                                                 getFlowData={getEtlFlowData}
                                                 isDirty={Boolean(canvasDataStore.isDirty)}
+                                                hasDraft={Boolean(draftStatus?.draft)}
                                                 onRestore={restoreEtlVersion}
                                                 savedAt={chatflow?.updatedDate}
                                                 starters={starterQuestionsOf(chatflow?.chatbotConfig)}

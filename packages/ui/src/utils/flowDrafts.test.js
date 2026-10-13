@@ -8,8 +8,12 @@ import {
     draftBadge,
     planCanvasSave,
     publishBody,
+    PIPELINE_PREVIEW_NOTE,
+    PIPELINE_RUN_DIRTY,
+    PIPELINE_RUN_DRAFT,
     publishChangeLines,
     publishInstantlyLocked,
+    showsPublishCheck,
     publishResultMessage,
     showDraftChrome,
     showPublishInstantly,
@@ -124,6 +128,39 @@ describe('publish diff', () => {
         expect(lines).toContain('Added Calculator')
         expect(lines.some((line) => line.startsWith('Changed Conversation Chain'))).toBe(true)
         expect(lines).toContain('Rewired connections')
+    })
+
+    test('a pipeline change list uses the same words, and a pipeline publish has no question check', () => {
+        const livePipeline = JSON.stringify({
+            nodes: [
+                {
+                    id: 'src',
+                    data: { label: 'Streaming Files', inputs: { paths: '/data/catalog.csv' } }
+                },
+                { id: 'old', data: { label: 'Old splitter', inputs: { chunkSize: 800 } } }
+            ],
+            edges: []
+        })
+        const draftPipeline = JSON.stringify({
+            nodes: [
+                {
+                    id: 'src',
+                    data: { label: 'Streaming Files', inputs: { paths: '/data/catalog-2026.csv' } }
+                },
+                { id: 'added', data: { label: 'Clean & Transform', inputs: {} } }
+            ],
+            edges: []
+        })
+        const lines = publishChangeLines(livePipeline, draftPipeline).map((line) => line.text)
+        expect(lines).toContain('Added Clean & Transform')
+        expect(lines).toContain('Removed Old splitter')
+        expect(lines.some((line) => line.startsWith('Changed Streaming Files: paths'))).toBe(true)
+        expect(showsPublishCheck('ETL')).toBe(false)
+        expect(showsPublishCheck('CHATFLOW')).toBe(true)
+        expect(showsPublishCheck('HARNESS')).toBe(true)
+        expect(PIPELINE_PREVIEW_NOTE).toContain('does not write to the store')
+        expect(PIPELINE_RUN_DIRTY).toContain('stores a draft')
+        expect(PIPELINE_RUN_DRAFT).toContain('published pipeline')
     })
 
     test('a draft that matched Live does not look changed when the only difference is nodePack', () => {

@@ -135,6 +135,17 @@ export const publishChangeLines = (liveText, draftText) => {
     return describeDiff(diffCanvases(liveText, draftText), 'previous', draft?.nodes || [])
 }
 
+// A pipeline publish lists the structural diff and does not replay questions.
+export const showsPublishCheck = (type) => type !== 'ETL'
+
+export const PIPELINE_PREVIEW_NOTE = 'Preview uses this canvas and does not write to the store.'
+
+export const PIPELINE_RUN_DIRTY =
+    'Save your changes first. A save stores a draft. Preview uses this canvas and does not write to the store.'
+
+export const PIPELINE_RUN_DRAFT =
+    'This run uses the published pipeline and writes to the store. The draft is not included until you Publish. Preview uses the draft and does not write.'
+
 export const publishBody = (stale, replaceLiveChanges) => (stale && replaceLiveChanges ? { overwriteLiveChanges: true } : {})
 
 export const publishResultMessage = (data = {}) => {

@@ -8,6 +8,7 @@ import {
     compareVersions,
     fixtureProblems,
     harnessMigrationProblems,
+    pipelineMigrationProblems,
     keyAliasEnv,
     nodeCount,
     readFixture,
@@ -105,5 +106,44 @@ test('a 1.0.2 harness stays Live version 1 until the first edit creates a draft'
     assert.match(edited.join('\n'), /not Live version 1|changed the Live canvas|changed the roster|did not create a draft/)
     assert.match(edited.join('\n'), /changed the Live canvas/)
     assert.match(edited.join('\n'), /changed the roster/)
+    assert.match(edited.join('\n'), /did not create a draft/)
+})
+
+test('a pipeline stays Live version 1 until the first edit creates a draft', () => {
+    const live = '{"nodes":[{"data":{"name":"etlFileSource","inputs":{"paths":"/data/catalog.csv"}}}],"edges":[]}'
+    const sha = 'a'.repeat(40)
+    const ok = pipelineMigrationProblems({
+        status: { mode: 'draft', draft: null },
+        history: { liveSha: sha, versions: [{ sha }] },
+        liveBefore: live,
+        liveAfter: live,
+        servedBefore: 1,
+        servedAfter: 1,
+        draft: { draft: { flowData: `${live} draft` } }
+    })
+    assert.deepEqual(ok, [])
+    const missingRow = pipelineMigrationProblems({
+        status: { mode: 'draft', draft: null },
+        history: { liveSha: sha, versions: [{ sha }] },
+        liveBefore: live,
+        liveAfter: live,
+        servedBefore: null,
+        servedAfter: null,
+        draft: { draft: { flowData: `${live} draft` } }
+    })
+    assert.deepEqual(missingRow, [])
+    const edited = pipelineMigrationProblems({
+        status: { mode: 'live', draft: { flowData: 'x' } },
+        history: { liveSha: 'nope', versions: [] },
+        liveBefore: live,
+        liveAfter: '{"nodes":[],"edges":[]}',
+        servedBefore: 1,
+        servedAfter: 2,
+        draft: { draft: null }
+    })
+    assert.match(edited.join('\n'), /not Live with no draft/)
+    assert.match(edited.join('\n'), /not Live version 1/)
+    assert.match(edited.join('\n'), /changed the Live canvas/)
+    assert.match(edited.join('\n'), /changed the pipeline runs serve/)
     assert.match(edited.join('\n'), /did not create a draft/)
 })

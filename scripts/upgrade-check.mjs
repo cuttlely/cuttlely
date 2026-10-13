@@ -247,6 +247,21 @@ export function harnessMigrationProblems({ status, history, liveBefore, liveAfte
     return problems
 }
 
+// An older pipeline has a canvas and version history, and no draft row. It stays Live. The first canvas
+// edit is a draft, and the pipeline version runs read does not change. servedBefore is null when this
+// install has no pipeline row yet; a present row must stay the same.
+export function pipelineMigrationProblems({ status, history, liveBefore, liveAfter, servedBefore, servedAfter, draft }) {
+    const problems = []
+    if (!status || status.mode !== 'draft' || status.draft) problems.push('an existing pipeline is not Live with no draft')
+    const versions = Array.isArray(history?.versions) ? history.versions : []
+    const only = versions.length === 1 ? versions[0].sha : null
+    if (!only || history.liveSha !== only) problems.push('the pipeline saved before drafts is not Live version 1')
+    if (liveAfter !== liveBefore) problems.push('the first edit changed the Live canvas')
+    if (servedBefore != null && servedAfter !== servedBefore) problems.push('the first edit changed the pipeline runs serve')
+    if (!draft?.draft?.flowData || draft.draft.flowData === liveBefore) problems.push('the first edit did not create a draft')
+    return problems
+}
+
 export function versionList(response) {
     const body = response?.json
     if (Array.isArray(body)) return body
@@ -356,6 +371,45 @@ async function checkHarnessUpgrade(base, cookie, meta, say) {
     return problems
 }
 
+async function checkPipelineUpgrade(base, cookie, meta, say) {
+    const flow = (meta.expected.flows || []).find((item) => item.type === 'ETL')
+    if (!flow) return []
+    const live = await request(`${base}/api/v1/chatflows/${flow.id}`, { cookie })
+    const status = await request(`${base}/api/v1/flow-drafts/${flow.id}`, { cookie })
+    const history = await request(`${base}/api/v1/flow-versions/${flow.id}`, { cookie })
+    const pipeline = await request(`${base}/api/v1/etl/pipelines/${flow.id}`, { cookie })
+    if (live.status !== 200 || !live.json?.flowData) return [`reading pipeline ${flow.name} failed (${live.status})`]
+    const servedBefore = pipeline.status === 200 ? pipeline.json?.latestVersion ?? null : null
+    let draftFlow
+    try {
+        draftFlow = JSON.parse(live.json.flowData)
+        const node = (draftFlow.nodes || []).find((item) => item?.data?.inputs)
+        if (!node) return [`pipeline ${flow.name} has no node to edit`]
+        node.data.inputs.draftEdit = 'draft edit'
+    } catch {
+        return [`pipeline ${flow.name} canvas is not JSON`]
+    }
+    const saved = await request(`${base}/api/v1/flow-drafts/${flow.id}`, {
+        method: 'PUT',
+        cookie,
+        body: { flowData: JSON.stringify(draftFlow) }
+    })
+    const liveAfter = await request(`${base}/api/v1/chatflows/${flow.id}`, { cookie })
+    const pipelineAfter = await request(`${base}/api/v1/etl/pipelines/${flow.id}`, { cookie })
+    const servedAfter = pipelineAfter.status === 200 ? pipelineAfter.json?.latestVersion ?? null : null
+    const problems = pipelineMigrationProblems({
+        status: status.json,
+        history: history.json,
+        liveBefore: live.json.flowData,
+        liveAfter: liveAfter.json?.flowData,
+        servedBefore,
+        servedAfter,
+        draft: saved.json
+    })
+    if (!problems.length) say(`  pipeline "${flow.name}" stayed Live version 1, and the first edit is a draft`)
+    return problems
+}
+
 export async function runUpgradeCheck({ fixture = DEFAULT_FIXTURE, serverRoot = ROOT, say = console.log, keyAlias = 'file' } = {}) {
     if (!fs.existsSync(path.join(serverRoot, 'packages', 'server', 'dist', 'commands'))) {
         throw new Error('packages/server/dist is missing. Build first (pnpm build, or the verify build step).')
@@ -396,6 +450,7 @@ export async function runUpgradeCheck({ fixture = DEFAULT_FIXTURE, serverRoot = 
             const cookie = await login(base, meta.account)
             problems = await checkData(base, cookie, meta, say)
             problems.push(...(await checkHarnessUpgrade(base, cookie, meta, say)))
+            problems.push(...(await checkPipelineUpgrade(base, cookie, meta, say)))
 
             const chat = meta.expected.flows.find((f) => f.predict)
             if (chat) {

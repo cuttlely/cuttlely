@@ -19,7 +19,14 @@ import {
 import flowDraftsApi from '@/api/flowDrafts'
 import useConfirm from '@/hooks/useConfirm'
 import { CHANGE_COLORS } from '@/utils/versionHistory'
-import { STALE_DRAFT_WARNING, apiErrorMessage, publishBody, publishChangeLines, publishResultMessage } from '@/utils/flowDrafts'
+import {
+    STALE_DRAFT_WARNING,
+    apiErrorMessage,
+    publishBody,
+    publishChangeLines,
+    publishResultMessage,
+    showsPublishCheck
+} from '@/utils/flowDrafts'
 import { enqueueSnackbar as enqueueSnackbarAction } from '@/store/actions'
 
 import PublishCheck from './PublishCheck'
@@ -71,6 +78,7 @@ const PublishDialog = ({ open, chatflow, draftStatus, isDirty, onClose, onDraftS
     const [error, setError] = useState('')
 
     const stale = Boolean(draftStatus?.draft?.stale)
+    const replayCheck = showsPublishCheck(chatflow?.type)
     const lines = useMemo(
         () => (open ? publishChangeLines(chatflow?.flowData, draftStatus?.draft?.flowData) : []),
         [open, chatflow?.flowData, draftStatus?.draft?.flowData]
@@ -148,7 +156,9 @@ const PublishDialog = ({ open, chatflow, draftStatus, isDirty, onClose, onDraftS
             </DialogTitle>
             <DialogContent>
                 <Typography variant='body2' color='text.secondary' sx={{ mb: 1.5 }}>
-                    This is what will go live. People using this flow keep seeing the current Live version until you publish.
+                    {replayCheck
+                        ? 'This is what will go live. People using this flow keep seeing the current Live version until you publish.'
+                        : 'This is what will go live. Scheduled runs, a run you start, and a full rebuild keep using the current Live pipeline until you publish. There is no question check.'}
                 </Typography>
                 {isDirty && (
                     <Alert severity='info' sx={{ mb: 1.5 }}>
@@ -161,7 +171,7 @@ const PublishDialog = ({ open, chatflow, draftStatus, isDirty, onClose, onDraftS
                     </Alert>
                 )}
                 <PublishChangeList lines={lines} />
-                {chatflow?.id && <PublishCheck chatflowId={chatflow.id} />}
+                {chatflow?.id && replayCheck && <PublishCheck chatflowId={chatflow.id} />}
                 {stale && (
                     <FormControlLabel
                         sx={{ mt: 1, alignItems: 'flex-start' }}
