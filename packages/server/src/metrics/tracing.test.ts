@@ -9,11 +9,21 @@ import path from 'path'
 import { executeAgentFlow } from '../utils/buildAgentflow'
 import { executeFlow } from '../utils/buildChatflow'
 import {
+    finishTraceContinuation,
     flushCuttlelyTraces,
     installInMemoryTraces,
+    keepPendingToolsForApproval,
     registerCuttlelyTraces,
+    rememberTraceContinuation,
+    resetHeldToolsForTests,
+    setTraceParentClock,
     shutdownCuttlelyTraces,
+    TRACE_PARENT_CAP,
+    TRACE_PARENT_GRACE_MS,
+    TRACE_PARENT_TTL_MS,
+    traceContinuationFor,
     traceFlow,
+    traceGraphNode,
     tracedNode,
     tracesInstalled,
     withNodeSpan,
@@ -1297,6 +1307,69 @@ describe('run trace spans', () => {
         expect(usage?.output_cost).toBeCloseTo(12 * outputRate, 12)
     })
 
+    it('matches the agentflow span tree to the run card', async () => {
+        process.env.CUTTLELY_OTEL_TRACES = 'true'
+        process.env.CUTTLELY_OTEL_TRACES_CONTENT = 'false'
+        const captured = helperSource()
+        await runHelper(
+            'run-card',
+            `exports.nodeClass = class {
+                async init() {
+                    let turn = 0
+                    return {
+                        bindTools() { return this },
+                        async invoke() {
+                            turn += 1
+                            if (turn === 1) {
+                                return {
+                                    content: '',
+                                    tool_calls: [{ id: 'call-mixer', name: 'mixer', args: { speed: 'low' }, type: 'tool_call' }],
+                                    usage_metadata: { input_tokens: 10, output_tokens: 4, total_tokens: 14 }
+                                }
+                            }
+                            return { content: 'Baked', usage_metadata: { input_tokens: 12, output_tokens: 5, total_tokens: 17 } }
+                        }
+                    }
+                }
+            }\n`,
+            false,
+            captured.source
+        )
+        const spans = memory.spans()
+        const rows = JSON.parse(captured.saved.Execution.executionData) as Array<{
+            nodeId: string
+            data?: {
+                name?: string
+                output?: {
+                    usageMetadata?: { input_tokens?: number; output_tokens?: number }
+                    usedTools?: Array<{ tool?: string; id?: string }>
+                }
+            }
+        }>
+        expect(rows.length).toBeGreaterThan(0)
+        for (const row of rows) {
+            const node = spans.find(
+                (span) =>
+                    span.name === 'node' && span.attributes['node.id'] === row.nodeId && span.attributes['node.type'] === row.data?.name
+            )
+            expect(node).toBeDefined()
+            const usage = row.data?.output?.usageMetadata
+            if (usage && (usage.input_tokens || usage.output_tokens)) {
+                const model = spans.find((span) => span.name === 'model' && span.parentSpanId === node?.spanId)
+                expect(model?.attributes['tokens.input']).toBe(usage.input_tokens)
+                expect(model?.attributes['tokens.output']).toBe(usage.output_tokens)
+            }
+            for (const tool of row.data?.output?.usedTools ?? []) {
+                const toolSpan = spans.find(
+                    (span) => span.name === 'tool' && span.parentSpanId === node?.spanId && span.attributes['tool.name'] === tool.tool
+                )
+                expect(toolSpan?.attributes['status']).toBe('ok')
+                if (tool.id) expect(toolSpan?.attributes['tool.id']).toBe(tool.id)
+            }
+        }
+        expect(contentKeys(spans)).toEqual([])
+    })
+
     it('keeps a second approval wait for the same tool pending', async () => {
         process.env.CUTTLELY_OTEL_TRACES = 'true'
         await traceFlow('agentflow', 'flow-again', async () => {
@@ -1495,4 +1568,95 @@ describe('OTLP HTTP export', () => {
             await new Promise((resolve) => server.close(resolve))
         }
     })
+})
+
+describe('approval trace retention', () => {
+    let now = 1_700_000_000_000
+    let memory: { spans: () => FinishedTraceSpan[]; reset: () => void }
+
+    beforeAll(() => {
+        memory = installInMemoryTraces()
+    })
+
+    beforeEach(() => {
+        process.env.CUTTLELY_OTEL_TRACES = 'true'
+        now = 1_700_000_000_000
+        setTraceParentClock(() => now)
+        resetHeldToolsForTests()
+        memory.reset()
+    })
+
+    afterEach(() => {
+        delete process.env.CUTTLELY_OTEL_TRACES
+        setTraceParentClock()
+        resetHeldToolsForTests()
+    })
+
+    async function remember(actionId: string): Promise<void> {
+        await traceFlow('chatflow', 'flow-keep', async () => {
+            rememberTraceContinuation('flow-keep', 'chat-keep', actionId)
+        })
+    }
+
+    it('drops a parent after the resume grace period and keeps it for a retry until then', async () => {
+        await remember('action-done')
+        const parent = traceContinuationFor('flow-keep', 'chat-keep', 'action-done')
+        expect(parent?.traceId).toBeTruthy()
+        finishTraceContinuation('flow-keep', 'chat-keep', 'action-done')
+        expect(traceContinuationFor('flow-keep', 'chat-keep', 'action-done')).toEqual(parent)
+        now += TRACE_PARENT_GRACE_MS
+        expect(traceContinuationFor('flow-keep', 'chat-keep', 'action-done')).toBeUndefined()
+    })
+
+    it('drops a parent when the day-long wait expires', async () => {
+        await remember('action-old')
+        expect(traceContinuationFor('flow-keep', 'chat-keep', 'action-old')).toBeDefined()
+        now += TRACE_PARENT_TTL_MS
+        expect(traceContinuationFor('flow-keep', 'chat-keep', 'action-old')).toBeUndefined()
+    })
+
+    it('evicts the oldest parent when the cap is full', async () => {
+        await traceFlow('chatflow', 'flow-keep', async () => {
+            for (let index = 0; index < TRACE_PARENT_CAP + 1; index += 1) {
+                rememberTraceContinuation('flow-keep', 'chat-keep', `action-${index}`)
+            }
+        })
+        expect(traceContinuationFor('flow-keep', 'chat-keep', 'action-0')).toBeUndefined()
+        expect(traceContinuationFor('flow-keep', 'chat-keep', `action-${TRACE_PARENT_CAP}`)?.traceId).toBeTruthy()
+    })
+
+    async function holdTool(flowId: string, chatId: string, actionId: string, count: number): Promise<void> {
+        await traceFlow('chatflow', flowId, async () => {
+            for (let index = 0; index < count; index += 1) {
+                const node = traceGraphNode(`node_${index}`, 'worker', async () => ({
+                    messages: [{ tool_calls: [{ id: `call-${index}`, name: 'oven', type: 'tool_call' }] }]
+                })) as (state: unknown, config: unknown) => Promise<unknown>
+                await node({}, {})
+            }
+            rememberTraceContinuation(flowId, chatId, actionId)
+            keepPendingToolsForApproval()
+        })
+    }
+
+    it('ends a waiting tool span as pending when the continuation expires', async () => {
+        const flowId = 'flow-held-expire'
+        const chatId = 'chat-held-expire'
+        await holdTool(flowId, chatId, 'action-held-expire', 1)
+        expect(memory.spans().filter((span) => span.name === 'tool')).toEqual([])
+        now += TRACE_PARENT_TTL_MS
+        expect(traceContinuationFor(flowId, chatId, 'action-held-expire')).toBeUndefined()
+        const tools = memory.spans().filter((span) => span.name === 'tool')
+        expect(tools).toHaveLength(1)
+        expect(tools[0].attributes['status']).toBe('pending')
+        expect(tools[0].attributes['tool.id']).toBe('call-0')
+    })
+
+    it('ends the oldest waiting tool span as pending when a thousand are already held', async () => {
+        await holdTool('flow-held-cap', 'chat-held-cap', 'action-held-cap', TRACE_PARENT_CAP + 1)
+        const tools = memory.spans().filter((span) => span.name === 'tool')
+        expect(tools).toHaveLength(1)
+        expect(tools[0].attributes['status']).toBe('pending')
+        expect(tools[0].attributes['tool.id']).toBe('call-0')
+        expect(traceContinuationFor('flow-held-cap', 'chat-held-cap', 'action-held-cap')?.traceId).toBeTruthy()
+    }, 120000)
 })

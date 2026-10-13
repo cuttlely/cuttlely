@@ -5,6 +5,13 @@
 // version history, credentials (names only) and harnesses come through, that a new save still
 // records a version, and that a second start on the upgraded data works.
 //
+// The bundled fixture has no pipeline. Before the new server starts, this check inserts one
+// synthetic pipeline into that copy: a chat flow plus the pipeline version runs read. After the
+// upgrade it checks that the pipeline is unchanged and Live, that there is no draft, that a
+// triggered run reads that Live version, that the first canvas edit creates a draft, and that
+// another run still reads Live. Publish then switches the version a run reads. The scheduler
+// starts a run through the same call as that triggered run.
+//
 //   pnpm upgrade:check                      the bundled fixture
 //   pnpm upgrade:check --fixture <dir>      another fixture made by scripts/upgrade-fixture.mjs
 //   pnpm upgrade:check --key-alias existing|new|both|conflict
@@ -20,6 +27,7 @@ import fs from 'node:fs'
 import net from 'node:net'
 import os from 'node:os'
 import path from 'node:path'
+import { DatabaseSync } from 'node:sqlite'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
@@ -247,6 +255,88 @@ export function harnessMigrationProblems({ status, history, liveBefore, liveAfte
     return problems
 }
 
+// An older pipeline has a canvas and version history, and no draft row. It stays Live. The first canvas
+// edit is a draft, and the pipeline version runs read does not change. servedBefore is null when this
+// install has no pipeline row yet; a present row must stay the same.
+export const SEEDED_PIPELINE_ID = 'e7c10000-0000-4000-8000-0000000000e7'
+export const SEEDED_PIPELINE_NAME = 'Upgrade catalog'
+export const SEEDED_LIVE_COLLECTION = 'upgrade-live'
+export const SEEDED_DRAFT_COLLECTION = 'upgrade-draft'
+
+export function upgradePipelineCanvas(file, collection = SEEDED_LIVE_COLLECTION) {
+    return JSON.stringify({
+        nodes: [
+            {
+                id: 'src',
+                data: {
+                    name: 'etlFileSource',
+                    label: 'Streaming Files',
+                    category: 'ETL',
+                    inputs: { paths: file, textColumns: 'name, description', idColumn: 'sku' }
+                }
+            },
+            { id: 'tx', data: { name: 'etlTransform', label: 'Clean & Transform', category: 'ETL', inputs: { minChars: 1 } } },
+            {
+                id: 'emb',
+                data: { name: 'localHashEmbeddings', label: 'Local Hash Embeddings', category: 'Embeddings', inputs: { dimensions: 64 } }
+            },
+            {
+                id: 'vs',
+                data: {
+                    name: 'etlLocalVectorStore',
+                    label: 'Local Vector Store',
+                    category: 'Vector Stores',
+                    inputs: { collection }
+                }
+            }
+        ],
+        edges: [
+            { source: 'src', target: 'tx' },
+            { source: 'tx', target: 'vs' },
+            { source: 'emb', target: 'vs' }
+        ]
+    })
+}
+
+// Facts from a pipeline that was already saved when the new server started.
+// A triggered run is the flow of the pipeline version that run was given.
+export function seededPipelineUpgradeProblems({
+    statusBefore,
+    liveBefore,
+    liveAfterEdit,
+    servedBefore,
+    servedAfterEdit,
+    runBefore,
+    runAfterEdit,
+    draft,
+    runAfterPublish
+}) {
+    const problems = []
+    if (!statusBefore || statusBefore.mode !== 'draft' || statusBefore.draft)
+        problems.push('an existing pipeline is not Live with no draft')
+    if (liveAfterEdit !== liveBefore) problems.push('the first edit changed the Live canvas')
+    if (servedBefore == null || servedAfterEdit !== servedBefore) problems.push('the first edit changed the pipeline runs serve')
+    if (!draft?.draft?.flowData || draft.draft.flowData === liveBefore) problems.push('the first edit did not create a draft')
+    if (!String(runBefore || '').includes(SEEDED_LIVE_COLLECTION)) problems.push('a run before the edit did not read the Live pipeline')
+    if (!String(runAfterEdit || '').includes(SEEDED_LIVE_COLLECTION) || String(runAfterEdit || '').includes(SEEDED_DRAFT_COLLECTION))
+        problems.push('a run after the edit did not keep reading the Live pipeline')
+    if (runAfterPublish !== undefined && !String(runAfterPublish).includes(SEEDED_DRAFT_COLLECTION))
+        problems.push('a run after Publish did not read the published draft')
+    return problems
+}
+
+export function pipelineMigrationProblems({ status, history, liveBefore, liveAfter, servedBefore, servedAfter, draft }) {
+    const problems = []
+    if (!status || status.mode !== 'draft' || status.draft) problems.push('an existing pipeline is not Live with no draft')
+    const versions = Array.isArray(history?.versions) ? history.versions : []
+    const only = versions.length === 1 ? versions[0].sha : null
+    if (!only || history.liveSha !== only) problems.push('the pipeline saved before drafts is not Live version 1')
+    if (liveAfter !== liveBefore) problems.push('the first edit changed the Live canvas')
+    if (servedBefore != null && servedAfter !== servedBefore) problems.push('the first edit changed the pipeline runs serve')
+    if (!draft?.draft?.flowData || draft.draft.flowData === liveBefore) problems.push('the first edit did not create a draft')
+    return problems
+}
+
 export function versionList(response) {
     const body = response?.json
     if (Array.isArray(body)) return body
@@ -420,6 +510,118 @@ async function checkLegacyHarness(base, cookie, say) {
     return []
 }
 
+// Writes a pipeline into the extracted fixture before the new server starts, so the upgrade sees
+// data that was already saved. The chat flow goes in the app database. The version a run reads
+// goes in the pipeline database, through the same record the server uses on a Live save.
+export async function seedUpgradePipeline(dataRoot) {
+    const app = new DatabaseSync(path.join(dataRoot, 'data', 'database.sqlite'))
+    let workspaceId
+    try {
+        const row = app.prepare('SELECT workspaceId FROM chat_flow WHERE workspaceId IS NOT NULL LIMIT 1').get()
+        workspaceId = row?.workspaceId
+        if (!workspaceId) throw new Error('the upgrade fixture has no workspace to put the pipeline in')
+        const file = path.join(ROOT, 'samples', 'etl', 'data', 'outdoor-catalog.csv')
+        const flowData = upgradePipelineCanvas(file)
+        const stamp = '2026-10-11 19:07:06'
+        app.prepare(
+            `INSERT INTO chat_flow (id, name, flowData, deployed, isPublic, type, workspaceId, createdDate, updatedDate, webhookSecretConfigured)
+             VALUES (?, ?, ?, 0, 0, 'ETL', ?, ?, ?, 0)`
+        ).run(SEEDED_PIPELINE_ID, SEEDED_PIPELINE_NAME, flowData, workspaceId, stamp, stamp)
+    } finally {
+        app.close()
+    }
+    const previousData = process.env.CUTTLELY_DATA_DIR
+    const previousEtl = process.env.CUTTLELY_ETL_DIR
+    process.env.CUTTLELY_DATA_DIR = dataRoot
+    process.env.CUTTLELY_ETL_DIR = path.join(dataRoot, 'etl')
+    try {
+        const { recordVersion } = await import('../packages/etl/versions.mjs')
+        const { closeDb } = await import('../packages/etl/db.mjs')
+        try {
+            const saved = recordVersion({
+                id: SEEDED_PIPELINE_ID,
+                name: SEEDED_PIPELINE_NAME,
+                workspaceId,
+                flowData: upgradePipelineCanvas(path.join(ROOT, 'samples', 'etl', 'data', 'outdoor-catalog.csv'))
+            })
+            if (saved.problems?.length) throw new Error(saved.problems.join('; '))
+        } finally {
+            closeDb()
+        }
+    } finally {
+        if (previousData === undefined) delete process.env.CUTTLELY_DATA_DIR
+        else process.env.CUTTLELY_DATA_DIR = previousData
+        if (previousEtl === undefined) delete process.env.CUTTLELY_ETL_DIR
+        else process.env.CUTTLELY_ETL_DIR = previousEtl
+    }
+}
+
+const RUN_ACTIVE = new Set(['queued', 'running', 'pausing', 'cancelling'])
+
+// The version a triggered run was given, then stop that run so the next one can start.
+async function triggeredRunFlow(base, cookie, id) {
+    const started = await request(`${base}/api/v1/etl/pipelines/${id}/runs`, {
+        method: 'POST',
+        cookie,
+        body: { mode: 'incremental', settings: { batchSize: 8, concurrency: 1, maxRetries: 0, maxErrors: 1 } }
+    })
+    if (started.status !== 200 || !started.json?.version) return `start ${started.status}: ${started.text.slice(0, 180)}`
+    const version = await request(`${base}/api/v1/etl/pipelines/${id}/versions/${started.json.version}`, { cookie })
+    if (started.json.id) {
+        await request(`${base}/api/v1/etl/runs/${started.json.id}/cancel`, { method: 'POST', cookie })
+        const deadline = Date.now() + 20000
+        while (Date.now() < deadline) {
+            const got = await request(`${base}/api/v1/etl/runs/${started.json.id}`, { cookie })
+            if (!RUN_ACTIVE.has(got.json?.status)) break
+            await new Promise((resolve) => setTimeout(resolve, 200))
+        }
+    }
+    return version.status === 200 ? version.json?.flowData || '' : `version ${version.status}`
+}
+
+async function checkSeededPipeline(base, cookie, say) {
+    const id = SEEDED_PIPELINE_ID
+    const live = await request(`${base}/api/v1/chatflows/${id}`, { cookie })
+    const status = await request(`${base}/api/v1/flow-drafts/${id}`, { cookie })
+    const pipeline = await request(`${base}/api/v1/etl/pipelines/${id}`, { cookie })
+    if (live.status !== 200 || !live.json?.flowData) return [`reading the seeded pipeline failed (${live.status})`]
+    if (pipeline.status !== 200) return [`the seeded pipeline was not found after the upgrade (${pipeline.status})`]
+    const runBefore = await triggeredRunFlow(base, cookie, id)
+    let draftFlow
+    try {
+        draftFlow = JSON.parse(live.json.flowData)
+        const store = (draftFlow.nodes || []).find((node) => node?.data?.name === 'etlLocalVectorStore')
+        if (!store?.data?.inputs) return ['the seeded pipeline has no vector store to edit']
+        store.data.inputs.collection = SEEDED_DRAFT_COLLECTION
+    } catch {
+        return ['the seeded pipeline canvas is not JSON']
+    }
+    const saved = await request(`${base}/api/v1/flow-drafts/${id}`, {
+        method: 'PUT',
+        cookie,
+        body: { flowData: JSON.stringify(draftFlow) }
+    })
+    const liveAfter = await request(`${base}/api/v1/chatflows/${id}`, { cookie })
+    const pipelineAfter = await request(`${base}/api/v1/etl/pipelines/${id}`, { cookie })
+    const runAfterEdit = await triggeredRunFlow(base, cookie, id)
+    const published = await request(`${base}/api/v1/flow-drafts/${id}/publish`, { method: 'POST', cookie, body: {} })
+    const runAfterPublish = published.status === 200 ? await triggeredRunFlow(base, cookie, id) : `publish ${published.status}`
+    const problems = seededPipelineUpgradeProblems({
+        statusBefore: status.json,
+        liveBefore: live.json.flowData,
+        liveAfterEdit: liveAfter.json?.flowData,
+        servedBefore: pipeline.json?.latestVersion ?? null,
+        servedAfterEdit: pipelineAfter.json?.latestVersion ?? null,
+        runBefore,
+        runAfterEdit,
+        draft: saved.json,
+        runAfterPublish
+    })
+    if (published.status !== 200) problems.push(`publishing the seeded pipeline failed (${published.status})`)
+    if (!problems.length) say(`  pipeline "${SEEDED_PIPELINE_NAME}" stayed Live until Publish, and the first edit is a draft`)
+    return problems
+}
+
 export async function runUpgradeCheck({ fixture = DEFAULT_FIXTURE, serverRoot = ROOT, say = console.log, keyAlias = 'file' } = {}) {
     if (!fs.existsSync(path.join(serverRoot, 'packages', 'server', 'dist', 'commands'))) {
         throw new Error('packages/server/dist is missing. Build first (pnpm build, or the verify build step).')
@@ -437,6 +639,7 @@ export async function runUpgradeCheck({ fixture = DEFAULT_FIXTURE, serverRoot = 
 
         const port = await freePort()
         const base = `http://127.0.0.1:${port}`
+        if (keyAlias !== 'conflict') await seedUpgradePipeline(dataRoot)
         let server = startServer(serverRoot, dataEnv(dataRoot, port, extra), { preload })
         let problems = []
         try {
@@ -468,6 +671,7 @@ export async function runUpgradeCheck({ fixture = DEFAULT_FIXTURE, serverRoot = 
             problems = [...assignedEarly, ...(await checkData(base, cookie, meta, say))]
             problems.push(...(await checkHarnessUpgrade(base, cookie, meta, say)))
             problems.push(...(await checkLegacyHarness(base, cookie, say)))
+            problems.push(...(await checkSeededPipeline(base, cookie, say)))
 
             const chat = meta.expected.flows.find((f) => f.predict)
             if (chat) {
