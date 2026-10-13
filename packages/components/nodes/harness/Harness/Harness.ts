@@ -292,11 +292,14 @@ async function runNamedHarness(
     if (!chatId) {
         throw harnessFailure('Harness cannot run: chatId is required.')
     }
+    const harnessTrace = await openNodeHarnessTrace(harnessName, input, options)
+    const forward = harnessOnEvent(options, streamAnswer, runManager, streamed)
+    let runId: string | undefined
     try {
         // Copy the optional method first. A boolean from `typeof engine.runQueuedHarness` does not narrow it.
         const queuedRun = engine.runQueuedHarness
         const run = process.env.CUTTLELY_HARNESS_QUEUE !== 'off' && typeof queuedRun === 'function' ? queuedRun : engine.runHarness
-        return await run({
+        const payload = await run({
             name: harnessName,
             chatId,
             input,
@@ -304,13 +307,38 @@ async function runNamedHarness(
             traceId: typeof options.executionId === 'string' ? options.executionId : undefined,
             componentNodes: options.componentNodes,
             flowOptions: pickFlowOptions(options),
-            onEvent: harnessOnEvent(options, streamAnswer, runManager, streamed),
+            onEvent: (event: { type: string }) => {
+                harnessTrace?.event(event as Record<string, unknown>)
+                forward?.(event)
+            },
             signal: abortSignalOf(options),
+            onRecorded: (row: unknown) => {
+                const id = row && typeof row === 'object' ? (row as { id?: unknown }).id : undefined
+                if (typeof id === 'string') runId = id
+            },
             ...(images.length ? { images } : {})
         })
+        harnessTrace?.finish({ text: typeof payload?.text === 'string' ? payload.text : undefined, runId })
+        return payload
     } catch (error) {
+        harnessTrace?.fail(error)
         throw harnessFailure((error as Error).message || 'Harness cannot run.', (error as { code?: string }).code)
     }
+}
+
+// Traces stay off unless the server has turned them on. A publish check exports nothing.
+// The import stays inside the run so loading this node does not load the tracer.
+async function openNodeHarnessTrace(harnessName: string, input: string, options: ICommonObject) {
+    if (process.env.CUTTLELY_OTEL_TRACES !== 'true') return undefined
+    if (options?.replay || options?.cuttlelyReplay) return undefined
+    const { openHarnessRunTrace } = await import('../../../src/otelRunSpans')
+    return openHarnessRunTrace({
+        name: harnessName,
+        workspaceId: typeof options.workspaceId === 'string' ? options.workspaceId : undefined,
+        question: input,
+        replay: options?.replay === true,
+        cuttlelyReplay: options?.cuttlelyReplay === true
+    })
 }
 
 // The tool is initialized before the prediction run attaches sseStreamer. A streaming Tool Agent

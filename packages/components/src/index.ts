@@ -19,7 +19,16 @@ export * from './storage'
 export * from './storageUtils'
 export * from './textToSpeech'
 export { tracingEnvEnabled } from './tracingEnv'
-export { otelRunCallback, replaySilenced, setCuttlelyTracer, silenceRunTraces, tokenCount, traceText, writeContent } from './otelRunSpans'
+export {
+    openHarnessRunTrace,
+    otelRunCallback,
+    replaySilenced,
+    setCuttlelyTracer,
+    silenceRunTraces,
+    tokenCount,
+    traceText,
+    writeContent
+} from './otelRunSpans'
 export * from './documentText'
 export { isModelList } from './modelLoader'
 export { applyModelRetryBudget, MODEL_RETRY_BUDGET } from './modelRetryBudget'

@@ -73,6 +73,11 @@
         },
         {
             "from": "packages/components/nodes/harness/Harness/Harness.ts",
+            "to": "packages/components/src/otelRunSpans.ts",
+            "reason": "The harness API and the Harness node build run traces from harness events with the existing tracer."
+        },
+        {
+            "from": "packages/components/nodes/harness/Harness/Harness.ts",
             "to": "packages/components/src/storageUtils.ts"
         },
         {
@@ -629,6 +634,11 @@
         {
             "from": "packages/server/src/services/harnesses/index.ts",
             "to": "packages/server/src/errors/utils.ts"
+        },
+        {
+            "from": "packages/server/src/services/harnesses/index.ts",
+            "to": "packages/server/src/metrics/tracing.ts",
+            "reason": "The harness API and the Harness node build run traces from harness events with the existing tracer."
         },
         {
             "from": "packages/server/src/services/harnesses/index.ts",
@@ -2413,6 +2423,10 @@
             "reason": "Shared server error class has its own module. Core callers import that module."
         },
         {
+            "path": "packages/server/src/metrics/harnessTraces.test.ts",
+            "reason": "The harness API and the Harness node build run traces from harness events with the existing tracer."
+        },
+        {
             "path": "packages/server/src/metrics/Prometheus.test.ts",
             "reason": "metrics prefix test sits beside the metrics provider"
         },
@@ -2421,12 +2435,16 @@
             "reason": "The node list and pack index sign-in test stays with the inherited nodes routes."
         },
         {
+            "path": "packages/server/src/services/evaluations/grader-node-fixture.js",
+            "reason": "The publish check test counts grader tokens with the runner's reader, and the grader tests sit beside that runner."
+        },
+        {
             "path": "packages/server/src/services/evaluations/LLMEvaluationRunner.test.ts",
             "reason": "The publish check test counts grader tokens with the runner's reader, and the grader tests sit beside that runner."
         },
         {
-            "path": "packages/server/src/services/evaluations/grader-node-fixture.js",
-            "reason": "The publish check test counts grader tokens with the runner's reader, and the grader tests sit beside that runner."
+            "path": "packages/server/src/services/executions/index.test.ts",
+            "reason": "The executions paging test lives next to the service it checks."
         },
         {
             "path": "packages/server/src/utils/buildAgentflow.harness-usage.test.ts",
@@ -2439,10 +2457,6 @@
         {
             "path": "packages/server/src/utils/buildAgentGraph.usage.test.ts",
             "reason": "The Agent token test and the multi-agent usage test stay next to the inherited nodes they exercise."
-        },
-        {
-            "path": "packages/server/src/services/executions/index.test.ts",
-            "reason": "The executions paging test lives next to the service it checks."
         },
         {
             "path": "packages/server/src/utils/telemetry-geoip-missing.test.ts",

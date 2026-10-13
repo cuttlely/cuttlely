@@ -10,6 +10,7 @@ import { getRunningExpressApp } from '../../utils/getRunningExpressApp'
 import logger from '../../utils/logger'
 import { orgIdForWorkspace } from '../etl'
 import flowDraftsService from '../flow-drafts'
+import { openHarnessRunTrace } from '../../metrics/tracing'
 import { recordCompletedRun } from '../usage'
 import { chatImages } from './chatImages'
 
@@ -208,6 +209,14 @@ const startRun = async (
     const queued = engine.runQueuedHarness
     // A draft roster exists only in this process. The queue worker would load the saved harness instead.
     const run = !opts.record && process.env.CUTTLELY_HARNESS_QUEUE !== 'off' && typeof queued === 'function' ? queued : engine.runHarness
+    const traceWorkspaceId = typeof prepared.harness.workspaceId === 'string' ? prepared.harness.workspaceId : undefined
+    const harnessTrace = openHarnessRunTrace({
+        name,
+        workspaceId: traceWorkspaceId,
+        question: prepared.question,
+        replay: opts.replay === true,
+        draft: Boolean(opts.record)
+    })
     let recorded: Record<string, unknown> | null = null
     try {
         const payload = await run({
@@ -217,13 +226,21 @@ const startRun = async (
             source: opts.source === 'playground' || opts.source === 'api' ? opts.source : 'api',
             componentNodes: runtime?.componentNodes,
             flowOptions: runtime?.flowOptions,
-            onEvent: opts.onEvent,
+            onEvent: (event: { type: string }) => {
+                harnessTrace?.event(event as Record<string, unknown>)
+                opts.onEvent?.(event)
+            },
             signal: opts.signal,
             record: opts.record,
             replay: opts.replay === true,
             onRecorded: (row: Record<string, unknown>) => {
                 recorded = row
             }
+        })
+        const runId = recorded && typeof (recorded as { id?: unknown }).id === 'string' ? (recorded as { id: string }).id : undefined
+        harnessTrace?.finish({
+            text: typeof (payload as { text?: unknown } | undefined)?.text === 'string' ? (payload as { text: string }).text : undefined,
+            runId
         })
         if (!recorded && !opts.replay) {
             const history = await loadHarness('history.mjs')
@@ -245,6 +262,7 @@ const startRun = async (
         }
         return { payload, run: recorded, chatId: prepared.chatId }
     } catch (error) {
+        harnessTrace?.fail(error)
         const wrapped = httpHarnessError(error) as AppError & { harnessRun?: unknown }
         wrapped.harnessRun = recorded
         throw wrapped
