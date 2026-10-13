@@ -19,6 +19,7 @@ import {
     IconDatabase,
     IconClipboardCheck,
     IconChartHistogram,
+    IconChartBar,
     IconShield,
     IconHistory,
     IconServerCog,
@@ -44,6 +45,7 @@ const icons = {
     IconDatabase,
     IconClipboardCheck,
     IconChartHistogram,
+    IconChartBar,
     IconShield,
     IconHistory,
     IconServerCog,
@@ -198,6 +200,15 @@ const dashboard = {
                     icon: icons.IconChartHistogram,
                     breadcrumbs: true,
                     permission: 'evaluations:view'
+                },
+                {
+                    id: 'usage',
+                    title: 'Usage',
+                    type: 'item',
+                    url: '/usage',
+                    icon: icons.IconChartBar,
+                    breadcrumbs: true,
+                    permission: 'chatflows:view,agentflows:view'
                 }
             ]
         },
