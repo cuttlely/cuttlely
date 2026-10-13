@@ -50,7 +50,7 @@ import { Variable } from '../database/entities/Variable'
 import { getWorkspaceSearchOptions } from '../identity/workspaceScope'
 import { DataSource } from 'typeorm'
 import { CachePool } from '../CachePool'
-import { rememberTraceContinuation, traceGraphNode } from '../metrics/tracing'
+import { keepPendingToolsForApproval, rememberTraceContinuation, traceGraphNode } from '../metrics/tracing'
 import { utilAddChatMessage } from './addChatMesage'
 import { applyCarriedUsage, ChatflowTokenUsage, recordCompletedRun, withCarriedUsage } from '../services/usage'
 
@@ -460,6 +460,8 @@ export const buildAgentGraph = async ({
                             }
                             // The action the client sees has no trace ids. The server keeps the parent for this action.
                             rememberTraceContinuation(chatflowid, chatId, actionId)
+                            // The waiting tool span stays open so the resume can finish it instead of adding another.
+                            keepPendingToolsForApproval()
                             await utilAddChatMessage(
                                 {
                                     id: flowConfig.apiMessageId,

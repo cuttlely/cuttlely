@@ -335,6 +335,7 @@ export async function traceFlow<T>(
     const ctx = trace.setSpan(context.active(), span)
     try {
         const result = await context.with(ctx, fn)
+        settleHeldTools(span.spanContext().traceId)
         if (failedSpans.has(span)) {
             span.setStatus({ code: SpanStatusCode.ERROR, message: String(span.attributes?.error ?? 'error') })
         } else {
@@ -344,6 +345,7 @@ export async function traceFlow<T>(
         span.end()
         return result
     } catch (error) {
+        settleHeldTools(span.spanContext().traceId)
         endError(span, error)
         throw error
     }
@@ -607,9 +609,94 @@ interface GraphToolCall {
     outputText?: unknown
 }
 
+interface ModelToolCall {
+    name: string
+    id?: string
+}
+
+/** A tool span left open while an approval is waiting, so the resume can finish it instead of adding a second one. */
+interface HeldPendingTool {
+    span: SpanLike
+    traceId: string
+    name: string
+    id?: string
+}
+
+const heldPendingTools: HeldPendingTool[] = []
+const approvalHolds = new Set<string>()
+
+function activeTraceId(): string | undefined {
+    const span = api().trace.getActiveSpan() as { spanContext?: () => { traceId?: string } } | undefined
+    const traceId = span?.spanContext?.().traceId
+    return traceId || undefined
+}
+
+/** The run stopped for approval. Pending tool spans stay open until that call runs or this trace ends without a resume. */
+export function keepPendingToolsForApproval(): void {
+    const traceId = activeTraceId()
+    if (traceId) approvalHolds.add(traceId)
+}
+
+function claimHeldTool(traceId: string | undefined, tool: GraphToolCall, usedIds: Set<string>): HeldPendingTool | undefined {
+    if (!traceId) return undefined
+    const free = (held: HeldPendingTool) => !held.id || !usedIds.has(held.id)
+    let index = tool.id ? heldPendingTools.findIndex((held) => held.traceId === traceId && held.id === tool.id) : -1
+    if (index < 0) {
+        index = heldPendingTools.findIndex((held) => held.traceId === traceId && held.name === tool.name && free(held))
+    }
+    if (index < 0) {
+        index = heldPendingTools.findIndex(
+            (held) => held.traceId === traceId && toolNameKey(held.name) === toolNameKey(tool.name) && free(held)
+        )
+    }
+    if (index < 0) return undefined
+    const [held] = heldPendingTools.splice(index, 1)
+    return held
+}
+
+function finishHeldOk(held: HeldPendingTool, name: string, id?: string): void {
+    if (name) held.span.setAttribute('tool.name', name)
+    if (id) held.span.setAttribute('tool.id', id)
+    endOk(held.span)
+}
+
+function settleHeldTools(traceId: string): void {
+    if (!traceId) return
+    if (approvalHolds.has(traceId)) {
+        approvalHolds.delete(traceId)
+        return
+    }
+    for (const held of heldPendingTools.filter((item) => item.traceId === traceId)) endPending(held.span)
+    for (let index = heldPendingTools.length - 1; index >= 0; index -= 1) {
+        if (heldPendingTools[index].traceId === traceId) heldPendingTools.splice(index, 1)
+    }
+}
+
+function toolCallsFromLlmOutput(output: unknown): ModelToolCall[] {
+    const generation = (output as { generations?: Array<Array<Record<string, any>>> } | undefined)?.generations?.[0]?.[0]
+    const message = generation?.message ?? generation
+    const calls = message?.tool_calls ?? message?.additional_kwargs?.tool_calls
+    if (!Array.isArray(calls)) return []
+    const rows: ModelToolCall[] = []
+    for (const call of calls) {
+        if (!call || typeof call !== 'object') continue
+        const record = call as { name?: unknown; id?: unknown; function?: { name?: unknown } }
+        const name =
+            typeof record.name === 'string' && record.name
+                ? record.name
+                : typeof record.function?.name === 'string'
+                ? record.function.name
+                : ''
+        if (!name) continue
+        rows.push({ name, id: typeof record.id === 'string' && record.id ? record.id : undefined })
+    }
+    return rows
+}
+
 function stepCollector(bucket: { models: GraphModelCall[]; tools: GraphToolCall[] }) {
     const models = new Map<string, GraphModelCall>()
     const tools = new Map<string, GraphToolCall>()
+    const fromModel: ModelToolCall[] = []
     const content = process.env.CUTTLELY_OTEL_TRACES_CONTENT === 'true'
     const sync = () => {
         bucket.models = [...models.values()]
@@ -651,6 +738,10 @@ function stepCollector(bucket: { models: GraphModelCall[]; tools: GraphToolCall[
             }
             row.done = true
             models.set(runId, row)
+            // The worker returns usedTools without the model's call id. The generation is where that id lives.
+            for (const call of toolCallsFromLlmOutput(output)) {
+                if (call.id && !fromModel.some((known) => known.id === call.id)) fromModel.push(call)
+            }
             sync()
         },
         async handleLLMError(error: unknown, runId: string) {
@@ -671,12 +762,24 @@ function stepCollector(bucket: { models: GraphModelCall[]; tools: GraphToolCall[
             runName?: string
         ) {
             if (!runId || tools.has(runId)) return
-            const metaId = metadata?.tool_call_id ?? metadata?.toolCallId
             // A real tool callback receives the serialized class, which often has no name. The run name is the tool name.
             const named = tool?.kwargs?.name || tool?.name
             const fromRun = typeof runName === 'string' ? runName : ''
             const fromId = Array.isArray(tool?.id) ? String(tool.id[tool.id.length - 1]) : ''
             const name = named || fromRun || fromId || 'tool'
+            const taken = new Set([...tools.values()].map((call) => call.id).filter((id): id is string => Boolean(id)))
+            let metaId = metadata?.tool_call_id ?? metadata?.toolCallId
+            if (typeof metaId !== 'string' || !metaId) {
+                const exact = fromModel.findIndex((call) => call.id && call.name === name && !taken.has(call.id))
+                const index =
+                    exact >= 0
+                        ? exact
+                        : fromModel.findIndex((call) => call.id && toolNameKey(call.name) === toolNameKey(name) && !taken.has(call.id))
+                if (index >= 0) {
+                    metaId = fromModel[index].id
+                    fromModel.splice(index, 1)
+                }
+            }
             tools.set(runId, {
                 runId,
                 name: String(name),
@@ -817,7 +920,17 @@ function emitGraphStep(
         else endOk(span)
     }
     const ran = bucket.tools.filter((tool) => tool.done || tool.error)
+    const traceId = activeTraceId()
+    const usedIds = new Set(ran.map((tool) => tool.id).filter((id): id is string => Boolean(id)))
     for (const tool of ran) {
+        const held = claimHeldTool(traceId, tool, usedIds)
+        if (held) {
+            const id = tool.id || held.id
+            if (id) usedIds.add(id)
+            if (tool.error) endError(held.span, tool.error)
+            else finishHeldOk(held, tool.name, id)
+            continue
+        }
         const span = openChild('tool', nodeId, nodeType, { 'tool.name': tool.name, ...(tool.id ? { 'tool.id': tool.id } : {}) })
         if (!span) continue
         writeContent(span, tool.inputText, tool.outputText)
@@ -825,7 +938,14 @@ function emitGraphStep(
         else endOk(span)
     }
     for (const call of pendingToolCalls(requestedToolCalls(messages), ran)) {
-        endPending(openChild('tool', nodeId, nodeType, { 'tool.name': call.name, ...(call.id ? { 'tool.id': call.id } : {}) }))
+        const span = openChild('tool', nodeId, nodeType, { 'tool.name': call.name, ...(call.id ? { 'tool.id': call.id } : {}) })
+        if (!span) continue
+        if (traceId && call.id) {
+            span.setAttribute('status', 'pending')
+            heldPendingTools.push({ span, traceId, name: call.name, id: call.id })
+            continue
+        }
+        endPending(span)
     }
 }
 

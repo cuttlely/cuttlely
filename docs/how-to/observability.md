@@ -98,7 +98,7 @@ A Condition Agent calls its model from the route, not from a graph node. That ca
 
 A model call has a model span only when it runs with the graph's callback list. The approval prompt in `seekPermissionMessage` does not. That is the Sequential Agent node (`packages/components/nodes/sequentialagents/Agent/Agent.ts`) and the Sequential Tool node (`packages/components/nodes/sequentialagents/ToolNode/ToolNode.ts`). Those calls are not model spans.
 
-The waiting tool call stays `pending` until that next prediction runs it. The step that runs the tool is the only one with a tool span for that call. `tool.id` is the model's tool call id, including when the callback's tool name differs from that call only by case. A later step that copies the tool onto its message does not add another.
+A tool call that is still waiting for approval is `pending`. When the resume runs that call, the trace keeps one tool span for it, ended `ok`, with `tool.id` set to the model's tool call id. A second pending span is not left beside it. That is the same outcome as an agentflow approval: the call that ran is `ok`, and only a call that is still waiting stays `pending`. `tool.id` comes from the model generation, including when the tool callback's name differs from the call only by case and the worker message does not repeat the id. A later step that copies the tool onto its message does not add another.
 
 A graph node that ends in error marks the run span `error` as well. The prediction can still return, with an empty answer, when the failure is an abort. That response is the same one the graph already returned before these spans.
 

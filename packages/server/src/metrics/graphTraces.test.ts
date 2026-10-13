@@ -189,15 +189,15 @@ describe('graph run traces', () => {
                         agentInterruptToolNode: { name: toolName, seekPermissionMessage: async () => 'Approve the lookup?' },
                         agentInterruptToolFunc: async (graph, nextNodeName) => {
                             graph.addNode(toolName, async (_state, config) => {
-                                await report(config, { tool: { name: 'lookup', id: 'call-lookup', output: 'rye', runId: 'tool-lookup' } })
+                                await report(config, { tool: { name: 'Calculator', output: '4', runId: 'tool-calc' } })
                                 return {
                                     messages: [new ToolMessage({
-                                        name: 'lookup',
-                                        content: 'rye',
-                                        tool_call_id: 'call-lookup',
+                                        name: 'Calculator',
+                                        content: '4',
+                                        tool_call_id: 'call-oven',
                                         additional_kwargs: {
                                             nodeId: nodeData.id,
-                                            usedTools: [{ tool: 'lookup', toolInput: { q: 'rye' }, toolOutput: 'rye', id: 'call-lookup' }]
+                                            usedTools: [{ tool: 'Calculator', toolInput: { q: '2+2' }, toolOutput: '4' }]
                                         }
                                     })]
                                 }
@@ -230,7 +230,7 @@ describe('graph run traces', () => {
                             return {
                                 messages: [new AIMessage({
                                     content: '',
-                                    tool_calls: [{ id: 'call-lookup', name: 'lookup', args: { q: 'rye' }, type: 'tool_call' }],
+                                    tool_calls: [{ id: 'call-oven', name: 'calculator', args: { q: '2+2' }, type: 'tool_call' }],
                                     additional_kwargs: { nodeId: nodeData.id }
                                 })]
                             }
@@ -258,7 +258,8 @@ describe('graph run traces', () => {
                             }, call.runId)
                         }
                         if (call.tool && typeof handler.handleToolStart === 'function') {
-                            await handler.handleToolStart({ name: call.tool.name }, 'rye', call.tool.runId, undefined, undefined, { tool_call_id: call.tool.id })
+                            const metadata = call.tool.id ? { tool_call_id: call.tool.id } : undefined
+                            await handler.handleToolStart({ name: call.tool.name }, '2+2', call.tool.runId, undefined, undefined, metadata)
                         }
                         if (call.tool && typeof handler.handleToolEnd === 'function') {
                             await handler.handleToolEnd(call.tool.output, call.tool.runId)
@@ -655,9 +656,6 @@ describe('graph run traces', () => {
             if (parsed.priorUsage) expect(parsed.priorUsage).toEqual([{ model: 'gpt-4o-mini', promptTokens: 50, completionTokens: 20 }])
         }
         expect(savedActions.some((saved) => JSON.parse(saved).priorUsage)).toBe(true)
-        const pending = memory.spans().find((span) => span.name === 'tool' && span.attributes['tool.name'] === 'lookup')
-        expect(pending?.attributes['status']).toBe('pending')
-        expect(pending?.attributes['node.id']).toBe('seqLLM_0')
 
         const forged = { ...action, traceId: 'a'.repeat(32), spanId: 'b'.repeat(16) }
         const resumed = await runSeq('Yes', chatId, forged, source, streamed)
@@ -670,12 +668,14 @@ describe('graph run traces', () => {
         expect(child?.traceId).toBe(waitingRoot?.traceId)
         expect(child?.traceId).not.toBe(forged.traceId)
         expect(child?.attributes['status']).toBe('ok')
-        const ran = spans.filter((span) => span.name === 'tool' && span.attributes['status'] === 'ok')
+        const toolSpans = spans.filter((span) => span.name === 'tool')
+        const ran = toolSpans.filter((span) => span.attributes['status'] === 'ok')
+        expect(toolSpans.filter((span) => span.attributes['status'] === 'pending')).toEqual([])
         expect(ran).toHaveLength(1)
         const card = (resumed.agentReasoning as Array<{ nodeId?: string; usedTools?: unknown[] }>).find((step) => step.usedTools?.length)
         expect(ran[0].attributes['node.id']).toBe('seqLLM_0')
         expect(ran[0].attributes['node.id']).toBe(card?.nodeId)
-        expect(ran[0].attributes['tool.id']).toBe('call-lookup')
+        expect(ran[0].attributes['tool.id']).toBe('call-oven')
         expect(spans.filter((span) => span.name === 'tool' && String(span.attributes['node.id']).startsWith('tool_'))).toEqual([])
         expect(contentKeys(spans)).toEqual([])
     })
@@ -1302,6 +1302,59 @@ describe('graph run traces', () => {
         expect(tools[0].attributes['status']).toBe('ok')
     })
 
+    it('records the model tool call id when the worker returns usedTools without an id', async () => {
+        process.env.CUTTLELY_OTEL_TRACES = 'true'
+        const lc = loadLangChain()
+        const node = traceGraphNode('worker_0', 'worker', async (_state: unknown, config: { callbacks?: { handlers?: any[] } }) => {
+            const handlers = config.callbacks?.handlers ?? []
+            for (const handler of handlers) {
+                if (typeof handler.handleLLMEnd === 'function') {
+                    await handler.handleLLMEnd(
+                        {
+                            generations: [
+                                [
+                                    {
+                                        message: {
+                                            tool_calls: [{ id: 'call-oven', name: 'calculator', args: { q: '2+2' }, type: 'tool_call' }],
+                                            usage_metadata: { input_tokens: 3, output_tokens: 1 }
+                                        }
+                                    }
+                                ]
+                            ]
+                        },
+                        'worker-model'
+                    )
+                }
+                if (typeof handler.handleToolStart === 'function')
+                    await handler.handleToolStart({ name: 'Calculator' }, '2+2', 'worker-tool')
+                if (typeof handler.handleToolEnd === 'function') await handler.handleToolEnd('4', 'worker-tool')
+            }
+            return {
+                messages: [
+                    new lc.HumanMessage({
+                        content: '4',
+                        name: 'baker',
+                        additional_kwargs: {
+                            nodeId: 'worker_0',
+                            type: 'worker',
+                            usedTools: [{ tool: 'Calculator', toolInput: { q: '2+2' }, toolOutput: '4' }]
+                        }
+                    })
+                ]
+            }
+        }) as (state: unknown, config: unknown) => Promise<unknown>
+        await traceFlow('chatflow', 'c8d2b7a3-5555-4555-8555-555555555595', async () => {
+            await node({}, { callbacks: new lc.CallbackManager() })
+            return { text: '4' }
+        })
+        const tools = memory.spans().filter((span) => span.name === 'tool')
+        expect(tools).toHaveLength(1)
+        expect(tools[0].attributes['tool.name']).toBe('Calculator')
+        expect(tools[0].attributes['tool.id']).toBe('call-oven')
+        expect(tools[0].attributes['node.id']).toBe('worker_0')
+        expect(tools[0].attributes['status']).toBe('ok')
+    })
+
     async function toolSpansFor(
         flowId: string,
         starts: Array<{ name: string; runId: string; metadata?: Record<string, string> }>,
@@ -1642,6 +1695,7 @@ function loadLangChain() {
         ChatPromptTemplate: requireHere('@langchain/core/prompts').ChatPromptTemplate,
         BaseChatModel: requireHere('@langchain/core/language_models/chat_models').BaseChatModel,
         AIMessage: requireHere('@langchain/core/messages').AIMessage,
+        HumanMessage: requireHere('@langchain/core/messages').HumanMessage,
         DynamicTool: requireHere('@langchain/core/tools').DynamicTool,
         AgentExecutor: requireHere(path.join(__dirname, '../../../components/dist/src/agents.js')).AgentExecutor
     }
