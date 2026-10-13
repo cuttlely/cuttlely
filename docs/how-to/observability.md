@@ -94,7 +94,7 @@ A Sequential Agents resume needs the Start node's Agent Memory. That is the chec
 
 An agentflow approval keeps those ids the same way. The resume uses the action on the stopped step it is continuing (the step named by the request, otherwise the last stopped step). Ids written onto the saved action are ignored. If that step's record is already gone, the resume starts a new trace.
 
-A Condition Agent calls its model from the route, not from a graph node. That call is still one model span on the condition step. The canvas stores each route as an option on the output anchor. A saved anchor that has no options still traces the route, using the edge handle as the route name.
+A Condition Agent calls its model from the route, not from a graph node. That call is still one model span on the condition step. The canvas stores each route as an option label. The path follows that label, which is what the condition returns. A saved anchor with no options still uses the one-word label encoded in the canvas handle, not the handle itself.
 
 A model call has a model span only when it runs with the graph's callback list. The approval prompt in `seekPermissionMessage` does not. That is the Sequential Agent node (`packages/components/nodes/sequentialagents/Agent/Agent.ts`) and the Sequential Tool node (`packages/components/nodes/sequentialagents/ToolNode/ToolNode.ts`). Those calls are not model spans.
 

@@ -748,14 +748,24 @@ function toolNameKey(name: string): string {
 }
 
 function fillToolIds(tools: GraphToolCall[], donors: Array<{ name: string; id?: string }>): void {
-    const pool = donors.filter((donor) => donor.id)
+    const pool = donors.filter((donor): donor is { name: string; id: string } => Boolean(donor.id))
+    const used = new Set(tools.map((tool) => tool.id).filter((id): id is string => Boolean(id)))
+    const claim = (tool: GraphToolCall, matches: (donor: { name: string; id: string }) => boolean) => {
+        const index = pool.findIndex((donor) => !used.has(donor.id) && matches(donor))
+        if (index < 0) return
+        tool.id = pool[index].id
+        used.add(pool[index].id)
+        pool.splice(index, 1)
+    }
+    // Exact names first, so Read and read keep their own call ids.
     for (const tool of tools) {
         if (tool.id) continue
-        // The callback reports the tool class name (Calculator) and the model call says calculator.
-        const index = pool.findIndex((donor) => toolNameKey(donor.name) === toolNameKey(tool.name) && donor.id)
-        if (index < 0) continue
-        tool.id = pool[index].id
-        pool.splice(index, 1)
+        claim(tool, (donor) => donor.name === tool.name)
+    }
+    // Calculator (the callback class) can still take calculator's unused call id.
+    for (const tool of tools) {
+        if (tool.id) continue
+        claim(tool, (donor) => toolNameKey(donor.name) === toolNameKey(tool.name))
     }
 }
 

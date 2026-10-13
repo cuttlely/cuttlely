@@ -472,9 +472,15 @@ describe('graph run traces', () => {
         } as any)
     }
 
-    async function runConditionCanvas(outputAnchors: unknown[], sourceHandle: string, flowId: string, chatId: string) {
+    async function runConditionCanvas(
+        outputAnchors: unknown[] | undefined,
+        sourceHandle: string,
+        flowId: string,
+        chatId: string,
+        route = 'Yes'
+    ) {
         const chainFile = path.join(dir, `chain-gate-${chatId.slice(-4)}.js`)
-        fs.writeFileSync(chainFile, chainNodeSource())
+        fs.writeFileSync(chainFile, chainNodeSource(route))
         ;(global as { __chainModelSeen?: unknown[] }).__chainModelSeen = []
         const flowData = JSON.stringify({
             nodes: [
@@ -1296,6 +1302,96 @@ describe('graph run traces', () => {
         expect(tools[0].attributes['status']).toBe('ok')
     })
 
+    async function toolSpansFor(
+        flowId: string,
+        starts: Array<{ name: string; runId: string; metadata?: Record<string, string> }>,
+        calls: Array<{ id: string; name: string }>
+    ) {
+        const lc = loadLangChain()
+        const node = traceGraphNode('worker_0', 'worker', async (_state: unknown, config: { callbacks?: { handlers?: any[] } }) => {
+            const handlers = config.callbacks?.handlers ?? []
+            for (const handler of handlers) {
+                for (const start of starts) {
+                    if (typeof handler.handleToolStart === 'function') {
+                        await handler.handleToolStart({ name: start.name }, 'x', start.runId, undefined, undefined, start.metadata)
+                    }
+                    if (typeof handler.handleToolEnd === 'function') await handler.handleToolEnd('ok', start.runId)
+                }
+            }
+            return {
+                messages: [
+                    new lc.AIMessage({
+                        content: '',
+                        tool_calls: calls.map((call) => ({ id: call.id, name: call.name, args: {}, type: 'tool_call' }))
+                    })
+                ]
+            }
+        }) as (state: unknown, config: unknown) => Promise<unknown>
+        await traceFlow('chatflow', flowId, async () => {
+            await node({}, { callbacks: new lc.CallbackManager() })
+            return { text: 'ok' }
+        })
+        return memory.spans().filter((span) => span.name === 'tool')
+    }
+
+    it('does not reuse a tool call id that another callback in the step already has', async () => {
+        process.env.CUTTLELY_OTEL_TRACES = 'true'
+        const tools = await toolSpansFor(
+            'c8d2b7a3-5555-4555-8555-555555555592',
+            [
+                { name: 'calculator', runId: 'run-lower', metadata: { tool_call_id: 'call-lower' } },
+                { name: 'Calculator', runId: 'run-upper' }
+            ],
+            [
+                { id: 'call-lower', name: 'calculator' },
+                { id: 'call-upper', name: 'Calculator' }
+            ]
+        )
+        expect(tools.map((span) => [span.attributes['tool.name'], span.attributes['tool.id'], span.attributes['status']])).toEqual([
+            ['calculator', 'call-lower', 'ok'],
+            ['Calculator', 'call-upper', 'ok']
+        ])
+        expect(tools.filter((span) => span.attributes['status'] === 'pending')).toEqual([])
+    })
+
+    it('keeps separate call ids for Read and read', async () => {
+        process.env.CUTTLELY_OTEL_TRACES = 'true'
+        const tools = await toolSpansFor(
+            'c8d2b7a3-5555-4555-8555-555555555593',
+            [
+                { name: 'Read', runId: 'run-read' },
+                { name: 'read', runId: 'run-lower' }
+            ],
+            [
+                { id: 'call-lower', name: 'read' },
+                { id: 'call-upper', name: 'Read' }
+            ]
+        )
+        expect(tools.map((span) => [span.attributes['tool.name'], span.attributes['tool.id']])).toEqual([
+            ['Read', 'call-upper'],
+            ['read', 'call-lower']
+        ])
+    })
+
+    it('gives each oven call its own id and leaves neither pending', async () => {
+        process.env.CUTTLELY_OTEL_TRACES = 'true'
+        const tools = await toolSpansFor(
+            'c8d2b7a3-5555-4555-8555-555555555594',
+            [
+                { name: 'oven', runId: 'run-1', metadata: { tool_call_id: 'call-1' } },
+                { name: 'oven', runId: 'run-2' }
+            ],
+            [
+                { id: 'call-1', name: 'oven' },
+                { id: 'call-2', name: 'oven' }
+            ]
+        )
+        expect(tools.map((span) => [span.attributes['tool.id'], span.attributes['status']])).toEqual([
+            ['call-1', 'ok'],
+            ['call-2', 'ok']
+        ])
+    })
+
     it('marks the run span error when a graph node throws and the run continues', async () => {
         process.env.CUTTLELY_OTEL_TRACES = 'true'
         await traceFlow('chatflow', 'c8d2b7a3-5555-4555-8555-555555555590', async () => {
@@ -1440,17 +1536,44 @@ describe('graph run traces', () => {
         expect(condition[0].attributes['tokens.output']).toBe(3)
     })
 
-    it('exports a Condition Agent model span when the saved anchor has no options', async () => {
+    it('routes a Condition Agent to Concierge from the option label and records the model span', async () => {
         process.env.CUTTLELY_OTEL_TRACES = 'true'
+        const handle = 'seqConditionAgent_0-output-concierge-Condition'
         await runConditionCanvas(
-            [{ id: 'seqConditionAgent_0-output', name: 'output', label: 'Output' }],
-            'Yes',
-            'c8d2b7a3-5555-4555-8555-555555555583',
-            'c0ffee00-0000-4000-8000-000000000084'
+            [
+                {
+                    name: 'output',
+                    label: 'Output',
+                    type: 'options',
+                    options: [{ id: handle, name: 'concierge', label: 'Concierge', type: 'Condition', isAnchor: true }]
+                }
+            ],
+            handle,
+            'c8d2b7a3-5555-4555-8555-555555555584',
+            'c0ffee00-0000-4000-8000-000000000085',
+            'Concierge'
         )
         const condition = memory.spans().filter((span) => span.name === 'model' && span.attributes['node.id'] === 'seqConditionAgent_0')
         expect(condition).toHaveLength(1)
-        expect(condition[0].attributes['tokens.input']).toBe(7)
+    })
+
+    it.each([
+        ['missing anchors', undefined],
+        ['empty options', [{ name: 'output', label: 'Output', options: [] }]],
+        ['null options', [{ name: 'output', label: 'Output', options: [null] }]],
+        ['no options key', [{ name: 'output', label: 'Output', type: 'options' }]]
+    ])('routes a Condition Agent like a saved canvas with %s', async (_label, anchors) => {
+        process.env.CUTTLELY_OTEL_TRACES = 'true'
+        const handle = 'seqConditionAgent_0-output-concierge-Condition'
+        await runConditionCanvas(
+            anchors as unknown[] | undefined,
+            handle,
+            `c8d2b7a3-5555-4555-8555-55555555${_label.length.toString(16).padStart(4, '0')}`,
+            `c0ffee00-0000-4000-8000-0000000000${_label.length.toString(16).padStart(2, '0')}`,
+            'Concierge'
+        )
+        const condition = memory.spans().filter((span) => span.name === 'model' && span.attributes['node.id'] === 'seqConditionAgent_0')
+        expect(condition).toHaveLength(1)
     })
 
     it('exports Multi Agents model spans from the supervisor chain and the worker tool', async () => {
@@ -1614,7 +1737,7 @@ async function runNestedChain(throwAfter: boolean) {
     return { model: modelSeen, otel, step: step!, parent }
 }
 
-function chainNodeSource(): string {
+function chainNodeSource(route = 'Yes'): string {
     const anchor = JSON.stringify(path.join(__dirname, 'graphTraces.test.ts'))
     return `const { createRequire } = require('module')
 const req = createRequire(${anchor})
@@ -1661,8 +1784,10 @@ exports.nodeClass = class {
                 type: 'condition',
                 predecessorAgents: [{ name: 'baker' }],
                 node: async (_state, config) => {
-                    await ChatPromptTemplate.fromMessages([['human', '{question}']]).pipe(fake('seqConditionAgent', 'Yes', 7, 3)).invoke({ question: 'Which way?' }, config)
-                    return 'Yes'
+                    await ChatPromptTemplate.fromMessages([['human', '{question}']]).pipe(fake('seqConditionAgent', ${JSON.stringify(
+                        route
+                    )}, 7, 3)).invoke({ question: 'Which way?' }, config)
+                    return ${JSON.stringify(route)}
                 }
             }
         }

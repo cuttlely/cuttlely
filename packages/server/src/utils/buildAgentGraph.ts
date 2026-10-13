@@ -823,22 +823,49 @@ type SeqAgentsGraphParams = {
     uploadedFilesContent?: string
 }
 
+function routeText(value: unknown): string {
+    return typeof value === 'string' && value.trim() ? value : ''
+}
+
+/** The canvas id is `${nodeId}-output-${camelCase(label)}-Condition`. A one-word label round-trips. */
+function labelFromGeneratedHandle(handle: string): string {
+    const match = /-output-([A-Za-z0-9]+)-Condition$/.exec(handle)
+    if (!match) return ''
+    const name = match[1]
+    return name.charAt(0).toUpperCase() + name.slice(1)
+}
+
 /**
- * The UI stores a condition route as an option label on the anchor.
- * A saved anchor with no options still names the route by the edge handle, and that route is traced.
+ * The path-map key is the string the condition returns: the option label, or the one-word label
+ * encoded in the canvas handle. The handle itself is not a route.
  */
 function conditionRouteLabel(outputAnchors: unknown, sourceHandle: string | null | undefined): string {
     const handle = typeof sourceHandle === 'string' ? sourceHandle : ''
-    const anchor = Array.isArray(outputAnchors) ? outputAnchors[0] : undefined
-    if (!anchor || !handle) return ''
-    const options = (anchor as { options?: unknown }).options
-    if (Array.isArray(options)) {
-        const match = options.find((option) => option && typeof option === 'object' && (option as { id?: string }).id === handle) as
-            | { label?: string }
-            | undefined
-        return typeof match?.label === 'string' ? match.label : ''
+    if (!handle) return ''
+    const anchors = Array.isArray(outputAnchors) ? outputAnchors : []
+    for (const anchor of anchors) {
+        if (!anchor || typeof anchor !== 'object') continue
+        const options = (anchor as { options?: unknown }).options
+        if (!Array.isArray(options)) continue
+        for (const option of options) {
+            if (!option || typeof option !== 'object') continue
+            const record = option as { id?: unknown; name?: unknown; label?: unknown }
+            const label = routeText(record.label)
+            if (!label) continue
+            if (record.id === handle) return label
+            if (typeof record.name === 'string' && record.name && handle.endsWith(`-output-${record.name}-Condition`)) return label
+        }
     }
-    return handle
+    for (const anchor of anchors) {
+        if (!anchor || typeof anchor !== 'object') continue
+        const record = anchor as { id?: unknown; label?: unknown; options?: unknown }
+        if (Array.isArray(record.options)) continue
+        if (record.id === handle) {
+            const label = routeText(record.label)
+            if (label && label !== 'Output') return label
+        }
+    }
+    return labelFromGeneratedHandle(handle)
 }
 
 const compileSeqAgentsGraph = async (params: SeqAgentsGraphParams) => {
