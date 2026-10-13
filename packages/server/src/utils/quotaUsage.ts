@@ -20,7 +20,7 @@ export const ENTERPRISE_FEATURE_FLAGS = [
     'feat:sso-config'
 ]
 
-/** Teams, users, and roles on an open-source install. Datasets, evaluations, SSO, and login activity stay off. */
+/** Teams, users, roles, datasets, evaluators, and evaluations on an open-source install. The commercial logs flag, SSO, and login activity stay off. */
 export const OPEN_SOURCE_RBAC_FEATURES: Record<string, string> = {
     'feat:users': 'true',
     'feat:roles': 'true',

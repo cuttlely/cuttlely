@@ -213,6 +213,9 @@ const _csvToDatasetRows = async (datasetId: string, csvString: string, firstRowH
 // Create new dataset
 const createDataset = async (body: any, workspaceId: string) => {
     try {
+        if (typeof body?.name !== 'string' || body.name.trim().length === 0) {
+            throw new AppError(StatusCodes.BAD_REQUEST, 'Dataset name is required')
+        }
         const appServer = getRunningExpressApp()
         const newDs = new Dataset()
         newDs.name = body.name
@@ -225,6 +228,7 @@ const createDataset = async (body: any, workspaceId: string) => {
         }
         return result
     } catch (error) {
+        if (error instanceof AppError) throw error
         throw new AppError(StatusCodes.INTERNAL_SERVER_ERROR, `Error: datasetService.createDataset - ${getErrorMessage(error)}`)
     }
 }
@@ -294,15 +298,16 @@ const addDatasetRow = async (body: any) => {
                 },
                 take: 1
             })
+            // A first row is 0. The next row is one past the current max, including when that max is 0.
             let sequenceNo = 0
             if (maxValueEntity && maxValueEntity.length > 0) {
-                sequenceNo = maxValueEntity[0].sequenceNo
+                sequenceNo = maxValueEntity[0].sequenceNo + 1
             }
             const newDs = new DatasetRow()
             newDs.input = body.input
             newDs.output = body.output
             newDs.datasetId = body.datasetId
-            newDs.sequenceNo = sequenceNo === 0 ? sequenceNo : sequenceNo + 1
+            newDs.sequenceNo = sequenceNo
             const row = appServer.AppDataSource.getRepository(DatasetRow).create(newDs)
             const result = await appServer.AppDataSource.getRepository(DatasetRow).save(row)
             await changeUpdateOnDataset(body.datasetId, body.workspaceId)
@@ -373,23 +378,41 @@ const deleteDatasetRow = async (id: string, workspaceId: string) => {
     }
 }
 
-// Delete dataset rows via ids
+// Delete dataset rows via ids. Every id must belong to a dataset in this workspace, or nothing is deleted.
 const patchDeleteRows = async (ids: string[] = [], workspaceId: string) => {
     try {
-        const appServer = getRunningExpressApp()
-        const datasetItemsToBeDeleted = await appServer.AppDataSource.getRepository(DatasetRow).find({
-            where: {
-                id: In(ids)
-            }
-        })
-        const dbResponse = await appServer.AppDataSource.getRepository(DatasetRow).delete(ids)
-
-        const datasetIds = [...new Set(datasetItemsToBeDeleted.map((item) => item.datasetId))]
-        for (const datasetId of datasetIds) {
-            await changeUpdateOnDataset(datasetId, workspaceId)
+        if (typeof workspaceId !== 'string' || workspaceId.length === 0) {
+            throw new AppError(StatusCodes.BAD_REQUEST, 'Workspace ID is required')
         }
-        return dbResponse
+        if (!Array.isArray(ids) || ids.some((id) => typeof id !== 'string' || id.length === 0)) {
+            throw new AppError(StatusCodes.BAD_REQUEST, 'Dataset row ids are required')
+        }
+        const uniqueIds = [...new Set(ids)]
+        const appServer = getRunningExpressApp()
+        return await appServer.AppDataSource.transaction(async (entityManager) => {
+            const rows = uniqueIds.length ? await entityManager.getRepository(DatasetRow).find({ where: { id: In(uniqueIds) } }) : []
+            // A missing id and a row in another workspace are the same failure: delete none.
+            if (rows.length !== uniqueIds.length) {
+                throw new AppError(StatusCodes.NOT_FOUND, 'Dataset row not found')
+            }
+            const datasetIds = [...new Set(rows.map((row) => row.datasetId))]
+            const datasets = datasetIds.length
+                ? await entityManager.getRepository(Dataset).find({ where: { id: In(datasetIds), workspaceId } })
+                : []
+            if (datasets.length !== datasetIds.length) {
+                throw new AppError(StatusCodes.NOT_FOUND, 'Dataset row not found')
+            }
+            const dbResponse = uniqueIds.length
+                ? await entityManager.getRepository(DatasetRow).delete({ id: In(uniqueIds) })
+                : { affected: 0 }
+            for (const dataset of datasets) {
+                dataset.updatedDate = new Date()
+                await entityManager.getRepository(Dataset).save(dataset)
+            }
+            return dbResponse
+        })
     } catch (error) {
+        if (error instanceof AppError) throw error
         throw new AppError(StatusCodes.INTERNAL_SERVER_ERROR, `Error: datasetService.patchDeleteRows - ${getErrorMessage(error)}`)
     }
 }
