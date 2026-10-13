@@ -4,7 +4,7 @@ import { useSelector } from 'react-redux'
 import { Handle, Position, useUpdateNodeInternals, useEdges } from 'reactflow'
 
 // material-ui
-import { styled, useTheme, alpha, darken, lighten } from '@mui/material/styles'
+import { styled, useTheme, darken } from '@mui/material/styles'
 import { Avatar, Box, Typography, Tooltip } from '@mui/material'
 
 // project imports
@@ -13,6 +13,7 @@ import NodeInfoDialog from '@/ui-component/dialog/NodeInfoDialog'
 import { missingNodeInfo } from '@/utils/missingNode'
 import MissingNodeCard from '@/views/canvas/MissingNodeCard'
 import NodeActionBar from '@/views/canvas/NodeActionBar'
+import { cardAccentChrome, cardAccentColor } from '@/utils/cardAccent'
 
 // icons
 import {
@@ -63,15 +64,12 @@ const AgentFlowNode = ({ data }) => {
     const [showInfoDialog, setShowInfoDialog] = useState(false)
     const [infoDialogProps, setInfoDialogProps] = useState({})
 
-    const defaultColor = '#666666' // fallback color if data.color is not present
-    const nodeColor = data.color || defaultColor
-
-    // Get different shades of the color based on state
-    const getStateColor = () => {
-        if (data.selected) return nodeColor
-        if (isHovered) return alpha(nodeColor, 0.8)
-        return alpha(nodeColor, 0.5)
-    }
+    const nodeColor = cardAccentColor(data)
+    const chrome = cardAccentChrome(nodeColor, {
+        selected: Boolean(data.selected),
+        hovered: isHovered,
+        dark: customization.isDarkMode
+    })
 
     const getOutputAnchors = () => {
         return data.outputAnchors ?? []
@@ -94,13 +92,6 @@ const AgentFlowNode = ({ data }) => {
         const outputCount = getOutputAnchors().length
         // Use exactly 60px as minimum height
         return Math.max(60, outputCount * 20 + 40)
-    }
-
-    const getBackgroundColor = () => {
-        if (customization.isDarkMode) {
-            return isHovered ? darken(nodeColor, 0.7) : darken(nodeColor, 0.8)
-        }
-        return isHovered ? lighten(nodeColor, 0.8) : lighten(nodeColor, 0.9)
     }
 
     const getStatusBackgroundColor = (status) => {
@@ -213,16 +204,16 @@ const AgentFlowNode = ({ data }) => {
             <CardWrapper
                 content={false}
                 sx={{
-                    borderColor: getStateColor(),
+                    borderColor: chrome.borderColor,
                     borderWidth: '1px',
-                    boxShadow: data.selected ? `0 0 0 1px ${getStateColor()} !important` : 'none',
+                    boxShadow: data.selected ? `0 0 0 1px ${chrome.borderColor} !important` : 'none',
                     minHeight: getMinimumHeight(),
                     height: 'auto',
-                    backgroundColor: getBackgroundColor(),
+                    backgroundColor: chrome.backgroundColor,
                     display: 'flex',
                     alignItems: 'center',
                     '&:hover': {
-                        boxShadow: data.selected ? `0 0 0 1px ${getStateColor()} !important` : 'none'
+                        boxShadow: data.selected ? `0 0 0 1px ${chrome.borderColor} !important` : 'none'
                     }
                 }}
                 border={false}
@@ -520,8 +511,8 @@ const AgentFlowNode = ({ data }) => {
                                                                     height: 20,
                                                                     borderRadius: '50%',
                                                                     backgroundColor: customization.isDarkMode
-                                                                        ? darken(data.color, 0.5)
-                                                                        : darken(data.color, 0.2),
+                                                                        ? darken(nodeColor, 0.5)
+                                                                        : darken(nodeColor, 0.2),
                                                                     display: 'flex',
                                                                     justifyContent: 'center',
                                                                     alignItems: 'center',
@@ -546,8 +537,8 @@ const AgentFlowNode = ({ data }) => {
                                                                     height: 20,
                                                                     borderRadius: '50%',
                                                                     backgroundColor: customization.isDarkMode
-                                                                        ? darken(data.color, 0.5)
-                                                                        : darken(data.color, 0.2),
+                                                                        ? darken(nodeColor, 0.5)
+                                                                        : darken(nodeColor, 0.2),
                                                                     display: 'flex',
                                                                     justifyContent: 'center',
                                                                     alignItems: 'center',
@@ -572,8 +563,8 @@ const AgentFlowNode = ({ data }) => {
                                                                     height: 20,
                                                                     borderRadius: '50%',
                                                                     backgroundColor: customization.isDarkMode
-                                                                        ? darken(data.color, 0.5)
-                                                                        : darken(data.color, 0.2),
+                                                                        ? darken(nodeColor, 0.5)
+                                                                        : darken(nodeColor, 0.2),
                                                                     display: 'flex',
                                                                     justifyContent: 'center',
                                                                     alignItems: 'center',
