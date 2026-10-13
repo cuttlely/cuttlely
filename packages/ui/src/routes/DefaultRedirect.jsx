@@ -11,6 +11,9 @@ import Unauthorized from '@/views/auth/unauthorized'
 import Chatflows from '@/views/chatflows'
 import Credentials from '@/views/credentials'
 import Documents from '@/views/docstore'
+import Datasets from '@/views/datasets'
+import Evaluators from '@/views/evaluators'
+import Evaluations from '@/views/evaluations'
 import Marketplaces from '@/views/marketplaces'
 import RolesPage from '@/views/roles'
 import Tools from '@/views/tools'
@@ -39,6 +42,9 @@ export const DefaultRedirect = () => {
         { component: Variables, permission: 'variables:view' },
         { component: APIKey, permission: 'apikeys:view' },
         { component: Documents, permission: 'documentStores:view' },
+        { component: Datasets, permission: 'datasets:view' },
+        { component: Evaluators, permission: 'evaluators:view' },
+        { component: Evaluations, permission: 'evaluations:view' },
         { component: RolesPage, permission: 'roles:manage', display: 'feat:roles' },
         { component: UsersPage, permission: 'users:manage', display: 'feat:users' },
         { component: Workspaces, permission: 'workspace:view', display: 'feat:workspaces' }
