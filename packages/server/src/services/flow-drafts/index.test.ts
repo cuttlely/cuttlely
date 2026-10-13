@@ -101,9 +101,16 @@ describe('the drafts switch', () => {
         expect(status).toMatchObject({ enabled: true, mode: 'draft', reason: null })
     })
 
-    test('chatflows, agentflows and harnesses get drafts; ETL and assistants save to Live', () => {
-        expect(['CHATFLOW', 'MULTIAGENT', 'AGENTFLOW', 'HARNESS', undefined].map(typeHasDrafts)).toEqual([true, true, true, true, true])
-        expect(['ETL', 'ASSISTANT'].map(typeHasDrafts)).toEqual([false, false])
+    test('chatflows, agentflows, harnesses and pipelines get drafts; assistants save to Live', () => {
+        expect(['CHATFLOW', 'MULTIAGENT', 'AGENTFLOW', 'HARNESS', 'ETL', undefined].map(typeHasDrafts)).toEqual([
+            true,
+            true,
+            true,
+            true,
+            true,
+            true
+        ])
+        expect(['ASSISTANT'].map(typeHasDrafts)).toEqual([false])
     })
 
     test('with drafts off, the status says Live and saving a draft is refused', async () => {
@@ -161,6 +168,50 @@ describe('an existing harness', () => {
         const status = await afterLiveSet(published, 'a'.repeat(40), canvas('Draft instructions'))
         expect(status.draft).toBeNull()
         expect(status.lastPublished?.sha).toBe('a'.repeat(40))
+    })
+})
+
+describe('an existing pipeline', () => {
+    const live = canvas('Live collection')
+    const pipeline = () => flow({ id: 'flow-1', type: 'ETL', flowData: live, name: 'Outdoor Catalog' })
+
+    beforeEach(() => {
+        chats[0].type = 'ETL'
+    })
+
+    test('stays Live with no draft and no data change until the first edit', async () => {
+        const existing = pipeline()
+        expect(await getDraftStatus(existing)).toMatchObject({
+            enabled: true,
+            mode: 'draft',
+            reason: null,
+            publishInstantly: false,
+            draft: null,
+            lastPublished: null
+        })
+        expect(existing.flowData).toBe(live)
+        expect(rows).toEqual([])
+    })
+
+    test('the first edit stores a draft and leaves Live untouched', async () => {
+        const existing = pipeline()
+        const status = await saveDraft(existing, canvas('Draft collection'), context)
+        expect(existing.flowData).toBe(live)
+        expect(status.draft).toMatchObject({ flowData: canvas('Draft collection'), stale: false })
+        expect(rows[0].draftBaseHash).toMatch(/^ETL:[0-9a-f]{48}$/)
+        expect(await flowDataForTestChat(existing)).toBe(canvas('Draft collection'))
+        expect(await draftToPublish(existing)).toBe(canvas('Draft collection'))
+    })
+
+    test('Publish bookkeeping clears the draft after Live is set to it', async () => {
+        const existing = pipeline()
+        await saveDraft(existing, canvas('Draft collection'), context)
+        const published = pipeline()
+        published.flowData = canvas('Draft collection')
+        const status = await afterLiveSet(published, 'a'.repeat(40), canvas('Draft collection'))
+        expect(status.draft).toBeNull()
+        expect(status.lastPublished?.sha).toBe('a'.repeat(40))
+        expect(await flowDataForTestChat(published)).toBe(canvas('Draft collection'))
     })
 })
 
@@ -261,14 +312,12 @@ describe('saving a draft', () => {
         expect(rows).toEqual([])
     })
 
-    test('an ETL pipeline or assistant saves to Live, so a draft is refused', async () => {
-        for (const type of ['ETL', 'ASSISTANT']) {
-            await expect(saveDraft(flow({ type }), canvas('Draft'), context)).rejects.toMatchObject({
-                statusCode: 409,
-                message: 'This kind of flow saves straight to Live.'
-            })
-            expect((await getDraftStatus(flow({ type }))).reason).toBe('type')
-        }
+    test('an assistant saves to Live, so a draft is refused', async () => {
+        await expect(saveDraft(flow({ type: 'ASSISTANT' }), canvas('Draft'), context)).rejects.toMatchObject({
+            statusCode: 409,
+            message: 'This kind of flow saves straight to Live.'
+        })
+        expect((await getDraftStatus(flow({ type: 'ASSISTANT' }))).reason).toBe('type')
     })
 })
 
@@ -463,7 +512,7 @@ describe('what the canvas test chat runs', () => {
         process.env.CUTTLELY_DRAFTS = 'off'
         expect(await flowDataForTestChat(flow())).toBe(LIVE)
         process.env.CUTTLELY_DRAFTS = 'on'
-        expect(await flowDataForTestChat(flow({ type: 'ETL' }))).toBe(LIVE)
+        expect(await flowDataForTestChat(flow({ type: 'ASSISTANT' }))).toBe(LIVE)
         rows[0].publishInstantly = true
         expect(await flowDataForTestChat(flow())).toBe(LIVE)
     })
