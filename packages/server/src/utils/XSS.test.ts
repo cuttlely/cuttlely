@@ -275,6 +275,19 @@ describe('sanitizeMiddleware', () => {
         expect(req.query.list).toEqual(['x&amp;y'])
     })
 
+    it('sanitizes nested query objects and arrays without throwing', () => {
+        const req = run('/api/v1/webhook/flow-1', {
+            user: { password: '<script>s3cret</script>', name: 'ada' },
+            note: 'keep',
+            list: ['<b>bold</b>', { token: '<script>x</script>ok' }, 2, null],
+            flag: true
+        })
+        expect(req.query.user).toEqual({ password: '', name: 'ada' })
+        expect(req.query.note).toBe('keep')
+        expect(req.query.list).toEqual(['<b>bold</b>', { token: 'ok' }, 2, null])
+        expect(req.query.flag).toBe(true)
+    })
+
     it('strips a script tag from the url and from query values', () => {
         const req = run('/api/v1/x?<script>alert(1)</script>', {
             q: '<script>alert(1)</script>ok',

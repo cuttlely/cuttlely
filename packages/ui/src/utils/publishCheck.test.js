@@ -6,6 +6,8 @@ import {
     addQuestion,
     canRunCheck,
     capMessage,
+    inputPreview,
+    NO_PAST_RUNS,
     caseBadge,
     CHECK_WORDS,
     costNote,
@@ -34,6 +36,47 @@ describe('how many past questions', () => {
         expect(capMessage(10, 1)).toBe('Only 1 past question available. Comparing that question.')
         expect(capMessage(25, 0)).toBe('')
         expect(capMessage(100, 20, true)).toBe('Only 20 distinct past questions in the recent messages we looked at. Comparing all 20.')
+        expect(capMessage(10, 2, false, 'run')).toBe('Only 2 past runs available. Comparing all 2.')
+        expect(capMessage(10, 1, false, 'run')).toBe('Only 1 past run available. Comparing that run.')
+    })
+})
+
+describe('recorded input preview', () => {
+    test('shows a compact JSON body, form or schedule question', () => {
+        const webhook = JSON.stringify({ webhook: { body: { event: 'bake', loaf: 'rye' }, headers: { authorization: 'nope' }, query: {} } })
+        expect(inputPreview(webhook)).toBe('{"event":"bake","loaf":"rye"}')
+        expect(inputPreview(JSON.stringify({ form: { loaf: 'rye' } }))).toBe('{"loaf":"rye"}')
+        expect(inputPreview(JSON.stringify({ question: 'Run the daily report' }))).toBe('"Run the daily report"')
+        const shared = (page, event, token) =>
+            JSON.stringify({
+                webhook: { body: { event: 'bake' }, query: { page }, headers: { 'x-github-event': event, authorization: token } }
+            })
+        const first = shared('1', 'push', 'Bearer one')
+        const second = shared('2', 'release', 'Bearer sekret')
+        expect(inputPreview(second, undefined, [first, second])).toContain('query {"page":"2"}')
+        expect(inputPreview(second, undefined, [first, second])).toContain('x-github-event: release')
+        expect(inputPreview(second, undefined, [first, second])).toContain('authorization: [REDACTED]')
+        expect(inputPreview(second, undefined, [first, second])).not.toContain('sekret')
+        const nested = (name, secret) =>
+            JSON.stringify({
+                webhook: {
+                    body: { event: 'bake' },
+                    query: { user: { password: 's3cret', name } },
+                    headers: { 'x-extra': { user: { password: secret } } }
+                }
+            })
+        const nestedPreview = inputPreview(nested('ada', 'header-secret'), undefined, [
+            nested('ada', 'header-secret'),
+            nested('bea', 'other-secret')
+        ])
+        expect(nestedPreview).toContain('[REDACTED]')
+        expect(nestedPreview).toContain('ada')
+        expect(nestedPreview).not.toContain('s3cret')
+        expect(nestedPreview).not.toContain('header-secret')
+        const long = JSON.stringify({ form: { note: 'x'.repeat(200) } })
+        expect(inputPreview(long, 20).endsWith('…')).toBe(true)
+        expect(inputPreview(long, 20).length).toBe(21)
+        expect(NO_PAST_RUNS.startsWith('No past runs to replay yet')).toBe(true)
     })
 })
 
@@ -182,8 +225,9 @@ describe('results', () => {
     })
 
     test('copy is plain words, with no section mark and no engineering terms', () => {
+        // The empty-state sentence is specified with the word "replay". The rest of the copy does not use it.
         const text = Object.values(copy)
-            .filter((v) => typeof v === 'string')
+            .filter((v) => typeof v === 'string' && v !== NO_PAST_RUNS)
             .join(' ')
         expect(CHECK_TITLE).toBe('Check recent questions')
         expect(CHECK_INTRO).toContain('This is optional.')
