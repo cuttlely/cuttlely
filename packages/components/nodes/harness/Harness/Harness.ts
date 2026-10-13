@@ -298,6 +298,9 @@ async function runNamedHarness(
     try {
         // Copy the optional method first. A boolean from `typeof engine.runQueuedHarness` does not narrow it.
         const queuedRun = engine.runQueuedHarness
+        const flowOptions = pickFlowOptions(options)
+        // Before enqueue. Inline would otherwise open a run row on the named harness and then refuse.
+        if (typeof engine.assertHarnessWorkspace === 'function') engine.assertHarnessWorkspace(harnessName, flowOptions)
         const run = process.env.CUTTLELY_HARNESS_QUEUE !== 'off' && typeof queuedRun === 'function' ? queuedRun : engine.runHarness
         return await run({
             name: harnessName,
@@ -306,7 +309,7 @@ async function runNamedHarness(
             source: 'prediction',
             traceId: typeof options.executionId === 'string' ? options.executionId : undefined,
             componentNodes: options.componentNodes,
-            flowOptions: pickFlowOptions(options),
+            flowOptions,
             onEvent: harnessOnEvent(options, streamAnswer, runManager, streamed),
             signal: abortSignalOf(options),
             ...(images.length ? { images } : {})

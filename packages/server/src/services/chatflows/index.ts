@@ -389,6 +389,7 @@ const saveChatflow = async (
     if (typeof newChatFlow.flowData === 'string') newChatFlow.flowData = stampNodePack(newChatFlow.flowData)
     validateChatflowType(newChatFlow.type)
     await validateHarnessCanvas(newChatFlow)
+    await validateReferencedHarnesses(newChatFlow)
     await validateEtlCanvas(newChatFlow)
     const appServer = getRunningExpressApp()
 
@@ -700,6 +701,7 @@ const updateChatflow = async (
     const newDbChatflow = appServer.AppDataSource.getRepository(ChatFlow).merge(chatflow, updateChatFlow)
     newDbChatflow.workspaceId = workspaceId // defense-in-depth: use trusted param, not chatflow.workspaceId (merge mutates in-place)
     await validateHarnessCanvas(newDbChatflow)
+    await validateReferencedHarnesses(newDbChatflow)
     await validateEtlCanvas(newDbChatflow)
     let dbResponse: ChatFlow
     const typeChanging = (updateChatFlow.type || 'CHATFLOW') !== (storedType || 'CHATFLOW')
@@ -831,6 +833,24 @@ async function validateEtlCanvas(chatflow: ChatFlow) {
 async function syncEtlCanvas(chatflow: ChatFlow) {
     if (chatflow.type !== EnumChatflowType.ETL) return
     await etlService.syncPipelineFromFlow(chatflow)
+}
+
+// A chatflow or agentflow node that names a harness. The name has to be in this flow's team.
+async function validateReferencedHarnesses(chatflow: ChatFlow) {
+    if (typeof chatflow.flowData !== 'string' || !chatflow.flowData.includes('"harness"')) return
+    let parsed: { nodes?: Array<{ data?: { name?: string; inputs?: { harnessName?: unknown } } }> }
+    try {
+        parsed = JSON.parse(chatflow.flowData)
+    } catch {
+        return
+    }
+    const names = new Set<string>()
+    for (const node of parsed?.nodes || []) {
+        if (node?.data?.name !== 'harness') continue
+        const name = node.data.inputs?.harnessName
+        if (typeof name === 'string' && name.trim()) names.add(name.trim())
+    }
+    for (const name of names) await harnessesService.assertNameAvailable(name, chatflow.workspaceId)
 }
 
 async function validateHarnessCanvas(chatflow: ChatFlow) {

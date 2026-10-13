@@ -832,6 +832,34 @@ describe('workspace isolation', () => {
             assert.equal((await repo.findOneBy({ id: theirs.id })).name, 'bakery-b')
             assert.equal(fs.readFileSync(file, 'utf8'), payrollAfterOwn)
             assert.equal(await repo.count({ where: { name: 'payroll' } }), 1)
+
+            const chatWithNode = (workspaceId) =>
+                Object.assign(new ChatFlow(), {
+                    name: `caller-${workspaceId.slice(0, 8)}`,
+                    type: 'CHATFLOW',
+                    workspaceId,
+                    flowData: JSON.stringify({
+                        nodes: [
+                            {
+                                id: 'harness_0',
+                                data: { name: 'harness', label: 'Harness', inputs: { harnessName: 'payroll' } }
+                            }
+                        ],
+                        edges: []
+                    })
+                })
+            const rowsBeforeNode = await repo.count()
+            await assert.rejects(
+                () => chatflows.saveChatflow(chatWithNode(WS2), ORG, WS2, '', app.usageCacheManager),
+                (error) => {
+                    assert.equal(error.statusCode, 409)
+                    return true
+                }
+            )
+            assert.equal(await repo.count(), rowsBeforeNode)
+            assert.equal(fs.readFileSync(file, 'utf8'), payrollAfterOwn)
+            const ownCaller = await chatflows.saveChatflow(chatWithNode(WS1), ORG, WS1, '', app.usageCacheManager)
+            assert.equal((await repo.findOneBy({ id: ownCaller.id })).workspaceId, WS1)
         } finally {
             if (previous.data === undefined) delete process.env.CUTTLELY_DATA_DIR
             else process.env.CUTTLELY_DATA_DIR = previous.data

@@ -7997,6 +7997,73 @@ check(
     JSON.stringify({ out: workerOut.slice(0, 400), err: workerErr.slice(0, 200) })
 )
 
+await expectCase('inline and off refuse another team harness before a run row', async () => {
+    const { listRuns } = await import('./history.mjs')
+    const { runQueuedHarness: queuedRun } = await import('./queue.mjs')
+    saveHarness(
+        {
+            name: 'nodeTeam',
+            workspaceId: 'team-a',
+            chief: { instructions: 'Combine.', model: nodeModel('scriptedChat') },
+            specialists: [{ name: 'reader', instructions: 'Read.', modules: [], mcpServers: [] }]
+        },
+        { overwrite: true }
+    )
+    let calls = 0
+    const loadNode = async () =>
+        class {
+            async init() {
+                return {
+                    async invoke() {
+                        calls += 1
+                        return { content: 'answer:team' }
+                    }
+                }
+            }
+        }
+    const before = listRuns('nodeTeam').length
+    const savedMode = process.env.CUTTLELY_HARNESS_QUEUE
+    const cross = async (mode, workspaceId, chatId) => {
+        process.env.CUTTLELY_HARNESS_QUEUE = mode
+        const args = {
+            name: 'nodeTeam',
+            chatId,
+            input: 'question from the other team',
+            loadNode,
+            source: 'prediction',
+            flowOptions: flowContext({ workspaceId }).flowOptions
+        }
+        if (mode === 'off') return capture(() => runHarness(args))
+        return capture(() => queuedRun(args))
+    }
+    try {
+        const inlineOther = await cross('inline', 'team-b', 'inline-other')
+        const offOther = await cross('off', 'team-b', 'off-other')
+        const refusedCalls = calls
+        const inlineOwn = await cross('inline', 'team-a', 'inline-own')
+        const offOwn = await cross('off', 'team-a', 'off-own')
+        check(
+            'inline and off refuse another team harness before a run row',
+            inlineOther.error?.code === 'wrong_workspace' &&
+                offOther.error?.code === 'wrong_workspace' &&
+                refusedCalls === 0 &&
+                inlineOwn.value?.text === 'answer:team' &&
+                offOwn.value?.text === 'answer:team' &&
+                listRuns('nodeTeam').length === before + 2,
+            JSON.stringify({
+                inline: inlineOther.error?.code || inlineOther.value?.text,
+                off: offOther.error?.code || offOther.value?.text,
+                calls: refusedCalls,
+                own: [inlineOwn.value?.text || inlineOwn.error?.message, offOwn.value?.text || offOwn.error?.message],
+                runs: listRuns('nodeTeam').length
+            })
+        )
+    } finally {
+        if (savedMode === undefined) delete process.env.CUTTLELY_HARNESS_QUEUE
+        else process.env.CUTTLELY_HARNESS_QUEUE = savedMode
+    }
+})
+
 const previousBlob = process.env.BLOB_STORAGE_PATH
 const blobRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'cuttlely-upload-'))
 process.env.BLOB_STORAGE_PATH = blobRoot
@@ -10045,9 +10112,9 @@ await expectCase('harness runs keep a summary with status, latency, and a trace 
     )
     const workspace = listRuns('maWorkspace', { limit: 5 })[0]
     check(
-        'a rejected harness turn is listed as failed',
-        workspace?.status === 'failed' && workspace?.error?.code === 'wrong_workspace',
-        workspace ? `${workspace.status} ${workspace.error?.code}` : 'no row'
+        'a rejected harness turn is not stored on the other team',
+        !workspace,
+        workspace ? `${workspace.status} ${workspace.inputPreview}` : 'no row'
     )
     for (let i = 0; i < 101; i += 1) {
         beginHarnessRun({ name: 'historyCap', chatId: `c${i}`, source: 'api', input: `row ${i}`, startedAt: 1_700_000_000_000 + i })
@@ -10056,7 +10123,7 @@ await expectCase('harness runs keep a summary with status, latency, and a trace 
     check('run history keeps the latest 100 rows', capped.length === 100 && capped[0].inputPreview === 'row 100', String(capped.length))
     check(
         'harness runs keep a summary with status, latency, and a trace link',
-        failedRow?.status === 'failed' && Boolean(finished) && workspace?.status === 'failed' && capped.length === 100,
+        failedRow?.status === 'failed' && Boolean(finished) && !workspace && capped.length === 100,
         'see the rows above'
     )
 })
