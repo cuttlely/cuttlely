@@ -36,7 +36,8 @@ describe('analyst query preview caption', () => {
     test('a single page of 40 rows does not say show more', () => {
         const html = caption(previewView({ rowCount: 40, nextPage: false }))
         expect(html).toContain('Showing 5 of 40 rows.')
-        expect(html).toContain('The rest of these rows are in the answer in this chat.')
+        expect(html).toContain('The answer can show fewer rows than the query returned.')
+        expect(html).not.toContain('in this chat')
         expect(html).not.toContain('Say show more')
         expect(html).not.toContain('/harnesses/')
         expect(html).not.toContain('<a ')
@@ -51,8 +52,10 @@ describe('analyst query preview caption', () => {
             })
         )
         expect(html).toContain('Showing 5 of 50 rows.')
+        expect(html).toContain('The rest of these rows are in the answer in this chat.')
         expect(html).toContain('last page')
         expect(html).not.toContain('Say show more')
+        expect(html).not.toContain('can show fewer')
         expect(html).not.toContain('<a ')
     })
 

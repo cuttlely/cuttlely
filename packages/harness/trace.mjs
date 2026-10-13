@@ -1,4 +1,4 @@
-import { sourceName } from './context.mjs'
+import { isAnalystCapSummary, sourceName } from './context.mjs'
 
 const TASK_LIMIT = 500
 
@@ -349,8 +349,16 @@ export function publicToolStep(tool, env) {
     return next
 }
 
+// Rows land in the answer only when the tool result carries a page line. That is the same test
+// groundAnalystSpecialistText and preserveAnalystRows use. A finished page with no page line keeps
+// the specialist's own wording, which can name fewer rows than the query returned.
+function rowsRestoredInAnswer(view) {
+    if (!view || view.legacy) return false
+    if (view.nextPage) return true
+    return isAnalystCapSummary(view.summary)
+}
+
 // The caption under a query preview. "Say show more" is only for a result the analyst marked truncated.
-// A short table of a finished page still says how many rows it is showing, and points at this chat's answer.
 export function analystPreviewCaption(view) {
     if (!view) return ''
     if (view.legacy) {
@@ -365,7 +373,8 @@ export function analystPreviewCaption(view) {
     if (view.moreColumns && view.columnCount > view.columns.length) {
         parts.push(`Showing ${view.columns.length} of ${view.columnCount} columns.`)
     }
-    if (shown < total) parts.push('The rest of these rows are in the answer in this chat.')
+    if (shown < total && rowsRestoredInAnswer(view)) parts.push('The rest of these rows are in the answer in this chat.')
+    else if (shown < total) parts.push('The answer can show fewer rows than the query returned.')
     if (view.nextPage) parts.push('Say show more for the next page.')
     return parts.join(' ')
 }

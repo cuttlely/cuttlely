@@ -669,23 +669,39 @@ check(
     const singleCaption = analystPreviewCaption(singlePage)
     const lastCaption = analystPreviewCaption(lastPage)
     const truncatedCaption = analystPreviewCaption(truncatedPage)
+    const proseRows = Array.from({ length: 40 }, (_, i) => ({ account: `Account ${i + 1}`, arr: 1000 - i }))
+    const proseAnswer = 'The top 10 accounts are Account 1 through Account 10.'
+    const proseGrounded = groundAnalystSpecialistText(
+        proseAnswer,
+        [
+            {
+                specialist: 'analyst',
+                name: 'mcp__analyst__query',
+                status: 'done',
+                detail: JSON.stringify({ result: JSON.stringify({ rows: proseRows, truncated: false }) })
+            }
+        ],
+        'analyst'
+    )
+    const proseView = previewStep({ rows: proseRows, truncated: false })
+    const proseCaption = analystPreviewCaption(proseView)
     check(
         'a finished page preview does not say show more, and a truncated page does',
         singlePage.rowCount === 40 &&
             singlePage.nextPage === false &&
-            singleCaption.startsWith('Showing ') &&
-            singleCaption.includes(' of 40 rows.') &&
-            singleCaption.includes('in the answer in this chat') &&
-            !singleCaption.includes('Say show more') &&
+            singleCaption === 'Showing 5 of 40 rows. The answer can show fewer rows than the query returned.' &&
+            proseGrounded === proseAnswer &&
+            !proseGrounded.includes('Account 11') &&
+            proseCaption === 'Showing 5 of 40 rows. The answer can show fewer rows than the query returned.' &&
             lastPage.nextPage === false &&
             lastPage.summary.includes('last page') &&
+            lastCaption === 'Showing 5 of 50 rows. The rest of these rows are in the answer in this chat.' &&
             !lastCaption.includes('Say show more') &&
-            lastCaption.includes('in the answer in this chat') &&
             truncatedPage.nextPage === true &&
-            truncatedCaption.includes('Say show more for the next page.') &&
-            truncatedCaption.includes('in the answer in this chat') &&
+            truncatedCaption ===
+                'Showing 5 of 100 rows. The rest of these rows are in the answer in this chat. Say show more for the next page.' &&
             !truncatedCaption.includes('/harnesses/'),
-        JSON.stringify({ singleCaption, lastCaption, truncatedCaption })
+        JSON.stringify({ singleCaption, proseCaption, lastCaption, truncatedCaption, proseGrounded })
     )
     const overCap = analystQueryPreview(
         { rows: Array.from({ length: 150 }, (_, i) => ({ id: i + 1, tag: `past-cap-${i}` })) },
