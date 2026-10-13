@@ -30,6 +30,7 @@ import {
     loadingText,
     CHECK_VARY_NOTE,
     CHECK_WORDS,
+    promoteCheckWords,
     COMPARE_COUNTS,
     DEFAULT_COMPARE_COUNT,
     POLL_MS,
@@ -653,8 +654,8 @@ PublishCheckView.propTypes = {
 // The same panel checks a version from Dev before Promote: variant 'promote' with that check's api.
 const asList = (payload) => (Array.isArray(payload) ? payload : payload?.data || [])
 
-const PublishCheck = ({ chatflowId, variant = 'publish', api = flowDraftsApi, flowType, canvases, gateNote = '' }) => {
-    const words = CHECK_WORDS[variant] || CHECK_WORDS.publish
+const PublishCheck = ({ chatflowId, variant = 'publish', api = flowDraftsApi, flowType, canvases, gateNote = '', sourceTitle }) => {
+    const words = variant === 'promote' ? promoteCheckWords(sourceTitle) : CHECK_WORDS[variant] || CHECK_WORDS.publish
     const hintedKind = checkKind(flowType, canvases)
     const { hasPermission } = useAuth()
     const canUseDatasets = hasPermission('datasets:view')
@@ -866,7 +867,8 @@ PublishCheck.propTypes = {
     api: PropTypes.object,
     flowType: PropTypes.string,
     canvases: PropTypes.array,
-    gateNote: PropTypes.string
+    gateNote: PropTypes.string,
+    sourceTitle: PropTypes.string
 }
 
 // Flow configuration: require a passing dataset check before Publish. Uses the same dataset and evaluator lists as the check above.

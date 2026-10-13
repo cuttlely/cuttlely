@@ -162,7 +162,10 @@ const STEPS = [
             'src/views/roles/rolePermissions.test.js',
             'src/views/docstore/chunkPermissions.test.js',
             'src/views/canvas/canvasSavePermission.test.js',
-            'src/views/marketplaces/templateUsePermission.test.js'
+            'src/views/marketplaces/templateUsePermission.test.js',
+            'src/utils/publishCheck.test.js',
+            'src/utils/promote.test.js',
+            'src/views/promote/PromoteViews.test.js'
         ],
         env: { CI: 'true' }
     },

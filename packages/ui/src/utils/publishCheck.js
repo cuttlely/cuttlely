@@ -153,6 +153,28 @@ export const CHECK_WORDS = {
     }
 }
 
+// The saved Dev and Prod pair keeps the From Dev column. A named list names the previous environment.
+export const promoteCheckWords = (sourceTitle) => {
+    const from = !sourceTitle || String(sourceTitle).toLowerCase() === 'dev' ? 'Dev' : String(sourceTitle)
+    if (from === 'Dev') return CHECK_WORDS.promote
+    const named = (text) => text.replaceAll('Dev', from)
+    const words = CHECK_WORDS.promote
+    return {
+        side: named(words.side),
+        short: named(words.short),
+        yours: named(words.yours),
+        intro: named(words.intro),
+        introNew: named(words.introNew),
+        introInputs: named(words.introInputs),
+        introInputsNew: named(words.introInputsNew),
+        emptyLive: words.emptyLive,
+        closeNote: words.closeNote,
+        optional: words.optional,
+        changed: named(words.changed),
+        stillCan: words.stillCan
+    }
+}
+
 // Fewer past questions than the choice: say so, and compare every one we have.
 // `unit` is `run` when the check replays recorded inputs instead of questions. The default keeps the question wording.
 export const capMessage = (choice, available, truncated = false, unit = 'question') => {

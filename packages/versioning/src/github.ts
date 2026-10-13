@@ -18,6 +18,7 @@
 //   and says so.
 // - Before each copy, the commits being copied are checked for secret-shaped text again.
 import { execFile, spawn } from 'child_process'
+import { randomBytes } from 'crypto'
 import readline from 'readline'
 import fs from 'fs'
 import path from 'path'
@@ -569,6 +570,48 @@ export class GithubSync {
         } catch {
             return null
         }
+    }
+
+    // Another environment's versions, for the review page. A temporary ref, never incoming: installing
+    // it there would offer that environment for promote. The caller reads the ref, then releasePeek drops it.
+    async peekBranch(branch: string): Promise<{ ok: true; ref: string; sha: string } | { ok: false; reason: 'missing' | 'unread' }> {
+        if (
+            !/^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/.test(branch) ||
+            branch.includes('..') ||
+            branch.endsWith('.') ||
+            branch.endsWith('.lock')
+        ) {
+            return { ok: false, reason: 'unread' }
+        }
+        let config: ActiveConfig | null
+        try {
+            config = await this.config()
+        } catch {
+            return { ok: false, reason: 'unread' }
+        }
+        if (!config) return { ok: false, reason: 'unread' }
+        const ref = `refs/versions/peek-${randomBytes(4).toString('hex')}`
+        const dir = this.deps.store().dir
+        const fetched = await this.git(
+            ['fetch', '--no-tags', '--no-recurse-submodules', '--quiet', config.url, `refs/heads/${branch}:${ref}`],
+            authEnv(config.url, config.token)
+        )
+        if (!fetched.ok) {
+            await runGit(dir, ['update-ref', '-d', ref]).catch(() => undefined)
+            const failure = classifyReadFailure(`${fetched.stderr}\n${fetched.stdout}`, config.repo, fetched.timedOut)
+            return { ok: false, reason: failure.kind === 'empty' ? 'missing' : 'unread' }
+        }
+        const sha = await this.refSha(ref)
+        if (!sha) {
+            await runGit(dir, ['update-ref', '-d', ref]).catch(() => undefined)
+            return { ok: false, reason: 'unread' }
+        }
+        return { ok: true, ref, sha }
+    }
+
+    async releasePeek(ref: string): Promise<void> {
+        if (!/^refs\/versions\/peek-[a-f0-9]{8}$/.test(ref)) return
+        await runGit(this.deps.store().dir, ['update-ref', '-d', ref]).catch(() => undefined)
     }
 
     private async isAncestor(sha: string, of: string): Promise<boolean> {
