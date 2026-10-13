@@ -383,7 +383,13 @@ export async function invokeChat(
                 `${resolved?.label || 'chat model'} did not return a chat model, so a harness cannot use it.`
             )
         }
-        const options = { signal: callSignal(signal, limit), timeout: limit }
+        // A parent chat agent keeps its token counter on the async-local config. These calls are
+        // route, specialist, and handoff. The tool records that payload once, so the counter must not
+        // see them too. Harness runs are not traced.
+        // A parent chat agent keeps its token counter on the async-local config. These calls are
+        // route, specialist, and handoff. The tool records that payload once, so the counter must not
+        // see them too. Harness runs are not traced.
+        const options = { signal: callSignal(signal, limit), timeout: limit, callbacks: [] }
         if (temperature != null) options.temperature = temperature
         if (maxTokens != null) options.maxTokens = maxTokens
         if (stop != null) options.stop = stop
