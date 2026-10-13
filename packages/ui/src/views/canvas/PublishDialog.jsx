@@ -18,6 +18,8 @@ import {
 
 import flowDraftsApi from '@/api/flowDrafts'
 import useConfirm from '@/hooks/useConfirm'
+import { useAuth } from '@/hooks/useAuth'
+import { GATE_RUN_PERMISSION } from '@/utils/publishCheck'
 import { CHANGE_COLORS } from '@/utils/versionHistory'
 import { POLL_MS, pollGateCheck } from '@/utils/publishCheck'
 import {
@@ -74,7 +76,7 @@ PublishChangeList.propTypes = {
     lines: PropTypes.array
 }
 
-export const PublishGateNotice = ({ gate, busy, runAnyway, onRunAnyway, onRun, startBlock }) => {
+export const PublishGateNotice = ({ gate, busy, runAnyway, onRunAnyway, onRun, startBlock, canRun = true }) => {
     if (!gate?.enabled) return null
     if (startBlock) {
         return (
@@ -102,9 +104,15 @@ export const PublishGateNotice = ({ gate, busy, runAnyway, onRunAnyway, onRun, s
                 }
                 label={<Typography variant='body2'>Run steps that could send or write something</Typography>}
             />
-            <Button variant='outlined' onClick={onRun} disabled={busy} data-testid='publish-gate-run' sx={{ mt: 1 }}>
-                {busy ? 'Running the test set…' : 'Run the test set'}
-            </Button>
+            {canRun ? (
+                <Button variant='outlined' onClick={onRun} disabled={busy} data-testid='publish-gate-run' sx={{ mt: 1 }}>
+                    {busy ? 'Running the test set…' : 'Run the test set'}
+                </Button>
+            ) : (
+                <Typography variant='body2' sx={{ mt: 1 }} data-testid='publish-gate-permission'>
+                    {GATE_RUN_PERMISSION}
+                </Typography>
+            )}
         </Alert>
     )
 }
@@ -115,12 +123,15 @@ PublishGateNotice.propTypes = {
     runAnyway: PropTypes.bool,
     onRunAnyway: PropTypes.func,
     onRun: PropTypes.func,
-    startBlock: PropTypes.string
+    startBlock: PropTypes.string,
+    canRun: PropTypes.bool
 }
 
 const PublishDialog = ({ open, chatflow, draftStatus, isDirty, onClose, onDraftStatus, onChatflowUpdated, onApplyCanvas }) => {
     const dispatch = useDispatch()
     const { confirm } = useConfirm()
+    const { hasPermission } = useAuth()
+    const canRunGate = hasPermission('datasets:view') && hasPermission('evaluators:view')
     const [replaceLiveChanges, setReplaceLiveChanges] = useState(false)
     const [busy, setBusy] = useState(false)
     const [gateBusy, setGateBusy] = useState(false)
@@ -168,7 +179,9 @@ const PublishDialog = ({ open, chatflow, draftStatus, isDirty, onClose, onDraftS
             .then(async (res) => {
                 const running = res?.data?.check
                 if (cancelled || gateGeneration.current !== generation) return
-                if (!running || running.status !== 'running' || !running.id) return
+                // An optional recent-question check must not disable Publish. Only a dataset run
+                // that matches the passing-test settings is the gate run.
+                if (!running || running.status !== 'running' || !running.id || !running.matchesPublishGate) return
                 setGateBusy(true)
                 try {
                     const view = await pollGateCheck({
@@ -348,6 +361,7 @@ const PublishDialog = ({ open, chatflow, draftStatus, isDirty, onClose, onDraftS
                         onRunAnyway={setRunAnyway}
                         onRun={onRunGate}
                         startBlock={startBlock}
+                        canRun={canRunGate}
                     />
                 )}
                 {stale && (

@@ -92,6 +92,8 @@ import {
     recordPublishGateResult,
     clearPublishGateResult,
     noteGateCheck,
+    notedGateCheck,
+    settlePublishGateCheck,
     clearGateCheckNotes,
     typeHasDrafts,
     uniqueUploadNames
@@ -640,6 +642,45 @@ describe('a passing test set before Publish', () => {
         expect(rows[0].publishInstantly).toBe(true)
         expect(rows[0].publishGate).toBe(false)
         expect(rows[0].publishGateDatasetId).toBeUndefined()
+    })
+
+    test('a mismatched exploratory check leaves a stored pass publishable', async () => {
+        await arm()
+        const stored = await recordPass()
+        noteGateCheck('flow-1', 'check-explore')
+        const outcome = await settlePublishGateCheck(flow(), {
+            ...pass,
+            datasetId: 'ds-other',
+            draftHash: stored.draftHash,
+            contentHash: stored.contentHash || '',
+            postProcessHash: postProcessHash(chats[0]?.chatbotConfig),
+            checkId: 'check-explore'
+        })
+        expect(outcome).toBe('ignored')
+        expect(notedGateCheck('flow-1')).toBeNull()
+        expect(rows[0].publishGateResult).toEqual(expect.stringContaining(stored.draftHash))
+        await expect(draftToPublish(flow())).resolves.toBe(canvas('Draft'))
+    })
+
+    test('re-saving the same passing test set is saved when the update reports no changed rows', async () => {
+        seed()
+        await updateDraftSettings(flow(), { publishGate: gate })
+        const original = fakeRepo.update.getMockImplementation()
+        fakeRepo.update.mockImplementation(async (where: any, patch: any) => {
+            const matches = rows.filter((row) => Object.entries(where).every(([key, value]) => row[key] === value))
+            const changed = matches.filter((row) => Object.entries(patch).some(([key, value]) => row[key] !== value))
+            for (const row of matches) Object.assign(row, patch)
+            return { affected: changed.length }
+        })
+        try {
+            await expect(updateDraftSettings(flow(), { publishGate: gate })).resolves.toMatchObject({
+                publishGate: { enabled: true, threshold: 100 }
+            })
+            expect(rows[0].publishGate).toBe(true)
+            expect(rows[0].publishInstantly).toBeFalsy()
+        } finally {
+            fakeRepo.update.mockImplementation(original as any)
+        }
     })
 
     test('an older pass cannot publish when this check failed to replace it', async () => {

@@ -29,7 +29,9 @@ import {
     loadFailureMessage,
     loadingText,
     CHECK_VARY_NOTE,
+    CHECK_ADOPTED_NOTE,
     CHECK_WORDS,
+    GATE_RUN_PERMISSION,
     promoteCheckWords,
     COMPARE_COUNTS,
     DEFAULT_COMPARE_COUNT,
@@ -282,7 +284,9 @@ export const PublishCheckView = ({
     onSource = () => {},
     onDataset = () => {},
     onToggleEvaluator = () => {},
-    gateNote = ''
+    gateNote = '',
+    stopsOnClose = true,
+    canRunGate = true
 }) => {
     const theme = useTheme()
     const [previewShown, setPreviewShown] = useState(RESULT_PAGE_SIZE)
@@ -596,12 +600,23 @@ export const PublishCheckView = ({
                                 Stop
                             </Button>
                         ) : (
-                            <Button variant='outlined' onClick={onRun} disabled={!runnable} data-testid='check-run'>
+                            <Button
+                                variant='outlined'
+                                onClick={onRun}
+                                disabled={!runnable || (Boolean(gateNote) && fromDataset && !canRunGate)}
+                                data-testid='check-run'
+                            >
                                 {starting ? 'Starting…' : check ? 'Run check again' : 'Run check'}
                             </Button>
                         )}
                         <Typography variant='caption' color='text.secondary' data-testid='check-optional'>
-                            {running ? words.closeNote : gateNote || words.optional}
+                            {running
+                                ? stopsOnClose
+                                    ? words.closeNote
+                                    : CHECK_ADOPTED_NOTE
+                                : Boolean(gateNote) && fromDataset && !canRunGate
+                                ? GATE_RUN_PERMISSION
+                                : gateNote || words.optional}
                         </Typography>
                     </Stack>
                     {error && (
@@ -647,7 +662,9 @@ PublishCheckView.propTypes = {
     onSource: PropTypes.func,
     onDataset: PropTypes.func,
     onToggleEvaluator: PropTypes.func,
-    gateNote: PropTypes.string
+    gateNote: PropTypes.string,
+    stopsOnClose: PropTypes.bool,
+    canRunGate: PropTypes.bool
 }
 
 // The publish check panel: loads recent questions, runs the check, polls it, and stops it when the dialog closes.
@@ -676,6 +693,8 @@ const PublishCheck = ({ chatflowId, variant = 'publish', api = flowDraftsApi, fl
     const [evaluatorIds, setEvaluatorIds] = useState([])
     const [starting, setStarting] = useState(false)
     const [error, setError] = useState('')
+    const [stopsOnClose, setStopsOnClose] = useState(false)
+    const canRunGate = canUseDatasets && canUseEvaluators
     const timer = useRef(null)
     const live = useRef({ mounted: true, checkId: null, running: false, ownedId: null })
 
@@ -721,6 +740,8 @@ const PublishCheck = ({ chatflowId, variant = 'publish', api = flowDraftsApi, fl
                     setCheck(previous)
                     state.checkId = previous.id
                     state.running = previous.status === 'running'
+                    state.ownedId = null
+                    setStopsOnClose(false)
                     if (state.running) poll(previous.id)
                 }
             })
@@ -804,6 +825,7 @@ const PublishCheck = ({ chatflowId, variant = 'publish', api = flowDraftsApi, fl
                 return
             }
             setCheck(res.data)
+            setStopsOnClose(true)
             live.current.checkId = res.data?.id
             live.current.ownedId = res.data?.id || null
             live.current.running = res.data?.status === 'running'
@@ -863,6 +885,8 @@ const PublishCheck = ({ chatflowId, variant = 'publish', api = flowDraftsApi, fl
                 setEvaluatorIds((current) => (current.includes(id) ? current.filter((item) => item !== id) : [...current, id]))
             }
             gateNote={gateNote}
+            stopsOnClose={stopsOnClose}
+            canRunGate={canRunGate}
         />
     )
 }
@@ -895,6 +919,7 @@ export const PublishGateSettings = ({ dialogProps }) => {
     const [evaluators, setEvaluators] = useState([])
     const [error, setError] = useState('')
     const [saved, setSaved] = useState('')
+    const writeChain = useRef(Promise.resolve())
 
     const evaluatorKey = (gate?.evaluatorIds || []).join(',')
     useEffect(() => {
@@ -928,7 +953,7 @@ export const PublishGateSettings = ({ dialogProps }) => {
         }
     }, [canChoose])
 
-    const save = async (next) => {
+    const persist = async (next) => {
         if (!chatflow?.id) return
         setError('')
         setSaved('')
@@ -955,6 +980,14 @@ export const PublishGateSettings = ({ dialogProps }) => {
             setOn(Boolean(gate?.enabled))
             setError(apiErrorMessage(err, 'That setting could not be saved.'))
         }
+    }
+
+    // One settings write at a time, in the order the person chose. A later blur cannot finish first
+    // and leave the server on the older dataset or evaluator.
+    const save = (next) => {
+        const run = writeChain.current.catch(() => {}).then(() => persist(next))
+        writeChain.current = run
+        return run
     }
 
     const toggleEvaluator = (id) => {

@@ -4,6 +4,22 @@ let draftsOn = true
 const recordPublishGateResult: jest.Mock = jest.fn(async () => undefined)
 const clearPublishGateResult: jest.Mock = jest.fn(async () => undefined)
 const noteGateCheck: jest.Mock = jest.fn()
+const clearGateCheckNote: jest.Mock = jest.fn()
+const settlePublishGateCheck: jest.Mock = jest.fn(async (flow: { id?: string }, input: { checkId?: string }) => {
+    try {
+        const outcome = await recordPublishGateResult(flow, input)
+        if (outcome !== 'stored') clearGateCheckNote(flow?.id)
+        return outcome === 'ignored' ? 'ignored' : 'stored'
+    } catch (error) {
+        noteGateCheck(flow?.id, input?.checkId)
+        try {
+            await clearPublishGateResult(flow)
+        } catch {
+            // The note stays when the clear also throws.
+        }
+        throw error
+    }
+})
 jest.mock('../flow-drafts', () => ({
     __esModule: true,
     default: {
@@ -11,7 +27,9 @@ jest.mock('../flow-drafts', () => ({
         isDraftsEnabled: () => draftsOn,
         recordPublishGateResult: (...args: unknown[]) => recordPublishGateResult(...args),
         clearPublishGateResult: (...args: unknown[]) => clearPublishGateResult(...args),
-        noteGateCheck: (...args: unknown[]) => noteGateCheck(...args)
+        noteGateCheck: (...args: unknown[]) => noteGateCheck(...args),
+        clearGateCheckNote: (...args: unknown[]) => clearGateCheckNote(...args),
+        settlePublishGateCheck: (...args: unknown[]) => settlePublishGateCheck(...args)
     },
     canvasHash: (flowData: string) => `hash:${flowData}`
 }))
@@ -1090,6 +1108,33 @@ describe('a dataset and evaluators', () => {
         expect(failed.error).not.toContain('still full')
         expect(noteGateCheck).toHaveBeenCalledWith('flow-1', started.id)
         expect(clearPublishGateResult).toHaveBeenCalledWith(expect.objectContaining({ id: 'flow-1' }))
+    })
+
+    test('a check that does not match the gate is ignored and does not note a failed save', async () => {
+        recordPublishGateResult.mockResolvedValueOnce('ignored')
+        const started = await startCheck(flow() as any, { datasetId: 'ds-1', threshold: 0 }, 'http://x')
+        await settle()
+        const done = await getCheck(flow(), started.id)
+        expect(done.status).toBe('done')
+        expect(noteGateCheck).not.toHaveBeenCalled()
+        expect(clearGateCheckNote).toHaveBeenCalledWith('flow-1')
+    })
+
+    test('a dataset check matches the passing test set only when the settings are the same', async () => {
+        const current = states.get('flow-1')
+        states.set('flow-1', {
+            ...current,
+            publishGate: true,
+            publishGateDatasetId: 'ds-1',
+            publishGateEvaluatorIds: '[]',
+            publishGateThreshold: 0
+        })
+        const started = await startCheck(flow() as any, { datasetId: 'ds-1', threshold: 0 }, 'http://x')
+        const setup = await getCheckSetup(flow() as any)
+        expect(setup.check?.id).toBe(started.id)
+        expect(setup.check?.matchesPublishGate).toBe(true)
+        states.get('flow-1').publishGateDatasetId = 'ds-other'
+        expect((await getCheckSetup(flow() as any)).check?.matchesPublishGate).toBe(false)
     })
 
     test('a write during scoring cannot pair a pass with the new test set hash', async () => {

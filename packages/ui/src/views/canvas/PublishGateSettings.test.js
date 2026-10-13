@@ -120,4 +120,41 @@ describe('PublishGateSettings', () => {
         expect(flowDraftsApi.updateSettings).not.toHaveBeenCalled()
         act(() => off.unmount())
     })
+
+    test('a later dataset choice is the last settings write when the first request is still open', async () => {
+        datasetsApi.getAllDatasets.mockResolvedValue({
+            data: [
+                { id: 'ds-1', name: 'One' },
+                { id: 'ds-a', name: 'A' },
+                { id: 'ds-b', name: 'B' }
+            ]
+        })
+        evaluatorsApi.getAllEvaluators.mockResolvedValue({ data: [{ id: 'ev-1', name: 'Yes' }] })
+        const releases = []
+        flowDraftsApi.updateSettings.mockImplementation((_id, body) => {
+            return new Promise((resolve) => {
+                releases.push(() => resolve({ data: { publishGate: body.publishGate } }))
+            })
+        })
+        const root = await renderSettings({ type: 'CHATFLOW', start: 'chatInput' })
+        const select = document.querySelector('[data-testid="publish-gate-dataset"]')
+        await act(async () => {
+            fireEvent.change(select, { target: { value: 'ds-a' } })
+        })
+        expect(flowDraftsApi.updateSettings).toHaveBeenCalledTimes(1)
+        await act(async () => {
+            fireEvent.change(select, { target: { value: 'ds-b' } })
+        })
+        expect(flowDraftsApi.updateSettings).toHaveBeenCalledTimes(1)
+        await act(async () => {
+            releases[0]()
+        })
+        expect(flowDraftsApi.updateSettings).toHaveBeenCalledTimes(2)
+        expect(flowDraftsApi.updateSettings.mock.calls[1][1].publishGate.datasetId).toBe('ds-b')
+        await act(async () => {
+            releases[1]()
+        })
+        expect(flowDraftsApi.updateSettings.mock.calls.at(-1)[1].publishGate.datasetId).toBe('ds-b')
+        act(() => root.unmount())
+    })
 })

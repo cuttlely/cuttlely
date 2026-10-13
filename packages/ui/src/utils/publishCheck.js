@@ -100,6 +100,9 @@ export const inputMeta = (source, date) => {
 export const INPUT_PREVIEW_CHARS = 180
 export const CHECK_VARY_NOTE = 'Answers from a model can vary a little between runs, even with no change.'
 export const CHECK_CLOSE_NOTE = 'Closing this window or publishing stops a check that is still running.'
+export const CHECK_ADOPTED_NOTE = 'Closing this window leaves this check running.'
+export const GATE_RUN_PERMISSION =
+    'Someone who can view datasets and evaluators has to run the test set, or the passing test set can be turned off.'
 export const RUN_ANYWAY_LABEL = 'Run it anyway, including those steps'
 export const POLL_MS = 1000
 

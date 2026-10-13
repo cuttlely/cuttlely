@@ -533,27 +533,52 @@ export async function updateDraftSettings(
         )
     } else {
         if (gate?.enabled) {
-            const updated = await repo().update(
+            await updateUnlessOtherFlag(
+                flow.id,
                 { chatflowId: flow.id, publishInstantly: false },
                 {
                     publishGate: true,
                     publishGateDatasetId: gate.datasetId,
                     publishGateEvaluatorIds: JSON.stringify(gate.evaluatorIds),
                     publishGateThreshold: gate.threshold
-                }
+                },
+                (row) => Boolean(row.publishInstantly),
+                true
             )
-            if (!updated?.affected) throw new AppError(StatusCodes.BAD_REQUEST, conflictingSettingsMessage(true))
         } else if (gate && !gate.enabled) {
             await repo().update({ chatflowId: flow.id }, { publishGate: false })
         }
         if (hasInstant && nextInstant) {
-            const updated = await repo().update({ chatflowId: flow.id, publishGate: false }, { publishInstantly: true })
-            if (!updated?.affected) throw new AppError(StatusCodes.BAD_REQUEST, conflictingSettingsMessage(false))
+            await updateUnlessOtherFlag(
+                flow.id,
+                { chatflowId: flow.id, publishGate: false },
+                { publishInstantly: true },
+                (row) => Boolean(row.publishGate),
+                false
+            )
         } else if (hasInstant && !nextInstant) {
             await repo().update({ chatflowId: flow.id }, { publishInstantly: false })
         }
     }
     return withTestSet(flow, statusFrom(flow, await getState(flow.id)))
+}
+
+// MySQL and MariaDB report 0 changed rows when the values are already stored. That is a save,
+// not proof that the other flag is on. Re-read, and return 400 only when that flag really is on.
+async function updateUnlessOtherFlag(
+    flowId: string,
+    where: { chatflowId: string; publishInstantly?: boolean; publishGate?: boolean },
+    patch: Partial<FlowVersionState>,
+    otherFlagOn: (row: FlowVersionState) => boolean,
+    turningGateOn: boolean
+): Promise<void> {
+    const updated = await repo().update(where, patch)
+    if (updated?.affected) return
+    const row = await getState(flowId)
+    if (!row || otherFlagOn(row)) throw new AppError(StatusCodes.BAD_REQUEST, conflictingSettingsMessage(turningGateOn))
+    const same = (Object.keys(patch) as Array<keyof FlowVersionState>).every((key) => row[key] === patch[key])
+    if (same) return
+    await repo().update({ chatflowId: flowId }, patch)
 }
 
 export interface GateResultInput {
@@ -583,8 +608,33 @@ export function notedGateCheck(flowId: string): string | null {
     return gateCheckNotes.get(flowId) || null
 }
 
+export function clearGateCheckNote(flowId: string): void {
+    gateCheckNotes.delete(flowId)
+}
+
 export function clearGateCheckNotes(): void {
     gateCheckNotes.clear()
+}
+
+export type GateWriteOutcome = 'stored' | 'ignored'
+
+// Records the check when it matches the gate. A skipped write must not leave a note behind.
+// A write that throws notes this check, then tries to clear the stored result. If that clear
+// also throws, the note stays so Publish refuses the older pass.
+export async function settlePublishGateCheck(flow: DraftFlow, input: GateResultInput): Promise<GateWriteOutcome> {
+    try {
+        const outcome = await recordPublishGateResult(flow, input)
+        clearGateCheckNote(flow.id)
+        return outcome
+    } catch (error) {
+        if (input.checkId) noteGateCheck(flow.id, input.checkId)
+        try {
+            await clearPublishGateResult(flow)
+        } catch {
+            // The note stays. Publish refuses a stored pass that is not from this check.
+        }
+        throw error
+    }
 }
 
 // The same workspace lookup the dataset check uses. A missing id and an id from another workspace
@@ -596,10 +646,10 @@ async function assertGateTargets(workspaceId: string, datasetId: string, evaluat
 
 // Writes the last gate result onto the flow row. A check that does not match the current gate settings
 // is ignored, so an exploratory check does not replace a pass. Nothing in the row is an answer.
-export async function recordPublishGateResult(flow: DraftFlow, input: GateResultInput): Promise<void> {
-    if (!publishGateApplies(flow.type)) return
+export async function recordPublishGateResult(flow: DraftFlow, input: GateResultInput): Promise<GateWriteOutcome> {
+    if (!publishGateApplies(flow.type)) return 'ignored'
     const state = await getState(flow.id)
-    if (!state?.publishGate) return
+    if (!state?.publishGate) return 'ignored'
     const settings = gateSettingsOf(state)
     if (
         !sameGateSettings(settings, {
@@ -608,7 +658,7 @@ export async function recordPublishGateResult(flow: DraftFlow, input: GateResult
             threshold: input.threshold
         })
     ) {
-        return
+        return 'ignored'
     }
     const record: Omit<GateResult, 'checkedAt'> = {
         draftHash: input.draftHash,
@@ -625,6 +675,7 @@ export async function recordPublishGateResult(flow: DraftFlow, input: GateResult
         ...(input.checkId ? { checkId: input.checkId } : {})
     }
     await repo().update({ chatflowId: flow.id }, { publishGateResult: gateResultRecord(record) })
+    return 'stored'
 }
 
 // Drops the stored gate result and leaves the draft and the other settings alone. A check whose
@@ -662,8 +713,10 @@ export default {
     setPublishInstantly,
     updateDraftSettings,
     recordPublishGateResult,
+    settlePublishGateCheck,
     clearPublishGateResult,
     noteGateCheck,
+    clearGateCheckNote,
     flowDataForTestChat,
     deleteStateFor
 }
