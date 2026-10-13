@@ -41,7 +41,7 @@ An evaluation runs one dataset against one or more chatflows or agentflows and s
 
 ## Check a dataset before you publish
 
-On a chatflow or an agentflow, the Publish dialog can ask a dataset instead of recent questions, and score each answer with the evaluators you select.
+On a chatflow, an agentflow that starts with a chat message, or a harness, the Publish dialog can ask a dataset instead of recent questions, and score each answer with the evaluators you select. A pipeline has no question check.
 
 1. Select **Publish**. Under **Check recent questions**, set **Questions from** to **A dataset** and choose the dataset. **Questions from** is hidden when your role cannot view datasets.
 2. Tick the evaluators to score with. That list is hidden when your role cannot view evaluators.

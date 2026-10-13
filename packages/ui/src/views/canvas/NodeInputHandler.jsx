@@ -144,7 +144,7 @@ const NodeInputHandler = ({
     const theme = useTheme()
     const customization = useSelector((state) => state.customization)
     const ref = useRef(null)
-    const { reactFlowInstance, deleteEdge, onNodeDataChange } = useContext(flowContext)
+    const { reactFlowInstance, deleteSelection, onNodeDataChange } = useContext(flowContext)
     const updateNodeInternals = useUpdateNodeInternals()
 
     useNotifier()
@@ -549,9 +549,7 @@ const NodeInputHandler = ({
         )
         if (!outputAnchors) return
         data.outputAnchors = outputAnchors
-        for (const edgeId of toBeRemovedEdgeIds) {
-            deleteEdge(edgeId)
-        }
+        if (toBeRemovedEdgeIds.length) deleteSelection({ edgeIds: toBeRemovedEdgeIds })
         setShowConditionDialog(false)
         onHideNodeInfoDialog(false)
     }

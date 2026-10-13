@@ -1,16 +1,15 @@
 import PropTypes from 'prop-types'
 import { useRef, useContext, useState } from 'react'
 import { useSelector } from 'react-redux'
-import { NodeToolbar } from 'reactflow'
 
 // material-ui
-import { styled, useTheme, alpha, darken, lighten } from '@mui/material/styles'
+import { styled, alpha, darken, lighten } from '@mui/material/styles'
 
 // project imports
-import { ButtonGroup, IconButton, Box } from '@mui/material'
-import { IconCopy, IconTrash } from '@tabler/icons-react'
+import { Box } from '@mui/material'
 import { Input } from '@/ui-component/input/Input'
 import MainCard from '@/ui-component/cards/MainCard'
+import NodeActionBar from '@/views/canvas/NodeActionBar'
 
 // const
 import { flowContext } from '@/store/context/ReactFlowContext'
@@ -25,20 +24,11 @@ const CardWrapper = styled(MainCard)(({ theme }) => ({
     boxShadow: 'none'
 }))
 
-const StyledNodeToolbar = styled(NodeToolbar)(({ theme }) => ({
-    backgroundColor: theme.palette.card.main,
-    color: theme.darkTextPrimary,
-    padding: '5px',
-    borderRadius: '10px',
-    boxShadow: '0 2px 14px 0 rgb(32 40 45 / 8%)'
-}))
-
 const StickyNote = ({ data }) => {
-    const theme = useTheme()
     const customization = useSelector((state) => state.customization)
     const ref = useRef(null)
 
-    const { reactFlowInstance, deleteNode, duplicateNode } = useContext(flowContext)
+    const { reactFlowInstance } = useContext(flowContext)
     const [inputParam] = data.inputParams
     const [isHovered, setIsHovered] = useState(false)
 
@@ -60,41 +50,8 @@ const StickyNote = ({ data }) => {
     }
 
     return (
-        <div ref={ref} onMouseEnter={() => setIsHovered(true)} onMouseLeave={() => setIsHovered(false)}>
-            <StyledNodeToolbar>
-                <ButtonGroup sx={{ gap: 1 }} variant='outlined' aria-label='Basic button group'>
-                    <IconButton
-                        size={'small'}
-                        title='Duplicate'
-                        onClick={() => {
-                            duplicateNode(data.id)
-                        }}
-                        sx={{
-                            color: customization.isDarkMode ? 'white' : 'inherit',
-                            '&:hover': {
-                                color: theme.palette.primary.main
-                            }
-                        }}
-                    >
-                        <IconCopy size={20} />
-                    </IconButton>
-                    <IconButton
-                        size={'small'}
-                        title='Delete'
-                        onClick={() => {
-                            deleteNode(data.id)
-                        }}
-                        sx={{
-                            color: customization.isDarkMode ? 'white' : 'inherit',
-                            '&:hover': {
-                                color: theme.palette.error.main
-                            }
-                        }}
-                    >
-                        <IconTrash size={20} />
-                    </IconButton>
-                </ButtonGroup>
-            </StyledNodeToolbar>
+        <div ref={ref} onMouseEnter={() => setIsHovered(true)} onMouseLeave={() => setIsHovered(false)} style={{ position: 'relative' }}>
+            <NodeActionBar data={data} hovered={isHovered} selected={Boolean(data.selected)} includeInfo={false} />
             <CardWrapper
                 content={false}
                 sx={{

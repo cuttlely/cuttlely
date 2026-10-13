@@ -5,23 +5,16 @@ import { Background, Handle, Position, useUpdateNodeInternals, NodeToolbar, Node
 
 // material-ui
 import { styled, useTheme, alpha, darken, lighten } from '@mui/material/styles'
-import { ButtonGroup, Avatar, Box, Typography, IconButton, Tooltip } from '@mui/material'
+import { Avatar, Box, Typography, Tooltip } from '@mui/material'
 
 // project imports
 import MainCard from '@/ui-component/cards/MainCard'
 import { flowContext } from '@/store/context/ReactFlowContext'
 import NodeInfoDialog from '@/ui-component/dialog/NodeInfoDialog'
+import NodeActionBar from '@/views/canvas/NodeActionBar'
 
 // icons
-import {
-    IconCheck,
-    IconExclamationMark,
-    IconCircleChevronRightFilled,
-    IconCopy,
-    IconTrash,
-    IconInfoCircle,
-    IconLoader
-} from '@tabler/icons-react'
+import { IconCheck, IconExclamationMark, IconCircleChevronRightFilled, IconLoader } from '@tabler/icons-react'
 import StopCircleIcon from '@mui/icons-material/StopCircle'
 import CancelIcon from '@mui/icons-material/Cancel'
 
@@ -38,14 +31,6 @@ const CardWrapper = styled(MainCard)(({ theme }) => ({
     boxShadow: 'none'
 }))
 
-const StyledNodeToolbar = styled(NodeToolbar)(({ theme }) => ({
-    backgroundColor: theme.palette.card.main,
-    color: theme.darkTextPrimary,
-    padding: '5px',
-    borderRadius: '10px',
-    boxShadow: '0 2px 14px 0 rgb(32 40 45 / 8%)'
-}))
-
 // ===========================|| ITERATION NODE ||=========================== //
 
 const IterationNode = ({ data }) => {
@@ -58,7 +43,7 @@ const IterationNode = ({ data }) => {
     // eslint-disable-next-line
     const [position, setPosition] = useState(0)
     const [isHovered, setIsHovered] = useState(false)
-    const { deleteNode, duplicateNode, reactFlowInstance } = useContext(flowContext)
+    const { reactFlowInstance } = useContext(flowContext)
     const [showInfoDialog, setShowInfoDialog] = useState(false)
     const [infoDialogProps, setInfoDialogProps] = useState({})
 
@@ -166,7 +151,7 @@ const IterationNode = ({ data }) => {
     )
 
     return (
-        <div ref={ref} onMouseEnter={() => setIsHovered(true)} onMouseLeave={() => setIsHovered(false)}>
+        <div ref={ref} onMouseEnter={() => setIsHovered(true)} onMouseLeave={() => setIsHovered(false)} style={{ position: 'relative' }}>
             <NodeToolbar align='start' isVisible={true}>
                 <Box style={{ display: 'flex', alignItems: 'center', flexDirection: 'row' }}>
                     {data.color && !data.icon ? (
@@ -213,56 +198,15 @@ const IterationNode = ({ data }) => {
                     </Typography>
                 </Box>
             </NodeToolbar>
-            <StyledNodeToolbar align='end'>
-                <ButtonGroup sx={{ gap: 1 }} variant='outlined' aria-label='Basic button group'>
-                    <IconButton
-                        size={'small'}
-                        title='Duplicate'
-                        onClick={() => {
-                            duplicateNode(data.id)
-                        }}
-                        sx={{
-                            color: customization.isDarkMode ? 'white' : 'inherit',
-                            '&:hover': {
-                                color: theme.palette.primary.main
-                            }
-                        }}
-                    >
-                        <IconCopy size={20} />
-                    </IconButton>
-                    <IconButton
-                        size={'small'}
-                        title='Delete'
-                        onClick={() => {
-                            deleteNode(data.id)
-                        }}
-                        sx={{
-                            color: customization.isDarkMode ? 'white' : 'inherit',
-                            '&:hover': {
-                                color: theme.palette.error.main
-                            }
-                        }}
-                    >
-                        <IconTrash size={20} />
-                    </IconButton>
-                    <IconButton
-                        size={'small'}
-                        title='Info'
-                        onClick={() => {
-                            setInfoDialogProps({ data })
-                            setShowInfoDialog(true)
-                        }}
-                        sx={{
-                            color: customization.isDarkMode ? 'white' : 'inherit',
-                            '&:hover': {
-                                color: theme.palette.info.main
-                            }
-                        }}
-                    >
-                        <IconInfoCircle size={20} />
-                    </IconButton>
-                </ButtonGroup>
-            </StyledNodeToolbar>
+            <NodeActionBar
+                data={data}
+                hovered={isHovered}
+                selected={Boolean(data.selected)}
+                onInfo={() => {
+                    setInfoDialogProps({ data })
+                    setShowInfoDialog(true)
+                }}
+            />
             <NodeResizer minWidth={300} minHeight={Math.max(getMinimumHeight(), 250)} onResizeEnd={onResizeEnd} />
             <CardWrapper
                 content={false}
