@@ -18,7 +18,8 @@ import {
     IconDatabaseImport,
     IconShield,
     IconHistory,
-    IconServerCog
+    IconServerCog,
+    IconFileText
 } from '@tabler/icons-react'
 
 // constant
@@ -39,7 +40,8 @@ const icons = {
     IconDatabaseImport,
     IconShield,
     IconHistory,
-    IconServerCog
+    IconServerCog,
+    IconFileText
 }
 
 // ==============================|| DASHBOARD MENU ITEMS ||============================== //
@@ -199,6 +201,15 @@ const dashboard = {
                     icon: icons.IconServerCog,
                     breadcrumbs: true,
                     permission: 'server:owner'
+                },
+                {
+                    id: 'serverLogs',
+                    title: 'Logs',
+                    type: 'item',
+                    url: '/logs',
+                    icon: icons.IconFileText,
+                    breadcrumbs: true,
+                    permission: 'logs:view'
                 },
                 {
                     // Server-wide: only the organization owner sees it (no role holds this permission).
