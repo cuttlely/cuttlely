@@ -992,13 +992,7 @@ async function runCheck(record: CheckRecord, flow: IChatFlow, draft: string, bas
             // A failed write clears any older pass and fails the check. Leaving the check done would let that
             // older pass publish even though this check did not store its result.
             let stored = true
-            if (
-                publishGateApplies(flow.type) &&
-                record.fromDataset &&
-                record.datasetId &&
-                record.threshold != null &&
-                flowDraftsService.recordPublishGateResult
-            ) {
+            if (publishGateApplies(flow.type) && record.fromDataset && record.datasetId && record.threshold != null) {
                 const verdict = draftVerdict(summarize(record.cases, record.liveEmpty).scores?.draft, record.threshold)
                 try {
                     // A skipped write clears any note. A thrown write notes this check, and the note
