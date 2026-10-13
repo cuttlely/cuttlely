@@ -647,54 +647,96 @@ test('check exits 2 on a server error, a missing draft, and a failed check', asy
     assert.doesNotMatch(echoed.errors(), /test-key/)
 })
 
-test('check usage failures exit 2 and other commands reject check flags', async () => {
-    const missingFlow = capture()
-    assert.equal(await main(['check'], missingFlow), 2)
-    assert.match(missingFlow.errors(), /check needs --flow/)
-
-    const badFlow = capture()
-    assert.equal(await main(['check', '--flow', '../etc'], badFlow), 2)
-    assert.match(badFlow.errors(), /--flow needs the flow id/)
-
-    const badServer = capture()
-    assert.equal(await main(['check', '--flow', 'flow-1', '--server', 'file:///tmp'], badServer), 2)
-    assert.match(badServer.errors(), /http or https/)
-
-    const keyed = capture()
-    assert.equal(await main(['check', '--flow', 'flow-1', '--server', 'http://user:secret@127.0.0.1:43117'], keyed), 2)
-    assert.match(keyed.errors(), /CUTTLELY_API_KEY/)
-
-    const start = capture()
-    assert.equal(await main(['start', '--flow', 'flow-1'], start), 1)
-    assert.match(start.errors(), /Unknown option --flow/)
-
-    const port = capture()
-    assert.equal(await main(['check', '--flow', 'flow-1', '--port', '8080'], port), 2)
-    assert.match(port.errors(), /--port is not a check option/)
+test('check usage errors exit 2 without calling the server', async () => {
+    const valueOptions = [
+        { flag: '--flow', invalid: '../etc', needsFlow: false },
+        { flag: '--server', invalid: 'file:///tmp', needsFlow: true },
+        { flag: '--timeout', invalid: '0', needsFlow: true },
+        { flag: '--json', invalid: 'bad\u0000name', needsFlow: true }
+    ]
+    const rows = []
+    for (const option of valueOptions) {
+        const head = option.needsFlow ? ['check', '--flow', 'flow-1'] : ['check']
+        rows.push([...head, option.flag, ''])
+        rows.push([...head, `${option.flag}=`])
+        rows.push([...head, option.flag])
+        rows.push([...head, option.flag, '--fail-on-changed'])
+        rows.push([...head, option.flag, option.invalid])
+        rows.push([...head, `${option.flag}=${option.invalid}`])
+    }
+    rows.push(
+        ['check', '--flow', 'flow-1', '--json', 'ok.json', '--json='],
+        ['check', '--flow', 'flow-1', '--json', 'ok.json', '--json', ''],
+        ['check', '--flow', 'flow-1', '--flow='],
+        ['check', '--flow', 'flow-1', '--server', 'http://127.0.0.1:9', '--server='],
+        ['check', '--flow', 'flow-1', '--timeout', '5', '--timeout='],
+        ['check', '--flow', 'flow-1', '--server', 'http://user:secret@127.0.0.1:43117'],
+        ['--bogus', 'check', '--flow', 'flow-1'],
+        ['check', '--flow', 'flow-1', '--bogus'],
+        ['check', '--bogus'],
+        ['check', '--flow', 'check', '--bogus'],
+        ['--bogus', 'check', '--flow', 'check'],
+        ['--fail-on-changed', 'check', '--flow', ''],
+        ['--env-file', 'check', 'check', '--flow', ''],
+        ['--port', '1', 'check', '--json='],
+        ['-p', '0', 'check', '--flow', 'flow-1'],
+        ['--tag', 'bad tag', 'check'],
+        ['check', '--port', '0'],
+        ['check', '--port='],
+        ['check', '--tag', 'bad tag'],
+        ['check', '--tag='],
+        ['check', '--env-file='],
+        ['check', '-p', ''],
+        ['check', '--flow', 'flow-1', '--port', '8080'],
+        ['check', '--fail-on-changed='],
+        ['check', '--flow', 'flow-1', '--fail-on-changed=true'],
+        ['check', '--flow', 'flow-1', 'extra']
+    )
+    for (const args of rows) {
+        const io = capture()
+        const calls = []
+        const code = await main(args, {
+            ...io,
+            fetch: async () => {
+                calls.push(1)
+                throw new Error('should not request')
+            }
+        })
+        assert.equal(code, 2, args.join(' '))
+        assert.match(io.errors(), /Run cuttlely|must be|needs|Not a valid|CUTTLELY_API_KEY|not a check option|Unknown/, args.join(' '))
+        assert.equal(calls.length, 0, args.join(' '))
+        assert.equal(commandFailureCode(args), 2, args.join(' '))
+    }
 })
 
-test('check usage errors exit 2 and other commands keep exit 1', async () => {
-    const cases = [
-        ['check', '--flow', ''],
-        ['check', '--flow', '--fail-on-changed'],
-        ['check', '--flow='],
-        ['check', '--flow', 'flow-1', '--server', ''],
-        ['check', '--flow', 'flow-1', '--server='],
-        ['check', '--flow', 'flow-1', '--timeout', ''],
-        ['check', '--flow', 'flow-1', '--timeout='],
-        ['check', '--port', '0'],
-        ['check', '--tag', 'bad tag']
-    ]
-    for (const args of cases) {
-        const io = capture()
-        assert.equal(await main(args, io), 2, args.join(' '))
-        assert.equal(commandFailureCode(args), 2)
-    }
-    const start = capture()
-    assert.equal(await main(['start', '--port', '0'], start), 1)
-    assert.match(start.errors(), /Port must be a number/)
+test('other commands keep their exit codes when check is not the command', async () => {
+    const startPort = capture()
+    assert.equal(await main(['start', '--port', '0'], startPort), 1)
+    assert.match(startPort.errors(), /Port must be a number/)
     assert.equal(commandFailureCode(['start', '--port', '0']), 1)
+
+    const startFlow = capture()
+    assert.equal(await main(['start', '--flow', 'flow-1'], startFlow), 1)
+    assert.match(startFlow.errors(), /Unknown option --flow/)
+
+    const flowNamedCheck = capture()
+    const calls = []
+    assert.equal(
+        await main(['--flow', 'check'], {
+            ...flowNamedCheck,
+            fetch: async () => {
+                calls.push(1)
+                throw new Error('should not request')
+            }
+        }),
+        1
+    )
+    assert.match(flowNamedCheck.errors(), /Unknown option --flow/)
+    assert.equal(calls.length, 0)
+    assert.equal(commandFailureCode(['--flow', 'check']), 1)
     assert.equal(commandFailureCode(['--tag', '1.0.0', 'start']), 1)
+    assert.equal(commandFailureCode(['--env-file', 'check']), 1)
+    assert.equal(commandFailureCode(['-p', 'check']), 1)
 })
 
 test('check talks to a local server', async () => {

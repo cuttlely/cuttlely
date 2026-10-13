@@ -79,9 +79,16 @@ function parseTag(value, exitCode = 1) {
     return value
 }
 
-// `check` as a flag value (`--flow check`) is not the command.
+// These options take the next argv token as their value. A following `check` is that value, not the command.
+// Any other previous token, including an unknown flag, leaves `check` as the command.
+const VALUE_OPTIONS = new Set(['--flow', '--server', '--timeout', '--json', '--port', '-p', '--tag', '--env-file'])
+
 export function isCheckCommand(argv) {
-    return argv.some((item, index) => item === 'check' && (index === 0 || !String(argv[index - 1]).startsWith('--')))
+    return argv.some((item, index) => {
+        if (item !== 'check') return false
+        if (index === 0) return true
+        return !VALUE_OPTIONS.has(argv[index - 1])
+    })
 }
 
 // An unexpected failure while running check is not a Changed answer.
@@ -205,8 +212,7 @@ export function parseArgs(argv) {
             opts.failOnChanged = true
             checkFlags.push('--fail-on-changed')
         } else if (arg.startsWith('-')) {
-            const forCheck = argv.some((item, index) => item === 'check' && (index === 0 || !String(argv[index - 1]).startsWith('--')))
-            throw new UsageError(`Unknown option ${arg}. Run cuttlely --help.`, forCheck ? 2 : 1)
+            throw new UsageError(`Unknown option ${arg}. Run cuttlely --help.`, commandFailureCode(argv))
         } else words.push(arg)
     }
     if (words.length > 1) throw new UsageError(`Unknown argument ${words[1]}. Run cuttlely --help.`, words[0] === 'check' ? 2 : 1)
@@ -234,7 +240,8 @@ export function parseArgs(argv) {
                     throw new UsageError('Timeout must be a whole number of seconds from 1 to 3600, got (missing).', checkExit)
                 opts.timeoutSeconds = parseTimeout(opts.timeoutSeconds)
             }
-            if (opts.jsonPath) opts.jsonPath = parseJsonPath(opts.jsonPath)
+            // An empty --json= is still the flag. Skipping it would run the check and write nothing.
+            if (checkFlags.includes('--json')) opts.jsonPath = parseJsonPath(opts.jsonPath)
         }
     } else if (checkFlags.length) {
         throw new UsageError(`Unknown option ${checkFlags[0]}. Run cuttlely --help.`)
