@@ -528,6 +528,55 @@ describe('form, webhook and schedule starts', () => {
         expect(events[59]).toBe('e-01')
     })
 
+    test('two calls that differ only by Authorization are one recorded input', async () => {
+        const body = { event: 'bake', loaf: 'rye' }
+        const stored = (id: string, iso: string) =>
+            execution(
+                {
+                    webhook: {
+                        body,
+                        query: {},
+                        // The webhook route stores Authorization as this placeholder before the execution is saved.
+                        headers: { authorization: '[REDACTED]', 'content-type': 'application/json' }
+                    }
+                },
+                iso,
+                id
+            )
+        stored('auth-older', '2026-10-08T09:00:00Z')
+        stored('auth-newer', '2026-10-08T10:00:00Z')
+        const setup = await getCheckSetup(webhookFlow())
+        expect(setup.pastCount).toBe(1)
+        expect(setup.questions[0].preview).toBe('{"event":"bake","loaf":"rye"}')
+        expect(setup.questions[0].preview).not.toContain('authorization')
+        expect(JSON.stringify(setup.questions)).not.toContain('Bearer')
+    })
+
+    test('a kept non-sensitive header still splits two deliveries that share a body', async () => {
+        const body = { event: 'bake', loaf: 'rye' }
+        const stored = (oven: string, iso: string, id: string) =>
+            execution(
+                {
+                    webhook: {
+                        body,
+                        query: {},
+                        headers: { authorization: '[REDACTED]', 'x-bakery': oven }
+                    }
+                },
+                iso,
+                id
+            )
+        stored('oven-a', '2026-10-08T09:00:00Z', 'oven-a')
+        stored('oven-b', '2026-10-08T10:00:00Z', 'oven-b')
+        const setup = await getCheckSetup(webhookFlow())
+        expect(setup.pastCount).toBe(2)
+        expect(setup.questions.map((q) => q.preview)).toEqual([
+            '{"event":"bake","loaf":"rye"} headers x-bakery: oven-b',
+            '{"event":"bake","loaf":"rye"} headers x-bakery: oven-a'
+        ])
+        expect(JSON.stringify(setup.questions)).not.toContain('Bearer')
+    })
+
     test('questions sent with count are refused for a webhook start', async () => {
         execution(webhookOutput({ event: 'bake' }), '2026-10-08T10:00:00Z', 'one')
         await expect(startCheck(webhookFlow() as any, { count: 4, questions: ['hello'] }, 'http://x')).rejects.toMatchObject({
