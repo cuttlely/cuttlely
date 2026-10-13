@@ -76,7 +76,7 @@ import { CHATFLOW_NEEDS_ENDING_NODE, chatflowCanChat } from '@/utils/chatflowRea
 import { harnessChatBlock, reservedHarnessNameMessage } from '@/utils/harnessChatReady'
 import { nodeMoved } from '@/utils/canvasDirty'
 import { panelNode, panToKeepInView } from '@/utils/canvasLook'
-import { panelStateWhenNodesChange } from '@/views/canvas/cardActions'
+import { dispatchCanvasChanges, panelStateWhenNodesChange } from '@/views/canvas/cardActions'
 import { flowiseCanvasJson } from '@/utils/flowiseImport'
 import { hydrateLangflowFlow, isLangflowExport, langflowToFlowise } from '@/utils/langflowImport'
 import { hydrateRawCanvasNodes, normalizeCanvasFlow, repairFlowEdges, specsByName, stripRawCanvasMarker } from '@/utils/normalizeCanvasFlow'
@@ -167,7 +167,7 @@ const Canvas = () => {
     const pendingLangflow = useRef(null)
     const dragOrigin = useRef(new Map())
     chatflowRef.current = chatflow
-    const { reactFlowInstance, setReactFlowInstance, deleteNode, duplicateNode } = useContext(flowContext)
+    const { reactFlowInstance, setReactFlowInstance, deleteNode, deleteEdge, duplicateNode } = useContext(flowContext)
 
     // ==============================|| Snackbar ||============================== //
 
@@ -179,6 +179,17 @@ const Canvas = () => {
 
     const [nodes, setNodes, onNodesChange] = useNodesState()
     const [edges, setEdges, onEdgesChange] = useEdgesState()
+    // Keyboard Delete and Backspace emit remove changes. Those go through deleteNode and deleteEdge, which mark the
+    // canvas unsaved and clear downstream references. The other change types stay on the React Flow path.
+    const applyingDelete = useRef(false)
+    const handleNodesChange = useCallback(
+        (changes) => dispatchCanvasChanges(changes, { applying: applyingDelete, remove: deleteNode, apply: onNodesChange }),
+        [deleteNode, onNodesChange]
+    )
+    const handleEdgesChange = useCallback(
+        (changes) => dispatchCanvasChanges(changes, { applying: applyingDelete, remove: deleteEdge, apply: onEdgesChange }),
+        [deleteEdge, onEdgesChange]
+    )
 
     const [selectedNode, setSelectedNode] = useState(null)
     const [canvasLook, setCanvasLook] = useCanvasLook()
@@ -1245,10 +1256,10 @@ const Canvas = () => {
                                     <ReactFlow
                                         nodes={nodes}
                                         edges={edges}
-                                        onNodesChange={onNodesChange}
+                                        onNodesChange={handleNodesChange}
                                         onNodeClick={onNodeClick}
                                         onPaneClick={() => setPanelNodeId(null)}
-                                        onEdgesChange={onEdgesChange}
+                                        onEdgesChange={handleEdgesChange}
                                         onDrop={onDrop}
                                         onDragOver={onDragOver}
                                         onNodeDragStart={onNodeDragStart}

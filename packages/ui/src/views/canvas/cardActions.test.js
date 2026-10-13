@@ -4,7 +4,16 @@ import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { ThemeProvider, createTheme } from '@mui/material/styles'
 
-import { actionBarSide, cardActionNames, panelHeaderActions, panelStateWhenNodesChange, showCardActions } from './cardActions'
+import {
+    actionBarSide,
+    applyCanvasChanges,
+    dispatchCanvasChanges,
+    cardActionNames,
+    nodesAfterConnectedDelete,
+    panelHeaderActions,
+    panelStateWhenNodesChange,
+    showCardActions
+} from './cardActions'
 import NodePanelHeader from './NodePanelHeader'
 
 const theme = createTheme({
@@ -120,5 +129,159 @@ describe('settings panel header', () => {
         expect(html).not.toContain('aria-label="Duplicate"')
         expect(html).toContain('aria-label="Delete"')
         expect(html).toContain('aria-label="Close settings"')
+    })
+})
+
+function connectedCanvas() {
+    return {
+        dirty: false,
+        nodes: [
+            { id: 'promptTemplate_0', data: { name: 'promptTemplate', inputs: { template: '' } } },
+            { id: 'promptTemplate_1', data: { name: 'promptTemplate', inputs: { template: '' } } },
+            {
+                id: 'llmChain_0',
+                data: {
+                    name: 'llmChain',
+                    inputAnchors: [{ name: 'tools', list: true }],
+                    inputParams: [{ name: 'prompt', acceptVariable: true }],
+                    inputs: {
+                        prompt: 'Hello {{promptTemplate_0.data.instance}}',
+                        tools: ['{{promptTemplate_0.data.instance}}', '{{promptTemplate_1.data.instance}}', 'keep']
+                    }
+                }
+            },
+            { id: 'startAgentflow_0', data: { name: 'startAgentflow', inputs: {} } }
+        ],
+        edges: [
+            {
+                id: 'e0',
+                source: 'promptTemplate_0',
+                target: 'llmChain_0',
+                targetHandle: 'llmChain_0-input-prompt-string'
+            },
+            {
+                id: 'e0tools',
+                source: 'promptTemplate_0',
+                target: 'llmChain_0',
+                targetHandle: 'llmChain_0-input-tools-array'
+            },
+            {
+                id: 'e1',
+                source: 'promptTemplate_1',
+                target: 'llmChain_0',
+                targetHandle: 'llmChain_0-input-tools-array'
+            }
+        ]
+    }
+}
+
+// The same path both editor canvases use. deleteNode and deleteEdge mark the canvas unsaved and clear references.
+function applyKey(state, nodeChanges, edgeChanges) {
+    const applied = { nodes: [], edges: [] }
+    const deleteNode = (id) => {
+        state.nodes = nodesAfterConnectedDelete(state.nodes, state.edges, id, 'node')
+        state.nodes = state.nodes.filter((node) => node.id !== id)
+        state.edges = state.edges.filter((edge) => edge.source !== id && edge.target !== id)
+        state.dirty = true
+    }
+    const deleteEdge = (id) => {
+        state.nodes = nodesAfterConnectedDelete(state.nodes, state.edges, id, 'edge')
+        state.edges = state.edges.filter((edge) => edge.id !== id)
+        state.dirty = true
+    }
+    applyCanvasChanges(nodeChanges, {
+        remove: deleteNode,
+        apply: (rest) => applied.nodes.push(...rest)
+    })
+    applyCanvasChanges(edgeChanges, {
+        remove: deleteEdge,
+        apply: (rest) => applied.edges.push(...rest)
+    })
+    return applied
+}
+
+describe('keyboard delete on a connected card', () => {
+    test.each(['Delete', 'Backspace'])('%s marks the canvas unsaved and clears the downstream reference', (key) => {
+        const state = connectedCanvas()
+        const applied = applyKey(
+            state,
+            [
+                { type: 'remove', id: 'promptTemplate_0', key },
+                { type: 'position', id: 'llmChain_0', position: { x: 4, y: 8 } }
+            ],
+            [
+                { type: 'remove', id: 'e0', key },
+                { type: 'remove', id: 'e0tools', key }
+            ]
+        )
+        expect(state.dirty).toBe(true)
+        expect(state.nodes.map((node) => node.id)).not.toContain('promptTemplate_0')
+        expect(state.nodes.map((node) => node.id)).toContain('startAgentflow_0')
+        const chain = state.nodes.find((node) => node.id === 'llmChain_0')
+        expect(chain.data.inputs.prompt).toBe('Hello ')
+        expect(JSON.stringify(chain.data.inputs)).not.toContain('promptTemplate_0')
+        expect(chain.data.inputs.tools).toEqual(['{{promptTemplate_1.data.instance}}', 'keep'])
+        expect(applied.nodes).toEqual([{ type: 'position', id: 'llmChain_0', position: { x: 4, y: 8 } }])
+        expect(applied.edges).toEqual([])
+    })
+
+    test('Delete removes every selected card and leaves the start card', () => {
+        const state = connectedCanvas()
+        applyKey(
+            state,
+            [
+                { type: 'remove', id: 'promptTemplate_0' },
+                { type: 'remove', id: 'promptTemplate_1' }
+            ],
+            [
+                { type: 'remove', id: 'e0' },
+                { type: 'remove', id: 'e0tools' },
+                { type: 'remove', id: 'e1' }
+            ]
+        )
+        expect(state.dirty).toBe(true)
+        expect(state.nodes.map((node) => node.id).sort()).toEqual(['llmChain_0', 'startAgentflow_0'])
+        const chain = state.nodes.find((node) => node.id === 'llmChain_0')
+        expect(chain.data.inputs.prompt).toBe('Hello ')
+        expect(chain.data.inputs.tools).toEqual(['keep'])
+        expect(state.edges).toEqual([])
+    })
+
+    test('a delete that updates the canvas does not delete again', () => {
+        const applying = { current: false }
+        const applied = []
+        const removed = []
+        dispatchCanvasChanges([{ type: 'remove', id: 'promptTemplate_0' }], {
+            applying,
+            remove: (id) => {
+                removed.push(id)
+                dispatchCanvasChanges(
+                    [
+                        { type: 'reset', item: { id: 'llmChain_0' } },
+                        { type: 'remove', id: 'e0' }
+                    ],
+                    {
+                        applying,
+                        remove: (nested) => removed.push(nested),
+                        apply: (rest) => applied.push(...rest)
+                    }
+                )
+            },
+            apply: (rest) => applied.push(...rest)
+        })
+        expect(removed).toEqual(['promptTemplate_0'])
+        expect(applied.map((change) => change.type)).toEqual(['reset', 'remove'])
+        expect(applying.current).toBe(false)
+    })
+
+    test('both editor canvases send remove changes through that path', () => {
+        const files = [path.join(__dirname, 'index.jsx'), path.join(__dirname, '../agentflowsv2/Canvas.jsx')]
+        for (const file of files) {
+            const source = fs.readFileSync(file, 'utf8')
+            expect(source).toContain('dispatchCanvasChanges')
+            expect(source).toContain('onNodesChange={handleNodesChange}')
+            expect(source).toContain('onEdgesChange={handleEdgesChange}')
+            expect(source).not.toContain('onNodesChange={onNodesChange}')
+        }
     })
 })

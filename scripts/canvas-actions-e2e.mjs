@@ -111,7 +111,28 @@ async function buildNode(base, cookie, name, id, { label, position }) {
     }
 }
 
-async function createFlow(base, cookie, { name, type, nodes }) {
+function connectNodes(source, target, inputName, edgeType) {
+    const anchor =
+        (target.data.inputAnchors || []).find((item) => item.name === inputName) ||
+        (target.data.inputParams || []).find((item) => item.name === inputName)
+    const targetHandle = anchor?.id || `${target.id}-input-${inputName}`
+    const sourceAnchor = source.data.outputAnchors?.[0]
+    const sourceHandle = sourceAnchor?.options?.[0]?.id || sourceAnchor?.id
+    const param = (target.data.inputParams || []).find((item) => item.name === inputName)
+    if (param?.acceptVariable && target.data.inputs) {
+        target.data.inputs[inputName] = `{{${source.id}.data.instance}}`
+    }
+    return {
+        id: `${source.id}-${target.id}-${inputName}`,
+        source: source.id,
+        target: target.id,
+        sourceHandle,
+        targetHandle,
+        type: edgeType
+    }
+}
+
+async function createFlow(base, cookie, { name, type, nodes, edges = [] }) {
     const created = await request(`${base}/api/v1/chatflows`, {
         method: 'POST',
         cookie,
@@ -119,7 +140,7 @@ async function createFlow(base, cookie, { name, type, nodes }) {
             name,
             type,
             deployed: false,
-            flowData: JSON.stringify({ nodes, edges: [], viewport: { x: 0, y: 0, zoom: 0.9 } })
+            flowData: JSON.stringify({ nodes, edges, viewport: { x: 0, y: 0, zoom: 0.9 } })
         }
     })
     if (created.status !== 200) throw new Error(`create ${type} ${created.status}: ${created.text.slice(0, 300)}`)
@@ -139,11 +160,12 @@ async function signIn(page, base) {
     await page.evaluate(() => window.localStorage.setItem('cuttlely.canvasLook', 'panel'))
 }
 
-async function exercise(page, base, { route, nodeId }) {
+async function exercise(page, base, { route, nodeId, connectedId, flowName }) {
     await page.goto(`${base}${route}`, { waitUntil: 'domcontentloaded' })
     const card = page.locator(`.react-flow__node[data-id="${nodeId}"]`)
     await card.waitFor({ timeout: 20000 })
     await page.waitForTimeout(500)
+    if (connectedId) await checkConnectedBackspace(page, connectedId, flowName)
     const before = await page.locator('.react-flow__node').count()
     const box = await card.boundingBox()
     if (!box) throw new Error(`${nodeId} has no box`)
@@ -297,6 +319,39 @@ async function checkBackspaceInField(page, panel, nodeId) {
     if ((await panel.count()) === 0) throw new Error(`${nodeId} Backspace in a panel field closed the panel`)
 }
 
+async function canvasUnsaved(page, flowName) {
+    return page.evaluate((name) => {
+        const titles = [...document.querySelectorAll('.MuiTypography-root')].filter((el) => {
+            const text = el.textContent.replace(/\s+/g, ' ').trim()
+            return text === name || text === `* ${name}`
+        })
+        return titles.some((el) => el.textContent.includes('*'))
+    }, flowName)
+}
+
+async function checkConnectedBackspace(page, nodeId, flowName) {
+    if (await canvasUnsaved(page, flowName)) throw new Error(`${nodeId} canvas was already unsaved`)
+    const card = page.locator(`.react-flow__node[data-id="${nodeId}"]`)
+    await card.waitFor({ timeout: 10000 })
+    const box = await card.boundingBox()
+    if (!box) throw new Error(`${nodeId} connected card has no box`)
+    await card.click({ position: { x: Math.min(30, box.width / 2), y: Math.min(16, box.height / 2) } })
+    const panel = page.getByTestId('node-side-panel')
+    await panel.waitFor({ timeout: 10000 })
+    await panel.getByTestId('close-settings').click()
+    await page.waitForTimeout(200)
+    if ((await panel.count()) !== 0) throw new Error(`${nodeId} panel stayed open before Backspace`)
+    const before = await page.locator('.react-flow__node').count()
+    await page.keyboard.press('Backspace')
+    await page.waitForTimeout(400)
+    const after = await page.locator('.react-flow__node').count()
+    if (after !== before - 1) throw new Error(`${nodeId} Backspace left ${after} cards, expected ${before - 1}`)
+    if ((await page.locator(`.react-flow__node[data-id="${nodeId}"]`).count()) !== 0) {
+        throw new Error(`${nodeId} Backspace left the connected card`)
+    }
+    if (!(await canvasUnsaved(page, flowName))) throw new Error(`${nodeId} Backspace did not mark the canvas unsaved`)
+}
+
 async function checkCanvasBackspace(page, card, nodeId) {
     const panel = page.getByTestId('node-side-panel')
     if ((await panel.count()) !== 0) throw new Error(`${nodeId} panel was open for canvas Backspace`)
@@ -378,7 +433,17 @@ async function prepareFlows(base, cookie) {
         label: 'Daily bread prompt',
         position: { x: 160, y: 140 }
     })
-    const chat = await createFlow(base, cookie, { name: 'canvas actions chat', type: 'CHATFLOW', nodes: [prompt] })
+    const extraPrompt = await buildNode(base, cookie, 'promptTemplate', 'promptTemplate_1', {
+        label: 'Connected prompt',
+        position: { x: 520, y: 140 }
+    })
+    const chatEdge = connectNodes(extraPrompt, prompt, 'template', 'buttonedge')
+    const chat = await createFlow(base, cookie, {
+        name: 'canvas actions chat',
+        type: 'CHATFLOW',
+        nodes: [prompt, extraPrompt],
+        edges: [chatEdge]
+    })
     const start = await buildNode(base, cookie, 'startAgentflow', 'startAgentflow_0', {
         label: 'Start',
         position: { x: 80, y: 160 }
@@ -389,10 +454,18 @@ async function prepareFlows(base, cookie) {
         position: { x: 420, y: 160 }
     })
     reply.type = 'agentFlow'
+    const extraReply = await buildNode(base, cookie, 'directReplyAgentflow', 'directReplyAgentflow_1', {
+        label: 'Connected reply',
+        position: { x: 760, y: 160 }
+    })
+    extraReply.type = 'agentFlow'
+    const replyInput = (reply.data.inputParams || []).find((item) => item.acceptVariable) || reply.data.inputParams?.[0]
+    const flowEdge = connectNodes(extraReply, reply, replyInput?.name || 'message', 'agentFlow')
     const flow = await createFlow(base, cookie, {
         name: 'canvas actions workflow',
         type: 'AGENTFLOW',
-        nodes: [start, reply]
+        nodes: [start, reply, extraReply],
+        edges: [flowEdge]
     })
     return { chat, flow }
 }
@@ -416,9 +489,19 @@ export async function runCanvasActions(base) {
     const page = await browser.newPage({ viewport: { width: 1280, height: 800 } })
     try {
         await signIn(page, base)
-        await exercise(page, base, { route: `/canvas/${flows.chat.id}`, nodeId: 'promptTemplate_0' })
+        await exercise(page, base, {
+            route: `/canvas/${flows.chat.id}`,
+            nodeId: 'promptTemplate_0',
+            connectedId: 'promptTemplate_1',
+            flowName: 'canvas actions chat'
+        })
         console.log('chatflow canvas actions ok')
-        await exercise(page, base, { route: `/v2/agentcanvas/${flows.flow.id}`, nodeId: 'directReplyAgentflow_0' })
+        await exercise(page, base, {
+            route: `/v2/agentcanvas/${flows.flow.id}`,
+            nodeId: 'directReplyAgentflow_0',
+            connectedId: 'directReplyAgentflow_1',
+            flowName: 'canvas actions workflow'
+        })
         console.log('workflow canvas actions ok')
     } finally {
         await browser.close()

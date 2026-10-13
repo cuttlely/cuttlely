@@ -236,6 +236,6 @@ Duplicate and Delete sit on the card while the pointer is over it and while the 
 
 The bar stays above the card until that place would leave it above the visible canvas or under a floating canvas button. It then sits below the card, so the buttons stay fully visible and clickable. The row touches the card, including the space between the buttons and the card, so moving onto Duplicate or Delete does not close the row. Deleting the card whose panel is open clears that panel on every canvas. A later card that reuses the id does not open on the deleted settings. A template preview ignores Delete and Backspace.
 
-On the chatflow, harness, pipeline, and workflow canvases, Backspace removes the selected card when focus is on the canvas, the same way Delete does. A canvas dialog still turns that shortcut off. Backspace inside a focused panel field only edits that field.
+On the chatflow, harness, pipeline, and workflow canvases, Backspace removes the selected card when focus is on the canvas, the same way Delete does. A canvas dialog still turns that shortcut off. Backspace inside a focused panel field only edits that field. Both keys delete through the same path as the Delete button, so the canvas is marked unsaved and a downstream card loses the removed card's input reference. Several selected cards go in one key press. A template preview and a saved version still cannot be deleted.
 
 Why: the actions were easy to miss, and the close icon used a color that disappeared on a dark panel.

@@ -35,6 +35,78 @@ export function actionBarSide({ card, bar, canvas, overlays = [], gap = 4 } = {}
     return 'above'
 }
 
+// A keyboard Delete or Backspace arrives as React Flow remove changes. Those must go through deleteNode and
+// deleteEdge. Applying the remove change itself only updates the canvas list.
+export function applyCanvasChanges(changes, { remove, apply } = {}) {
+    const rest = []
+    for (const change of changes || []) {
+        if (change && change.type === 'remove') {
+            if (change.id != null) remove?.(change.id)
+        } else if (change) rest.push(change)
+    }
+    if (rest.length) apply?.(rest)
+    return rest
+}
+
+// deleteNode and deleteEdge call back into this handler. Changes from that call update the list. They must not
+// call delete again.
+export function dispatchCanvasChanges(changes, { applying, remove, apply } = {}) {
+    if (applying?.current) {
+        apply?.(changes)
+        return
+    }
+    applyCanvasChanges(changes, {
+        remove: (id) => {
+            if (applying) applying.current = true
+            try {
+                remove?.(id)
+            } finally {
+                if (applying) applying.current = false
+            }
+        },
+        apply
+    })
+}
+
+// Drop {{sourceId.data.instance}} (and a list entry that names that id) from the cards a removed node or edge fed.
+export function nodesAfterConnectedDelete(nodes, edges, id, type) {
+    const list = Array.isArray(nodes) ? nodes : []
+    const allEdges = Array.isArray(edges) ? edges : []
+    const connected =
+        type === 'node' ? allEdges.filter((edge) => edge && edge.source === id) : allEdges.filter((edge) => edge && edge.id === id)
+    if (!connected.length) return list
+    let next = list
+    for (const edge of connected) {
+        const targetInput = String(edge.targetHandle || '').split('-')[2]
+        const sourceNodeId = edge.source
+        next = next.map((node) => {
+            if (!node || node.id !== edge.target) return node
+            const inputAnchor = (node.data?.inputAnchors || []).find((anchor) => anchor.name === targetInput)
+            const inputParam = (node.data?.inputParams || []).find((param) => param.name === targetInput)
+            let value
+            if (inputAnchor && inputAnchor.list) {
+                const values = node.data.inputs?.[targetInput] || []
+                value = values.filter((item) => !item.includes(sourceNodeId))
+            } else if (inputParam && inputParam.acceptVariable) {
+                value = node.data.inputs[targetInput].replace(`{{${sourceNodeId}.data.instance}}`, '') || ''
+            } else {
+                value = ''
+            }
+            return {
+                ...node,
+                data: {
+                    ...node.data,
+                    inputs: {
+                        ...(node.data?.inputs || {}),
+                        [targetInput]: value
+                    }
+                }
+            }
+        })
+    }
+    return next
+}
+
 // The open panel must not survive its card. A new card can reuse that id, and would otherwise open on the deleted settings.
 export function panelStateWhenNodesChange({ panelNodeId = null, panelProps = {}, nodes } = {}) {
     if (!panelNodeId) return { panelNodeId: null, panelProps: panelProps || {} }

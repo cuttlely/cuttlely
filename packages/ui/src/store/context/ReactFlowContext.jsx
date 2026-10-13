@@ -2,6 +2,7 @@ import { createContext, useState } from 'react'
 import { useDispatch } from 'react-redux'
 import PropTypes from 'prop-types'
 import { getUniqueNodeId, showHideInputParams } from '@/utils/genericHelper'
+import { nodesAfterConnectedDelete } from '@/views/canvas/cardActions'
 import { cloneDeep, isEqual } from 'lodash'
 import { SET_DIRTY } from '@/store/actions'
 
@@ -131,48 +132,15 @@ export const ReactFlowContext = ({ children }) => {
 
     const deleteEdge = (edgeid) => {
         deleteConnectedInput(edgeid, 'edge')
-        reactFlowInstance.setEdges(reactFlowInstance.getEdges().filter((edge) => edge.id !== edgeid))
+        reactFlowInstance.setEdges((edges) => edges.filter((edge) => edge.id !== edgeid))
         dispatch({ type: SET_DIRTY })
     }
 
     const deleteConnectedInput = (id, type) => {
-        const connectedEdges =
-            type === 'node'
-                ? reactFlowInstance.getEdges().filter((edge) => edge.source === id)
-                : reactFlowInstance.getEdges().filter((edge) => edge.id === id)
-
-        for (const edge of connectedEdges) {
-            const targetNodeId = edge.target
-            const sourceNodeId = edge.source
-            const targetInput = edge.targetHandle.split('-')[2]
-
-            reactFlowInstance.setNodes((nds) =>
-                nds.map((node) => {
-                    if (node.id === targetNodeId) {
-                        let value
-                        const inputAnchor = node.data.inputAnchors.find((ancr) => ancr.name === targetInput)
-                        const inputParam = node.data.inputParams.find((param) => param.name === targetInput)
-
-                        if (inputAnchor && inputAnchor.list) {
-                            const values = node.data.inputs[targetInput] || []
-                            value = values.filter((item) => !item.includes(sourceNodeId))
-                        } else if (inputParam && inputParam.acceptVariable) {
-                            value = node.data.inputs[targetInput].replace(`{{${sourceNodeId}.data.instance}}`, '') || ''
-                        } else {
-                            value = ''
-                        }
-                        node.data = {
-                            ...node.data,
-                            inputs: {
-                                ...node.data.inputs,
-                                [targetInput]: value
-                            }
-                        }
-                    }
-                    return node
-                })
-            )
-        }
+        const edges = reactFlowInstance.getEdges()
+        const connected = type === 'node' ? edges.some((edge) => edge.source === id) : edges.some((edge) => edge.id === id)
+        if (!connected) return
+        reactFlowInstance.setNodes((nds) => nodesAfterConnectedDelete(nds, edges, id, type))
     }
 
     const duplicateNode = (id, distance = 50) => {

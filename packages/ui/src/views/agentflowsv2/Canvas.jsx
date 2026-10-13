@@ -46,7 +46,7 @@ import useApi from '@/hooks/useApi'
 import useConfirm from '@/hooks/useConfirm'
 import useCanvasLook from '@/hooks/useCanvasLook'
 import { isNewLook, panelNode } from '@/utils/canvasLook'
-import { panelStateWhenNodesChange } from '@/views/canvas/cardActions'
+import { dispatchCanvasChanges, panelStateWhenNodesChange } from '@/views/canvas/cardActions'
 
 // icons
 import {
@@ -109,7 +109,7 @@ const AgentflowCanvas = () => {
         draftStatusRef.current = status
         setDraftStatusState(status)
     }
-    const { reactFlowInstance, setReactFlowInstance } = useContext(flowContext)
+    const { reactFlowInstance, setReactFlowInstance, deleteNode, deleteEdge } = useContext(flowContext)
     // Build with AI: starter questions wait here until the first save puts them in the chat settings.
     const builderStartersRef = useRef([])
     const [builtResult, setBuiltResult] = useState(null)
@@ -123,12 +123,23 @@ const AgentflowCanvas = () => {
     // ==============================|| ReactFlow ||============================== //
 
     const [nodes, setNodes, onNodesChange] = useNodesState()
+    // Keyboard Delete and Backspace emit remove changes. Those go through deleteNode and deleteEdge. The pipeline
+    // canvas uses the chatflow handler, which does the same.
     // New look: a click on a card opens its settings in a side panel instead of the dialog.
     const [canvasLook, setCanvasLook] = useCanvasLook()
     const newLook = isNewLook(canvasLook)
     const [panelNodeId, setPanelNodeId] = useState(null)
     const [panelProps, setPanelProps] = useState({})
     const [edges, setEdges, onEdgesChange] = useEdgesState()
+    const applyingDelete = useRef(false)
+    const handleNodesChange = useCallback(
+        (changes) => dispatchCanvasChanges(changes, { applying: applyingDelete, remove: deleteNode, apply: onNodesChange }),
+        [deleteNode, onNodesChange]
+    )
+    const handleEdgesChange = useCallback(
+        (changes) => dispatchCanvasChanges(changes, { applying: applyingDelete, remove: deleteEdge, apply: onEdgesChange }),
+        [deleteEdge, onEdgesChange]
+    )
 
     const isScheduleFlow = useMemo(() => {
         if (!nodes || nodes.length === 0) return false
@@ -978,11 +989,11 @@ const AgentflowCanvas = () => {
                                     <ReactFlow
                                         nodes={nodes}
                                         edges={edges}
-                                        onNodesChange={onNodesChange}
+                                        onNodesChange={handleNodesChange}
                                         onNodeClick={onNodeClick}
                                         onNodeDoubleClick={onNodeDoubleClick}
                                         onPaneClick={() => setPanelNodeId(null)}
-                                        onEdgesChange={onEdgesChange}
+                                        onEdgesChange={handleEdgesChange}
                                         onDrop={onDrop}
                                         onDragOver={onDragOver}
                                         onNodeDragStop={setDirty}
