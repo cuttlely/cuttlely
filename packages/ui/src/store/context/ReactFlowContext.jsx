@@ -178,7 +178,8 @@ export const ReactFlowContext = ({ children }) => {
     const duplicateNode = (id, distance = 50) => {
         const nodes = reactFlowInstance.getNodes()
         const originalNode = nodes.find((n) => n.id === id)
-        if (originalNode) {
+        // The start card of a workflow cannot be copied.
+        if (originalNode && originalNode.data?.name !== 'startAgentflow') {
             const newNodeId = getUniqueNodeId(originalNode.data, nodes)
             const clonedNode = cloneDeep(originalNode)
 
@@ -239,9 +240,20 @@ export const ReactFlowContext = ({ children }) => {
                 }
             }
 
-            reactFlowInstance.setNodes([...nodes, duplicatedNode])
+            duplicatedNode.selected = true
+            duplicatedNode.data.selected = true
+            // Select the copy so Delete from the keyboard hits the new card, not the one it was copied from.
+            const rest = nodes.map((node) => ({
+                ...node,
+                selected: false,
+                data: node.data ? { ...node.data, selected: false } : node.data
+            }))
+            reactFlowInstance.setNodes([...rest, duplicatedNode])
             dispatch({ type: SET_DIRTY })
+            // The id and the card data. The canvas list may not include the copy until the next render.
+            return { id: newNodeId, data: duplicatedNode.data }
         }
+        return null
     }
 
     return (

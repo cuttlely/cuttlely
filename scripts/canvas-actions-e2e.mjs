@@ -1,0 +1,276 @@
+// Duplicate, delete, and close the settings panel on the chatflow and workflow canvases.
+// Boots the built server unless E2E_BASE_URL is already set. Demo data only. Prints no password.
+import { spawnSync } from 'node:child_process'
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
+import { createRequire } from 'node:module'
+import { fileURLToPath, pathToFileURL } from 'node:url'
+import { freePort, request, startServer, waitForPing } from './smoke-server.mjs'
+
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
+const require = createRequire(path.join(ROOT, 'package.json'))
+const PASSWORD = 'CanvasActions1!'
+const EMAIL = 'canvas-actions@example.com'
+const PARAM_TYPES = new Set([
+    'asyncOptions',
+    'asyncMultiOptions',
+    'options',
+    'multiOptions',
+    'array',
+    'datagrid',
+    'string',
+    'number',
+    'boolean',
+    'password',
+    'json',
+    'code',
+    'date',
+    'file',
+    'folder',
+    'tabs'
+])
+
+function launchBrowser() {
+    const { chromium } = require('playwright')
+    const args = ['--no-sandbox', '--disable-dev-shm-usage']
+    const attempts = [() => chromium.launch({ channel: 'chrome', args }), () => chromium.launch({ args })]
+    return (async () => {
+        let last
+        for (const attempt of attempts) {
+            try {
+                return await attempt()
+            } catch (error) {
+                last = error
+            }
+        }
+        const cli = path.join(ROOT, 'node_modules', 'playwright', 'cli.js')
+        const install = spawnSync(process.execPath, [cli, 'install', 'chromium'], {
+            cwd: ROOT,
+            stdio: 'inherit'
+        })
+        if (install.status !== 0) throw last
+        return chromium.launch({ args })
+    })()
+}
+
+async function buildNode(base, cookie, name, id, { label, position }) {
+    const def = await request(`${base}/api/v1/nodes/${name}`, { cookie })
+    if (def.status !== 200) throw new Error(`node ${name} ${def.status}: ${def.text.slice(0, 200)}`)
+    const spec = JSON.parse(def.text)
+    const inputParams = []
+    const inputAnchors = []
+    const defaults = {}
+    for (const input of spec.inputs || []) {
+        const entry = { ...input, id: `${id}-input-${input.name}-${input.type}` }
+        if (PARAM_TYPES.has(input.type)) inputParams.push(entry)
+        else inputAnchors.push(entry)
+        defaults[input.name] = input.default ?? ''
+    }
+    let outputAnchors
+    let outputs = {}
+    if (spec.outputs?.length) {
+        const options = spec.outputs.map((output) => ({
+            id: `${id}-output-${output.name}-${(output.baseClasses || []).join('|')}`,
+            name: output.name,
+            label: output.label,
+            type: (output.baseClasses || []).join(' | ')
+        }))
+        outputAnchors = [{ name: 'output', label: 'Output', type: 'options', options, default: spec.outputs[0].name }]
+        outputs = { output: spec.outputs[0].name }
+    } else {
+        outputAnchors = [
+            {
+                id: `${id}-output-${spec.name}-${(spec.baseClasses || []).join('|')}`,
+                name: spec.name,
+                label: spec.type,
+                type: (spec.baseClasses || []).join(' | ')
+            }
+        ]
+    }
+    return {
+        id,
+        position,
+        type: 'customNode',
+        data: {
+            id,
+            label: label || spec.label,
+            version: spec.version,
+            name: spec.name,
+            type: spec.type,
+            baseClasses: spec.baseClasses,
+            category: spec.category,
+            description: spec.description,
+            inputParams,
+            inputAnchors,
+            inputs: defaults,
+            outputAnchors,
+            outputs,
+            selected: false
+        }
+    }
+}
+
+async function createFlow(base, cookie, { name, type, nodes }) {
+    const created = await request(`${base}/api/v1/chatflows`, {
+        method: 'POST',
+        cookie,
+        body: {
+            name,
+            type,
+            deployed: false,
+            flowData: JSON.stringify({ nodes, edges: [], viewport: { x: 0, y: 0, zoom: 0.9 } })
+        }
+    })
+    if (created.status !== 200) throw new Error(`create ${type} ${created.status}: ${created.text.slice(0, 300)}`)
+    return JSON.parse(created.text)
+}
+
+async function signIn(page, base) {
+    await page.goto(`${base}/signin`, { waitUntil: 'domcontentloaded' })
+    const form = page
+        .locator('form')
+        .filter({ has: page.locator('input[type=password]') })
+        .first()
+    await form.locator('input').first().fill(EMAIL)
+    await form.locator('input[type=password]').fill(PASSWORD)
+    await form.getByRole('button', { name: /^Sign in( with password)?$/ }).click()
+    await page.waitForURL((url) => !url.pathname.startsWith('/signin'), { timeout: 20000 })
+    await page.evaluate(() => window.localStorage.setItem('cuttlely.canvasLook', 'panel'))
+}
+
+async function exercise(page, base, { route, nodeId }) {
+    await page.goto(`${base}${route}`, { waitUntil: 'domcontentloaded' })
+    const card = page.locator(`.react-flow__node[data-id="${nodeId}"]`)
+    await card.waitFor({ timeout: 20000 })
+    await page.waitForTimeout(500)
+    const before = await page.locator('.react-flow__node').count()
+    const box = await card.boundingBox()
+    if (!box) throw new Error(`${nodeId} has no box`)
+    await page.mouse.move(box.x + Math.min(24, box.width / 2), box.y + Math.min(20, box.height / 2))
+    await page.waitForTimeout(300)
+    const hoverBar = card.locator('[data-testid="card-actions"]')
+    if ((await hoverBar.count()) !== 1) throw new Error(`${nodeId} toolbar is missing on hover`)
+
+    await card.click({ position: { x: Math.min(30, box.width / 2), y: Math.min(16, box.height / 2) } })
+    const panel = page.getByTestId('node-side-panel')
+    await panel.waitFor({ timeout: 10000 })
+    if ((await card.locator('[data-testid="card-actions"]').count()) !== 1) {
+        throw new Error(`${nodeId} toolbar is missing while the panel is open`)
+    }
+    await panel.getByTestId('panel-duplicate').click()
+    await page.waitForTimeout(400)
+    const afterCopy = await page.locator('.react-flow__node').count()
+    if (afterCopy !== before + 1) throw new Error(`${nodeId} duplicate left ${afterCopy} cards, expected ${before + 1}`)
+    if ((await page.locator(`.react-flow__node[data-id="${nodeId}"]`).count()) !== 1) {
+        throw new Error(`${nodeId} duplicate removed the original card`)
+    }
+    // The panel moves onto the copy, so Delete removes the copy and leaves the original.
+    if ((await panel.getByText(nodeId, { exact: true }).count()) !== 0) {
+        throw new Error(`${nodeId} panel stayed on the original card after duplicate`)
+    }
+
+    await panel.getByTestId('panel-delete').click()
+    await page.waitForTimeout(400)
+    const afterDelete = await page.locator('.react-flow__node').count()
+    if (afterDelete !== before) throw new Error(`${nodeId} delete left ${afterDelete} cards, expected ${before}`)
+    if ((await page.locator(`.react-flow__node[data-id="${nodeId}"]`).count()) !== 1) {
+        throw new Error(`${nodeId} delete removed the original card`)
+    }
+    if ((await panel.count()) !== 0) throw new Error(`${nodeId} panel stayed open after delete`)
+
+    await card.click({ position: { x: Math.min(30, box.width / 2), y: Math.min(16, box.height / 2) } })
+    await panel.waitFor({ timeout: 10000 })
+    await panel.getByTestId('close-settings').click()
+    await page.waitForTimeout(300)
+    if ((await panel.count()) !== 0) throw new Error(`${nodeId} close button left the panel open`)
+
+    await card.click({ position: { x: Math.min(30, box.width / 2), y: Math.min(16, box.height / 2) } })
+    await panel.waitFor({ timeout: 10000 })
+    await page.keyboard.press('Escape')
+    await page.waitForTimeout(300)
+    if ((await panel.count()) !== 0) throw new Error(`${nodeId} Escape left the panel open`)
+}
+
+async function prepareFlows(base, cookie) {
+    const prompt = await buildNode(base, cookie, 'promptTemplate', 'promptTemplate_0', {
+        label: 'Daily bread prompt',
+        position: { x: 160, y: 140 }
+    })
+    const chat = await createFlow(base, cookie, { name: 'canvas actions chat', type: 'CHATFLOW', nodes: [prompt] })
+    const start = await buildNode(base, cookie, 'startAgentflow', 'startAgentflow_0', {
+        label: 'Start',
+        position: { x: 80, y: 160 }
+    })
+    start.type = 'agentFlow'
+    const reply = await buildNode(base, cookie, 'directReplyAgentflow', 'directReplyAgentflow_0', {
+        label: 'Reply',
+        position: { x: 420, y: 160 }
+    })
+    reply.type = 'agentFlow'
+    const flow = await createFlow(base, cookie, {
+        name: 'canvas actions workflow',
+        type: 'AGENTFLOW',
+        nodes: [start, reply]
+    })
+    return { chat, flow }
+}
+
+export async function runCanvasActions(base) {
+    const registered = await request(`${base}/api/v1/account/register`, {
+        method: 'POST',
+        body: { user: { name: 'Canvas Actions', email: EMAIL, credential: PASSWORD } }
+    })
+    if (registered.status !== 200 && registered.status !== 404) {
+        throw new Error(`register ${registered.status}: ${registered.text.slice(0, 200)}`)
+    }
+    const loggedIn = await request(`${base}/api/v1/auth/login`, {
+        method: 'POST',
+        body: { email: EMAIL, password: PASSWORD }
+    })
+    if (loggedIn.status !== 200 || !loggedIn.cookie) throw new Error(`login ${loggedIn.status}`)
+    const flows = await prepareFlows(base, loggedIn.cookie)
+
+    const browser = await launchBrowser()
+    const page = await browser.newPage({ viewport: { width: 1280, height: 800 } })
+    try {
+        await signIn(page, base)
+        await exercise(page, base, { route: `/canvas/${flows.chat.id}`, nodeId: 'promptTemplate_0' })
+        console.log('chatflow canvas actions ok')
+        await exercise(page, base, { route: `/v2/agentcanvas/${flows.flow.id}`, nodeId: 'directReplyAgentflow_0' })
+        console.log('workflow canvas actions ok')
+    } finally {
+        await browser.close()
+    }
+}
+
+async function main() {
+    if (process.env.E2E_BASE_URL) {
+        await runCanvasActions(process.env.E2E_BASE_URL.replace(/\/$/, ''))
+        return
+    }
+    if (!fs.existsSync(path.join(ROOT, 'packages', 'server', 'dist', 'commands'))) {
+        throw new Error('packages/server/dist is missing. The verify build step has to run before this test.')
+    }
+    if (!fs.existsSync(path.join(ROOT, 'packages', 'ui', 'build', 'index.html'))) {
+        throw new Error('packages/ui/build is missing. The verify build step has to run before this test.')
+    }
+    const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cuttlely-canvas-actions-'))
+    const port = await freePort()
+    const base = `http://127.0.0.1:${port}`
+    const { child, logs, stop } = startServer(dataDir, port, { CUTTLELY_LOCAL_ADMIN: 'true' })
+    try {
+        await waitForPing(base, child, logs)
+        await runCanvasActions(base)
+    } finally {
+        stop()
+        fs.rmSync(dataDir, { recursive: true, force: true })
+    }
+}
+
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+    main().catch((error) => {
+        console.error(error instanceof Error ? error.stack || error.message : String(error))
+        process.exit(1)
+    })
+}

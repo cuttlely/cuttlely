@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useRef, useContext } from 'react'
+import { useEffect, useState, useCallback, useRef, useContext, useMemo } from 'react'
 import ReactFlow, { Controls, Background, useNodesState, useEdgesState } from 'reactflow'
 import 'reactflow/dist/style.css'
 import '@/views/canvas/index.css'
@@ -45,7 +45,9 @@ const MarketplaceCanvasV2 = () => {
     const [isBackgroundEnabled, setIsBackgroundEnabled] = useState(true)
 
     const reactFlowWrapper = useRef(null)
-    const { setReactFlowInstance } = useContext(flowContext)
+    const parentFlow = useContext(flowContext)
+    const { setReactFlowInstance } = parentFlow
+    const readOnlyFlow = useMemo(() => ({ ...parentFlow, readOnly: true, deleteNode: () => {}, duplicateNode: () => {} }), [parentFlow])
 
     // ==============================|| useEffect ||============================== //
 
@@ -102,61 +104,63 @@ const MarketplaceCanvasV2 = () => {
                     </Toolbar>
                 </AppBar>
                 <Box sx={{ pt: '70px', height: '100vh', width: '100%' }}>
-                    <div className='reactflow-parent-wrapper'>
-                        <div className='reactflow-wrapper' ref={reactFlowWrapper}>
-                            <ReactFlow
-                                nodes={nodes}
-                                edges={edges}
-                                onNodesChange={onNodesChange}
-                                onEdgesChange={onEdgesChange}
-                                onNodeDoubleClick={onNodeDoubleClick}
-                                onInit={setReactFlowInstance}
-                                nodeTypes={nodeTypes}
-                                edgeTypes={edgeTypes}
-                                fitView
-                                minZoom={0.1}
-                                snapGrid={[25, 25]}
-                                snapToGrid={isSnappingEnabled}
-                            >
-                                <Controls
-                                    className={customization.isDarkMode ? 'dark-mode-controls' : ''}
-                                    style={{
-                                        display: 'flex',
-                                        flexDirection: 'row',
-                                        left: '50%',
-                                        transform: 'translate(-50%, -50%)'
-                                    }}
+                    <flowContext.Provider value={readOnlyFlow}>
+                        <div className='reactflow-parent-wrapper'>
+                            <div className='reactflow-wrapper' ref={reactFlowWrapper}>
+                                <ReactFlow
+                                    nodes={nodes}
+                                    edges={edges}
+                                    onNodesChange={onNodesChange}
+                                    onEdgesChange={onEdgesChange}
+                                    onNodeDoubleClick={onNodeDoubleClick}
+                                    onInit={setReactFlowInstance}
+                                    nodeTypes={nodeTypes}
+                                    edgeTypes={edgeTypes}
+                                    fitView
+                                    minZoom={0.1}
+                                    snapGrid={[25, 25]}
+                                    snapToGrid={isSnappingEnabled}
                                 >
-                                    <button
-                                        className='react-flow__controls-button react-flow__controls-interactive'
-                                        onClick={() => {
-                                            setIsSnappingEnabled(!isSnappingEnabled)
+                                    <Controls
+                                        className={customization.isDarkMode ? 'dark-mode-controls' : ''}
+                                        style={{
+                                            display: 'flex',
+                                            flexDirection: 'row',
+                                            left: '50%',
+                                            transform: 'translate(-50%, -50%)'
                                         }}
-                                        title='toggle snapping'
-                                        aria-label='toggle snapping'
                                     >
-                                        {isSnappingEnabled ? <IconMagnetFilled /> : <IconMagnetOff />}
-                                    </button>
-                                    <button
-                                        className='react-flow__controls-button react-flow__controls-interactive'
-                                        onClick={() => {
-                                            setIsBackgroundEnabled(!isBackgroundEnabled)
-                                        }}
-                                        title='toggle background'
-                                        aria-label='toggle background'
-                                    >
-                                        {isBackgroundEnabled ? <IconArtboard /> : <IconArtboardOff />}
-                                    </button>
-                                </Controls>
-                                {isBackgroundEnabled && <Background color='#aaa' gap={16} />}
-                                <EditNodeDialog
-                                    show={editNodeDialogOpen}
-                                    dialogProps={editNodeDialogProps}
-                                    onCancel={() => setEditNodeDialogOpen(false)}
-                                />
-                            </ReactFlow>
+                                        <button
+                                            className='react-flow__controls-button react-flow__controls-interactive'
+                                            onClick={() => {
+                                                setIsSnappingEnabled(!isSnappingEnabled)
+                                            }}
+                                            title='toggle snapping'
+                                            aria-label='toggle snapping'
+                                        >
+                                            {isSnappingEnabled ? <IconMagnetFilled /> : <IconMagnetOff />}
+                                        </button>
+                                        <button
+                                            className='react-flow__controls-button react-flow__controls-interactive'
+                                            onClick={() => {
+                                                setIsBackgroundEnabled(!isBackgroundEnabled)
+                                            }}
+                                            title='toggle background'
+                                            aria-label='toggle background'
+                                        >
+                                            {isBackgroundEnabled ? <IconArtboard /> : <IconArtboardOff />}
+                                        </button>
+                                    </Controls>
+                                    {isBackgroundEnabled && <Background color='#aaa' gap={16} />}
+                                    <EditNodeDialog
+                                        show={editNodeDialogOpen}
+                                        dialogProps={editNodeDialogProps}
+                                        onCancel={() => setEditNodeDialogOpen(false)}
+                                    />
+                                </ReactFlow>
+                            </div>
                         </div>
-                    </div>
+                    </flowContext.Provider>
                 </Box>
             </Box>
         </>

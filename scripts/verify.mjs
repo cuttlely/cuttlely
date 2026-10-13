@@ -154,7 +154,8 @@ const STEPS = [
             'src/views/serversettings',
             'src/views/serversetup',
             'src/layout/MainLayout/Sidebar/MenuList/activeRoute.test.js',
-            'src/views/evaluations/evaluationFlows.test.js'
+            'src/views/evaluations/evaluationFlows.test.js',
+            'src/views/canvas/cardActions.test.js'
         ],
         env: { CI: 'true' }
     },
@@ -217,6 +218,13 @@ const STEPS = [
         fast: false,
         command: process.execPath,
         args: [path.join(ROOT, 'scripts', 'handoff-paths.mjs')]
+    },
+    {
+        // Duplicate, delete, and close on the chatflow and workflow canvases, in a real browser.
+        name: 'canvas-actions',
+        fast: false,
+        command: process.execPath,
+        args: [path.join(ROOT, 'scripts', 'canvas-actions-e2e.mjs')]
     },
     {
         name: 'smoke',

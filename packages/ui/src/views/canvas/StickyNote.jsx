@@ -1,5 +1,5 @@
 import PropTypes from 'prop-types'
-import { useContext, useState, memo } from 'react'
+import { memo } from 'react'
 import { useSelector } from 'react-redux'
 
 // material-ui
@@ -7,32 +7,19 @@ import { useTheme, darken, lighten } from '@mui/material/styles'
 
 // project imports
 import NodeCardWrapper from '@/ui-component/cards/NodeCardWrapper'
-import NodeTooltip from '@/ui-component/tooltip/NodeTooltip'
-import { IconButton, Box } from '@mui/material'
-import { IconCopy, IconTrash } from '@tabler/icons-react'
+import NodeActionBar, { useCardHover } from './NodeActionBar'
+import { Box } from '@mui/material'
 import { Input } from '@/ui-component/input/Input'
 
 // const
-import { flowContext } from '@/store/context/ReactFlowContext'
 import { normalizeNodeData } from '@/utils/normalizeCanvasFlow'
 
 const StickyNote = ({ data }) => {
     normalizeNodeData(data)
     const theme = useTheme()
-    const canvas = useSelector((state) => state.canvas)
     const customization = useSelector((state) => state.customization)
-    const { deleteNode, duplicateNode } = useContext(flowContext)
     const [inputParam] = data.inputParams
-
-    const [open, setOpen] = useState(false)
-
-    const handleClose = () => {
-        setOpen(false)
-    }
-
-    const handleOpen = () => {
-        setOpen(true)
-    }
+    const { hovered, hoverProps } = useCardHover()
 
     const defaultColor = '#FFE770' // fallback color if data.color is not present
     const nodeColor = data.color || defaultColor
@@ -53,59 +40,16 @@ const StickyNote = ({ data }) => {
 
     return (
         <>
-            <NodeCardWrapper
-                content={false}
-                sx={{
-                    padding: 0,
-                    borderColor: getBorderColor(),
-                    backgroundColor: getBackgroundColor()
-                }}
-                border={false}
-            >
-                <NodeTooltip
-                    open={!canvas.canvasDialogShow && open}
-                    onClose={handleClose}
-                    onOpen={handleOpen}
-                    disableFocusListener={true}
-                    title={
-                        <div
-                            style={{
-                                background: 'transparent',
-                                display: 'flex',
-                                flexDirection: 'column'
-                            }}
-                        >
-                            <IconButton
-                                title='Duplicate'
-                                onClick={() => {
-                                    duplicateNode(data.id)
-                                }}
-                                sx={{
-                                    height: '35px',
-                                    width: '35px',
-                                    color: customization?.isDarkMode ? 'white' : 'inherit',
-                                    '&:hover': { color: theme?.palette.primary.main }
-                                }}
-                            >
-                                <IconCopy />
-                            </IconButton>
-                            <IconButton
-                                title='Delete'
-                                onClick={() => {
-                                    deleteNode(data.id)
-                                }}
-                                sx={{
-                                    height: '35px',
-                                    width: '35px',
-                                    color: customization?.isDarkMode ? 'white' : 'inherit',
-                                    '&:hover': { color: theme?.palette.error.main }
-                                }}
-                            >
-                                <IconTrash />
-                            </IconButton>
-                        </div>
-                    }
-                    placement='right-start'
+            <Box {...hoverProps} sx={{ position: 'relative' }}>
+                <NodeActionBar data={data} hovered={hovered} selected={Boolean(data.selected)} includeInfo={false} />
+                <NodeCardWrapper
+                    content={false}
+                    sx={{
+                        padding: 0,
+                        borderColor: getBorderColor(),
+                        backgroundColor: getBackgroundColor()
+                    }}
+                    border={false}
                 >
                     <Box>
                         <Input
@@ -118,8 +62,8 @@ const StickyNote = ({ data }) => {
                             nodeId={data.id}
                         />
                     </Box>
-                </NodeTooltip>
-            </NodeCardWrapper>
+                </NodeCardWrapper>
+            </Box>
         </>
     )
 }

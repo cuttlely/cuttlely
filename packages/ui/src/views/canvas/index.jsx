@@ -1158,7 +1158,17 @@ const Canvas = () => {
     // New look: with the switch on, cards are compact and clicking a card opens its settings in a side panel on the right.
     const openPanelNode = panelNode(nodes, sidePanelOn ? panelNodeId : null)
     const openPanelNodeId = openPanelNode?.id ?? null
-    const panelContext = useMemo(() => ({ panelNodeId: openPanelNodeId, compact: sidePanelOn }), [openPanelNodeId, sidePanelOn])
+    const panelOpenRef = useRef(false)
+    panelOpenRef.current = Boolean(openPanelNodeId)
+    // Duplicating while the panel is open selects the copy and moves the panel onto it.
+    const onDuplicated = useCallback((created) => {
+        const newId = created?.id
+        if (newId && panelOpenRef.current) setPanelNodeId(newId)
+    }, [])
+    const panelContext = useMemo(
+        () => ({ panelNodeId: openPanelNodeId, compact: sidePanelOn, onDuplicated }),
+        [openPanelNodeId, sidePanelOn, onDuplicated]
+    )
 
     // The panel narrows the canvas. Pan so the card you clicked does not end up behind it.
     useEffect(() => {
