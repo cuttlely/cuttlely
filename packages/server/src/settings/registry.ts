@@ -1069,7 +1069,7 @@ export const SETTINGS: SettingDef[] = [
         section: 'integrations',
         group: 'Traces',
         label: 'Include prompts and tool text',
-        help: "Sensitive. Adds content.input and content.output, cut at 4,000 characters: the question and the answer, the model prompt and reply, tool arguments and results, a specialist's task, analyst SQL when the tool detail still has it, and the analyst run-card preview. Leave this off unless you trust the collector with that text.",
+        help: "Sensitive. Adds content.input and content.output, cut at 4,000 characters: the question and the answer, the model prompt and reply, tool arguments and results, analyst SQL when the tool detail still has it, and the analyst run-card preview. A specialist span's content.input is the run-card task, at most 200 characters. Leave this off unless you trust the collector with that text.",
         type: 'switch',
         ...TRUE_FALSE,
         defaultLabel: 'Off',

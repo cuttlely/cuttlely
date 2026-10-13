@@ -188,9 +188,12 @@ test('both compose files pass the trace variables from .env', () => {
         assert.ok(service.extra_hosts.includes('host.docker.internal:host-gateway'), file)
     }
     const queue = yaml.load(fs.readFileSync(path.join(ROOT, 'docker/docker-compose-queue-source.yml'), 'utf8'))
-    const passed = 'METRICS_SERVICE_NAME=${METRICS_SERVICE_NAME:-}'
     for (const serviceName of ['cuttlely', 'cuttlely-worker']) {
-        assert.ok(queue.services[serviceName].environment.includes(passed), serviceName)
+        const service = queue.services[serviceName]
+        for (const name of names) {
+            assert.ok(service.environment.includes(name + '=${' + name + ':-}'), `${serviceName} ${name}`)
+        }
+        assert.ok(service.extra_hosts.includes('host.docker.internal:host-gateway'), serviceName)
     }
     const example = fs.readFileSync(path.join(ROOT, 'docker/.env.example'), 'utf8')
     assert.match(example, /^# METRICS_SERVICE_NAME=cuttlely$/m)

@@ -23,6 +23,10 @@ services:
         image: cuttlely:local
         ports:
             - '${PORT:-3000}:${PORT:-3000}'
+        # Linux: host.docker.internal is the host, so a collector on the host is reachable
+        # at that name. Docs: docs/how-to/docker.md
+        extra_hosts:
+            - 'host.docker.internal:host-gateway'
         volumes:
             # Mount local .cuttlely to container's default location.
             # Container runs as the non-root `node` user, whose home is /home/node.
@@ -39,6 +43,11 @@ services:
             - MODE=queue
             - QUEUE_NAME=cuttlely-queue # Ensure this matches worker
             - REDIS_URL=redis://redis:6379 # Use service name 'redis'
+            # Blank is off. localhost inside this container is not the host.
+            - CUTTLELY_OTEL_TRACES=${CUTTLELY_OTEL_TRACES:-}
+            - CUTTLELY_OTEL_TRACES_ENDPOINT=${CUTTLELY_OTEL_TRACES_ENDPOINT:-}
+            - CUTTLELY_OTEL_TRACES_PROTOCOL=${CUTTLELY_OTEL_TRACES_PROTOCOL:-}
+            - CUTTLELY_OTEL_TRACES_CONTENT=${CUTTLELY_OTEL_TRACES_CONTENT:-}
             # Blank is unset: traces use cuttlely, and Service name in Admin stays editable.
             - METRICS_SERVICE_NAME=${METRICS_SERVICE_NAME:-}
         depends_on:
@@ -52,6 +61,10 @@ services:
             context: ..
             dockerfile: docker/worker/Dockerfile
         image: cuttlely-worker:local
+        # Linux: host.docker.internal is the host, so a collector on the host is reachable
+        # at that name. Docs: docs/how-to/docker.md
+        extra_hosts:
+            - 'host.docker.internal:host-gateway'
         volumes:
             # Mount same local .cuttlely to worker.
             # Container runs as the non-root `node` user, whose home is /home/node.
@@ -67,6 +80,11 @@ services:
             - MODE=queue
             - QUEUE_NAME=cuttlely-queue # Ensure this matches worker
             - REDIS_URL=redis://redis:6379 # Use service name 'redis'
+            # Blank is off. localhost inside this container is not the host.
+            - CUTTLELY_OTEL_TRACES=${CUTTLELY_OTEL_TRACES:-}
+            - CUTTLELY_OTEL_TRACES_ENDPOINT=${CUTTLELY_OTEL_TRACES_ENDPOINT:-}
+            - CUTTLELY_OTEL_TRACES_PROTOCOL=${CUTTLELY_OTEL_TRACES_PROTOCOL:-}
+            - CUTTLELY_OTEL_TRACES_CONTENT=${CUTTLELY_OTEL_TRACES_CONTENT:-}
             # Blank is unset: traces use cuttlely, and Service name in Admin stays editable.
             - METRICS_SERVICE_NAME=${METRICS_SERVICE_NAME:-}
         depends_on:
