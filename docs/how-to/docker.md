@@ -119,6 +119,10 @@ INCLUDE_BROWSER=0 INCLUDE_NODE_PACKS=0 CUTTLELY_OMIT_GEOIP=true docker compose u
 
 `docker build --build-arg INCLUDE_BROWSER=0 --build-arg INCLUDE_NODE_PACKS=0 --build-arg CUTTLELY_OMIT_GEOIP=true -t cuttlely:local .` is the same build.
 
+## Run traces
+
+Traces are off until you turn them on. Set `CUTTLELY_OTEL_TRACES`, `CUTTLELY_OTEL_TRACES_ENDPOINT`, and `CUTTLELY_OTEL_TRACES_PROTOCOL` under `environment` in the compose file, or in `.env`, then run `docker compose up -d`. The same fields are **Admin** > **Server settings** > **Integrations** > **Traces**. [Run traces](./observability.md) lists every variable, the span attributes, and a local collector at `examples/otel/collector.yaml`. Metrics stay a separate switch.
+
 ## Data
 
 SQLite is `/var/cuttlely/data/database.sqlite` on the named volume `cuttlely-data`. Uploads, harness files, ETL files, logs, the agent runtime home, and version history (`/var/cuttlely/versions`, see [Version history](./versioning.md#where-the-history-lives)) are the other directories on that volume. The first boot writes `encryption.key` in `/var/cuttlely/data`. Losing the volume, or changing `FLOWISE_SECRETKEY_OVERWRITE`, makes stored credentials unreadable.
