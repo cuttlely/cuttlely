@@ -25,8 +25,9 @@ const createInternalPrediction = async (req: Request, res: Response, next: NextF
         bindRequestSession(req, { chatflow, isInternal: true })
 
         // A harness canvas is not a chatflow. Building it looks for node.init and throws.
+        // The same draft path as a chatflow test chat: this route runs the draft, the public runs route stays on Live.
         if (chatflow.type === 'HARNESS') {
-            await runHarnessCanvasChat(req, res, chatflow.name)
+            await runHarnessCanvasChat(req, res, chatflow)
             return
         }
 
@@ -80,14 +81,17 @@ const createAndStreamInternalPrediction = async (req: Request, res: Response, ne
         sseStreamer.removeClient(chatId)
     }
 }
-async function runHarnessCanvasChat(req: Request, res: Response, name: string) {
+async function runHarnessCanvasChat(
+    req: Request,
+    res: Response,
+    chatflow: { id: string; name: string; flowData: string; workspaceId: string }
+) {
     const streaming = isStreamingRequest(req)
     const source = 'playground'
+    const run = (extra: { signal?: AbortSignal; onEvent?: (event: { type: string }) => void } = {}) =>
+        harnessesService.startCanvasRun(chatflow, req.body || {}, { source, ...extra })
     if (!streaming) {
-        const outcome = await harnessesService.startRun(name, req.body || {}, {
-            source,
-            workspaceId: req.user?.activeWorkspaceId
-        })
+        const outcome = await run()
         return res.json({ chatId: outcome.chatId, run: outcome.run, ...outcome.payload })
     }
     const signal = watchClientDisconnect(res)
@@ -102,12 +106,12 @@ async function runHarnessCanvasChat(req: Request, res: Response, name: string) {
         res.write(`message:\ndata:${JSON.stringify({ event, data })}\n\n`)
     }
     try {
-        const outcome = await harnessesService.startRun(name, req.body || {}, {
-            source,
+        const outcome = await run({
             signal,
-            workspaceId: req.user?.activeWorkspaceId,
             onEvent: (event) => write(`harness.${event.type}`, event)
         })
+        const images = harnessesService.chatImages((outcome.payload as { artifacts?: unknown } | undefined)?.artifacts)
+        if (images.length) write('artifacts', images)
         write('harness.recorded', { run: outcome.run, chatId: outcome.chatId })
         write('end', {})
         res.end()
