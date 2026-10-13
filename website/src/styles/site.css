@@ -433,10 +433,22 @@
     box-shadow: 0 16px 40px -12px rgba(12, 15, 38, 0.65), 0 0 0 8px rgba(139, 92, 246, 0.28);
 }
 @media (min-width: 40rem) {
-    .cl-play-overlay {
+    .cl-video-stage .cl-play-overlay {
         width: 5.75rem;
         height: 5.75rem;
     }
+}
+/* The product name in the preview starts on the center line. The control sits just to the left of that line. */
+.cl-tile-media .cl-play-overlay {
+    left: 50%;
+    width: clamp(3.5rem, 17%, 4rem);
+    height: clamp(3.5rem, 17%, 4rem);
+    transform: translate(calc(-100% - 0.65rem), -50%);
+    box-shadow: 0 8px 18px -8px rgba(12, 15, 38, 0.7), 0 0 0 3px rgba(139, 92, 246, 0.28);
+}
+.cl-tile-media .cl-play-overlay svg {
+    width: 42%;
+    height: 42%;
 }
 .cl-play-overlay[hidden] {
     display: none !important;
@@ -887,8 +899,8 @@
 .cl-tile-play {
     position: absolute;
     z-index: 3;
-    right: 0.6rem;
-    bottom: 0.6rem;
+    right: 0.45rem;
+    bottom: 0.4rem;
     display: inline-flex;
     align-items: center;
     gap: 0.4rem;

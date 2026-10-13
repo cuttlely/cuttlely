@@ -1113,3 +1113,134 @@ initVideoDialogs()
         }
     }
 )
+
+test('the tile play button stays clear of the watch chip at each column width', { skip: chrome ? false : 'no Chrome binary' }, async () => {
+    const tile = (title) => `<li class="cl-tile"><div class="cl-tile-media">
+<video class="cl-tile-video" data-loop-video muted loop playsinline preload="none" width="960" height="540"></video>
+<button type="button" class="cl-play-overlay" data-play-with-sound aria-label="Play ${title} with sound">
+<svg viewBox="0 0 24 24" width="36" height="36" aria-hidden="true"><path d="M8 5v14l12-7z" fill="currentColor" /></svg>
+</button>
+<a class="cl-tile-play" href="/clip.mp4">Watch with sound <span class="cl-tile-play-length">0:35</span></a>
+</div></li>`
+    const server = createServer((req, res) => {
+        const url = req.url.split('?')[0]
+        if (url === '/site.css') {
+            res.setHeader('content-type', 'text/css')
+            res.end(readFileSync(path.join(root, 'src/styles/site.css')))
+            return
+        }
+        if (url === '/brand.css') {
+            res.setHeader('content-type', 'text/css')
+            res.end(readFileSync(path.join(root, 'src/styles/brand.css')))
+            return
+        }
+        if (url === '/') {
+            res.setHeader('content-type', 'text/html')
+            res.end(`<!doctype html><meta charset="utf-8">
+<link rel="stylesheet" href="/brand.css">
+<link rel="stylesheet" href="/site.css">
+<style>:root { --sl-text-xs: 0.8125rem; } body { margin: 0; } .frame { box-sizing: border-box; max-width: 72rem; margin: 0 auto; padding: 1.5rem; }</style>
+<div class="frame cl-home" data-theme="light">
+<div class="cl-video-stage"><video class="cl-demo-video" data-demo-video width="1280" height="720"></video>
+<button type="button" class="cl-play-overlay" data-play-with-sound aria-label="Play the demo with sound">Play</button></div>
+<ul class="cl-tiles">${['Knowledge pipelines', 'Chatflows', 'Agentflows'].map(tile).join('')}</ul>
+</div>`)
+            return
+        }
+        res.statusCode = 404
+        res.end()
+    })
+    const port = await listen(server)
+    const debugPort = await new Promise((resolve) => {
+        const probe = createServer()
+        probe.listen(0, '127.0.0.1', () => {
+            const { port: free } = probe.address()
+            probe.close(() => resolve(free))
+        })
+    })
+    const dir = mkdtempSync(path.join(tmpdir(), 'play-size-'))
+    const browser = spawn(
+        chrome,
+        [
+            '--headless=new',
+            '--no-sandbox',
+            '--disable-gpu',
+            '--disable-dev-shm-usage',
+            '--remote-allow-origins=*',
+            `--remote-debugging-port=${debugPort}`,
+            '--window-size=1280,900',
+            `--user-data-dir=${dir}`,
+            '--force-prefers-color-scheme=light',
+            `http://127.0.0.1:${port}/`
+        ],
+        { stdio: 'ignore' }
+    )
+    const measure = `(() => {
+        const boxes = (el) => {
+            const r = el.getBoundingClientRect()
+            return { left: r.left, top: r.top, right: r.right, bottom: r.bottom, width: r.width, height: r.height }
+        }
+        const gap = (a, b) => Math.max(a.left - b.right, b.left - a.right, a.top - b.bottom, b.top - a.bottom)
+        const contrast = (rgb) => {
+            const parts = rgb.match(/[\\d.]+/g).map(Number)
+            const lin = (c) => {
+                const s = c / 255
+                return s <= 0.04045 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4
+            }
+            return 0.2126 * lin(parts[0]) + 0.7152 * lin(parts[1]) + 0.0722 * lin(parts[2])
+        }
+        const button = document.querySelector('.cl-tile-media .cl-play-overlay')
+        const paint = getComputedStyle(button)
+        const lumA = contrast(paint.backgroundColor)
+        const lumB = contrast(paint.color)
+        const ratio = (Math.max(lumA, lumB) + 0.05) / (Math.min(lumA, lumB) + 0.05)
+        let ring = ''
+        for (const sheet of document.styleSheets) {
+            let rules
+            try {
+                rules = [...sheet.cssRules]
+            } catch {
+                continue
+            }
+            for (const rule of rules) {
+                if (rule.selectorText === '.cl-play-overlay:focus-visible') ring = rule.cssText
+            }
+        }
+        return {
+            hero: boxes(document.querySelector('.cl-video-stage .cl-play-overlay')).width,
+            tiles: [...document.querySelectorAll('.cl-tile')].map((tile) => {
+                const play = tile.querySelector('.cl-play-overlay')
+                const chip = tile.querySelector('.cl-tile-play')
+                const a = boxes(play)
+                const b = boxes(chip)
+                return { button: a.width, chip: b.width, gap: gap(a, b), columns: document.querySelectorAll('.cl-tile').length }
+            }),
+            contrast: ratio,
+            ring
+        }
+    })()`
+    try {
+        const { send, evalValue, close } = await connectChrome(port, debugPort)
+        await evalValue(`document.documentElement.dataset.theme = 'light'`)
+        for (const width of [1280, 1024, 480]) {
+            await send('Emulation.setDeviceMetricsOverride', { width, height: 900, deviceScaleFactor: 1, mobile: width < 600 })
+            const state = await evalValue(measure)
+            assert.ok(state.hero >= 76, `${width}px hero button ${state.hero}`)
+            if (width >= 640) assert.ok(state.hero >= 90, `${width}px hero button ${state.hero}`)
+            assert.equal(state.tiles.length, 3)
+            for (const tile of state.tiles) {
+                assert.ok(tile.button >= 56 && tile.button <= 64, `${width}px tile button ${tile.button}`)
+                assert.ok(tile.button >= 44, `${width}px hit area ${tile.button}`)
+                assert.ok(tile.gap >= 8, `${width}px button/chip gap ${tile.gap} ${JSON.stringify(tile)}`)
+            }
+            assert.ok(state.contrast >= 4.5, `${width}px contrast ${state.contrast}`)
+            assert.match(state.ring, /3px/)
+            assert.match(state.ring, /outline-offset:\s*4px/)
+        }
+        close()
+    } finally {
+        browser.kill('SIGKILL')
+        server.closeAllConnections()
+        await new Promise((resolve) => server.close(resolve))
+    }
+})
