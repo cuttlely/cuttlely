@@ -1,7 +1,7 @@
 // The publish check on a harness: questions from run history, both rosters, no writes, risky tools, dataset seam.
 const states = new Map<string, any>()
 let draftsOn = true
-const recordPublishGateResult = jest.fn(async () => undefined)
+const recordPublishGateResult: jest.Mock = jest.fn(async () => undefined)
 jest.mock('../flow-drafts', () => ({
     __esModule: true,
     default: {
