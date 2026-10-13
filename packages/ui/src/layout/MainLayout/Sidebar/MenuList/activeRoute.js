@@ -12,3 +12,11 @@ export const isItemActive = (item, pathname) => {
 // A group (like Admin) contains the current page when one of its items is active.
 export const isGroupActive = (group, pathname) =>
     (group?.children || []).some((child) => (child.type === 'collapse' ? isGroupActive(child, pathname) : isItemActive(child, pathname)))
+
+// The organization owner sees every item. Everyone else needs one of the item's permission keys.
+export const menuItemAllowed = (item, permissions, isGlobal) => {
+    if (isGlobal) return true
+    if (!item?.permission) return true
+    const grants = Array.isArray(permissions) ? permissions : []
+    return item.permission.split(',').some((key) => grants.includes(key.trim()))
+}
