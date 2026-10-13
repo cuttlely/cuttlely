@@ -12,6 +12,7 @@ import { getRunningExpressApp } from '../../utils/getRunningExpressApp'
 import { databaseEntities } from '../../utils'
 import logger from '../../utils/logger'
 import { userFacingError } from './userFacingError'
+import flowDraftsService from '../flow-drafts'
 import flowVersionsService from '../flow-versions'
 
 // The server build targets CommonJS, and tsc rewrites import() into require(), which cannot load the ESM pipeline package.
@@ -143,8 +144,10 @@ const preview = (id: string, body: Record<string, any>, workspaceId?: string) =>
         if (known) await requirePipeline(api, id, workspaceId)
         if (!flowData) {
             // Only a chat flow in the caller's workspace (an unsaved pipeline has no ETL row to check yet).
+            // With no canvas in the body, preview runs the draft when one is saved, otherwise Live.
+            // The canvas sends its own canvas, which is that draft. previewPipeline does not write the store.
             const chatflow = await getRunningExpressApp().AppDataSource.getRepository(ChatFlow).findOneBy({ id, workspaceId })
-            flowData = chatflow?.flowData
+            if (chatflow) flowData = await flowDraftsService.flowDataForTestChat(chatflow)
         }
         if (!flowData) throw new AppError(StatusCodes.BAD_REQUEST, 'Add nodes to the canvas before previewing.')
         const ctx = await contextFor(known || { id, workspaceId })

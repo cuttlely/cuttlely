@@ -167,7 +167,8 @@ describe('Publish', () => {
         )
         const body = res.json.mock.calls[0][0]
         expect(body).toMatchObject({ unchanged: false, recorded: true, historyError: null, version: { sha: SHA, published: true } })
-        expect(Object.keys(body.chatflow).sort()).toEqual(['id', 'name', 'type', 'updatedDate'])
+        expect(Object.keys(body.chatflow).sort()).toEqual(['flowData', 'id', 'name', 'type', 'updatedDate'])
+        expect(body.chatflow.flowData).toBe('{"nodes":[{"id":"draft"}],"edges":[]}')
     })
 
     it('reports why history could not record the publish', async () => {
@@ -219,6 +220,19 @@ describe('Publish', () => {
         expect(updateChatflow).not.toHaveBeenCalled()
     })
 
+    it.each(['CHATFLOW', 'AGENTFLOW', 'ETL'])('returns the Live canvas after publishing a %s', async (type) => {
+        const permission = type === 'AGENTFLOW' ? 'agentflows:update' : 'chatflows:update'
+        granted.clear()
+        granted.add(permission)
+        getChatflowByIdForWorkspace.mockResolvedValue({ ...FLOW, type })
+        const res = response()
+        await controller.publishDraft(request(), res, jest.fn())
+        expect(res.json.mock.calls[0][0].chatflow).toMatchObject({
+            type,
+            flowData: '{"nodes":[{"id":"draft"}],"edges":[]}'
+        })
+    })
+
     it('viewing is not enough to publish', async () => {
         granted.clear()
         granted.add('chatflows:view')
@@ -240,7 +254,12 @@ describe('Roll back Live', () => {
         putVersionLive.mockResolvedValue({
             chatflow: saved,
             sha: SHA,
-            body: { restoredFrom: 'abcdef1', restoredTo: 'live', unchanged: false }
+            body: {
+                chatflow: { id: FLOW.id, name: 'n', type: FLOW.type, updatedDate: 'd' },
+                restoredFrom: 'abcdef1',
+                restoredTo: 'live',
+                unchanged: false
+            }
         })
         const res = response()
         const next = jest.fn()
@@ -251,16 +270,52 @@ describe('Roll back Live', () => {
             verb: 'Rolled back Live to'
         })
         expect(drafts.afterLiveSet).toHaveBeenCalledWith(saved, SHA)
-        expect(res.json.mock.calls[0][0]).toMatchObject({ restoredFrom: 'abcdef1', restoredTo: 'live', status: { draft: null } })
+        expect(res.json.mock.calls[0][0]).toMatchObject({
+            restoredFrom: 'abcdef1',
+            restoredTo: 'live',
+            status: { draft: null },
+            chatflow: { flowData: saved.flowData }
+        })
     })
 
-    it('a version that already matches Live saves nothing and records nothing', async () => {
-        putVersionLive.mockResolvedValue({ chatflow: null, sha: null, body: { unchanged: true } })
+    it('a version that already matches Live saves nothing and still returns the Live canvas', async () => {
+        putVersionLive.mockResolvedValue({
+            chatflow: null,
+            sha: null,
+            body: {
+                chatflow: { id: FLOW.id, name: 'n', type: FLOW.type, updatedDate: 'd' },
+                unchanged: true
+            }
+        })
         const res = response()
         await controller.rollbackLive(request({ sha: 'abcdef1' }), res, jest.fn())
         expect(drafts.afterLiveSet).not.toHaveBeenCalled()
         expect(drafts.getDraftStatus).toHaveBeenCalled()
-        expect(res.json.mock.calls[0][0]).toMatchObject({ unchanged: true })
+        expect(res.json.mock.calls[0][0]).toMatchObject({
+            unchanged: true,
+            chatflow: { flowData: FLOW.flowData }
+        })
+    })
+
+    it.each(['CHATFLOW', 'AGENTFLOW', 'ETL'])('returns that version canvas after rolling back a %s with no draft', async (type) => {
+        const permission = type === 'AGENTFLOW' ? 'agentflows:update' : 'chatflows:update'
+        granted.clear()
+        granted.add(permission)
+        const version = '{"nodes":[{"id":"rolled"}],"edges":[]}'
+        getChatflowByIdForWorkspace.mockResolvedValue({ ...FLOW, type, flowData: FLOW.flowData })
+        const saved = { ...FLOW, type, flowData: version }
+        putVersionLive.mockResolvedValue({
+            chatflow: saved,
+            sha: SHA,
+            body: {
+                chatflow: { id: FLOW.id, name: 'n', type, updatedDate: 'd' },
+                restoredTo: 'live',
+                unchanged: false
+            }
+        })
+        const res = response()
+        await controller.rollbackLive(request({ sha: 'abcdef1' }), res, jest.fn())
+        expect(res.json.mock.calls[0][0].chatflow).toMatchObject({ type, flowData: version })
     })
 
     it('needs a version id, and drafts on', async () => {

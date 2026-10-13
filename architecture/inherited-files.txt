@@ -1259,6 +1259,7 @@ packages/server/src/index.ts
 packages/server/src/metrics/OpenTelemetry.ts
 packages/server/src/metrics/Prometheus.test.ts
 packages/server/src/metrics/Prometheus.ts
+packages/server/src/metrics/graphTraces.test.ts
 packages/server/src/metrics/tracing.test.ts
 packages/server/src/metrics/tracing.ts
 packages/server/src/middlewares/errors/index.ts
@@ -1828,6 +1829,7 @@ packages/ui/src/views/auth/verify-email.jsx
 packages/ui/src/views/canvas/AddNodes.jsx
 packages/ui/src/views/canvas/ButtonEdge.jsx
 packages/ui/src/views/canvas/CanvasHeader.jsx
+packages/ui/src/views/canvas/CanvasHeader.test.js
 packages/ui/src/views/canvas/CanvasNode.jsx
 packages/ui/src/views/canvas/CredentialInputHandler.jsx
 packages/ui/src/views/canvas/NodeActionBar.jsx
