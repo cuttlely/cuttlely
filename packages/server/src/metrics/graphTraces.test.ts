@@ -705,7 +705,8 @@ describe('graph run traces', () => {
         const chatId = 'c0ffee00-0000-4000-8000-00000000006b'
         const source = dataSource()
         const repo = source.getRepository.bind(source)
-        source.getRepository = (entity: { name?: string } | string) => {
+        const writable = source as { getRepository: (entity: { name?: string } | string) => any }
+        writable.getRepository = (entity: { name?: string } | string) => {
             const inner = repo(entity)
             const table = typeof entity === 'function' ? entity.name : String(entity)
             if (table !== 'ChatMessage') return inner
