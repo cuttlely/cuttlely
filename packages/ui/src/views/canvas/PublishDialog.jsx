@@ -161,7 +161,13 @@ const PublishDialog = ({ open, chatflow, draftStatus, isDirty, onClose, onDraftS
                     </Alert>
                 )}
                 <PublishChangeList lines={lines} />
-                {chatflow?.id && <PublishCheck chatflowId={chatflow.id} />}
+                {chatflow?.id && (
+                    <PublishCheck
+                        chatflowId={chatflow.id}
+                        flowType={chatflow.type}
+                        canvases={[chatflow.flowData, draftStatus?.draft?.flowData]}
+                    />
+                )}
                 {stale && (
                     <FormControlLabel
                         sx={{ mt: 1, alignItems: 'flex-start' }}
