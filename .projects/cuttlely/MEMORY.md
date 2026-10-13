@@ -55,6 +55,7 @@ Conventions, do and don't, and lessons a newcomer would otherwise relearn. Add a
 
 ## Lessons
 
+-   **A remembered environment-list fingerprint is not enough.** Read it back from the shared repository before treating the copy as finished. A list change that keeps the same read and copy still has to rewrite the fingerprint on the versions already copied.
 -   **A missing environment-list fingerprint is not a match.** If a fingerprint record exists and this version has none, or reading that record fails, do not offer the new versions. A fingerprint publish that does not land must not be marked up to date. The only case that still offers versions with no fingerprint is a repository that has no fingerprint record at all.
 -   **A sync pass must not re-read the environment file to pick a branch.** If the file becomes unreadable after the pass starts, substituting main publishes a Staging server onto Dev's branch and makes a reader fetch Dev. Capture the plan once, and skip the fetch and the push when the plan is invalid or the branch is missing.
 -   **A green `pnpm verify` is not a real-model run.** Model-dependent behaviour (routing, analyst answers, row grounding) has passed every check and still failed with a real model. Run the guide prompts against a real model before calling such a change done.
