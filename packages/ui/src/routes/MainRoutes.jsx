@@ -42,6 +42,11 @@ const Variables = Loadable(lazy(() => import('@/views/variables')))
 
 // documents routing
 const Documents = Loadable(lazy(() => import('@/views/docstore')))
+const Datasets = Loadable(lazy(() => import('@/views/datasets')))
+const DatasetItems = Loadable(lazy(() => import('@/views/datasets/DatasetItems')))
+const Evaluators = Loadable(lazy(() => import('@/views/evaluators')))
+const Evaluations = Loadable(lazy(() => import('@/views/evaluations')))
+const EvaluationResult = Loadable(lazy(() => import('@/views/evaluations/EvaluationResult')))
 const DocumentStoreDetail = Loadable(lazy(() => import('@/views/docstore/DocumentStoreDetail')))
 const ShowStoredChunks = Loadable(lazy(() => import('@/views/docstore/ShowStoredChunks')))
 const LoaderConfigPreviewChunks = Loadable(lazy(() => import('@/views/docstore/LoaderConfigPreviewChunks')))
@@ -243,6 +248,46 @@ const MainRoutes = {
             element: (
                 <RequireAuth permission={'documentStores:view'}>
                     <VectorStoreQuery />
+                </RequireAuth>
+            )
+        },
+        {
+            path: '/datasets',
+            element: (
+                <RequireAuth permission={'datasets:view'}>
+                    <Datasets />
+                </RequireAuth>
+            )
+        },
+        {
+            path: '/dataset_rows/:id',
+            element: (
+                <RequireAuth permission={'datasets:view'}>
+                    <DatasetItems />
+                </RequireAuth>
+            )
+        },
+        {
+            path: '/evaluators',
+            element: (
+                <RequireAuth permission={'evaluators:view'}>
+                    <Evaluators />
+                </RequireAuth>
+            )
+        },
+        {
+            path: '/evaluations',
+            element: (
+                <RequireAuth permission={'evaluations:view'}>
+                    <Evaluations />
+                </RequireAuth>
+            )
+        },
+        {
+            path: '/evaluation_results/:id',
+            element: (
+                <RequireAuth permission={'evaluations:view'}>
+                    <EvaluationResult />
                 </RequireAuth>
             )
         },

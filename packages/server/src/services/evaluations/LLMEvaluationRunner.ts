@@ -61,9 +61,12 @@ export class LLMEvaluationRunner {
                 credential: data.llmConfig.credentialId,
                 id: 'llm_0'
             }
+            const workspaceId = data.workspaceId || data.llmConfig?.workspaceId
             const options: ICommonObject = {
                 appDataSource: appServer.AppDataSource,
-                databaseEntities: databaseEntities
+                databaseEntities: databaseEntities,
+                // getCredentialData decrypts only a credential in this workspace when the id is set.
+                ...(typeof workspaceId === 'string' && workspaceId.length > 0 ? { workspaceId } : {})
             }
             return await newNodeInstance.init(nodeData, undefined, options)
         } catch (error) {

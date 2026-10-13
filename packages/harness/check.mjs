@@ -5635,7 +5635,9 @@ await expectCase('model errors are masked', async () => {
     const ctx = flowContext({
         componentNodes: { fakeToolChat: { credential: { name: 'fakeKey' } } },
         findOneBy: (name, query) =>
-            name === 'Credential' && query?.id === 'cred-mask' ? { id: 'cred-mask', encryptedData: maskEncrypted } : null,
+            name === 'Credential' && query?.id === 'cred-mask'
+                ? { id: 'cred-mask', encryptedData: maskEncrypted, workspaceId: 'w1' }
+                : null,
         loadNode: async (nodeName) => (nodeName === 'fakeToolChat' ? FakeToolChat : QuietChat)
     })
     const saved = await capture(() =>
