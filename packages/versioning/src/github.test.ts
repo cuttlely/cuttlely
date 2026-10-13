@@ -117,6 +117,12 @@ function bareLog(bare: string): string {
     return execFileSync('git', ['--git-dir', bare, 'log', '-p', '--all'], { encoding: 'utf8', env: cleanEnv() })
 }
 
+function seedRemote(ref: string) {
+    execFileSync('git', ['--git-dir', path.join(versionsDir(), '.git'), 'push', '-q', `file://${bare}`, `HEAD:${ref}`], {
+        env: cleanEnv()
+    })
+}
+
 function makeBare(dir: string): string {
     execFileSync('git', ['init', '-q', '--bare', dir], { env: cleanEnv() })
     return dir
@@ -922,6 +928,8 @@ describe('Dev or Prod label', () => {
         ]
         await sync.setEnvironment('staging', chain)
         await save('One')
+        seedRemote('refs/heads/main')
+        const seededMain = bareMain(bare)
         await sync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)
         const stagingRef = execFileSync('git', ['--git-dir', bare, 'rev-parse', 'refs/heads/staging'], {
             encoding: 'utf8',
@@ -937,7 +945,7 @@ describe('Dev or Prod label', () => {
         expect(sync.environment()).toBeNull()
         expect(sync.environments()).toEqual([])
         expect(gitCalls.filter((call) => call.args[0] === 'push').length).toBe(pushes)
-        expect(bareMain(bare)).toBeNull()
+        expect(bareMain(bare)).toBe(seededMain)
         expect(
             execFileSync('git', ['--git-dir', bare, 'rev-parse', 'refs/heads/staging'], { encoding: 'utf8', env: cleanEnv() }).trim()
         ).toBe(stagingRef)
@@ -954,6 +962,7 @@ describe('Dev or Prod label', () => {
         ]
         await sync.setEnvironment('staging', chain)
         await save('One')
+        seedRemote('refs/heads/main')
         await sync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)
         const work = path.join(tmp, 'elsewhere')
         fs.mkdirSync(work)
@@ -996,6 +1005,7 @@ describe('Dev or Prod label', () => {
             { name: 'Prod', branch: 'prod', server: 'prod' }
         ]
         await sync.setEnvironment('prod', chain)
+        seedRemote('refs/heads/staging')
         await sync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)
         fs.writeFileSync(path.join(versionsDir(), '.git', 'versions-environment.json'), '{')
         const status = await sync.status()
@@ -1035,6 +1045,7 @@ describe('Dev or Prod label', () => {
         setGithubForTests(sync)
         await sync.setEnvironment('staging', chain)
         await save('One')
+        seedRemote('refs/heads/dev')
         await sync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)
         const touchesMain = (call: { args: string[] }) => call.args.some((arg) => arg.includes('refs/heads/main'))
         mode = 'get'
