@@ -48,7 +48,7 @@ import {
     rowPageSummary
 } from './analyst-store.mjs'
 import { ANALYST_CURSOR_ERRORS, analystPageRequest, parseSimpleSelect, resultLengthSql } from './analyst-page.mjs'
-import { analystShownRows, presentAnalystToolResult } from '../packages/harness/context.mjs'
+import { analystHandoffLine, analystShownRows, presentAnalystToolResult } from '../packages/harness/context.mjs'
 import { analystChipRows } from '../packages/harness/trace.mjs'
 import { queryAnalyst as runtimeQueryAnalyst } from '../packages/harness/runtime/analyst-store.mjs'
 import { analystPageRequest as runtimePageRequest } from '../packages/harness/runtime/analyst-page.mjs'
@@ -239,6 +239,62 @@ async function assertPagesStayContiguous(query, sql, total, pageSizes) {
         seen,
         Array.from({ length: total }, (_, item) => item + 1)
     )
+}
+
+async function assertNoPageCountAndNoSkips(query, sql, total, cap) {
+    const first = await query(sql)
+    assert.equal(first.rows.length, cap)
+    assert.equal(first.rows[0].n, 1)
+    assert.equal(/page \d+/.test(String(first.summary || '')), false, first.summary)
+    await assert.rejects(query({ cursor: first.cursor, page: 3 }), (error) => {
+        assert.equal(error.message, ANALYST_CURSOR_ERRORS.page)
+        return true
+    })
+    const seen = []
+    let page = first
+    let guard = 0
+    while (page) {
+        guard += 1
+        assert.ok(guard < 40)
+        assert.equal(/page \d+/.test(String(page.summary || '')), false)
+        for (const row of page.rows) seen.push(row.n)
+        if (!page.cursor || String(page.summary || '').includes('last page')) break
+        const next = await query({ cursor: page.cursor })
+        assert.equal(next.rows[0].n, seen.at(-1) + 1)
+        page = next
+    }
+    assert.deepEqual(
+        seen,
+        Array.from({ length: total }, (_, item) => item + 1)
+    )
+}
+
+async function assertNamedCountMatchesWalk(query, sql) {
+    const opened = await query(sql)
+    const summary = String(opened.summary || '')
+    const stated = summary.match(/page \d+ of (\d+)/)
+    assert.ok(stated, summary)
+    const count = Number(stated[1])
+    const fresh = await query(sql)
+    const walked = []
+    let page = fresh
+    let guard = 0
+    while (page) {
+        guard += 1
+        assert.ok(guard < 40)
+        walked.push(page.rows.map((row) => row.n))
+        if (!page.cursor || String(page.summary || '').includes('last page')) break
+        page = await query({ cursor: page.cursor })
+    }
+    assert.equal(walked.length, count, summary)
+    for (let n = 1; n <= count; n += 1) {
+        const jumped = await query({ cursor: opened.cursor, page: n })
+        assert.deepEqual(
+            jumped.rows.map((row) => row.n),
+            walked[n - 1],
+            `${sql} page ${n}`
+        )
+    }
 }
 
 async function assertExactPageCount(query, sql, total, cap) {
@@ -1966,6 +2022,205 @@ describe('analyst URL path', () => {
             await assertExactPageCount((input) => run(250, input), 'SELECT n, payload FROM objects ORDER BY n', 600, 250)
             resetAnalystStoreForTests()
             await assertExactPageCount((input) => run(250, input), 'SELECT n, payload FROM scalars ORDER BY n', 600, 250)
+        } finally {
+            resetAnalystStoreForTests()
+            await admin.query(`DROP DATABASE IF EXISTS ${dbName} WITH (FORCE)`).catch(() => {})
+            await admin.query(`DROP ROLE IF EXISTS ${role}`).catch(() => {})
+            await admin.end().catch(() => {})
+        }
+    })
+
+    it('keeps every postgres length bound at least as long as the handoff line', async (t) => {
+        const admin = await postgresAdmin()
+        if (!admin) {
+            t.skip('analyst URL path: local postgres admin is not reachable')
+            return
+        }
+        const seed = 20261013
+        const rand = mulberry32(seed)
+        const suffix = randomBytes(4).toString('hex')
+        const dbName = `analyst_bounds_${suffix}`
+        const role = `bounds_${suffix}`
+        const password = randomBytes(18).toString('base64url')
+        const jsonValues = [
+            null,
+            '1',
+            '0',
+            '-1',
+            '1e+20',
+            '-1e+20',
+            '1e-20',
+            '-1.7976931348623157e+308',
+            'true',
+            'false',
+            '"hi"',
+            '"😀"',
+            '{"id":1}',
+            '{"a":{"b":1}}',
+            '[{"id": 1}, {"id": 2}]',
+            '[1,2,3]',
+            'null'
+        ]
+        const specs = [
+            { key: 'smallint', ddl: 'smallint', values: [null, 0, 1, -1, 32767, -32768] },
+            { key: 'integer', ddl: 'integer', values: [null, 0, 1, -1, 2147483647, -2147483648] },
+            { key: 'bigint', ddl: 'bigint', values: [null, '0', '-1', '9223372036854775807', '-9223372036854775808'] },
+            { key: 'boolean', ddl: 'boolean', values: [null, true, false] },
+            {
+                key: 'text',
+                ddl: 'text',
+                values: [null, '', 'x', ' '.repeat(20), 'x'.repeat(40), '😀'.repeat(6), '字'.repeat(8), 'a😀b字', 'line\nbreak']
+            },
+            {
+                key: 'varchar',
+                ddl: 'character varying(40)',
+                values: [null, '', 'x', ' '.repeat(10), '😀'.repeat(4), '字', 'pad']
+            },
+            { key: 'character', ddl: 'character(200)', values: [null, '', 'x', 'hi', ' '.repeat(5)] },
+            { key: 'name', ddl: 'name', values: [null, '', 'a', 'abc', 'a'.repeat(63), '字'] },
+            { key: 'date', ddl: 'date', values: [null, '2026-10-13', '0001-01-01', '9999-12-31'] },
+            {
+                key: 'timestamp',
+                ddl: 'timestamp',
+                values: [null, '2026-10-13 00:00:00', '1970-01-01 00:00:00', '2026-10-13 23:59:59.999']
+            },
+            {
+                key: 'timestamptz',
+                ddl: 'timestamptz',
+                values: [null, '2026-10-13 00:00:00+00', '1999-12-31 23:59:59-05', '1970-01-01 00:00:00+00']
+            },
+            { key: 'json', ddl: 'json', values: jsonValues },
+            { key: 'jsonb', ddl: 'jsonb', values: jsonValues }
+        ]
+        const shuffles = specs.map((spec) => {
+            const values = spec.values.slice()
+            for (let i = values.length - 1; i > 0; i -= 1) {
+                const j = Math.floor(rand() * (i + 1))
+                ;[values[i], values[j]] = [values[j], values[i]]
+            }
+            return { ...spec, values }
+        })
+        try {
+            await admin.query(`CREATE ROLE ${role} LOGIN PASSWORD '${password}'`)
+            await admin.query(`CREATE DATABASE ${dbName} OWNER ${role}`)
+            const cfg = adminConfig()
+            const url = postgresUrl({ user: role, password, host: cfg.host, port: cfg.port, database: dbName })
+            const owner = new Client({ connectionString: url })
+            await owner.connect()
+            let boundRows = 0
+            for (const spec of shuffles) {
+                const table = `b_${spec.key}`
+                await owner.query(`CREATE TABLE ${table} (n integer PRIMARY KEY, body ${spec.ddl})`)
+                for (let i = 0; i < spec.values.length; i += 1) {
+                    await owner.query(`INSERT INTO ${table} (n, body) VALUES ($1, $2::${spec.ddl})`, [i + 1, spec.values[i]])
+                }
+                const lengthSql = resultLengthSql(`SELECT n, body FROM ${table} ORDER BY n`, ['n', 'body'], 'postgres')
+                const measured = await owner.query(lengthSql)
+                const got = await owner.query(`SELECT n, body FROM ${table} ORDER BY n`)
+                assert.equal(measured.rows.length, got.rows.length)
+                for (let i = 0; i < got.rows.length; i += 1) {
+                    const line = analystHandoffLine(got.rows[i])
+                    const bound = measured.rows[i].analyst_line_len
+                    if (Array.isArray(got.rows[i].body)) {
+                        assert.equal(bound, null, `${spec.key} array n=${got.rows[i].n}`)
+                    } else {
+                        assert.ok(bound != null, `${spec.key} n=${got.rows[i].n}`)
+                        assert.ok(Number(bound) >= line.length, `${spec.key} n=${got.rows[i].n} bound=${bound} js=${line.length}`)
+                    }
+                    boundRows += 1
+                }
+            }
+            const wide = [
+                {
+                    table: 'wide_char',
+                    ddl: 'character(200)',
+                    total: 300,
+                    cap: 100,
+                    nullUntil: 100,
+                    value: 'x',
+                    expectCount: false
+                },
+                {
+                    table: 'wide_json',
+                    ddl: 'json',
+                    total: 1050,
+                    cap: 350,
+                    nullUntil: 350,
+                    value: '1e+20',
+                    expectCount: false
+                },
+                {
+                    table: 'wide_json_array',
+                    ddl: 'jsonb',
+                    total: 40,
+                    cap: 10,
+                    nullUntil: 0,
+                    value: '[{"id":1},{"id":2}]',
+                    expectCount: false
+                },
+                { table: 'page_text', ddl: 'text', total: 30, cap: 10, nullUntil: 0, value: 'abc', expectCount: true },
+                { table: 'page_varchar', ddl: 'character varying(20)', total: 30, cap: 10, nullUntil: 0, value: 'abc', expectCount: true },
+                { table: 'page_char', ddl: 'character(8)', total: 30, cap: 10, nullUntil: 0, value: 'x', expectCount: true },
+                { table: 'page_name', ddl: 'name', total: 30, cap: 10, nullUntil: 0, value: 'abc', expectCount: true },
+                { table: 'page_date', ddl: 'date', total: 30, cap: 10, nullUntil: 0, value: '2026-10-13', expectCount: true },
+                {
+                    table: 'page_timestamp',
+                    ddl: 'timestamp',
+                    total: 30,
+                    cap: 10,
+                    nullUntil: 0,
+                    value: '2026-10-13 00:00:00',
+                    expectCount: true
+                },
+                {
+                    table: 'page_timestamptz',
+                    ddl: 'timestamptz',
+                    total: 30,
+                    cap: 10,
+                    nullUntil: 0,
+                    value: '2026-10-13 00:00:00+00',
+                    expectCount: true
+                },
+                { table: 'page_smallint', ddl: 'smallint', total: 30, cap: 10, nullUntil: 0, value: 1, expectCount: true },
+                { table: 'page_integer', ddl: 'integer', total: 30, cap: 10, nullUntil: 0, value: 1, expectCount: true },
+                { table: 'page_bigint', ddl: 'bigint', total: 30, cap: 10, nullUntil: 0, value: '1', expectCount: true },
+                { table: 'page_boolean', ddl: 'boolean', total: 30, cap: 10, nullUntil: 0, value: true, expectCount: true },
+                { table: 'page_json', ddl: 'json', total: 600, cap: 250, nullUntil: 0, value: '1', expectCount: true },
+                { table: 'page_jsonb', ddl: 'jsonb', total: 600, cap: 250, nullUntil: 0, value: '{"id":1}', expectCount: true }
+            ]
+            for (const spec of wide) {
+                await owner.query(`CREATE TABLE ${spec.table} (n integer PRIMARY KEY, body ${spec.ddl})`)
+                for (let n = 1; n <= spec.total; n += 1) {
+                    const value = spec.nullUntil && n <= spec.nullUntil ? null : n % 7 === 0 ? null : spec.value
+                    await owner.query(`INSERT INTO ${spec.table} (n, body) VALUES ($1, $2::${spec.ddl})`, [n, value])
+                }
+            }
+            await owner.end()
+            assert.equal(String(-Number.MAX_VALUE).length, 24)
+            assert.equal(shuffles.length, 13)
+            assert.equal(
+                boundRows,
+                shuffles.reduce((sum, spec) => sum + spec.values.length, 0)
+            )
+            const run = (cap, input) =>
+                withAnalystScope(`bounds-${suffix}`, () => queryAnalystUrl(url, input, { env: { CUTTLELY_ANALYST_ROW_CAP: String(cap) } }))
+            let named = 0
+            for (const spec of wide) {
+                for (const sql of [
+                    `SELECT n, body FROM ${spec.table} ORDER BY n`,
+                    `SELECT n, body FROM ${spec.table} ORDER BY n LIMIT 100000`
+                ]) {
+                    resetAnalystStoreForTests()
+                    if (spec.expectCount) {
+                        await assertNamedCountMatchesWalk((input) => run(spec.cap, input), sql)
+                        named += 1
+                    } else {
+                        await assertNoPageCountAndNoSkips((input) => run(spec.cap, input), sql, spec.total, spec.cap)
+                    }
+                }
+            }
+            assert.equal(named, wide.filter((spec) => spec.expectCount).length * 2)
+            assert.equal(wide.filter((spec) => !spec.expectCount).length, 3)
         } finally {
             resetAnalystStoreForTests()
             await admin.query(`DROP DATABASE IF EXISTS ${dbName} WITH (FORCE)`).catch(() => {})

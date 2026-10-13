@@ -388,6 +388,10 @@ function formatAnalystDataRow(row) {
         .join(', ')
 }
 
+export function analystHandoffLine(row) {
+    return formatAnalystDataRow(row)
+}
+
 // Room left for the page line, so a full page of rows plus that line still fits the handoff budget.
 const ANALYST_PAGE_LINE_RESERVE = 160
 

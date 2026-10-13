@@ -350,20 +350,25 @@ export function keysetSql({ selectList, table, where, keys, last, limit, offset 
 
 // A Date printed with toString() in a long timezone name stays under this.
 const ANALYST_DATE_LINE_FLOOR = 128
-// `${plainObject}` is "[object Object]". An array stringifies with a comma between elements,
-// which can be longer than the JSON text, so an array has no bound.
-const ANALYST_JSON_LINE_FLOOR = 15
+// `${plainObject}` is "[object Object]". The floor also covers the longest
+// JavaScript number string, String(-Number.MAX_VALUE), which is 24 characters.
+// An array stringifies with a comma between elements and can be longer than
+// the JSON text, so an array has no bound.
+const ANALYST_JSON_LINE_FLOOR = 24
 
 function sqlLiteral(value) {
     return `'${String(value).replace(/'/g, "''")}'`
 }
 
 // A lower bound on the characters `${value}` adds. NULL means this type has no bound.
-// Text uses UTF-8 bytes, which are at least the UTF-16 units the handoff counts.
+// Text, varchar, and name use UTF-8 bytes, which are at least the UTF-16 units the handoff counts.
+// character(n) keeps its pad spaces. octet_length() is not defined for every column type in this
+// CASE, so the bound is the stored datum size, which matches that padded byte length unless the
+// value was compressed. A compressed value has no bound.
 function valueLengthExpr(name, engine) {
     const id = quoteIdent(name)
     if (engine === 'postgres') {
-        return `CASE WHEN ${id} IS NULL THEN 4 WHEN pg_typeof(${id})::text IN ('smallint', 'integer', 'bigint') THEN length(${id}::text) WHEN pg_typeof(${id})::text = 'boolean' THEN length(${id}::text) WHEN pg_typeof(${id})::text IN ('text', 'character varying', 'character', 'name') THEN octet_length(${id}::text) WHEN pg_typeof(${id})::text IN ('date', 'timestamp without time zone', 'timestamp with time zone') THEN GREATEST(octet_length(${id}::text), ${ANALYST_DATE_LINE_FLOOR}) WHEN pg_typeof(${id})::text IN ('json', 'jsonb') AND jsonb_typeof(to_jsonb(${id})) = 'array' THEN NULL WHEN pg_typeof(${id})::text IN ('json', 'jsonb') THEN GREATEST(octet_length(${id}::text), ${ANALYST_JSON_LINE_FLOOR}) ELSE NULL END`
+        return `CASE WHEN ${id} IS NULL THEN 4 WHEN pg_typeof(${id})::text IN ('smallint', 'integer', 'bigint') THEN length(${id}::text) WHEN pg_typeof(${id})::text = 'boolean' THEN length(${id}::text) WHEN pg_typeof(${id})::text = 'character' THEN CASE WHEN (CASE WHEN pg_column_size(${id}) <= 127 THEN pg_column_size(${id}) - 1 ELSE pg_column_size(${id}) - 4 END) < octet_length(${id}::text) THEN NULL ELSE (CASE WHEN pg_column_size(${id}) <= 127 THEN pg_column_size(${id}) - 1 ELSE pg_column_size(${id}) - 4 END) END WHEN pg_typeof(${id})::text IN ('text', 'character varying', 'name') THEN octet_length(${id}::text) WHEN pg_typeof(${id})::text IN ('date', 'timestamp without time zone', 'timestamp with time zone') THEN GREATEST(octet_length(${id}::text), ${ANALYST_DATE_LINE_FLOOR}) WHEN pg_typeof(${id})::text IN ('json', 'jsonb') AND jsonb_typeof(to_jsonb(${id})) = 'array' THEN NULL WHEN pg_typeof(${id})::text IN ('json', 'jsonb') THEN GREATEST(octet_length(${id}::text), ${ANALYST_JSON_LINE_FLOOR}) ELSE NULL END`
     }
     return `CASE typeof(${id}) WHEN 'null' THEN 4 WHEN 'integer' THEN length(CAST(${id} AS TEXT)) WHEN 'text' THEN length(CAST(${id} AS BLOB)) ELSE NULL END`
 }
