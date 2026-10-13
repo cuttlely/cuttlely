@@ -315,7 +315,7 @@ export function projectSelect(selectList, keys) {
     return projected
 }
 
-export function keysetSql({ selectList, table, where, keys, last, limit, offset = 0 }) {
+export function keysetSql({ selectList, table, where, keys, last, limit, offset = 0, unlimited = false }) {
     const params = []
     let seek = ''
     if (last) {
@@ -337,13 +337,37 @@ export function keysetSql({ selectList, table, where, keys, last, limit, offset 
     const whereSql = [where ? `(${where})` : '', seek].filter(Boolean).join(' AND ')
     const orderSql = keys.map((key) => `${orderName(key)} ${key.dir === 'desc' ? 'DESC' : 'ASC'}`).join(', ')
     const projected = projectSelect(selectList, keys)
-    let sql = `SELECT ${projected} FROM ${quoteIdent(table)}${whereSql ? ` WHERE ${whereSql}` : ''} ORDER BY ${orderSql} LIMIT ?`
+    let sql = `SELECT ${projected} FROM ${quoteIdent(table)}${whereSql ? ` WHERE ${whereSql}` : ''} ORDER BY ${orderSql}`
+    if (unlimited) return { sql, params }
+    sql += ' LIMIT ?'
     params.push(limit)
     if (offset) {
         sql += ' OFFSET ?'
         params.push(offset)
     }
     return { sql, params }
+}
+
+// One integer per result row, in the same order as the paged statement. Callers use it to
+// learn the handoff walk without returning the table.
+export function resultLengthSql(innerSql, columnNames) {
+    const names = (columnNames || []).filter((name) => name !== 'analyst_rowid' && !String(name).startsWith('analyst_key_'))
+    if (!names.length || names.some((name) => !/^[A-Za-z_][A-Za-z0-9_]*$/.test(String(name)))) return null
+    const expr = names
+        .map((name, index) => {
+            const prefix = `${index === 0 ? '' : ', '}${name}: `
+            const literal = `'${prefix.replace(/'/g, "''")}'`
+            return `length(${literal} || COALESCE(CAST(${quoteIdent(name)} AS TEXT), 'null'))`
+        })
+        .join(' + ')
+    const source = String(innerSql || '').trim()
+    if (!source) return null
+    const limited = hasTopLevelLimit(source) ? source : `${source}\nLIMIT 9223372036854775807`
+    return `SELECT analyst_line_len FROM (
+    SELECT ${expr} AS analyst_line_len, row_number() OVER () AS analyst_line_ord
+    FROM (${limited}) AS analyst_src
+) AS analyst_line
+ORDER BY analyst_line_ord`
 }
 
 export function offsetSql(statement, limit, offset) {
@@ -381,9 +405,9 @@ export function pageKeyValue(row, key) {
 // `more` is the extra row from LIMIT pageSize+1. A count that is larger than
 // the rows in hand does not invent another page or a cursor.
 // `walked` is how many pages the row cap and the handoff budget actually
-// produce. A short page makes that larger than ceil(total / pageSize), and
-// the aligned cursor refuses the extra index. State a count only when the
-// two numbers are the same.
+// produce. An unknown walk is not treated as agreement: ceil(total / pageSize)
+// is too small once a later page is short, and that count names a page the
+// cursor must not open.
 export function describeAnalystPage(keptCount, { page, pageSize, total, more, startOffset, cut = false, walked = null }) {
     if (!keptCount || (!more && page <= 1)) return { summary: '', truncated: false, multi: false }
     const uniformStart = (page - 1) * pageSize
@@ -394,7 +418,7 @@ export function describeAnalystPage(keptCount, { page, pageSize, total, more, st
     let known = Number.isFinite(total) ? total : null
     if (known != null && (known < fetchedThrough || (more && known <= pageSize && startBase === 0))) known = null
     const uniform = known != null && pageSize > 0 ? Math.ceil(known / pageSize) : null
-    const countAgrees = walked == null || (uniform != null && walked === uniform)
+    const countAgrees = uniform != null && Number.isInteger(walked) && walked === uniform
     // A short earlier page means later page numbers are not stable indexes. Do not name a page or a page count.
     const unaligned = startBase !== uniformStart || Boolean(cut) || !countAgrees
     let pages = null

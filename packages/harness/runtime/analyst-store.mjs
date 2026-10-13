@@ -20,11 +20,12 @@ import {
     offsetSql,
     pageKeyValue,
     parseSimpleSelect,
+    resultLengthSql,
     safeOrderKeys,
     stripPageColumns
 } from './analyst-page.mjs'
 import { encryptionKeyConflict, encryptionKeyOverwrite } from '../../../scripts/setting-alias.cjs'
-import { analystShownRows } from '../context.mjs'
+import { analystPagesFromLineLengths, analystShownRows } from '../context.mjs'
 
 // Repo root. This module lives in packages/harness/runtime/.
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..')
@@ -1144,8 +1145,18 @@ function finishPage(rawRows, paging, plan) {
     const stripped = capped.map((row) => stripPageColumns(row))
     const shown = analystShownRows(stripped)
     const more = moreInFetch || shown.length < stripped.length
-    const cut = Boolean(paging.cut) || (shown.length < pageSize && more)
-    const walked = plan.mode === 'buffer' && Array.isArray(plan.rows) ? walkedPageCount(plan.rows, pageSize) : null
+    const walked =
+        plan.mode === 'buffer' && Array.isArray(plan.rows)
+            ? walkedPageCount(plan.rows, pageSize)
+            : Number.isInteger(paging.walked)
+            ? paging.walked
+            : null
+    const uniformCount = Number.isFinite(paging.total) && pageSize > 0 ? Math.ceil(paging.total / pageSize) : null
+    const walkAgrees = walked != null && uniformCount != null && walked === uniformCount
+    // Keyset and offset do not have the later rows in hand. Until a length pass shows that
+    // every page is a full cap, a jump to (page - 1) * pageSize can skip rows.
+    const streamed = plan.mode === 'keyset' || plan.mode === 'offset'
+    const cut = Boolean(paging.cut) || (shown.length < pageSize && more) || (streamed && !walkAgrees)
     const described = describeAnalystPage(shown.length, {
         page: paging.page,
         pageSize,
@@ -1175,6 +1186,7 @@ function finishPage(rawRows, paging, plan) {
         nextOffset: startOffset + shown.length,
         // Once a page is shorter than the cap and rows remain, later jumps cannot use (page - 1) * pageSize.
         cut,
+        walked,
         lastKey: usableKey ? lastKey : null,
         expiresAt: paging.now + paging.ttl
     }
@@ -1217,7 +1229,37 @@ async function readSelectPage(runner, plan, paging) {
     }
     const raw = await runner.all(query.sql, query.params)
     if (!raw.length && paging.page > 1) throw cursorError(ANALYST_CURSOR_ERRORS.past)
-    return finishPage(raw, paging, plan, {})
+    let walked = Number.isInteger(paging.walked) ? paging.walked : null
+    if (walked == null && raw.length) {
+        const names = Object.keys(stripPageColumns(raw[0]))
+        walked = await measureResultWalk(runner, plan, names, pageSize, paging.total)
+    }
+    return finishPage(raw, { ...paging, walked }, plan)
+}
+
+// Lengths only: the handoff line is `key: value` joined with `, `, and NULL is the word null.
+async function measureResultWalk(runner, plan, columnNames, pageSize, total) {
+    let inner = plan.statement
+    if (plan.mode === 'keyset' && plan.simple && plan.keys) {
+        inner = keysetSql({
+            selectList: plan.simple.selectList,
+            table: plan.simple.table,
+            where: plan.simple.where,
+            keys: plan.keys,
+            unlimited: true
+        }).sql
+    }
+    const sql = resultLengthSql(inner, columnNames)
+    if (!sql) return null
+    try {
+        const rows = await runner.all(sql, [])
+        const lengths = rows.map((row) => Number(row.analyst_line_len))
+        if (!lengths.length || lengths.some((n) => !Number.isInteger(n) || n < 0)) return null
+        if (Number.isFinite(total) && lengths.length !== total) return null
+        return analystPagesFromLineLengths(lengths, pageSize)
+    } catch {
+        return null
+    }
 }
 
 // The paging builders add their placeholders after all of the user's SQL, so only the last ones become $1..$n.
@@ -1750,6 +1792,74 @@ export function openBufferedAnalystPage(rows, options = {}) {
     })
 }
 
+function memoryLengthRunner(rows) {
+    const list = Array.isArray(rows) ? rows : []
+    return {
+        async all(sql, params = []) {
+            const text = String(sql || '')
+            if (text.includes('analyst_line_len')) {
+                return list.map((row) => ({
+                    analyst_line_len: Object.entries(stripPageColumns(row))
+                        .map(([key, value]) => `${key}: ${value}`)
+                        .join(', ').length
+                }))
+            }
+            let offset = 0
+            let limit = list.length
+            if (/OFFSET \?/i.test(text)) {
+                offset = Number(params[params.length - 1]) || 0
+                limit = Number(params[params.length - 2]) || 0
+            } else if (/>\s*\?/.test(text)) {
+                const last = params[0]
+                offset = list.findIndex((row) => row.n > last)
+                if (offset < 0) offset = list.length
+                limit = Number(params[params.length - 1]) || 0
+            } else if (/LIMIT \?/i.test(text)) {
+                limit = Number(params[params.length - 1]) || 0
+            }
+            return list.slice(offset, offset + limit).map((row) => ({ ...row }))
+        },
+        async get() {
+            return { analyst_n: list.length }
+        }
+    }
+}
+
+// Pages an in-memory list through buffer, keyset, or offset. Keyset and offset run the length pass.
+export async function openPlannedAnalystPage(rows, options = {}) {
+    const mode = options.mode === 'keyset' || options.mode === 'offset' ? options.mode : 'buffer'
+    if (mode === 'buffer') return openBufferedAnalystPage(rows, options)
+    const statement = 'SELECT n, note FROM nums ORDER BY n'
+    const paging = {
+        ...analystPagingBase(options),
+        page: 1,
+        offset: 0,
+        total: rows.length,
+        statement,
+        cut: false,
+        previousOffset: 0,
+        lastKey: null,
+        cursor: ''
+    }
+    const plan =
+        mode === 'keyset'
+            ? {
+                  mode,
+                  statement,
+                  simple: { selectList: 'n, note', table: 'nums', where: '', orders: [{ name: 'n', dir: 'asc' }] },
+                  keys: [{ name: 'n', dir: 'asc' }]
+              }
+            : { mode, statement }
+    return readSelectPage(memoryLengthRunner(rows), plan, paging)
+}
+
+export async function continuePlannedAnalystPage(cursor, input, options = {}) {
+    const pagingBase = analystPagingBase(options)
+    const replay = replayCursor(cursor, input && typeof input === 'object' ? input : {}, pagingBase)
+    if (replay.plan.mode === 'buffer') return continueBufferedAnalystPage(cursor, input, options)
+    return readSelectPage(memoryLengthRunner(options.rows), replay.plan, replay.paging)
+}
+
 export function continueBufferedAnalystPage(cursor, input, options = {}) {
     const pagingBase = analystPagingBase(options)
     const replay = replayCursor(cursor, input && typeof input === 'object' ? input : {}, pagingBase)
@@ -1814,6 +1924,7 @@ function replayCursor(token, input, pagingBase) {
             previousOffset: page === 1 && offset === 0 ? 0 : nextOffset,
             lastKey,
             cut,
+            walked: Number.isInteger(state.walked) ? state.walked : null,
             cursor: token,
             statement: state.statement
         }
@@ -1839,7 +1950,7 @@ export function analystToolSpec(engine, rowCap = analystConfiguredRowCap()) {
             ? ' Use SQLite. Declare an id column as INTEGER PRIMARY KEY. SERIAL is not a SQLite type, and that id comes back null.'
             : ' Use PostgreSQL.'
     return {
-        description: `Run one SQL statement in the isolated analyst store (${dialect}). Every SQL statement or database question must use this tool, including a statement you expect to be refused or to fail. Do not predict, simulate, or paraphrase a result or error. If this tool refuses or errors, quote that text exactly. Results are capped at ${cap} rows. A capped result includes a page line that starts with "rows " and a cursor. To fetch another page, pass that cursor and do not send a new statement. page is the next page, or 1 to read the first page again. It is a stable page number only while every page so far returned the full row cap. After a shorter page, any other page number is refused. Omit page for the next page. Show the rows and the page line, not the line alone.${idNote} Pass the statement as sql. statement and query are the same field.`,
+        description: `Run one SQL statement in the isolated analyst store (${dialect}). Every SQL statement or database question must use this tool, including a statement you expect to be refused or to fail. Do not predict, simulate, or paraphrase a result or error. If this tool refuses or errors, quote that text exactly. Results are capped at ${cap} rows. A capped result includes a page line that starts with "rows " and a cursor. To fetch another page, pass that cursor and do not send a new statement. page is the next page, or 1 to read the first page again. It is a stable page number only while every page so far returned the full row cap and the line names a page count. After a shorter page, or when a later page would be shorter, any other page number is refused. Omit page for the next page. Show the rows and the page line, not the line alone.${idNote} Pass the statement as sql. statement and query are the same field.`,
         schema: {
             type: 'object',
             properties: {
@@ -1850,7 +1961,7 @@ export function analystToolSpec(engine, rowCap = analystConfiguredRowCap()) {
                 page: {
                     type: 'integer',
                     description:
-                        'Next page, or 1 to start over. A stable index only while every page returned the full row cap. Omit for the next page.'
+                        'Next page, or 1 to start over. A stable index only when the page line names a page count. Omit for the next page.'
                 }
             }
         }

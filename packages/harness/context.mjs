@@ -412,6 +412,39 @@ export function analystShownRows(rows, budget = ANALYST_ROW_HANDOFF_CHARS) {
     return kept
 }
 
+// How many of these line lengths fit in one page. The rules match analystShownRows.
+function shownLineCount(lengths, budget) {
+    const room = Math.max(0, Math.floor(Number(budget) || 0))
+    let used = 0
+    let kept = 0
+    for (const raw of lengths) {
+        const lineLength = Math.max(0, Number(raw) || 0)
+        const extra = (kept ? 1 : 0) + lineLength
+        const limit = kept === 0 ? room : Math.max(0, room - ANALYST_PAGE_LINE_RESERVE)
+        if (used + extra > limit) {
+            if (!kept && lineLength) kept = 1
+            break
+        }
+        kept += 1
+        used += extra
+    }
+    return kept
+}
+
+// Page count for a length-only pass. The row text itself is not required.
+export function analystPagesFromLineLengths(lengths, pageSize, budget = ANALYST_ROW_HANDOFF_CHARS) {
+    const list = Array.isArray(lengths) ? lengths : []
+    const size = Math.max(1, Math.floor(Number(pageSize)) || 1)
+    let offset = 0
+    let count = 0
+    while (offset < list.length && count <= list.length) {
+        count += 1
+        const shown = shownLineCount(list.slice(offset, offset + size), budget)
+        offset += Math.max(1, shown)
+    }
+    return count
+}
+
 export function presentAnalystToolResult(result, sql = '') {
     const body = unwrapToolPayload(result) || (result && typeof result === 'object' && !Array.isArray(result) ? result : null)
     if (!body) return ''

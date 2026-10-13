@@ -37,8 +37,8 @@ import {
     queryAnalyst,
     queryPostgres,
     probeAnalystCursor,
-    openBufferedAnalystPage,
-    continueBufferedAnalystPage,
+    openPlannedAnalystPage,
+    continuePlannedAnalystPage,
     setAnalystPgClientForTests,
     queryAnalystUrl,
     pgPlaceholders,
@@ -180,6 +180,38 @@ function noteWidthForWindow(start, shown) {
         else hi = width - 1
     }
     return found
+}
+
+async function assertWideTailStaysInOrder(query, sql) {
+    const first = await query(sql)
+    assert.equal(first.rows.length, 250)
+    assert.equal(first.rows[0].n, 1)
+    assert.equal(first.rows.at(-1).n, 250)
+    assert.match(first.summary, /^rows 1-250 of 600 \(more rows available, say "show more" for the next page\)$/)
+    assert.equal(/page \d+/.test(first.summary), false)
+    await assert.rejects(query({ cursor: first.cursor, page: 3 }), (error) => {
+        assert.equal(error.message, ANALYST_CURSOR_ERRORS.page)
+        return true
+    })
+    const restarted = await query({ cursor: first.cursor, page: 1 })
+    assert.equal(restarted.rows[0].n, 1)
+    const seen = []
+    let page = restarted
+    let guard = 0
+    while (page) {
+        guard += 1
+        assert.ok(guard < 40, `stopped after ${seen.length} rows`)
+        assert.equal(/page \d+/.test(String(page.summary || '')), false)
+        for (const row of page.rows) seen.push(row.n)
+        if (!page.cursor || String(page.summary || '').includes('last page')) break
+        const next = await query({ cursor: page.cursor })
+        assert.equal(next.rows[0].n, seen.at(-1) + 1)
+        page = next
+    }
+    assert.deepEqual(
+        seen,
+        Array.from({ length: 600 }, (_, index) => index + 1)
+    )
 }
 
 function walkedPageBounds(rows, cap) {
@@ -767,10 +799,35 @@ describe('analyst sqlite storage', () => {
             )
             assert.deepEqual(cardCounts, [250, 250, 100])
             const jump = await queryAnalyst('SELECT n FROM nums ORDER BY n', { env, sqliteOpen, scope: 'cap-250-jump' })
+            assert.match(jump.summary, /^rows 1-250 of 600 \(page 1 of 3, say "show more" for the next page\)$/)
             const page3 = await queryAnalyst({ cursor: jump.cursor, page: 3 }, { env, sqliteOpen, scope: 'cap-250-jump' })
             assert.equal(page3.rows[0].n, 501)
             assert.equal(page3.rows.at(-1).n, 600)
             assert.equal(page3.rows.length, 100)
+        } finally {
+            resetAnalystStoreForTests()
+            fs.rmSync(dir, { recursive: true, force: true })
+        }
+    })
+
+    it('refuses a page jump when later rows are wider, in keyset and offset', async () => {
+        const dir = tempDir()
+        const env = { ...sqliteEnv(dir), CUTTLELY_ANALYST_ROW_CAP: '250' }
+        const sqliteOpen = (file) => new DatabaseSync(file)
+        const note = 'x'.repeat(400)
+        const fill = async (table) => {
+            await queryAnalyst(`CREATE TABLE ${table} (n INTEGER PRIMARY KEY, note TEXT)`, { env, sqliteOpen, scope: table })
+            await queryAnalyst(
+                `WITH RECURSIVE c(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM c WHERE n < 600) INSERT INTO ${table} (n, note) SELECT n, CASE WHEN n <= 250 THEN '' ELSE '${note}' END FROM c`,
+                { env, sqliteOpen, scope: table }
+            )
+        }
+        const query = (table, input) => queryAnalyst(input, { env, sqliteOpen, scope: table })
+        try {
+            await fill('keyed')
+            await fill('loose')
+            await assertWideTailStaysInOrder((input) => query('keyed', input), 'SELECT n, note FROM keyed ORDER BY n')
+            await assertWideTailStaysInOrder((input) => query('loose', input), 'SELECT n, note FROM loose ORDER BY n LIMIT 100000')
         } finally {
             resetAnalystStoreForTests()
             fs.rmSync(dir, { recursive: true, force: true })
@@ -869,25 +926,28 @@ describe('analyst sqlite storage', () => {
         }
     })
 
-    it('page lines stay true across thousands of random cut pages', () => {
+    it('page lines stay true across thousands of random cut pages', async () => {
         const rand = mulberry32(20261013)
         const cases = 3000
         const fixedNow = 1_000_000
+        const modes = ['buffer', 'keyset', 'offset']
         try {
             for (let index = 0; index < cases; index += 1) {
                 const total = 1 + Math.floor(rand() * 36)
                 const cap = 1 + Math.floor(rand() * 10)
+                const mode = modes[Math.floor(rand() * modes.length)]
                 const rows = rowsWithRandomCuts(total, cap, rand)
                 assert.equal(rows.length, total)
                 const bounds = walkedPageBounds(rows, cap)
+                const unstable = mode !== 'buffer' && bounds.length !== Math.ceil(total / cap)
                 const env = {
                     DATABASE_TYPE: 'sqlite',
                     DATABASE_PATH: 'paging-property',
                     SECRETKEY_PATH: 'paging-property',
                     CUTTLELY_ANALYST_ROW_CAP: String(cap)
                 }
-                const options = { env, scope: `prop-${index}`, now: fixedNow, cursorTtlMs: 60 * 60 * 1000, rowCap: cap }
-                let page = openBufferedAnalystPage(rows, options)
+                const options = { env, scope: `prop-${index}`, now: fixedNow, cursorTtlMs: 60 * 60 * 1000, rowCap: cap, rows }
+                let page = await openPlannedAnalystPage(rows, { ...options, mode })
                 let cursor = page.cursor
                 let prevEnd = page.rows.at(-1).n
                 let pageNumberNow = 1
@@ -897,8 +957,9 @@ describe('analyst sqlite storage', () => {
                 for (let step = 0; step < 6 && page; step += 1) {
                     const summary = String(page.summary || '')
                     const lastPage = !page.cursor || summary.includes('last page')
-                    if (pageNumberNow === 1) cut = page.rows.length < cap && !lastPage
-                    else if (page.rows.length < cap && !lastPage) cut = true
+                    const shortMore = page.rows.length < cap && !lastPage
+                    if (pageNumberNow === 1) cut = shortMore || unstable
+                    else if (shortMore || unstable) cut = true
                     const offered = [...summary.matchAll(/page (\d+)/g)].map((match) => Number(match[1]))
                     const stated = summary.match(/page \d+ of (\d+)/)
                     if (stated) {
@@ -929,7 +990,7 @@ describe('analyst sqlite storage', () => {
                     const input = requested == null ? {} : { page: requested }
                     let next
                     try {
-                        next = continueBufferedAnalystPage(cursor, input, options)
+                        next = await continuePlannedAnalystPage(cursor, input, options)
                     } catch (error) {
                         assert.equal(error.rows, undefined)
                         const invalid = error.message === ANALYST_CURSOR_ERRORS.page
@@ -937,7 +998,7 @@ describe('analyst sqlite storage', () => {
                         assert.equal(invalid || past, true, error.message)
                         if (invalid) assert.equal(cut, true, `${summary} refused page ${requested}`)
                         if (past) assert.equal(cut, false, summary)
-                        const again = continueBufferedAnalystPage(cursor, {}, options)
+                        const again = await continuePlannedAnalystPage(cursor, {}, options)
                         assert.equal(again.rows[0].n, prevEnd + 1)
                         for (const row of again.rows) {
                             assert.equal(chain.has(row.n), false)
@@ -1672,6 +1733,40 @@ describe('analyst URL path', () => {
             params: [101, 0]
         })
         assert.deepEqual(pgPlaceholders("SELECT 'why?' AS q", []), { sql: "SELECT 'why?' AS q", params: [] })
+    })
+
+    it('refuses a page jump when later rows are wider', async (t) => {
+        const admin = await postgresAdmin()
+        if (!admin) {
+            t.skip('analyst URL path: local postgres admin is not reachable')
+            return
+        }
+        const suffix = randomBytes(4).toString('hex')
+        const dbName = `analyst_wide_${suffix}`
+        const role = `wide_${suffix}`
+        const password = randomBytes(18).toString('base64url')
+        const note = 'x'.repeat(400)
+        const env = { CUTTLELY_ANALYST_ROW_CAP: '250' }
+        try {
+            await admin.query(`CREATE ROLE ${role} LOGIN PASSWORD '${password}'`)
+            await admin.query(`CREATE DATABASE ${dbName} OWNER ${role}`)
+            const cfg = adminConfig()
+            const url = postgresUrl({ user: role, password, host: cfg.host, port: cfg.port, database: dbName })
+            const owner = new Client({ connectionString: url })
+            await owner.connect()
+            await owner.query('CREATE TABLE nums (n integer PRIMARY KEY, note text)')
+            await owner.query(`INSERT INTO nums SELECT g, CASE WHEN g <= 250 THEN '' ELSE '${note}' END FROM generate_series(1, 600) g`)
+            await owner.end()
+            const run = (input) => withAnalystScope(`wide-${suffix}`, () => queryAnalystUrl(url, input, { env }))
+            await assertWideTailStaysInOrder(run, 'SELECT n, note FROM nums ORDER BY n')
+            resetAnalystStoreForTests()
+            await assertWideTailStaysInOrder(run, 'SELECT n, note FROM nums ORDER BY n LIMIT 100000')
+        } finally {
+            resetAnalystStoreForTests()
+            await admin.query(`DROP DATABASE IF EXISTS ${dbName}`).catch(() => {})
+            await admin.query(`DROP ROLE IF EXISTS ${role}`).catch(() => {})
+            await admin.end().catch(() => {})
+        }
     })
 
     it('is read only, capped like the isolated store, and never echoes the URL password', async () => {
