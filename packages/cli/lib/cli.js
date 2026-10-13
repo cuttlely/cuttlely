@@ -4,7 +4,7 @@ import { readFileSync, statSync } from 'node:fs'
 import { spawn } from 'node:child_process'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { runCheck } from './check.js'
+import { RESOURCE_ID_RE, runCheck } from './check.js'
 import { spawnDocker } from './docker.js'
 
 const PKG = join(dirname(fileURLToPath(import.meta.url)), '..', 'package.json')
@@ -39,6 +39,8 @@ export function helpText() {
         '  cuttlely logs [--follow]',
         '  cuttlely upgrade [--port <n>] [--tag <tag>] [--env-file <path>] [--no-open]',
         '  cuttlely check --flow <id> [--server <url>] [--timeout <seconds>] [--json <path>] [--fail-on-changed]',
+        '  cuttlely check --flow <id> [--server <url>] [--timeout <seconds>] [--json <path>] --dataset <id> [--evaluator <id> ...] [--threshold <0-100>]',
+        '  cuttlely check --flow <id> [--server <url>] [--timeout <seconds>] [--json <path>] --gate',
         '  cuttlely --help',
         '  cuttlely --version',
         '',
@@ -54,13 +56,15 @@ export function helpText() {
         '  upgrade   Pull the image and start it again.',
         '  check     Run the Publish check on a flow draft. Reads CUTTLELY_API_KEY.',
         '            The key needs chatflows:view and chatflows:update, or agentflows:view and agentflows:update.',
+        '            --dataset or --gate also needs datasets:view and evaluators:view.',
         '',
         'Exit codes for check:',
-        '  0  The check finished. No answer was Changed, or --fail-on-changed was off.',
-        '  1  --fail-on-changed was set and at least one answer was Changed.',
+        '  0  The check finished. No answer was Changed, or --fail-on-changed was off. A scored check exits 0 when the server verdict is passed.',
+        '  1  --fail-on-changed was set and at least one answer was Changed. A scored check exits 1 when the server verdict is failed.',
         '  2  The check timed out, the server returned an error, CUTTLELY_API_KEY was missing, the flow has no draft, or the command was used wrong.',
         'A check the server marks stopped or failed also exits 2. If the draft is saved, published, or discarded while the check runs, the command exits 2, because the answers may be for a draft that is already gone. After the check has started, a timeout, a 403, or any other failure asks the server to stop it. That stop is best effort: if it fails, the exit code is still 2.',
         'Cancelling the command stops the server-side check.',
+        'A scored check (--dataset or --gate) exits on the server verdict and does not score the answers itself. --gate reads the dataset, evaluators, and threshold saved on the flow. Do not combine --gate with --dataset, or those flags with --fail-on-changed.',
         '',
         `Install guide: ${INSTALL_DOCS}`
     ].join('\n')
@@ -82,7 +86,19 @@ function parseTag(value, exitCode = 1) {
 
 // These options take the next argv token as their value. A following `check` is that value, not the command.
 // Any other previous token, including an unknown flag, leaves `check` as the command.
-const VALUE_OPTIONS = new Set(['--flow', '--server', '--timeout', '--json', '--port', '-p', '--tag', '--env-file'])
+const VALUE_OPTIONS = new Set([
+    '--flow',
+    '--server',
+    '--timeout',
+    '--json',
+    '--dataset',
+    '--evaluator',
+    '--threshold',
+    '--port',
+    '-p',
+    '--tag',
+    '--env-file'
+])
 
 export function isCheckCommand(argv) {
     return argv.some((item, index) => {
@@ -97,13 +113,25 @@ export function commandFailureCode(argv) {
     return isCheckCommand(argv) ? 2 : 1
 }
 
-const FLOW_ID_RE = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/
-
 function parseFlow(value) {
-    if (!value || !FLOW_ID_RE.test(value)) {
+    if (!value || !RESOURCE_ID_RE.test(value)) {
         throw new UsageError('--flow needs the flow id from the canvas address bar.', 2)
     }
     return value
+}
+
+function parseResourceId(value, flag) {
+    if (!value || !RESOURCE_ID_RE.test(value)) {
+        throw new UsageError(`${flag} needs ${flag === '--dataset' ? 'a dataset id' : 'an evaluator id'}.`, 2)
+    }
+    return value
+}
+
+function parseThreshold(value) {
+    if (!/^(?:0|[1-9]\d?|100)$/.test(value || '')) {
+        throw new UsageError(`--threshold must be a whole number from 0 to 100, got ${value || '(missing)'}.`, 2)
+    }
+    return Number(value)
 }
 
 function parseServer(value) {
@@ -137,11 +165,13 @@ function parseJsonPath(value) {
     return value
 }
 
-function takeValue(argv, index, flag) {
+function takeValue(argv, index, flag, allowSigned = false) {
     const inline = argv[index].indexOf('=')
     if (inline !== -1) return { value: argv[index].slice(inline + 1), next: index }
     const value = argv[index + 1]
-    if (!value || value.startsWith('-')) throw new UsageError(`${flag} needs a value. Run cuttlely --help.`, commandFailureCode(argv))
+    if (!value || (!allowSigned && value.startsWith('-'))) {
+        throw new UsageError(`${flag} needs a value. Run cuttlely --help.`, commandFailureCode(argv))
+    }
     return { value, next: index + 1 }
 }
 
@@ -159,7 +189,12 @@ export function parseArgs(argv) {
         server: null,
         timeoutSeconds: null,
         jsonPath: null,
-        failOnChanged: false
+        failOnChanged: false,
+        datasetId: null,
+        evaluatorIds: [],
+        threshold: null,
+        gate: false,
+        scored: false
     }
     const words = []
     const dockerFlags = []
@@ -212,6 +247,24 @@ export function parseArgs(argv) {
         } else if (arg === '--fail-on-changed') {
             opts.failOnChanged = true
             checkFlags.push('--fail-on-changed')
+        } else if (arg === '--dataset' || arg.startsWith('--dataset=')) {
+            const taken = takeValue(argv, i, '--dataset')
+            opts.datasetId = taken.value
+            i = taken.next
+            checkFlags.push('--dataset')
+        } else if (arg === '--evaluator' || arg.startsWith('--evaluator=')) {
+            const taken = takeValue(argv, i, '--evaluator')
+            opts.evaluatorIds.push(taken.value)
+            i = taken.next
+            checkFlags.push('--evaluator')
+        } else if (arg === '--threshold' || arg.startsWith('--threshold=')) {
+            const taken = takeValue(argv, i, '--threshold', true)
+            opts.threshold = taken.value
+            i = taken.next
+            checkFlags.push('--threshold')
+        } else if (arg === '--gate') {
+            opts.gate = true
+            checkFlags.push('--gate')
         } else if (arg.startsWith('-')) {
             throw new UsageError(`Unknown option ${arg}. Run cuttlely --help.`, commandFailureCode(argv))
         } else words.push(arg)
@@ -243,6 +296,40 @@ export function parseArgs(argv) {
             }
             // An empty --json= is still the flag. Skipping it would run the check and write nothing.
             if (checkFlags.includes('--json')) opts.jsonPath = parseJsonPath(opts.jsonPath)
+            if (opts.gate && checkFlags.includes('--dataset')) {
+                throw new UsageError('--gate uses the saved test set. Do not pass --dataset with it.', checkExit)
+            }
+            if (opts.gate && (checkFlags.includes('--evaluator') || checkFlags.includes('--threshold'))) {
+                throw new UsageError(
+                    '--gate uses the saved dataset, evaluators, and threshold. Do not pass --evaluator or --threshold with it.',
+                    checkExit
+                )
+            }
+            const scoredFlag = ['--dataset', '--evaluator', '--threshold', '--gate'].some((flag) => checkFlags.includes(flag))
+            if (opts.failOnChanged && scoredFlag) {
+                throw new UsageError('--fail-on-changed cannot be combined with --dataset, --evaluator, --threshold, or --gate.', checkExit)
+            }
+            if (checkFlags.includes('--dataset')) opts.datasetId = parseResourceId(opts.datasetId, '--dataset')
+            if (checkFlags.includes('--evaluator')) {
+                const seen = new Set()
+                const unique = []
+                for (const id of opts.evaluatorIds) {
+                    const parsed = parseResourceId(id, '--evaluator')
+                    if (seen.has(parsed)) continue
+                    seen.add(parsed)
+                    unique.push(parsed)
+                }
+                opts.evaluatorIds = unique
+            }
+            if (checkFlags.includes('--threshold')) opts.threshold = parseThreshold(opts.threshold)
+            if (
+                !opts.gate &&
+                !checkFlags.includes('--dataset') &&
+                (checkFlags.includes('--evaluator') || checkFlags.includes('--threshold'))
+            ) {
+                throw new UsageError('--evaluator and --threshold need --dataset.', checkExit)
+            }
+            opts.scored = Boolean(opts.gate || checkFlags.includes('--dataset'))
         }
     } else if (checkFlags.length) {
         throw new UsageError(`Unknown option ${checkFlags[0]}. Run cuttlely --help.`)
@@ -576,7 +663,12 @@ export async function main(argv, io = {}) {
                     server: opts.server,
                     timeoutSeconds: opts.timeoutSeconds,
                     jsonPath: opts.jsonPath,
-                    failOnChanged: opts.failOnChanged
+                    failOnChanged: opts.failOnChanged,
+                    scored: opts.scored,
+                    gate: opts.gate,
+                    datasetId: opts.datasetId,
+                    evaluatorIds: opts.evaluatorIds,
+                    threshold: opts.threshold
                 },
                 ctx
             )

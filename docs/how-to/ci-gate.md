@@ -53,6 +53,32 @@ A question that errors is listed under **Errors** and is not a Changed answer. W
 
 A check the server marks stopped or failed also exits 2. If the draft is saved, published, or discarded while the check runs, the command exits 2, because the answers may be for a draft that is already gone. After the check has started, a timeout, a 403, or any other failure asks the server to stop it. Cancelling the command, including a cancelled CI job, stops that server-side check too. That stop is best effort: if it fails, the exit code is still 2.
 
+## Scored mode
+
+`--dataset` or `--gate` runs the dataset check instead of the four recent questions. Diff mode stays the default: a command with neither flag still sends `{ "count": 4 }` and still uses the exit codes above.
+
+The command exits on the server `verdict`. It does not score the answers, and it does not compare the pass rate itself. `passed` exits 0. `failed` exits 1. A missing verdict, a stopped or failed check, a draft that changed during the check, a timeout, a 403, a missing key, no draft, or a usage error exits 2.
+
+```bash
+npx cuttlely check --flow <flow id> --dataset <dataset id> --evaluator <evaluator id> --threshold 80
+npx cuttlely check --flow <flow id> --gate
+```
+
+| Flag          | Meaning                                                                                                                                           |
+| ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--dataset`   | Dataset id. Selects scored mode. The server asks that dataset's rows.                                                                             |
+| `--evaluator` | Evaluator id. Repeat the flag for another evaluator.                                                                                              |
+| `--threshold` | Pass mark, a whole number from 0 to 100. Omit it and the server uses 100.                                                                         |
+| `--gate`      | Use the dataset, evaluators, and threshold saved on the flow (`publishGate` from `GET /api/v1/flow-drafts/:id`). Do not pass `--dataset` with it. |
+
+`--evaluator` and `--threshold` need `--dataset`. `--gate` already carries those settings, so do not pass `--evaluator` or `--threshold` with it either. Combining any of these flags with `--fail-on-changed` is a usage error (exit 2).
+
+The key needs the same flow view and update pair as the question check, plus `datasets:view` and `evaluators:view`. A 403 names that whole set.
+
+The summary adds the draft pass rate, the threshold, and the cases whose draft scores are not Pass. `--json` writes the full check, including each case's scores. The same object is [Read a check](../reference/drafts-api.md#read-a-check).
+
+A flow that starts from a form, a webhook, or a schedule cannot take a dataset check. The server refuses that start, and the command exits 2. A harness can be scored; the exit code is still the server verdict.
+
 ## GitHub Actions
 
 Point the job at a Cuttlely server you already run. The workflow does not start one. Store the API key as a repository secret named `CUTTLELY_API_KEY`. The key needs `chatflows:view` and `chatflows:update`, or `agentflows:view` and `agentflows:update`. Set `CUTTLELY_URL` and `CUTTLELY_FLOW_ID` as repository variables.
