@@ -12,15 +12,22 @@ export const ROUTING_SUMMARY_CHARS = 300
 // line the specialist always sees, and the content it reads only when a question needs it.
 export const PLAYBOOK_LIMITS = { count: 40, name: 64, description: 300, content: 60000 }
 
+function trimDashEnds(value) {
+    let start = 0
+    let end = value.length
+    while (start < end && value.charCodeAt(start) === 45) start += 1
+    while (end > start && value.charCodeAt(end - 1) === 45) end -= 1
+    return value.slice(start, end)
+}
+
 function playbookName(value, index) {
-    const slug = String(value ?? '')
-        .trim()
-        .toLowerCase()
-        .replace(/[^a-z0-9]+/g, '-')
-        .replace(/^-+|-+$/g, '')
-        .slice(0, PLAYBOOK_LIMITS.name)
-        .replace(/-+$/g, '')
-    return slug || `playbook-${index + 1}`
+    const slug = trimDashEnds(
+        String(value ?? '')
+            .trim()
+            .toLowerCase()
+            .replace(/[^a-z0-9]+/g, '-')
+    ).slice(0, PLAYBOOK_LIMITS.name)
+    return trimDashEnds(slug) || `playbook-${index + 1}`
 }
 
 export function playbookList(value) {
@@ -58,10 +65,25 @@ export function routingSummaryText(value) {
 }
 
 const NAME_RE = /^[A-Za-z][A-Za-z0-9_-]{0,63}$/
+// Draft tries compile into profiles/try<8-32 hex>. A harness name that does not fit beside its specialist
+// compiles into profiles/tryx<16 hex>. Neither shape is a savable harness name.
+const TRY_PROFILE_NAME = /^(?:try[a-f0-9]{8,32}|tryx[a-f0-9]{16})$/i
+
+export function reservedTryProfileName(name) {
+    return TRY_PROFILE_NAME.test(String(name || ''))
+}
 
 export function assertHarnessName(name) {
     if (!NAME_RE.test(name || '')) {
         throw new HarnessError('bad_name', `Harness name "${name}" is not valid. Use a letter followed by letters, numbers, "_" or "-".`)
+    }
+    return name
+}
+
+export function assertSavedHarnessName(name) {
+    assertHarnessName(name)
+    if (reservedTryProfileName(name)) {
+        throw new HarnessError('bad_name', `Harness name "${name}" is reserved for a draft try. Choose a different name.`)
     }
     return name
 }
@@ -88,7 +110,7 @@ export function getHarness(name) {
 }
 
 export function saveHarness(record, { overwrite = false } = {}) {
-    assertHarnessName(record?.name)
+    assertSavedHarnessName(record?.name)
     if (!record.chief || !Array.isArray(record.specialists) || record.specialists.length === 0) {
         throw new HarnessError('bad_roster', `Harness "${record.name}" needs a chief and at least one specialist.`)
     }

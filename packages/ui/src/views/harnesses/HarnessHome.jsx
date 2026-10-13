@@ -12,6 +12,7 @@ import { StyledPermissionButton } from '@/ui-component/button/RBACButtons'
 import { baseURL } from '@/store/constant'
 import { formatListDateTime } from '@/utils/formatDate'
 import HarnessRunTrace, { questionFromInputPreview, tryItTraceQuestion } from '@/views/chatmessage/HarnessRunTrace'
+import { harnessCanvasRunPath, harnessRunPath } from '@/utils/harnessCanvasChat'
 import { emptyTrace, failTrace, reduceHarnessEvent } from '../../../../../packages/harness/trace.mjs'
 
 const STATUS_COLOR = {
@@ -104,7 +105,8 @@ const HarnessHome = () => {
         abortRef.current = controller
         let sawAnswer = false
         try {
-            await fetchEventSource(`${baseURL}/api/v1/harnesses/${encodeURIComponent(name)}/runs`, {
+            const runPath = harness?.chatflowId ? harnessCanvasRunPath(harness.chatflowId) : harnessRunPath(name)
+            await fetchEventSource(`${baseURL}${runPath}`, {
                 openWhenHidden: true,
                 method: 'POST',
                 signal: controller.signal,
@@ -187,8 +189,9 @@ const HarnessHome = () => {
                     <Stack sx={{ gap: 1.5 }}>
                         <Typography variant='h4'>Try it</Typography>
                         <Typography color='text.secondary'>
-                            Sends a prompt to this saved harness and streams the reply here. The same request is{' '}
-                            <code>POST /api/v1/harnesses/{name}/runs</code>. A chatflow uses the Harness tool and selects {name}.
+                            Runs the draft when the canvas has one, and Live otherwise. External callers use{' '}
+                            <code>POST /api/v1/harnesses/{name}/runs</code>, which stays on Live until you publish. A chatflow uses the
+                            Harness tool and selects {name}.
                         </Typography>
                         <TextField
                             value={question}
