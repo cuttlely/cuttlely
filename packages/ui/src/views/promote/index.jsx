@@ -7,7 +7,7 @@ import ViewHeader from '@/layout/MainLayout/ViewHeader'
 import flowVersionsApi from '@/api/flowVersions'
 import { apiErrorMessage } from '@/utils/flowDrafts'
 import { timeAgo } from '@/utils/githubSync'
-import { sourceTitleOf } from '@/utils/promote'
+import { previousEnvironmentTitle, promoteLoadError, sourceTitleOf } from '@/utils/promote'
 import { PromoteListView } from './PromoteViews'
 
 const Promote = () => {
@@ -18,13 +18,15 @@ const Promote = () => {
     const [checking, setChecking] = useState(false)
 
     const load = useCallback(async () => {
+        let github = null
         try {
-            const [incoming, github] = await Promise.all([flowVersionsApi.listIncoming(), flowVersionsApi.getGithub().catch(() => null)])
+            github = (await flowVersionsApi.getGithub().catch(() => null))?.data || null
+            setStatus(github)
+            const incoming = await flowVersionsApi.listIncoming()
             setList(incoming.data)
-            setStatus(github?.data || null)
             setError('')
         } catch (err) {
-            setError(apiErrorMessage(err, 'New versions from Dev could not be loaded.'))
+            setError(apiErrorMessage(err, promoteLoadError(github)))
         } finally {
             setLoading(false)
         }
@@ -47,15 +49,16 @@ const Promote = () => {
         setChecking(false)
     }
 
+    const from = list ? sourceTitleOf(list) : previousEnvironmentTitle(status)
     return (
         <MainCard>
             <Stack flexDirection='column' sx={{ gap: 3 }}>
                 <ViewHeader
-                    title={sourceTitleOf(list) === 'Dev' ? 'From Dev' : `From ${sourceTitleOf(list)}`}
+                    title={from === 'Dev' ? 'From Dev' : `From ${from}`}
                     description={
-                        sourceTitleOf(list) === 'Dev'
+                        from === 'Dev'
                             ? 'Review what Dev published and promote it to Live on this server'
-                            : `Review what ${sourceTitleOf(list)} published and promote it to Live on this server`
+                            : `Review what ${from} published and promote it to Live on this server`
                     }
                 />
                 <PromoteListView

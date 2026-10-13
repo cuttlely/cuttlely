@@ -7,6 +7,7 @@ import { MemoryRouter } from 'react-router-dom'
 import { ThemeProvider, createTheme } from '@mui/material/styles'
 
 import { PromoteDetailView, PromoteListView } from './PromoteViews'
+import { promoteLoadError } from '@/utils/promote'
 import { FromDevBannerView } from '@/ui-component/flow/FromDevBanner'
 
 const wrap = (element) =>
@@ -87,6 +88,35 @@ describe('PromoteListView', () => {
         expect(named).toContain('New versions from Staging show up here')
         expect(named).not.toContain('from Dev')
         expect(render({ list: list([]), status: { lastCheckedAt: at } })).toContain('Looked 2 minutes ago')
+    })
+
+    test('the first look names the previous environment from the saved list', () => {
+        const html = render({
+            loading: true,
+            status: {
+                environment: 'prod',
+                environments: [
+                    { name: 'Dev', server: 'dev' },
+                    { name: 'Staging', server: 'staging' },
+                    { name: 'Prod', server: 'prod' }
+                ]
+            }
+        })
+        expect(html).toContain('Looking for new versions from Staging')
+        expect(html).not.toContain('from Dev')
+    })
+
+    test('a failed load on a three-environment Prod server names Staging', () => {
+        const prod = {
+            environment: 'prod',
+            environments: [
+                { name: 'Dev', server: 'dev' },
+                { name: 'Staging', server: 'staging' },
+                { name: 'Prod', server: 'prod' }
+            ]
+        }
+        expect(promoteLoadError(prod)).toBe('New versions from Staging could not be loaded.')
+        expect(promoteLoadError(null)).toBe('New versions from Dev could not be loaded.')
     })
 })
 

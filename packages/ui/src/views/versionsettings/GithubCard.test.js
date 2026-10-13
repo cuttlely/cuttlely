@@ -6,7 +6,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { MemoryRouter } from 'react-router-dom'
 import { ThemeProvider, createTheme } from '@mui/material/styles'
 
-import GithubCard from './GithubCard'
+import GithubCard, { repoPickAfterLoad } from './GithubCard'
 
 const wrap = (status, extra) =>
     renderToStaticMarkup(
@@ -108,6 +108,14 @@ describe('GithubCard environment names', () => {
         expect(html).toContain('value="dev"')
         expect(html).toContain('value="staging"')
         expect(html).toContain('value="prod"')
+    })
+
+    test('loadRepos leaves a middle environment with nothing picked', () => {
+        const empty = [{ repo: 'acme/empty', private: true, empty: true }]
+        expect(repoPickAfterLoad(empty, true)).toBe('')
+        expect(repoPickAfterLoad([], true)).toBe('')
+        expect(repoPickAfterLoad(empty, false)).toBe('acme/empty')
+        expect(repoPickAfterLoad([], false)).toBe('__new_repo__')
     })
 
     test('connect follows the previous environment for Dev, Staging and Prod', () => {

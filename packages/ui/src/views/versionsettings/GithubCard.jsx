@@ -143,6 +143,15 @@ RepoRow.propTypes = {
 // The "make a new repository" row in the picker.
 const NEW_REPO = '__new_repo__'
 
+// What loadRepos selects. A server with a previous environment starts with nothing picked.
+export const repoPickAfterLoad = (repos, joinsExisting) => {
+    if (joinsExisting) return ''
+    const list = repos || []
+    const firstEmpty = list.find((item) => item.empty)
+    if (firstEmpty) return firstEmpty.repo
+    return list.length ? '' : NEW_REPO
+}
+
 // onStatus hears every status the card loads or gets back, so a page around it can follow along.
 const GithubCard = ({ onStatus, initialStatus = null, initialStep = 'idle' }) => {
     const [status, setStatus] = useState(initialStatus)
@@ -255,10 +264,8 @@ const GithubCard = ({ onStatus, initialStatus = null, initialStep = 'idle' }) =>
             const res = await flowVersionsApi.listGithubRepos(tokenBody)
             setAccount(res.data.account)
             setRepos(res.data.repos || [])
-            const firstEmpty = (res.data.repos || []).find((r) => r.empty)
-            // Prod reads what Dev copied, so it starts with nothing picked and never offers a new repository.
-            if (reading) setPicked('')
-            else setPicked(firstEmpty ? firstEmpty.repo : res.data.repos?.length ? '' : NEW_REPO)
+            // A server with a previous environment uses that repository. Nothing is preselected, and a new one is never offered.
+            setPicked(repoPickAfterLoad(res.data.repos, joinsExisting))
             setStep('repo')
         } catch (err) {
             setError(messageOf(err))
@@ -272,6 +279,10 @@ const GithubCard = ({ onStatus, initialStatus = null, initialStep = 'idle' }) =>
         setError('')
         try {
             let repo = picked
+            if (joinsExisting && picked === NEW_REPO) {
+                setError(`Pick the repository your ${readsFrom} server copies to.`)
+                return
+            }
             if (picked === NEW_REPO) {
                 const checked = checkRepoName(newName)
                 if (checked.error) {

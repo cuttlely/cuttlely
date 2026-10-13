@@ -1018,14 +1018,30 @@ export class GithubSync {
             } else if (refs.length) {
                 throw new GithubError(409, otherContent)
             }
-        } else if (plan.publishBranch) {
-            // Other environments may already publish here. Only this server's own publish name has to match its history.
-            const mark = `refs/heads/${plan.publishBranch}`
-            const remotePublish = (refs.find((line) => line.endsWith(` ${mark}`) || line.endsWith(`\t${mark}`)) || '').split(/\s/)[0] || ''
-            if (remotePublish) {
-                const head = await this.refSha('refs/heads/main')
-                if (!head || !(await this.isAncestor(remotePublish, head))) throw new GithubError(409, otherContent)
-                pushed = remotePublish
+        } else {
+            // A later environment reads the previous one's versions. An empty repository is not that repository.
+            if (plan.reads && plan.sourceBranch) {
+                const sourceMark = `refs/heads/${plan.sourceBranch}`
+                const remoteSource =
+                    (refs.find((line) => line.endsWith(` ${sourceMark}`) || line.endsWith(`\t${sourceMark}`)) || '').split(/\s/)[0] || ''
+                if (!remoteSource) {
+                    const from = this.fromLabel()
+                    throw new GithubError(
+                        400,
+                        `Connect the repository your ${from} server copies to. This one has no versions from ${from} yet.`
+                    )
+                }
+            }
+            if (plan.publishBranch) {
+                // Other environments may already publish here. Only this server's own publish name has to match its history.
+                const mark = `refs/heads/${plan.publishBranch}`
+                const remotePublish =
+                    (refs.find((line) => line.endsWith(` ${mark}`) || line.endsWith(`\t${mark}`)) || '').split(/\s/)[0] || ''
+                if (remotePublish) {
+                    const head = await this.refSha('refs/heads/main')
+                    if (!head || !(await this.isAncestor(remotePublish, head))) throw new GithubError(409, otherContent)
+                    pushed = remotePublish
+                }
             }
         }
 

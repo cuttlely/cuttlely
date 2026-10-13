@@ -32,6 +32,7 @@ import {
     missingIntro,
     promotePath,
     promotedMessage,
+    previousEnvironmentTitle,
     showEnvironmentChain,
     sourceTitleOf
 } from '@/utils/promote'
@@ -118,13 +119,13 @@ IncomingCard.propTypes = { flow: PropTypes.object.isRequired, now: PropTypes.num
 export const PromoteListView = ({ list, status, loading, error, checking, onCheckNow, now, timeAgo }) => {
     const theme = useTheme()
     const flows = list?.flows || []
-    const sourceTitle = sourceTitleOf(list)
+    const sourceTitle = list ? sourceTitleOf(list) : previousEnvironmentTitle(status)
     const chain = showEnvironmentChain(list)
     if (loading) {
         return (
             <Stack direction='row' spacing={1} alignItems='center' sx={{ py: 4 }}>
                 <CircularProgress size={18} />
-                <Typography color='text.secondary'>Looking for new versions from Dev…</Typography>
+                <Typography color='text.secondary'>Looking for new versions from {sourceTitle}…</Typography>
             </Stack>
         )
     }

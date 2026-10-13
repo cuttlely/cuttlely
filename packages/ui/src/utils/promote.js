@@ -107,6 +107,11 @@ export const previousEnvironmentTitle = (status) => {
     return previous.name
 }
 
+export const promoteLoadError = (status) => {
+    const from = previousEnvironmentTitle(status)
+    return from === 'Dev' ? 'New versions from Dev could not be loaded.' : `New versions from ${from} could not be loaded.`
+}
+
 // The card's line on a server that only reads. Names the previous environment.
 export const readLine = (status, timeAgo) => {
     if (!status?.connected || status.role !== 'read') return ''

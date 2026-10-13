@@ -377,7 +377,7 @@ To switch a server between Dev and Prod, disconnect GitHub first.
 
 The same repository can hold more than two environments. List them in promotion order. Each one has a name, the branch it publishes to, and a server identity. An existing Dev and Prod setup is already that list: dev, then prod, and you do not have to change it.
 
-To add Staging, save this on each server with `PUT /api/v1/flow-versions/environment`, and set `environment` to that server's identity (`dev`, `staging` or `prod`). The list is stored on that server only. Save the same list on every server: if Prod's list leaves Staging out, Prod reads Dev again. Disconnect GitHub first if the server is already connected and this changes what it reads or copies.
+To add Staging, save this on each server with `PUT /api/v1/flow-versions/environment`, and set `environment` to that server's identity (`dev`, `staging` or `prod`). The list is stored on that server only. Save the same list on every server. Once a server has recorded a fingerprint of that list with a copy, a Prod server whose list still leaves Staging out reads Dev's versions and then stops: nothing new is offered to promote, and versions already offered stay as they are. Until that fingerprint exists, Prod can still read the place its own list names. Disconnect GitHub first if the server is already connected and this changes what it reads or copies.
 
 ```json
 {
@@ -392,7 +392,7 @@ To add Staging, save this on each server with `PUT /api/v1/flow-versions/environ
 
 Dev still publishes to the repository. Staging reads those versions, and you promote the ones you want to Live on Staging. Staging then publishes its own versions, including what you promoted, for Prod to read. Prod promotes from Staging the same way it used to promote from Dev: the behavior check, the credential names, and **Promote to Live**. Prod does not take a version straight from Dev while Staging is in between.
 
-On Staging the **From Dev** page looks like Prod's page does today. On Prod the page shows the chain Dev, Staging, Prod, and the versions are the ones Staging published. With only Dev and Prod, the page does not show a chain and works as before.
+On Staging and on Prod the page shows the chain Dev, Staging, Prod, and says promotion moves a version to the next environment. Staging's versions are the ones Dev published. Prod's versions are the ones Staging published. With only Dev and Prod, the page does not show a chain and works as before.
 
 The fields are in [History settings](../reference/versioning-settings.md#environments).
 

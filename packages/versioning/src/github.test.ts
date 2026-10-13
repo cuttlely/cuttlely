@@ -1451,6 +1451,39 @@ describe('Dev or Prod label', () => {
         expect(stuck.message).toContain("Pick this server's environment")
         expect(stuck.message).not.toContain('waiting to be copied')
     })
+
+    test('a server that reads cannot connect until the previous environment has versions there', async () => {
+        const chain = [
+            { name: 'Dev', branch: 'main', server: 'dev' },
+            { name: 'Staging', branch: 'staging', server: 'staging' },
+            { name: 'Prod', branch: 'prod', server: 'prod' }
+        ]
+        const saved = path.join(versionsDir(), '.git', 'versions-github.json')
+        sync = makeSync({ checkEveryMs: 60_000, retryMs: [60_000] })
+        setGithubForTests(sync)
+        await sync.setEnvironment('staging', chain)
+        await save('One')
+        await expect(sync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)).rejects.toMatchObject({
+            status: 400,
+            message: 'Connect the repository your Dev server copies to. This one has no versions from Dev yet.'
+        })
+        expect(fs.existsSync(saved)).toBe(false)
+
+        await sync.setEnvironment('dev', chain)
+        await sync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)
+        await sync.disconnect()
+        await sync.setEnvironment('prod', chain)
+        await expect(sync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)).rejects.toMatchObject({
+            status: 400,
+            message: 'Connect the repository your Staging server copies to. This one has no versions from Staging yet.'
+        })
+        expect(fs.existsSync(saved)).toBe(false)
+
+        await sync.setEnvironment('staging', chain)
+        const status = await sync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)
+        expect(status.connected).toBe(true)
+        expect(status.state).not.toBe('stopped')
+    })
 })
 
 describe('local stand-in for GitHub (end-to-end runs without an account)', () => {
