@@ -1,56 +1,258 @@
 # Evaluations
 
-Datasets, evaluators, and evaluations are how you check a chatflow or an agentflow against example questions. Open them from the sidebar: **Datasets**, **Evaluators**, and **Evaluations**.
+This is the path from a saved test set to a Publish that waits for it. You create a dataset, add the checks that score an answer, run those examples against a chatflow or an agentflow, then use the same dataset in the Publish dialog and, if you want, refuse Publish until that check passes.
 
-Publishing a flow and running an evaluation are separate. The evaluation pages do not start the check in the Publish dialog. A saved dataset can, and the evaluators you tick there score both answers. See [Check a dataset before you publish](#check-a-dataset-before-you-publish).
+Open **Datasets**, **Evaluators**, and **Evaluations** from the sidebar. Publishing a flow and running an evaluation are separate. The evaluation pages do not start the check in the Publish dialog. A saved dataset can, and the evaluators you tick there score both answers.
 
-The organization owner can open all three. Anyone else needs the matching permission on their role: `datasets:view`, `evaluators:view`, or `evaluations:view`, and the create, update, delete, or run permission for the button they use.
+The rest of the Publish dialog, including recent questions and recorded form, webhook, and schedule runs, is in [Check recent questions before you publish](./versioning.md#check-recent-questions-before-you-publish). The request fields are in [Start a check](../reference/drafts-api.md#start-a-check).
 
-## Datasets
+## Who can do what
 
-A dataset is a named list of rows. Each row is an input and the output you expect.
+The organization owner can do every row. Anyone else needs the key on their role. The full route list is in [Roles and permissions](./roles-and-permissions.md).
 
-1. Select **Datasets**.
-2. Select **Add**. Give it a name and a description.
-3. Open the dataset to add rows, edit them, change their order, or delete them.
+| Action                                        | Permission                                                                                                                                                                                                                               |
+| --------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Open Datasets, and read a dataset             | `datasets:view`                                                                                                                                                                                                                          |
+| Add a dataset, add a row, or upload a CSV     | `datasets:create`                                                                                                                                                                                                                        |
+| Edit a dataset or a row, and change row order | `datasets:update`. Add and **Upload CSV** on a dataset also accept `datasets:create`.                                                                                                                                                    |
+| Delete a dataset or a row                     | `datasets:delete`                                                                                                                                                                                                                        |
+| Open Evaluators                               | `evaluators:view`                                                                                                                                                                                                                        |
+| Add an evaluator                              | `evaluators:create`. That key also updates one.                                                                                                                                                                                          |
+| Edit an evaluator                             | `evaluators:update`                                                                                                                                                                                                                      |
+| Delete an evaluator                           | `evaluators:delete`                                                                                                                                                                                                                      |
+| Open Evaluations and a result                 | `evaluations:view`                                                                                                                                                                                                                       |
+| Start an evaluation                           | `evaluations:create`                                                                                                                                                                                                                     |
+| **Re-run Evaluation** on a result             | `evaluations:run`. Creating one, and `POST /api/v1/evaluations/run-again/:id`, also accept `evaluations:create`.                                                                                                                         |
+| Delete an evaluation                          | `evaluations:delete`                                                                                                                                                                                                                     |
+| Read the Publish check                        | `chatflows:view` on a chatflow, a harness, or a pipeline. `agentflows:view` on an agentflow.                                                                                                                                             |
+| Start or stop the Publish check               | `chatflows:update` or `agentflows:update`, the same split as the read. Sending `datasetId` also needs `datasets:view`. Sending any evaluator id also needs `evaluators:view`. Without that view key the route is 403 and nothing starts. |
+| Turn on **Passing test set**                  | Permission to update the flow, plus `datasets:view` and `evaluators:view`. Without a view key the settings update is 403 and nothing is stored.                                                                                          |
+| Publish                                       | `chatflows:update` or `agentflows:update`.                                                                                                                                                                                               |
 
-A CSV upload uses the first two columns as the input and the expected output. The first row can be a header.
+`evaluations:update` is offered in the role dialog. No page and no API route check it, so granting it changes nothing.
 
-## Evaluators
+A role that can view the flow but not datasets does not see **Questions from** in the Publish dialog, and a read of a dataset check returns an empty question and no expected output. A role that cannot view evaluators does not see the evaluator list, and a read of the check returns each score as `{ "result" }` with no id and no name. Pass, Fail, Error, and the pass rate stay.
 
-An evaluator is a check you can attach to a run.
+## Create a dataset
 
--   **Text.** The answer contains, or starts with, a value you type.
--   **Numeric.** A metric compared with an operator, such as greater than a number.
--   **JSON.** The answer matches a JSON check.
--   **Model.** A prompt and an output shape, graded by a model.
+A dataset is a named list of rows. Each row is an input and the output you expect. The Publish check asks the row input as the question and shows the row output as the expected answer.
 
-Select **Evaluators** to create one, change it, or delete it. Creating an evaluation does not require an evaluator. You can run with none and add checks later.
+### By hand
 
-## Evaluations
+1. Select **Datasets**, then **Add New**.
+2. In **Add Dataset**, type a name and a description. Select **Add**.
+3. Open the dataset. Select **New Item**. **Input** and **Anticipated Output** are both required. Select **Add**.
+
+The table headers are **Input** and **Expected Output**. Drag the handle at the right of a row to change the order. The check asks rows in that order. Edit and the trash icon need the update and delete keys above.
+
+A made-up bakery set looks like this:
+
+| Input                              | Expected output                  |
+| ---------------------------------- | -------------------------------- |
+| Do you have rye loaves today?      | Yes, rye is baked every morning. |
+| What time do you open on Saturday? | We open at 8 AM on Saturdays.    |
+
+![Add Dataset dialog. The name is Saturday hours and the description is Questions the bakery counter should answer. The buttons are Cancel and Add.](../images/evaluations/dataset-add.png)
+
+![Dataset Saturday hours with two rows. The first input is Do you have rye loaves today? and the expected output is Yes, rye is baked every morning. The second is What time do you open on Saturday? with We open at 8 AM on Saturdays.](../images/evaluations/dataset-rows.png)
+
+A row with an empty input, or an input longer than 2,000 characters, is skipped by the Publish check. At most 100 rows are asked. Creating a dataset with no name is 400 `Dataset name is required`.
+
+### From a CSV
+
+CSV upload uses the first two columns only. Column one is the input and column two is the expected output. Further columns are ignored.
+
+You can attach the file on **Add Dataset**, or open a dataset and select **Upload CSV**. Turn on **Treat First Row as headers in the upload file?** when the first row is `Input,Output` or any other header. Leave it off when the first row is a real example. Select **Add** or **Upload**.
+
+```csv
+Input,Output
+Do you have rye loaves today?,Yes, rye is baked every morning.
+What time do you open on Saturday?,We open at 8 AM on Saturdays.
+```
+
+![Upload CSV on the Saturday hours dataset. The file name is saturday-hours.csv and Treat First Row as headers in the upload file is on. The buttons are Cancel and Upload.](../images/evaluations/dataset-csv.png)
+
+## Create evaluators
+
+An evaluator is one check. Select **Evaluators**, then **New Evaluator**. **Name** and **Evaluator Type** are required. Select **Add**.
+
+Use text when you know words that must or must not appear. Use JSON when the answer has to be JSON, or must not be. Use numeric when you care about length, tokens, or time. Use a model when the expected answer is a judgment, not an exact string. An evaluation can run with no evaluators. The Publish gate cannot: it needs at least one.
+
+### Text
+
+**Evaluator Type** is **Evaluate Result (Text Based)**. **Available Evaluators** is the operator. **Value** is the text, or a comma-separated list for the contain operators. Capitals and surrounding spaces are ignored.
+
+| Label                     | Passes when                                              |
+| ------------------------- | -------------------------------------------------------- |
+| **Contains Any**          | Any of the comma-separated values appears in the answer. |
+| **Contains All**          | Every value appears.                                     |
+| **Does Not Contains Any** | None of the values appear.                               |
+| **Does Not Contains All** | At least one value is missing.                           |
+| **Starts With**           | The answer starts with the value.                        |
+| **Does Not Start With**   | The answer does not start with the value.                |
+
+A bakery text check named `Mentions rye` uses **Contains Any** and the value `rye`.
+
+![The Mentions rye evaluator. Name is Mentions rye, Evaluator Type is Evaluate Result (Text Based), Available Evaluators is Contains Any, and Value is rye.](../images/evaluations/evaluator-text.png)
+
+### JSON
+
+**Evaluator Type** is **Evaluate Result (JSON)**. There is no value to type.
+
+| Label                   | Passes when                        |
+| ----------------------- | ---------------------------------- |
+| **Is Valid JSON**       | The answer parses as JSON.         |
+| **Is Not a Valid JSON** | The answer does not parse as JSON. |
+
+Use this when the flow is supposed to return an object, such as `{"loaf":"rye","count":2}`. A prose sentence fails **Is Valid JSON**.
+
+![The Order is JSON evaluator. Evaluator Type is Evaluate Result (JSON) and Available Evaluators is Is Valid JSON.](../images/evaluations/evaluator-json.png)
+
+### Numeric
+
+**Evaluator Type** is **Evaluate Metrics (Numeric)**. Pick the measure, an operator, and a number.
+
+| Label                   | What it measures                                                                                 |
+| ----------------------- | ------------------------------------------------------------------------------------------------ |
+| **Total Tokens**        | Prompt tokens plus completion tokens, when the run recorded a total.                             |
+| **Prompt Tokens**       | Tokens in the prompt. The Publish check does not record this split, so the score is Error.       |
+| **Completion Tokens**   | Tokens the model generated. The Publish check does not record this split, so the score is Error. |
+| **Total API Latency**   | Time for the prediction, in milliseconds.                                                        |
+| **LLM Latency**         | Model time, in milliseconds. On the Publish check this is the same duration as the API time.     |
+| **Chatflow Latency**    | Time spent in the flow, in milliseconds. On the Publish check this is that same duration.        |
+| **Output Chars Length** | Characters in the answer.                                                                        |
+
+Operators are **Equals**, **Not Equals**, **Greater Than**, **Less Than**, **Greater Than or Equals**, and **Less Than or Equals**.
+
+A missing number is Error, not Fail. On the Publish check, **Prompt Tokens**, **Completion Tokens**, and a **Total Tokens** measure the run did not report are Error. That Error counts in the pass rate. **Output Chars Length** uses the answer, so it still Passes or Fails.
+
+A bakery length check named `Short answer` uses **Output Chars Length**, **Less Than**, and `400`.
+
+![The Short answer evaluator. Evaluator Type is Evaluate Metrics (Numeric), Available Evaluators is Output Chars Length, Select Operator is Less Than, and Value is 400.](../images/evaluations/evaluator-numeric.png)
+
+### Model
+
+**Evaluator Type** is **LLM based Grading (JSON)**. You write a **Prompt** and an **Output Schema** (property, type `string`, `number`, or `boolean`, description, and required). **Load from Pre defined Samples** fills Correctness or Hallucination. The prompt can use `{question}`, `{actualOutput}`, and `{expectedOutput}`.
+
+On the evaluation page, the last step of **Start New Evaluation** picks the grading model and a credential saved in this team. On the Publish check, the grader uses the model credential saved on the flow, and only a credential this workspace can use. If that model cannot be started, text, JSON, and numeric scores stay, and each model score is Error with `The grading model could not be started.`
+
+The Publish check turns the grade into Pass or Fail only in these cases:
+
+-   A field named `result` whose value is `Pass`, `Fail`, or `Error`.
+-   A boolean field named `pass`, `passed`, or `correct`.
+-   Exactly one boolean anywhere in the grade. True is Pass and false is Fail.
+
+A grade that is only a number stays Error. The Correctness sample asks for a numeric score, so it does not Pass or Fail the Publish check. For the gate, use a schema with one boolean, for example a property `pass` of type `boolean`, and a prompt that answers whether the reply matches `{expectedOutput}`.
+
+![The Matches the counter card evaluator. Evaluator Type is LLM based Grading (JSON). The output schema has one boolean property named pass. The prompt asks whether the reply matches the expected output.](../images/evaluations/evaluator-model.png)
+
+## Run an evaluation
 
 An evaluation runs one dataset against one or more chatflows or agentflows and stores what came back.
 
-1. Select **Evaluations**.
-2. Select **Add** and name the run.
-3. Choose the dataset and the chatflows or agentflows. Custom assistants are not listed: a run calls the prediction route, which only runs chatflows and agentflows.
-4. Optionally choose evaluators. A model evaluator also needs a credential.
-5. Start the run. The list shows it as pending, then completed or error. Open a row to see each example.
+1. Select **Evaluations**, then **New Evaluation**. The dialog title is **Start New Evaluation**.
+2. **Datasets.** Name the run, choose the dataset, and choose the flows. **Chatflows** and **Agentflows (v2)** are the lists. Custom assistants are not listed. Turn on **Treat all dataset rows as one conversation ?** only when later rows should continue the same chat.
+3. **Evaluators.** Tick the text, JSON, and numeric evaluators. You can leave this empty.
+4. **LLM Graded Metrics.** Leave **No Grading** unless a model evaluator should run. Grading needs a model and a credential this team owns.
+5. Select **Start New Evaluation**.
 
-**Run again** stores another version under the same name. It uses the same checks as a new run: a deleted flow, a flow from another team, or a flow this role cannot view is rejected and no new version is saved. A missing evaluation, or one from another team, is rejected the same way. Delete removes a run, or every version of that name.
+The list shows the run as pending, then completed or error. The pass-rate chip reads `Pass Rate: N%`. A pass rate of 0 is shown as `Pass Rate: N/A` on that chip. Open the row for the counts and each example: the input, the expected output, the answer, and Pass, Fail, or Error for every evaluator. The result page shows the pass percentage, including 0.
 
-## Check a dataset before you publish
+**Re-run Evaluation** on the result asks you to confirm **Run Again**. It stores another version under the same name. It uses the same checks as a new run: a deleted flow, a flow from another team, or a flow this role cannot view is rejected and no new version is saved. Delete removes a run, or every version of that name.
 
-On a chatflow, an agentflow that starts with a chat message, or a harness, the Publish dialog can ask a dataset instead of recent questions, and score each answer with the evaluators you select. A pipeline has no question check.
+![Start New Evaluation on the Datasets step. The name is Saturday hours check, the dataset is Saturday hours, and the flow is Bakery helper.](../images/evaluations/evaluation-new.png)
 
-1. Select **Publish**. Under **Check recent questions**, set **Questions from** to **A dataset** and choose the dataset. **Questions from** is hidden when your role cannot view datasets.
-2. Tick the evaluators to score with. That list is hidden when your role cannot view evaluators.
-3. Select **Run check**.
+![Saturday hours check completed. The pass rate is 75 percent: three scores passed and one failed. The rye row passes both checks. The Saturday row fails Mentions rye and passes Short answer.](../images/evaluations/evaluation-results.png)
 
-Each row runs in the order saved on the dataset. The row input is the question and the row output is the expected answer, shown under the question. At most 100 rows are asked, and a row with an empty question or a question longer than 2,000 characters is skipped. Each side shows Pass, Fail or Error for every evaluator, and a pass rate. An answer that failed to run scores Error. A model grade that is only a number stays Error, because this check does not turn that number into Pass or Fail. A yes or no in the grade is Pass or Fail. A numeric evaluator uses the tokens and the time the check already records. A numeric check of prompt tokens, completion tokens, or a token total the run did not report scores Error, not Fail. A model evaluator uses the model credential saved on the flow, and only a credential this workspace can use. If that model cannot be started, the text, JSON and numeric scores stay, and each model score is Error. A provider that reports grading usage nowhere does not move the token cap, so that check is bounded only by the time limit. A dataset check reports passed or failed for the draft against a pass mark. The mark is 100 unless the request sends `threshold`, a whole number from 0 to 100. Errored scores count as not passed. A check that is not using a dataset has no verdict. The pass rate does not block Publish unless the flow requires a passing test set. A check with no evaluators still shows the expected answer and compares the two answers as before, and its verdict is failed because nothing was scored.
+A run calls each selected flow on this server, the same way a prediction does. You do not set a separate address. An unknown flow, a flow from another team, a custom assistant, or a run with no chatflow or agentflow is rejected and no evaluation is saved. A missing name is not the rejection: the create requires a dataset and at least one flow. `chatflowId` must be a list of flow ids. A flow that requires an API key cannot be replayed from this page, because the key is stored as a hash and the run cannot recover it. A flow with no key can be run. A chatflow or agentflow can use a model credential this team owns or one shared into the team.
 
-The answers stay in memory for 30 minutes and are not written down. When the flow requires a passing test set and this check used that dataset, those evaluators, and that pass mark, the server stores the verdict (pass rate, counts, and time) and a hash of the rows it asked and of each evaluator's type and settings. It does not store the rows or the answers. Editing a row, adding a row the check would ask, changing an evaluator's check, deleting the dataset or an evaluator, or editing the flow's answer post-processing makes that pass out of date. A flow that starts with a form, a webhook or a schedule cannot use a dataset. The steps are in [Check recent questions before you publish](./versioning.md#check-recent-questions-before-you-publish) and [Require a passing test set before you publish](./versioning.md#require-a-passing-test-set-before-you-publish). The request fields are in [Start a check](../reference/drafts-api.md#start-a-check).
+## Run the Publish check on a dataset
 
-## What a run calls
+On a chatflow, an agentflow that starts with **Chat Input**, or a harness, the Publish dialog can ask a dataset instead of recent questions.
 
-A run calls each selected chatflow or agentflow on this server, the same way a prediction does. The flow has to be one this team can view. An unknown flow, a flow from another team, a custom assistant, or a run with no chatflow or agentflow is rejected and no evaluation is saved. You do not set a separate address for that call. A flow that requires an API key cannot be replayed from this page, because the key is stored as a hash and the run cannot recover it. A flow with no key can be run. A chatflow or agentflow can use a model credential this team owns or one shared into the team. Loading earlier messages and clearing a session follow that same rule. A model evaluator uses a credential saved in the same team.
+1. Save a draft, then select **Publish**.
+2. Under **Check recent questions**, set **Questions from** to **A dataset** and choose the dataset. **Questions from** is hidden when your role cannot view datasets.
+3. Tick the evaluators. That list is hidden when your role cannot view evaluators.
+4. Select **Run check**.
+
+Each row runs in the saved order, once on Live and once on the draft. The expected answer is shown under the question. Each side shows Pass, Fail, or Error for every evaluator, and a pass rate: passed divided by passed, failed, and errored, from 0 to 100 with one decimal. An answer that failed to run scores Error. A check with no evaluators still shows the expected answer and compares the two answers, and a dataset check's verdict is failed because nothing was scored.
+
+The finished dataset check also reports passed or failed for the draft against a pass mark. The mark is 100 unless the request sends `threshold`, a whole number from 0 to 100. Errored scores count as not passed. A check that is not using a dataset has no verdict. That line does not block Publish unless the flow requires a passing test set.
+
+![Publish dialog for Bakery helper after Run the test set. The draft pass rate is 75 percent and failed the mark of 100. The rye row passes both checks. The Saturday row fails Mentions rye and passes Short answer. Publish stays disabled, and the reason is Publish needs a passing test set at 100%. The last result was 75% and failed.](../images/evaluations/publish-dataset.png)
+
+A flow that starts with a form, a webhook, or a schedule cannot use a dataset. The box is titled **Check recent runs**, and **Questions from** offers **Recent runs**. Sending `datasetId` is 400:
+
+```json
+{
+    "statusCode": 400,
+    "success": false,
+    "message": "A dataset check asks each row as a chat message. This flow starts with a form, so it cannot use a dataset.",
+    "stack": {}
+}
+```
+
+A webhook start says `a webhook`. A schedule start says `a schedule`. The same refusal is in [Which canvases get a check](./versioning.md#which-canvases-get-a-check).
+
+The answers stay in memory for 30 minutes and are not written down. When the flow requires a passing test set and this check used that dataset, those evaluators, and that pass mark, the server stores the verdict (pass rate, counts, and time) and a hash of the rows it asked and of each evaluator's type and settings. It does not store the rows or the answers.
+
+## Set the pass mark and turn on the gate
+
+A chatflow, or an agentflow that starts with a chat message, can refuse Publish until the current draft passes a saved dataset. The setting is off until you turn it on. It is **Passing test set** in the flow's configuration, next to **Publish instantly**.
+
+1. Open the flow's configuration and select **Passing test set**.
+2. Choose the dataset, tick the evaluators, and set **Pass at** to a whole number from 0 to 100. 100 is the default, so every score must pass. An errored score counts as not passed. A blank or invalid mark stays at the previous value and is not saved as 0.
+3. Turn on **Require a passing test set before Publish**. The page says `Publish waits for a passing test set.`
+
+You need permission to update the flow, and to view datasets and evaluators. Turning it on is refused when drafts are off for the server (`Drafts are off on this server.`), when **Publish instantly** is on (`Turn off Publish instantly before requiring a passing test set.`), when the dataset or an evaluator is missing or belongs to another workspace (404, and nothing is stored), or when the dataset has no question the check can ask (`This dataset has no questions the check can ask.`). Turning **Publish instantly** on while this is on is refused with `Turn off the passing test set before turning on Publish instantly.`
+
+A harness uses the same Publish button. The setting is not offered there, and a harness check does not store a pass. A pipeline uses the same Publish button. Its dialog lists what changed and does not run the question check, and the setting is not offered there. A legacy multi-agent canvas is refused the same way.
+
+![Passing test set in the Bakery helper configuration. Require a passing test set before Publish is on, the dataset is Saturday hours, Pass at is 100, and Mentions rye and Short answer are ticked.](../images/evaluations/publish-gate-settings.png)
+
+In the Publish dialog the verdict is shown, and **Publish** stays disabled, with the reason, until the latest result passed for this draft, these settings, the same rows, and the same answer post-processing. **Run the test set** starts that check. The same rule is enforced by the API. With the setting off, Publish is unchanged.
+
+Editing the draft, or changing the dataset, the evaluators, or the pass mark, makes an earlier pass out of date. So does editing a row the check asked, adding a row it would ask, changing an evaluator's check, deleting the dataset or an evaluator, or editing the flow's answer post-processing. A failing result, or no result yet, also blocks Publish. Save, discard, and the settings update return that same reason on `publishGate.block`.
+
+These other ways of changing what is Live do not use this rule: `PUT /api/v1/chatflows/:id`, **Roll back Live**, opening a version as a draft, restore straight to Live, and Promote from Dev. The table is in [Require a passing test set before you publish](./versioning.md#require-a-passing-test-set-before-you-publish).
+
+### A form, webhook, or schedule start
+
+**Passing test set** is hidden when the agentflow starts with **Form Input**, **Webhook Trigger**, or **Schedule Input**. Turning it on is refused with 400, and nothing is stored. A dataset check on that start is refused, so the gate could not be met.
+
+If the setting was already on and the start is later a form, a webhook, or a schedule, the gate can no longer be met. The Publish dialog explains that, and **Publish** stays disabled. Turning the setting off is still accepted: send `publishGate` with `"enabled": false`. Publish then works as it does with the setting off. A chat-message start can turn the setting on again.
+
+## What a 409 from Publish looks like
+
+`POST /api/v1/flow-drafts/<flow id>/publish` returns 409 when the setting is on and the latest stored result is missing, failing, or out of date. The body is the usual error shape. `stack` is `{}` outside development.
+
+No result yet:
+
+```json
+{
+    "statusCode": 409,
+    "success": false,
+    "message": "Publish needs a passing test set at 100%. There is no result for this draft yet.",
+    "stack": {}
+}
+```
+
+The last run failed. The percentage is the pass rate, and the mark is **Pass at**:
+
+```json
+{
+    "statusCode": 409,
+    "success": false,
+    "message": "Publish needs a passing test set at 100%. The last result was 75% and failed.",
+    "stack": {}
+}
+```
+
+The draft, the settings, the rows, or the post-processing changed after a pass. The message still names the mark and the last result, then one of these endings:
+
+-   `The test set settings have changed since that check.` The dataset, the evaluators, or **Pass at** changed.
+-   `The draft has changed since that check.`
+-   `The test set has changed since that check.` A row the check asked changed, a row it would ask was added, an evaluator's type or settings changed, or the dataset or an evaluator is gone.
+-   `The answer post-processing has changed since that check.`
+
+A pass for this draft, these settings, the same rows, and the same post-processing returns 200 and the draft goes Live. With the setting off, this 409 is not used.
