@@ -25,8 +25,9 @@ import { missingNodeInfo } from '@/utils/missingNode'
 import MissingNodeCard from './MissingNodeCard'
 import { canvasOutputKey } from '@/utils/canvasFieldKey'
 import { cardPlugParams } from '@/utils/canvasLook'
-import { CardAccentIcon, cardAccentColor, cardAccentSx } from '@/utils/cardAccent'
+import { cardAccentColor, cardAccentSx } from '@/utils/cardAccent'
 import { CanvasPanelContext } from '@/store/context/CanvasPanelContext'
+import CardAccentIcon from './CardAccentIcon'
 
 // ===========================|| CANVAS NODE ||=========================== //
 

@@ -13,11 +13,12 @@ import NodeInputHandler from '@/views/canvas/NodeInputHandler'
 import NodeOutputHandler from '@/views/canvas/NodeOutputHandler'
 import AdditionalParamsDialog from '@/ui-component/dialog/AdditionalParamsDialog'
 import CompactCardBody, { COMPACT_CARD_WIDTH } from '@/views/canvas/CompactCardBody'
+import CardAccentIcon from '@/views/canvas/CardAccentIcon'
 import { useCardHover } from '@/views/canvas/NodeActionBar'
 import { CanvasPanelContext } from '@/store/context/CanvasPanelContext'
 import { missingNodeInfo } from '@/utils/missingNode'
 import MissingNodeCard from '@/views/canvas/MissingNodeCard'
-import { CardAccentIcon, cardAccentColor, cardAccentSx } from '@/utils/cardAccent'
+import { cardAccentColor, cardAccentSx } from '@/utils/cardAccent'
 
 // const
 import { baseURL } from '@/store/constant'
