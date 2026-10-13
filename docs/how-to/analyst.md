@@ -173,13 +173,13 @@ The cursor lasts 15 minutes. It is dropped when Cuttlely restarts. It works only
 
 The answer can show only the top rows, for example the top 10 accounts. The run card shows how many rows the query returned and a short preview. Open the analyst row and select a query chip that says `· N rows`. The table starts closed.
 
-The preview is the first few rows and the first few columns. A long value is cut short. When the query returned more rows than the table shows, the caption says so and points to the analyst page for this chat. Say `show more` for the next page. The page line under the table is the same line as in the answer, such as `rows 1-100 of 150 (page 1 of 2, say "show more" for the next page)`.
+The preview is the first few rows and the first few columns. A long value is cut short. When the query returned more rows than the table shows, the caption says `Showing 5 of 40 rows` and that the rest of these rows are in the answer in this chat. It does not link away from the chat. It adds `Say show more for the next page` only when the analyst marked that result truncated, so a finished page and a last page do not say it. The page line under the table is the same line as in the answer, such as `rows 1-100 of 150 (page 1 of 2, say "show more" for the next page)`.
 
 The preview is saved with the run trace, in **Try it**, in the canvas chat, and in a saved chat. It holds only rows that query already returned to this chat, in this workspace. It does not hold rows past the row cap, and it does not hold the page cursor. A run saved before previews still opens. Its chips render, and a chip that already stored its rows still lists those rows.
 
 To leave row values out of new traces, turn off **Query previews in the run trace** under **Admin** > **Server settings** > **Analyst**, then restart. The chip can still say how many rows came back. [Server settings](./server-settings.md).
 
-![Try it on the chief-of-staff harness. The analyst row is open. The chip reads mcp__analyst__query · done · 100 rows. The preview is open and shows the first rows of a tickets table, id and title, with Ticket 1 through Ticket 5. The caption says Showing 5 of 100 rows, and points to the analyst page. The page line reads rows 1-100 of 150.](../images/analyst/trace-query-preview.png)
+![Try it on the chief-of-staff harness. The analyst row is open. The chip reads mcp__analyst__query · done · 100 rows. The preview is open and shows the first rows of a tickets table, id and title, with Ticket 1 through Ticket 5. The caption says Showing 5 of 100 rows, that the rest are in the answer in this chat, and to say show more for the next page. The page line reads rows 1-100 of 150.](../images/analyst/trace-query-preview.png)
 
 A chip for a create, an insert, or a failed statement has no preview.
 

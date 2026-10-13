@@ -67,6 +67,7 @@ const {
     TRACE_PREVIEW_ROWS,
     TRACE_ROW_LIMIT,
     analystChipRows,
+    analystPreviewCaption,
     analystQueryPreview,
     analystStepView,
     analystTracePreviewsEnabled,
@@ -615,6 +616,7 @@ check(
             shaped.preview.columns.length <= TRACE_PREVIEW_COLUMNS &&
             shaped.preview.columnCount === 5 &&
             shaped.preview.moreRows === true &&
+            shaped.preview.nextPage === true &&
             shaped.preview.moreColumns === true &&
             shapedBytes <= TRACE_PREVIEW_BYTES &&
             shaped.preview.rows.every((row) => row.every((cell) => cell.length <= TRACE_PREVIEW_CELL_CHARS)) &&
@@ -640,9 +642,50 @@ check(
             wide.preview.rows.length < TRACE_PREVIEW_ROWS &&
             wide.preview.rows.length >= 1 &&
             wideBytes <= TRACE_PREVIEW_BYTES &&
+            wide.preview.nextPage === false &&
             !JSON.stringify(wide).includes('wide-row-7') &&
             wide.preview.rows.every((row) => row.every((cell) => cell.length <= TRACE_PREVIEW_CELL_CHARS)),
         JSON.stringify({ rows: wide.preview.rows.length, bytes: wideBytes })
+    )
+    function previewStep(body) {
+        return analystStepView(
+            publicToolStep({ name: 'mcp__analyst__query', status: 'done', detail: JSON.stringify({ result: JSON.stringify(body) }) }, {})
+        )
+    }
+    const singlePage = previewStep({
+        rows: Array.from({ length: 40 }, (_, i) => ({ id: i + 1, title: `Ticket ${i + 1}` })),
+        truncated: false
+    })
+    const lastPage = previewStep({
+        rows: Array.from({ length: 50 }, (_, i) => ({ id: 101 + i, title: `Ticket ${101 + i}` })),
+        truncated: false,
+        summary: 'rows 101-150 of 150 (page 2 of 2, last page)'
+    })
+    const truncatedPage = previewStep({
+        rows: Array.from({ length: 100 }, (_, i) => ({ id: i + 1, title: `Ticket ${i + 1}` })),
+        truncated: true,
+        summary: 'rows 1-100 of 150 (page 1 of 2, say "show more" for the next page)'
+    })
+    const singleCaption = analystPreviewCaption(singlePage)
+    const lastCaption = analystPreviewCaption(lastPage)
+    const truncatedCaption = analystPreviewCaption(truncatedPage)
+    check(
+        'a finished page preview does not say show more, and a truncated page does',
+        singlePage.rowCount === 40 &&
+            singlePage.nextPage === false &&
+            singleCaption.startsWith('Showing ') &&
+            singleCaption.includes(' of 40 rows.') &&
+            singleCaption.includes('in the answer in this chat') &&
+            !singleCaption.includes('Say show more') &&
+            lastPage.nextPage === false &&
+            lastPage.summary.includes('last page') &&
+            !lastCaption.includes('Say show more') &&
+            lastCaption.includes('in the answer in this chat') &&
+            truncatedPage.nextPage === true &&
+            truncatedCaption.includes('Say show more for the next page.') &&
+            truncatedCaption.includes('in the answer in this chat') &&
+            !truncatedCaption.includes('/harnesses/'),
+        JSON.stringify({ singleCaption, lastCaption, truncatedCaption })
     )
     const overCap = analystQueryPreview(
         { rows: Array.from({ length: 150 }, (_, i) => ({ id: i + 1, tag: `past-cap-${i}` })) },

@@ -207,7 +207,8 @@ export function analystQueryPreview(body, env) {
     const available = plainRows(body.rows)
     const source = available.slice(0, cap)
     const rowCount = source.length
-    const pastCap = available.length > source.length || body.truncated === true
+    // A next page exists only when the analyst marked the result truncated. A short preview of a finished page is not one.
+    const nextPage = body.truncated === true
     if (!analystTracePreviewsEnabled(env) || !rowCount) return { rowCount, preview: null }
     const columns = []
     for (const row of source) {
@@ -224,7 +225,8 @@ export function analystQueryPreview(body, env) {
         const preview = {
             columns: shownColumns,
             rows: shownRows,
-            moreRows: source.length > shownRows.length || pastCap,
+            moreRows: source.length > shownRows.length,
+            nextPage,
             moreColumns: columnCount > shownColumns.length,
             columnCount,
             ...(summaryText ? { summary: summaryText } : {})
@@ -253,7 +255,8 @@ export function analystQueryPreview(body, env) {
         preview: {
             columns: columns.slice(0, 1).map((name) => clipText(name, 8)),
             rows: [[clipText(source[0]?.[columns[0]], 8)]],
-            moreRows: source.length > 1 || pastCap,
+            moreRows: source.length > 1,
+            nextPage,
             moreColumns: columnCount > 1,
             columnCount
         }
@@ -295,6 +298,7 @@ export function analystStepView(tool) {
                 rows,
                 summary: typeof preview.summary === 'string' ? preview.summary : '',
                 moreRows: preview.moreRows === true || rowCount > rows.length,
+                nextPage: preview.nextPage === true,
                 moreColumns: preview.moreColumns === true,
                 columnCount: finiteCount(preview.columnCount) ?? preview.columns.length,
                 legacy: false
@@ -309,6 +313,7 @@ export function analystStepView(tool) {
             rows: legacy.rows,
             summary: legacy.summary,
             moreRows: false,
+            nextPage: false,
             moreColumns: false,
             columnCount: legacy.columns.length,
             legacy: true
@@ -322,6 +327,7 @@ export function analystStepView(tool) {
         rows: [],
         summary: '',
         moreRows: false,
+        nextPage: false,
         moreColumns: false,
         columnCount: 0,
         legacy: false
@@ -341,6 +347,27 @@ export function publicToolStep(tool, env) {
     const next = { ...base, rowCount: shaped.rowCount }
     if (shaped.preview) next.preview = shaped.preview
     return next
+}
+
+// The caption under a query preview. "Say show more" is only for a result the analyst marked truncated.
+// A short table of a finished page still says how many rows it is showing, and points at this chat's answer.
+export function analystPreviewCaption(view) {
+    if (!view) return ''
+    if (view.legacy) {
+        const count = view.rows.length
+        return `${count} row${count === 1 ? '' : 's'} this query returned. The answer can show fewer.`
+    }
+    const shown = view.rows.length
+    const total = view.rowCount
+    const parts = []
+    if (shown < total) parts.push(`Showing ${shown} of ${total} rows.`)
+    else parts.push(`${total} row${total === 1 ? '' : 's'}.`)
+    if (view.moreColumns && view.columnCount > view.columns.length) {
+        parts.push(`Showing ${view.columns.length} of ${view.columnCount} columns.`)
+    }
+    if (shown < total) parts.push('The rest of these rows are in the answer in this chat.')
+    if (view.nextPage) parts.push('Say show more for the next page.')
+    return parts.join(' ')
 }
 
 // A batched local tool_call is rejected, then the model sends one call at a time.
