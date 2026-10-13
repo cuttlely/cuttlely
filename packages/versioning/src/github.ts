@@ -927,8 +927,13 @@ export class GithubSync {
 
     // Makes a new private, empty repository for this history. Then connect it.
     async createRepo(input: { token?: string; credentialId?: string; name?: string }, workspaceId?: string): Promise<GithubRepoChoice> {
-        // Prod reads the repository Dev copies to; a new one would have nothing in it.
-        if (this.readOnly()) throw new GithubError(409, 'Prod reads the repository your Dev server copies to. Pick that one instead.')
+        // A server that reads uses the repository the previous environment already uses. A new one has nothing to read.
+        if (this.plan().reads) {
+            throw new GithubError(
+                409,
+                `Pick the repository your ${this.fromLabel()} server copies to. A new one has nothing for this server to read.`
+            )
+        }
         const { token } = await this.tokenFrom(input, workspaceId)
         const name = String(input?.name ?? '').trim()
         if (!NAME.test(name) || name === '.' || name === '..') {

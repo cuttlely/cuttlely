@@ -1,5 +1,6 @@
 // Plain-words helpers for the Version History settings page: the GitHub copy and the Dev or Prod label.
 // No Git words on screen: versions are "synced" or "copied", never pushed or committed.
+import { isSavedDevProdPair } from './promote'
 
 export const OWNER_PERMISSION = 'server:owner'
 export const TOKEN_HELP_URL = 'https://github.com/settings/personal-access-tokens/new'
@@ -19,7 +20,7 @@ export const tokenCreateUrl = (reading = false) => {
 }
 
 // What to pick on GitHub's token page, line by line, in the words that page uses.
-export const tokenHelp = (reading = false) => ({
+export const tokenHelp = (reading = false, from = '') => ({
     title: 'Which token to use',
     rows: [
         { label: 'Token type', value: 'Fine-grained' },
@@ -35,9 +36,13 @@ export const tokenHelp = (reading = false) => ({
             hint: 'When it runs out, paste a new token into the saved sign-in in Credentials.'
         }
     ],
-    note: reading
-        ? 'Pick the repository your Dev server copies to. The link below fills in the name, expiry and Contents. You pick the repository.'
-        : 'Create the empty private repository on GitHub first, so you can pick it there. The link below fills in the name, expiry and Contents. You pick the repository.'
+    // `from` is the previous environment. A server that reads, including one that also copies, uses that repository.
+    note:
+        from || reading
+            ? `Pick the repository your ${
+                  from || 'Dev'
+              } server copies to. The link below fills in the name, expiry and Contents. You pick the repository.`
+            : 'Create the empty private repository on GitHub first, so you can pick it there. The link below fills in the name, expiry and Contents. You pick the repository.'
 })
 
 // The short line under the token box.
@@ -117,8 +122,50 @@ export const checkRepoName = (name) => {
     return { name: value }
 }
 
-export const ENVIRONMENT_HINT =
-    'Dev copies its published versions to GitHub. Prod reads them from there, and you choose what to promote to Live.'
+const SAVED_PAIR_HINT = 'Dev copies its published versions to GitHub. Prod reads them from there, and you choose what to promote to Live.'
+
+const environmentLabel = (env) => {
+    const name = String(env?.name || '')
+    if (name.toLowerCase() === 'dev') return 'Dev'
+    if (name.toLowerCase() === 'prod') return 'Prod'
+    return name
+}
+
+// What each environment does, from the list this server saved. The saved Dev and Prod pair keeps its sentence.
+export const environmentHint = (environments) => {
+    const chain = Array.isArray(environments) ? environments : []
+    if (chain.length < 2 || isSavedDevProdPair(chain)) return SAVED_PAIR_HINT
+    return (
+        chain
+            .map((env, index) => {
+                if (index === 0) return `${environmentLabel(env)} copies its published versions`
+                const previous = environmentLabel(chain[index - 1])
+                if (index === chain.length - 1) return `${environmentLabel(env)} reads ${previous}, and you choose what to promote to Live`
+                return `${environmentLabel(env)} reads ${previous} and copies what it publishes`
+            })
+            .join('. ') + '.'
+    )
+}
+
+// Shown while GitHub is connected. Names the neighbors, then the disconnect rule.
+export const environmentSwitchNote = (status) => {
+    const chain = status?.environments || []
+    const index = chain.findIndex((item) => item.server === status?.environment)
+    const here = index >= 0 ? chain[index] : null
+    const previous = index > 0 ? chain[index - 1] : null
+    const next = here && index < chain.length - 1 ? chain[index + 1] : null
+    const place =
+        here && previous && next
+            ? `${environmentLabel(here)} reads ${environmentLabel(previous)}, and ${environmentLabel(next)} reads ${environmentLabel(
+                  here
+              )}. `
+            : here && previous
+            ? `${environmentLabel(here)} reads ${environmentLabel(previous)}. `
+            : here && next
+            ? `${environmentLabel(next)} reads ${environmentLabel(here)}. `
+            : ''
+    return `${place}Disconnect GitHub before changing what this server reads or copies.`
+}
 
 // Saved GitHub sign-ins the copy can use: this workspace's own, not ones shared in from another workspace.
 export const ownCredentials = (list) => (Array.isArray(list) ? list.filter((c) => c && !c.shared) : [])

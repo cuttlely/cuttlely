@@ -46,8 +46,9 @@ import flowVersionsApi from '@/api/flowVersions'
 import credentialsApi from '@/api/credentials'
 import {
     DEFAULT_REPO_NAME,
-    ENVIRONMENT_HINT,
     NEW_TOKEN,
+    environmentHint,
+    environmentSwitchNote,
     ownCredentials,
     checkRepoName,
     filterRepos,
@@ -143,12 +144,12 @@ RepoRow.propTypes = {
 const NEW_REPO = '__new_repo__'
 
 // onStatus hears every status the card loads or gets back, so a page around it can follow along.
-const GithubCard = ({ onStatus, initialStatus = null }) => {
+const GithubCard = ({ onStatus, initialStatus = null, initialStep = 'idle' }) => {
     const [status, setStatus] = useState(initialStatus)
     const [loadError, setLoadError] = useState('')
     const [busy, setBusy] = useState('')
     const [error, setError] = useState('')
-    const [step, setStep] = useState('idle') // idle, token, repo
+    const [step, setStep] = useState(initialStep) // idle, token, repo
     const [savedTokens, setSavedTokens] = useState([])
     const [tokenChoice, setTokenChoice] = useState(NEW_TOKEN)
     const [token, setToken] = useState('')
@@ -219,6 +220,8 @@ const GithubCard = ({ onStatus, initialStatus = null }) => {
     const incomingFlows = incoming?.flows || []
     const sourceTitle = sourceTitleOf(incoming)
     const readsFrom = previousEnvironmentTitle(status)
+    // Any server with a previous environment reads that repository, including one that also copies.
+    const joinsExisting = Boolean(status?.promotes)
     const tokenBody = tokenChoice === NEW_TOKEN ? { token } : { credentialId: tokenChoice }
     const shown = useMemo(() => filterRepos(repos, query), [repos, query])
 
@@ -458,8 +461,8 @@ const GithubCard = ({ onStatus, initialStatus = null }) => {
                             <Stack spacing={2} alignItems='flex-start'>
                                 {status.state === 'stopped' && <Alert severity='error'>{status.message}</Alert>}
                                 <Typography color='text.secondary'>
-                                    {reading
-                                        ? `Connect the repository your ${readsFrom} server copies to. This server reads new versions from it, never writes to it, and puts nothing Live until you promote it.`
+                                    {joinsExisting
+                                        ? `Connect the repository your ${readsFrom} server copies to. New versions from ${readsFrom} show up here, and nothing goes Live until you promote it.`
                                         : 'Your history always stays on this server. Connect GitHub to keep a second copy there, updated a few seconds after each change. Keys are never copied: credentials go by name only.'}
                                 </Typography>
                                 <Button variant='contained' size='large' startIcon={<IconBrandGithub size={20} />} onClick={startConnect}>
@@ -500,7 +503,7 @@ const GithubCard = ({ onStatus, initialStatus = null }) => {
                                             InputProps={{
                                                 endAdornment: (
                                                     <InputAdornment position='end'>
-                                                        <GithubTokenHelp reading={reading} />
+                                                        <GithubTokenHelp reading={reading} from={joinsExisting ? readsFrom : ''} />
                                                     </InputAdornment>
                                                 )
                                             }}
@@ -540,7 +543,7 @@ const GithubCard = ({ onStatus, initialStatus = null }) => {
                             <Stack spacing={2}>
                                 <Typography variant='h5'>2. Pick where to keep it</Typography>
                                 <Typography variant='body2' color='text.secondary'>
-                                    {reading
+                                    {joinsExisting
                                         ? `Signed in as ${account}. Pick the repository your ${readsFrom} server copies to.`
                                         : `Signed in as ${account}. Pick an empty repository, or make a new private one.`}
                                 </Typography>
@@ -578,7 +581,7 @@ const GithubCard = ({ onStatus, initialStatus = null }) => {
                                             onSelect={() => setPicked(item.repo)}
                                         />
                                     ))}
-                                    {!reading && (
+                                    {!joinsExisting && (
                                         <ListItemButton
                                             selected={picked === NEW_REPO}
                                             onClick={() => setPicked(NEW_REPO)}
@@ -649,11 +652,11 @@ const GithubCard = ({ onStatus, initialStatus = null }) => {
                                     <Box sx={{ flex: 1 }}>
                                         <Typography variant='h5'>This server is</Typography>
                                         <Typography variant='caption' color='text.secondary'>
-                                            {ENVIRONMENT_HINT}
+                                            {environmentHint(status.environments)}
                                         </Typography>
                                         {connected && (
                                             <Typography variant='caption' color='text.secondary' sx={{ display: 'block' }}>
-                                                To switch between Dev and Prod, disconnect GitHub first.
+                                                {environmentSwitchNote(status)}
                                             </Typography>
                                         )}
                                     </Box>
@@ -694,6 +697,6 @@ const GithubCard = ({ onStatus, initialStatus = null }) => {
     )
 }
 
-GithubCard.propTypes = { onStatus: PropTypes.func, initialStatus: PropTypes.object }
+GithubCard.propTypes = { onStatus: PropTypes.func, initialStatus: PropTypes.object, initialStep: PropTypes.string }
 
 export default GithubCard

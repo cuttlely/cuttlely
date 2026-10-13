@@ -8,12 +8,12 @@ import { ThemeProvider, createTheme } from '@mui/material/styles'
 
 import GithubCard from './GithubCard'
 
-const wrap = (status) =>
+const wrap = (status, extra) =>
     renderToStaticMarkup(
         createElement(
             MemoryRouter,
             null,
-            createElement(ThemeProvider, { theme: createTheme() }, createElement(GithubCard, { initialStatus: status }))
+            createElement(ThemeProvider, { theme: createTheme() }, createElement(GithubCard, { initialStatus: status, ...extra }))
         )
     )
 
@@ -64,6 +64,7 @@ describe('GithubCard environment names', () => {
             status({
                 connected: false,
                 role: 'read',
+                promotes: true,
                 environment: 'prod',
                 environments: chain,
                 state: 'not-connected',
@@ -107,5 +108,53 @@ describe('GithubCard environment names', () => {
         expect(html).toContain('value="dev"')
         expect(html).toContain('value="staging"')
         expect(html).toContain('value="prod"')
+    })
+
+    test('connect follows the previous environment for Dev, Staging and Prod', () => {
+        const base = {
+            connected: false,
+            state: 'not-connected',
+            environments: chain,
+            message: ''
+        }
+        const dev = wrap(status({ ...base, role: 'copy', promotes: false, environment: 'dev' }), { initialStep: 'repo' })
+        expect(dev).toContain('Pick an empty repository, or make a new private one')
+        expect(dev).toContain('Make a new private repository')
+        expect(dev).toContain('Dev copies its published versions')
+        expect(dev).toContain('Staging reads Dev and copies what it publishes')
+
+        const staging = wrap(status({ ...base, role: 'copy', promotes: true, environment: 'staging' }), { initialStep: 'repo' })
+        expect(staging).toContain('your Dev server copies to')
+        expect(staging).not.toContain('Make a new private repository')
+        expect(staging).not.toContain('Pick an empty repository')
+
+        const prod = wrap(status({ ...base, role: 'read', promotes: true, environment: 'prod' }), { initialStep: 'repo' })
+        expect(prod).toContain('your Staging server copies to')
+        expect(prod).not.toContain('Make a new private repository')
+        expect(prod).not.toContain('your Dev server')
+    })
+
+    test('the environment hint and the disconnect line follow a two- and three-environment list', () => {
+        const pair = wrap(
+            status({
+                connected: true,
+                role: 'copy',
+                environment: 'dev',
+                environments: [
+                    { name: 'dev', branch: 'main', server: 'dev' },
+                    { name: 'prod', branch: 'main', server: 'prod' }
+                ]
+            })
+        )
+        expect(pair).toContain('Dev copies its published versions to GitHub. Prod reads them from there')
+        expect(pair).toContain('Prod reads Dev')
+        expect(pair).toContain('Disconnect GitHub before changing what this server reads or copies')
+        expect(pair).not.toContain('To switch between Dev and Prod')
+
+        const three = wrap(status({ connected: true, role: 'copy', promotes: true, environment: 'staging', environments: chain }))
+        expect(three).toContain('Staging reads Dev and copies what it publishes')
+        expect(three).toContain('Prod reads Staging')
+        expect(three).toContain('Staging reads Dev, and Prod reads Staging')
+        expect(three).toContain('Disconnect GitHub before changing what this server reads or copies')
     })
 })

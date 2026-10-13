@@ -757,8 +757,31 @@ describe('picking or creating a repository', () => {
         await sync.setEnvironment('prod')
         expect((await sync.listRepos({ token: TOKEN }, WS)).repos.map((r) => r.repo)).toEqual(['acme/flows'])
         const before = calls.length
-        await expect(sync.createRepo({ token: TOKEN, name: 'cuttlely-flows' }, WS)).rejects.toMatchObject({ status: 409 })
+        await expect(sync.createRepo({ token: TOKEN, name: 'cuttlely-flows' }, WS)).rejects.toMatchObject({
+            status: 409,
+            message: 'Pick the repository your Dev server copies to. A new one has nothing for this server to read.'
+        })
         expect(calls.length).toBe(before)
+    })
+
+    test('a middle environment is told to use the previous environment, and Prod names Staging', async () => {
+        const chain = [
+            { name: 'Dev', branch: 'main', server: 'dev' },
+            { name: 'Staging', branch: 'staging', server: 'staging' },
+            { name: 'Prod', branch: 'prod', server: 'prod' }
+        ]
+        sync.stop()
+        sync = makeSync({ fetch: (async () => ({ status: 500, json: async () => ({}) })) as unknown as typeof fetch })
+        await sync.setEnvironment('staging', chain)
+        await expect(sync.createRepo({ token: TOKEN, name: 'cuttlely-flows' }, WS)).rejects.toMatchObject({
+            status: 409,
+            message: 'Pick the repository your Dev server copies to. A new one has nothing for this server to read.'
+        })
+        await sync.setEnvironment('prod', chain)
+        await expect(sync.createRepo({ token: TOKEN, name: 'cuttlely-flows' }, WS)).rejects.toMatchObject({
+            status: 409,
+            message: 'Pick the repository your Staging server copies to. A new one has nothing for this server to read.'
+        })
     })
 
     test('reads every page of repositories', async () => {
