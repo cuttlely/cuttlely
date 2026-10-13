@@ -955,6 +955,41 @@
                     "nullable": true,
                     "default": null,
                     "pk": 0
+                },
+                {
+                    "name": "sourceFeedbackId",
+                    "type": "varchar(36)",
+                    "nullable": true,
+                    "default": null,
+                    "pk": 0
+                },
+                {
+                    "name": "sourceRating",
+                    "type": "varchar(16)",
+                    "nullable": true,
+                    "default": null,
+                    "pk": 0
+                },
+                {
+                    "name": "sourceFeedbackText",
+                    "type": "TEXT",
+                    "nullable": true,
+                    "default": null,
+                    "pk": 0
+                },
+                {
+                    "name": "sourceRejectedAnswer",
+                    "type": "TEXT",
+                    "nullable": true,
+                    "default": null,
+                    "pk": 0
+                },
+                {
+                    "name": "needsExpectedAnswer",
+                    "type": "boolean",
+                    "nullable": true,
+                    "default": "0",
+                    "pk": 0
                 }
             ],
             "foreignKeys": [],
@@ -4082,6 +4117,36 @@
                     "type": "timestamp",
                     "nullable": true,
                     "default": null
+                },
+                {
+                    "name": "sourceFeedbackId",
+                    "type": "varchar(36)",
+                    "nullable": true,
+                    "default": null
+                },
+                {
+                    "name": "sourceRating",
+                    "type": "varchar(16)",
+                    "nullable": true,
+                    "default": null
+                },
+                {
+                    "name": "sourceFeedbackText",
+                    "type": "text",
+                    "nullable": true,
+                    "default": null
+                },
+                {
+                    "name": "sourceRejectedAnswer",
+                    "type": "text",
+                    "nullable": true,
+                    "default": null
+                },
+                {
+                    "name": "needsExpectedAnswer",
+                    "type": "boolean",
+                    "nullable": true,
+                    "default": "false"
                 }
             ],
             "foreignKeys": [],
@@ -7172,6 +7237,46 @@
                     "type": "datetime(6)",
                     "nullable": true,
                     "default": "NULL",
+                    "extra": "",
+                    "collation": null
+                },
+                {
+                    "name": "sourceFeedbackId",
+                    "type": "varchar(36)",
+                    "nullable": true,
+                    "default": "NULL",
+                    "extra": "",
+                    "collation": "utf8mb4_unicode_520_ci"
+                },
+                {
+                    "name": "sourceRating",
+                    "type": "varchar(16)",
+                    "nullable": true,
+                    "default": "NULL",
+                    "extra": "",
+                    "collation": "utf8mb4_unicode_520_ci"
+                },
+                {
+                    "name": "sourceFeedbackText",
+                    "type": "text",
+                    "nullable": true,
+                    "default": "NULL",
+                    "extra": "",
+                    "collation": "utf8mb4_unicode_520_ci"
+                },
+                {
+                    "name": "sourceRejectedAnswer",
+                    "type": "text",
+                    "nullable": true,
+                    "default": "NULL",
+                    "extra": "",
+                    "collation": "utf8mb4_unicode_520_ci"
+                },
+                {
+                    "name": "needsExpectedAnswer",
+                    "type": "tinyint(1)",
+                    "nullable": true,
+                    "default": "0",
                     "extra": "",
                     "collation": null
                 }
@@ -10838,6 +10943,46 @@
                     "type": "datetime(6)",
                     "nullable": true,
                     "default": null,
+                    "extra": "",
+                    "collation": null
+                },
+                {
+                    "name": "sourceFeedbackId",
+                    "type": "varchar(36)",
+                    "nullable": true,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_0900_ai_ci"
+                },
+                {
+                    "name": "sourceRating",
+                    "type": "varchar(16)",
+                    "nullable": true,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_0900_ai_ci"
+                },
+                {
+                    "name": "sourceFeedbackText",
+                    "type": "text",
+                    "nullable": true,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_0900_ai_ci"
+                },
+                {
+                    "name": "sourceRejectedAnswer",
+                    "type": "text",
+                    "nullable": true,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_0900_ai_ci"
+                },
+                {
+                    "name": "needsExpectedAnswer",
+                    "type": "tinyint(1)",
+                    "nullable": true,
+                    "default": "0",
                     "extra": "",
                     "collation": null
                 }

@@ -335,7 +335,8 @@ describe('identity postgres schema', () => {
                     'AddFlowVersionState1784000000000',
                     'AddTokenUsageDay1791900000000',
                     'AddModelPriceOverride1793000000000',
-                    'AddDatasetRowSource1795000000000'
+                    'AddDatasetRowSource1795000000000',
+                    'AddDatasetRowRating1796000000000'
                 ]
             )
             assert.equal((await dataSource.runMigrations()).length, 0)
@@ -436,7 +437,8 @@ describe('identity mariadb schema', () => {
                     'AddTokenUsageDay1791900000000',
                     'AddModelPriceOverride1793000000000',
                     'BinCollationOnTokenUsageDayModel1794000000000',
-                    'AddDatasetRowSource1795000000000'
+                    'AddDatasetRowSource1795000000000',
+                    'AddDatasetRowRating1796000000000'
                 ]
             )
             assert.equal((await dataSource.runMigrations()).length, 0)
@@ -616,7 +618,8 @@ describe('identity mysql 8 schema', () => {
                     'AddTokenUsageDay1791900000000',
                     'AddModelPriceOverride1793000000000',
                     'BinCollationOnTokenUsageDayModel1794000000000',
-                    'AddDatasetRowSource1795000000000'
+                    'AddDatasetRowSource1795000000000',
+                    'AddDatasetRowRating1796000000000'
                 ]
             )
             assert.equal((await dataSource.runMigrations()).length, 0)
@@ -663,7 +666,8 @@ describe('identity sqlite upgrade', () => {
                     'AddFlowVersionState1784000000000',
                     'AddTokenUsageDay1791900000000',
                     'AddModelPriceOverride1793000000000',
-                    'AddDatasetRowSource1795000000000'
+                    'AddDatasetRowSource1795000000000',
+                    'AddDatasetRowRating1796000000000'
                 ]
             )
             assert.equal((await dataSource.runMigrations()).length, 0)
