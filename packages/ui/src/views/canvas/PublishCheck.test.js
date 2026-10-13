@@ -65,6 +65,94 @@ describe('PublishCheckView', () => {
     test('no history yet asks for a question', () => {
         const html = render({})
         expect(html).toContain('No one has asked this flow anything yet. Add a question to check.')
+        expect(html).not.toContain('No past runs to replay yet')
+        expect(html).toContain('Add your own question')
+        expect(html).toContain('Past questions')
+    })
+
+    test('a webhook flow shows recorded inputs in place of questions, with the same Changed label', () => {
+        const question = JSON.stringify({
+            webhook: { body: { event: 'bake', loaf: 'rye' }, headers: { 'x-bakery': '1' }, query: {} }
+        })
+        const html = render({
+            setup: {
+                unavailable: null,
+                replayInputs: true,
+                questions: [{ text: question, date: '2026-10-08T10:00:00.000Z' }],
+                pastCount: 1,
+                pastTruncated: false,
+                riskySteps: [],
+                limits,
+                liveEmpty: false,
+                check: null
+            },
+            list: [],
+            check: {
+                id: 'c1',
+                status: 'done',
+                total: 1,
+                completed: 1,
+                stopReason: null,
+                draftChanged: false,
+                liveEmpty: false,
+                cases: [{ question, live, draft, same: false }],
+                summary: { ran: 1, same: 0, changed: 1, errors: 0, liveTokens: 44, draftTokens: 45, liveMedianMs: 657, draftMedianMs: 525 }
+            }
+        })
+        expect(html).toContain('Run recent inputs again on Live and on your draft')
+        expect(html).toContain('{&quot;event&quot;:&quot;bake&quot;,&quot;loaf&quot;:&quot;rye&quot;}')
+        expect(html).not.toContain('sekret')
+        expect(html).not.toContain('Add your own question')
+        expect(html).toContain('Past runs')
+        expect(html).not.toContain('Past questions')
+        expect(html).toContain('Changed')
+        expect(html).toContain('MANGO')
+        expect(html).toContain('PAPAYA')
+        expect(html).toContain('recorded input')
+    })
+
+    test('a shared webhook body shows the supplied preview and not a secret', () => {
+        const html = render({
+            setup: {
+                unavailable: null,
+                replayInputs: true,
+                questions: [
+                    {
+                        text: '{"webhook":{"body":{"event":"bake"},"headers":{"authorization":"[REDACTED]"}}}',
+                        preview: '{"event":"bake"} query {"page":"2"} headers authorization: [REDACTED]',
+                        date: '2026-10-08T11:00:00.000Z'
+                    }
+                ],
+                pastCount: 1,
+                riskySteps: [],
+                limits,
+                check: null
+            },
+            list: []
+        })
+        expect(html).toContain(
+            '{&quot;event&quot;:&quot;bake&quot;} query {&quot;page&quot;:&quot;2&quot;} headers authorization: [REDACTED]'
+        )
+        expect(html).not.toContain('Bearer')
+        expect(html).not.toContain('sekret')
+    })
+
+    test('no past runs says so, and the chat empty state does not', () => {
+        const html = render({
+            setup: {
+                unavailable: null,
+                replayInputs: true,
+                questions: [],
+                pastCount: 0,
+                riskySteps: [{ id: 'http', label: 'Send the order' }],
+                limits,
+                check: null
+            }
+        })
+        expect(html).toContain('No past runs to replay yet. Run this flow once, then check again.')
+        expect(html).toContain('Send the order')
+        expect(html).not.toContain('Add your own question')
+        expect(html).not.toContain('No one has asked this flow anything yet.')
     })
 
     test('risky steps show the warning and the run anyway choice', () => {
