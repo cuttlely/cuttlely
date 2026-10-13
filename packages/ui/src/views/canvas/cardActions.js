@@ -70,15 +70,22 @@ export function collectRemovedNodeIds(nodes, nodeIds) {
 }
 
 // One next list of cards and one next list of lines. Callers must pass these arrays to setNodes and setEdges
-// once. A second read of the store still has the pre-delete cards.
+// once. A second read of the store still has the pre-delete cards. A cleanup failure must not skip the removal.
 export function canvasAfterDelete({ nodes, edges, nodeIds = [], edgeIds = [] } = {}) {
     const nodeList = Array.isArray(nodes) ? nodes : []
     const edgeList = Array.isArray(edges) ? edges : []
     const removeNodes = collectRemovedNodeIds(nodeList, nodeIds)
     const removeEdges = new Set((edgeIds || []).filter((id) => id != null))
+    const mentionIds = new Set(removeNodes)
+    for (const edge of edgeList) {
+        if (edge && removeEdges.has(edge.id) && edge.source) mentionIds.add(edge.source)
+    }
     let nextNodes = nodeList
-    for (const id of removeNodes) nextNodes = nodesAfterConnectedDelete(nextNodes, edgeList, id, 'node')
-    for (const id of removeEdges) nextNodes = nodesAfterConnectedDelete(nextNodes, edgeList, id, 'edge')
+    try {
+        nextNodes = stripMentions(nodeList, mentionIds)
+    } catch {
+        nextNodes = nodeList
+    }
     nextNodes = nextNodes.filter((node) => node && !removeNodes.has(node.id))
     const nextEdges = edgeList.filter(
         (edge) => edge && !removeEdges.has(edge.id) && !removeNodes.has(edge.source) && !removeNodes.has(edge.target)
@@ -129,43 +136,103 @@ export function createCanvasDeleteQueue(deleteBatch) {
     }
 }
 
-// Drop {{sourceId.data.instance}} (and a list entry that names that id) from the cards a removed node or edge fed.
-export function nodesAfterConnectedDelete(nodes, edges, id, type) {
-    const list = Array.isArray(nodes) ? nodes : []
-    const allEdges = Array.isArray(edges) ? edges : []
-    const connected =
-        type === 'node' ? allEdges.filter((edge) => edge && edge.source === id) : allEdges.filter((edge) => edge && edge.id === id)
-    if (!connected.length) return list
-    let next = list
-    for (const edge of connected) {
-        const targetInput = String(edge.targetHandle || '').split('-')[2]
-        const sourceNodeId = edge.source
-        next = next.map((node) => {
-            if (!node || node.id !== edge.target) return node
-            const inputAnchor = (node.data?.inputAnchors || []).find((anchor) => anchor.name === targetInput)
-            const inputParam = (node.data?.inputParams || []).find((param) => param.name === targetInput)
-            let value
-            if (inputAnchor && inputAnchor.list) {
-                const values = node.data.inputs?.[targetInput] || []
-                value = values.filter((item) => !item.includes(sourceNodeId))
-            } else if (inputParam && inputParam.acceptVariable) {
-                value = node.data.inputs[targetInput].replace(`{{${sourceNodeId}.data.instance}}`, '') || ''
-            } else {
-                value = ''
-            }
-            return {
-                ...node,
-                data: {
-                    ...node.data,
-                    inputs: {
-                        ...(node.data?.inputs || {}),
-                        [targetInput]: value
-                    }
-                }
-            }
-        })
+function escapeRegExp(value) {
+    return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+// {{id}} and {{id.<anything>}}, including {{id.data.instance}}. A longer id such as promptTemplate_10 does not match.
+function mentionsRemovedId(label, id) {
+    if (typeof label !== 'string' || !id) return false
+    return label === id || label.startsWith(`${id}.`)
+}
+
+function stripTokens(text, ids) {
+    if (typeof text !== 'string') return text
+    let next = text
+    for (const id of ids) {
+        if (!id) continue
+        const pattern = new RegExp(`\\{\\{\\s*${escapeRegExp(id)}(?:\\.[^{}]*)?\\s*\\}\\}`, 'g')
+        next = next.replace(pattern, '')
     }
     return next
+}
+
+function isRemovedMention(value, ids) {
+    if (!value || typeof value !== 'object' || value.type !== 'mention') return false
+    const label = value.attrs?.id ?? value.attrs?.label
+    return [...ids].some((id) => mentionsRemovedId(String(label ?? ''), id))
+}
+
+// Strings, lists, and nested rich-text JSON. Never throws, and never creates an "undefined" field.
+function stripValue(value, ids) {
+    if (typeof value === 'string') {
+        const trimmed = value.trim()
+        if ((trimmed.startsWith('{') && trimmed.endsWith('}')) || (trimmed.startsWith('[') && trimmed.endsWith(']'))) {
+            try {
+                const parsed = JSON.parse(value)
+                if (parsed && typeof parsed === 'object') return JSON.stringify(stripValue(parsed, ids))
+            } catch {
+                // The text is not JSON. Fall through to the token replace.
+            }
+        }
+        return stripTokens(value, ids)
+    }
+    if (Array.isArray(value)) {
+        const next = []
+        for (const item of value) {
+            if (isRemovedMention(item, ids)) continue
+            const cleaned = stripValue(item, ids)
+            if (typeof item === 'string' && typeof cleaned === 'string' && cleaned === '' && item !== '') continue
+            next.push(cleaned)
+        }
+        return next
+    }
+    if (!value || typeof value !== 'object') return value
+    if (isRemovedMention(value, ids)) return undefined
+    const next = {}
+    for (const [key, child] of Object.entries(value)) {
+        if (key === 'undefined') continue
+        try {
+            const cleaned = stripValue(child, ids)
+            if (cleaned === undefined && isRemovedMention(child, ids)) continue
+            next[key] = cleaned
+        } catch {
+            next[key] = child
+        }
+    }
+    return next
+}
+
+function stripMentions(nodes, ids) {
+    const idList = [...ids].filter((id) => id != null && id !== '')
+    if (!idList.length) return nodes
+    return (nodes || []).map((node) => {
+        if (!node?.data || !node.data.inputs || typeof node.data.inputs !== 'object') return node
+        try {
+            return { ...node, data: { ...node.data, inputs: stripValue(node.data.inputs, idList) } }
+        } catch {
+            return node
+        }
+    })
+}
+
+// Drop every whole mention of a removed card from every remaining card. Workflow lines use the node id as the
+// handle, and the text is {{nodeId}} or {{nodeId.output...}}. Chatflow, harness, and pipeline text is
+// {{nodeId.data.instance}}. The field is never taken from split('-')[2].
+export function nodesAfterConnectedDelete(nodes, edges, id, type) {
+    const list = Array.isArray(nodes) ? nodes : []
+    const ids = new Set()
+    if (type === 'node' && id != null) ids.add(id)
+    else {
+        for (const edge of edges || []) {
+            if (edge && edge.id === id && edge.source) ids.add(edge.source)
+        }
+    }
+    try {
+        return stripMentions(list, ids)
+    } catch {
+        return list
+    }
 }
 
 // The open panel must not survive its card. A new card can reuse that id, and would otherwise open on the deleted settings.

@@ -16,6 +16,7 @@ import { SET_DIRTY } from '@/store/actions'
 import { ReactFlowContext, flowContext } from '@/store/context/ReactFlowContext'
 import {
     actionBarSide,
+    canvasAfterDelete,
     cardActionNames,
     createCanvasDeleteQueue,
     panelHeaderActions,
@@ -402,6 +403,102 @@ describe('keyboard delete on a connected card', () => {
         const edge = fs.readFileSync(path.join(__dirname, '../agentflowsv2/AgentFlowEdge.jsx'), 'utf8')
         expect(edge).toContain('react-flow__edge-path')
         expect(edge).toContain('addSelectedEdges')
+    })
+
+    test('a workflow handle clears {{nodeId}} and {{nodeId.output...}} and does not write inputs.undefined', () => {
+        const nodes = [
+            { id: 'llmAgentflow_0', data: { name: 'llmAgentflow', inputs: {} } },
+            {
+                id: 'directReplyAgentflow_0',
+                data: {
+                    name: 'directReplyAgentflow',
+                    inputParams: [{ name: 'directReplyMessage', acceptVariable: true }],
+                    inputs: {
+                        directReplyMessage: 'See {{llmAgentflow_0}} and {{llmAgentflow_0.output.content}}'
+                    }
+                }
+            }
+        ]
+        const edges = [
+            {
+                id: 'llm-reply',
+                source: 'llmAgentflow_0',
+                target: 'directReplyAgentflow_0',
+                targetHandle: 'directReplyAgentflow_0'
+            }
+        ]
+        const next = canvasAfterDelete({ nodes, edges, nodeIds: ['llmAgentflow_0'], edgeIds: ['llm-reply'] })
+        const reply = next.nodes.find((node) => node.id === 'directReplyAgentflow_0')
+        expect(next.nodes.map((node) => node.id)).toEqual(['directReplyAgentflow_0'])
+        expect(next.edges).toEqual([])
+        expect(reply.data.inputs.directReplyMessage).toBe('See  and ')
+        expect(JSON.stringify(reply.data.inputs)).not.toContain('llmAgentflow_0')
+        expect(reply.data.inputs.undefined).toBeUndefined()
+    })
+
+    test('deleting promptTemplate_1 does not drop promptTemplate_10', () => {
+        const nodes = [
+            { id: 'promptTemplate_1', data: { inputs: {} } },
+            { id: 'promptTemplate_10', data: { inputs: {} } },
+            {
+                id: 'llmChain_0',
+                data: {
+                    inputAnchors: [{ name: 'tools', list: true }],
+                    inputs: {
+                        tools: ['{{promptTemplate_1.data.instance}}', '{{promptTemplate_10.data.instance}}', 'keep']
+                    }
+                }
+            }
+        ]
+        const edges = [
+            { id: 'e1', source: 'promptTemplate_1', target: 'llmChain_0', targetHandle: 'llmChain_0-input-tools-array' },
+            { id: 'e10', source: 'promptTemplate_10', target: 'llmChain_0', targetHandle: 'llmChain_0-input-tools-array' }
+        ]
+        const next = canvasAfterDelete({ nodes, edges, nodeIds: ['promptTemplate_1'], edgeIds: ['e1'] })
+        const chain = next.nodes.find((node) => node.id === 'llmChain_0')
+        expect(chain.data.inputs.tools).toEqual(['{{promptTemplate_10.data.instance}}', 'keep'])
+        expect(next.edges.map((edge) => edge.id)).toEqual(['e10'])
+        expect(next.nodes.map((node) => node.id)).toContain('promptTemplate_10')
+    })
+
+    test('a repeated token is cleared in every input', () => {
+        const nodes = [
+            { id: 'llmAgentflow_0', data: { inputs: {} } },
+            {
+                id: 'directReplyAgentflow_0',
+                data: {
+                    inputs: {
+                        directReplyMessage: '{{llmAgentflow_0}} then {{llmAgentflow_0}}',
+                        note: 'tail {{llmAgentflow_0.output.content}}'
+                    }
+                }
+            }
+        ]
+        const edges = [{ id: 'e', source: 'llmAgentflow_0', target: 'directReplyAgentflow_0', targetHandle: 'directReplyAgentflow_0' }]
+        const next = canvasAfterDelete({ nodes, edges, nodeIds: ['llmAgentflow_0'], edgeIds: ['e'] })
+        const reply = next.nodes.find((node) => node.id === 'directReplyAgentflow_0')
+        expect(reply.data.inputs.directReplyMessage).toBe(' then ')
+        expect(reply.data.inputs.note).toBe('tail ')
+    })
+
+    test('a missing acceptVariable value does not skip a multi-select delete', () => {
+        const nodes = [
+            {
+                id: 'a',
+                data: { inputs: { note: undefined }, inputParams: [{ name: 'note', acceptVariable: true }] }
+            },
+            { id: 'b', data: { inputs: { note: '{{a}}' }, inputParams: [{ name: 'note', acceptVariable: true }] } },
+            { id: 'c', data: { inputs: { note: '{{a}} {{b}}' }, inputParams: [{ name: 'note', acceptVariable: true }] } }
+        ]
+        const edges = [
+            { id: 'ea', source: 'a', target: 'c', targetHandle: 'c' },
+            { id: 'eb', source: 'b', target: 'c', targetHandle: 'c' }
+        ]
+        const next = canvasAfterDelete({ nodes, edges, nodeIds: ['a', 'b'], edgeIds: ['ea', 'eb'] })
+        expect(next.nodes.map((node) => node.id)).toEqual(['c'])
+        expect(next.edges).toEqual([])
+        expect(next.nodes[0].data.inputs.note).toBe(' ')
+        expect(next.nodes[0].data.inputs.undefined).toBeUndefined()
     })
 
     test('drag and select still pass through', () => {

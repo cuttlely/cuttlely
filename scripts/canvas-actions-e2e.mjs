@@ -115,7 +115,7 @@ function connectNodes(source, target, inputName, edgeType) {
     const anchor =
         (target.data.inputAnchors || []).find((item) => item.name === inputName) ||
         (target.data.inputParams || []).find((item) => item.name === inputName)
-    const targetHandle = anchor?.id || `${target.id}-input-${inputName}`
+    const targetHandle = edgeType === 'agentFlow' ? target.id : anchor?.id || `${target.id}-input-${inputName}`
     const sourceAnchor = source.data.outputAnchors?.[0]
     const sourceHandle = sourceAnchor?.options?.[0]?.id || sourceAnchor?.id
     const param = (target.data.inputParams || []).find((item) => item.name === inputName)
@@ -457,7 +457,8 @@ async function assertSavedFlow(page, base, cookie, flowId, saveTitle, ids) {
     const parsed = JSON.parse(flowData)
     const text = JSON.stringify(parsed)
     for (const id of ids) {
-        if (text.includes(`{{${id}.data.instance}}`)) throw new Error(`saved flow still references ${id}`)
+        const boundary = new RegExp(`(^|[^A-Za-z0-9_])${id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}([^A-Za-z0-9_]|$)`)
+        if (boundary.test(text)) throw new Error(`saved flow still contains ${id}`)
         if ((parsed.nodes || []).some((node) => node.id === id)) throw new Error(`saved flow still has card ${id}`)
         if ((parsed.edges || []).some((edge) => edge.source === id || edge.target === id)) {
             throw new Error(`saved flow still has a line for ${id}`)
@@ -594,7 +595,9 @@ async function prepareFlows(base, cookie) {
         flowSources.push(node)
     }
     const flowEdges = flowSources.map((node) => connectNodes(node, reply, replyInput?.name || 'directReplyMessage', 'agentFlow'))
-    reply.data.inputs[replyInput?.name || 'directReplyMessage'] = flowSources.map((node) => `{{${node.id}.data.instance}}`).join(' ')
+    reply.data.inputs[replyInput?.name || 'directReplyMessage'] = flowSources
+        .map((node) => `{{${node.id}}} {{${node.id}.output.content}}`)
+        .join(' ')
     const flow = await createFlow(base, cookie, {
         name: 'canvas actions workflow',
         type: 'AGENTFLOW',
