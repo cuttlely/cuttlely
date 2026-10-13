@@ -31,6 +31,7 @@ import {
     incomingSummary,
     listUnreadable,
     missingIntro,
+    placementLine,
     promotePath,
     promotedMessage,
     previousEnvironmentTitle,
@@ -385,6 +386,33 @@ export const PromoteDetailView = ({
                     </Typography>
                 </Box>
             </Box>
+
+            {(detail.placements || []).length > 0 && (
+                <Section title='Where this version is' testId='promote-placements'>
+                    <Stack spacing={1}>
+                        {detail.placements.map((item) => (
+                            <Stack
+                                key={item.server}
+                                direction='row'
+                                spacing={1}
+                                alignItems='baseline'
+                                data-testid='promote-placement'
+                                data-server={item.server}
+                                flexWrap='wrap'
+                                useFlexGap
+                            >
+                                <Typography variant='body2' sx={{ fontWeight: 700, minWidth: 96 }}>
+                                    {item.name}
+                                </Typography>
+                                <Typography variant='body2' color='text.secondary'>
+                                    {placementLine(item)}
+                                </Typography>
+                                {item.place === 'here' ? <Chip size='small' label='This server' /> : null}
+                            </Stack>
+                        ))}
+                    </Stack>
+                </Section>
+            )}
 
             {isNew && <Alert severity='info'>{NEW_FLOW_NOTE}</Alert>}
             {detail.hasDraft && (

@@ -96,7 +96,12 @@ const PromoteFlow = () => {
                 now={Date.now()}
                 check={
                     <Box data-testid='promote-check'>
-                        <PublishCheck chatflowId={id} variant='promote' api={flowVersionsApi.promoteCheckApi} />
+                        <PublishCheck
+                            chatflowId={id}
+                            variant='promote'
+                            sourceTitle={sourceTitleOf(detail)}
+                            api={flowVersionsApi.promoteCheckApi}
+                        />
                     </Box>
                 }
             />

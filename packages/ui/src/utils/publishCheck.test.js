@@ -21,6 +21,7 @@ import {
     noPastRunsMessage,
     caseBadge,
     CHECK_WORDS,
+    promoteCheckWords,
     costNote,
     formatMs,
     initialPicks,
@@ -264,6 +265,19 @@ describe('results', () => {
         expect(usageText(done, CHECK_WORDS.promote)).toBe(
             'Tokens: Live 1,840, from Dev 188 (From Dev used 1,652 fewer). Typical time: Live 0.6 s, from Dev 0.5 s (From Dev was 0.1 s faster).'
         )
+        expect(promoteCheckWords('Dev')).toBe(CHECK_WORDS.promote)
+        expect(promoteCheckWords('dev').side).toBe('From Dev')
+        expect(promoteCheckWords().side).toBe('From Dev')
+        const staging = promoteCheckWords('Staging')
+        expect(staging.side).toBe('From Staging')
+        expect(staging.short).toBe('from Staging')
+        expect(staging.yours).toBe('the version from Staging')
+        expect(staging.intro).not.toContain('Dev')
+        expect(staging.changed).toBe('A newer version arrived from Staging after this check ran. Run it again to check it.')
+        expect(usageText(done, staging)).toContain('From Staging')
+        expect(passRateText({ summary: { scores: { draft: { passed: 1, failed: 0, errored: 0, passRate: 100 } } } }, staging)).toEqual([
+            'From Staging pass rate: 100% (1 passed, 0 failed, 0 errored).'
+        ])
         expect(stopReasonText('tokens')).toBe('Stopped at the token limit. These are the questions answered so far.')
         expect(stopReasonText('time')).toBe('Stopped at the time limit. These are the questions answered so far.')
         expect(stopReasonText('stopped')).toBe('You stopped the check. These are the questions answered so far.')
