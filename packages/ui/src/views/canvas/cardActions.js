@@ -69,6 +69,55 @@ export function collectRemovedNodeIds(nodes, nodeIds) {
     return ids
 }
 
+// Chatflow, harness, and pipeline handles are nodeId-input-<field>-<type>. A workflow handle is the target node id.
+function fieldFromHandle(targetHandle, targetId) {
+    if (!targetHandle || targetHandle === targetId) return null
+    const marker = '-input-'
+    const at = String(targetHandle).indexOf(marker)
+    if (at === -1) return null
+    const field = String(targetHandle)
+        .slice(at + marker.length)
+        .split('-')[0]
+    return field || null
+}
+
+function sameFeed(edge, source, target, field) {
+    if (!edge || edge.source !== source || edge.target !== target) return false
+    return fieldFromHandle(edge.targetHandle, target) === field
+}
+
+// Card deletion clears that id everywhere. An edge deletion clears only its target, and only when no
+// remaining line from the same source still feeds that field (or, on a workflow handle, that card).
+function clearEdgeMentions(nodes, edges, removeEdges, removeNodes) {
+    const surviving = (edges || []).filter(
+        (edge) => edge && !removeEdges.has(edge.id) && !removeNodes.has(edge.source) && !removeNodes.has(edge.target)
+    )
+    const patches = new Map()
+    for (const edge of edges || []) {
+        if (!edge || !removeEdges.has(edge.id) || !edge.source || removeNodes.has(edge.source)) continue
+        const field = fieldFromHandle(edge.targetHandle, edge.target)
+        const workflowHandle = !field && (!edge.targetHandle || edge.targetHandle === edge.target)
+        if (!field && !workflowHandle) continue
+        const stillFed = surviving.some((other) =>
+            field
+                ? sameFeed(other, edge.source, edge.target, field)
+                : other.source === edge.source && other.target === edge.target && !fieldFromHandle(other.targetHandle, edge.target)
+        )
+        if (stillFed) continue
+        const node = (nodes || []).find((item) => item && item.id === edge.target)
+        if (!node?.data?.inputs) continue
+        const current = patches.get(node.id) || node.data.inputs
+        const nextInputs = field ? { ...current, [field]: stripValue(current[field], [edge.source]) } : stripValue(current, [edge.source])
+        patches.set(node.id, nextInputs)
+    }
+    if (!patches.size) return nodes
+    return (nodes || []).map((node) => {
+        const inputs = patches.get(node?.id)
+        if (!inputs) return node
+        return { ...node, data: { ...node.data, inputs } }
+    })
+}
+
 // One next list of cards and one next list of lines. Callers must pass these arrays to setNodes and setEdges
 // once. A second read of the store still has the pre-delete cards. A cleanup failure must not skip the removal.
 export function canvasAfterDelete({ nodes, edges, nodeIds = [], edgeIds = [] } = {}) {
@@ -76,13 +125,10 @@ export function canvasAfterDelete({ nodes, edges, nodeIds = [], edgeIds = [] } =
     const edgeList = Array.isArray(edges) ? edges : []
     const removeNodes = collectRemovedNodeIds(nodeList, nodeIds)
     const removeEdges = new Set((edgeIds || []).filter((id) => id != null))
-    const mentionIds = new Set(removeNodes)
-    for (const edge of edgeList) {
-        if (edge && removeEdges.has(edge.id) && edge.source) mentionIds.add(edge.source)
-    }
     let nextNodes = nodeList
     try {
-        nextNodes = stripMentions(nodeList, mentionIds)
+        nextNodes = stripMentions(nodeList, removeNodes)
+        nextNodes = clearEdgeMentions(nextNodes, edgeList, removeEdges, removeNodes)
     } catch {
         nextNodes = nodeList
     }
@@ -146,9 +192,25 @@ function mentionsRemovedId(label, id) {
     return label === id || label.startsWith(`${id}.`)
 }
 
+function spanAttribute(tag, name) {
+    const match = String(tag).match(new RegExp(`\\b${name}\\s*=\\s*(?:"([^"]*)"|'([^']*)')`, 'i'))
+    return match ? match[1] ?? match[2] ?? '' : ''
+}
+
+// The canvas editor stores a workflow mention as a span, not only as {{ id }}. The whole span has to go,
+// or data-id and data-label keep the id and the editor rebuilds the mention.
+function stripMentionSpans(text, ids) {
+    return text.replace(/<span\b[^>]*>[\s\S]*?<\/span>/gi, (span) => {
+        const dataId = spanAttribute(span, 'data-id')
+        const dataLabel = spanAttribute(span, 'data-label')
+        const hit = [...ids].some((id) => mentionsRemovedId(dataId, id) || mentionsRemovedId(dataLabel, id))
+        return hit ? '' : span
+    })
+}
+
 function stripTokens(text, ids) {
     if (typeof text !== 'string') return text
-    let next = text
+    let next = stripMentionSpans(text, ids)
     for (const id of ids) {
         if (!id) continue
         const pattern = new RegExp(`\\{\\{\\s*${escapeRegExp(id)}(?:\\.[^{}]*)?\\s*\\}\\}`, 'g')
@@ -170,7 +232,11 @@ function stripValue(value, ids) {
         if ((trimmed.startsWith('{') && trimmed.endsWith('}')) || (trimmed.startsWith('[') && trimmed.endsWith(']'))) {
             try {
                 const parsed = JSON.parse(value)
-                if (parsed && typeof parsed === 'object') return JSON.stringify(stripValue(parsed, ids))
+                if (parsed && typeof parsed === 'object') {
+                    const cleaned = stripValue(parsed, ids)
+                    if (JSON.stringify(parsed) === JSON.stringify(cleaned)) return value
+                    return JSON.stringify(cleaned)
+                }
             } catch {
                 // The text is not JSON. Fall through to the token replace.
             }
@@ -216,23 +282,15 @@ function stripMentions(nodes, ids) {
     })
 }
 
-// Drop every whole mention of a removed card from every remaining card. Workflow lines use the node id as the
-// handle, and the text is {{nodeId}} or {{nodeId.output...}}. Chatflow, harness, and pipeline text is
-// {{nodeId.data.instance}}. The field is never taken from split('-')[2].
+// The same cleanup as canvasAfterDelete, returning only the cards. An edge clears its own target.
 export function nodesAfterConnectedDelete(nodes, edges, id, type) {
-    const list = Array.isArray(nodes) ? nodes : []
-    const ids = new Set()
-    if (type === 'node' && id != null) ids.add(id)
-    else {
-        for (const edge of edges || []) {
-            if (edge && edge.id === id && edge.source) ids.add(edge.source)
-        }
-    }
-    try {
-        return stripMentions(list, ids)
-    } catch {
-        return list
-    }
+    const next = canvasAfterDelete({
+        nodes,
+        edges,
+        nodeIds: type === 'node' && id != null ? [id] : [],
+        edgeIds: type === 'node' || id == null ? [] : [id]
+    })
+    return next.nodes
 }
 
 // The open panel must not survive its card. A new card can reuse that id, and would otherwise open on the deleted settings.

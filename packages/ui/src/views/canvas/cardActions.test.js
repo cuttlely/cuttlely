@@ -14,6 +14,7 @@ import { createStore } from 'redux'
 
 import { SET_DIRTY } from '@/store/actions'
 import { ReactFlowContext, flowContext } from '@/store/context/ReactFlowContext'
+import { getCustomConditionOutputs } from '@/utils/genericHelper'
 import {
     actionBarSide,
     canvasAfterDelete,
@@ -414,7 +415,7 @@ describe('keyboard delete on a connected card', () => {
                     name: 'directReplyAgentflow',
                     inputParams: [{ name: 'directReplyMessage', acceptVariable: true }],
                     inputs: {
-                        directReplyMessage: 'See {{llmAgentflow_0}} and {{llmAgentflow_0.output.content}}'
+                        directReplyMessage: 'See {{ llmAgentflow_0 }} and {{ llmAgentflow_0.output.content }}'
                     }
                 }
             }
@@ -434,6 +435,86 @@ describe('keyboard delete on a connected card', () => {
         expect(reply.data.inputs.directReplyMessage).toBe('See  and ')
         expect(JSON.stringify(reply.data.inputs)).not.toContain('llmAgentflow_0')
         expect(reply.data.inputs.undefined).toBeUndefined()
+    })
+
+    test('a workflow mention span is removed whole, and a longer id is left', () => {
+        const span = (id) => `<p><span class="variable" data-type="mention" data-id="${id}" data-label="${id}">{{ ${id} }}</span></p>`
+        const pathSpan = (id) =>
+            `<span class="variable" data-type="mention" data-id="${id}.output.content" data-label="${id}.output.content">{{ ${id}.output.content }}</span>`
+        const nodes = [
+            { id: 'llmAgentflow_0', data: { inputs: {} } },
+            { id: 'llmAgentflow_10', data: { inputs: {} } },
+            {
+                id: 'directReplyAgentflow_0',
+                data: {
+                    inputs: {
+                        directReplyMessage: `${span('llmAgentflow_0')}${pathSpan('llmAgentflow_0')}${span('llmAgentflow_10')}`
+                    }
+                }
+            }
+        ]
+        const edges = [
+            { id: 'e0', source: 'llmAgentflow_0', target: 'directReplyAgentflow_0', targetHandle: 'directReplyAgentflow_0' },
+            { id: 'e10', source: 'llmAgentflow_10', target: 'directReplyAgentflow_0', targetHandle: 'directReplyAgentflow_0' }
+        ]
+        const next = canvasAfterDelete({ nodes, edges, nodeIds: ['llmAgentflow_0'], edgeIds: ['e0'] })
+        const message = next.nodes.find((node) => node.id === 'directReplyAgentflow_0').data.inputs.directReplyMessage
+        expect(message).toBe(`<p></p>${span('llmAgentflow_10')}`)
+        expect(message).not.toContain('data-id="llmAgentflow_0"')
+        expect(message).not.toContain('llmAgentflow_0.output.content')
+        expect(JSON.stringify(next)).not.toMatch(/(^|[^A-Za-z0-9_])llmAgentflow_0([^A-Za-z0-9_]|$)/)
+    })
+
+    test('deleting one of two edges from the same source keeps the other reference', () => {
+        const nodes = [
+            { id: 'promptTemplate_0', data: { inputs: {} } },
+            {
+                id: 'llmChain_0',
+                data: {
+                    inputs: {
+                        prompt: '{{promptTemplate_0.data.instance}}',
+                        tools: ['{{promptTemplate_0.data.instance}}', 'keep']
+                    }
+                }
+            }
+        ]
+        const edges = [
+            { id: 'ePrompt', source: 'promptTemplate_0', target: 'llmChain_0', targetHandle: 'llmChain_0-input-prompt-string' },
+            { id: 'eTools', source: 'promptTemplate_0', target: 'llmChain_0', targetHandle: 'llmChain_0-input-tools-array' }
+        ]
+        const next = canvasAfterDelete({ nodes, edges, edgeIds: ['ePrompt'] })
+        const chain = next.nodes.find((node) => node.id === 'llmChain_0')
+        expect(chain.data.inputs.prompt).toBe('')
+        expect(chain.data.inputs.tools).toEqual(['{{promptTemplate_0.data.instance}}', 'keep'])
+        expect(next.edges.map((edge) => edge.id)).toEqual(['eTools'])
+    })
+
+    test('deleting a workflow edge clears only that target card', () => {
+        const token = '{{llmAgentflow_0}}'
+        const nodes = [
+            { id: 'llmAgentflow_0', data: { inputs: {} } },
+            { id: 'conditionAgentflow_0', data: { inputs: { condition: token } } },
+            { id: 'directReplyAgentflow_0', data: { inputs: { directReplyMessage: token } } }
+        ]
+        const edges = [
+            { id: 'toCondition', source: 'llmAgentflow_0', target: 'conditionAgentflow_0', targetHandle: 'conditionAgentflow_0' },
+            { id: 'toReply', source: 'llmAgentflow_0', target: 'directReplyAgentflow_0', targetHandle: 'directReplyAgentflow_0' }
+        ]
+        const next = canvasAfterDelete({ nodes, edges, edgeIds: ['toCondition'] })
+        expect(next.nodes.find((node) => node.id === 'conditionAgentflow_0').data.inputs.condition).toBe('')
+        expect(next.nodes.find((node) => node.id === 'directReplyAgentflow_0').data.inputs.directReplyMessage).toBe(token)
+        expect(next.edges.map((edge) => edge.id)).toEqual(['toReply'])
+    })
+
+    test('unrelated pretty JSON is left byte for byte', () => {
+        const pretty = '{\n  "keep": true\n}'
+        const nodes = [
+            { id: 'llmAgentflow_0', data: { inputs: {} } },
+            { id: 'directReplyAgentflow_0', data: { inputs: { config: pretty, directReplyMessage: '{{llmAgentflow_0}}' } } }
+        ]
+        const edges = [{ id: 'e', source: 'llmAgentflow_0', target: 'directReplyAgentflow_0', targetHandle: 'directReplyAgentflow_0' }]
+        const next = canvasAfterDelete({ nodes, edges, nodeIds: ['llmAgentflow_0'], edgeIds: ['e'] })
+        expect(next.nodes.find((node) => node.id === 'directReplyAgentflow_0').data.inputs.config).toBe(pretty)
     })
 
     test('deleting promptTemplate_1 does not drop promptTemplate_10', () => {
@@ -499,6 +580,64 @@ describe('keyboard delete on a connected card', () => {
         expect(next.edges).toEqual([])
         expect(next.nodes[0].data.inputs.note).toBe(' ')
         expect(next.nodes[0].data.inputs.undefined).toBeUndefined()
+    })
+
+    test('several deleteEdge calls in one turn leave every one of those edges', () => {
+        const mounted = mountCanvas(flowGraph())
+        act(() => {
+            mounted.api.current.deleteEdge('e0')
+            mounted.api.current.deleteEdge('e1')
+        })
+        const ids = mounted.rf.saved().edges.map((edge) => edge.id)
+        expect(ids).not.toContain('e0')
+        expect(ids).not.toContain('e1')
+        expect(ids).toContain('e0tools')
+    })
+
+    test('condition dialog save removes every listed edge in one call', () => {
+        const nodeId = 'conditionAgentflow_0'
+        const keptHandle = `${nodeId}-output-kept-Condition`
+        const existingEdges = [
+            {
+                id: 'c0',
+                source: nodeId,
+                target: 'directReplyAgentflow_0',
+                sourceHandle: `${nodeId}-output-oldA-Condition`,
+                targetHandle: 'directReplyAgentflow_0'
+            },
+            {
+                id: 'c1',
+                source: nodeId,
+                target: 'directReplyAgentflow_1',
+                sourceHandle: `${nodeId}-output-oldB-Condition`,
+                targetHandle: 'directReplyAgentflow_1'
+            },
+            {
+                id: 'keep',
+                source: nodeId,
+                target: 'directReplyAgentflow_2',
+                sourceHandle: keptHandle,
+                targetHandle: 'directReplyAgentflow_2'
+            }
+        ]
+        const { toBeRemovedEdgeIds } = getCustomConditionOutputs("if (ready) return 'kept'", nodeId, existingEdges, false)
+        expect(toBeRemovedEdgeIds.sort()).toEqual(['c0', 'c1'])
+        const mounted = mountCanvas({
+            nodes: [
+                { id: nodeId, data: { name: 'conditionAgentflow', inputs: {} } },
+                { id: 'directReplyAgentflow_0', data: { inputs: {} } },
+                { id: 'directReplyAgentflow_1', data: { inputs: {} } },
+                { id: 'directReplyAgentflow_2', data: { inputs: {} } }
+            ],
+            edges: existingEdges
+        })
+        const handler = fs.readFileSync(path.join(__dirname, 'NodeInputHandler.jsx'), 'utf8')
+        expect(handler).toContain('deleteSelection({ edgeIds: toBeRemovedEdgeIds })')
+        expect(handler).not.toContain('deleteEdge(')
+        act(() => {
+            mounted.api.current.deleteSelection({ edgeIds: toBeRemovedEdgeIds })
+        })
+        expect(mounted.rf.saved().edges.map((edge) => edge.id)).toEqual(['keep'])
     })
 
     test('drag and select still pass through', () => {

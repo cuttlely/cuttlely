@@ -100,14 +100,21 @@ export const ReactFlowContext = ({ children }) => {
         commitNodes.current = setNodes
         commitEdges.current = setEdges
     }
+    // The React setters do not update getNodes or getEdges until the next render. A loop of deleteEdge
+    // calls has to see the graph this function just wrote, or every edge but the last comes back.
+    const writtenGraph = useRef(null)
     const deleteSelection = ({ nodeIds = [], edgeIds = [] } = {}) => {
         if (!reactFlowInstance) return
         if (!nodeIds.length && !edgeIds.length) return
         const next = canvasAfterDelete({
-            nodes: reactFlowInstance.getNodes(),
-            edges: reactFlowInstance.getEdges(),
+            nodes: writtenGraph.current ? writtenGraph.current.nodes : reactFlowInstance.getNodes(),
+            edges: writtenGraph.current ? writtenGraph.current.edges : reactFlowInstance.getEdges(),
             nodeIds,
             edgeIds
+        })
+        writtenGraph.current = next
+        queueMicrotask(() => {
+            if (writtenGraph.current === next) writtenGraph.current = null
         })
         applyingDelete.current = true
         try {

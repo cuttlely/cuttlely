@@ -163,16 +163,20 @@ async function signIn(page, base) {
 async function exercise(
     page,
     base,
-    { route, nodeId, connectedId, buttonId, multiIds, removedIds, flowName, flowId, cookie, saveTitle, selectEdge }
+    { route, nodeId, connectedId, buttonId, multiIds, removedIds, keptMentions, flowName, flowId, cookie, saveTitle, selectEdge, twoEdge }
 ) {
     await page.goto(`${base}${route}`, { waitUntil: 'domcontentloaded' })
     const card = page.locator(`.react-flow__node[data-id="${nodeId}"]`)
     await card.waitFor({ timeout: 20000 })
     await page.waitForTimeout(500)
+    if (twoEdge) await checkTwoEdges(page, base, cookie, flowId, saveTitle, twoEdge)
     if (connectedId) await checkConnectedBackspace(page, connectedId, flowName)
-    if (selectEdge) await deleteWorkflowEdge(page)
+    if (selectEdge) await deleteWorkflowEdge(page, buttonId)
     if (buttonId) await deleteFromToolbar(page, buttonId)
     if (multiIds?.length) await deleteSelectedCards(page, multiIds)
+    // Before any duplicate reuses a freed id, the saved flow must not contain that id at all.
+    if (removedIds?.length)
+        await assertSavedFlow(page, base, cookie, flowId, saveTitle, removedIds, keptMentions, { reload: false, strict: true })
     const before = await page.locator('.react-flow__node').count()
     const box = await card.boundingBox()
     if (!box) throw new Error(`${nodeId} has no box`)
@@ -226,7 +230,7 @@ async function exercise(
     const survivor = await remainingCardId(page, nodeId)
     await checkTopEdge(page, page.locator(`.react-flow__node[data-id="${survivor}"]`), survivor)
     await checkHoverClicks(page, survivor, 'below')
-    if (removedIds?.length) await assertSavedFlow(page, base, cookie, flowId, saveTitle, removedIds)
+    if (removedIds?.length) await assertSavedFlow(page, base, cookie, flowId, saveTitle, removedIds, [], { reload: true })
 }
 
 async function remainingCardId(page, removedId) {
@@ -360,8 +364,8 @@ async function checkConnectedBackspace(page, nodeId, flowName) {
     if (!(await canvasUnsaved(page, flowName))) throw new Error(`${nodeId} Backspace did not mark the canvas unsaved`)
 }
 
-async function deleteWorkflowEdge(page) {
-    const edge = page.locator('.agent-flow-edge').first()
+async function deleteWorkflowEdge(page, sourceId) {
+    const edge = sourceId ? page.locator(`[data-testid^="rf__edge-${sourceId}-"]`).first() : page.locator('.agent-flow-edge').first()
     await edge.waitFor({ timeout: 10000 })
     await edge.click()
     if ((await page.locator('.react-flow__edge.selected').count()) < 1) {
@@ -421,7 +425,7 @@ async function deleteSelectedCards(page, ids) {
     }
 }
 
-async function assertSavedFlow(page, base, cookie, flowId, saveTitle, ids) {
+async function readSavedFlow(page, base, cookie, flowId, saveTitle) {
     const responsePromise = page.waitForResponse(
         (response) => {
             const url = response.url()
@@ -445,23 +449,95 @@ async function assertSavedFlow(page, base, cookie, flowId, saveTitle, ids) {
         flowData = JSON.parse(live.text || '{}')?.flowData
     }
     if (!flowData) throw new Error('save did not return the flow')
-    await page.reload({ waitUntil: 'domcontentloaded' })
-    await page.locator('.react-flow__node').first().waitFor({ timeout: 20000 })
-    const again = await request(`${base}/api/v1/flow-drafts/${flowId}`, { cookie })
-    let reloaded = JSON.parse(again.text || '{}')?.draft?.flowData
-    if (!reloaded) {
-        const live = await request(`${base}/api/v1/chatflows/${flowId}`, { cookie })
-        reloaded = JSON.parse(live.text || '{}')?.flowData
+    return typeof flowData === 'string' ? JSON.parse(flowData) : flowData
+}
+
+// One source with two lines. Deleting the template line clears that field and leaves the other line's token.
+async function checkTwoEdges(page, base, cookie, flowId, saveTitle, spec) {
+    const edge = page.locator(`[data-testid="rf__edge-${spec.edgeId}"]`)
+    await edge.waitFor({ timeout: 10000 })
+    const clicked = await edge.evaluate((el) => {
+        const button = el.querySelector('button.edgebutton')
+        if (!button) return { ok: false, html: el.innerHTML.slice(0, 300) }
+        button.click()
+        return { ok: true }
+    })
+    if (!clicked.ok) throw new Error(`${spec.edgeId} has no delete button: ${clicked.html}`)
+    await page.waitForTimeout(400)
+    if ((await page.locator(`[data-testid="rf__edge-${spec.edgeId}"]`).count()) !== 0) {
+        const left = await page.evaluate(() => document.querySelectorAll('.react-flow__edge').length)
+        throw new Error(`${spec.edgeId} stayed on the canvas (${left} edges)`)
     }
-    if (reloaded) flowData = reloaded
-    const parsed = JSON.parse(flowData)
+    if ((await page.locator(`[data-testid="rf__edge-${spec.keepEdgeId}"]`).count()) !== 1) {
+        throw new Error(`${spec.keepEdgeId} was removed with ${spec.edgeId}`)
+    }
+    const parsed = await readSavedFlow(page, base, cookie, flowId, saveTitle)
+    const target = (parsed.nodes || []).find((node) => node.id === spec.targetId)
+    const cleared = target?.data?.inputs?.[spec.clearedField]
+    const clearedText = typeof cleared === 'string' ? cleared : JSON.stringify(cleared ?? '')
+    if (clearedText.includes(spec.sourceId)) {
+        throw new Error(`${spec.clearedField} still mentions ${spec.sourceId} after deleting ${spec.edgeId}`)
+    }
+    const kept = target?.data?.inputs?.[spec.keptField]
+    const keptText = typeof kept === 'string' ? kept : JSON.stringify(kept ?? '')
+    if (!keptText.includes(spec.keepToken)) {
+        throw new Error(`${spec.keptField} lost ${spec.keepToken} when ${spec.edgeId} was deleted`)
+    }
+    if ((parsed.edges || []).some((item) => item.id === spec.edgeId)) throw new Error(`saved flow still has ${spec.edgeId}`)
+    if (!(parsed.edges || []).some((item) => item.id === spec.keepEdgeId)) throw new Error(`saved flow lost ${spec.keepEdgeId}`)
+}
+
+function flowTextHasId(text, id) {
+    return new RegExp(`(^|[^A-Za-z0-9_])${id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}([^A-Za-z0-9_]|$)`).test(text)
+}
+
+function mentionSpan(text, id, path) {
+    const idPart = id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    const tail = path ? '\\.' : '(?:\\\\"|")'
+    return new RegExp(`data-id=(?:\\\\")?${idPart}${tail}`).test(text)
+}
+
+function inputsMention(parsed, id) {
+    for (const node of parsed.nodes || []) {
+        const inputs = JSON.stringify(node?.data?.inputs ?? '')
+        if (flowTextHasId(inputs, id)) return node.id
+    }
+    return null
+}
+
+async function assertSavedFlow(page, base, cookie, flowId, saveTitle, ids, keptMentions = [], { reload = true, strict = false } = {}) {
+    let parsed = await readSavedFlow(page, base, cookie, flowId, saveTitle)
+    if (reload) {
+        await page.reload({ waitUntil: 'domcontentloaded' })
+        await page.locator('.react-flow__node').first().waitFor({ timeout: 20000 })
+        const again = await request(`${base}/api/v1/flow-drafts/${flowId}`, { cookie })
+        let reloaded = JSON.parse(again.text || '{}')?.draft?.flowData
+        if (!reloaded) {
+            const live = await request(`${base}/api/v1/chatflows/${flowId}`, { cookie })
+            reloaded = JSON.parse(live.text || '{}')?.flowData
+        }
+        if (!reloaded) throw new Error('reload did not return the flow')
+        parsed = typeof reloaded === 'string' ? JSON.parse(reloaded) : reloaded
+    }
     const text = JSON.stringify(parsed)
     for (const id of ids) {
-        const boundary = new RegExp(`(^|[^A-Za-z0-9_])${id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}([^A-Za-z0-9_]|$)`)
-        if (boundary.test(text)) throw new Error(`saved flow still contains ${id}`)
-        if ((parsed.nodes || []).some((node) => node.id === id)) throw new Error(`saved flow still has card ${id}`)
-        if ((parsed.edges || []).some((edge) => edge.source === id || edge.target === id)) {
-            throw new Error(`saved flow still has a line for ${id}`)
+        if (mentionSpan(text, id, false) || mentionSpan(text, id, true)) {
+            throw new Error(`saved flow still has a mention span for ${id}`)
+        }
+        const mentionedOn = inputsMention(parsed, id)
+        if (mentionedOn) throw new Error(`saved flow still mentions ${id} on ${mentionedOn}`)
+        const nodeLeft = (parsed.nodes || []).some((node) => node.id === id)
+        const edgeLeft = (parsed.edges || []).some((edge) => edge.source === id || edge.target === id)
+        if (strict) {
+            if (flowTextHasId(text, id)) throw new Error(`saved flow still contains ${id}`)
+            if (nodeLeft) throw new Error(`saved flow still has card ${id}`)
+        }
+        if (edgeLeft && !nodeLeft) throw new Error(`saved flow still has a line for ${id}`)
+        if (strict && edgeLeft) throw new Error(`saved flow still has a line for ${id}`)
+    }
+    for (const id of keptMentions) {
+        if (!mentionSpan(text, id, false) || !mentionSpan(text, `${id}.output.content`, false)) {
+            throw new Error(`saved flow lost the mention span for ${id}`)
         }
     }
 }
@@ -563,10 +639,18 @@ async function prepareFlows(base, cookie) {
     }
     const chatEdges = chatSources.map((node) => connectNodes(node, prompt, 'promptValues', 'buttonedge'))
     prompt.data.inputs.promptValues = chatSources.map((node) => `{{${node.id}.data.instance}}`).join(' ')
+    const toolAgent = await buildNode(base, cookie, 'toolAgent', 'toolAgent_0', {
+        label: 'Two inputs',
+        position: { x: 820, y: 80 }
+    })
+    chatEdges.push(connectNodes(chatSources[0], toolAgent, 'memory', 'buttonedge'))
+    chatEdges.push(connectNodes(chatSources[0], toolAgent, 'tools', 'buttonedge'))
+    toolAgent.data.inputs.memory = '{{promptTemplate_1.data.instance}}'
+    toolAgent.data.inputs.tools = ['{{promptTemplate_1.data.instance}}', 'keep']
     const chat = await createFlow(base, cookie, {
         name: 'canvas actions chat',
         type: 'CHATFLOW',
-        nodes: [prompt, ...chatSources],
+        nodes: [prompt, toolAgent, ...chatSources],
         edges: chatEdges
     })
     const start = await buildNode(base, cookie, 'startAgentflow', 'startAgentflow_0', {
@@ -594,10 +678,16 @@ async function prepareFlows(base, cookie) {
         node.type = 'agentFlow'
         flowSources.push(node)
     }
+    const keptReply = await buildNode(base, cookie, 'directReplyAgentflow', 'directReplyAgentflow_10', {
+        label: 'Kept reply',
+        position: { x: 1080, y: 160 }
+    })
+    keptReply.type = 'agentFlow'
+    flowSources.push(keptReply)
     const flowEdges = flowSources.map((node) => connectNodes(node, reply, replyInput?.name || 'directReplyMessage', 'agentFlow'))
-    reply.data.inputs[replyInput?.name || 'directReplyMessage'] = flowSources
-        .map((node) => `{{${node.id}}} {{${node.id}.output.content}}`)
-        .join(' ')
+    const mentionSpan = (id) =>
+        `<p><span class="variable" data-type="mention" data-id="${id}" data-label="${id}">{{ ${id} }}</span></p><span class="variable" data-type="mention" data-id="${id}.output.content" data-label="${id}.output.content">{{ ${id}.output.content }}</span>`
+    reply.data.inputs[replyInput?.name || 'directReplyMessage'] = flowSources.map((node) => mentionSpan(node.id)).join('')
     const flow = await createFlow(base, cookie, {
         name: 'canvas actions workflow',
         type: 'AGENTFLOW',
@@ -705,7 +795,16 @@ export async function runCanvasActions(base) {
             flowName: 'canvas actions chat',
             flowId: flows.chat.id,
             cookie: loggedIn.cookie,
-            saveTitle: 'Save Chatflow'
+            saveTitle: 'Save Chatflow',
+            twoEdge: {
+                edgeId: 'promptTemplate_1-toolAgent_0-memory',
+                keepEdgeId: 'promptTemplate_1-toolAgent_0-tools',
+                targetId: 'toolAgent_0',
+                sourceId: 'promptTemplate_1',
+                clearedField: 'memory',
+                keptField: 'tools',
+                keepToken: '{{promptTemplate_1.data.instance}}'
+            }
         })
         console.log('chatflow canvas actions ok')
         await exercise(page, base, {
@@ -719,7 +818,8 @@ export async function runCanvasActions(base) {
             flowId: flows.flow.id,
             cookie: loggedIn.cookie,
             saveTitle: 'Save Agents',
-            selectEdge: true
+            selectEdge: true,
+            keptMentions: ['directReplyAgentflow_10']
         })
         console.log('workflow canvas actions ok')
         await persistDeletes(page, base, loggedIn.cookie, {
