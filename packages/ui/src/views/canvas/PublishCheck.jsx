@@ -44,6 +44,7 @@ import {
     sideCaption,
     stopReasonText,
     passRateText,
+    verdictText,
     summaryText,
     togglePick,
     usageText,
@@ -138,6 +139,11 @@ export const CheckResults = ({ check, words = CHECK_WORDS.publish, replayInputs 
                             {line}
                         </Typography>
                     ))}
+                    {verdictText(check) && (
+                        <Typography variant='body2' data-testid='check-verdict'>
+                            {verdictText(check)}
+                        </Typography>
+                    )}
                 </Box>
             )}
             {check.stopReason && <Alert severity='info'>{stopReasonText(check.stopReason)}</Alert>}

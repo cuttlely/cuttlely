@@ -18,6 +18,7 @@ import {
     riskyWarning,
     sideCaption,
     passRateText,
+    verdictText,
     stopReasonText,
     summaryText,
     togglePick,
@@ -238,6 +239,12 @@ describe('results', () => {
             'Draft pass rate: 100% (2 passed, 0 failed, 0 errored).'
         ])
         expect(passRateText({ summary: { ran: 1 } })).toEqual([])
+        expect(verdictText({})).toBe('')
+        expect(
+            verdictText({
+                verdict: { result: 'failed', threshold: 100, passRate: 50, passed: 1, failed: 0, errored: 1 }
+            })
+        ).toBe('failed at 50% (threshold 100%). 1 passed, 0 failed, 1 errored.')
         expect(canRunCheck({ source: 'dataset', datasetId: '', picked: 0 })).toBe(false)
         expect(canRunCheck({ source: 'dataset', datasetId: 'ds-1', picked: 0 })).toBe(true)
     })

@@ -19,6 +19,7 @@ import {
 import flowDraftsApi from '@/api/flowDrafts'
 import useConfirm from '@/hooks/useConfirm'
 import { CHANGE_COLORS } from '@/utils/versionHistory'
+import { POLL_MS } from '@/utils/publishCheck'
 import { STALE_DRAFT_WARNING, apiErrorMessage, publishBody, publishChangeLines, publishResultMessage } from '@/utils/flowDrafts'
 import { enqueueSnackbar as enqueueSnackbarAction } from '@/store/actions'
 
@@ -63,14 +64,53 @@ PublishChangeList.propTypes = {
     lines: PropTypes.array
 }
 
+export const PublishGateNotice = ({ gate, busy, runAnyway, onRunAnyway, onRun }) => {
+    if (!gate?.enabled) return null
+    const result = gate.result
+    const summary = result
+        ? `Last result: ${result.passRate == null ? 'unscored' : `${result.passRate}%`} and ${result.verdict} (${result.passed} passed, ${
+              result.failed
+          } failed, ${result.errored} errored).`
+        : 'There is no result for this draft yet.'
+    return (
+        <Alert severity={gate.block ? 'warning' : 'success'} data-testid='publish-gate' sx={{ mt: 1.5 }}>
+            <Typography variant='body2'>{gate.block || 'This draft passed the test set.'}</Typography>
+            <Typography variant='body2' sx={{ mt: 0.5 }}>
+                {summary}
+            </Typography>
+            <FormControlLabel
+                sx={{ display: 'flex', mt: 0.5 }}
+                control={
+                    <Checkbox size='small' checked={runAnyway} disabled={busy} onChange={(event) => onRunAnyway(event.target.checked)} />
+                }
+                label={<Typography variant='body2'>Run steps that could send or write something</Typography>}
+            />
+            <Button variant='outlined' onClick={onRun} disabled={busy} data-testid='publish-gate-run' sx={{ mt: 1 }}>
+                {busy ? 'Running the test set…' : 'Run the test set'}
+            </Button>
+        </Alert>
+    )
+}
+
+PublishGateNotice.propTypes = {
+    gate: PropTypes.object,
+    busy: PropTypes.bool,
+    runAnyway: PropTypes.bool,
+    onRunAnyway: PropTypes.func,
+    onRun: PropTypes.func
+}
+
 const PublishDialog = ({ open, chatflow, draftStatus, isDirty, onClose, onDraftStatus, onChatflowUpdated, onApplyCanvas }) => {
     const dispatch = useDispatch()
     const { confirm } = useConfirm()
     const [replaceLiveChanges, setReplaceLiveChanges] = useState(false)
     const [busy, setBusy] = useState(false)
+    const [gateBusy, setGateBusy] = useState(false)
+    const [runAnyway, setRunAnyway] = useState(false)
     const [error, setError] = useState('')
 
     const stale = Boolean(draftStatus?.draft?.stale)
+    const gateBlock = draftStatus?.publishGate?.enabled ? draftStatus.publishGate.block : null
     const lines = useMemo(
         () => (open ? publishChangeLines(chatflow?.flowData, draftStatus?.draft?.flowData) : []),
         [open, chatflow?.flowData, draftStatus?.draft?.flowData]
@@ -95,6 +135,34 @@ const PublishDialog = ({ open, chatflow, draftStatus, isDirty, onClose, onDraftS
             })
         )
         onClose()
+    }
+
+    const onRunGate = async () => {
+        const gate = draftStatus?.publishGate
+        if (!chatflow?.id || !gate?.enabled || gateBusy || busy) return
+        setGateBusy(true)
+        setError('')
+        try {
+            const started = await flowDraftsApi.startCheck(chatflow.id, {
+                datasetId: gate.datasetId,
+                evaluatorIds: gate.evaluatorIds,
+                threshold: gate.threshold ?? 100,
+                includeRiskySteps: runAnyway
+            })
+            let view = started.data
+            for (let i = 0; i < 200 && view?.status === 'running'; i += 1) {
+                await new Promise((resolve) => setTimeout(resolve, POLL_MS))
+                const next = await flowDraftsApi.getCheck(chatflow.id, view.id)
+                view = next.data
+            }
+            const status = await flowDraftsApi.getStatus(chatflow.id)
+            if (status.data) onDraftStatus(status.data)
+            if (view?.status !== 'done') setError(view?.error || 'The test set did not finish.')
+        } catch (err) {
+            setError(apiErrorMessage(err, 'The test set could not start.'))
+        } finally {
+            setGateBusy(false)
+        }
     }
 
     const onPublish = async () => {
@@ -162,6 +230,13 @@ const PublishDialog = ({ open, chatflow, draftStatus, isDirty, onClose, onDraftS
                 )}
                 <PublishChangeList lines={lines} />
                 {chatflow?.id && <PublishCheck chatflowId={chatflow.id} />}
+                <PublishGateNotice
+                    gate={draftStatus?.publishGate}
+                    busy={gateBusy}
+                    runAnyway={runAnyway}
+                    onRunAnyway={setRunAnyway}
+                    onRun={onRunGate}
+                />
                 {stale && (
                     <FormControlLabel
                         sx={{ mt: 1, alignItems: 'flex-start' }}
@@ -189,9 +264,18 @@ const PublishDialog = ({ open, chatflow, draftStatus, isDirty, onClose, onDraftS
                 <Button onClick={onClose} disabled={busy}>
                     Keep editing
                 </Button>
-                <Button variant='contained' onClick={onPublish} disabled={busy || (stale && !replaceLiveChanges)}>
+                <Button
+                    variant='contained'
+                    onClick={onPublish}
+                    disabled={busy || gateBusy || Boolean(gateBlock) || (stale && !replaceLiveChanges)}
+                >
                     {busy ? 'Publishing…' : 'Publish'}
                 </Button>
+                {gateBlock && (
+                    <Typography variant='caption' color='text.secondary' data-testid='publish-gate-reason' sx={{ flexBasis: '100%' }}>
+                        {gateBlock}
+                    </Typography>
+                )}
             </DialogActions>
         </Dialog>
     )

@@ -8,7 +8,8 @@ const saveDraft = (chatflowId, flowData) => client.put(path(chatflowId), { flowD
 
 const discardDraft = (chatflowId) => client.delete(path(chatflowId))
 
-const updateSettings = (chatflowId, publishInstantly) => client.put(`${path(chatflowId)}/settings`, { publishInstantly })
+const updateSettings = (chatflowId, body) =>
+    client.put(`${path(chatflowId)}/settings`, typeof body === 'boolean' ? { publishInstantly: body } : body)
 
 const publish = (chatflowId, body = {}) => client.post(`${path(chatflowId)}/publish`, body)
 

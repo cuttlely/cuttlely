@@ -52,6 +52,8 @@ import {
     draftWriteHooks,
     saveDraft,
     setPublishInstantly,
+    updateDraftSettings,
+    recordPublishGateResult,
     typeHasDrafts,
     uniqueUploadNames
 } from './index'
@@ -113,6 +115,7 @@ describe('the drafts switch', () => {
             mode: 'live',
             reason: 'off',
             publishInstantly: false,
+            publishGate: { enabled: false, datasetId: null, evaluatorIds: [], threshold: null, result: null, block: null },
             draft: null,
             lastPublished: null
         })
@@ -171,6 +174,7 @@ describe('an existing flow', () => {
             mode: 'draft',
             reason: null,
             publishInstantly: false,
+            publishGate: { enabled: false, datasetId: null, evaluatorIds: [], threshold: null, result: null, block: null },
             draft: null,
             lastPublished: null
         })
@@ -466,6 +470,129 @@ describe('what the canvas test chat runs', () => {
         expect(await flowDataForTestChat(flow({ type: 'ETL' }))).toBe(LIVE)
         rows[0].publishInstantly = true
         expect(await flowDataForTestChat(flow())).toBe(LIVE)
+    })
+})
+
+describe('a passing test set before Publish', () => {
+    const gate = { enabled: true, datasetId: 'ds-1', evaluatorIds: ['ev-1'], threshold: 100 }
+    const pass = {
+        draftHash: '',
+        datasetId: 'ds-1',
+        evaluatorIds: ['ev-1'],
+        threshold: 100,
+        passRate: 100,
+        passed: 2,
+        failed: 0,
+        errored: 0,
+        verdict: 'passed' as const
+    }
+
+    async function arm(extra: Record<string, unknown> = {}) {
+        await saveDraft(flow(), canvas('Draft'), context)
+        await updateDraftSettings(flow(), { publishGate: { ...gate, ...extra } })
+    }
+
+    test('stays off, and Publish is unchanged', async () => {
+        await saveDraft(flow(), canvas('Draft'), context)
+        expect(await draftToPublish(flow())).toBe(canvas('Draft'))
+        expect((await getDraftStatus(flow())).publishGate.enabled).toBe(false)
+    })
+
+    test('is refused when drafts are off, Publish instantly is on, or the flow is not a chatflow or agentflow', async () => {
+        await expect(updateDraftSettings(flow(), { publishGate: { ...gate, threshold: 101 } })).rejects.toMatchObject({ statusCode: 400 })
+        await expect(updateDraftSettings(flow(), { publishGate: { ...gate, threshold: -1 } })).rejects.toMatchObject({ statusCode: 400 })
+        await expect(updateDraftSettings(flow(), { publishGate: { ...gate, threshold: 1.5 } })).rejects.toMatchObject({ statusCode: 400 })
+        await expect(updateDraftSettings(flow(), { publishGate: { ...gate, threshold: 0 } })).resolves.toMatchObject({
+            publishGate: { enabled: true, threshold: 0 }
+        })
+        rows.length = 0
+        process.env.CUTTLELY_DRAFTS = 'off'
+        await expect(updateDraftSettings(flow(), { publishGate: gate })).rejects.toMatchObject({
+            statusCode: 400,
+            message: 'Drafts are off on this server.'
+        })
+        process.env.CUTTLELY_DRAFTS = 'on'
+        await setPublishInstantly(flow(), true)
+        await expect(updateDraftSettings(flow(), { publishGate: gate })).rejects.toMatchObject({
+            statusCode: 400,
+            message: 'Turn off Publish instantly before requiring a passing test set.'
+        })
+        rows.length = 0
+        await expect(updateDraftSettings(flow({ type: 'HARNESS' }), { publishGate: gate })).rejects.toMatchObject({
+            statusCode: 400,
+            message: 'A passing test set before Publish is for chatflows and agentflows.'
+        })
+        await expect(updateDraftSettings(flow({ type: 'MULTIAGENT' }), { publishGate: gate })).rejects.toMatchObject({ statusCode: 400 })
+        await expect(updateDraftSettings(flow({ type: 'ETL' }), { publishGate: gate })).rejects.toMatchObject({ statusCode: 400 })
+    })
+
+    test('refuses Publish instantly while the gate is on', async () => {
+        await arm()
+        await expect(setPublishInstantly(flow(), true)).rejects.toMatchObject({
+            statusCode: 400,
+            message: 'Turn off the passing test set before turning on Publish instantly.'
+        })
+        expect(rows[0].publishInstantly).toBe(false)
+        expect(rows[0].publishGate).toBe(true)
+    })
+
+    test('refuses Publish with no result, a failing result, or a stale result, and allows a current pass', async () => {
+        await arm()
+        await expect(draftToPublish(flow())).rejects.toMatchObject({
+            statusCode: 409,
+            message: 'Publish needs a passing test set at 100%. There is no result for this draft yet.'
+        })
+        const hash = canvasHash(canvas('Draft'))
+        await recordPublishGateResult(flow(), { ...pass, draftHash: hash, passRate: 75, passed: 3, failed: 1, verdict: 'failed' })
+        await expect(draftToPublish(flow())).rejects.toMatchObject({
+            statusCode: 409,
+            message: 'Publish needs a passing test set at 100%. The last result was 75% and failed.'
+        })
+        await recordPublishGateResult(flow(), { ...pass, draftHash: hash })
+        expect(await draftToPublish(flow())).toBe(canvas('Draft'))
+        await saveDraft(flow(), canvas('Edited'), context)
+        await expect(draftToPublish(flow())).rejects.toMatchObject({
+            statusCode: 409,
+            message: expect.stringContaining('The draft has changed since that check.')
+        })
+        await saveDraft(flow(), canvas('Draft'), context)
+        await updateDraftSettings(flow(), { publishGate: { ...gate, threshold: 90 } })
+        await expect(draftToPublish(flow())).rejects.toMatchObject({
+            statusCode: 409,
+            message:
+                'Publish needs a passing test set at 90%. The last result was 100% and passed. The test set settings have changed since that check.'
+        })
+    })
+
+    test('a stored pass still allows Publish after the check is gone from memory', async () => {
+        await arm()
+        const hash = canvasHash(canvas('Draft'))
+        await recordPublishGateResult(flow(), { ...pass, draftHash: hash })
+        const stored = JSON.parse(rows[0].publishGateResult)
+        expect(stored).toMatchObject({ draftHash: hash, verdict: 'passed', passRate: 100, threshold: 100 })
+        expect(JSON.stringify(stored)).not.toMatch(/answer|question|expected/i)
+        expect(await draftToPublish(flow())).toBe(canvas('Draft'))
+        expect(await draftToPublish(flow())).toBe(canvas('Draft'))
+    })
+
+    test('a harness that shares the Publish route is not blocked by a stored flag', async () => {
+        chats[0].type = 'HARNESS'
+        const harness = flow({ type: 'HARNESS' })
+        await saveDraft(harness, canvas('Draft'), context)
+        rows[0].publishGate = true
+        rows[0].publishGateDatasetId = 'ds-1'
+        rows[0].publishGateEvaluatorIds = JSON.stringify(['ev-1'])
+        rows[0].publishGateThreshold = 100
+        expect(await draftToPublish(harness)).toBe(canvas('Draft'))
+    })
+
+    test('roll back bookkeeping still records Live while the gate is on', async () => {
+        await arm()
+        const rolled = flow({ flowData: canvas('Older') })
+        const status = await afterLiveSet(rolled, 'b'.repeat(40))
+        expect(status.publishGate.enabled).toBe(true)
+        expect(rows[0].liveSha).toBe('b'.repeat(40))
+        expect(status.draft?.flowData).toBe(canvas('Draft'))
     })
 })
 

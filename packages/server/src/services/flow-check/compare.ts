@@ -43,6 +43,50 @@ export interface SideScores {
     passRate: number | null
 }
 
+export interface DraftVerdict {
+    result: 'passed' | 'failed'
+    threshold: number
+    passed: number
+    failed: number
+    errored: number
+    // The same pass rate the summary reports. Null when this side has no scores.
+    passRate: number | null
+}
+
+// A dataset check's draft side. Errored scores stay in the denominator, so they are not passed.
+// No scores is a fail: a pass rate of null is not at or above the threshold.
+export function draftVerdict(scores: SideScores | null | undefined, threshold: number): DraftVerdict {
+    const passed = scores?.passed ?? 0
+    const failed = scores?.failed ?? 0
+    const errored = scores?.errored ?? 0
+    const passRate = scores?.passRate ?? null
+    return {
+        result: passRate !== null && passRate >= threshold ? 'passed' : 'failed',
+        threshold,
+        passed,
+        failed,
+        errored,
+        passRate
+    }
+}
+
+// Omitted on a dataset check means 100. Sent without a dataset is refused. Not a whole number, or outside 0..100, is refused.
+export function parseCheckThreshold(
+    input: unknown,
+    dataset: boolean
+): { ok: true; threshold: number | null } | { ok: false; message: string } {
+    const sent = input !== undefined && input !== null
+    if (!dataset) {
+        if (sent) return { ok: false, message: 'threshold is only used with a dataset.' }
+        return { ok: true, threshold: null }
+    }
+    if (!sent) return { ok: true, threshold: 100 }
+    if (typeof input !== 'number' || !Number.isInteger(input) || input < 0 || input > 100) {
+        return { ok: false, message: 'threshold is a whole number from 0 to 100.' }
+    }
+    return { ok: true, threshold: input }
+}
+
 export interface CheckSummary {
     ran: number
     same: number

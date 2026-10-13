@@ -197,13 +197,41 @@ Version history marks a version **Published** when it was put Live by Publish or
 
 **Publish instantly**, in the flow's configuration, makes every save live again, the way it worked before drafts. It stays off while a draft is still open: publish or discard that draft first.
 
+**Passing test set**, next to it, can require a passing dataset check before Publish. It is off until you turn it on, and only a chatflow or an agentflow has it. See [Require a passing test set before you publish](#require-a-passing-test-set-before-you-publish).
+
 After an upgrade from a release without drafts, each flow's canvas stays Live as it was. Your next save on the canvas starts a draft. A harness saved before harness drafts works the same way: that canvas is Live, runs keep serving it, and the first edit on the canvas starts a draft. Nothing is copied or rewritten. Scripts that update flows through `PUT /api/v1/chatflows/:id` keep writing Live, and for a harness that save still updates the roster runs serve; see [Drafts API](../reference/drafts-api.md).
 
 To turn drafts off for the whole server, set `CUTTLELY_DRAFTS=off` (`false`, `0`, and `no` also work) and restart. The canvas then saves straight to Live, and Restore works as described above. See [History settings](../reference/versioning-settings.md#cuttlely_drafts).
 
+### Require a passing test set before you publish
+
+A chatflow or an agentflow can refuse Publish until the current draft passes a saved dataset. The setting is off until you turn it on. It is **Passing test set** in the flow's configuration, next to **Publish instantly**.
+
+1. Open the flow's configuration and select **Passing test set**.
+2. Choose the dataset, tick the evaluators, and set **Pass at** to a whole number from 0 to 100. 100 is the default, so every score must pass. An errored score counts as not passed.
+3. Turn on **Require a passing test set before Publish**.
+
+You need permission to update the flow, and to view datasets and evaluators. Turning it on is refused when drafts are off for the server, or when **Publish instantly** is on. Turning **Publish instantly** on while this is on is refused too. A harness canvas uses the same Publish button, and this setting is not offered there, because a dataset check runs on chatflows and agentflows. A pipeline does not use that Publish button.
+
+In the Publish dialog, the verdict is shown and **Publish** stays disabled, with the reason, until the latest result passed for this draft and these settings. **Run the test set** starts that check. Editing the draft, or changing the dataset, the evaluators, or the pass mark, makes an earlier pass out of date. A failing result, or no result yet, also blocks Publish. The same rule is enforced by the API.
+
+The server stores the last result for the flow: the draft hash, the settings used, the pass rate, the verdict, and the time. It does not store the answers. The result is still there after a restart.
+
+These other ways of changing what is Live do not use this rule:
+
+| Way                                                                                             | With the setting on                                                                                |
+| ----------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| `PUT /api/v1/chatflows/:id`                                                                     | Still writes Live.                                                                                 |
+| **Roll back Live**                                                                              | Still sets Live to that earlier version. The draft is kept.                                        |
+| **Restore** while the canvas saves to a draft                                                   | Still opens the version as the draft. Live is unchanged until Publish, and Publish is still gated. |
+| Restore straight to Live (drafts off, **Publish instantly** on, or a canvas that has no drafts) | Still writes Live. Those flows cannot turn the setting on.                                         |
+| Promote from Dev                                                                                | Still writes Live.                                                                                 |
+
+With the setting off, Publish and every path above behave as they do today.
+
 ### Check recent questions before you publish
 
-The Publish dialog can ask a few questions people really asked this flow again, once on Live and once on your draft, and show the two answers side by side. You see what your change does to real answers before anyone else does. The check is optional: **Publish** works with or without it, and a check never stops you from publishing. To run the same check from a pipeline, see [Fail a build when answers change](./ci-gate.md).
+The Publish dialog can ask a few questions people really asked this flow again, once on Live and once on your draft, and show the two answers side by side. You see what your change does to real answers before anyone else does. The check is optional: **Publish** works with or without it, unless the flow requires a passing test set. To run the same check from a pipeline, see [Fail a build when answers change](./ci-gate.md).
 
 1. Select **Publish** on the canvas. Under **Check recent questions**, choose **Past questions**: 4, 10, 25, 50, or 100. 4 is selected first.
 2. The check uses the most recent questions people asked this flow, newest first, from the API, embeds, shared links and the canvas test chat. The same wording counts once: capitals and extra spaces are ignored, and the newest copy is kept. Asking for the same number again uses the same questions, until someone asks a newer one. It is not a random sample. Questions sent with a file are left out.
@@ -212,7 +240,7 @@ The Publish dialog can ask a few questions people really asked this flow again, 
 
 If your role can view datasets, **Questions from** offers **Recent questions** (the choice above) or **A dataset**. A dataset uses its rows in the order you saved them: the row input is the question, and the row output is the expected answer. Someone who can view the flow but not datasets does not receive those row inputs or expected outputs when they read the check. Someone who cannot view evaluators does not receive evaluator names. The check asks at most 100 rows, and it skips a row whose question is empty or longer than 2,000 characters. You do not send your own questions or a past-question count with a dataset. A role that cannot view datasets does not see **Questions from**; the check stays on recent questions.
 
-If your role can view evaluators, the same box lists them. Tick the ones that should score each answer. Text, JSON and numeric evaluators use the answer, and a numeric one also uses the tokens and the time the check already shows. A numeric check of prompt tokens, completion tokens, or a token total the run did not report scores Error, not Fail. An evaluator that grades with a model uses the model credential saved on the flow, and only a credential in this workspace. Each side shows Pass, Fail or Error for every evaluator you picked. An answer that failed to run scores Error, not Fail. A model grade that is only a number stays Error, because this check does not turn that number into Pass or Fail. A yes or no in the grade is Pass or Fail. Above the rows, each side has a pass rate: passed divided by passed, failed and errored. A check with no evaluators is the same comparison as before, and a dataset still shows the expected answer under the question. The pass rate does not block Publish.
+If your role can view evaluators, the same box lists them. Tick the ones that should score each answer. Text, JSON and numeric evaluators use the answer, and a numeric one also uses the tokens and the time the check already shows. A numeric check of prompt tokens, completion tokens, or a token total the run did not report scores Error, not Fail. An evaluator that grades with a model uses the model credential saved on the flow, and only a credential in this workspace. Each side shows Pass, Fail or Error for every evaluator you picked. An answer that failed to run scores Error, not Fail. A model grade that is only a number stays Error, because this check does not turn that number into Pass or Fail. A yes or no in the grade is Pass or Fail. Above the rows, each side has a pass rate: passed divided by passed, failed and errored. A check with no evaluators is the same comparison as before, and a dataset still shows the expected answer under the question. A dataset check also reports passed or failed for the draft against a pass mark (100 unless you send another). Errored scores count as not passed. That line does not block Publish unless the flow requires a passing test set.
 
 ![The Publish dialog for Bakery helper. Under the change list, the Check recent questions box lists four questions, such as Do you have gluten-free bread today? and What time do you open on Saturday?, a box to add your own question, and the note: Each question runs twice, once on Live and once on your draft, so the check uses the model and costs tokens. That is 8 runs for 4 questions. A check stops at 100,000 tokens or 3 minutes, whichever comes first. Below are Run Check and Publish works with or without a check.](../images/versioning/publish-check-questions.png)
 

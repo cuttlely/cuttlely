@@ -11,7 +11,8 @@
 // empty; no chat messages, follow-ups, telemetry, usage counts or tracing are written; Live is never saved.
 // Chatflows and agentflows can be checked. An agentflow replay also writes no execution record.
 // Results stay in this server's memory for a short while and are never written to the database or logged.
-// The check is optional and never blocks Publish.
+// The check itself does not block Publish. A flow can require a passing dataset result before Publish;
+// that verdict is stored on the flow, without the answers, and Publish reads it from there.
 import crypto from 'crypto'
 import { StatusCodes } from 'http-status-codes'
 import { v4 as uuidv4 } from 'uuid'
@@ -32,8 +33,11 @@ import {
     CheckScore,
     CheckSummary,
     SideResult,
+    draftVerdict,
+    parseCheckThreshold,
     parseCompareCount,
     pickQuestions,
+    DraftVerdict,
     sameAnswer,
     stepTokens,
     summarize,
@@ -133,6 +137,8 @@ export interface CheckView {
     cases: CheckCase[]
     summary: CheckSummary
     selection: CheckSelection | null
+    // Set when a dataset check has finished. Null for any other check, and while a dataset check is still running.
+    verdict: DraftVerdict | null
 }
 
 interface CheckRecord {
@@ -152,6 +158,8 @@ interface CheckRecord {
     selection: CheckSelection | null
     // True when the questions are dataset rows. A read hides those rows without datasets:view.
     fromDataset: boolean
+    datasetId: string | null
+    threshold: number | null
     evaluators: CheckEvaluator[]
     // Tokens from a side that was dropped when the cap was hit. The case no longer shows them, but they still count.
     spentTokens: number
@@ -241,6 +249,11 @@ function view(record: CheckRecord, currentDraftHash: string | null, reveal?: Che
     const showRows = !reveal || !record.fromDataset || reveal.datasets
     const showEvaluators = !reveal || reveal.evaluators
     const ran = record.cases.filter((c) => (record.liveEmpty || c.live) && c.draft).length
+    const summary = summarize(record.cases, record.liveEmpty)
+    const verdict =
+        record.fromDataset && record.threshold != null && record.status === 'done'
+            ? draftVerdict(summary.scores?.draft, record.threshold)
+            : null
     return {
         id: record.id,
         status: record.status,
@@ -262,8 +275,9 @@ function view(record: CheckRecord, currentDraftHash: string | null, reveal?: Che
             draft: shownSide(c.draft, showEvaluators),
             same: c.same
         })),
-        summary: summarize(record.cases, record.liveEmpty),
-        selection: record.selection
+        summary,
+        selection: record.selection,
+        verdict
     }
 }
 
@@ -527,7 +541,14 @@ async function inputsToRun(
 
 export async function startCheck(
     flow: IChatFlow,
-    body: { questions?: unknown; includeRiskySteps?: unknown; count?: unknown; datasetId?: unknown; evaluatorIds?: unknown },
+    body: {
+        questions?: unknown
+        includeRiskySteps?: unknown
+        count?: unknown
+        datasetId?: unknown
+        evaluatorIds?: unknown
+        threshold?: unknown
+    },
     baseURL: string,
     given?: Candidate,
     watch?: StartWatch
@@ -539,6 +560,9 @@ export async function startCheck(
     const request = body || {}
     const datasetId = readDatasetId(request)
     const evaluatorIds = readEvaluatorIds(request)
+    const parsedThreshold = parseCheckThreshold(request.threshold, Boolean(datasetId))
+    if (!parsedThreshold.ok) throw new AppError(StatusCodes.BAD_REQUEST, parsedThreshold.message)
+    const threshold = parsedThreshold.threshold
     if (datasetId && (request.questions !== undefined || request.count !== undefined)) {
         throw new AppError(StatusCodes.BAD_REQUEST, 'Send a datasetId on its own. Do not send questions or count with it.')
     }
@@ -616,6 +640,8 @@ export async function startCheck(
         })),
         selection,
         fromDataset: Boolean(fromDataset),
+        datasetId,
+        threshold,
         evaluators,
         spentTokens: 0,
         inflight: new Set<AbortController>(),
@@ -790,7 +816,32 @@ async function runCheck(record: CheckRecord, flow: IChatFlow, draft: string, bas
     }
     try {
         await Promise.all(Array.from({ length: workers }, () => worker()))
-        record.status = record.stopReason ? 'stopped' : 'done'
+        if (record.stopReason) {
+            record.status = 'stopped'
+        } else {
+            // Store the verdict before status is done, so a poll cannot see a finished check with nothing saved yet.
+            if (record.fromDataset && record.datasetId && record.threshold != null && flowDraftsService.recordPublishGateResult) {
+                const verdict = draftVerdict(summarize(record.cases, record.liveEmpty).scores?.draft, record.threshold)
+                await flowDraftsService
+                    .recordPublishGateResult(flow as DraftFlow, {
+                        draftHash: record.draftHash,
+                        datasetId: record.datasetId,
+                        evaluatorIds: record.evaluators.map((evaluator) => evaluator.id),
+                        threshold: record.threshold,
+                        passRate: verdict.passRate,
+                        passed: verdict.passed,
+                        failed: verdict.failed,
+                        errored: verdict.errored,
+                        verdict: verdict.result
+                    })
+                    .catch((error: Error) => {
+                        logger.error(
+                            `[server]: could not store the publish gate result for flow ${flow.id}: ${error?.message || 'unknown error'}`
+                        )
+                    })
+            }
+            record.status = 'done'
+        }
     } catch (error) {
         record.status = 'failed'
         record.error = 'The check could not run.'

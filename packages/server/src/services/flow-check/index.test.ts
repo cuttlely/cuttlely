@@ -1,11 +1,13 @@
 // The publish check runner: limits, stopping, and that it never writes chat history or Live.
 const states = new Map<string, any>()
 let draftsOn = true
+const recordPublishGateResult = jest.fn(async () => undefined)
 jest.mock('../flow-drafts', () => ({
     __esModule: true,
     default: {
         getState: async (id: string) => states.get(id) || null,
-        isDraftsEnabled: () => draftsOn
+        isDraftsEnabled: () => draftsOn,
+        recordPublishGateResult: (...args: unknown[]) => recordPublishGateResult(...args)
     },
     canvasHash: (flowData: string) => `hash:${flowData}`
 }))
@@ -816,6 +818,29 @@ describe('a dataset and evaluators', () => {
         expect(writes.update).not.toHaveBeenCalled()
     })
 
+    test('reports a draft verdict against the threshold, and refuses a threshold that is not 0 to 100', async () => {
+        const started = await startCheck(flow() as any, { datasetId: 'ds-1', threshold: 0 }, 'http://x')
+        expect(started.verdict).toBeNull()
+        await settle()
+        const done = await getCheck(flow(), started.id)
+        expect(done.verdict).toEqual({ result: 'failed', threshold: 0, passed: 0, failed: 0, errored: 0, passRate: null })
+        expect(recordPublishGateResult).toHaveBeenCalledWith(
+            expect.objectContaining({ id: 'flow-1' }),
+            expect.objectContaining({ threshold: 0, verdict: 'failed', datasetId: 'ds-1' })
+        )
+        const stored = JSON.stringify(recordPublishGateResult.mock.calls.at(-1)?.[1])
+        expect(stored).not.toContain('First?')
+        expect(stored).not.toContain('"one"')
+        await expect(startCheck(flow() as any, { datasetId: 'ds-1', threshold: 101 }, 'http://x')).rejects.toMatchObject({
+            statusCode: 400
+        })
+        await expect(startCheck(flow() as any, { datasetId: 'ds-1', threshold: -1 }, 'http://x')).rejects.toMatchObject({ statusCode: 400 })
+        await expect(startCheck(flow() as any, { questions: ['Hi'], threshold: 80 }, 'http://x')).rejects.toMatchObject({
+            statusCode: 400,
+            message: 'threshold is only used with a dataset.'
+        })
+    })
+
     test('scores text, json, numeric and llm evaluators, and an errored answer is Error', async () => {
         saveEvaluator('text-1', 'text', { operator: 'ContainsAny', value: 'mango' }, 'team-a', 'Mentions mango')
         saveEvaluator('json-1', 'json', { operator: 'IsValidJSON' }, 'team-a', 'Valid JSON')
@@ -851,6 +876,7 @@ describe('a dataset and evaluators', () => {
         expect(draft.map((score) => score.result)).toEqual(['Pass', 'Fail', 'Pass', 'Pass'])
         expect(done.summary.scores?.live).toEqual({ passed: 6, failed: 6, errored: 0, passRate: 50 })
         expect(done.summary.scores?.draft).toEqual({ passed: 9, failed: 3, errored: 0, passRate: 75 })
+        expect(done.verdict).toMatchObject({ result: 'failed', threshold: 100, passRate: 75, passed: 9, failed: 3, errored: 0 })
         expect(graded[0]).toMatchObject({ workspaceId: 'team-a', credentialId: 'cred-team-a', question: 'First?', expected: 'one' })
         expect(writes.save).not.toHaveBeenCalled()
 

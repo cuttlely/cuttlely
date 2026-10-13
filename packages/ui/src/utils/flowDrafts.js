@@ -17,6 +17,13 @@ export const showDraftChrome = (status) => status?.mode === 'draft'
 
 export const showPublishInstantly = (status) => Boolean(status?.enabled) && status.reason !== 'off' && status.reason !== 'type'
 
+// The passing-test gate is only for chatflows and agentflows. A harness uses the same Publish route, and this stays off there.
+export const showPublishGate = (status, type) => {
+    if (!showPublishInstantly(status)) return false
+    const kind = type || 'CHATFLOW'
+    return kind === 'CHATFLOW' || kind === 'AGENTFLOW'
+}
+
 export const publishInstantlyLocked = (status) => Boolean(status?.draft)
 
 export const draftBadge = (status, now = Date.now()) => {

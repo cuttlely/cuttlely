@@ -19,7 +19,8 @@ import {
     IconCode,
     IconServer,
     IconAdjustments,
-    IconBolt
+    IconBolt,
+    IconClipboardCheck
 } from '@tabler/icons-react'
 import PerfectScrollbar from 'react-perfect-scrollbar'
 
@@ -38,7 +39,8 @@ import FileUpload from '@/ui-component/extended/FileUpload'
 import PostProcessing from '@/ui-component/extended/PostProcessing'
 import McpServer from '@/ui-component/extended/McpServer'
 import PublishInstantly from '@/ui-component/extended/PublishInstantly'
-import { showPublishInstantly } from '@/utils/flowDrafts'
+import PublishGate from '@/ui-component/extended/PublishGate'
+import { showPublishGate, showPublishInstantly } from '@/utils/flowDrafts'
 
 const CONFIGURATION_GROUPS = [
     {
@@ -49,6 +51,12 @@ const CONFIGURATION_GROUPS = [
                 id: 'publishInstantly',
                 icon: IconBolt,
                 description: 'Every save goes live immediately, like before drafts.'
+            },
+            {
+                label: 'Passing test set',
+                id: 'publishGate',
+                icon: IconClipboardCheck,
+                description: 'Require a passing dataset check before Publish.'
             },
             {
                 label: 'Rate Limit',
@@ -245,10 +253,12 @@ const ChatflowConfigurationDialog = ({ show, isAgentCanvas, dialogProps, onCance
             ...group,
             sections: group.sections.filter((section) => {
                 if (section.id === 'publishInstantly' && !showPublishInstantly(draftStatus)) return false
+                if (section.id === 'publishGate' && !showPublishGate(draftStatus, dialogProps?.chatflow?.type || chatflow?.type))
+                    return false
                 return !isAgentCanvas || !section.hideInAgentFlow
             })
         })).filter((group) => group.sections.length > 0)
-    }, [isAgentCanvas, draftStatus])
+    }, [isAgentCanvas, draftStatus, chatflow?.type, dialogProps?.chatflow?.type])
 
     // Get all section IDs for validation
     const allSectionIds = useMemo(() => {
@@ -264,6 +274,8 @@ const ChatflowConfigurationDialog = ({ show, isAgentCanvas, dialogProps, onCance
         switch (currentSection) {
             case 'publishInstantly':
                 return <PublishInstantly {...props} />
+            case 'publishGate':
+                return <PublishGate {...props} />
             case 'rateLimit':
                 return <RateLimit {...props} hideTitle />
             case 'allowedDomains':
@@ -383,6 +395,8 @@ const ChatflowConfigurationDialog = ({ show, isAgentCanvas, dialogProps, onCance
                                         const isEnabled =
                                             section.id === 'publishInstantly'
                                                 ? Boolean(draftStatus?.publishInstantly)
+                                                : section.id === 'publishGate'
+                                                ? Boolean(draftStatus?.publishGate?.enabled)
                                                 : getSectionStatus(section.id, chatflow)
                                         const SectionIcon = section.icon
 

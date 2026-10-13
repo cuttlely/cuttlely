@@ -12,6 +12,7 @@ import {
     publishInstantlyLocked,
     publishResultMessage,
     showDraftChrome,
+    showPublishGate,
     showPublishInstantly,
     testChatFlow
 } from './flowDrafts'
@@ -69,6 +70,14 @@ describe('draft chrome', () => {
         expect(showPublishInstantly({ enabled: true, mode: 'live', reason: 'type' })).toBe(false)
         expect(publishInstantlyLocked({ draft: { flowData: '{}' } })).toBe(true)
         expect(publishInstantlyLocked({ draft: null })).toBe(false)
+        const drafts = { enabled: true, mode: 'draft', reason: null }
+        expect(showPublishGate(drafts, 'CHATFLOW')).toBe(true)
+        expect(showPublishGate(drafts, 'AGENTFLOW')).toBe(true)
+        expect(showPublishGate(drafts, undefined)).toBe(true)
+        expect(showPublishGate(drafts, 'HARNESS')).toBe(false)
+        expect(showPublishGate(drafts, 'MULTIAGENT')).toBe(false)
+        expect(showPublishGate(drafts, 'ETL')).toBe(false)
+        expect(showPublishGate({ enabled: true, mode: 'live', reason: 'type' }, 'CHATFLOW')).toBe(false)
     })
 })
 

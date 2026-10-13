@@ -12,7 +12,8 @@ jest.mock('../../services/chatflows', () => ({
 const drafts = {
     isDraftsEnabled: jest.fn(() => true),
     getDraftStatus: jest.fn(async (): Promise<any> => ({ mode: 'draft', draft: null })),
-    afterLiveSet: jest.fn(async (): Promise<any> => ({ mode: 'draft', draft: null }))
+    afterLiveSet: jest.fn(async (): Promise<any> => ({ mode: 'draft', draft: null })),
+    draftToPublish: jest.fn()
 }
 jest.mock('../../services/flow-drafts', () => ({ __esModule: true, default: drafts }))
 const versions = {
@@ -102,6 +103,7 @@ describe('Promote', () => {
         expect(drafts.afterLiveSet).toHaveBeenCalledWith(saved, 'b'.repeat(40), undefined, { keepDraftBase: true })
         expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ created: false, hasDraft: true, recorded: true }))
         expect(saveChatflow).not.toHaveBeenCalled()
+        expect(drafts.draftToPublish).not.toHaveBeenCalled()
     })
 
     test('a stale or blocked promote is passed on as the error, and nothing is saved', async () => {

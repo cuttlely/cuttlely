@@ -15,6 +15,19 @@ import { AppError } from '../../errors/appError'
 import { containsBase64File, updateFlowDataWithFilePaths } from '../../utils/fileRepository'
 import { getRunningExpressApp } from '../../utils/getRunningExpressApp'
 import { stampNodePack } from '../../utils/nodePacks'
+import {
+    GateResult,
+    GateStatus,
+    conflictingSettingsMessage,
+    emptyGateStatus,
+    gateResultRecord,
+    parseGateInput,
+    publishBlockReason,
+    publishGateApplies,
+    readEvaluatorIdList,
+    readGateResult,
+    sameGateSettings
+} from './gate'
 
 // Test seam. A race test changes the flow's type after a draft save has started and before it writes.
 export const draftWriteHooks: { beforeDraftWrite: null | (() => Promise<void>) } = { beforeDraftWrite: null }
@@ -98,6 +111,7 @@ export interface DraftStatus {
     // Why it saves to Live: drafts are off, this kind of canvas has no drafts yet, or Publish instantly is on.
     reason: 'off' | 'type' | 'publish-instantly' | null
     publishInstantly: boolean
+    publishGate: GateStatus
     draft: DraftInfo | null
     // The last Publish or Roll back: the history version it recorded (null when none was recorded) and when.
     lastPublished: { sha: string | null; date: string } | null
@@ -180,6 +194,27 @@ function draftInfo(flow: DraftFlow, state: FlowVersionState | null): DraftInfo |
     }
 }
 
+function gateSettingsOf(state: FlowVersionState | null) {
+    return {
+        enabled: Boolean(state?.publishGate),
+        datasetId: state?.publishGateDatasetId || null,
+        evaluatorIds: readEvaluatorIdList(state?.publishGateEvaluatorIds),
+        threshold: typeof state?.publishGateThreshold === 'number' ? state.publishGateThreshold : null
+    }
+}
+
+export function gateStatusFor(flow: Pick<DraftFlow, 'type'>, state: FlowVersionState | null, draftFlowData?: string | null): GateStatus {
+    const settings = gateSettingsOf(state)
+    const result = readGateResult(state?.publishGateResult)
+    // Harness and other canvases share this row, but a dataset check cannot run for them, so the gate stays off.
+    const enabled = publishGateApplies(flow.type) && settings.enabled
+    const block = enabled
+        ? publishBlockReason({ ...settings, enabled: true }, result, draftFlowData ? canvasHash(draftFlowData) : null)
+        : null
+    if (!state) return emptyGateStatus()
+    return { ...settings, enabled, result, block }
+}
+
 export function statusFrom(flow: DraftFlow, state: FlowVersionState | null): DraftStatus {
     const { mode, reason } = modeFor(flow, state)
     return {
@@ -187,6 +222,7 @@ export function statusFrom(flow: DraftFlow, state: FlowVersionState | null): Dra
         mode,
         reason,
         publishInstantly: Boolean(state?.publishInstantly),
+        publishGate: gateStatusFor(flow, state, state?.draftFlowData),
         // A draft left over from before Publish instantly or a type change is still shown, so it is not lost.
         draft: draftInfo(flow, state),
         lastPublished: state?.publishedDate ? { sha: state.liveSha || null, date: new Date(state.publishedDate).toISOString() } : null
@@ -330,6 +366,8 @@ export async function draftToPublish(flow: DraftFlow, overwriteLiveChanges?: unk
             'Live changed after these edits started, for example through the API. Publishing replaces those changes. Send overwriteLiveChanges: true to publish anyway.'
         )
     }
+    const block = gateStatusFor(flow, state, draft.flowData).block
+    if (block) throw new AppError(StatusCodes.CONFLICT, block)
     return draft.flowData
 }
 
@@ -379,18 +417,94 @@ export async function afterLiveSet(
 // Publish instantly: every canvas save goes straight to Live, as before drafts. Turning it on while a
 // draft exists is refused, so unpublished work is never dropped or published by surprise.
 export async function setPublishInstantly(flow: DraftFlow, value: unknown): Promise<DraftStatus> {
-    if (typeof value !== 'boolean') throw new AppError(StatusCodes.BAD_REQUEST, 'publishInstantly is true or false.')
+    return updateDraftSettings(flow, { publishInstantly: value })
+}
+
+// Publish instantly and the passing-test gate share one save, so a request that sets both is checked
+// against the end state. The two cannot be on together.
+export async function updateDraftSettings(
+    flow: DraftFlow,
+    body: { publishInstantly?: unknown; publishGate?: unknown }
+): Promise<DraftStatus> {
+    const hasInstant = body.publishInstantly !== undefined
+    const hasGate = body.publishGate !== undefined
+    if (!hasInstant && !hasGate) throw new AppError(StatusCodes.BAD_REQUEST, 'Send publishInstantly or publishGate.')
+    if (hasInstant && typeof body.publishInstantly !== 'boolean') {
+        throw new AppError(StatusCodes.BAD_REQUEST, 'publishInstantly is true or false.')
+    }
+    const gate = hasGate ? parseGateInput(body.publishGate) : null
     const state = await getState(flow.id)
-    if (value && state?.draftFlowData) {
+    const nextInstant = hasInstant ? (body.publishInstantly as boolean) : Boolean(state?.publishInstantly)
+    const nextGate = gate ? gate.enabled : Boolean(state?.publishGate)
+    if (nextInstant && nextGate) {
+        throw new AppError(StatusCodes.BAD_REQUEST, conflictingSettingsMessage(Boolean(gate?.enabled)))
+    }
+    if (gate?.enabled) {
+        if (!isDraftsEnabled()) throw new AppError(StatusCodes.BAD_REQUEST, 'Drafts are off on this server.')
+        if (!publishGateApplies(flow.type)) {
+            throw new AppError(StatusCodes.BAD_REQUEST, 'A passing test set before Publish is for chatflows and agentflows.')
+        }
+    }
+    if (nextInstant && state?.draftFlowData) {
         throw new AppError(
             StatusCodes.CONFLICT,
             'This flow has unpublished changes. Publish or discard them before turning on Publish instantly.'
         )
     }
-    if (!state && !value) return statusFrom(flow, null)
-    const row = state || repo().create({ chatflowId: flow.id, workspaceId: flow.workspaceId })
-    row.publishInstantly = value
+    if (!state && !nextInstant && !nextGate) return statusFrom(flow, null)
+    const row = state || repo().create({ chatflowId: flow.id, workspaceId: flow.workspaceId, publishInstantly: false, publishGate: false })
+    if (hasInstant) row.publishInstantly = nextInstant
+    if (gate?.enabled) {
+        row.publishGate = true
+        row.publishGateDatasetId = gate.datasetId
+        row.publishGateEvaluatorIds = JSON.stringify(gate.evaluatorIds)
+        row.publishGateThreshold = gate.threshold
+    } else if (gate && !gate.enabled) {
+        row.publishGate = false
+    }
     return statusFrom(flow, await repo().save(row))
+}
+
+export interface GateResultInput {
+    draftHash: string
+    datasetId: string
+    evaluatorIds: string[]
+    threshold: number
+    passRate: number | null
+    passed: number
+    failed: number
+    errored: number
+    verdict: 'passed' | 'failed'
+}
+
+// Writes the last gate result onto the flow row. A check that does not match the current gate settings
+// is ignored, so an exploratory check does not replace a pass. Nothing in the row is an answer.
+export async function recordPublishGateResult(flow: DraftFlow, input: GateResultInput): Promise<void> {
+    if (!publishGateApplies(flow.type)) return
+    const state = await getState(flow.id)
+    if (!state?.publishGate) return
+    const settings = gateSettingsOf(state)
+    if (
+        !sameGateSettings(settings, {
+            datasetId: input.datasetId,
+            evaluatorIds: input.evaluatorIds,
+            threshold: input.threshold
+        })
+    ) {
+        return
+    }
+    const record: Omit<GateResult, 'checkedAt'> = {
+        draftHash: input.draftHash,
+        datasetId: input.datasetId,
+        evaluatorIds: input.evaluatorIds,
+        threshold: input.threshold,
+        passRate: input.passRate,
+        passed: input.passed,
+        failed: input.failed,
+        errored: input.errored,
+        verdict: input.verdict
+    }
+    await repo().update({ chatflowId: flow.id }, { publishGateResult: gateResultRecord(record) })
 }
 
 // The canvas the flow's own test chat runs: the draft when the flow saves to drafts and has one,
@@ -419,6 +533,8 @@ export default {
     afterLiveSet,
     sameCanvas,
     setPublishInstantly,
+    updateDraftSettings,
+    recordPublishGateResult,
     flowDataForTestChat,
     deleteStateFor
 }

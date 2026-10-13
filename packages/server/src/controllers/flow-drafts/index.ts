@@ -67,7 +67,20 @@ const discardDraft = async (req: Request, res: Response, next: NextFunction) => 
 const updateSettings = async (req: Request, res: Response, next: NextFunction) => {
     try {
         const flow = await flowFor(req, 'update')
-        return res.json(await flowDraftsService.setPublishInstantly(flow, req.body?.publishInstantly))
+        const body = req.body || {}
+        // Turning the gate on selects a dataset and evaluators, so those view permissions are required too.
+        if (body.publishGate?.enabled === true) {
+            if (!(await hasAnyPermission(req, 'datasets:view'))) {
+                throw new AppError(StatusCodes.FORBIDDEN, 'You do not have permission to view datasets.')
+            }
+            if (!(await hasAnyPermission(req, 'evaluators:view'))) {
+                throw new AppError(StatusCodes.FORBIDDEN, 'You do not have permission to view evaluators.')
+            }
+        }
+        if (body.publishGate !== undefined || (body.publishInstantly !== undefined && body.publishGate !== undefined)) {
+            return res.json(await flowDraftsService.updateDraftSettings(flow, body))
+        }
+        return res.json(await flowDraftsService.setPublishInstantly(flow, body.publishInstantly))
     } catch (error) {
         next(error)
     }

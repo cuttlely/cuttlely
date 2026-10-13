@@ -13,6 +13,7 @@ const drafts = {
     saveDraft: jest.fn(async () => ({ mode: 'draft' })),
     discardDraft: jest.fn(async () => ({ mode: 'draft', draft: null })),
     setPublishInstantly: jest.fn(async () => ({ mode: 'live' })),
+    updateDraftSettings: jest.fn(async () => ({ mode: 'draft', publishGate: { enabled: true } })),
     draftToPublish: jest.fn(async (): Promise<string> => '{"nodes":[{"id":"draft"}],"edges":[]}'),
     sameCanvas: jest.fn((a: string, b: string) => a === b),
     afterLiveSet: jest.fn(async () => ({ mode: 'draft', draft: null, lastPublished: { sha: 'x', date: 'd' } })),
@@ -79,6 +80,38 @@ test('saves the canvas as a draft with the user, org and subscription', async ()
         orgId: 'org-1',
         subscriptionId: 'sub-1'
     })
+})
+
+test('turning the passing test set on needs dataset and evaluator view', async () => {
+    granted.add('chatflows:update')
+    const gate = { enabled: true, datasetId: 'ds-1', evaluatorIds: ['ev-1'], threshold: 100 }
+    const missingDatasets = jest.fn()
+    await controller.updateSettings(request({ publishGate: gate }), response(), missingDatasets)
+    expect(missingDatasets.mock.calls[0][0]).toMatchObject({ statusCode: 403, message: 'You do not have permission to view datasets.' })
+    expect(drafts.updateDraftSettings).not.toHaveBeenCalled()
+    granted.add('datasets:view')
+    const missingEvaluators = jest.fn()
+    await controller.updateSettings(request({ publishGate: gate }), response(), missingEvaluators)
+    expect(missingEvaluators.mock.calls[0][0]).toMatchObject({ statusCode: 403, message: 'You do not have permission to view evaluators.' })
+    granted.add('evaluators:view')
+    const res = response()
+    await controller.updateSettings(request({ publishGate: gate }), res, jest.fn())
+    expect(drafts.updateDraftSettings).toHaveBeenCalledWith(expect.objectContaining({ id: FLOW.id }), { publishGate: gate })
+    expect(res.json).toHaveBeenCalled()
+    drafts.updateDraftSettings.mockClear()
+    await controller.updateSettings(request({ publishGate: { enabled: false } }), response(), jest.fn())
+    expect(drafts.updateDraftSettings).toHaveBeenCalled()
+})
+
+test('a publish gate refusal does not write Live', async () => {
+    granted.add('chatflows:update')
+    drafts.draftToPublish.mockRejectedValueOnce(
+        Object.assign(new Error('Publish needs a passing test set at 100%. There is no result for this draft yet.'), { statusCode: 409 })
+    )
+    const next = jest.fn()
+    await controller.publishDraft(request(), response(), next)
+    expect(next.mock.calls[0][0].statusCode).toBe(409)
+    expect(updateChatflow).not.toHaveBeenCalled()
 })
 
 test('discards and changes Publish instantly', async () => {
@@ -246,6 +279,7 @@ describe('Roll back Live', () => {
         const next = jest.fn()
         await controller.rollbackLive(request({ sha: 'abcdef1' }), res, next)
         expect(next).not.toHaveBeenCalled()
+        expect(drafts.draftToPublish).not.toHaveBeenCalled()
         expect(putVersionLive).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ id: FLOW.id }), 'abcdef1', {
             kind: 'rollback',
             verb: 'Rolled back Live to'

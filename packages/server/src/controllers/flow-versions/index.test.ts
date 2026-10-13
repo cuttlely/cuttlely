@@ -25,6 +25,7 @@ const versions = {
 jest.mock('../../services/flow-versions', () => ({ __esModule: true, default: versions }))
 const drafts = {
     getDraftStatus: jest.fn(async (): Promise<any> => ({ mode: 'live', lastPublished: null })),
+    draftToPublish: jest.fn(),
     saveDraft: jest.fn(async (): Promise<any> => ({ mode: 'draft', draft: { flowData: '{"nodes":[1],"edges":[]}' } }))
 }
 jest.mock('../../services/flow-drafts', () => ({ __esModule: true, default: drafts }))
@@ -130,6 +131,20 @@ describe('restore a version', () => {
         const res = response()
         await controller.restoreVersion(request(), res, jest.fn())
         expect(res.json.mock.calls[0][0].ambiguousCredentials).toEqual(ambiguous)
+    })
+
+    it('puts the version Live without asking the publish gate', async () => {
+        drafts.getDraftStatus.mockResolvedValue({
+            mode: 'live',
+            reason: 'publish-instantly',
+            publishGate: { enabled: true, block: 'Publish needs a passing test set at 100%. There is no result for this draft yet.' }
+        })
+        const res = response()
+        await controller.restoreVersion(request(), res, jest.fn())
+        expect(updateChatflow).toHaveBeenCalled()
+        expect(drafts.saveDraft).not.toHaveBeenCalled()
+        expect(drafts.draftToPublish).not.toHaveBeenCalled()
+        expect(res.json.mock.calls[0][0].restoredTo).toBe('live')
     })
 
     it('saves the version through the normal update path, labeling that one save as a restore', async () => {
@@ -267,6 +282,19 @@ describe('restore while the canvas saves to a draft', () => {
             flowData: '{"nodes":[1],"edges":[]}',
             missingCredentials: []
         })
+    })
+
+    it('opens the version as a draft when the publish gate is on, and leaves Live alone', async () => {
+        drafts.getDraftStatus.mockResolvedValue({
+            mode: 'draft',
+            publishGate: { enabled: true, block: 'Publish needs a passing test set at 100%. There is no result for this draft yet.' }
+        })
+        const res = response()
+        await controller.restoreVersion(request(), res, jest.fn())
+        expect(updateChatflow).not.toHaveBeenCalled()
+        expect(drafts.draftToPublish).not.toHaveBeenCalled()
+        expect(drafts.saveDraft).toHaveBeenCalled()
+        expect(res.json.mock.calls[0][0].restoredTo).toBe('draft')
     })
 
     it('puts the version in the draft and leaves Live alone', async () => {

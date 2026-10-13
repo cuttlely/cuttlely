@@ -305,6 +305,15 @@ export const passRateText = (check, words = CHECK_WORDS.publish) => {
     return lines
 }
 
+// The draft-side pass or fail. Empty when the check did not use a dataset, or it has not finished.
+export const verdictText = (check) => {
+    const verdict = check?.verdict
+    if (!verdict) return ''
+    const rate = verdict.passRate == null ? 'unscored' : `${verdict.passRate}%`
+    const word = verdict.result === 'passed' ? 'passed' : 'failed'
+    return `${word} at ${rate} (threshold ${verdict.threshold}%). ${verdict.passed} passed, ${verdict.failed} failed, ${verdict.errored} errored.`
+}
+
 export const usageText = (check, words = CHECK_WORDS.publish) => {
     const s = check?.summary
     if (!s || !s.ran) return ''
