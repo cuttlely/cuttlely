@@ -148,7 +148,7 @@ function readCheck(port: number, id: string) {
 
 // Holds the replay until the check is stopped, so a finished replay cannot look like a freed slot.
 function holdReplay() {
-    let finish = () => undefined
+    let finish: () => void = () => undefined
     replayHooks.run = ({ signal }) =>
         new Promise((resolve) => {
             const done = () => resolve({ text: 'open at 7', metrics: [] })

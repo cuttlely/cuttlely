@@ -198,7 +198,7 @@ const startCheck = async (req: Request, res: Response, next: NextFunction) => {
     let ownedId: string | null = null
     let gone = false
     let stopped = false
-    let detach = () => undefined
+    let detach: () => void = () => undefined
     try {
         const flow = await flowFor(req, 'update')
         const socket = req.socket
