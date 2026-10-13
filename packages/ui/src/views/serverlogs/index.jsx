@@ -11,8 +11,9 @@ import { markdown } from '@codemirror/lang-markdown'
 import { sublime } from '@uiw/codemirror-theme-sublime'
 
 // material-ui
-import { Box, Skeleton, Stack, Select, MenuItem, ListItemButton } from '@mui/material'
+import { Box, Button, Skeleton, Stack, Select, MenuItem, ListItemButton, Typography } from '@mui/material'
 import { useTheme } from '@mui/material/styles'
+import { IconRefresh } from '@tabler/icons-react'
 
 // ui
 import ViewHeader from '@/layout/MainLayout/ViewHeader'
@@ -21,6 +22,7 @@ import ErrorBoundary from '@/ErrorBoundary'
 import useApi from '@/hooks/useApi'
 import logsApi from '@/api/log'
 import { useError } from '@/store/context/ErrorContext'
+import { logsLookEmpty, logsQuery } from './query'
 
 import LogsEmptySVG from '@/assets/images/logs_empty.svg'
 import 'react-datepicker/dist/react-datepicker.css'
@@ -37,6 +39,13 @@ DatePickerCustomInput.propTypes = {
     value: PropTypes.string,
     onClick: PropTypes.func
 }
+
+const logLevels = [
+    { value: 'error', label: 'Errors' },
+    { value: 'warn', label: 'Warnings' },
+    { value: 'info', label: 'Info' },
+    { value: 'debug', label: 'Debug' }
+]
 
 const searchTimeRanges = [
     'Last hour',
@@ -69,35 +78,6 @@ const getDateTimeFormatted = (date) => {
     return `${year}-${month}-${day}-${hour}`
 }
 
-const subtractTime = (months, days, hours) => {
-    let checkDate = new Date()
-
-    if (months > 0) {
-        checkDate.setMonth(checkDate.getMonth() - months)
-    } else {
-        checkDate.setMonth(checkDate.getMonth())
-    }
-
-    if (days > 0) {
-        checkDate.setDate(checkDate.getDate() - days)
-    } else {
-        checkDate.setDate(checkDate.getDate())
-    }
-
-    if (hours > 0) {
-        checkDate.setHours(checkDate.getHours() - hours)
-    } else {
-        checkDate.setHours(checkDate.getHours())
-    }
-
-    const year = checkDate.getFullYear()
-    const month = (checkDate.getMonth() + 1).toString().padStart(2, '0')
-    const day = checkDate.getDate().toString().padStart(2, '0')
-    const hour = checkDate.getHours().toString().padStart(2, '0')
-
-    return `${year}-${month}-${day}-${hour}`
-}
-
 const Logs = () => {
     const colorTheme = useTheme()
 
@@ -125,64 +105,56 @@ const Logs = () => {
 
     const [isLoading, setLoading] = useState(true)
     const [logData, setLogData] = useState('')
+    const [configured, setConfigured] = useState(true)
+    const [truncated, setTruncated] = useState(false)
+    const [level, setLevel] = useState('info')
     const [selectedTimeSearch, setSelectedTimeSearch] = useState('Last hour')
     const [startDate, setStartDate] = useState(getDateBefore('hours', 1))
     const [endDate, setEndDate] = useState(new Date())
 
+    const loadLogs = (selection, nextLevel = level, from = startDate, to = endDate) => {
+        getLogsApi.request(
+            logsQuery({
+                selection,
+                level: nextLevel,
+                startDate: getDateTimeFormatted(from),
+                endDate: getDateTimeFormatted(to)
+            })
+        )
+    }
+
     const handleTimeSelectionChange = (event) => {
-        setSelectedTimeSearch(event.target.value)
-        switch (event.target.value) {
-            case 'Last hour':
-                getLogsApi.request(subtractTime(0, 0, 1), getDateTimeFormatted())
-                break
-            case 'Last 4 hours':
-                getLogsApi.request(subtractTime(0, 0, 4), getDateTimeFormatted())
-                break
-            case 'Last 24 hours':
-                getLogsApi.request(subtractTime(0, 0, 24), getDateTimeFormatted())
-                break
-            case 'Last 2 days':
-                getLogsApi.request(subtractTime(0, 2, 0), getDateTimeFormatted())
-                break
-            case 'Last 7 days':
-                getLogsApi.request(subtractTime(0, 7, 0), getDateTimeFormatted())
-                break
-            case 'Last 14 days':
-                getLogsApi.request(subtractTime(0, 14, 0), getDateTimeFormatted())
-                break
-            case 'Last 1 month':
-                getLogsApi.request(subtractTime(1, 0, 0), getDateTimeFormatted())
-                break
-            case 'Last 2 months':
-                getLogsApi.request(subtractTime(2, 0, 0), getDateTimeFormatted())
-                break
-            case 'Last 3 months':
-                getLogsApi.request(subtractTime(3, 0, 0), getDateTimeFormatted())
-                break
-            case 'Custom':
-                setStartDate(getDateBefore('hours', 1))
-                setEndDate(new Date())
-                getLogsApi.request(subtractTime(0, 0, 1), getDateTimeFormatted())
-                break
-            default:
-                break
+        const selection = event.target.value
+        setSelectedTimeSearch(selection)
+        if (selection === 'Custom') {
+            const from = getDateBefore('hours', 1)
+            const to = new Date()
+            setStartDate(from)
+            setEndDate(to)
+            loadLogs(selection, level, from, to)
+            return
         }
+        loadLogs(selection)
     }
 
     const onStartDateSelected = (date) => {
         setStartDate(date)
-        getLogsApi.request(getDateTimeFormatted(date), getDateTimeFormatted(endDate))
+        loadLogs('Custom', level, date, endDate)
     }
 
     const onEndDateSelected = (date) => {
         setEndDate(date)
-        getLogsApi.request(getDateTimeFormatted(startDate), getDateTimeFormatted(date))
+        loadLogs('Custom', level, startDate, date)
+    }
+
+    const onLevelChange = (event) => {
+        const nextLevel = event.target.value
+        setLevel(nextLevel)
+        loadLogs(selectedTimeSearch, nextLevel)
     }
 
     useEffect(() => {
-        const currentTimeFormatted = getDateTimeFormatted()
-        const startTimeFormatted = subtractTime(0, 0, 1)
-        getLogsApi.request(startTimeFormatted, currentTimeFormatted)
+        loadLogs('Last hour', 'info')
 
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [])
@@ -192,13 +164,12 @@ const Logs = () => {
     }, [getLogsApi.loading])
 
     useEffect(() => {
-        if (getLogsApi.data && getLogsApi.data.length > 0) {
-            let totalLogs = ''
-            for (const logData of getLogsApi.data) {
-                totalLogs += logData + '\n'
-            }
-            setLogData(totalLogs)
-        }
+        const payload = getLogsApi.data
+        if (!payload || Array.isArray(payload)) return
+        setConfigured(payload.configured !== false)
+        setTruncated(Boolean(payload.truncated))
+        const lines = Array.isArray(payload.lines) ? payload.lines : []
+        setLogData(lines.join('\n'))
     }, [getLogsApi.data])
 
     return (
@@ -226,12 +197,26 @@ const Logs = () => {
                         </Box>
                     ) : (
                         <>
-                            <Stack sx={{ alignItems: 'center', justifyContent: 'flex-start', gap: 2 }} flexDirection='row'>
+                            <Stack sx={{ alignItems: 'center', justifyContent: 'flex-start', gap: 2 }} flexDirection='row' flexWrap='wrap'>
+                                <Select
+                                    size='small'
+                                    sx={{ minWidth: '140px' }}
+                                    value={level}
+                                    onChange={onLevelChange}
+                                    inputProps={{ 'aria-label': 'Log level' }}
+                                >
+                                    {logLevels.map((item) => (
+                                        <MenuItem key={item.value} value={item.value}>
+                                            {item.label}
+                                        </MenuItem>
+                                    ))}
+                                </Select>
                                 <Select
                                     size='small'
                                     sx={{ minWidth: '200px' }}
                                     value={selectedTimeSearch}
                                     onChange={handleTimeSelectionChange}
+                                    inputProps={{ 'aria-label': 'Time range' }}
                                 >
                                     {searchTimeRanges.map((range) => (
                                         <MenuItem key={range} value={range}>
@@ -276,8 +261,44 @@ const Logs = () => {
                                         </Stack>
                                     </>
                                 )}
+                                <Button
+                                    size='small'
+                                    variant='outlined'
+                                    startIcon={<IconRefresh size={16} />}
+                                    onClick={() => loadLogs(selectedTimeSearch)}
+                                    disabled={isLoading}
+                                >
+                                    Refresh
+                                </Button>
                             </Stack>
-                            {logData ? (
+                            {truncated && configured && (
+                                <Typography variant='body2'>
+                                    Showing the most recent lines. Older lines in this range were left out.
+                                </Typography>
+                            )}
+                            {!configured ? (
+                                <Stack
+                                    sx={{ alignItems: 'flex-start', justifyContent: 'center', gap: 1, maxWidth: 640 }}
+                                    flexDirection='column'
+                                >
+                                    <Typography variant='h4'>No log file is configured</Typography>
+                                    <Typography>
+                                        Set LOG_PATH to the directory where the server writes logs. Docker Compose and the published image
+                                        use /var/cuttlely/logs. A from-source server writes a logs directory when LOG_PATH is unset.
+                                    </Typography>
+                                </Stack>
+                            ) : logsLookEmpty({ configured, text: logData, truncated }) ? (
+                                <Stack sx={{ alignItems: 'center', justifyContent: 'center' }} flexDirection='column'>
+                                    <Box sx={{ p: 2, height: 'auto' }}>
+                                        <img
+                                            style={{ objectFit: 'cover', height: '20vh', width: 'auto' }}
+                                            src={LogsEmptySVG}
+                                            alt='LogsEmptySVG'
+                                        />
+                                    </Box>
+                                    <div>No log lines in this range</div>
+                                </Stack>
+                            ) : (
                                 <CodeMirror
                                     value={logData}
                                     height={'calc(100vh - 220px)'}
@@ -292,17 +313,6 @@ const Logs = () => {
                                         highlightActiveLine: false
                                     }}
                                 />
-                            ) : (
-                                <Stack sx={{ alignItems: 'center', justifyContent: 'center' }} flexDirection='column'>
-                                    <Box sx={{ p: 2, height: 'auto' }}>
-                                        <img
-                                            style={{ objectFit: 'cover', height: '20vh', width: 'auto' }}
-                                            src={LogsEmptySVG}
-                                            alt='LogsEmptySVG'
-                                        />
-                                    </Box>
-                                    <div>No Logs Yet</div>
-                                </Stack>
                             )}
                         </>
                     )}
