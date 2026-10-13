@@ -195,7 +195,10 @@ export function applyCarriedUsage(usage: ChatflowTokenUsage, action: unknown) {
     }
 }
 
-export function withCarriedUsage<T extends Record<string, any>>(action: T, usage: ChatflowTokenUsage): T {
+export function withCarriedUsage<T extends Record<string, any>>(
+    action: T,
+    usage: ChatflowTokenUsage
+): T & { priorUsage?: Array<{ model: string; promptTokens: number; completionTokens: number }> } {
     const priorUsage = carriedUsageLines(usage)
     if (!priorUsage.length) return action
     return { ...action, priorUsage }
