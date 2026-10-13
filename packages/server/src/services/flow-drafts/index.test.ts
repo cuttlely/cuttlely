@@ -644,7 +644,7 @@ describe('a passing test set before Publish', () => {
 
     test('an older pass cannot publish when this check failed to replace it', async () => {
         await arm()
-        await recordPass()
+        const stored = await recordPass()
         noteGateCheck('flow-1', 'check-2')
         await expect(draftToPublish(flow())).rejects.toMatchObject({
             statusCode: 409,
@@ -652,7 +652,10 @@ describe('a passing test set before Publish', () => {
         })
         clearGateCheckNotes()
         await recordPublishGateResult(flow(), {
-            ...(JSON.parse(rows[0].publishGateResult) as Record<string, unknown>),
+            ...pass,
+            draftHash: stored.draftHash,
+            contentHash: stored.contentHash || '',
+            postProcessHash: postProcessHash(chats[0]?.chatbotConfig),
             checkId: 'check-2'
         })
         noteGateCheck('flow-1', 'check-2')
