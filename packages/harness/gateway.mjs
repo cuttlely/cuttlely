@@ -22,11 +22,35 @@ const LOOPBACK = new Set(['127.0.0.1', '::1', '::ffff:127.0.0.1'])
 const tokens = new Map()
 const servers = []
 const inflight = new Set()
+const callerWorkspaces = new Map()
 let tokensLoaded = false
 let contextFor = null
 
 export function setGatewayContext(next) {
+    const previous = contextFor
     contextFor = typeof next === 'function' ? next : null
+    return previous
+}
+
+// The run that is in this process. The gateway otherwise only sees the harness file.
+export function noteCallerWorkspace(name, workspaceId) {
+    if (!name || !workspaceId) return
+    const stack = callerWorkspaces.get(name) || []
+    stack.push(workspaceId)
+    callerWorkspaces.set(name, stack)
+}
+
+export function clearCallerWorkspace(name) {
+    const stack = callerWorkspaces.get(name)
+    if (!stack) return
+    stack.pop()
+    if (!stack.length) callerWorkspaces.delete(name)
+}
+
+function notedCallerWorkspace(name) {
+    const stack = callerWorkspaces.get(name)
+    if (!stack?.length) return undefined
+    return stack[stack.length - 1]
 }
 
 export function gatewayListenPort() {
@@ -498,7 +522,16 @@ async function ownerContext(record) {
     }
     const runtime = await contextFor(record)
     const flowOptions = { ...(runtime?.flowOptions || {}) }
-    if (record.workspaceId && flowOptions.workspaceId !== record.workspaceId) {
+    const noted = notedCallerWorkspace(record.name)
+    let caller = noted
+    if (caller === undefined) {
+        const { callerWorkspaceForJob } = await import('./queue.mjs')
+        caller = callerWorkspaceForJob(record.name)
+    }
+    // contextFor copies the harness file's team. A known caller replaces that before the comparison.
+    if (caller !== undefined) flowOptions.workspaceId = caller || undefined
+    // A harness with no team is not in the caller's team. Both empty is an offline run with no team on either side.
+    if ((flowOptions.workspaceId || '') !== (record.workspaceId || '')) {
         throw new HarnessError('wrong_workspace', `Harness "${record.name}" belongs to another workspace.`)
     }
     if (flowOptions.callerChatflowId == null && flowOptions.chatflowid != null) flowOptions.callerChatflowId = flowOptions.chatflowid

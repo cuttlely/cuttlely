@@ -412,6 +412,11 @@ export async function start(): Promise<void> {
     } finally {
         await startingPage?.close()
     }
+    if (!serverApp?.initError) {
+        await harnessesService.backfillHarnessWorkspaces().catch((error) => {
+            logger.warn(`[harness] workspace backfill failed: ${error instanceof Error ? error.message : error}`)
+        })
+    }
     server.listen(port, host, () => {
         logger.info(`⚡️ [server]: Cuttlely Server is listening at ${host ? 'http://' + host : ''}:${port}`)
         // Ready only when the start worked. A database that cannot be reached was logged by databaseHealthFor.

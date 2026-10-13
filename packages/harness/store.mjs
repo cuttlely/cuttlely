@@ -144,6 +144,14 @@ export function saveHarness(record, { overwrite = false } = {}) {
         else delete specialist.handoffChars
     }
     const existing = getHarness(record.name)
+    // Names are one file per install. A file that already belongs to another team is left as it is.
+    // A file with no team is claimed only by claimWorkspace, the startup backfill, not by a save.
+    if (existing && !existing.workspaceId && record.workspaceId) {
+        throw new HarnessError('name_clash', `Harness name "${record.name}" is already used in another team. Choose a different name.`)
+    }
+    if (existing?.workspaceId && record.workspaceId && existing.workspaceId !== record.workspaceId) {
+        throw new HarnessError('name_clash', `Harness name "${record.name}" is already used in another team. Choose a different name.`)
+    }
     if (existing && existing.chatflowId && record.chatflowId && existing.chatflowId !== record.chatflowId) {
         throw new HarnessError('name_taken', `Harness name "${record.name}" is already used. Choose a different name.`)
     }
@@ -155,6 +163,7 @@ export function saveHarness(record, { overwrite = false } = {}) {
         ...record,
         updatedAt: new Date().toISOString()
     }
+    if (!record.workspaceId && existing?.workspaceId) stored.workspaceId = existing.workspaceId
     if (!stored.createdAt) stored.createdAt = stored.updatedAt
     if (stored.credentials?.modelEnv) {
         stored.credentials = { ...stored.credentials }
@@ -169,4 +178,15 @@ export function deleteHarness(name) {
     assertHarnessName(name)
     const file = fileFor(name)
     if (fs.existsSync(file)) fs.unlinkSync(file)
+}
+
+// A file saved before harnesses stored a team. Sets the team once and leaves a file that already has one.
+export function claimWorkspace(name, workspaceId) {
+    const existing = getHarness(name)
+    const id = typeof workspaceId === 'string' ? workspaceId.trim() : ''
+    if (!existing || existing.workspaceId || !id) return existing
+    const stored = { ...existing, workspaceId: id }
+    fs.mkdirSync(harnessStoreDir(), { recursive: true })
+    fs.writeFileSync(fileFor(name), JSON.stringify(stored, null, 2))
+    return stored
 }

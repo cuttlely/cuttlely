@@ -31,7 +31,7 @@ import {
     latestAnalystCursor,
     takeAnalystResults
 } from './analyst-capture.mjs'
-import { abortGatewayProfile, setGatewayContext } from './gateway.mjs'
+import { abortGatewayProfile, clearCallerWorkspace, noteCallerWorkspace, setGatewayContext } from './gateway.mjs'
 import { analystToolsMissing } from './runtime/analyst-mcp-status.mjs'
 import { ANALYST_CURSOR_ERRORS, analystPageRequest, analystPageTask } from './runtime/analyst-page.mjs'
 import { analystScopeKey, endAnalystRun, withAnalystScope } from './runtime/analyst-store.mjs'
@@ -78,11 +78,28 @@ export function configureHarnessRuntime({ contextFor } = {}) {
     setGatewayContext(runtimeContextFor)
 }
 
+// Before a run row is opened. A harness with no team is not in the caller's team.
+// Both empty is an offline run with no team on either side.
+export function assertHarnessWorkspace(name, flowOptions, record) {
+    let harness = record
+    if (!harness) {
+        try {
+            harness = getHarness(name)
+        } catch {
+            return
+        }
+    }
+    if (!harness) return
+    const caller = typeof flowOptions?.workspaceId === 'string' ? flowOptions.workspaceId : ''
+    const owner = typeof harness.workspaceId === 'string' ? harness.workspaceId : ''
+    if (caller !== owner) {
+        throw new HarnessError('wrong_workspace', `Harness "${harness.name || name}" belongs to another workspace.`)
+    }
+}
+
 function ownerFlowOptions(record, callerOptions) {
     const flowOptions = { ...(callerOptions || {}) }
-    if (record.workspaceId && flowOptions.workspaceId !== record.workspaceId) {
-        throw new HarnessError('wrong_workspace', `Harness "${record.name}" belongs to another workspace.`)
-    }
+    assertHarnessWorkspace(record?.name, flowOptions, record)
     if (flowOptions.callerChatflowId == null && flowOptions.chatflowid != null) {
         flowOptions.callerChatflowId = flowOptions.chatflowid
     }
@@ -156,6 +173,8 @@ export function harnessForTurn(name, record) {
 
 export async function runHarness(args = {}) {
     const started = Date.now()
+    // A wrong team must not open a run row. Inline and off both reach this function.
+    assertHarnessWorkspace(args.name, args.flowOptions, args.record)
     // A publish-check replay keeps no run history. The try profile is still removed below.
     const replay = args.replay === true
     let pending = null
@@ -289,6 +308,55 @@ async function runTurn(
     }
 ) {
     const flowOptions = ownerFlowOptions(harness, callerFlowOptions)
+    const callerWorkspace = typeof flowOptions.workspaceId === 'string' ? flowOptions.workspaceId : ''
+    if (callerWorkspace) noteCallerWorkspace(harness.name, callerWorkspace)
+    try {
+        return await runTurnBody(harness, {
+            name,
+            chatId,
+            input,
+            baseUrl,
+            fetchImpl,
+            componentNodes,
+            loadNode,
+            forceSpecialistFailure,
+            metadata,
+            timeoutMs,
+            modelBaseUrl,
+            flowOptions,
+            onEvent,
+            signal,
+            budgetMs,
+            images,
+            replay
+        })
+    } finally {
+        if (callerWorkspace) clearCallerWorkspace(harness.name)
+    }
+}
+
+async function runTurnBody(
+    harness,
+    {
+        name,
+        chatId,
+        input,
+        baseUrl,
+        fetchImpl,
+        componentNodes,
+        loadNode,
+        forceSpecialistFailure,
+        metadata,
+        timeoutMs,
+        modelBaseUrl,
+        flowOptions,
+        onEvent,
+        signal,
+        budgetMs,
+        images,
+        replay
+    }
+) {
     assertCurrentRecord(harness)
     const profileStarted = Date.now()
     const needsHermes = (harness.specialists || []).some((specialist) => needsAgentLoop(specialist))

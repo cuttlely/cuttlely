@@ -21,7 +21,9 @@ export interface UserTurn {
 // Tests stand in for the session transcript. Production reads the harness session messages.
 export const harnessCheckHooks: {
     listUserTurns: null | ((name: string, opts?: { limit?: number }) => UserTurn[])
-} = { listUserTurns: null }
+    // Tests stand in for the harness file check. Production uses requireHarness.
+    inWorkspace: null | ((name: string, workspaceId?: string | null) => boolean | Promise<boolean>)
+} = { listUserTurns: null, inWorkspace: null }
 
 // Newest user turns read from the session file. Past that, older questions may exist.
 const TURN_SCAN_CAP = 2000
