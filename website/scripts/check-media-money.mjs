@@ -15,7 +15,8 @@ const INTERVAL = 0.5
 
 // A symbol may sit a word away from its amount (`$ | 25.20`), and the amount may be whole (`$25`).
 // The symbol is its own mark: not glued to a letter or digit on either side, so a misread id does not count.
-const SYMBOL = /(?<![A-Za-z0-9])[$€£](?:\s|\|)*\d[\d,]*(?:\.\d+)?(?![A-Za-z])/
+// A whole amount needs at least two digits. One digit is how a rule or an S is misread.
+const SYMBOL = /(?<![A-Za-z0-9])[$€£](?:\s|\|)*(\d[\d,]*\.\d+|\d{2,}[\d,]*)(?![A-Za-z])/g
 const SPELLED =
     '(?:(?:twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety)[-\\s](?:one|two|three|four|five|six|seven|eight|nine)|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred|thousand|a|an)'
 const AMOUNT = `(?:${SPELLED}|\\d[\\d,]*(?:\\.\\d+)?)`
@@ -27,7 +28,27 @@ const USD_AMOUNT = /\b(?:USD\s*\d[\d,]*(?:\.\d+)?|\d[\d,]*(?:\.\d+)?\s*USD)\b/i
 /** True when a single line of text names a currency amount. */
 export function lineHasMoney(text) {
     const line = String(text)
-    return SYMBOL.test(line) || NAMED.test(line) || USD_AMOUNT.test(line)
+    if (NAMED.test(line) || USD_AMOUNT.test(line)) return true
+    SYMBOL.lastIndex = 0
+    let match
+    while ((match = SYMBOL.exec(line))) {
+        const amount = match[1]
+        const digits = amount.replace(/\D/g, '')
+        if (/^0+$/.test(digits)) continue
+        const whole = !amount.includes('.')
+        // Four bare digits are an id misread (`$1384`). A real whole amount is shorter, or grouped.
+        if (whole && !amount.includes(',') && digits.length > 3) continue
+        const after = line.slice(match.index + match[0].length)
+        // "533 out" misread as "$33 out" is a token count, not an amount.
+        if (whole && /^\s+(?:in|out)\b/i.test(after)) continue
+        return true
+    }
+    return false
+}
+
+/** A low-confidence word that already names an amount, unlike a bare `:s£`. */
+function lowConfidenceAmount(text) {
+    return lineHasMoney(text)
 }
 
 function tool(name) {
@@ -90,12 +111,14 @@ export function moneyIn(tsv) {
         const parts = row.split('\t')
         if (parts.length < 12 || !parts[11].trim()) continue
         const conf = Number(parts[10])
-        // A dim glyph is a misread of a rule, a 5, or a box. Amount text sits above this.
-        if (!Number.isFinite(conf) || conf < 85) continue
+        const text = parts[11].trim()
+        // A dim glyph is usually a rule or a box. A dim word that already names an amount still counts.
+        if (!Number.isFinite(conf) || conf < 0) continue
+        if (conf < 85 && !lowConfidenceAmount(text)) continue
         // page, block, paragraph, line — the same line in another block is a different line.
         const key = [parts[1], parts[2], parts[3], parts[4]].join('\t')
         const bag = lines.get(key) || []
-        bag.push({ order: Number(parts[5]) || 0, text: parts[11].trim() })
+        bag.push({ order: Number(parts[5]) || 0, text })
         lines.set(key, bag)
     }
     const hits = []

@@ -40,8 +40,12 @@ test('a symbol split from its amount is a hit once the OCR line is joined', () =
     assert.deepEqual(moneyIn(tsv), ['Price | $ | 25.20'])
     const plain = [header, word(1, '3'), word(2, 'items')].join('\n')
     assert.deepEqual(moneyIn(plain), [])
-    const dim = [header, word(1, 'Total'), `5\t1\t1\t1\t1\t2\t40\t0\t10\t10\t60\t$25`].join('\n')
-    assert.deepEqual(moneyIn(dim), [])
+    const row = (n, text, conf) => `5\t1\t1\t1\t1\t${n}\t${n * 20}\t0\t10\t10\t${conf}\t${text}`
+    assert.deepEqual(moneyIn([header, row(1, '$25', 60)].join('\n')), ['$25'])
+    assert.deepEqual(moneyIn([header, row(1, 'twenty dollars', 55)].join('\n')), ['twenty dollars'])
+    assert.deepEqual(moneyIn([header, row(1, ':s£', 60)].join('\n')), [])
+    assert.deepEqual(moneyIn([header, row(1, '$33', 74), row(2, 'out', 90)].join('\n')), [])
+    assert.deepEqual(moneyIn([header, row(1, '$1384', 70)].join('\n')), [])
 })
 
 test('homepage media shows no currency amount', async () => {
