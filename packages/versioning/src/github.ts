@@ -155,6 +155,11 @@ const ENVIRONMENT_NOTE_LOCAL = 'refs/notes/environment-list'
 const LIST_MISMATCH =
     "This server's environment list does not match the list used to publish these versions. Save the same list on every server, then select Try again."
 const LIST_UNREADABLE = 'The environment list could not be read. Save it again.'
+const LIST_UNVERIFIED = 'These versions have no environment list recorded yet, so nothing new is offered.'
+const LIST_NOTE_FAILED = 'Could not record the environment list with this copy.'
+// A second publisher can land its note between our fetch and our push. Retry that race a few times, then stop.
+const NOTE_PUSH_ATTEMPTS = 4
+const NOTE_REMOTE_CACHE = 'refs/notes/remote-list'
 
 interface ActivePlan extends SyncPlan {
     invalid: boolean
@@ -434,6 +439,8 @@ export class GithubSync {
     private lastCheckedAt: string | null = null
     // A non-retryable copy failure. Reads keep polling, but the copy stays stopped until Try again, disconnect, or connect.
     private copyHold: string | null = null
+    // The commit whose environment-list note is already on the remote. Later passes do not publish it again.
+    private notedHead: string | null = null
 
     constructor(deps: GithubDeps) {
         this.deps = deps
@@ -1077,6 +1084,7 @@ export class GithubSync {
         this.lastCopiedVersion = null
         this.lastCheckedAt = null
         this.copyHold = null
+        this.notedHead = null
     }
 
     private clearTimer(): void {
@@ -1180,8 +1188,13 @@ export class GithubSync {
         const head = await this.refSha('refs/heads/main')
         const base = await this.refSha(PUSHED_REF)
         if (!head || head === base) {
-            await this.publishEnvironmentNote(config, head, plan, generation)
-            if (generation !== this.generation || this.state === 'stopped') return
+            const noted = await this.publishEnvironmentNote(config, head, plan, generation)
+            if (generation !== this.generation) return
+            if (!noted) {
+                this.scheduleRetry(LIST_NOTE_FAILED)
+                return
+            }
+            if (this.state === 'stopped') return
             this.state = 'up-to-date'
             this.failures = 0
             this.nextTryAt = null
@@ -1209,8 +1222,12 @@ export class GithubSync {
         if (generation !== this.generation) return
         if (result.ok) {
             await runGit(store.dir, ['update-ref', PUSHED_REF, head])
-            await this.publishEnvironmentNote(config, head, plan, generation)
+            const noted = await this.publishEnvironmentNote(config, head, plan, generation)
             if (generation !== this.generation) return
+            if (!noted) {
+                this.scheduleRetry(LIST_NOTE_FAILED)
+                return
+            }
             this.copyHold = null
             this.state = 'up-to-date'
             this.message = ''
@@ -1281,17 +1298,29 @@ export class GithubSync {
         if (!failure) {
             const next = await runGit(dir, ['rev-parse', '--verify', '-q', `${INCOMING_NEXT_REF}^{commit}`]).catch(() => null)
             const sha = next?.stdout.trim()
-            if (sha && (await this.environmentListDiffers(config, sha, plan, generation))) {
-                await drop(INCOMING_NEXT_REF)
-                await drop(INCOMING_REF)
-                if (generation !== this.generation) return
-                this.state = 'stopped'
-                this.message = LIST_MISMATCH
-                this.nextTryAt = null
-                this.schedule(this.deps.checkEveryMs ?? DEFAULT_CHECK_EVERY_MS)
-                return
+            if (sha) {
+                const note = await this.environmentNoteCheck(config, sha, plan, generation)
+                if (generation !== this.generation) {
+                    await drop(INCOMING_NEXT_REF)
+                    return
+                }
+                // A transport error retries. A notes ref with no note for this tip, or a different list, does not
+                // install the new versions and does not drop versions that were already accepted.
+                if (note.kind === 'transport') {
+                    await drop(INCOMING_NEXT_REF)
+                    this.scheduleRetry(note.message, true)
+                    return
+                }
+                if (note.kind === 'mismatch' || note.kind === 'unverified') {
+                    await drop(INCOMING_NEXT_REF)
+                    this.state = 'stopped'
+                    this.message = note.kind === 'mismatch' ? LIST_MISMATCH : LIST_UNVERIFIED
+                    this.nextTryAt = null
+                    this.schedule(this.deps.checkEveryMs ?? DEFAULT_CHECK_EVERY_MS)
+                    return
+                }
+                await runGit(dir, ['update-ref', INCOMING_REF, sha])
             }
-            if (sha) await runGit(dir, ['update-ref', INCOMING_REF, sha])
             await drop(INCOMING_NEXT_REF)
             // Disconnect may have run while the ref moved: it never leaves a read behind.
             if (generation !== this.generation) {
@@ -1317,12 +1346,65 @@ export class GithubSync {
         this.scheduleRetry(failure.message, true)
     }
 
-    // Records this server's list on the copied commit and publishes that note. Best effort: a missing note
-    // does not block the copy. A reader compares it and stops when the lists differ.
-    private async publishEnvironmentNote(config: ActiveConfig, head: string | null, plan: ActivePlan, generation: number): Promise<void> {
-        if (!head || plan.invalid || !plan.environments.length || generation !== this.generation) return
+    // Records this server's list on the copied commit and publishes that note. Fetches and merges any note
+    // already on the remote first, so two publishers can both land. True only when this tip's note is on the remote.
+    private async publishEnvironmentNote(
+        config: ActiveConfig,
+        head: string | null,
+        plan: ActivePlan,
+        generation: number
+    ): Promise<boolean> {
+        if (!head) return true
+        if (plan.invalid || !plan.environments.length || generation !== this.generation) return false
+        if (this.notedHead === head) return true
         const fingerprint = environmentListFingerprint(plan.environments)
         const dir = this.deps.store().dir
+        for (let attempt = 0; attempt < NOTE_PUSH_ATTEMPTS; attempt++) {
+            if (generation !== this.generation) return false
+            const fetched = await this.fetchNoteRef(config, NOTE_REMOTE_CACHE)
+            if (fetched.kind === 'transport') continue
+            if (fetched.kind === 'present' && !(await this.mergeRemoteNotes(dir))) continue
+            if (!(await this.writeLocalNote(dir, head, fingerprint))) continue
+            if (generation !== this.generation) return false
+            const pushed = await this.pushRemoteNotes(config)
+            if (pushed === 'ok' && (await this.remoteNoteMatches(config, head, fingerprint))) {
+                this.notedHead = head
+                return true
+            }
+        }
+        this.log(`[versions] Could not record the environment list on ${config.repo}.`)
+        return false
+    }
+
+    // present: the remote has refs/notes/commits. absent: that ref does not exist. transport: the fetch failed otherwise.
+    private async fetchNoteRef(
+        config: ActiveConfig,
+        destination: string
+    ): Promise<{ kind: 'present' } | { kind: 'absent' } | { kind: 'transport'; message: string }> {
+        const dir = this.deps.store().dir
+        await runGit(dir, ['update-ref', '-d', destination]).catch(() => undefined)
+        const result = await this.git(
+            ['fetch', '--no-tags', '--no-recurse-submodules', '--quiet', config.url, `${ENVIRONMENT_NOTE_REMOTE}:${destination}`],
+            authEnv(config.url, config.token)
+        )
+        if (result.ok) return { kind: 'present' }
+        const failure = classifyReadFailure(`${result.stderr}\n${result.stdout}`, config.repo, result.timedOut)
+        if (failure.kind === 'empty') return { kind: 'absent' }
+        return { kind: 'transport', message: failure.message }
+    }
+
+    private async mergeRemoteNotes(dir: string): Promise<boolean> {
+        try {
+            await runGit(dir, ['notes', 'merge', '-q', '-s', 'cat_sort_uniq', NOTE_REMOTE_CACHE], NOTE_ENV)
+            return true
+        } catch (error) {
+            await runGit(dir, ['notes', 'merge', '--abort']).catch(() => undefined)
+            this.log(`[versions] Could not combine environment lists: ${scrub((error as Error)?.message || String(error))}`)
+            return false
+        }
+    }
+
+    private async writeLocalNote(dir: string, head: string, fingerprint: string): Promise<boolean> {
         try {
             let existing = ''
             try {
@@ -1331,41 +1413,67 @@ export class GithubSync {
                 existing = ''
             }
             if (existing !== fingerprint) await runGit(dir, ['notes', 'add', '-f', '-m', fingerprint, head], NOTE_ENV)
+            return true
         } catch (error) {
             this.log(`[versions] Could not record the environment list: ${scrub((error as Error)?.message || String(error))}`)
-            return
+            return false
         }
-        if (generation !== this.generation) return
+    }
+
+    private async pushRemoteNotes(config: ActiveConfig): Promise<'ok' | 'rejected' | 'error'> {
         const result = await this.git(
             ['push', '--porcelain', '--no-verify', config.url, `${ENVIRONMENT_NOTE_REMOTE}:${ENVIRONMENT_NOTE_REMOTE}`],
             authEnv(config.url, config.token)
         )
-        if (!result.ok) this.log(`[versions] Could not publish the environment list: ${scrub(result.stderr, config.token)}`)
+        if (result.ok) return 'ok'
+        const text = `${result.stderr}\n${result.stdout}`.toLowerCase()
+        if (
+            text.includes('non-fast-forward') ||
+            text.includes(['fetch', 'first'].join(' ')) ||
+            text.includes('[rejected]') ||
+            text.includes('updates were rejected')
+        ) {
+            return 'rejected'
+        }
+        this.log(`[versions] Could not publish the environment list: ${scrub(result.stderr, config.token)}`)
+        return 'error'
     }
 
-    // True when the publisher recorded a list and it is not this server's list. No record yet is not a difference.
-    private async environmentListDiffers(config: ActiveConfig, sha: string, plan: ActivePlan, generation: number): Promise<boolean> {
-        if (plan.invalid || !plan.environments.length || generation !== this.generation) return false
-        const result = await this.git(
-            [
-                'fetch',
-                '--no-tags',
-                '--no-recurse-submodules',
-                '--quiet',
-                config.url,
-                `${ENVIRONMENT_NOTE_REMOTE}:${ENVIRONMENT_NOTE_LOCAL}`
-            ],
-            authEnv(config.url, config.token)
-        )
-        if (!result.ok) return false
+    // Reads the note back from the remote, so a push that did not land this tip is not treated as done.
+    private async remoteNoteMatches(config: ActiveConfig, head: string, fingerprint: string): Promise<boolean> {
+        const fetched = await this.fetchNoteRef(config, NOTE_REMOTE_CACHE)
+        if (fetched.kind !== 'present') return false
+        try {
+            const note = (await runGit(this.deps.store().dir, ['notes', '--ref=remote-list', 'show', head])).stdout.trim()
+            return note === fingerprint
+        } catch {
+            return false
+        }
+    }
+
+    // match: the note equals this server's list. absent: the remote has no notes ref at all (the one fail-open window).
+    // unverified: the notes ref exists but this tip has no note. mismatch: the note is a different list.
+    // transport: the notes fetch failed for a reason other than a missing notes ref.
+    private async environmentNoteCheck(
+        config: ActiveConfig,
+        sha: string,
+        plan: ActivePlan,
+        generation: number
+    ): Promise<{ kind: 'match' | 'mismatch' | 'unverified' | 'absent' } | { kind: 'transport'; message: string }> {
+        if (plan.invalid || !plan.environments.length || generation !== this.generation) {
+            return { kind: 'transport', message: LIST_UNREADABLE }
+        }
+        const fetched = await this.fetchNoteRef(config, ENVIRONMENT_NOTE_LOCAL)
+        if (fetched.kind === 'absent') return { kind: 'absent' }
+        if (fetched.kind === 'transport') return fetched
         let note = ''
         try {
             note = (await runGit(this.deps.store().dir, ['notes', '--ref=environment-list', 'show', sha])).stdout.trim()
         } catch {
-            return false
+            return { kind: 'unverified' }
         }
-        if (!note) return false
-        return note !== environmentListFingerprint(plan.environments)
+        if (!note) return { kind: 'unverified' }
+        return note === environmentListFingerprint(plan.environments) ? { kind: 'match' } : { kind: 'mismatch' }
     }
 
     private scheduleRetry(reason: string, reading = this.readOnly()): void {
