@@ -97,8 +97,11 @@ export const rollbackTarget = (versions = [], promotedSha) => {
     return target ? target.sha : null
 }
 
-// The environment this server reads from. "Dev" for the saved pair, or when this server is not in the list.
+export const listUnreadable = (status) => typeof status?.message === 'string' && status.message.includes('could not be read')
+
+// The environment this server reads from. "Dev" for the saved pair. Empty when the list file cannot be read.
 export const previousEnvironmentTitle = (status) => {
+    if (listUnreadable(status)) return ''
     const chain = status?.environments || []
     const index = chain.findIndex((item) => item.server === status?.environment)
     const previous = index > 0 ? chain[index - 1] : null
@@ -109,7 +112,24 @@ export const previousEnvironmentTitle = (status) => {
 
 export const promoteLoadError = (status) => {
     const from = previousEnvironmentTitle(status)
+    if (!from) return 'New versions could not be loaded.'
     return from === 'Dev' ? 'New versions from Dev could not be loaded.' : `New versions from ${from} could not be loaded.`
+}
+
+export const promotePageTitle = (status, list) => {
+    if (listUnreadable(status)) return 'New versions'
+    const from = list ? sourceTitleOf(list) : previousEnvironmentTitle(status)
+    if (!from) return 'New versions'
+    return from === 'Dev' ? 'From Dev' : `From ${from}`
+}
+
+export const promotePageDescription = (status, list) => {
+    if (listUnreadable(status)) return 'New versions could not be loaded.'
+    const from = list ? sourceTitleOf(list) : previousEnvironmentTitle(status)
+    if (!from) return 'New versions could not be loaded.'
+    return from === 'Dev'
+        ? 'Review what Dev published and promote it to Live on this server'
+        : `Review what ${from} published and promote it to Live on this server`
 }
 
 // The card's line on a server that only reads. Names the previous environment.

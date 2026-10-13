@@ -7,7 +7,7 @@ import ViewHeader from '@/layout/MainLayout/ViewHeader'
 import flowVersionsApi from '@/api/flowVersions'
 import { apiErrorMessage } from '@/utils/flowDrafts'
 import { timeAgo } from '@/utils/githubSync'
-import { previousEnvironmentTitle, promoteLoadError, sourceTitleOf } from '@/utils/promote'
+import { listUnreadable, previousEnvironmentTitle, promoteLoadError, sourceTitleOf } from '@/utils/promote'
 import { PromoteListView } from './PromoteViews'
 
 const Promote = () => {
@@ -49,14 +49,16 @@ const Promote = () => {
         setChecking(false)
     }
 
-    const from = list ? sourceTitleOf(list) : previousEnvironmentTitle(status)
+    const from = listUnreadable(status) ? '' : list ? sourceTitleOf(list) : previousEnvironmentTitle(status)
     return (
         <MainCard>
             <Stack flexDirection='column' sx={{ gap: 3 }}>
                 <ViewHeader
-                    title={from === 'Dev' ? 'From Dev' : `From ${from}`}
+                    title={!from ? 'New versions' : from === 'Dev' ? 'From Dev' : `From ${from}`}
                     description={
-                        from === 'Dev'
+                        !from
+                            ? 'New versions could not be loaded.'
+                            : from === 'Dev'
                             ? 'Review what Dev published and promote it to Live on this server'
                             : `Review what ${from} published and promote it to Live on this server`
                     }

@@ -11,6 +11,9 @@ import {
     incomingSummary,
     missingIntro,
     previousEnvironmentTitle,
+    promoteLoadError,
+    promotePageDescription,
+    promotePageTitle,
     promotePath,
     promotedMessage,
     readIntro,
@@ -28,6 +31,17 @@ describe('promote helpers', () => {
         expect(incomingLabel({ status: 'update' })).toBe('New version available from Dev')
         expect(incomingLabel({ status: 'new' })).toBe('New flow from Dev')
         expect(promotePath()).toBe('/promote')
+        const unreadable = {
+            environments: [],
+            environment: null,
+            state: 'stopped',
+            message: 'The environment list could not be read. Save it again.'
+        }
+        expect(previousEnvironmentTitle(unreadable)).toBe('')
+        expect(promotePageTitle(unreadable, null)).toBe('New versions')
+        expect(promotePageTitle(unreadable, null)).not.toBe('From Dev')
+        expect(promotePageDescription(unreadable, null)).toBe('New versions could not be loaded.')
+        expect(promoteLoadError(unreadable)).toBe('New versions could not be loaded.')
         expect(promotePath('a b')).toBe('/promote/a%20b')
     })
 
