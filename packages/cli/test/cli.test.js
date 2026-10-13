@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
-import { DEFAULT_QUESTION_COUNT, DEFAULT_SERVER, DEFAULT_TIMEOUT_SECONDS, selectVerdict } from '../lib/check.js'
+import { DEFAULT_QUESTION_COUNT, DEFAULT_SERVER, DEFAULT_TIMEOUT_SECONDS, selectVerdict, summaryText } from '../lib/check.js'
 import {
     CONTAINER_NAME,
     DATA_DIR,
@@ -468,6 +468,34 @@ test('check exits 0 without --fail-on-changed when an answer changed, and 1 with
     assert.equal(JSON.parse(files.get('check.json')).summary.changed, 1)
     assert.deepEqual(selectVerdict(changedBody(), { failOnChanged: true }), { code: 1, label: 'changed' })
     assert.deepEqual(selectVerdict(changedBody(), { failOnChanged: false }), { code: 0, label: 'pass' })
+})
+
+test('the check summary prints the side total, not the sum of each answer', () => {
+    const text = summaryText({
+        id: 'check-1',
+        status: 'done',
+        summary: {
+            ran: 2,
+            same: 2,
+            changed: 0,
+            errors: 0,
+            liveTokens: 90,
+            draftTokens: 90,
+            liveMedianMs: 10,
+            draftMedianMs: 10,
+            liveEstimatedCostUsd: 0.00000675,
+            draftEstimatedCostUsd: 0.00000675,
+            livePrice: 'known',
+            draftPrice: 'known'
+        },
+        cases: [
+            { question: 'a', same: true, live: { text: 'a', estimatedCostUsd: 0.00000338 }, draft: { text: 'a' } },
+            { question: 'b', same: true, live: { text: 'b', estimatedCostUsd: 0.00000338 }, draft: { text: 'b' } }
+        ]
+    })
+    assert.match(text, /Live: estimated \$0\.00000675/)
+    assert.match(text, /Draft: estimated \$0\.00000675/)
+    assert.doesNotMatch(text, /0\.00000676/)
 })
 
 test('check exits 2 on timeout and asks the server to stop', async () => {

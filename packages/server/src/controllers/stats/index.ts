@@ -1,7 +1,8 @@
 import { StatusCodes } from 'http-status-codes'
 import { Request, Response, NextFunction } from 'express'
 import statsService from '../../services/stats'
-import { queryTokenUsage, usageRange } from '../../services/usage'
+import { getRawModelFile } from '@cuttlely/components'
+import { priceBookForWorkspace, queryTokenUsage, usageRange } from '../../services/usage'
 import { ChatMessageRatingType, ChatType } from '../../Interface'
 import { AppError } from '../../errors/appError'
 import { getRunningExpressApp } from '../../utils/getRunningExpressApp'
@@ -82,13 +83,19 @@ const getTokenUsage = async (req: Request, res: Response, next: NextFunction) =>
         }
         const flowId = typeof req.query?.flowId === 'string' ? req.query.flowId : undefined
         const model = typeof req.query?.model === 'string' ? req.query.model : undefined
-        const apiResponse = await queryTokenUsage(getRunningExpressApp().AppDataSource, {
-            workspaceId: activeWorkspaceId,
-            startDate: parsed.range.startDate,
-            endDate: parsed.range.endDate,
-            flowId,
-            model
-        })
+        const dataSource = getRunningExpressApp().AppDataSource
+        const book = await priceBookForWorkspace(dataSource, activeWorkspaceId, await getRawModelFile())
+        const apiResponse = await queryTokenUsage(
+            dataSource,
+            {
+                workspaceId: activeWorkspaceId,
+                startDate: parsed.range.startDate,
+                endDate: parsed.range.endDate,
+                flowId,
+                model
+            },
+            book
+        )
         return res.json(apiResponse)
     } catch (error) {
         next(error)

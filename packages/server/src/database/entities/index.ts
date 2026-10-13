@@ -30,6 +30,7 @@ import { WorkspaceUser } from './identity/WorkspaceUser'
 import { ScheduleRecord } from './ScheduleRecord'
 import { ScheduleTriggerLog } from './ScheduleTriggerLog'
 import { FlowVersionState } from './FlowVersionState'
+import { ModelPriceOverride } from './ModelPriceOverride'
 import { TokenUsageDay } from './TokenUsageDay'
 
 export const entities = {
@@ -65,5 +66,6 @@ export const entities = {
     ScheduleRecord,
     ScheduleTriggerLog,
     FlowVersionState,
-    TokenUsageDay
+    TokenUsageDay,
+    ModelPriceOverride
 }
