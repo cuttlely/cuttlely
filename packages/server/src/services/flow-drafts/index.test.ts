@@ -120,9 +120,9 @@ const context = { userId: 'user-1', orgId: 'org-1', subscriptionId: 'sub-1' }
 // the savepoint is rolled back.
 function usePostgresQueryRunner(save: (row: any, abort: () => void) => Promise<any>) {
     let aborted = false
-    const queries = []
+    const queries: string[] = []
     const abortedError = () => {
-        const error = new Error('current transaction is aborted, commands ignored until end of transaction block')
+        const error: any = new Error('current transaction is aborted, commands ignored until end of transaction block')
         error.code = '25P02'
         return error
     }
@@ -142,18 +142,18 @@ function usePostgresQueryRunner(save: (row: any, abort: () => void) => Promise<a
         }
     }
     const stateRepo = {
-        create: (data) => ({ ...data }),
-        async save(row) {
+        create: (data: any) => ({ ...data }),
+        async save(row: any) {
             guard()
             return save(row, () => {
                 aborted = true
             })
         },
-        async findOneBy(where) {
+        async findOneBy(where: any) {
             guard()
             return fakeRepo.findOneBy(where)
         },
-        async update(where, patch) {
+        async update(where: any, patch: any) {
             guard()
             return fakeRepo.update(where, patch)
         },
@@ -162,7 +162,7 @@ function usePostgresQueryRunner(save: (row: any, abort: () => void) => Promise<a
         }
     }
     const chat = {
-        async findOneBy(where) {
+        async findOneBy(where: any) {
             guard()
             return chatRepo.findOneBy(where)
         },
@@ -178,12 +178,12 @@ function usePostgresQueryRunner(save: (row: any, abort: () => void) => Promise<a
         async rollbackTransaction() {},
         async release() {},
         manager: {
-            async query(sql) {
+            async query(sql: string) {
                 queries.push(sql)
                 if (aborted && !/rollback to savepoint/i.test(sql)) throw abortedError()
                 if (/rollback to savepoint/i.test(sql)) aborted = false
             },
-            getRepository(entity) {
+            getRepository(entity: { name?: string }) {
                 return entity?.name === 'ChatFlow' ? chat : stateRepo
             }
         }
@@ -707,7 +707,7 @@ describe('Publish instantly', () => {
                 if (instantWrites === 1) return { affected: 0 }
                 rows[0].publishGate = true
             }
-            return original(where, patch)
+            return original!(where, patch)
         })
         try {
             await expect(setPublishInstantly(flow(), true)).rejects.toMatchObject({
@@ -970,7 +970,7 @@ describe('a passing test set before Publish', () => {
                     liveSha: 'abc123'
                 })
                 abort()
-                const error = new Error('duplicate key value violates unique constraint "IDX_flow_version_state_chatflowId"')
+                const error: any = new Error('duplicate key value violates unique constraint "IDX_flow_version_state_chatflowId"')
                 error.code = '23505'
                 throw error
             }
@@ -1045,7 +1045,7 @@ describe('a passing test set before Publish', () => {
                     liveSha: 'abc123'
                 })
                 abort()
-                const error = new Error('duplicate key value violates unique constraint "IDX_flow_version_state_chatflowId"')
+                const error: any = new Error('duplicate key value violates unique constraint "IDX_flow_version_state_chatflowId"')
                 error.code = '23505'
                 throw error
             }

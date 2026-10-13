@@ -8,7 +8,7 @@
 // already has, and the first edit after drafts include harnesses creates a draft.
 import crypto from 'crypto'
 import { StatusCodes } from 'http-status-codes'
-import { type EntityManager } from 'typeorm'
+import { IsNull, type EntityManager, type FindOptionsWhere } from 'typeorm'
 import { ChatFlow } from '../../database/entities/ChatFlow'
 import { FlowVersionState } from '../../database/entities/FlowVersionState'
 import { AppError } from '../../errors/appError'
@@ -864,16 +864,14 @@ export async function recordPublishGateResult(flow: DraftFlow, input: GateResult
     }
     // The where is the gate this check read. A newer pass, or a gate that changed, does not match,
     // and this check leaves that row alone.
-    const updated = await repo().update(
-        {
-            chatflowId: flow.id,
-            publishGate: true,
-            publishGateDatasetId: state.publishGateDatasetId ?? null,
-            publishGateEvaluatorIds: state.publishGateEvaluatorIds ?? null,
-            publishGateThreshold: state.publishGateThreshold ?? null
-        },
-        { publishGateResult: gateResultRecord(record) }
-    )
+    const gateWhere: FindOptionsWhere<FlowVersionState> = {
+        chatflowId: flow.id,
+        publishGate: true,
+        publishGateDatasetId: state.publishGateDatasetId == null ? IsNull() : state.publishGateDatasetId,
+        publishGateEvaluatorIds: state.publishGateEvaluatorIds == null ? IsNull() : state.publishGateEvaluatorIds,
+        publishGateThreshold: state.publishGateThreshold == null ? IsNull() : state.publishGateThreshold
+    }
+    const updated = await repo().update(gateWhere, { publishGateResult: gateResultRecord(record) })
     if (updated?.affected === 0) return 'ignored'
     return 'stored'
 }
