@@ -2452,10 +2452,6 @@
             "reason": "The executions paging test lives next to the service it checks."
         },
         {
-            "path": "packages/server/src/services/executions/index.test.ts",
-            "reason": "The executions paging test lives next to the service it checks."
-        },
-        {
             "path": "packages/server/src/utils/buildAgentflow.harness-usage.test.ts",
             "reason": "The agentflow harness usage test stays next to the agentflow runner it exercises."
         },

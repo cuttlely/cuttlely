@@ -314,7 +314,7 @@ class HarnessTraceSessionImpl implements HarnessTraceSession {
             if (!this.root) return
             const runId = extra?.runId
             if (runId && /^run_[A-Za-z0-9-]{8,80}$/.test(runId)) this.root.setAttribute('run.id', runId)
-            setHarnessTokens(this.root, this.traceTokens)
+            setHarnessRollup(this.root, this.traceTokens)
             writeContent(this.root, this.question, extra?.text ?? this.answer)
             const failed = this.traceStatus === 'failed' || this.traceStatus === 'partial'
             if (failed) endHarnessSpan(this.root, at, 'error', this.traceError || 'A specialist failed.')
@@ -400,7 +400,7 @@ class HarnessTraceSessionImpl implements HarnessTraceSession {
             if (span) {
                 const model = stringAttr(event.model)
                 if (model) span.setAttribute('model.name', model)
-                setHarnessTokens(span, event.tokens)
+                setHarnessRollup(span, event.tokens)
                 if (traceContentOn()) {
                     const task = stringAttr(event.task)
                     if (task) span.setAttribute('content.input', capTraceText(task))
@@ -439,7 +439,7 @@ class HarnessTraceSessionImpl implements HarnessTraceSession {
         if (!span) return
         const model = stringAttr(event.model)
         if (model) span.setAttribute('model.name', model)
-        setHarnessTokens(span, event.tokens)
+        setHarnessRollup(span, event.tokens)
         this.addModels(span, event.calls, at)
         endHarnessSpan(span, at, 'ok')
     }
@@ -577,13 +577,27 @@ function specialistName(event: Record<string, unknown>): string {
     return stringAttr(event.name) || 'specialist'
 }
 
-function setHarnessTokens(span: TraceSpan, tokens: unknown): void {
-    if (!tokens || typeof tokens !== 'object') return
+function tokenPair(tokens: unknown): { input?: number; output?: number } {
+    if (!tokens || typeof tokens !== 'object') return {}
     const record = tokens as Record<string, unknown>
-    const input = tokenCount(record.prompt ?? record.input)
-    const output = tokenCount(record.completion ?? record.output)
+    return {
+        input: tokenCount(record.prompt ?? record.input),
+        output: tokenCount(record.completion ?? record.output)
+    }
+}
+
+/** Only model spans use these names. A collector can sum them across the trace. */
+function setHarnessTokens(span: TraceSpan, tokens: unknown): void {
+    const { input, output } = tokenPair(tokens)
     if (input !== undefined) span.setAttribute('tokens.input', input)
     if (output !== undefined) span.setAttribute('tokens.output', output)
+}
+
+/** Rollup of the model spans under this step or run. Not included in a sum of tokens.input. */
+function setHarnessRollup(span: TraceSpan, tokens: unknown): void {
+    const { input, output } = tokenPair(tokens)
+    if (input !== undefined) span.setAttribute('tokens.total.input', input)
+    if (output !== undefined) span.setAttribute('tokens.total.output', output)
 }
 
 function endHarnessSpan(span: TraceSpan | undefined, at: number, status: 'ok' | 'error' | 'pending', error?: string): void {

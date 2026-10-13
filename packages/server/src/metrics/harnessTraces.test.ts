@@ -165,9 +165,11 @@ describe('harness run spans', () => {
             'flow.id': 'flow-bakery',
             'flow.kind': 'chatflow',
             status: 'ok',
-            'tokens.input': 62,
-            'tokens.output': 16
+            'tokens.total.input': 62,
+            'tokens.total.output': 16
         })
+        expect(root?.attributes['tokens.input']).toBeUndefined()
+        expect(root?.attributes['tokens.output']).toBeUndefined()
         expect(root?.startTimeMs).toBe(T0)
         expect(root?.endTimeMs).toBe(T0 + 101)
 
@@ -179,8 +181,8 @@ describe('harness run spans', () => {
         const handoff = spans.find((span) => span.name === 'harness.handoff')
         expect(specialist?.attributes['specialist.name']).toBe('analyst')
         expect(specialist?.attributes).toMatchObject({
-            'tokens.input': 20,
-            'tokens.output': 5,
+            'tokens.total.input': 20,
+            'tokens.total.output': 5,
             'model.name': 'analyst-model',
             status: 'ok'
         })
@@ -188,8 +190,13 @@ describe('harness run spans', () => {
         expect(tool?.attributes).toMatchObject({ 'tool.name': 'mcp__analyst__query', 'tool.rows': 2, status: 'ok' })
         expect(tool?.startTimeMs).toBe(T0 + 50)
         expect(tool?.endTimeMs).toBe(T0 + 70)
-        expect(route?.attributes).toMatchObject({ 'model.name': 'prime', 'tokens.input': 12, 'tokens.output': 3, status: 'ok' })
-        expect(handoff?.attributes).toMatchObject({ 'model.name': 'prime', 'tokens.input': 30, 'tokens.output': 8, status: 'ok' })
+        expect(route?.attributes).toMatchObject({ 'model.name': 'prime', 'tokens.total.input': 12, 'tokens.total.output': 3, status: 'ok' })
+        expect(handoff?.attributes).toMatchObject({
+            'model.name': 'prime',
+            'tokens.total.input': 30,
+            'tokens.total.output': 8,
+            status: 'ok'
+        })
 
         const models = spans.filter((span) => span.name === 'model')
         expect(models).toHaveLength(3)
@@ -199,6 +206,16 @@ describe('harness run spans', () => {
             'tokens.input': 12,
             'tokens.output': 3
         })
+        const inputSum = spans.reduce((sum, span) => {
+            const value = span.attributes['tokens.input']
+            return sum + (typeof value === 'number' ? value : 0)
+        }, 0)
+        expect(inputSum).toBe(62)
+        for (const span of spans) {
+            if (span.name === 'model') continue
+            expect(span.attributes['tokens.input']).toBeUndefined()
+            expect(span.attributes['tokens.output']).toBeUndefined()
+        }
 
         expect(spans.filter((span) => span.name === 'harness.specialist').map((span) => span.attributes['specialist.name'])).toEqual(
             card.specialists
