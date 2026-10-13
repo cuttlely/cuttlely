@@ -383,20 +383,8 @@ describe('evaluation routes', () => {
             await assertColumns(dataSource, 'sqlite')
             await roundTrip(dataSource)
         } finally {
-            // Closing sqlite can still deliver the last statement after destroy resolves. That
-            // rejection has to happen inside this test, or the suite marks the test as late work.
-            const onClosed = (error) => {
-                const message = error instanceof Error ? error.message : String(error)
-                if (!message.includes('Database handle is closed')) throw error
-            }
-            process.on('unhandledRejection', onClosed)
-            try {
-                if (dataSource.isInitialized) await dataSource.destroy()
-                await rm(dir, { recursive: true, force: true })
-                await new Promise((resolve) => setImmediate(resolve))
-            } finally {
-                process.off('unhandledRejection', onClosed)
-            }
+            if (dataSource.isInitialized) await dataSource.destroy()
+            await rm(dir, { recursive: true, force: true })
         }
     })
 
