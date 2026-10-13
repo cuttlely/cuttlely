@@ -128,15 +128,24 @@ export const UNREADABLE_LIST = 'The environment list could not be read. Save it 
 
 export const listUnreadable = (status) => typeof status?.message === 'string' && status.message.includes('could not be read')
 
-// The full list a repair save sends. An environment-only save is refused while the file cannot be read.
-export const repairListBody = (rows, environment) => ({
-    environment: environment || null,
-    environments: (Array.isArray(rows) ? rows : []).map((row) => ({
+// The saved pair: both publish names match, and the names are dev and prod. A capitalized name is a different list.
+export const SAVED_REPAIR_ROWS = [
+    { name: 'dev', branch: 'main', server: 'dev' },
+    { name: 'prod', branch: 'main', server: 'prod' }
+]
+
+// The full list a repair save sends. This server's identity is required. Null is never sent.
+export const repairListBody = (rows, environment) => {
+    const environments = (Array.isArray(rows) ? rows : []).map((row) => ({
         name: String(row?.name || '').trim(),
         branch: String(row?.branch || '').trim(),
         server: String(row?.server || '').trim()
     }))
-})
+    if (!environment || !environments.some((item) => item.server === environment)) {
+        return { error: 'Pick which row is this server.' }
+    }
+    return { environment, environments }
+}
 
 const environmentLabel = (env) => {
     const name = String(env?.name || '')

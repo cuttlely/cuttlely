@@ -29,6 +29,7 @@ import {
     howItWorks,
     incomingLabel,
     incomingSummary,
+    listUnreadable,
     missingIntro,
     promotePath,
     promotedMessage,
@@ -130,6 +131,14 @@ export const PromoteListView = ({ list, status, loading, error, checking, onChec
         )
     }
     if (error) return <Alert severity='error'>{error}</Alert>
+    if (listUnreadable(status)) {
+        return (
+            <Alert severity='info' data-testid='promote-list-unreadable'>
+                The environment list could not be read. Save it again on the <RouterLink to='/version-history'>Version History</RouterLink>{' '}
+                page.
+            </Alert>
+        )
+    }
     if (list && !list.enabled) {
         const chain = list.environments || []
         const first = chain.length >= 2 && chain[0].server === list.target

@@ -118,6 +118,22 @@ describe('PromoteListView', () => {
         expect(promoteLoadError(prod)).toBe('New versions from Staging could not be loaded.')
         expect(promoteLoadError(null)).toBe('New versions from Dev could not be loaded.')
     })
+
+    test('an unreadable environment list asks to save it again on Version History', () => {
+        const html = render({
+            list: { enabled: false, connected: false, flows: [], environments: [], source: null, target: null },
+            status: {
+                environments: [],
+                environment: null,
+                state: 'stopped',
+                message: 'The environment list could not be read. Save it again.'
+            }
+        })
+        expect(html).toContain('The environment list could not be read. Save it again')
+        expect(html).toContain('href="/version-history"')
+        expect(html).toContain('Version History')
+        expect(html).not.toContain('Promoting works on a server that has a previous environment')
+    })
 })
 
 describe('PromoteDetailView', () => {

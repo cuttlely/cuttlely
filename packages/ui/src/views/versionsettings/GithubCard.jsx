@@ -51,6 +51,7 @@ import {
     environmentSwitchNote,
     listUnreadable,
     repairListBody,
+    SAVED_REPAIR_ROWS,
     UNREADABLE_LIST,
     ownCredentials,
     checkRepoName,
@@ -338,10 +339,8 @@ const GithubCard = ({ onStatus, initialStatus = null, initialStep = 'idle' }) =>
         }
     }
 
-    const [repairRows, setRepairRows] = useState([
-        { name: 'Dev', branch: 'main', server: 'dev' },
-        { name: 'Prod', branch: 'main', server: 'prod' }
-    ])
+    const [repairRows, setRepairRows] = useState(SAVED_REPAIR_ROWS)
+    const [repairHere, setRepairHere] = useState('')
     const unreadable = listUnreadable(status)
 
     const changeEnvironment = async (_event, value) => {
@@ -357,8 +356,12 @@ const GithubCard = ({ onStatus, initialStatus = null, initialStep = 'idle' }) =>
 
     const saveRepair = async () => {
         setError('')
+        const body = repairListBody(repairRows, repairHere)
+        if (body.error) {
+            setError(body.error)
+            return
+        }
         try {
-            const body = repairListBody(repairRows, null)
             const res = await flowVersionsApi.setEnvironment(body.environment, body.environments)
             setStatus(res.data)
         } catch (err) {
@@ -729,10 +732,28 @@ const GithubCard = ({ onStatus, initialStatus = null, initialStep = 'idle' }) =>
                                             >
                                                 Add an environment
                                             </Button>
+                                            <ToggleButtonGroup
+                                                exclusive
+                                                size='small'
+                                                value={repairHere}
+                                                onChange={(_event, value) => {
+                                                    if (value) setRepairHere(value)
+                                                }}
+                                                aria-label='Which row is this server'
+                                            >
+                                                {repairRows
+                                                    .filter((row) => row.server)
+                                                    .map((row) => (
+                                                        <ToggleButton key={row.server} value={row.server}>
+                                                            {row.name}
+                                                        </ToggleButton>
+                                                    ))}
+                                            </ToggleButtonGroup>
                                             <Button
                                                 size='small'
                                                 variant='contained'
                                                 data-testid='save-environment-list'
+                                                disabled={!repairHere}
                                                 onClick={saveRepair}
                                             >
                                                 Save the list

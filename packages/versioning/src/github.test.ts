@@ -1437,6 +1437,35 @@ describe('Dev or Prod label', () => {
         expect(refOf(versionsDir(), 'refs/versions/incoming')).toBe(head)
     })
 
+    test('the Prod repair body restores the saved pair and does not copy to main', async () => {
+        const body = {
+            environment: 'prod',
+            environments: [
+                { name: 'dev', branch: 'main', server: 'dev' },
+                { name: 'prod', branch: 'main', server: 'prod' }
+            ]
+        }
+        sync = makeSync({ checkEveryMs: 60_000, retryMs: [60_000] })
+        setGithubForTests(sync)
+        await save('One')
+        await sync.setEnvironment('prod')
+        await sync.connect({ repo: `file://${bare}`, token: TOKEN }, WS)
+        expect(bareMain(bare)).toBeNull()
+        const role = path.join(versionsDir(), '.git', 'versions-environment.json')
+        fs.writeFileSync(role, '{')
+        expect((await sync.status()).message).toContain('could not be read')
+        const pushes = gitCalls.filter((call) => call.args[0] === 'push' && call.args.some((arg) => arg.includes('refs/heads/main'))).length
+        const repaired = await sync.setEnvironment(body.environment, body.environments)
+        expect(repaired.environment).toBe('prod')
+        expect(repaired.role).toBe('read')
+        expect(repaired.message).not.toContain('could not be read')
+        expect(JSON.parse(fs.readFileSync(role, 'utf8'))).toEqual({ environment: 'prod' })
+        expect(bareMain(bare)).toBeNull()
+        expect(gitCalls.filter((call) => call.args[0] === 'push' && call.args.some((arg) => arg.includes('refs/heads/main'))).length).toBe(
+            pushes
+        )
+    })
+
     test('an environment-only save does not repair an unreadable list or publish a note', async () => {
         const chain = [
             { name: 'Dev', branch: 'main', server: 'dev' },

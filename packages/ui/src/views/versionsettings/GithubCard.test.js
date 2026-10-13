@@ -6,6 +6,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { MemoryRouter } from 'react-router-dom'
 import { ThemeProvider, createTheme } from '@mui/material/styles'
 
+import { repairListBody, SAVED_REPAIR_ROWS } from '@/utils/githubSync'
 import GithubCard, { repoPickAfterLoad } from './GithubCard'
 
 const wrap = (status, extra) =>
@@ -123,11 +124,36 @@ describe('GithubCard environment names', () => {
         )
         expect(html).toContain('The environment list could not be read. Save it again.')
         expect(html).toContain('data-testid="environment-repair"')
+        expect(html).toContain('Which row is this server')
         expect(html).toContain('Save the list')
-        expect(html).toContain('value="Dev"')
-        expect(html).toContain('value="Prod"')
+        expect(html).toContain('disabled')
+        expect(html).toContain('value="dev"')
+        expect(html).toContain('value="prod"')
+        expect(html).not.toContain('value="Dev"')
         expect(html).not.toContain('Dev copies its published versions to GitHub')
         expect(html).not.toContain('>Not set<')
+        expect(repairListBody(SAVED_REPAIR_ROWS, 'prod')).toEqual({
+            environment: 'prod',
+            environments: [
+                { name: 'dev', branch: 'main', server: 'dev' },
+                { name: 'prod', branch: 'main', server: 'prod' }
+            ]
+        })
+    })
+
+    test('a saved pair repair and a three-environment repair include the chosen server', () => {
+        expect(repairListBody(SAVED_REPAIR_ROWS, 'dev')).toEqual({
+            environment: 'dev',
+            environments: SAVED_REPAIR_ROWS
+        })
+        const three = [
+            { name: 'Dev', branch: 'main', server: 'dev' },
+            { name: 'Staging', branch: 'staging', server: 'staging' },
+            { name: 'Prod', branch: 'prod', server: 'prod' }
+        ]
+        expect(repairListBody(three, 'prod')).toEqual({ environment: 'prod', environments: three })
+        expect(repairListBody(three, 'staging').environment).toBe('staging')
+        expect(repairListBody(three, null).error).toBe('Pick which row is this server.')
     })
 
     test('loadRepos leaves a middle environment with nothing picked', () => {

@@ -4,6 +4,7 @@ import {
     environmentHint,
     environmentSwitchNote,
     repairListBody,
+    SAVED_REPAIR_ROWS,
     filterRepos,
     ownCredentials,
     pollMs,
@@ -134,19 +135,12 @@ describe('githubSync helpers', () => {
         expect(environmentSwitchNote({ environment: 'staging', environments: chain })).toContain('Staging reads Dev')
         expect(environmentSwitchNote({ environment: 'staging', environments: chain })).toContain('Prod reads Staging')
         expect(environmentSwitchNote({ environment: 'dev', environments: chain })).toContain('Staging reads Dev')
-        expect(
-            repairListBody(
-                [
-                    { name: 'Dev', branch: 'main', server: 'dev' },
-                    { name: ' Prod ', branch: ' main ', server: 'prod' }
-                ],
-                null
-            )
-        ).toEqual({
-            environment: null,
+        expect(repairListBody(SAVED_REPAIR_ROWS, null)).toEqual({ error: 'Pick which row is this server.' })
+        expect(repairListBody(SAVED_REPAIR_ROWS, 'prod')).toEqual({
+            environment: 'prod',
             environments: [
-                { name: 'Dev', branch: 'main', server: 'dev' },
-                { name: 'Prod', branch: 'main', server: 'prod' }
+                { name: 'dev', branch: 'main', server: 'dev' },
+                { name: 'prod', branch: 'main', server: 'prod' }
             ]
         })
         // No Git words on screen.
