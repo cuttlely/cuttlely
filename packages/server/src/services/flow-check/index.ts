@@ -555,6 +555,7 @@ export async function startCheck(
     // and do not stop a check this request did not create.
     if (closed()) throw new AppError(StatusCodes.BAD_REQUEST, 'The check was cancelled before it started.')
     if (fromDataset) {
+        // A harness accepts datasetId. This refusal is only a form, webhook, or schedule start.
         const refusal = datasetStartRefusal(flow.type, [flow.flowData, draft])
         if (refusal) throw new AppError(StatusCodes.BAD_REQUEST, refusal)
     }

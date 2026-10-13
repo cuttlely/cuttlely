@@ -60,8 +60,9 @@ describe('startUnavailable', () => {
 })
 
 describe('datasetStartRefusal', () => {
-    test('a chatflow, and an agentflow that starts with a chat message, can use a dataset', () => {
+    test('a chatflow, a harness, and an agentflow that starts with a chat message, can use a dataset', () => {
         expect(datasetStartRefusal('CHATFLOW', [agentflow('formInput')])).toBeNull()
+        expect(datasetStartRefusal('HARNESS', ['{"nodes":[]}', null])).toBeNull()
         expect(datasetStartRefusal('AGENTFLOW', [agentflow('chatInput'), agentflow('chatInput')])).toBeNull()
     })
 

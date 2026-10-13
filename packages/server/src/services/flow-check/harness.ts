@@ -2,8 +2,7 @@
 // Questions are the full user turns stored for this harness, newest distinct first, with the same caps
 // as chat questions. Secrets are redacted the same way as a run preview, then the text is cut at 2,000
 // characters. The short preview on the Runs list is not replayed.
-// A dataset loader is not on this server yet. `questionSources.dataset` is the seam: when it is set, a
-// request that sends `datasetId` replays those rows on Live and the draft. Until then that request is refused.
+// A request that sends datasetId is resolved before this module runs. A harness accepts it.
 import { randomUUID } from 'crypto'
 import { StatusCodes } from 'http-status-codes'
 import { AppError } from '../../errors/appError'
@@ -16,22 +15,6 @@ export interface UserTurn {
     content?: string
     createdAt?: string
 }
-
-export interface DatasetRow {
-    text: string
-}
-
-export interface QuestionSource {
-    dataset:
-        | null
-        | ((
-              flow: { id: string; name?: string | null; workspaceId?: string | null },
-              body: Record<string, unknown>
-          ) => Promise<DatasetRow[] | null>)
-}
-
-// Unset until a dataset check is on main. A harness request that sends datasetId uses this when it is set.
-export const questionSources: QuestionSource = { dataset: null }
 
 // Tests stand in for the session transcript. Production reads the harness session messages.
 export const harnessCheckHooks: {
@@ -141,41 +124,10 @@ function cleanQuestions(input: unknown, max: number, allowEmpty: boolean): strin
     return unique
 }
 
-function datasetRequested(body: { datasetId?: unknown }): boolean {
-    return body?.datasetId !== undefined && body.datasetId !== null && body.datasetId !== ''
-}
-
-// Dataset rows stay in the order the loader returns. Empty questions and questions over the cap are skipped.
-// This does not apply the newest-distinct rule: a dataset can ask the same wording twice.
-async function questionsFromDataset(
-    flow: { id: string; name?: string | null; workspaceId?: string | null },
-    body: Record<string, unknown>
-): Promise<string[]> {
-    if (body.questions !== undefined || body.count !== undefined) {
-        throw new AppError(StatusCodes.BAD_REQUEST, 'Send a datasetId on its own. Do not send questions or count with it.')
-    }
-    if (!questionSources.dataset) {
-        throw new AppError(StatusCodes.BAD_REQUEST, 'A dataset check is not available on this server yet.')
-    }
-    const rows = (await questionSources.dataset(flow, body)) || []
-    const questions: string[] = []
-    for (const row of rows) {
-        const text = String(row?.text || '').trim()
-        if (!text || text.length > MAX_QUESTION_CHARS) continue
-        questions.push(text)
-        if (questions.length >= COMPARE_COUNT_MAX) break
-    }
-    if (!questions.length) throw new AppError(StatusCodes.BAD_REQUEST, 'That dataset has no question the check can ask.')
-    return questions
-}
-
 export async function harnessQuestionsToRun(
     flow: { id: string; name?: string | null; workspaceId?: string | null },
-    body: { questions?: unknown; count?: unknown; datasetId?: unknown }
+    body: { questions?: unknown; count?: unknown }
 ): Promise<{ questions: string[]; selection: { requested: number; available: number; used: number; truncated: boolean } | null }> {
-    if (datasetRequested(body)) {
-        return { questions: await questionsFromDataset(flow, body as Record<string, unknown>), selection: null }
-    }
     const parsed = parseCompareCount(body?.count)
     if (!parsed.ok) throw new AppError(StatusCodes.BAD_REQUEST, parsed.message)
     if (parsed.count === null) return { questions: cleanQuestions(body?.questions, 10, false), selection: null }

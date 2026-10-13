@@ -61,7 +61,7 @@ jest.mock('@cuttlely/components', () => ({ EvaluationRunner: { metrics: new Map(
 jest.mock('../../utils/logger', () => ({ __esModule: true, default: { error: jest.fn(), debug: jest.fn() } }))
 
 import { checks, getCheck, getCheckSetup, replayHooks, startCheck, stopCheck } from './index'
-import { harnessCheckHooks, harnessReplayHooks, questionSources, questionsFromUserTurns, questionTextFromTurn } from './harness'
+import { harnessCheckHooks, harnessReplayHooks, questionsFromUserTurns, questionTextFromTurn } from './harness'
 
 const canvas = (word: string, extra: any[] = []) =>
     JSON.stringify({
@@ -111,7 +111,6 @@ beforeEach(() => {
     states.set('flow-1', { chatflowId: 'flow-1', draftFlowData: DRAFT, publishInstantly: false })
     harnessCheckHooks.listUserTurns = (name) => (name === 'bakery-team' ? turns : [])
     harnessReplayHooks.run = null
-    questionSources.dataset = null
     replayHooks.run = async ({ flowData }) => {
         const word = JSON.parse(flowData).nodes[0].data.inputs.instructions
         return { text: word, metrics: [{ totalTokens: 8 }] }
@@ -122,7 +121,6 @@ beforeEach(() => {
 afterEach(() => {
     harnessCheckHooks.listUserTurns = null
     harnessReplayHooks.run = null
-    questionSources.dataset = null
     replayHooks.run = null
     delete process.env.CUTTLELY_CHECK_CONCURRENCY
 })
@@ -228,6 +226,10 @@ describe('harness publish check', () => {
     test('dataset rows replay on both rosters, and a missing dataset starts nothing', async () => {
         turns.push({ content: 'From a real run', createdAt: '2026-10-08T10:00:00.000Z' })
         await expect(startCheck(flow() as any, { datasetId: 'missing' }, 'http://x')).rejects.toMatchObject({ statusCode: 404 })
+        await expect(startCheck(flow() as any, { datasetId: 'ds-1', count: 4 }, 'http://x')).rejects.toMatchObject({
+            statusCode: 400,
+            message: 'Send a datasetId on its own. Do not send questions or count with it.'
+        })
         expect(checks.size).toBe(0)
         datasets.set('ds-1', { id: 'ds-1', workspaceId: 'team-a' })
         datasetRows.push(
