@@ -6,6 +6,8 @@ The docs are written in [`docs/`](../docs) and nowhere else. Before every build,
 
 Content screenshots on the home page and in the docs open in a full-screen viewer (zoom, pan, keyboard and touch). With JavaScript off, the same images are links to the full image file. Logos, icons and the mascot are not part of that.
 
+Home page videos keep a silent looping preview, or the poster when autoplay is off, with a centred play button over the hero and each product tile. The button starts that video from the beginning with sound. The hero plays in place. A tile opens its narrated video. With JavaScript off, the tile's "Watch with sound" link still opens the file.
+
 ## Run it
 
 Node 22.12 or newer. The website has its own dependencies and lockfile, separate from the pnpm workspace.

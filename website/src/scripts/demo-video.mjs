@@ -1,8 +1,21 @@
 // The home page videos: the narrated demo and the short loops on the product tiles. Loaded from the footer script, a
-// same-origin module, so the site CSP needs no new hash. The controls always work.
+// same-origin module, so the site CSP needs no new hash. A centred play button starts each preview from the beginning
+// with sound. The loading queue below is unchanged: a tap seeks, it does not call load() again.
 
 /** How many loop downloads may run at once. More than this and they fight for the connection. */
 const MAX_LOADING = 2
+
+/** Full volume. A preview that has been muted should not stay at 0 when the visitor asks for sound. */
+const PLAY_VOLUME = 1
+
+/** Heroes the visitor is watching with sound, so a click on the picture does not jump back to the start. */
+const sounding = new WeakSet()
+
+/** Previews the play observer currently has on screen. */
+const onScreen = new WeakSet()
+
+const heroBound = new WeakSet()
+const previewBound = new WeakSet()
 
 /** Narrow screens, navigator.connection.saveData and reduced motion get the poster and play only when tapped. */
 export function canAutoplay(win = window) {
@@ -116,11 +129,13 @@ function watchLoops(videos, win, doc) {
                 const video = entry.target
                 if (entry.isIntersecting) {
                     wantsPlay.add(video)
+                    onScreen.add(video)
                     // Already downloading or ready: play does not open another fetch.
                     if (started.has(video)) video.play().catch(() => {})
                     else enqueue(video)
                 } else {
                     wantsPlay.delete(video)
+                    onScreen.delete(video)
                     video.pause()
                 }
             }
@@ -273,9 +288,118 @@ function watchLoops(videos, win, doc) {
     })
 }
 
+function nextPlayButton(video) {
+    let sibling = video?.nextElementSibling
+    while (sibling) {
+        if (sibling.dataset && 'playWithSound' in sibling.dataset) return sibling
+        if (sibling.dataset && ('demoVideo' in sibling.dataset || 'loopVideo' in sibling.dataset)) return null
+        sibling = sibling.nextElementSibling
+    }
+    return null
+}
+
+function previousLoop(node) {
+    let sibling = node?.previousElementSibling
+    while (sibling) {
+        if (sibling.dataset && 'loopVideo' in sibling.dataset) return sibling
+        sibling = sibling.previousElementSibling
+    }
+    return null
+}
+
+/**
+ * Seek to the start, then play with sound. load() is not used: it would abort the preview download and
+ * drop the bytes that are already buffered. Pausing first matters once the preview has moved, because a
+ * play() issued while the element is still playing can keep the old position.
+ */
+function playFromStart(video) {
+    video.loop = false
+    video.defaultMuted = false
+    video.muted = false
+    video.controls = true
+    try {
+        video.volume = PLAY_VOLUME
+    } catch {
+        // A few browsers only expose the hardware volume.
+    }
+    let time = 0
+    try {
+        time = video.currentTime || 0
+    } catch {
+        time = 0
+    }
+    if (time > 0.05) {
+        try {
+            video.pause()
+        } catch {
+            // Already idle.
+        }
+    }
+    try {
+        video.currentTime = 0
+    } catch {
+        // HAVE_NOTHING cannot seek. Nothing has played, so playback still starts at the beginning.
+    }
+    const pending = video.play?.()
+    if (pending && typeof pending.catch === 'function') pending.catch(() => {})
+    return pending
+}
+
+function bindHeroPlay(video, win) {
+    if (!video?.dataset || !('demoVideo' in video.dataset) || heroBound.has(video)) return
+    const button = nextPlayButton(video)
+    if (!button) return
+    heroBound.add(video)
+    // The silent preview keeps the button. Native controls come back with the sound.
+    video.controls = false
+    const start = () => {
+        sounding.add(video)
+        button.hidden = true
+        const pending = playFromStart(video)
+        if (pending && typeof pending.then === 'function') {
+            pending.catch(() => {
+                if (!sounding.has(video)) return
+                sounding.delete(video)
+                button.hidden = false
+                video.controls = false
+            })
+        }
+    }
+    button.addEventListener('click', start)
+    video.addEventListener('click', () => {
+        if (sounding.has(video)) return
+        start()
+    })
+    video.addEventListener('ended', () => {
+        if (!sounding.has(video)) return
+        sounding.delete(video)
+        try {
+            video.pause()
+        } catch {
+            // Already idle.
+        }
+        try {
+            video.currentTime = 0
+        } catch {
+            // Leave the playhead. The button still returns.
+        }
+        video.defaultMuted = true
+        video.muted = true
+        video.loop = true
+        video.controls = false
+        button.hidden = false
+        // A hero that has scrolled away stays paused. The play observer starts it again on the way back.
+        if (canAutoplay(win) && onScreen.has(video)) {
+            const pending = video.play?.()
+            if (pending && typeof pending.catch === 'function') pending.catch(() => {})
+        }
+    })
+}
+
 /** Plays the demo video and the tile loops while they are on screen, when autoplay is fine for this visitor. */
 export function initDemoVideo(doc = document, win = window) {
     const videos = [...doc.querySelectorAll('[data-demo-video], [data-loop-video]')]
+    for (const video of videos) bindHeroPlay(video, win)
     if (!videos.length || !('IntersectionObserver' in win) || !canAutoplay(win)) {
         // Nothing starts on its own, so a tap on the narrated demo should play it with its sound.
         for (const video of videos) if ('demoVideo' in (video.dataset ?? {})) video.muted = false
@@ -302,11 +426,18 @@ export function initVideoDialogs(doc = document) {
         const video = dialog?.querySelector('video')
         if (!video || typeof dialog.showModal !== 'function') continue
         count++
-        link.addEventListener('click', (event) => {
-            event.preventDefault()
+        const open = (event) => {
+            event?.preventDefault?.()
             dialog.showModal()
-            video.play().catch(() => {})
-        })
+            // Every open starts at the beginning. Closing only pauses, so the next open has to seek.
+            playFromStart(video)
+        }
+        link.addEventListener('click', open)
+        const preview = previousLoop(link)
+        if (preview && !previewBound.has(preview)) {
+            previewBound.add(preview)
+            preview.addEventListener('click', open)
+        }
         dialog.addEventListener('close', () => video.pause())
         // A click on the backdrop lands on the dialog itself.
         dialog.addEventListener('click', (event) => {

@@ -1,5 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 import { canAutoplay, initDemoVideo, initVideoDialogs } from '../src/scripts/demo-video.mjs'
 
 function fakes({ reduced = false, small = false, saveData = false, videos = 1, hasObserver = true } = {}) {
@@ -792,6 +793,224 @@ test('a Watch with sound link opens its dialog and plays; closing pauses', () =>
     handlers.click({ target: {} })
     handlers.click({ target: dialog })
     assert.deepEqual(calls, ['open', 'play', 'close', 'pause'])
+})
+
+function control(dataset) {
+    const listeners = {}
+    return {
+        dataset,
+        hidden: false,
+        addEventListener(type, fn) {
+            ;(listeners[type] ||= []).push(fn)
+        },
+        click() {
+            for (const fn of listeners.click || []) fn({ preventDefault() {}, target: this })
+        }
+    }
+}
+
+function shellVideo(dataset) {
+    const listeners = {}
+    const video = {
+        dataset,
+        muted: true,
+        defaultMuted: true,
+        loop: true,
+        controls: true,
+        volume: 0,
+        currentTime: 0,
+        paused: true,
+        preload: 'none',
+        readyState: 0,
+        networkState: 0,
+        poster: '/poster.webp',
+        addEventListener(type, fn) {
+            ;(listeners[type] ||= []).push(fn)
+        },
+        removeEventListener() {},
+        play() {
+            video.paused = false
+            video.calls.push('play')
+            return Promise.resolve()
+        },
+        pause() {
+            video.paused = true
+            video.calls.push('pause')
+        },
+        load() {
+            video.calls.push('load')
+        },
+        click() {
+            for (const fn of listeners.click || []) fn({ preventDefault() {}, target: video })
+        },
+        emit(type) {
+            for (const fn of [...(listeners[type] || [])]) fn()
+        },
+        calls: []
+    }
+    return video
+}
+
+test('the home page puts a play button on the hero and on every tile loop', () => {
+    const src = readFileSync(new URL('../src/pages/index.astro', import.meta.url), 'utf8')
+    assert.equal((src.match(/slug: '/g) || []).length, 6)
+    assert.match(src, /<button type="button" class="cl-play-overlay" data-play-with-sound aria-label="Play the demo with sound">/)
+    const tiles = src.slice(src.indexOf('class="cl-tile-media"'), src.indexOf('class="cl-tile-link"'))
+    assert.match(tiles, /data-loop-video/)
+    assert.match(tiles, /<button/)
+    assert.match(tiles, /type="button"/)
+    assert.match(tiles, /data-play-with-sound/)
+    assert.match(tiles, /data-video-dialog-open=\{`video-\$\{tool\.video\.slug\}`\}/)
+    assert.match(tiles, /aria-label=\{`Play \$\{tool\.title\} with sound`\}/)
+})
+
+test('reduced motion, a narrow screen and Save-Data keep the poster and the play button', () => {
+    for (const options of [{ reduced: true }, { small: true }, { saveData: true }]) {
+        const video = shellVideo({ demoVideo: '' })
+        const button = control({ playWithSound: '' })
+        video.nextElementSibling = button
+        const doc = { querySelectorAll: () => [video], addEventListener() {} }
+        const win = {
+            matchMedia: (query) => ({
+                matches: (options.reduced && query.includes('reduce')) || (options.small && query.includes('max-width'))
+            }),
+            navigator: { connection: { saveData: !!options.saveData } },
+            addEventListener() {}
+        }
+        assert.equal(initDemoVideo(doc, win), false, JSON.stringify(options))
+        assert.equal(button.hidden, false)
+        assert.equal(video.poster, '/poster.webp')
+        assert.equal(video.preload, 'none')
+        assert.equal(video.paused, true)
+        assert.deepEqual(video.calls, [])
+    }
+})
+
+test('the hero play button and the preview start at 0 with sound and do not loop', () => {
+    const video = shellVideo({ demoVideo: '' })
+    const button = control({ playWithSound: '' })
+    video.nextElementSibling = button
+    video.currentTime = 4.2
+    const doc = { querySelectorAll: () => [video], addEventListener() {} }
+    const win = {
+        matchMedia: () => ({ matches: true }),
+        navigator: { connection: { saveData: false } },
+        addEventListener() {}
+    }
+    assert.equal(initDemoVideo(doc, win), false)
+    button.click()
+    assert.equal(video.currentTime, 0)
+    assert.equal(video.muted, false)
+    assert.equal(video.loop, false)
+    assert.equal(video.controls, true)
+    assert.equal(video.volume, 1)
+    assert.equal(button.hidden, true)
+    assert.equal(video.calls.includes('load'), false)
+    assert.equal(video.paused, false)
+    video.currentTime = 9
+    video.calls.length = 0
+    video.click()
+    assert.equal(video.currentTime, 9, 'a click during sound playback leaves the playhead')
+    video.emit('ended')
+    assert.equal(button.hidden, false)
+    assert.equal(video.currentTime, 0)
+    assert.equal(video.muted, true)
+    assert.equal(video.loop, true)
+    assert.equal(video.controls, false)
+    assert.equal(video.paused, true)
+    assert.equal(video.calls.includes('play'), false)
+})
+
+test('after the hero ends on screen the silent preview returns with the play button', () => {
+    const video = shellVideo({ demoVideo: '' })
+    const button = control({ playWithSound: '' })
+    video.nextElementSibling = button
+    const observers = []
+    const doc = { hidden: false, visibilityState: 'visible', querySelectorAll: () => [video], addEventListener() {} }
+    const win = {
+        matchMedia: () => ({ matches: false }),
+        navigator: { connection: {} },
+        addEventListener() {},
+        IntersectionObserver: class {
+            constructor(cb, options) {
+                this.cb = cb
+                this.options = options || {}
+                observers.push(this)
+            }
+            observe() {}
+        }
+    }
+    assert.equal(initDemoVideo(doc, win), true)
+    const playObserver = observers.find((observer) => observer.options.threshold === 0.5)
+    playObserver.cb([{ target: video, isIntersecting: true }])
+    const loadsBefore = video.calls.filter((call) => call === 'load').length
+    video.currentTime = 3.4
+    video.muted = true
+    video.loop = true
+    button.click()
+    assert.equal(video.currentTime, 0)
+    assert.equal(video.muted, false)
+    assert.equal(video.loop, false)
+    assert.equal(video.volume, 1)
+    assert.equal(button.hidden, true)
+    assert.equal(video.calls.filter((call) => call === 'load').length, loadsBefore)
+    video.emit('ended')
+    assert.equal(button.hidden, false)
+    assert.equal(video.muted, true)
+    assert.equal(video.loop, true)
+    assert.equal(video.controls, false)
+    assert.equal(video.currentTime, 0)
+    assert.equal(video.paused, false)
+})
+
+test('a tile dialog starts at 0 with sound every time it opens, and closing pauses', () => {
+    const calls = []
+    const handlers = {}
+    const full = {
+        currentTime: 6.5,
+        muted: true,
+        loop: true,
+        volume: 0,
+        controls: true,
+        preload: 'none',
+        play: () => (calls.push('play'), Promise.resolve()),
+        pause: () => calls.push('pause'),
+        load: () => calls.push('load')
+    }
+    const dialog = {
+        querySelector: () => full,
+        showModal: () => calls.push('open'),
+        close: () => (calls.push('close'), handlers.close()),
+        addEventListener: (type, fn) => (handlers[type] = fn)
+    }
+    const loop = shellVideo({ loopVideo: '' })
+    const button = control({ playWithSound: '', videoDialogOpen: 'v1' })
+    const link = control({ videoDialogOpen: 'v1' })
+    loop.nextElementSibling = button
+    button.previousElementSibling = loop
+    link.previousElementSibling = button
+    const doc = {
+        querySelectorAll: () => [button, link],
+        getElementById: (id) => (id === 'v1' ? dialog : null)
+    }
+    assert.equal(initVideoDialogs(doc), 2)
+    button.click()
+    assert.equal(full.currentTime, 0)
+    assert.equal(full.muted, false)
+    assert.equal(full.loop, false)
+    assert.equal(full.volume, 1)
+    assert.equal(full.controls, true)
+    full.currentTime = 4
+    handlers.click({ target: dialog })
+    assert.deepEqual(calls, ['open', 'pause', 'play', 'close', 'pause'])
+    link.click()
+    assert.equal(full.currentTime, 0)
+    assert.equal(full.muted, false)
+    assert.equal(full.loop, false)
+    full.currentTime = 2
+    loop.click()
+    assert.equal(full.currentTime, 0)
+    assert.equal(calls.filter((call) => call === 'load').length, 0)
 })
 
 test('the dialog video prefetches on pointerenter, focus or pointerdown and does not play', () => {

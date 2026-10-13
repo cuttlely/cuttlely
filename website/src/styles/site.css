@@ -404,12 +404,54 @@
     box-shadow: 0 40px 80px -40px var(--cuttlely-glow), 0 20px 40px -30px rgba(12, 15, 38, 0.35);
     overflow: hidden;
 }
+.cl-video-stage {
+    position: relative;
+}
 .cl-demo-video {
     display: block;
     width: 100%;
     height: auto;
     aspect-ratio: 1280 / 720;
     background: var(--cuttlely-surface-2);
+}
+.cl-play-overlay {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    z-index: 2;
+    transform: translate(-50%, -50%);
+    display: grid;
+    place-items: center;
+    width: 4.75rem;
+    height: 4.75rem;
+    padding: 0;
+    border: 0;
+    border-radius: 50%;
+    background: var(--cuttlely-fill);
+    color: var(--cuttlely-fill-label);
+    cursor: pointer;
+    box-shadow: 0 16px 40px -12px rgba(12, 15, 38, 0.65), 0 0 0 8px rgba(139, 92, 246, 0.28);
+}
+@media (min-width: 40rem) {
+    .cl-play-overlay {
+        width: 5.75rem;
+        height: 5.75rem;
+    }
+}
+.cl-play-overlay[hidden] {
+    display: none !important;
+}
+.cl-play-overlay:hover {
+    background: var(--cuttlely-fill-hover);
+    color: var(--cuttlely-fill-label);
+}
+.cl-play-overlay:focus-visible {
+    outline: 3px solid #ffffff;
+    outline-offset: 4px;
+}
+.cl-video-stage:not(:has(.cl-play-overlay[hidden])) .cl-demo-video,
+.cl-tile-media:not(:has(.cl-play-overlay[hidden])) .cl-tile-video {
+    cursor: pointer;
 }
 .cl-demo-caption {
     padding: 0.7rem 1rem;
@@ -844,6 +886,7 @@
 }
 .cl-tile-play {
     position: absolute;
+    z-index: 3;
     right: 0.6rem;
     bottom: 0.6rem;
     display: inline-flex;

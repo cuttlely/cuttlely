@@ -722,3 +722,394 @@ initDemoVideo()
         await new Promise((resolve) => server.close(resolve))
     }
 })
+
+const posterPng = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64')
+
+function connectChrome(port, debugPort) {
+    return (async () => {
+        const deadline = Date.now() + 8000
+        let page = null
+        while (Date.now() < deadline) {
+            try {
+                const targets = await fetch(`http://127.0.0.1:${debugPort}/json/list`).then((response) => response.json())
+                page = targets.find((target) => target.type === 'page' && String(target.url).includes(String(port)))
+                if (page) break
+            } catch {
+                // Chrome is still starting.
+            }
+            await new Promise((resolve) => setTimeout(resolve, 50))
+        }
+        assert.ok(page, 'Chrome did not open the page')
+        const ws = new WebSocket(page.webSocketDebuggerUrl)
+        const pending = new Map()
+        let next = 1
+        const send = (method, params) => {
+            const id = next++
+            ws.send(JSON.stringify({ id, method, params }))
+            return new Promise((resolve, reject) => pending.set(id, { resolve, reject }))
+        }
+        ws.addEventListener('message', (event) => {
+            const message = JSON.parse(event.data)
+            const waiter = pending.get(message.id)
+            if (!waiter) return
+            pending.delete(message.id)
+            if (message.error) waiter.reject(new Error(message.error.message))
+            else waiter.resolve(message.result)
+        })
+        await new Promise((resolve, reject) => {
+            ws.addEventListener('open', resolve, { once: true })
+            ws.addEventListener('error', reject, { once: true })
+        })
+        const evalValue = async (expression) => {
+            const result = await send('Runtime.evaluate', { expression, returnByValue: true, awaitPromise: true })
+            if (result.exceptionDetails) {
+                throw new Error(result.exceptionDetails.text || 'evaluate failed')
+            }
+            return result.result.value
+        }
+        return {
+            send,
+            evalValue,
+            close: () => ws.close()
+        }
+    })()
+}
+
+test(
+    'reduced motion keeps a play button and the poster on the hero and every tile',
+    { skip: chrome ? false : 'no Chrome binary' },
+    async () => {
+        const requested = []
+        const tiles = [1, 2, 3, 4, 5, 6]
+            .map(
+                (i) => `<div class="stage">
+<video data-loop-video muted loop playsinline preload="none" poster="/poster.webp" src="/media/${i}.mp4"></video>
+<button type="button" class="cl-play-overlay" data-play-with-sound aria-label="Play tile ${i} with sound">Play</button>
+</div>`
+            )
+            .join('')
+        const server = createServer((req, res) => {
+            const url = req.url.split('?')[0]
+            requested.push(url)
+            if (url === '/demo-video.mjs') {
+                res.setHeader('content-type', 'text/javascript')
+                res.end(readFileSync(path.join(root, 'src/scripts/demo-video.mjs')))
+                return
+            }
+            if (url === '/poster.webp') {
+                res.setHeader('content-type', 'image/png')
+                res.end(posterPng)
+                return
+            }
+            if (url === '/') {
+                res.setHeader('content-type', 'text/html')
+                res.end(`<!doctype html><meta charset="utf-8">
+<style>
+  body { margin: 0; }
+  .stage { position: relative; width: 320px; }
+  video { display: block; width: 320px; height: 80px; background: #221a44; }
+  .cl-play-overlay { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 5.75rem; height: 5.75rem; }
+</style>
+<div class="stage">
+<video data-demo-video muted loop playsinline preload="none" poster="/poster.webp" src="/media/0.mp4"></video>
+<button type="button" class="cl-play-overlay" data-play-with-sound aria-label="Play the demo with sound">Play</button>
+</div>
+${tiles}
+<script type="module">
+import { initDemoVideo } from '/demo-video.mjs'
+window.__start = () => {
+  document.body.dataset.started = initDemoVideo() ? 'yes' : 'no'
+}
+</script>`)
+                return
+            }
+            res.statusCode = 404
+            res.end()
+        })
+        const port = await listen(server)
+        const debugPort = await new Promise((resolve) => {
+            const probe = createServer()
+            probe.listen(0, '127.0.0.1', () => {
+                const { port: free } = probe.address()
+                probe.close(() => resolve(free))
+            })
+        })
+        const dir = mkdtempSync(path.join(tmpdir(), 'play-reduced-'))
+        const browser = spawn(
+            chrome,
+            [
+                '--headless=new',
+                '--no-sandbox',
+                '--disable-gpu',
+                '--disable-dev-shm-usage',
+                '--remote-allow-origins=*',
+                `--remote-debugging-port=${debugPort}`,
+                '--window-size=1280,900',
+                `--user-data-dir=${dir}`,
+                `http://127.0.0.1:${port}/`
+            ],
+            { stdio: 'ignore' }
+        )
+        try {
+            const { send, evalValue, close } = await connectChrome(port, debugPort)
+            const readyDeadline = Date.now() + 8000
+            let ready = false
+            while (Date.now() < readyDeadline) {
+                ready = await evalValue(`typeof window.__start === 'function'`)
+                if (ready) break
+                await new Promise((resolve) => setTimeout(resolve, 50))
+            }
+            assert.equal(ready, true)
+            await send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: 'reduce' }] })
+            const reduced = await evalValue(`matchMedia('(prefers-reduced-motion: reduce)').matches`)
+            assert.equal(reduced, true)
+            await evalValue('window.__start()')
+            const state = await evalValue(`(() => {
+            const buttons = [...document.querySelectorAll('[data-play-with-sound]')]
+            const videos = [...document.querySelectorAll('video')]
+            return {
+                started: document.body.dataset.started,
+                buttons: buttons.map((button) => ({
+                    tag: button.tagName,
+                    type: button.type,
+                    label: button.getAttribute('aria-label'),
+                    hidden: button.hidden,
+                    width: button.getBoundingClientRect().width
+                })),
+                videos: videos.map((video) => ({
+                    paused: video.paused,
+                    poster: video.getAttribute('poster'),
+                    preload: video.preload,
+                    ready: video.readyState
+                }))
+            }
+        })()`)
+            assert.equal(state.started, 'no')
+            assert.equal(state.buttons.length, 7)
+            assert.equal(state.videos.length, 7)
+            assert.equal(state.buttons[0].label, 'Play the demo with sound')
+            for (const button of state.buttons) {
+                assert.equal(button.tag, 'BUTTON')
+                assert.equal(button.type, 'button')
+                assert.equal(button.hidden, false)
+                assert.ok(button.width >= 80, `play button width ${button.width}`)
+            }
+            for (const video of state.videos) {
+                assert.equal(video.paused, true)
+                assert.equal(video.poster, '/poster.webp')
+                assert.equal(video.preload, 'none')
+                assert.equal(video.ready, 0)
+            }
+            assert.equal(
+                requested.some((url) => url.startsWith('/media/')),
+                false
+            )
+            close()
+        } finally {
+            browser.kill('SIGKILL')
+            server.closeAllConnections()
+            await new Promise((resolve) => server.close(resolve))
+        }
+    }
+)
+
+test(
+    'clicking play starts at the beginning with sound, and a tile dialog does that every time',
+    { skip: chrome ? false : 'no Chrome binary' },
+    async () => {
+        const dir = mkdtempSync(path.join(tmpdir(), 'play-sound-'))
+        const clipPath = path.join(dir, 'clip.mp4')
+        const encoded = spawnSync(
+            'ffmpeg',
+            [
+                '-y',
+                '-f',
+                'lavfi',
+                '-i',
+                'testsrc=size=320x180:rate=30:duration=2',
+                '-f',
+                'lavfi',
+                '-i',
+                'sine=frequency=440:sample_rate=44100:duration=2',
+                '-c:v',
+                'libx264',
+                '-pix_fmt',
+                'yuv420p',
+                '-profile:v',
+                'high',
+                '-c:a',
+                'aac',
+                '-shortest',
+                '-movflags',
+                '+faststart',
+                '-g',
+                '30',
+                clipPath
+            ],
+            { stdio: 'ignore' }
+        )
+        assert.equal(encoded.status, 0, 'ffmpeg could not build the clip')
+        const file = readFileSync(clipPath)
+        const server = createServer((req, res) => {
+            const url = req.url.split('?')[0]
+            if (url === '/demo-video.mjs') {
+                res.setHeader('content-type', 'text/javascript')
+                res.end(readFileSync(path.join(root, 'src/scripts/demo-video.mjs')))
+                return
+            }
+            if (url === '/clip.mp4') {
+                res.writeHead(200, {
+                    'content-type': 'video/mp4',
+                    'content-length': String(file.length),
+                    'accept-ranges': 'bytes',
+                    'cache-control': 'no-store'
+                })
+                res.end(file)
+                return
+            }
+            if (url === '/') {
+                res.setHeader('content-type', 'text/html')
+                res.end(`<!doctype html><meta charset="utf-8">
+<style>
+  body { margin: 0; }
+  .stage { position: relative; width: 640px; }
+  video { display: block; width: 640px; height: 200px; background: #222; }
+  button.cl-play-overlay { position: absolute; top: 50%; left: 50%; width: 5.75rem; height: 5.75rem; transform: translate(-50%, -50%); }
+</style>
+<div class="stage">
+<video data-demo-video controls muted loop playsinline preload="none" poster="/poster.webp" src="/clip.mp4"></video>
+<button type="button" class="cl-play-overlay" data-play-with-sound aria-label="Play the demo with sound">Play</button>
+</div>
+<div class="stage">
+<video data-loop-video muted loop playsinline preload="none" poster="/poster.webp" src="/clip.mp4"></video>
+<button type="button" class="cl-play-overlay" data-play-with-sound data-video-dialog-open="full" aria-label="Play the tile with sound">Play</button>
+<dialog id="full"><video controls playsinline preload="none" src="/clip.mp4"></video></dialog>
+</div>
+<script type="module">
+import { initDemoVideo, initVideoDialogs } from '/demo-video.mjs'
+initDemoVideo()
+initVideoDialogs()
+</script>`)
+                return
+            }
+            res.statusCode = 404
+            res.end()
+        })
+        const port = await listen(server)
+        const debugPort = await new Promise((resolve) => {
+            const probe = createServer()
+            probe.listen(0, '127.0.0.1', () => {
+                const { port: free } = probe.address()
+                probe.close(() => resolve(free))
+            })
+        })
+        const browser = spawn(
+            chrome,
+            [
+                '--headless=new',
+                '--no-sandbox',
+                '--disable-gpu',
+                '--disable-dev-shm-usage',
+                '--remote-allow-origins=*',
+                `--remote-debugging-port=${debugPort}`,
+                '--autoplay-policy=no-user-gesture-required',
+                '--window-size=1280,900',
+                `--user-data-dir=${dir}`,
+                `http://127.0.0.1:${port}/`
+            ],
+            { stdio: 'ignore' }
+        )
+        const readExpr = `(() => {
+        const hero = document.querySelector('[data-demo-video]')
+        const heroButton = hero.nextElementSibling
+        const tile = document.querySelector('[data-loop-video]')
+        const dialog = document.getElementById('full')
+        const full = dialog.querySelector('video')
+        return {
+            hero: { t: hero.currentTime, muted: hero.muted, loop: hero.loop, controls: hero.controls, volume: hero.volume, paused: hero.paused },
+            heroButtonHidden: heroButton.hidden,
+            dialogOpen: dialog.open,
+            full: full ? { t: full.currentTime, muted: full.muted, loop: full.loop, paused: full.paused, volume: full.volume } : null
+        }
+    })()`
+        try {
+            const { send, evalValue, close } = await connectChrome(port, debugPort)
+            const waitFor = async (label, predicate, ms = 8000) => {
+                const deadline = Date.now() + ms
+                let last = null
+                while (Date.now() < deadline) {
+                    last = await evalValue(readExpr)
+                    if (last && predicate(last)) return last
+                    await new Promise((resolve) => setTimeout(resolve, 50))
+                }
+                assert.fail(`${label}: ${JSON.stringify(last)}`)
+            }
+            const before = await waitFor(
+                'silent preview advanced',
+                (state) => state.hero.t > 0.35 && state.hero.muted === true && state.hero.loop === true
+            )
+            assert.equal(before.heroButtonHidden, false)
+            // Headless key events do not activate a focused button. Enter and Space still do in a browser,
+            // because the control is a real button; this click is the activation those keys perform.
+            const pressed = await evalValue(`(() => {
+            const button = document.querySelector('[data-play-with-sound]')
+            const rect = button.getBoundingClientRect()
+            button.click()
+            return { tag: button.tagName, type: button.type, width: rect.width }
+        })()`)
+            assert.equal(pressed.tag, 'BUTTON')
+            assert.equal(pressed.type, 'button')
+            assert.ok(pressed.width >= 80)
+            const playing = await waitFor(
+                'hero restarted with sound',
+                (state) =>
+                    state.hero.muted === false &&
+                    state.hero.loop === false &&
+                    state.hero.controls === true &&
+                    state.hero.t < 0.45 &&
+                    state.heroButtonHidden === true,
+                4000
+            )
+            assert.ok(playing.hero.volume > 0.5, `volume ${playing.hero.volume}`)
+            assert.ok(playing.hero.t + 0.05 < before.hero.t, `playhead ${playing.hero.t} did not return before ${before.hero.t}`)
+            await evalValue(`(() => {
+            const hero = document.querySelector('[data-demo-video]')
+            hero.currentTime = Math.max(0, (hero.duration || 2) - 0.08)
+            const pending = hero.play()
+            if (pending && pending.catch) pending.catch(() => {})
+        })()`)
+            const reset = await waitFor(
+                'hero returned to the silent preview',
+                (state) =>
+                    state.heroButtonHidden === false &&
+                    state.hero.muted === true &&
+                    state.hero.loop === true &&
+                    state.hero.controls === false
+            )
+            assert.ok(reset.hero.t < 0.6, `preview playhead ${reset.hero.t}`)
+            await evalValue(`document.querySelector('[data-loop-video]').click()`)
+            const dialog = await waitFor(
+                'tile preview opened the dialog',
+                (state) => state.dialogOpen === true && state.full && state.full.muted === false && state.full.loop === false
+            )
+            assert.ok(dialog.full.t < 0.45, `dialog playhead ${dialog.full.t}`)
+            assert.ok(dialog.full.volume > 0.5)
+            await evalValue(`document.querySelector('#full video').currentTime = 1.1`)
+            await evalValue(`document.getElementById('full').close()`)
+            const closed = await waitFor('dialog paused', (state) => state.dialogOpen === false && state.full.paused === true)
+            assert.ok(closed.full.t > 0.8, `closed playhead ${closed.full.t}`)
+            await evalValue(`document.querySelector('[data-video-dialog-open]').click()`)
+            const again = await waitFor(
+                'dialog reopened at the start',
+                (state) => state.dialogOpen === true && state.full.muted === false && state.full.t < 0.45
+            )
+            assert.ok(again.full.t < 0.45)
+            assert.equal(again.full.loop, false)
+            close()
+        } finally {
+            browser.kill('SIGKILL')
+            server.closeAllConnections()
+            await new Promise((resolve) => server.close(resolve))
+        }
+    }
+)
