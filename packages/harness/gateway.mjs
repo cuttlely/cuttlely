@@ -498,7 +498,8 @@ async function ownerContext(record) {
     }
     const runtime = await contextFor(record)
     const flowOptions = { ...(runtime?.flowOptions || {}) }
-    if (record.workspaceId && flowOptions.workspaceId !== record.workspaceId) {
+    // A harness with no team is not in the caller's team. Both empty is an offline run with no team on either side.
+    if ((flowOptions.workspaceId || '') !== (record.workspaceId || '')) {
         throw new HarnessError('wrong_workspace', `Harness "${record.name}" belongs to another workspace.`)
     }
     if (flowOptions.callerChatflowId == null && flowOptions.chatflowid != null) flowOptions.callerChatflowId = flowOptions.chatflowid

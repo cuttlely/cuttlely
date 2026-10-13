@@ -370,7 +370,26 @@ export function plantLegacyHarness(dataRoot) {
         updatedAt: source.updatedAt
     }
     fs.writeFileSync(path.join(dir, 'legacy-team.json'), `${JSON.stringify(legacy, null, 2)}\n`)
+    // A single-team install also claims a file that has no canvas. The default team is that only team.
+    const solo = {
+        name: 'legacy-solo',
+        description: 'Saved before a harness stored its team, with no canvas.',
+        chief: source.chief,
+        specialists: [{ name: 'baker', instructions: 'Answer in one line.', modules: [] }],
+        createdAt: source.createdAt,
+        updatedAt: source.updatedAt
+    }
+    fs.writeFileSync(path.join(dir, 'legacy-solo.json'), `${JSON.stringify(solo, null, 2)}\n`)
     return legacy.name
+}
+
+export function legacyTeamsOnDisk(dataRoot) {
+    const dir = path.join(dataRoot, 'harnesses')
+    const read = (name) => {
+        const body = JSON.parse(fs.readFileSync(path.join(dir, `${name}.json`), 'utf8'))
+        return typeof body.workspaceId === 'string' ? body.workspaceId : ''
+    }
+    return { canvas: read('legacy-team'), onlyTeam: read('legacy-solo') }
 }
 
 async function checkLegacyHarness(base, cookie, say) {
@@ -439,8 +458,14 @@ export async function runUpgradeCheck({ fixture = DEFAULT_FIXTURE, serverRoot = 
             }
             await waitForPing(base, server)
             say('first start on the old data: ping ok')
+            // Backfill runs before the server takes requests. An embed of this team is not locked out.
+            const assigned = legacyTeamsOnDisk(dataRoot)
+            const assignedEarly = []
+            if (!assigned.canvas) assignedEarly.push('startup did not assign the canvas team before the first request')
+            if (!assigned.onlyTeam) assignedEarly.push('startup did not assign the only team before the first request')
+            if (!assignedEarly.length) say('  startup assigned a team before the first request')
             const cookie = await login(base, meta.account)
-            problems = await checkData(base, cookie, meta, say)
+            problems = [...assignedEarly, ...(await checkData(base, cookie, meta, say))]
             problems.push(...(await checkHarnessUpgrade(base, cookie, meta, say)))
             problems.push(...(await checkLegacyHarness(base, cookie, say)))
 

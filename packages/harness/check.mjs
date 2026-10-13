@@ -4549,6 +4549,58 @@ await expectCase('a save does not adopt a harness from another workspace', async
     )
 })
 
+await expectCase('a save does not stamp a team onto a harness that has none', async () => {
+    const payroll = {
+        name: 'payroll',
+        chief: { model: { provider: 'xai', model: 'grok-4.7', credentialId: 'cred-xai' } },
+        specialists: [{ name: 'reader', modules: [], mcpServers: [] }]
+    }
+    saveHarness(payroll, { overwrite: true })
+    const before = fs.readFileSync(path.join(process.env.CUTTLELY_DATA_DIR, 'harnesses', 'payroll.json'), 'utf8')
+    const clash = await capture(() =>
+        saveHarness(
+            {
+                ...payroll,
+                workspaceId: 'w2'
+            },
+            { overwrite: true }
+        )
+    )
+    const after = fs.readFileSync(path.join(process.env.CUTTLELY_DATA_DIR, 'harnesses', 'payroll.json'), 'utf8')
+    check(
+        'a save does not stamp a team onto a harness that has none',
+        clash.error?.code === 'name_clash' && after === before && !JSON.parse(after).workspaceId,
+        clash.error?.message || 'file changed'
+    )
+})
+
+await expectCase('a harness with no team is not run for a caller that has one', async () => {
+    saveHarness(
+        {
+            name: 'maUnassigned',
+            chief: { model: { provider: 'xai', model: 'grok-4.7', credentialId: 'cred-xai' } },
+            specialists: [{ name: 'reader', modules: [], mcpServers: [] }]
+        },
+        { overwrite: true }
+    )
+    const http = cannedFetch()
+    const run = await capture(() =>
+        runHarness({
+            name: 'maUnassigned',
+            chatId: 'unassigned-1',
+            input: 'hello',
+            fetchImpl: http.fetchImpl,
+            modelBaseUrl: 'http://127.0.0.1:9/v1',
+            flowOptions: flowContext({ workspaceId: 'w2' }).flowOptions
+        })
+    )
+    check(
+        'a harness with no team is not run for a caller that has one',
+        run.error?.code === 'wrong_workspace' && http.calls.length === 0,
+        run.error?.message || `model calls ${http.calls.length}`
+    )
+})
+
 await expectCase('chatflow tool cannot call the calling chat flow', async () => {
     class ChatflowProbe {
         static httpCalls = 0
@@ -9950,7 +10002,7 @@ await (async () => {
                         return {}
                     }
                 },
-            flowOptions: { workspaceId: record.workspaceId || 'w1', chatflowid: record.chatflowId }
+            flowOptions: { workspaceId: record.workspaceId, chatflowid: record.chatflowId }
         }
     })
     const gateway = await openGateway()
@@ -10244,7 +10296,11 @@ await (async () => {
             if (nodeName === 'postgreSQLMCP') return PageAnalyst
             throw new Error(`unexpected node ${nodeName}`)
         },
-        flowOptions: flowContext({ workspaceId: record.workspaceId || 'w1', chatflowid: record.chatflowId }).flowOptions
+        flowOptions: {
+            ...flowContext().flowOptions,
+            workspaceId: record.workspaceId,
+            chatflowid: record.chatflowId
+        }
     }))
     const gateway = await openGateway()
     const tryId = 'b'.repeat(16)

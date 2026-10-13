@@ -145,6 +145,10 @@ export function saveHarness(record, { overwrite = false } = {}) {
     }
     const existing = getHarness(record.name)
     // Names are one file per install. A file that already belongs to another team is left as it is.
+    // A file with no team is claimed only by claimWorkspace, the startup backfill, not by a save.
+    if (existing && !existing.workspaceId && record.workspaceId) {
+        throw new HarnessError('name_clash', `Harness name "${record.name}" is already used in another team. Choose a different name.`)
+    }
     if (existing?.workspaceId && record.workspaceId && existing.workspaceId !== record.workspaceId) {
         throw new HarnessError('name_clash', `Harness name "${record.name}" is already used in another team. Choose a different name.`)
     }

@@ -820,7 +820,7 @@ async function validateHarnessCanvas(chatflow: ChatFlow) {
     }
 }
 
-async function syncHarnessCanvas(chatflow: ChatFlow) {
+export async function syncHarnessCanvas(chatflow: ChatFlow) {
     if (chatflow.type !== EnumChatflowType.HARNESS) return
     const engine = await loadHarnessSync()
     const appServer = getRunningExpressApp()

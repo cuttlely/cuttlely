@@ -618,6 +618,121 @@ describe('workspace isolation', () => {
             fs.rmSync(dataDir, { recursive: true, force: true })
         }
     })
+
+    it('leaves a harness unassigned when the canvas lookup throws', async () => {
+        const dataDir = fs.mkdtempSync(path.join(tmpdir(), 'cuttlely-harness-lookup-'))
+        const previous = process.env.CUTTLELY_DATA_DIR
+        const previousDefault = process.env.CUTTLELY_ETL_DEFAULT_WORKSPACE_ID
+        const previousHermes = process.env.CUTTLELY_HERMES_HOME
+        const previousWarm = process.env.CUTTLELY_WARM_HERMES
+        process.env.CUTTLELY_DATA_DIR = dataDir
+        process.env.CUTTLELY_HERMES_HOME = path.join(dataDir, 'hermes')
+        process.env.CUTTLELY_WARM_HERMES = 'false'
+        process.env.CUTTLELY_ETL_DEFAULT_WORKSPACE_ID = WS1
+        const file = path.join(dataDir, 'harnesses', 'lookupFail.json')
+        fs.mkdirSync(path.dirname(file), { recursive: true })
+        const original = JSON.stringify(
+            {
+                name: 'lookupFail',
+                chatflowId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+                chief: { model: { nodeName: 'chatOpenAI', inputs: { modelName: 'gpt-4.1-mini' } } },
+                specialists: [{ name: 'reader', modules: [], mcpServers: [] }]
+            },
+            null,
+            2
+        )
+        fs.writeFileSync(file, original)
+        const query = ds.createQueryBuilder.bind(ds)
+        ds.createQueryBuilder = () => {
+            throw new Error('column workspaceid does not exist')
+        }
+        try {
+            const harnesses = loadService('./src/services/harnesses/index.ts')
+            await harnesses.backfillHarnessWorkspaces()
+            assert.equal(fs.readFileSync(file, 'utf8'), original)
+            assert.deepEqual(await harnesses.listHarnesses(WS1), [])
+            assert.equal(fs.readFileSync(file, 'utf8'), original)
+        } finally {
+            ds.createQueryBuilder = query
+            if (previous === undefined) delete process.env.CUTTLELY_DATA_DIR
+            else process.env.CUTTLELY_DATA_DIR = previous
+            if (previousDefault === undefined) delete process.env.CUTTLELY_ETL_DEFAULT_WORKSPACE_ID
+            else process.env.CUTTLELY_ETL_DEFAULT_WORKSPACE_ID = previousDefault
+            if (previousHermes === undefined) delete process.env.CUTTLELY_HERMES_HOME
+            else process.env.CUTTLELY_HERMES_HOME = previousHermes
+            if (previousWarm === undefined) delete process.env.CUTTLELY_WARM_HERMES
+            else process.env.CUTTLELY_WARM_HERMES = previousWarm
+            fs.rmSync(dataDir, { recursive: true, force: true })
+        }
+    })
+
+    it('refuses to adopt a harness that has no team', async () => {
+        const dataDir = fs.mkdtempSync(path.join(tmpdir(), 'cuttlely-harness-payroll-'))
+        const previous = process.env.CUTTLELY_DATA_DIR
+        const previousDefault = process.env.CUTTLELY_ETL_DEFAULT_WORKSPACE_ID
+        const previousHermes = process.env.CUTTLELY_HERMES_HOME
+        const previousWarm = process.env.CUTTLELY_WARM_HERMES
+        process.env.CUTTLELY_DATA_DIR = dataDir
+        process.env.CUTTLELY_HERMES_HOME = path.join(dataDir, 'hermes')
+        process.env.CUTTLELY_WARM_HERMES = 'false'
+        delete process.env.CUTTLELY_ETL_DEFAULT_WORKSPACE_ID
+        const file = path.join(dataDir, 'harnesses', 'payroll.json')
+        fs.mkdirSync(path.dirname(file), { recursive: true })
+        const original = JSON.stringify(
+            {
+                name: 'payroll',
+                description: 'no team yet',
+                chief: { model: { nodeName: 'chatOpenAI', inputs: { modelName: 'gpt-4.1-mini' } } },
+                specialists: [{ name: 'reader', modules: [], mcpServers: [] }]
+            },
+            null,
+            2
+        )
+        fs.writeFileSync(file, original)
+        const roster = {
+            name: 'payroll',
+            overwrite: true,
+            chief: { model: { nodeName: 'chatOpenAI', inputs: { modelName: 'gpt-4.1-mini' } } },
+            specialists: [{ name: 'reader', modules: [], mcpServers: [] }]
+        }
+        try {
+            const harnesses = loadService('./src/services/harnesses/index.ts')
+            const chatflowsMod = serverRequire('./src/services/chatflows/index.ts')
+            await assert.rejects(
+                () => harnesses.saveHarness(roster, WS2),
+                (error) => {
+                    assert.equal(error.statusCode, 409)
+                    return true
+                }
+            )
+            assert.equal(fs.readFileSync(file, 'utf8'), original)
+            await assert.rejects(
+                () =>
+                    chatflowsMod.syncHarnessCanvas({
+                        name: 'payroll',
+                        id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+                        workspaceId: WS2,
+                        type: 'HARNESS',
+                        flowData: '{}'
+                    }),
+                (error) => {
+                    assert.equal(error.statusCode, 409)
+                    return true
+                }
+            )
+            assert.equal(fs.readFileSync(file, 'utf8'), original)
+        } finally {
+            if (previous === undefined) delete process.env.CUTTLELY_DATA_DIR
+            else process.env.CUTTLELY_DATA_DIR = previous
+            if (previousDefault === undefined) delete process.env.CUTTLELY_ETL_DEFAULT_WORKSPACE_ID
+            else process.env.CUTTLELY_ETL_DEFAULT_WORKSPACE_ID = previousDefault
+            if (previousHermes === undefined) delete process.env.CUTTLELY_HERMES_HOME
+            else process.env.CUTTLELY_HERMES_HOME = previousHermes
+            if (previousWarm === undefined) delete process.env.CUTTLELY_WARM_HERMES
+            else process.env.CUTTLELY_WARM_HERMES = previousWarm
+            fs.rmSync(dataDir, { recursive: true, force: true })
+        }
+    })
 })
 
 async function missingHarness(run) {

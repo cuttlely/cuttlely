@@ -3,6 +3,7 @@ import fs from 'fs'
 import path from 'path'
 import { pathToFileURL } from 'url'
 import { StatusCodes } from 'http-status-codes'
+import { DataSource } from 'typeorm'
 import { Workspace } from '../../database/entities/identity'
 import { AppError } from '../../errors/appError'
 import { getErrorMessage } from '../../errors/utils'
@@ -62,30 +63,45 @@ async function defaultWorkspaceId(): Promise<string | null> {
     }
 }
 
-// A stored team wins. A file with none takes its canvas's team, else the install default. Otherwise null,
-// and that file is visible to no team.
+function quoteIdent(dataSource: DataSource, name: string): string {
+    const escape = dataSource.driver?.escape
+    return typeof escape === 'function' ? escape.call(dataSource.driver, name) : `"${name}"`
+}
+
+// The canvas team column is quoted for the driver. Postgres folds an unquoted workspaceId to workspaceid,
+// and the column was created quoted.
+export function canvasTeamQuery(dataSource: DataSource, chatflowId: string) {
+    const table = 'chat_flow'
+    const column = (name: string) => `${quoteIdent(dataSource, table)}.${quoteIdent(dataSource, name)}`
+    return dataSource
+        .createQueryBuilder()
+        .select(column('workspaceId'), 'workspaceId')
+        .from(table, table)
+        .where(`${column('id')} = :id`, { id: chatflowId })
+}
+
+// A stored team wins. A file with none takes its canvas's team, else the install default. A canvas lookup
+// that throws leaves the file with no team: the default is not a substitute for a failed read.
 async function ownerOf(record: { workspaceId?: string | null; chatflowId?: string | null }): Promise<string | null> {
     if (typeof record?.workspaceId === 'string' && record.workspaceId) return record.workspaceId
     const chatflowId = typeof record?.chatflowId === 'string' ? record.chatflowId : ''
-    const fromCanvas = await canvasWorkspace(chatflowId)
-    if (fromCanvas) return fromCanvas
+    if (UUID.test(chatflowId)) {
+        const found = await canvasWorkspace(chatflowId)
+        if (found.failed) return null
+        if (found.workspaceId) return found.workspaceId
+    }
     return defaultWorkspaceId()
 }
 
-async function canvasWorkspace(chatflowId: string): Promise<string | null> {
-    if (!UUID.test(chatflowId)) return null
+async function canvasWorkspace(chatflowId: string): Promise<{ failed: boolean; workspaceId: string | null }> {
+    if (!UUID.test(chatflowId)) return { failed: false, workspaceId: null }
     try {
-        const row = await getRunningExpressApp()
-            .AppDataSource.createQueryBuilder()
-            .select('chat_flow.workspaceId', 'workspaceId')
-            .from('chat_flow', 'chat_flow')
-            .where('chat_flow.id = :id', { id: chatflowId })
-            .getRawOne()
+        const row = await canvasTeamQuery(getRunningExpressApp().AppDataSource, chatflowId).getRawOne()
         const id = row?.workspaceId ?? row?.workspaceid
-        return typeof id === 'string' && id ? id : null
+        return { failed: false, workspaceId: typeof id === 'string' && id ? id : null }
     } catch (error) {
         logger.warn(`[harness] canvas workspace lookup failed: ${getErrorMessage(error)}`)
-        return null
+        return { failed: true, workspaceId: null }
     }
 }
 
@@ -128,7 +144,8 @@ const saveHarness = async (body: Record<string, unknown>, workspaceId?: string |
         }
         if (existing) {
             const owner = await ownerOf(existing)
-            if (owner && !inWorkspace(owner, ws)) throw nameClash(name)
+            // No resolved team is not this caller. The file, including its run history, stays as it is.
+            if (!inWorkspace(owner, ws)) throw nameClash(name)
             if (!existing.workspaceId && owner) store.claimWorkspace(name, owner)
         }
         const saved = store.saveHarness({ ...record, workspaceId: ws }, { overwrite: Boolean(overwrite) || Boolean(existing) })
@@ -155,7 +172,8 @@ export async function assertNameAvailable(name: string, workspaceId?: string | n
     }
     if (!existing) return
     const owner = await ownerOf(existing)
-    if (owner && !inWorkspace(owner, ws)) throw nameClash(name)
+    if (!inWorkspace(owner, ws)) throw nameClash(name)
+    if (!existing.workspaceId && owner) store.claimWorkspace(name, owner)
 }
 
 export async function backfillHarnessWorkspaces() {
@@ -166,7 +184,12 @@ export async function backfillHarnessWorkspaces() {
     let fromDefault = 0
     let unassigned = 0
     for (const row of rows) {
-        const fromCanvas = await canvasWorkspace(typeof row.chatflowId === 'string' ? row.chatflowId : '')
+        const found = await canvasWorkspace(typeof row.chatflowId === 'string' ? row.chatflowId : '')
+        if (found.failed) {
+            unassigned += 1
+            continue
+        }
+        const fromCanvas = found.workspaceId
         const owner = fromCanvas || (await defaultWorkspaceId())
         if (!owner) {
             unassigned += 1
