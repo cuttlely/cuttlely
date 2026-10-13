@@ -1967,6 +1967,60 @@
             "foreignKeys": [],
             "indexes": []
         },
+        "model_price_override": {
+            "columns": [
+                {
+                    "name": "id",
+                    "type": "varchar",
+                    "nullable": false,
+                    "default": null,
+                    "pk": 1
+                },
+                {
+                    "name": "organizationId",
+                    "type": "varchar(36)",
+                    "nullable": false,
+                    "default": null,
+                    "pk": 0
+                },
+                {
+                    "name": "model",
+                    "type": "varchar(255)",
+                    "nullable": false,
+                    "default": null,
+                    "pk": 0
+                },
+                {
+                    "name": "inputUsdPerMillion",
+                    "type": "varchar(32)",
+                    "nullable": false,
+                    "default": null,
+                    "pk": 0
+                },
+                {
+                    "name": "outputUsdPerMillion",
+                    "type": "varchar(32)",
+                    "nullable": false,
+                    "default": null,
+                    "pk": 0
+                }
+            ],
+            "foreignKeys": [],
+            "indexes": [
+                {
+                    "name": "sqlite_autoindex_model_price_override_1",
+                    "unique": true,
+                    "columns": ["id"],
+                    "origin": "pk"
+                },
+                {
+                    "name": "sqlite_autoindex_model_price_override_2",
+                    "unique": true,
+                    "columns": ["organizationId", "model"],
+                    "origin": "u"
+                }
+            ]
+        },
         "organization": {
             "columns": [
                 {
@@ -4933,6 +4987,53 @@
                     "name": "PK_8c82d7f526340ab734260ea46be",
                     "unique": true,
                     "columns": ["id"]
+                }
+            ]
+        },
+        "model_price_override": {
+            "columns": [
+                {
+                    "name": "id",
+                    "type": "varchar(36)",
+                    "nullable": false,
+                    "default": null
+                },
+                {
+                    "name": "organizationId",
+                    "type": "varchar(36)",
+                    "nullable": false,
+                    "default": null
+                },
+                {
+                    "name": "model",
+                    "type": "varchar(255)",
+                    "nullable": false,
+                    "default": null
+                },
+                {
+                    "name": "inputUsdPerMillion",
+                    "type": "varchar(32)",
+                    "nullable": false,
+                    "default": null
+                },
+                {
+                    "name": "outputUsdPerMillion",
+                    "type": "varchar(32)",
+                    "nullable": false,
+                    "default": null
+                }
+            ],
+            "foreignKeys": [],
+            "indexes": [
+                {
+                    "name": "PK_model_price_override",
+                    "unique": true,
+                    "columns": ["id"]
+                },
+                {
+                    "name": "UQ_model_price_override",
+                    "unique": true,
+                    "columns": ["organizationId", "model"]
                 }
             ]
         },
@@ -8212,6 +8313,63 @@
                 }
             ]
         },
+        "model_price_override": {
+            "columns": [
+                {
+                    "name": "id",
+                    "type": "varchar(36)",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_unicode_520_ci"
+                },
+                {
+                    "name": "organizationId",
+                    "type": "varchar(36)",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_unicode_520_ci"
+                },
+                {
+                    "name": "model",
+                    "type": "varchar(255)",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_bin"
+                },
+                {
+                    "name": "inputUsdPerMillion",
+                    "type": "varchar(32)",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_unicode_520_ci"
+                },
+                {
+                    "name": "outputUsdPerMillion",
+                    "type": "varchar(32)",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_unicode_520_ci"
+                }
+            ],
+            "foreignKeys": [],
+            "indexes": [
+                {
+                    "name": "PRIMARY",
+                    "unique": true,
+                    "columns": ["id"]
+                },
+                {
+                    "name": "UQ_model_price_override",
+                    "unique": true,
+                    "columns": ["organizationId", "model"]
+                }
+            ]
+        },
         "organization": {
             "columns": [
                 {
@@ -8843,7 +9001,7 @@
                     "nullable": false,
                     "default": null,
                     "extra": "",
-                    "collation": "utf8mb4_unicode_520_ci"
+                    "collation": "utf8mb4_bin"
                 },
                 {
                     "name": "day",
@@ -11824,6 +11982,63 @@
                 }
             ]
         },
+        "model_price_override": {
+            "columns": [
+                {
+                    "name": "id",
+                    "type": "varchar(36)",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_0900_ai_ci"
+                },
+                {
+                    "name": "organizationId",
+                    "type": "varchar(36)",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_0900_ai_ci"
+                },
+                {
+                    "name": "model",
+                    "type": "varchar(255)",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_bin"
+                },
+                {
+                    "name": "inputUsdPerMillion",
+                    "type": "varchar(32)",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_0900_ai_ci"
+                },
+                {
+                    "name": "outputUsdPerMillion",
+                    "type": "varchar(32)",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_0900_ai_ci"
+                }
+            ],
+            "foreignKeys": [],
+            "indexes": [
+                {
+                    "name": "PRIMARY",
+                    "unique": true,
+                    "columns": ["id"]
+                },
+                {
+                    "name": "UQ_model_price_override",
+                    "unique": true,
+                    "columns": ["organizationId", "model"]
+                }
+            ]
+        },
         "organization": {
             "columns": [
                 {
@@ -12455,7 +12670,7 @@
                     "nullable": false,
                     "default": null,
                     "extra": "",
-                    "collation": "utf8mb4_0900_ai_ci"
+                    "collation": "utf8mb4_bin"
                 },
                 {
                     "name": "day",

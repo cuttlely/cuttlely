@@ -52,6 +52,7 @@ import settingsRouter from './settings'
 import serverSettingsRouter from './server-settings'
 import serverSetupRouter from './server-setup'
 import { trackRuns } from '../settings/runs'
+import modelPricesRouter from './model-prices'
 import statsRouter from './stats'
 import textToSpeechRouter from './text-to-speech'
 import toolsRouter from './tools'
@@ -130,6 +131,7 @@ router.use('/public-chatbotConfig', publicChatbotRouter)
 router.use('/public-chatflows', publicChatflowsRouter)
 router.use('/public-executions', publicExecutionsRouter)
 router.use('/stats', statsRouter)
+router.use('/model-prices', modelPricesRouter)
 router.use('/tools', toolsRouter)
 router.use('/variables', variablesRouter)
 router.use('/vector', vectorRouter)
