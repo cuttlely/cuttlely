@@ -63,7 +63,7 @@ import {
 import { prepareHarnessTurnUploads } from './uploads.mjs'
 import { acquireTurn, releaseTurn } from './lock.mjs'
 import { appendTurn, readPromptContext, sessionKey } from './session.mjs'
-import { beginHarnessRun, finishHarnessRun, safeTraceId } from './history.mjs'
+import { beginHarnessRun, finishHarnessRun, listRuns, safeTraceId } from './history.mjs'
 import { getHarness, listHarnesses } from './store.mjs'
 import { normalizeArithmeticQuestion, validArgs } from './tool-fallback.mjs'
 import { buildRunTrace, publicModelLabel, publicSources, publicTask, snapshotSpecialist, sumCallTokens } from './trace.mjs'
@@ -2087,4 +2087,4 @@ async function hermesHealthy(baseUrl, fetchImpl, waitMs) {
     return false
 }
 
-export { sessionKey, listHarnesses, directToolSpecialist }
+export { sessionKey, listHarnesses, directToolSpecialist, listRuns as listHarnessRuns }

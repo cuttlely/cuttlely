@@ -80,6 +80,7 @@ const STEPS = [
             path.join(ROOT, 'scripts', 'model-prices.test.cjs'),
             path.join(ROOT, 'scripts', 'harness-callback-usage.test.mjs'),
             path.join(ROOT, 'scripts', 'harness-draft-usage.test.mjs'),
+            path.join(ROOT, 'scripts', 'harness-queue-trace.test.mjs'),
             path.join(ROOT, 'scripts', 'analyst-postgres.test.mjs'),
             path.join(ROOT, 'scripts', 'analyst-store.test.mjs'),
             path.join(ROOT, 'scripts', 'hermes-supervisor.test.mjs'),

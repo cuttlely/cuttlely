@@ -330,6 +330,10 @@ async function runNamedHarness(
             },
             ...(images.length ? { images } : {})
         })
+        if (!runId && harnessTrace && typeof engine.listHarnessRuns === 'function') {
+            const row = engine.listHarnessRuns(harnessName, { limit: 20 }).find((item) => item?.chatId === chatId)
+            if (typeof row?.id === 'string') runId = row.id
+        }
         harnessTrace?.finish({ text: typeof payload?.text === 'string' ? payload.text : undefined, runId })
         return payload
     } catch (error) {

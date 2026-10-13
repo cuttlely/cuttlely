@@ -2,19 +2,26 @@ const mockHarnessRuns: { current: Record<string, unknown> | null } = { current: 
 const listedHarnesses: Array<{ name: string; description?: string; workspaceId?: string }> = []
 const assertHarnessWorkspace = jest.fn()
 const openHarnessRunTrace = jest.fn()
+const listHarnessRuns = jest.fn((_name?: string, _options?: { limit?: number }): Array<{ id?: string; chatId?: string }> => [])
+const queuedRun = jest.fn(async (_opts?: { onRecorded?: (row: unknown) => void; chatId?: string }) => mockHarnessRuns.current)
 
 jest.mock('../engine', () => ({
     loadHarnessEngine: async () => ({
         listHarnesses: () => listedHarnesses,
         runHarness: async () => mockHarnessRuns.current,
-        runQueuedHarness: async () => mockHarnessRuns.current,
-        assertHarnessWorkspace: (...args: unknown[]) => assertHarnessWorkspace(...args)
+        runQueuedHarness: (opts: { onRecorded?: (row: unknown) => void; chatId?: string }) => queuedRun(opts),
+        assertHarnessWorkspace: (...args: unknown[]) => assertHarnessWorkspace(...args),
+        listHarnessRuns: (name: string, options?: { limit?: number }) => listHarnessRuns(name, options)
     })
 }))
 
-jest.mock('../../../src/otelRunSpans', () => ({
-    openHarnessRunTrace: (...args: unknown[]) => openHarnessRunTrace(...args)
-}))
+jest.mock('../../../src/otelRunSpans', () => {
+    const actual = jest.requireActual('../../../src/otelRunSpans')
+    return {
+        ...actual,
+        openHarnessRunTrace: (...args: unknown[]) => openHarnessRunTrace(...args)
+    }
+})
 
 jest.mock('../../../src/storageUtils', () => ({
     addSingleFileToStorage: jest.fn(async (_mime: string, _buffer: Buffer, fileName: string) => ({
@@ -94,6 +101,68 @@ describe('Harness node workspace refusal', () => {
             node.run(nodeData as never, 'How many loaves?', { chatId: 'c1', workspaceId: '22222222-2222-4222-8222-222222222222' })
         ).rejects.toThrow(/another workspace/)
         expect(openHarnessRunTrace).not.toHaveBeenCalled()
+    })
+})
+
+describe('Harness node queued run id', () => {
+    const WORKSPACE = '11111111-1111-4111-8111-111111111111'
+    const nodeData = { inputs: { harnessName: 'bakery' } }
+    const externalId = 'run_cccccccc-cccc-4ccc-8ccc-cccccccccccc'
+    const inlineId = 'run_bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
+    let exporter: { getFinishedSpans: () => Array<{ name: string; attributes: Record<string, unknown> }>; reset: () => void }
+
+    beforeAll(() => {
+        const { BasicTracerProvider, InMemorySpanExporter, SimpleSpanProcessor } = require('@opentelemetry/sdk-trace-base')
+        const { setCuttlelyTracer } = jest.requireActual('../../../src/otelRunSpans')
+        exporter = new InMemorySpanExporter()
+        const provider = new BasicTracerProvider()
+        provider.addSpanProcessor(new SimpleSpanProcessor(exporter))
+        setCuttlelyTracer(() => provider.getTracer('cuttlely'))
+    })
+
+    beforeEach(() => {
+        exporter.reset()
+        listHarnessRuns.mockReset()
+        queuedRun.mockReset()
+        mockHarnessRuns.current = { text: 'Two loaves.' }
+        process.env.CUTTLELY_OTEL_TRACES = 'true'
+        openHarnessRunTrace.mockImplementation((info: unknown) => jest.requireActual('../../../src/otelRunSpans').openHarnessRunTrace(info))
+    })
+
+    afterEach(() => {
+        delete process.env.CUTTLELY_OTEL_TRACES
+        delete process.env.CUTTLELY_HARNESS_QUEUE
+        openHarnessRunTrace.mockReset()
+        listHarnessRuns.mockReset()
+        queuedRun.mockReset()
+        queuedRun.mockImplementation(async () => mockHarnessRuns.current)
+    })
+
+    function runId(): unknown {
+        return exporter.getFinishedSpans().find((span) => span.name === 'harness.run')?.attributes['run.id']
+    }
+
+    it('an external queue run puts the saved history id on harness.run', async () => {
+        process.env.CUTTLELY_HARNESS_QUEUE = 'external'
+        queuedRun.mockImplementation(async () => mockHarnessRuns.current)
+        listHarnessRuns.mockReturnValue([{ id: externalId, chatId: 'c1' }])
+        const node = new HarnessNode()
+        await node.run(nodeData as never, 'How many loaves?', { chatId: 'c1', workspaceId: WORKSPACE })
+        expect(runId()).toBe(externalId)
+        expect(listHarnessRuns).toHaveBeenCalledWith('bakery', { limit: 20 })
+    })
+
+    it('an inline queue run keeps the id recorded in this process', async () => {
+        process.env.CUTTLELY_HARNESS_QUEUE = 'inline'
+        queuedRun.mockImplementation(async (opts) => {
+            opts?.onRecorded?.({ id: inlineId })
+            return mockHarnessRuns.current
+        })
+        listHarnessRuns.mockReturnValue([{ id: externalId, chatId: 'c1' }])
+        const node = new HarnessNode()
+        await node.run(nodeData as never, 'How many loaves?', { chatId: 'c1', workspaceId: WORKSPACE })
+        expect(runId()).toBe(inlineId)
+        expect(listHarnessRuns).not.toHaveBeenCalled()
     })
 })
 

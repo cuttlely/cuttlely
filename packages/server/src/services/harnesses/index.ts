@@ -400,15 +400,17 @@ const startRun = async (
                 recorded = row
             }
         })
+        // An external worker writes history in its own process, so onRecorded does not run here.
+        // The row is already in the shared history before this lookup. Do it before the span ends.
+        if (!recorded && !opts.replay) {
+            const history = await loadHarness('history.mjs')
+            recorded = history.listRuns(name, { limit: 20 }).find((row: { chatId?: string }) => row.chatId === prepared.chatId) || null
+        }
         const runId = recorded && typeof (recorded as { id?: unknown }).id === 'string' ? (recorded as { id: string }).id : undefined
         harnessTrace?.finish({
             text: typeof (payload as { text?: unknown } | undefined)?.text === 'string' ? (payload as { text: string }).text : undefined,
             runId
         })
-        if (!recorded && !opts.replay) {
-            const history = await loadHarness('history.mjs')
-            recorded = history.listRuns(name, { limit: 20 }).find((row: { chatId?: string }) => row.chatId === prepared.chatId) || null
-        }
         // Public runs, a canvas draft try, and a publish-check replay all finish here.
         // startCanvasRun and replayCheck call startRun, so this is the only usage write.
         const workspaceId = prepared.harness.workspaceId
