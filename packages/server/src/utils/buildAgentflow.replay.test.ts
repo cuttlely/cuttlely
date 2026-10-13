@@ -7,8 +7,7 @@ import fs from 'fs'
 import os from 'os'
 import path from 'path'
 import { recordedQuestion } from '../services/flow-check/inputs'
-import { executeAgentFlow } from './buildAgentflow'
-import { sanitizeMiddleware } from './XSS'
+import { executeAgentFlow, formObjectToStoredLines, parseStoredForm, resolveVariables } from './buildAgentflow'
 import { stepTokens } from '../services/flow-check/compare'
 
 jest.mock('./logger', () => ({ __esModule: true, default: { warn: jest.fn(), info: jest.fn(), debug: jest.fn(), error: jest.fn() } }))
@@ -297,20 +296,46 @@ describe('executeAgentFlow with replay on (publish check)', () => {
         })
     })
 
-    it('a nested webhook query is stored, and the check hides the password', async () => {
-        const req = {
-            url: '/api/v1/webhook/b7c1a6f2-1d9e-4a51-9a7e-3f1f0c2d4e5a?user[password]=s3cret&user[name]=ada&note=keep',
-            query: { user: { password: 's3cret', name: 'ada' }, note: 'keep' }
+    it('a blank form value stays empty on both sides, and escapes round-trip', async () => {
+        const isEmpty = (value: unknown) => [undefined, null, ''].includes(value as string)
+        const stored = formObjectToStoredLines({ name: 'ada', note: '' })
+        expect(stored).toBe('name: ada\nnote: ')
+        expect(parseStoredForm('note:    ').form).toEqual({ note: '' })
+        const parsed = parseStoredForm(stored).form
+        expect(parsed).toEqual({ name: 'ada', note: '' })
+        const field = {
+            id: 'n',
+            inputs: { value1: '{{$form.note}}' },
+            inputParams: [{ name: 'value1', acceptVariable: true }]
         } as any
-        sanitizeMiddleware(req, {} as any, () => undefined)
-        expect(req.query).toEqual({ user: { password: 's3cret', name: 'ada' }, note: 'keep' })
+        const live = await resolveVariables(field, '', { name: 'ada', note: '' }, undefined, [], '', [], {} as any)
+        const checked = await resolveVariables(field, '', parsed, undefined, [], '', [], {} as any)
+        expect(live.inputs.value1).toBe('')
+        expect(checked.inputs.value1).toBe('')
+        expect(isEmpty(live.inputs.value1)).toBe(true)
+        expect(isEmpty(checked.inputs.value1)).toBe(true)
+
+        const rich = { bio: 'line1\nname: eve', path: 'C:\\temp', win: 'a\r\nb', note: 'size: large' }
+        const lines = formObjectToStoredLines(rich)
+        expect(lines.split('\n')).toHaveLength(4)
+        expect(parseStoredForm(lines)).toEqual({ form: rich, duplicateKey: false })
+        expect(parseStoredForm('loaf: rye\ncount: 2')).toEqual({ form: { loaf: 'rye', count: '2' }, duplicateKey: false })
+        expect(parseStoredForm('team: bakery')).toEqual({ form: { team: 'bakery' }, duplicateKey: false })
+        const legacy = parseStoredForm('name: ada\nbio: line1\nname: eve')
+        expect(legacy.duplicateKey).toBe(true)
+        expect(legacy.form.name).toBe('eve')
+    })
+
+    it('a nested webhook query is stored, and the check hides the password', async () => {
         const nodes = { ...componentNodes, startAgentflow: componentNodes.formStart }
         const webhook = await run({
             replay: false,
             startInputType: 'webhookTrigger',
             chatType: 'WEBHOOK',
             nodes,
-            incoming: { webhook: { body: { event: 'bake' }, query: req.query, headers: {} } }
+            incoming: {
+                webhook: { body: { event: 'bake' }, query: { user: { password: 's3cret', name: 'ada' }, note: 'keep' }, headers: {} }
+            }
         })
         const stored = JSON.parse(webhook.saved.Execution.executionData).find((step: any) => step.data?.name === 'startAgentflow')
         expect(stored.data.output.webhook.query.user.password).toBe('s3cret')

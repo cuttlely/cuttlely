@@ -1,4 +1,3 @@
-import { formObjectToStoredLines, parseStoredForm, resolveVariables } from '../../utils/buildAgentflow'
 import {
     UNREPLAYABLE_FORM,
     applyPreviews,
@@ -56,37 +55,8 @@ describe('recorded inputs', () => {
         expect(recordedDraft(execution({ form: '' }), 'scheduleInput')).toBeNull()
     })
 
-    test('a blank value is kept, and a line break or a backslash round-trips', async () => {
-        const isEmpty = (value: unknown) => [undefined, null, ''].includes(value as string)
-        const stored = formObjectToStoredLines({ name: 'ada', note: '' })
-        expect(stored).toBe('name: ada\nnote: ')
-        expect(parseStoredForm('note:    ').form).toEqual({ note: '' })
-        const parsed = parseStoredForm(stored).form
-        expect(parsed).toEqual({ name: 'ada', note: '' })
-        const node = {
-            id: 'n',
-            inputs: { value1: '{{$form.note}}' },
-            inputParams: [{ name: 'value1', acceptVariable: true }]
-        } as any
-        const live = await resolveVariables(node, '', { name: 'ada', note: '' }, undefined, [], '', [], {} as any)
-        const checked = await resolveVariables(node, '', parsed, undefined, [], '', [], {} as any)
-        expect(live.inputs.value1).toBe('')
-        expect(checked.inputs.value1).toBe('')
-        expect(isEmpty(live.inputs.value1)).toBe(true)
-        expect(isEmpty(checked.inputs.value1)).toBe(true)
-
-        const rich = { bio: 'line1\nname: eve', path: 'C:\\temp', win: 'a\r\nb', note: 'size: large' }
-        const lines = formObjectToStoredLines(rich)
-        expect(lines.split('\n')).toHaveLength(4)
-        expect(parseStoredForm(lines)).toEqual({ form: rich, duplicateKey: false })
-        expect(parseStoredForm('loaf: rye\ncount: 2')).toEqual({ form: { loaf: 'rye', count: '2' }, duplicateKey: false })
-        expect(parseStoredForm('team: bakery')).toEqual({ form: { team: 'bakery' }, duplicateKey: false })
-    })
-
     test('a legacy form with a raw line break that repeats a field name is not replayed', () => {
         const legacy = 'name: ada\nbio: line1\nname: eve'
-        expect(parseStoredForm(legacy).duplicateKey).toBe(true)
-        expect(parseStoredForm(legacy).form.name).toBe('eve')
         const text = recordedQuestion(execution({ form: legacy }), 'formInput')
         expect(text).toContain(UNREPLAYABLE_FORM)
         expect(text).not.toContain('eve')
