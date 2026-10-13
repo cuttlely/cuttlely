@@ -5,20 +5,41 @@ import { canAutoplay, initDemoVideo, initVideoDialogs } from '../src/scripts/dem
 function fakes({ reduced = false, small = false, saveData = false, videos = 1, hasObserver = true } = {}) {
     const calls = []
     const observers = []
-    const list = Array.from({ length: videos }, (_, i) => ({
-        preload: 'none',
-        dataset: {},
-        play: () => (calls.push(`play ${i}`), Promise.resolve()),
-        pause: () => calls.push(`pause ${i}`),
-        load: () => calls.push(`load ${i}`),
-        addEventListener(type, fn) {
-            this.events[type] = fn
-        },
-        removeEventListener(type, fn) {
-            if (this.events[type] === fn) delete this.events[type]
-        },
-        events: {}
-    }))
+    const open = new Set()
+    let peak = 0
+    const list = Array.from({ length: videos }, (_, i) => {
+        const video = {
+            preload: 'none',
+            loaded: false,
+            dataset: {},
+            // play() on a preload="none" element that has not been load()ed fetches on its own.
+            play() {
+                calls.push(`play ${i}`)
+                if (!video.loaded) video.beginFetch()
+                return Promise.resolve()
+            },
+            pause: () => calls.push(`pause ${i}`),
+            load() {
+                calls.push(`load ${i}`)
+                video.loaded = true
+                video.beginFetch()
+            },
+            beginFetch() {
+                if (open.has(video)) return
+                open.add(video)
+                calls.push(`fetch ${i}`)
+                peak = Math.max(peak, open.size)
+            },
+            addEventListener(type, fn) {
+                this.events[type] = fn
+            },
+            removeEventListener(type, fn) {
+                if (this.events[type] === fn) delete this.events[type]
+            },
+            events: {}
+        }
+        return video
+    })
     const win = {
         matchMedia: (query) => ({ matches: (reduced && query.includes('reduce')) || (small && query.includes('max-width')) }),
         navigator: { connection: { saveData } },
@@ -45,9 +66,29 @@ function fakes({ reduced = false, small = false, saveData = false, videos = 1, h
         list,
         observers,
         show: (i, visible) => playObserver().cb([{ target: list[i], isIntersecting: visible }]),
+        showAll: (indexes, visible = true) => playObserver().cb(indexes.map((i) => ({ target: list[i], isIntersecting: visible }))),
         approach: (indexes) => nearObserver().cb(indexes.map((i) => ({ target: list[i], isIntersecting: true }))),
-        finish: (i) => list[i].events.canplaythrough(),
-        fail: (i) => list[i].events.error()
+        finish: (i) => {
+            open.delete(list[i])
+            list[i].events.canplaythrough()
+        },
+        fail: (i) => {
+            open.delete(list[i])
+            list[i].events.error()
+        },
+        inFlight: () => open.size,
+        peak: () => peak
+    }
+}
+
+/** A download may start only from load(), and play() may run only after that. */
+function assertLoadsOwnTheFetches(calls) {
+    const loaded = new Set()
+    for (const call of calls) {
+        const [kind, n] = call.split(' ')
+        if (kind === 'load') loaded.add(n)
+        if (kind === 'fetch') assert.ok(loaded.has(n), `fetch ${n} started without load()`)
+        if (kind === 'play') assert.ok(loaded.has(n), `play ${n} ran before load()`)
     }
 }
 
@@ -61,6 +102,7 @@ test('plays each video while it is on screen and pauses it when it scrolls away'
         calls.filter((call) => call.startsWith('play') || call.startsWith('pause')),
         ['play 1', 'play 0', 'pause 1']
     )
+    assertLoadsOwnTheFetches(calls)
 })
 
 test('starts loading about a viewport away, two at a time, in page order', () => {
@@ -95,6 +137,43 @@ test('starts loading about a viewport away, two at a time, in page order', () =>
         calls.filter((call) => call.startsWith('load')),
         ['load 0', 'load 1', 'load 2', 'load 3']
     )
+})
+
+test('scrolling the grid never has more than two loop downloads in flight', () => {
+    const { doc, win, calls, showAll, inFlight, peak } = fakes({ videos: 7 })
+    assert.equal(initDemoVideo(doc, win), true)
+    // Responses are held: nothing fires canplaythrough. Every tile is half on screen at once.
+    showAll([6, 4, 5, 3, 2, 1, 0])
+    assert.equal(inFlight(), 2)
+    assert.equal(peak(), 2)
+    assertLoadsOwnTheFetches(calls)
+    assert.deepEqual(
+        calls.filter((call) => call.startsWith('load')),
+        ['load 0', 'load 1']
+    )
+})
+
+test('a half-visible loop jumps the queue and plays when its load starts', () => {
+    const { doc, win, calls, approach, showAll, finish, inFlight, peak } = fakes({ videos: 7 })
+    initDemoVideo(doc, win)
+    approach([0, 1, 2, 3, 4, 5, 6])
+    assert.deepEqual(
+        calls.filter((call) => call.startsWith('load')),
+        ['load 0', 'load 1']
+    )
+    // 4, 5 and 6 are on screen before their turn. They move ahead of 2 and 3, still two in flight.
+    showAll([6, 4, 5])
+    assert.equal(inFlight(), 2)
+    assert.equal(peak(), 2)
+    finish(0)
+    assert.deepEqual(
+        calls.filter((call) => call.startsWith('load')),
+        ['load 0', 'load 1', 'load 4']
+    )
+    assert.ok(calls.includes('play 4'))
+    assert.equal(inFlight(), 2)
+    assert.equal(peak(), 2)
+    assertLoadsOwnTheFetches(calls)
 })
 
 test('a failed download frees its slot for the next loop', () => {
@@ -132,6 +211,12 @@ test('without autoplay the narrated demo is unmuted for the tap that plays it', 
 
 test('canAutoplay works without the Network Information API', () => {
     assert.equal(canAutoplay({ matchMedia: () => ({ matches: false }), navigator: {} }), true)
+})
+
+test('canAutoplay uses navigator.connection.saveData', () => {
+    const win = { matchMedia: () => ({ matches: false }) }
+    assert.equal(canAutoplay({ ...win, navigator: { connection: { saveData: false } } }), true)
+    assert.equal(canAutoplay({ ...win, navigator: { connection: { saveData: true } } }), false)
 })
 
 test('a Watch with sound link opens its dialog and plays; closing pauses', () => {

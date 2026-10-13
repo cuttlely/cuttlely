@@ -4,28 +4,36 @@
 /** How many loop downloads may run at once. More than this and they fight for the connection. */
 const MAX_LOADING = 2
 
-/** Small screens, Save-Data and reduced motion get the poster and play only when tapped. */
+/** Narrow screens, navigator.connection.saveData and reduced motion get the poster and play only when tapped. */
 export function canAutoplay(win = window) {
     if (win.matchMedia('(prefers-reduced-motion: reduce)').matches) return false
     if (win.matchMedia('(max-width: 50rem)').matches) return false
+    // The static host cannot see a Save-Data request header. This is the browser flag.
     return !win.navigator?.connection?.saveData
 }
 
-function markPlay(wantsPlay, video, playing) {
-    if (playing) wantsPlay.add(video)
-    else wantsPlay.delete(video)
-}
-
 /**
- * Downloads start about a viewport before a loop is played, two at a time, in page order.
- * Play and pause stay on the half-visible rule.
+ * Downloads start about a viewport before a loop is played, two at a time.
+ * play() is not used to start a fetch: on a preload="none" element it downloads immediately
+ * and would ignore the cap. load() is the only start. A loop that is half on screen
+ * moves ahead of the ones that are only nearby, and plays when that load starts.
  */
 function watchLoops(videos, win) {
     const wantsPlay = new WeakSet()
     const queued = new WeakSet()
+    const started = new WeakSet()
     const pending = []
     let active = 0
     let pumping = false
+
+    const sortPending = () => {
+        pending.sort((a, b) => {
+            const aw = wantsPlay.has(a) ? 0 : 1
+            const bw = wantsPlay.has(b) ? 0 : 1
+            if (aw !== bw) return aw - bw
+            return videos.indexOf(a) - videos.indexOf(b)
+        })
+    }
 
     const pump = () => {
         if (pumping) return
@@ -33,6 +41,7 @@ function watchLoops(videos, win) {
         try {
             while (active < MAX_LOADING && pending.length) {
                 const video = pending.shift()
+                started.add(video)
                 active += 1
                 video.preload = 'auto'
                 let released = false
@@ -56,12 +65,9 @@ function watchLoops(videos, win) {
     }
 
     const enqueue = (video) => {
-        if (queued.has(video)) return
+        if (queued.has(video) || started.has(video)) return
         queued.add(video)
-        const at = videos.indexOf(video)
-        let index = 0
-        while (index < pending.length && videos.indexOf(pending[index]) < at) index += 1
-        pending.splice(index, 0, video)
+        pending.push(video)
     }
 
     const playObserver = new win.IntersectionObserver(
@@ -69,13 +75,17 @@ function watchLoops(videos, win) {
             for (const entry of entries) {
                 const video = entry.target
                 if (entry.isIntersecting) {
-                    markPlay(wantsPlay, video, true)
-                    video.play().catch(() => {})
+                    wantsPlay.add(video)
+                    // Already downloading or ready: play does not open another fetch.
+                    if (started.has(video)) video.play().catch(() => {})
+                    else enqueue(video)
                 } else {
-                    markPlay(wantsPlay, video, false)
+                    wantsPlay.delete(video)
                     video.pause()
                 }
             }
+            sortPending()
+            pump()
         },
         { threshold: 0.5 }
     )
@@ -86,6 +96,7 @@ function watchLoops(videos, win) {
             const entering = entries.filter((entry) => entry.isIntersecting).map((entry) => entry.target)
             entering.sort((a, b) => videos.indexOf(a) - videos.indexOf(b))
             for (const video of entering) enqueue(video)
+            sortPending()
             pump()
         },
         { rootMargin: '100% 0px', threshold: 0 }
