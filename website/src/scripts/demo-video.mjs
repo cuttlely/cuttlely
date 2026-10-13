@@ -31,7 +31,8 @@ export function canAutoplay(win = window) {
  * A second freeze before that seek has landed keeps the same saved time and replaces the
  * listeners, instead of reading the playhead load() just set to 0. The same replacement
  * happens when the saved time is 0, so a second metadata listener cannot call play() again.
- * Any seek this code did not start ends the restore and keeps the visitor's time, including
+ * Once that metadata arrives, a restore that started at 0 is finished, and a later freeze reads
+ * the playhead as it is. Any seek this code did not start ends the restore and keeps the visitor's time, including
  * a scrub back to the start. It plays again only if it should still be on screen.
  * That restart is what lets the listeners above free the slot. A fully buffered loop is not loaded again.
  * Safari and Firefox do not fire resume. A socket aborted while the page is hidden, and not
@@ -215,6 +216,10 @@ function watchLoops(videos, win, doc) {
                 if (!settled) {
                     if (video.seeking && !nearSaved(video.currentTime)) stop()
                     else if (saved > 0 && seekableCovers()) assign()
+                    // A reload that started at 0 has nothing to put back. Drop it once metadata
+                    // arrives, unless a visitor seek already ended the restore, so the next freeze
+                    // reads the live playhead instead of seeking back to 0.
+                    else if (!(saved > 0)) stop()
                 }
                 if (wantsPlay.has(video)) video.play().catch(() => {})
             }

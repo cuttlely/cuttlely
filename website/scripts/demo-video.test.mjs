@@ -515,6 +515,52 @@ test('a visitor seek during a restore keeps their time', async () => {
     }
 })
 
+test('a later freeze after a zero restore reads the live playhead', async () => {
+    const { doc, win, calls, list, approach, show, dispatch } = fakes({ videos: 2 })
+    initDemoVideo(doc, win)
+    approach([0, 1])
+    const playTimes = []
+    const original = list[0].play
+    list[0].play = () => {
+        playTimes.push(list[0].currentTime)
+        return original.call(list[0])
+    }
+    show(0, true)
+    show(1, false)
+    list[0].currentTime = 0
+    list[1].currentTime = 0
+    list[0].readyState = 2
+    list[1].readyState = 2
+    list[0].networkState = 2
+    list[1].networkState = 2
+    dispatch('doc', 'resume')
+    await Promise.resolve()
+    // Before metadata the zero restore stays registered, so a second resume would still replace it.
+    assert.equal(list[0].events.loadedmetadata.length, 1)
+    list[0].emit('loadedmetadata')
+    list[1].emit('loadedmetadata')
+    const playsAfterMetadata = playTimes.length
+    list[0].currentTime = 2.5
+    list[1].currentTime = 2.5
+    list[0].readyState = 2
+    list[1].readyState = 2
+    list[0].networkState = 2
+    list[1].networkState = 2
+    list[0].seekable = { length: 1, end: () => 12 }
+    list[1].seekable = { length: 1, end: () => 12 }
+    dispatch('doc', 'resume')
+    await Promise.resolve()
+    list[0].emit('loadedmetadata')
+    list[1].emit('loadedmetadata')
+    assert.equal(list[0].currentTime, 2.5)
+    assert.equal(list[1].currentTime, 2.5)
+    assert.deepEqual(
+        playTimes.slice(playsAfterMetadata).filter((time) => time === 0),
+        []
+    )
+    assert.equal(calls.filter((call) => call === 'play 1').length, 0)
+})
+
 test('two resumes at the start leave one loadedmetadata listener', async () => {
     const { doc, win, calls, list, approach, show, dispatch } = fakes({ videos: 1 })
     initDemoVideo(doc, win)
