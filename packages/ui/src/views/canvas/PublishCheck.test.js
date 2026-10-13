@@ -2,6 +2,9 @@ jest.mock('@/api/flowDrafts', () => ({
     __esModule: true,
     default: { getCheckSetup: jest.fn(), startCheck: jest.fn(), getCheck: jest.fn(), stopCheck: jest.fn() }
 }))
+jest.mock('@/api/dataset', () => ({ __esModule: true, default: { getAllDatasets: jest.fn() } }))
+jest.mock('@/api/evaluators', () => ({ __esModule: true, default: { getAllEvaluators: jest.fn() } }))
+jest.mock('@/hooks/useAuth', () => ({ useAuth: () => ({ hasPermission: () => false }) }))
 
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
@@ -60,6 +63,7 @@ describe('PublishCheckView', () => {
         expect(html).toContain('data-testid="check-run"')
         expect(html).toContain('Run check')
         expect(html).toContain('Publish works with or without a check.')
+        expect(html).not.toContain('Questions from')
     })
 
     test('no history yet asks for a question', () => {
@@ -297,6 +301,64 @@ describe('PublishCheckView', () => {
         expect(html).toContain('data-testid="check-results-more"')
         expect(html).toContain('Show more')
         expect(html).not.toContain('Question 12')
+    })
+
+    test('a dataset and evaluators are a choice, with a score chip and a pass rate', () => {
+        const hidden = render({ list: initialPicks([{ text: 'Hi' }]) })
+        expect(hidden).not.toContain('data-testid="check-question-source"')
+        const html = render({
+            canUseDatasets: true,
+            canUseEvaluators: true,
+            source: 'dataset',
+            datasetId: 'ds-1',
+            datasets: [{ id: 'ds-1', name: 'Bakery questions', rowCount: 2 }],
+            evaluators: [{ id: 'ev-1', name: 'Mentions mango' }],
+            evaluatorIds: ['ev-1'],
+            list: [],
+            check: {
+                id: 'c1',
+                status: 'done',
+                total: 1,
+                completed: 1,
+                stopReason: null,
+                draftChanged: false,
+                cases: [
+                    {
+                        question: 'Do you have gluten-free bread today?',
+                        expected: 'Yes, every day.',
+                        live: { ...live, scores: [{ id: 'ev-1', name: 'Mentions mango', result: 'Fail' }] },
+                        draft: { ...draft, scores: [{ id: 'ev-1', name: 'Mentions mango', result: 'Pass' }] },
+                        same: false
+                    }
+                ],
+                summary: {
+                    ran: 1,
+                    same: 0,
+                    changed: 1,
+                    errors: 0,
+                    liveTokens: 44,
+                    draftTokens: 45,
+                    liveMedianMs: 657,
+                    draftMedianMs: 525,
+                    scores: {
+                        live: { passed: 0, failed: 1, errored: 0, passRate: 0 },
+                        draft: { passed: 1, failed: 0, errored: 0, passRate: 100 }
+                    }
+                }
+            }
+        })
+        expect(html).toContain('data-testid="check-question-source"')
+        expect(html).toContain('Recent questions')
+        expect(html).toContain('A dataset')
+        expect(html).toContain('Bakery questions')
+        expect(html).toContain('data-testid="check-evaluator"')
+        expect(html).toContain('Mentions mango')
+        expect(html).toContain('Expected: Yes, every day.')
+        expect(html).toContain('Mentions mango: Fail')
+        expect(html).toContain('Mentions mango: Pass')
+        expect(html).toContain('Live pass rate: 0%')
+        expect(html).toContain('Draft pass rate: 100%')
+        expect(html).not.toContain('data-testid="compare-count"')
     })
 
     test('on the promote page it speaks of the version from Dev, not a draft', () => {
