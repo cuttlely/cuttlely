@@ -564,7 +564,7 @@ check(
     check(
         'the run card lists every row an analyst query returned, up to the cap',
         view &&
-            TRACE_ROW_LIMIT === 100 &&
+            TRACE_ROW_LIMIT === 1000 &&
             view.rows.length === 100 &&
             view.columns.join(',') === 'account,arr,note' &&
             view.rows[0].join('|') === 'Account 1|1000|{"tier":"gold"}' &&

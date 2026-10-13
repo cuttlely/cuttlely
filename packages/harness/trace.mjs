@@ -112,7 +112,8 @@ export function toolChipLabel(tool) {
     return `${tool?.name || 'tool'} · ${status}`
 }
 
-export const TRACE_ROW_LIMIT = 100
+// Matches the analyst row-cap maximum. The query already returns only the rows this page shows.
+export const TRACE_ROW_LIMIT = 1000
 
 // A new query step stores a short preview, not the page. These caps keep that preview small.
 // The row cap below is the same ceiling the analyst uses: 100 unless the admin setting says otherwise, never above 1000.

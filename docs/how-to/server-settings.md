@@ -64,6 +64,19 @@ Errors come back in plain words, never with a secret in them. Model keys themsel
 
 ![Analyst, with an edited Separate Postgres for the analyst address. Test the analyst database failed and says it could not connect, with a Test again button.](../images/server-settings/test-connection-analyst-failed.png)
 
+## Analyst limits
+
+**Analyst** also sets how much one query may return and how long it may run. Both apply the next time the server starts. A host value above the maximum is treated as the maximum. A query timeout below 1 second is raised to 1 second. Zero, a negative number, or text that is not a number counts as unset, so the default applies, and the server logs that once.
+
+| Setting           | Variable                                | Default    | Range            |
+| ----------------- | --------------------------------------- | ---------- | ---------------- |
+| **Row cap**       | `CUTTLELY_ANALYST_ROW_CAP`              | 100 rows   | 1 to 1000 rows   |
+| **Query timeout** | `CUTTLELY_ANALYST_STATEMENT_TIMEOUT_MS` | 15 seconds | 1 to 120 seconds |
+
+The row cap is the page size. A lower cap puts fewer rows into the specialist's prompt and into the handoff Harness Prime reads, so the turn uses less context. Say `show more` for the next page. The rows stay in the database.
+
+The query timeout stops a statement that runs too long, on the private store and on a Postgres URL. A PostgreSQL MCP node can set a lower **Row cap** or a shorter **Query timeout (seconds)** under **Additional Parameters**. Those fields cannot go above the values here. Leave them empty to use these settings. [Analyst mode](./analyst.md#safety).
+
 ## Set up AuthKit
 
 In **Sign-in & identity**, **Set up AuthKit** walks through four steps:

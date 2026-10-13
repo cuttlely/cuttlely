@@ -81,7 +81,7 @@ export const SECTIONS: SectionDef[] = [
         id: 'analyst',
         label: 'Analyst',
         summary: 'Lets agent teams query data and answer with real numbers and charts.',
-        afterRestart: 'Agent teams with a data analyst use the storage chosen here.'
+        afterRestart: 'Agent teams with a data analyst use the storage and the limits chosen here.'
     },
     {
         id: 'models',
@@ -447,6 +447,33 @@ export const SETTINGS: SettingDef[] = [
         defaultLabel: 'Not set',
         placeholder: 'postgres://user:password@host:5432/database',
         risk: 'high'
+    },
+    {
+        key: 'CUTTLELY_ANALYST_ROW_CAP',
+        section: 'analyst',
+        group: 'Limits',
+        label: 'Row cap',
+        help: 'The most rows one analyst query returns. A lower cap puts less of the table into the prompt. A node can ask for fewer rows, never more. The server never uses more than 1000.',
+        type: 'number',
+        min: 1,
+        max: 1000,
+        defaultLabel: '100 rows',
+        defaultValue: '100',
+        risk: 'low'
+    },
+    {
+        key: 'CUTTLELY_ANALYST_STATEMENT_TIMEOUT_MS',
+        section: 'analyst',
+        group: 'Limits',
+        label: 'Query timeout',
+        help: 'How long one analyst statement may run before it stops. A node can ask for less time, never more. The server never uses more than 120 seconds.',
+        type: 'number',
+        unit: 'ms-as-seconds',
+        min: 1,
+        max: 120,
+        defaultLabel: '15 seconds',
+        defaultValue: '15000',
+        risk: 'medium'
     },
     {
         key: 'CUTTLELY_ANALYST_TRACE_PREVIEW',
