@@ -19,7 +19,7 @@ jest.mock('@/api/dataset', () => ({ __esModule: true, default: { getAllDatasets:
 jest.mock('@/api/evaluators', () => ({ __esModule: true, default: { getAllEvaluators: jest.fn() } }))
 jest.mock('@/hooks/useConfirm', () => {
     const confirm = jest.fn()
-    return { __esModule: true, confirm, default: () => ({ confirm }) }
+    return { __esModule: true, default: () => ({ confirm }) }
 })
 jest.mock('react-redux', () => ({
     useDispatch: () => jest.fn()
@@ -32,8 +32,9 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { ThemeProvider, createTheme } from '@mui/material/styles'
 
 import flowDraftsApi from '@/api/flowDrafts'
-import { confirm } from '@/hooks/useConfirm'
 import PublishDialog, { PublishChangeList } from './PublishDialog'
+
+const { confirm } = jest.requireMock('@/hooks/useConfirm').default()
 
 describe('PublishChangeList', () => {
     const html = (lines) =>

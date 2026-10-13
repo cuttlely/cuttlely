@@ -1828,6 +1828,7 @@ packages/ui/src/views/auth/verify-email.jsx
 packages/ui/src/views/canvas/AddNodes.jsx
 packages/ui/src/views/canvas/ButtonEdge.jsx
 packages/ui/src/views/canvas/CanvasHeader.jsx
+packages/ui/src/views/canvas/CanvasHeader.test.js
 packages/ui/src/views/canvas/CanvasNode.jsx
 packages/ui/src/views/canvas/CredentialInputHandler.jsx
 packages/ui/src/views/canvas/NodeInputHandler.jsx

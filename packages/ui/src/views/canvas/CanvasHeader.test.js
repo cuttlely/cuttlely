@@ -6,7 +6,7 @@ jest.mock('@/hooks/useApi', () => () => ({ data: null, error: null, loading: fal
 jest.mock('@/hooks/useAuth', () => ({ useAuth: () => ({ hasPermission: () => true }) }))
 jest.mock('@/hooks/useConfirm', () => {
     const confirm = jest.fn()
-    return { __esModule: true, confirm, default: () => ({ confirm }) }
+    return { __esModule: true, default: () => ({ confirm }) }
 })
 jest.mock('react-redux', () => ({
     useDispatch: () => jest.fn(),
@@ -44,8 +44,9 @@ import { createRoot } from 'react-dom/client'
 import { ThemeProvider, createTheme } from '@mui/material/styles'
 
 import flowDraftsApi from '@/api/flowDrafts'
-import { confirm } from '@/hooks/useConfirm'
 import CanvasHeader from './CanvasHeader'
+
+const { confirm } = jest.requireMock('@/hooks/useConfirm').default()
 
 const theme = createTheme({
     palette: {
