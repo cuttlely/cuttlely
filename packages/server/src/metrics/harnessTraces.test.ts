@@ -16,6 +16,7 @@ jest.mock('../utils/logger', () => ({
 const TRACE_ENV = ['CUTTLELY_OTEL_TRACES', 'CUTTLELY_OTEL_TRACES_ENDPOINT', 'CUTTLELY_OTEL_TRACES_PROTOCOL', 'CUTTLELY_OTEL_TRACES_CONTENT']
 
 const T0 = 1_700_000_000_000
+const WORKSPACE = '11111111-1111-4111-8111-111111111111'
 const SQL = 'select loaf from oven'
 const ROW_TEXT = 'rye'
 const QUESTION = 'How many loaves?'
@@ -144,7 +145,7 @@ describe('harness run spans', () => {
         const card = traceViewSteps(events)
         await traceFlow('chatflow', 'flow-bakery', async () => {
             await withNodeSpan('node-harness', 'harness', async () => {
-                const session = openHarnessRunTrace({ name: 'bakery', workspaceId: 'ws-1', question: QUESTION })
+                const session = openHarnessRunTrace({ name: 'bakery', workspaceId: WORKSPACE, question: QUESTION })
                 expect(session).toBeDefined()
                 play(session as HarnessTraceSession, events)
             })
@@ -159,7 +160,7 @@ describe('harness run spans', () => {
         expect(root?.traceId).toBe(prediction?.traceId)
         expect(root?.attributes).toMatchObject({
             'harness.name': 'bakery',
-            'workspace.id': 'ws-1',
+            'workspace.id': WORKSPACE,
             'run.id': 'run_11111111-1111-4111-8111-111111111111',
             'flow.id': 'flow-bakery',
             'flow.kind': 'chatflow',
@@ -218,7 +219,7 @@ describe('harness run spans', () => {
     it('adds question, answer, SQL, and rows only when content is on', async () => {
         process.env.CUTTLELY_OTEL_TRACES = 'true'
         process.env.CUTTLELY_OTEL_TRACES_CONTENT = 'true'
-        const session = openHarnessRunTrace({ name: 'bakery', workspaceId: 'ws-1', question: QUESTION })
+        const session = openHarnessRunTrace({ name: 'bakery', workspaceId: WORKSPACE, question: QUESTION })
         play(session as HarnessTraceSession)
         const spans = memory.spans()
         const root = spans.find((span) => span.name === 'harness.run')
@@ -230,6 +231,29 @@ describe('harness run spans', () => {
         expect(String(tool?.attributes['content.output'])).toContain(ROW_TEXT)
         expect(specialist?.attributes['content.input']).toBe(TASK)
         expect(tool?.attributes['tool.rows']).toBe(2)
+    })
+
+    it('does not put a non-id workspace value on the span', () => {
+        process.env.CUTTLELY_OTEL_TRACES = 'true'
+        const session = openHarnessRunTrace({ name: 'bakery', workspaceId: 'not-a-team', question: QUESTION })
+        session?.event({
+            type: 'final',
+            at: T0,
+            text: ANSWER,
+            trace: {
+                status: 'completed',
+                error: '',
+                tokens: { prompt: 1, completion: 1 },
+                route: {},
+                specialists: [],
+                handoff: { status: 'skipped' }
+            }
+        })
+        session?.finish({ text: ANSWER })
+        const root = memory.spans().find((span) => span.name === 'harness.run')
+        expect(root?.attributes['workspace.id']).toBeUndefined()
+        expect(JSON.stringify(root?.attributes)).not.toContain('not-a-team')
+        expect(JSON.stringify(root?.attributes)).not.toContain(QUESTION)
     })
 
     it('exports nothing when traces are off, silenced, or the run is a draft or a replay', async () => {

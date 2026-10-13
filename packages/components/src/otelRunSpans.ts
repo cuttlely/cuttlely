@@ -518,7 +518,10 @@ class HarnessTraceSessionImpl implements HarnessTraceSession {
         const name = this.harnessName.trim()
         if (name) span.setAttribute('harness.name', name.slice(0, 200))
         const workspace = this.workspaceId?.trim()
-        if (workspace) span.setAttribute('workspace.id', workspace.slice(0, 80))
+        // Only a team id. A name, a chat id, or other text is not a workspace id.
+        if (workspace && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(workspace)) {
+            span.setAttribute('workspace.id', workspace)
+        }
         if (this.flow.id) span.setAttribute('flow.id', this.flow.id)
         if (this.flow.kind) span.setAttribute('flow.kind', this.flow.kind)
         this.root = span

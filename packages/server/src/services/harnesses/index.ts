@@ -3,8 +3,11 @@ import fs from 'fs'
 import path from 'path'
 import { pathToFileURL } from 'url'
 import { StatusCodes } from 'http-status-codes'
+import { DataSource } from 'typeorm'
+import { Workspace } from '../../database/entities/identity'
 import { AppError } from '../../errors/appError'
 import { getErrorMessage } from '../../errors/utils'
+import { requireWorkspaceId } from '../../identity/workspaceScope'
 import { databaseEntities } from '../../utils'
 import { getRunningExpressApp } from '../../utils/getRunningExpressApp'
 import logger from '../../utils/logger'
@@ -29,33 +32,179 @@ export async function loadHarness(file: string) {
     throw new AppError(StatusCodes.INTERNAL_SERVER_ERROR, `Harness module ${file} was not found.`)
 }
 
-const listHarnesses = async () => {
-    const store = await loadHarness('store.mjs')
-    return store.listHarnesses()
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+function workspaceOf(workspaceId?: string | null): string {
+    return requireWorkspaceId(workspaceId)
 }
 
-const getHarness = async (name: string) => {
-    const store = await loadHarness('store.mjs')
-    const harness = store.getHarness(name)
-    if (!harness) {
-        throw new AppError(StatusCodes.NOT_FOUND, `Harness ${name} was not found.`)
+function notFound(name: string) {
+    return new AppError(StatusCodes.NOT_FOUND, `Harness ${name} was not found.`)
+}
+
+function nameClash(name: string) {
+    return new AppError(StatusCodes.CONFLICT, `Harness name "${name}" is already used in another team. Choose a different name.`)
+}
+
+// The install's default team for a harness saved before harnesses stored one. Same rule as a pipeline:
+// CUTTLELY_ETL_DEFAULT_WORKSPACE_ID when it names a workspace, otherwise the only workspace.
+async function defaultWorkspaceId(): Promise<string | null> {
+    try {
+        const repo = getRunningExpressApp().AppDataSource.getRepository(Workspace)
+        const configured = (process.env.CUTTLELY_ETL_DEFAULT_WORKSPACE_ID || '').trim()
+        if (configured) {
+            if (await repo.findOneBy({ id: configured })) return configured
+            logger.warn('[harness] CUTTLELY_ETL_DEFAULT_WORKSPACE_ID does not name a workspace; ignoring it')
+        }
+        const found = await repo.find({ select: { id: true }, take: 2 })
+        return found.length === 1 ? found[0].id : null
+    } catch (error) {
+        logger.warn(`[harness] default workspace lookup failed: ${getErrorMessage(error)}`)
+        return null
     }
-    return harness
 }
 
-const saveHarness = async (body: Record<string, unknown>) => {
+function quoteIdent(dataSource: DataSource, name: string): string {
+    const escape = dataSource.driver?.escape
+    return typeof escape === 'function' ? escape.call(dataSource.driver, name) : `"${name}"`
+}
+
+// The canvas team column is quoted for the driver. Postgres folds an unquoted workspaceId to workspaceid,
+// and the column was created quoted.
+export function canvasTeamQuery(dataSource: DataSource, chatflowId: string) {
+    const table = 'chat_flow'
+    const column = (name: string) => `${quoteIdent(dataSource, table)}.${quoteIdent(dataSource, name)}`
+    return dataSource
+        .createQueryBuilder()
+        .select(column('workspaceId'), 'workspaceId')
+        .from(table, table)
+        .where(`${column('id')} = :id`, { id: chatflowId })
+}
+
+// A stored team wins. A file with none takes its canvas's team, else the install default. A canvas lookup
+// that throws leaves the file with no team: the default is not a substitute for a failed read.
+async function ownerOf(record: { workspaceId?: string | null; chatflowId?: string | null }): Promise<string | null> {
+    if (typeof record?.workspaceId === 'string' && record.workspaceId) return record.workspaceId
+    const chatflowId = typeof record?.chatflowId === 'string' ? record.chatflowId : ''
+    if (UUID.test(chatflowId)) {
+        const found = await canvasWorkspace(chatflowId)
+        if (found.failed) return null
+        if (found.workspaceId) return found.workspaceId
+    }
+    return defaultWorkspaceId()
+}
+
+async function canvasWorkspace(chatflowId: string): Promise<{ failed: boolean; workspaceId: string | null }> {
+    if (!UUID.test(chatflowId)) return { failed: false, workspaceId: null }
+    try {
+        const row = await canvasTeamQuery(getRunningExpressApp().AppDataSource, chatflowId).getRawOne()
+        const id = row?.workspaceId ?? row?.workspaceid
+        return { failed: false, workspaceId: typeof id === 'string' && id ? id : null }
+    } catch (error) {
+        logger.warn(`[harness] canvas workspace lookup failed: ${getErrorMessage(error)}`)
+        return { failed: true, workspaceId: null }
+    }
+}
+
+// The workspace comparison. Another team's harness is a 404, the same response as a missing name.
+function inWorkspace(owner: string | null, workspaceId: string) {
+    return Boolean(owner) && owner === workspaceId
+}
+
+const listHarnesses = async (workspaceId?: string | null) => {
+    const ws = workspaceOf(workspaceId)
+    const store = await loadHarness('store.mjs')
+    const visible = []
+    for (const row of store.listHarnesses()) {
+        const owner = await ownerOf(row)
+        if (!inWorkspace(owner, ws)) continue
+        if (!row.workspaceId && owner) {
+            visible.push(store.claimWorkspace(row.name, owner) || { ...row, workspaceId: owner })
+        } else visible.push(row)
+    }
+    return visible
+}
+
+const getHarness = async (name: string, workspaceId?: string | null) => requireHarness(name, workspaceId)
+
+const saveHarness = async (body: Record<string, unknown>, workspaceId?: string | null) => {
+    const ws = workspaceOf(workspaceId)
     try {
         const store = await loadHarness('store.mjs')
         const profile = await loadHarness('profile.mjs')
         const { overwrite, ...record } = body
-        const existing = typeof record.name === 'string' ? store.getHarness(record.name) : null
-        const saved = store.saveHarness(record, { overwrite: Boolean(overwrite) || Boolean(existing) })
+        delete record.workspaceId
+        const name = typeof record.name === 'string' ? record.name : ''
+        let existing = null
+        if (name) {
+            try {
+                existing = store.getHarness(name)
+            } catch (error) {
+                throw new AppError(StatusCodes.BAD_REQUEST, getErrorMessage(error))
+            }
+        }
+        if (existing) {
+            const owner = await ownerOf(existing)
+            // No resolved team is not this caller. The file, including its run history, stays as it is.
+            if (!inWorkspace(owner, ws)) throw nameClash(name)
+            if (!existing.workspaceId && owner) store.claimWorkspace(name, owner)
+        }
+        const saved = store.saveHarness({ ...record, workspaceId: ws }, { overwrite: Boolean(overwrite) || Boolean(existing) })
         profile.compileProfileCached(saved)
         warmHarnesses([saved.name])
         return saved
     } catch (error) {
+        if (error instanceof AppError) throw error
+        const code = (error as { code?: string })?.code
+        if (code === 'name_clash') throw nameClash(typeof body?.name === 'string' ? body.name : '')
         throw new AppError(StatusCodes.BAD_REQUEST, getErrorMessage(error))
     }
+}
+
+// A canvas save uses the chat flow's team. A name that already belongs to another team is refused before the file is written.
+export async function assertNameAvailable(name: string, workspaceId?: string | null) {
+    const ws = workspaceOf(workspaceId)
+    const store = await loadHarness('store.mjs')
+    let existing
+    try {
+        existing = store.getHarness(name)
+    } catch {
+        return
+    }
+    if (!existing) return
+    const owner = await ownerOf(existing)
+    if (!inWorkspace(owner, ws)) throw nameClash(name)
+    if (!existing.workspaceId && owner) store.claimWorkspace(name, owner)
+}
+
+export async function backfillHarnessWorkspaces() {
+    const store = await loadHarness('store.mjs')
+    const rows = store.listHarnesses().filter((row: { workspaceId?: string }) => !row.workspaceId)
+    if (!rows.length) return null
+    let fromFlow = 0
+    let fromDefault = 0
+    let unassigned = 0
+    for (const row of rows) {
+        const found = await canvasWorkspace(typeof row.chatflowId === 'string' ? row.chatflowId : '')
+        if (found.failed) {
+            unassigned += 1
+            continue
+        }
+        const fromCanvas = found.workspaceId
+        const owner = fromCanvas || (await defaultWorkspaceId())
+        if (!owner) {
+            unassigned += 1
+            continue
+        }
+        store.claimWorkspace(row.name, owner)
+        if (fromCanvas) fromFlow += 1
+        else fromDefault += 1
+    }
+    logger.info(
+        `[harness] workspace backfill: ${rows.length} harness(es) had no team; ${fromFlow} took their canvas's team, ` +
+            `${fromDefault} the default team, ${unassigned} left hidden from every team`
+    )
+    return { harnesses: rows.length, fromFlow, fromDefault, unassigned }
 }
 
 async function contextFor(record: { chatflowId?: string; workspaceId?: string | null } | null) {
@@ -110,7 +259,8 @@ const warmHarnesses = (names?: string[]) => {
         .catch((error) => logger.warn(`[harness] Hermes warm-up failed: ${getErrorMessage(error)}`))
 }
 
-const deleteHarness = async (name: string) => {
+const deleteHarness = async (name: string, workspaceId?: string | null) => {
+    await requireHarness(name, workspaceId)
     const store = await loadHarness('store.mjs')
     store.deleteHarness(name)
     return { name, deleted: true }
@@ -129,13 +279,15 @@ function httpHarnessError(error: unknown) {
     const code = (error as { code?: string })?.code
     const message = getErrorMessage(error)
     if (code === 'not_found') return new AppError(StatusCodes.NOT_FOUND, message)
+    if (code === 'name_clash') return new AppError(StatusCodes.CONFLICT, message)
     if (code === 'bad_name' || code === 'bad_session') return new AppError(StatusCodes.BAD_REQUEST, message)
     if (code === 'busy') return new AppError(StatusCodes.CONFLICT, message)
     if ((error as { harnessError?: boolean })?.harnessError) return new AppError(StatusCodes.UNPROCESSABLE_ENTITY, message)
     return new AppError(StatusCodes.INTERNAL_SERVER_ERROR, message)
 }
 
-const requireHarness = async (name: string) => {
+const requireHarness = async (name: string, workspaceId?: string | null) => {
+    const ws = workspaceOf(workspaceId)
     const store = await loadHarness('store.mjs')
     let harness
     try {
@@ -143,20 +295,24 @@ const requireHarness = async (name: string) => {
     } catch (error) {
         throw httpHarnessError(error)
     }
-    if (!harness) {
-        throw new AppError(StatusCodes.NOT_FOUND, `Harness ${name} was not found.`)
+    if (!harness) throw notFound(name)
+    const owner = await ownerOf(harness)
+    if (!inWorkspace(owner, ws)) throw notFound(name)
+    if (!harness.workspaceId && owner) {
+        const claimed = store.claimWorkspace(name, owner)
+        if (claimed) harness = claimed
     }
     return harness
 }
 
-const listRuns = async (name: string) => {
-    await requireHarness(name)
+const listRuns = async (name: string, workspaceId?: string | null) => {
+    await requireHarness(name, workspaceId)
     const history = await loadHarness('history.mjs')
     return history.listRuns(name, { limit: 50 })
 }
 
-const getRun = async (name: string, runId: string) => {
-    await requireHarness(name)
+const getRun = async (name: string, runId: string, workspaceId?: string | null) => {
+    await requireHarness(name, workspaceId)
     const history = await loadHarness('history.mjs')
     const run = history.getRun(name, runId)
     if (!run) {
@@ -165,8 +321,8 @@ const getRun = async (name: string, runId: string) => {
     return run
 }
 
-const assertRunRequest = async (name: string, body: Record<string, unknown>) => {
-    const harness = await requireHarness(name)
+const assertRunRequest = async (name: string, body: Record<string, unknown>, workspaceId?: string | null) => {
+    const harness = await requireHarness(name, workspaceId)
     const question = questionOf(body || {})
     if (!question.trim()) {
         throw new AppError(StatusCodes.BAD_REQUEST, 'A harness run needs a question.')
@@ -192,11 +348,12 @@ const startRun = async (
         onEvent?: (event: { type: string }) => void
         // Set only for the canvas and Try it. The external runs route leaves this unset and reads the saved harness.
         record?: Record<string, unknown>
+        workspaceId?: string | null
         // Publish check. The try profile is still used. History, the session and captured analyst rows are not.
         replay?: boolean
     } = {}
 ) => {
-    const prepared = await assertRunRequest(name, body)
+    const prepared = await assertRunRequest(name, body, opts.workspaceId)
     await configureRuntime()
     let runtime: { componentNodes?: unknown; flowOptions?: Record<string, unknown> } | null = null
     try {
@@ -210,22 +367,28 @@ const startRun = async (
     // A draft roster exists only in this process. The queue worker would load the saved harness instead.
     const run = !opts.record && process.env.CUTTLELY_HARNESS_QUEUE !== 'off' && typeof queued === 'function' ? queued : engine.runHarness
     const traceWorkspaceId = typeof prepared.harness.workspaceId === 'string' ? prepared.harness.workspaceId : undefined
-    const harnessTrace = openHarnessRunTrace({
-        name,
-        workspaceId: traceWorkspaceId,
-        question: prepared.question,
-        replay: opts.replay === true,
-        draft: Boolean(opts.record)
-    })
+    let harnessTrace: ReturnType<typeof openHarnessRunTrace> | undefined
     let recorded: Record<string, unknown> | null = null
+    const flowOptions = { ...(runtime?.flowOptions || {}) }
+    // The server context copies the harness file. The run compares the caller's team.
+    if (typeof opts.workspaceId === 'string' && opts.workspaceId) flowOptions.workspaceId = opts.workspaceId
     try {
+        // A cross-team refusal happens before a span is opened.
+        if (typeof engine.assertHarnessWorkspace === 'function') engine.assertHarnessWorkspace(name, flowOptions, opts.record)
+        harnessTrace = openHarnessRunTrace({
+            name,
+            workspaceId: traceWorkspaceId,
+            question: prepared.question,
+            replay: opts.replay === true,
+            draft: Boolean(opts.record)
+        })
         const payload = await run({
             name,
             chatId: prepared.chatId,
             input: prepared.question,
             source: opts.source === 'playground' || opts.source === 'api' ? opts.source : 'api',
             componentNodes: runtime?.componentNodes,
-            flowOptions: runtime?.flowOptions,
+            flowOptions,
             onEvent: (event: { type: string }) => {
                 harnessTrace?.event(event as Record<string, unknown>)
                 opts.onEvent?.(event)
@@ -262,7 +425,7 @@ const startRun = async (
         }
         return { payload, run: recorded, chatId: prepared.chatId }
     } catch (error) {
-        harnessTrace?.fail(error)
+        if ((error as { code?: string }).code !== 'wrong_workspace') harnessTrace?.fail(error)
         const wrapped = httpHarnessError(error) as AppError & { harnessRun?: unknown }
         wrapped.harnessRun = recorded
         throw wrapped
@@ -286,7 +449,11 @@ const startCanvasRun = async (
         workspaceId: chatflow.workspaceId,
         componentNodes: appServer.nodesPool?.componentNodes
     })
-    return await startRun(chatflow.name, body, { ...opts, record: { ...roster, tryId: randomBytes(8).toString('hex') } })
+    return await startRun(chatflow.name, body, {
+        ...opts,
+        workspaceId: chatflow.workspaceId,
+        record: { ...roster, tryId: randomBytes(8).toString('hex') }
+    })
 }
 
 // Publish check. Live and the draft each get their own try profile, the same one the canvas uses.
@@ -297,6 +464,8 @@ const replayCheck = async (
     body: Record<string, unknown>,
     opts: { signal?: AbortSignal } = {}
 ) => {
+    // Another team's harness is a 404 before the canvas is read, so that file's credentials are not copied.
+    await assertRunRequest(chatflow.name, body, chatflow.workspaceId)
     const sync = await loadHarness('sync-from-flow.mjs')
     const appServer = getRunningExpressApp()
     const roster = sync.rosterFromFlow({
@@ -309,6 +478,7 @@ const replayCheck = async (
     return await startRun(chatflow.name, body, {
         source: 'playground',
         signal: opts.signal,
+        workspaceId: chatflow.workspaceId,
         replay: true,
         record: { ...roster, tryId: randomBytes(8).toString('hex') }
     })
@@ -316,6 +486,8 @@ const replayCheck = async (
 
 export default {
     startHarnessRuntime,
+    backfillHarnessWorkspaces,
+    assertNameAvailable,
     listHarnesses,
     getHarness,
     saveHarness,

@@ -24,6 +24,7 @@ import { getErrorMessage } from '../../errors/utils'
 import { ScheduleBeat } from '../../schedule/ScheduleBeat'
 import documentStoreService from '../../services/documentstore'
 import etlService, { orgIdForWorkspace } from '../../services/etl'
+import harnessesService from '../../services/harnesses'
 import scheduleService from '../../services/schedule'
 import {
     constructGraphs,
@@ -388,6 +389,7 @@ const saveChatflow = async (
     if (typeof newChatFlow.flowData === 'string') newChatFlow.flowData = stampNodePack(newChatFlow.flowData)
     validateChatflowType(newChatFlow.type)
     await validateHarnessCanvas(newChatFlow)
+    await validateReferencedHarnesses(newChatFlow)
     await validateEtlCanvas(newChatFlow)
     const appServer = getRunningExpressApp()
 
@@ -412,6 +414,9 @@ const saveChatflow = async (
         const chatflow = appServer.AppDataSource.getRepository(ChatFlow).create(newChatFlow)
         dbResponse = await appServer.AppDataSource.getRepository(ChatFlow).save(chatflow)
     }
+    // A taken harness name is refused before this insert. If the sync still fails, the new row is removed
+    // before history or telemetry, so the caller does not keep a canvas for another team's harness.
+    await keepHarnessCanvas(dbResponse, () => deleteChatflowRow(dbResponse.id))
     // Queued at the save so history keeps database save order.
     const recorded = flowVersionsService.recordFlowVersion(dbResponse, {
         ...(record?.versionRecord || {}),
@@ -486,7 +491,6 @@ const saveChatflow = async (
         { status: FLOWISE_COUNTER_STATUS.SUCCESS }
     )
 
-    await syncHarnessCanvas(dbResponse)
     await syncEtlCanvas(dbResponse)
     return dbResponse
 }
@@ -693,9 +697,11 @@ const updateChatflow = async (
     // merge writes into chatflow, so the type the row has now is read first: the type check and the conditional
     // write compare against the stored row, not the merged one.
     const storedType = chatflow.type
+    const previousRow = Object.assign(new ChatFlow(), chatflow)
     const newDbChatflow = appServer.AppDataSource.getRepository(ChatFlow).merge(chatflow, updateChatFlow)
     newDbChatflow.workspaceId = workspaceId // defense-in-depth: use trusted param, not chatflow.workspaceId (merge mutates in-place)
     await validateHarnessCanvas(newDbChatflow)
+    await validateReferencedHarnesses(newDbChatflow)
     await validateEtlCanvas(newDbChatflow)
     let dbResponse: ChatFlow
     const typeChanging = (updateChatFlow.type || 'CHATFLOW') !== (storedType || 'CHATFLOW')
@@ -725,6 +731,13 @@ const updateChatflow = async (
         if (conditional) await restoreDocumentStoreUsage(chatflow.id, workspaceId)
         throw error
     }
+    // The name was checked before the write. If the sync still fails, this puts the stored row back.
+    await keepHarnessCanvas(dbResponse, async () => {
+        await inTransaction(async (manager) => {
+            await manager.getRepository(ChatFlow).save(previousRow)
+        })
+        await restoreDocumentStoreUsage(chatflow.id, workspaceId)
+    })
     // Queued at the save so history keeps database save order.
     const recorded = flowVersionsService.recordFlowVersion(dbResponse, {
         ...(options.versionRecord || {}),
@@ -788,9 +801,28 @@ const updateChatflow = async (
         }
     }
 
-    await syncHarnessCanvas(dbResponse)
     await syncEtlCanvas(dbResponse)
     return dbResponse
+}
+
+async function deleteChatflowRow(id: string) {
+    await inTransaction(async (manager) => {
+        await manager.getRepository(ChatFlow).delete({ id })
+    })
+}
+
+// Sync after the row is written. A failure removes a new row, or puts an updated row back, before the error returns.
+async function keepHarnessCanvas(chatflow: ChatFlow, undo: () => Promise<void>) {
+    try {
+        await syncHarnessCanvas(chatflow)
+    } catch (error) {
+        try {
+            await undo()
+        } catch (undoError) {
+            logger.warn(`[harness] chatflow ${chatflow.id} could not be restored: ${getErrorMessage(undoError)}`)
+        }
+        throw error
+    }
 }
 
 async function validateEtlCanvas(chatflow: ChatFlow) {
@@ -803,8 +835,28 @@ async function syncEtlCanvas(chatflow: ChatFlow) {
     await etlService.syncPipelineFromFlow(chatflow)
 }
 
+// A chatflow or agentflow node that names a harness. The name has to be in this flow's team.
+async function validateReferencedHarnesses(chatflow: ChatFlow) {
+    if (typeof chatflow.flowData !== 'string' || !chatflow.flowData.includes('"harness"')) return
+    let parsed: { nodes?: Array<{ data?: { name?: string; inputs?: { harnessName?: unknown } } }> }
+    try {
+        parsed = JSON.parse(chatflow.flowData)
+    } catch {
+        return
+    }
+    const names = new Set<string>()
+    for (const node of parsed?.nodes || []) {
+        if (node?.data?.name !== 'harness') continue
+        const name = node.data.inputs?.harnessName
+        if (typeof name === 'string' && name.trim()) names.add(name.trim())
+    }
+    for (const name of names) await harnessesService.assertNameAvailable(name, chatflow.workspaceId)
+}
+
 async function validateHarnessCanvas(chatflow: ChatFlow) {
     if (chatflow.type !== EnumChatflowType.HARNESS) return
+    // Before any insert or update. A name owned by another team is 409 and the canvas is not written.
+    await harnessesService.assertNameAvailable(chatflow.name, chatflow.workspaceId)
     const engine = await loadHarnessSync()
     try {
         engine.rosterFromFlow({
@@ -819,7 +871,7 @@ async function validateHarnessCanvas(chatflow: ChatFlow) {
     }
 }
 
-async function syncHarnessCanvas(chatflow: ChatFlow) {
+export async function syncHarnessCanvas(chatflow: ChatFlow) {
     if (chatflow.type !== EnumChatflowType.HARNESS) return
     const engine = await loadHarnessSync()
     const appServer = getRunningExpressApp()
@@ -831,6 +883,8 @@ async function syncHarnessCanvas(chatflow: ChatFlow) {
         logger.warn(`[harness] workspace org lookup failed: ${getErrorMessage(error)}`)
     }
     try {
+        // A name that already belongs to another team is refused before the file is written.
+        await harnessesService.assertNameAvailable(chatflow.name, chatflow.workspaceId)
         // Warnings are logged by the harness sync. The chatflow response has no warnings field.
         await engine.syncHarnessFromFlow({
             name: chatflow.name,
@@ -851,6 +905,8 @@ async function syncHarnessCanvas(chatflow: ChatFlow) {
             }
         })
     } catch (error) {
+        if (error instanceof AppError) throw error
+        if ((error as { code?: string })?.code === 'name_clash') throw new AppError(StatusCodes.CONFLICT, getErrorMessage(error))
         throw new AppError(StatusCodes.BAD_REQUEST, getErrorMessage(error))
     }
 }

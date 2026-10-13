@@ -63,17 +63,17 @@ Point `CUTTLELY_OTEL_TRACES_ENDPOINT` at `http://localhost:4318/v1/traces`, rest
 
 One trace per run. The root span is `chatflow.prediction`, `agentflow.run`, or `harness.run`. A harness run started from a chatflow is a child of that prediction, so that prediction stays the root.
 
-| Span                  | When                                                         | Attributes                                                                                                                                                  |
-| --------------------- | ------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `chatflow.prediction` | A chatflow prediction, including an older multi-agent canvas | `flow.id`, `flow.kind` (`chatflow`), `status` (`ok` or `error`), and `error` when the run fails                                                             |
-| `agentflow.run`       | An agentflow run                                             | `flow.id`, `flow.kind` (`agentflow`), `status`, and `error` when the run fails                                                                              |
-| `node`                | Each node that is initialized or executed                    | `node.id`, `node.type`, `flow.id`, `flow.kind`, `status`, and `error` when that node fails                                                                  |
-| `model`               | A model call on that node                                    | `model.name` when Cuttlely knows it, `tokens.input`, `tokens.output`, `node.id`, `node.type`, `status`                                                      |
-| `tool`                | A tool call on that node, or a tool call in a harness run    | `tool.name`, `tool.id` when the call has one, `node.id`, `node.type`, `status`, and `error` when the tool fails. An analyst query also has `tool.rows`.     |
-| `harness.run`         | A harness run                                                | `harness.name`, `workspace.id` when the run has one, `run.id` when history saved one, `status`, `error` when the run fails, `tokens.input`, `tokens.output` |
-| `harness.route`       | Harness Prime choosing specialists                           | `model.name` when a model ran, `tokens.input`, `tokens.output`, `status`                                                                                    |
-| `harness.specialist`  | One specialist turn                                          | `specialist.name`, `model.name`, `tokens.input`, `tokens.output`, `status`, and `error` when that specialist fails                                          |
-| `harness.handoff`     | Harness Prime writing the answer                             | `model.name`, `tokens.input`, `tokens.output`, `status`                                                                                                     |
+| Span                  | When                                                         | Attributes                                                                                                                                              |
+| --------------------- | ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `chatflow.prediction` | A chatflow prediction, including an older multi-agent canvas | `flow.id`, `flow.kind` (`chatflow`), `status` (`ok` or `error`), and `error` when the run fails                                                         |
+| `agentflow.run`       | An agentflow run                                             | `flow.id`, `flow.kind` (`agentflow`), `status`, and `error` when the run fails                                                                          |
+| `node`                | Each node that is initialized or executed                    | `node.id`, `node.type`, `flow.id`, `flow.kind`, `status`, and `error` when that node fails                                                              |
+| `model`               | A model call on that node                                    | `model.name` when Cuttlely knows it, `tokens.input`, `tokens.output`, `node.id`, `node.type`, `status`                                                  |
+| `tool`                | A tool call on that node, or a tool call in a harness run    | `tool.name`, `tool.id` when the call has one, `node.id`, `node.type`, `status`, and `error` when the tool fails. An analyst query also has `tool.rows`. |
+| `harness.run`         | A harness run                                                | `harness.name`, `workspace.id` (the team's id), `run.id` when history saved one, `status`, `error` when the run fails, `tokens.input`, `tokens.output`  |
+| `harness.route`       | Harness Prime choosing specialists                           | `model.name` when a model ran, `tokens.input`, `tokens.output`, `status`                                                                                |
+| `harness.specialist`  | One specialist turn                                          | `specialist.name`, `model.name`, `tokens.input`, `tokens.output`, `status`, and `error` when that specialist fails                                      |
+| `harness.handoff`     | Harness Prime writing the answer                             | `model.name`, `tokens.input`, `tokens.output`, `status`                                                                                                 |
 
 `status` is `ok`, `error`, or `pending`. A tool call that is waiting for approval is `pending`. A tool call the caller rejected is `error`, and its `error` attribute is `rejected by user`. It is not left `pending`. A tool error that the executor catches is `error` on that tool span, and the node span and the run span are `error` as well. The prediction still returns the body the executor returned.
 
@@ -118,7 +118,7 @@ An analyst query span has `tool.name`, `tool.rows`, and that duration. It does n
 
 A model span uses `tokens.input` and `tokens.output`, the same names as a chatflow model span. The route, specialist, and handoff spans carry the totals the run card shows for that step. Those totals are the sum of the model spans under that step. `harness.run` carries the run total.
 
-`POST /api/v1/harnesses/:name/runs` exports this tree. A harness run from a chatflow's Harness node is a child of that chatflow's prediction span. A draft try on the harness canvas and a publish-check replay export nothing.
+`POST /api/v1/harnesses/:name/runs` exports this tree. A harness run from a chatflow's Harness node is a child of that chatflow's prediction span. A draft try on the harness canvas and a publish-check replay export nothing. A request for a harness in another team is refused before a span is opened. `workspace.id` is that team's id.
 
 Turning traces off does not create spans for any of these runs.
 

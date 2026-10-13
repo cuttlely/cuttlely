@@ -1,11 +1,19 @@
 const mockHarnessRuns: { current: Record<string, unknown> | null } = { current: null }
+const listedHarnesses: Array<{ name: string; description?: string; workspaceId?: string }> = []
+const assertHarnessWorkspace = jest.fn()
+const openHarnessRunTrace = jest.fn()
 
 jest.mock('../engine', () => ({
     loadHarnessEngine: async () => ({
-        listHarnesses: () => [],
+        listHarnesses: () => listedHarnesses,
         runHarness: async () => mockHarnessRuns.current,
-        runQueuedHarness: async () => mockHarnessRuns.current
+        runQueuedHarness: async () => mockHarnessRuns.current,
+        assertHarnessWorkspace: (...args: unknown[]) => assertHarnessWorkspace(...args)
     })
+}))
+
+jest.mock('../../../src/otelRunSpans', () => ({
+    openHarnessRunTrace: (...args: unknown[]) => openHarnessRunTrace(...args)
 }))
 
 jest.mock('../../../src/storageUtils', () => ({
@@ -42,6 +50,52 @@ function fakeStreamer() {
         streamSourceDocumentsEvent: (_chatId: string, data: unknown) => sent.push({ kind: 'sources', data })
     }
 }
+
+describe('Harness node team list', () => {
+    it('lists only the active workspace', async () => {
+        listedHarnesses.splice(
+            0,
+            listedHarnesses.length,
+            { name: 'own', workspaceId: 'ws-1' },
+            { name: 'other', workspaceId: 'ws-2' },
+            { name: 'legacy' }
+        )
+        const node = new HarnessNode()
+        const options = await node.loadMethods.listHarnesses({}, { workspaceId: 'ws-1' })
+        expect(options.map((option: { name: string }) => option.name)).toEqual(['own'])
+        expect(await node.loadMethods.listHarnesses({}, {})).toEqual([])
+        listedHarnesses.splice(0, listedHarnesses.length)
+    })
+})
+
+describe('Harness node workspace refusal', () => {
+    const nodeData = { inputs: { harnessName: 'other' } }
+
+    beforeEach(() => {
+        assertHarnessWorkspace.mockReset()
+        openHarnessRunTrace.mockReset()
+        delete process.env.CUTTLELY_OTEL_TRACES
+    })
+
+    afterEach(() => {
+        assertHarnessWorkspace.mockReset()
+        delete process.env.CUTTLELY_OTEL_TRACES
+    })
+
+    it('does not open a run trace when the harness is in another team', async () => {
+        assertHarnessWorkspace.mockImplementation(() => {
+            const error = new Error('Harness "other" belongs to another workspace.') as Error & { code?: string }
+            error.code = 'wrong_workspace'
+            throw error
+        })
+        process.env.CUTTLELY_OTEL_TRACES = 'true'
+        const node = new HarnessNode()
+        await expect(
+            node.run(nodeData as never, 'How many loaves?', { chatId: 'c1', workspaceId: '22222222-2222-4222-8222-222222222222' })
+        ).rejects.toThrow(/another workspace/)
+        expect(openHarnessRunTrace).not.toHaveBeenCalled()
+    })
+})
 
 describe('Harness node stream events', () => {
     it('marks an answer partial that also goes out as a token', () => {

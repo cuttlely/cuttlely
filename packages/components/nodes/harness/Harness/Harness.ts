@@ -55,14 +55,17 @@ class Harness_Harness implements INode {
     }
 
     loadMethods = {
-        listHarnesses: async (): Promise<INodeOptionsValue[]> => {
+        listHarnesses: async (_nodeData: INodeData, options?: ICommonObject): Promise<INodeOptionsValue[]> => {
             const engine = await loadHarnessEngine()
+            const workspaceId = typeof options?.workspaceId === 'string' ? options.workspaceId : ''
             const harnesses = engine.listHarnesses()
-            return harnesses.map((harness: { name: string; description?: string }) => ({
-                label: harness.name,
-                name: harness.name,
-                description: harness.description
-            }))
+            return harnesses
+                .filter((harness: { name: string; workspaceId?: string }) => Boolean(workspaceId) && harness.workspaceId === workspaceId)
+                .map((harness: { name: string; description?: string }) => ({
+                    label: harness.name,
+                    name: harness.name,
+                    description: harness.description
+                }))
         }
     }
 
@@ -292,6 +295,15 @@ async function runNamedHarness(
     if (!chatId) {
         throw harnessFailure('Harness cannot run: chatId is required.')
     }
+    const flowOptions = pickFlowOptions(options)
+    // Before a span or a run row. A harness in another team exports nothing.
+    if (typeof engine.assertHarnessWorkspace === 'function') {
+        try {
+            engine.assertHarnessWorkspace(harnessName, flowOptions)
+        } catch (error) {
+            throw harnessFailure((error as Error).message || 'Harness cannot run.', (error as { code?: string }).code)
+        }
+    }
     const harnessTrace = await openNodeHarnessTrace(harnessName, input, options)
     const forward = harnessOnEvent(options, streamAnswer, runManager, streamed)
     let runId: string | undefined
@@ -306,7 +318,7 @@ async function runNamedHarness(
             source: 'prediction',
             traceId: typeof options.executionId === 'string' ? options.executionId : undefined,
             componentNodes: options.componentNodes,
-            flowOptions: pickFlowOptions(options),
+            flowOptions,
             onEvent: (event: { type: string }) => {
                 harnessTrace?.event(event as Record<string, unknown>)
                 forward?.(event)
@@ -321,7 +333,7 @@ async function runNamedHarness(
         harnessTrace?.finish({ text: typeof payload?.text === 'string' ? payload.text : undefined, runId })
         return payload
     } catch (error) {
-        harnessTrace?.fail(error)
+        if ((error as { code?: string }).code !== 'wrong_workspace') harnessTrace?.fail(error)
         throw harnessFailure((error as Error).message || 'Harness cannot run.', (error as { code?: string }).code)
     }
 }
