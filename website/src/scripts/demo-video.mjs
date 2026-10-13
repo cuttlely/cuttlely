@@ -15,8 +15,9 @@ export function canAutoplay(win = window) {
 /**
  * Downloads start about a viewport before a loop is played, two at a time.
  * play() is not used to start a fetch: on a preload="none" element it downloads immediately
- * and would ignore the cap. load() is the only start. A loop that is half on screen
- * moves ahead of the ones that are only nearby, and plays when that load starts.
+ * and would ignore the cap. load() is the only start, and only when nothing has been fetched yet.
+ * Calling it again aborts playback and sets currentTime back to 0. A loop that is half on screen
+ * moves ahead of the ones that are only nearby, and plays when its download starts.
  */
 function watchLoops(videos, win) {
     const wantsPlay = new WeakSet()
@@ -55,8 +56,12 @@ function watchLoops(videos, win) {
                 }
                 video.addEventListener('canplaythrough', done)
                 video.addEventListener('error', done)
-                video.load()
-                // load() resets the element, so a loop that is already on screen has to be asked again.
+                const readyState = video.readyState || 0
+                const networkState = video.networkState || 0
+                // HAVE_ENOUGH_DATA. canplaythrough can fire before this listener exists.
+                if (readyState >= 4) done()
+                // NETWORK_EMPTY and HAVE_NOTHING: nothing has fetched, so load() is safe.
+                else if (readyState === 0 && networkState === 0) video.load()
                 if (wantsPlay.has(video)) video.play().catch(() => {})
             }
         } finally {

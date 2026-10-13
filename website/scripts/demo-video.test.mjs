@@ -11,6 +11,9 @@ function fakes({ reduced = false, small = false, saveData = false, videos = 1, h
         const video = {
             preload: 'none',
             loaded: false,
+            currentTime: 0,
+            readyState: 0,
+            networkState: 0,
             dataset: {},
             // play() on a preload="none" element that has not been load()ed fetches on its own.
             play() {
@@ -21,6 +24,10 @@ function fakes({ reduced = false, small = false, saveData = false, videos = 1, h
             pause: () => calls.push(`pause ${i}`),
             load() {
                 calls.push(`load ${i}`)
+                // Same effect as HTMLMediaElement.load(): playback stops and the playhead returns to 0.
+                video.currentTime = 0
+                video.readyState = 0
+                video.networkState = 2
                 video.loaded = true
                 video.beginFetch()
             },
@@ -174,6 +181,43 @@ test('a half-visible loop jumps the queue and plays when its load starts', () =>
     assert.equal(inFlight(), 2)
     assert.equal(peak(), 2)
     assertLoadsOwnTheFetches(calls)
+})
+
+test('a playing loop is not reset when its queue slot opens', () => {
+    const { doc, win, calls, list, approach, finish } = fakes({ videos: 3 })
+    initDemoVideo(doc, win)
+    approach([0, 1, 2])
+    const times = []
+    let time = 0.49
+    Object.defineProperty(list[2], 'currentTime', {
+        configurable: true,
+        get: () => time,
+        set: (value) => {
+            times.push(value)
+            time = value
+        }
+    })
+    // Already playing behind the two downloads that took the slots. readyState HAVE_ENOUGH_DATA.
+    list[2].readyState = 4
+    list[2].networkState = 1
+    list[2].loaded = true
+    finish(0)
+    assert.deepEqual(times, [])
+    assert.equal(list[2].currentTime, 0.49)
+    assert.equal(list[2].readyState, 4)
+    assert.equal(calls.includes('load 2'), false)
+})
+
+test('a fetch already in progress is not restarted by the queue', () => {
+    const { doc, win, calls, list, approach } = fakes({ videos: 1 })
+    list[0].readyState = 2
+    list[0].networkState = 2
+    list[0].currentTime = 0.2
+    initDemoVideo(doc, win)
+    approach([0])
+    assert.equal(calls.includes('load 0'), false)
+    assert.equal(list[0].currentTime, 0.2)
+    assert.equal(typeof list[0].events.canplaythrough, 'function')
 })
 
 test('a failed download frees its slot for the next loop', () => {
