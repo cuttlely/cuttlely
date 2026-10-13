@@ -1,4 +1,4 @@
-import { startUnavailable, typeUnavailable } from './kinds'
+import { startUnavailable, triggerStart, typeUnavailable } from './kinds'
 
 const agentflow = (startInputType?: string) =>
     JSON.stringify({ nodes: [{ id: 'startAgentflow_0', data: { name: 'startAgentflow', inputs: { startInputType } } }], edges: [] })
@@ -35,10 +35,21 @@ describe('startUnavailable', () => {
         expect(startUnavailable('AGENTFLOW', [agentflow('chatInput'), agentflow('chatInput'), null])).toBeNull()
     })
 
-    test('a form, webhook or schedule start on either side cannot', () => {
+    test('a form, webhook or schedule start can be checked when both sides use it', () => {
+        for (const start of ['formInput', 'webhookTrigger', 'scheduleInput'] as const) {
+            expect(startUnavailable('AGENTFLOW', [agentflow(start), agentflow(start)])).toBeNull()
+            expect(triggerStart('AGENTFLOW', [agentflow(start), agentflow(start), null])).toBe(start)
+        }
+        // A canvas with no Start node does not block the side that has the trigger.
+        expect(startUnavailable('AGENTFLOW', ['{"nodes":[]}', agentflow('webhookTrigger')])).toBeNull()
+    })
+
+    test('mixed starts, a blank start and a canvas with no start still cannot', () => {
         for (const start of ['formInput', 'webhookTrigger', 'scheduleInput', undefined]) {
             expect(startUnavailable('AGENTFLOW', [agentflow('chatInput'), agentflow(start)])?.code).toBe('start')
         }
+        expect(startUnavailable('AGENTFLOW', [agentflow('formInput'), agentflow('webhookTrigger')])?.code).toBe('start')
+        expect(triggerStart('AGENTFLOW', [agentflow('chatInput')])).toBeNull()
         expect(startUnavailable('AGENTFLOW', ['{"nodes":[]}'])?.message).toBe(
             'The check asks questions, so it works on agentflows that start with a chat message.'
         )

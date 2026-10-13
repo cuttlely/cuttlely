@@ -1228,9 +1228,8 @@ const executeNode = async ({
             // Prepare final question with uploaded content if any
             finalInput = uploadedFilesContent ? `${uploadedFilesContent}\n\n${incomingInput.question}` : incomingInput.question
         } else if (isObjectNotEmpty(incomingInput.form)) {
-            finalInput = Object.entries(incomingInput.form || {})
-                .map(([key, value]) => `${key}: ${value}`)
-                .join('\n')
+            // Nodes see the submitted characters. The marker and escapes are only for the stored Start output.
+            finalInput = formObjectToReadableLines(incomingInput.form || {})
         } else if (incomingInput.webhook) {
             finalInput = JSON.stringify(incomingInput.webhook)
         }
@@ -1541,18 +1540,108 @@ const checkForMultipleStartNodes = (startingNodeIds: string[], isRecursive: bool
     }
 }
 
-const parseFormStringToJson = (formString: string): Record<string, string> => {
-    const result: Record<string, string> = {}
-    const lines = formString.split('\n')
+// Rows this version writes start with STORED_FORM_MARKER on its own line, then one `name: value` line
+// per field. A line break or a backslash inside a value is stored as \n, \r or \\ so the execution
+// text stays one field per line. The marker is recognized only when the first line is exactly that
+// text. It contains no ": ", and the older encoder's first line always does (`name: value`), so a
+// field name cannot be read as the marker: a field stored under that name would be `marker: value`.
+// Without the marker, each line is literal text split on the first ": ". Backslashes are not
+// escapes, so a value such as C:\new stays C:\new.
+export const STORED_FORM_MARKER = '\u0000cuttlely-form-1'
 
-    for (const line of lines) {
-        const [key, value] = line.split(': ').map((part) => part.trim())
-        if (key && value) {
-            result[key] = value
+function storedFormIsMarked(formString: string): boolean {
+    return formString === STORED_FORM_MARKER || formString.startsWith(`${STORED_FORM_MARKER}\n`)
+}
+
+function escapeFormField(value: unknown): string {
+    return String(value ?? '')
+        .replace(/\\/g, '\\\\')
+        .replace(/\r/g, '\\r')
+        .replace(/\n/g, '\\n')
+}
+
+function unescapeFormField(value: string): string {
+    if (!value.includes('\\')) return value
+    let out = ''
+    for (let i = 0; i < value.length; i++) {
+        if (value[i] === '\\' && i + 1 < value.length) {
+            const next = value[i + 1]
+            if (next === 'n') {
+                out += '\n'
+                i++
+                continue
+            }
+            if (next === 'r') {
+                out += '\r'
+                i++
+                continue
+            }
+            if (next === '\\') {
+                out += '\\'
+                i++
+                continue
+            }
         }
+        out += value[i]
     }
+    return out
+}
 
-    return result
+// The text a model, an Agent node and $flow.input see: one `name: value` line, with the characters that were submitted.
+export function formObjectToReadableLines(form: Record<string, any>): string {
+    return Object.entries(form)
+        .map(([key, value]) => `${key}: ${String(value ?? '')}`)
+        .join('\n')
+}
+
+// The text saved on the Start step. A line break or a backslash is escaped, and the marker says this version wrote it.
+export function formObjectToStoredLines(form: Record<string, any>): string {
+    const lines = Object.entries(form)
+        .map(([key, value]) => `${escapeFormField(key)}: ${escapeFormField(value)}`)
+        .join('\n')
+    return lines ? `${STORED_FORM_MARKER}\n${lines}` : STORED_FORM_MARKER
+}
+
+export interface ParsedFormString {
+    form: Record<string, string>
+    // True when the stored lines cannot be replayed as submitted. An older run stored a raw line
+    // break inside a value, so a field name is repeated or a following line has no field name.
+    duplicateKey: boolean
+}
+
+// Also used by the publish check, which reads forms already stored in this shape.
+// Split on the first ": " so a value may itself contain a colon. An empty value is kept.
+// Values come back as strings. A duplicate field name is reported and the later line wins, which is
+// what restoring an older run already did.
+export const parseFormStringToJson = (formString: string): Record<string, string> => parseStoredForm(formString).form
+
+export function parseStoredForm(formString: string): ParsedFormString {
+    const marked = storedFormIsMarked(formString)
+    const body = formString === STORED_FORM_MARKER ? '' : marked ? formString.slice(STORED_FORM_MARKER.length + 1) : formString
+    const form: Record<string, string> = {}
+    let duplicateKey = false
+    if (!body) return { form, duplicateKey }
+    for (const line of body.split('\n')) {
+        const splitAt = line.indexOf(': ')
+        // An unmarked row that drops a line would replay a shorter form than the original run sent.
+        if (splitAt <= 0) {
+            if (!marked) duplicateKey = true
+            continue
+        }
+        const rawKey = line.slice(0, splitAt).trim()
+        const afterColon = line.slice(splitAt + 2)
+        // Only text this version wrote (the marker line) is unescaped. Older rows stay literal.
+        // A marked value keeps its spaces. A value that is only spaces is a blank field.
+        const key = marked ? unescapeFormField(rawKey) : rawKey
+        const value = marked ? (afterColon.trim() === '' ? '' : unescapeFormField(afterColon)) : afterColon.trim()
+        if (!key) {
+            if (!marked) duplicateKey = true
+            continue
+        }
+        if (Object.prototype.hasOwnProperty.call(form, key)) duplicateKey = true
+        form[key] = value
+    }
+    return { form, duplicateKey }
 }
 
 /*
@@ -1642,10 +1731,8 @@ const runAgentFlow = async ({
         throw new Error('Start input type not found')
     }
 
-    // The publish check sends one question as a chat message, so it can only replay a flow that starts with one.
-    if (replay && !isRecursive && startInputType !== 'chatInput') {
-        throw new AppError(StatusCodes.CONFLICT, 'The check works on agentflows that start with a chat message.')
-    }
+    // A publish-check replay may start from a chat message or from a recorded form, webhook or schedule input.
+    // Webhook and schedule starts still require their own chat type, so a replay cannot call them as a prediction.
     if (!isRecursive) {
         if (startInputType === 'webhookTrigger' && chatType !== ChatType.WEBHOOK) {
             const configuredMethod = ((startNode?.data?.inputs?.webhookMethod as string) || 'POST').toUpperCase()
@@ -1756,7 +1843,9 @@ const runAgentFlow = async ({
         agentflowRuntime.state = previousState
     }
 
-    // If the start input type is form input, get the form values from the previous execution (form values are persisted in the same session)
+    // If the start input type is form input, get the form values from the previous execution (form values are persisted in the same session).
+    // When that form was stored as lines, the next message keeps those lines on the Start step. The parsed object is only for this run.
+    let resumedFormText: string | undefined
     if (startInputType === 'formInput' && previousExecution) {
         const previousExecutionData = (JSON.parse(previousExecution.executionData) as IAgentflowExecutedData[]) ?? []
 
@@ -1767,6 +1856,7 @@ const runAgentFlow = async ({
             if (previousStartAgentOutput && typeof previousStartAgentOutput === 'object' && 'form' in previousStartAgentOutput) {
                 const formValues = previousStartAgentOutput.form
                 if (typeof formValues === 'string') {
+                    resumedFormText = formValues
                     agentflowRuntime.form = parseFormStringToJson(formValues)
                 } else {
                     agentflowRuntime.form = formValues
@@ -2176,7 +2266,23 @@ const runAgentFlow = async ({
             }
 
             if (nodeResult && nodeResult.output && nodeResult.output.form) {
-                agentflowRuntime.form = nodeResult.output.form
+                if (resumedFormText && reactFlowNode.data.name === 'startAgentflow') {
+                    // An older row stays as it was stored. Do not write the marker over it.
+                    const produced = nodeResult.output.form
+                    nodeResult.output.form = resumedFormText
+                    if (produced && typeof produced === 'object') agentflowRuntime.form = produced
+                } else if (
+                    reactFlowNode.data.name === 'startAgentflow' &&
+                    typeof nodeResult.output.form === 'string' &&
+                    isObjectNotEmpty(incomingInput.form)
+                ) {
+                    // First run: Start was given the readable lines. Persist the marked encoding instead.
+                    const submitted = incomingInput.form || {}
+                    nodeResult.output.form = formObjectToStoredLines(submitted)
+                    agentflowRuntime.form = submitted
+                } else {
+                    agentflowRuntime.form = nodeResult.output.form
+                }
             }
 
             if (nodeResult && nodeResult.output && nodeResult.output.ephemeralMemory) {
@@ -2393,9 +2499,7 @@ const runAgentFlow = async ({
         finalUserInput = question || humanInput?.feedback || ' '
     } else if (startInputType === 'formInput') {
         if (form) {
-            finalUserInput = Object.entries(form || {})
-                .map(([key, value]) => `${key}: ${value}`)
-                .join('\n')
+            finalUserInput = formObjectToReadableLines(form)
         } else {
             finalUserInput = question || humanInput?.feedback || ' '
         }
