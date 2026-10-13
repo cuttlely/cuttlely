@@ -120,7 +120,7 @@ A playbook can ask for a closing line, such as `Source: sales warehouse`. When t
 1. Select the save icon at the top right (**Save Harness**).
 2. Type a name and select **Save**.
 
-The name is the harness id. Chatflows and the API call the harness by it. It is a letter, then letters, numbers, `_`, or `-`, up to 64 characters. `chief-of-staff` is valid. `Chief of Staff Harness` is refused with `Harness name "Chief of Staff Harness" is not valid. Use a letter followed by letters, numbers, "_" or "-".`
+The name is the harness id. Chatflows and the API call the harness by it. It is a letter, then letters, numbers, `_`, or `-`, up to 64 characters. `chief-of-staff` is valid. `Chief of Staff Harness` is refused with `Harness name "Chief of Staff Harness" is not valid. Use a letter followed by letters, numbers, "_" or "-".` A name that is `try` followed by 8 to 32 hex characters is reserved for a draft try. Saving or importing one is refused, and the save dialog shows `Harness name "…" is reserved for a draft try. Choose a different name.`
 
 ![The Save New Harness dialog with chief-of-staff typed in the name field, and Cancel and Save buttons.](../images/harnesses/save-dialog-name.png)
 

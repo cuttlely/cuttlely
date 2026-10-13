@@ -657,7 +657,7 @@ check(
 {
     // Playbooks: long rules a specialist loads on demand. They become read-only Hermes skills in its profile.
     const { playbookList, PLAYBOOK_LIMITS } = await import('./store.mjs')
-    const { PLAYBOOK_TOOLSET, SPECIALIST_PLAYBOOKS, playbookLines } = await import('./profile.mjs')
+    const { PLAYBOOK_TOOLSET, SPECIALIST_PLAYBOOKS, playbookLines, specialistProfileName } = await import('./profile.mjs')
     const refundRules = `# Refund rules\nA refund needs the order id. ${'Check the delivery date before you approve. '.repeat(
         40
     )}PLAYBOOK_TAIL_44`
@@ -698,6 +698,16 @@ check(
             playbookList([{ name: 'long', description: 'd'.repeat(900), content: 'x'.repeat(PLAYBOOK_LIMITS.content + 10) }])[0].content
                 .length === PLAYBOOK_LIMITS.content &&
             playbookList('not json').length === 0
+    )
+    const dashName = '-'.repeat(100000)
+    const dashStarted = Date.now()
+    const dashedProfile = specialistProfileName('bakery', dashName)
+    const dashedPlaybook = playbookList([{ name: dashName, content: 'rules' }])
+    const dashMs = Date.now() - dashStarted
+    check(
+        'a 100k-dash name slugs without a polynomial trim',
+        dashMs < 1000 && dashedProfile === 'bakery--' && dashedPlaybook[0]?.name === 'playbook-1',
+        `${dashMs}ms profile=${dashedProfile} playbook=${dashedPlaybook[0]?.name}`
     )
     compileProfile(playbookRecord)
     const playbookProfile = 'playbook-demo--orders'
@@ -9936,6 +9946,41 @@ await (async () => {
     discardTryProfile(tryE)
     const afterDiscardE = await status(tokenE)
     const publishedAfter = await status(publishedToken)
+    const reserved = `try${'c'.repeat(16)}`
+    const planted = {
+        name: reserved,
+        workspaceId: 'w1',
+        chatflowId: 'flow-reserved',
+        chief: { instructions: 'LIVE-INSTRUCTIONS', model: liveModel },
+        specialists: [shellOf('LIVE-SPECIALIST', null, 'calculator')]
+    }
+    let saveError = null
+    try {
+        saveHarness(planted)
+    } catch (error) {
+        saveError = error
+    }
+    const { harnessStoreDir } = await import('./paths.mjs')
+    fs.mkdirSync(harnessStoreDir(), { recursive: true })
+    fs.writeFileSync(path.join(harnessStoreDir(), `${reserved}.json`), JSON.stringify(planted))
+    const shadowed = compileTryProfile(draftRoster('c'.repeat(16)), 'c'.repeat(16))
+    const shadowedToken = readProfileEnv(`${reserved}--shell`).OPENAI_API_KEY
+    const plantedToken = 'P'.repeat(43)
+    gatewayApi.registerProfileToken({
+        token: plantedToken,
+        harnessName: reserved,
+        specialistName: 'shell',
+        modelKey: 'live',
+        profileName: `${reserved}--published`,
+        tryProfile: false
+    })
+    const seenBefore = seen.length
+    const shadowedTools = await toolNames(shadowedToken)
+    const plantedTools = await toolNames(plantedToken)
+    const shadowedSeen = seen[seenBefore]
+    const plantedSeen = seen[seenBefore + 1]
+    const marker = fs.readFileSync(path.join(shadowed.dir, 'harness-try'), 'utf8').trim()
+    const tryEnv = readProfileEnv(`${reserved}--shell`).CUTTLELY_GATEWAY_TRY
     await gateway.close()
     check(
         'a published gateway token stays valid during a try, after a cache hit, and beside another try',
@@ -9948,6 +9993,36 @@ await (async () => {
         `discarded D ${afterDiscardD} E while D discarded ${stillE} E after ${afterDiscardE}`
     )
     const draftShell = rosterFile.specialists.find((item) => item.name === 'shell')
+    let importError = null
+    try {
+        const canvas = JSON.parse(fs.readFileSync(path.join(root, 'samples/harnesses/research.canvas.json'), 'utf8'))
+        const { syncHarnessFromFlow } = await import('./sync-from-flow.mjs')
+        await syncHarnessFromFlow({ name: reserved, chatflowId: 'canvas-reserved', flowData: canvas.flowData })
+    } catch (error) {
+        importError = error
+    }
+    check(
+        'saving or importing a harness named like a try id is rejected',
+        saveError?.code === 'bad_name' &&
+            saveError.message.includes('reserved for a draft try') &&
+            importError?.code === 'bad_name' &&
+            importError.message.includes('reserved for a draft try'),
+        `save ${saveError?.message} import ${importError?.message}`
+    )
+    check(
+        'a try token reads the marked try roster even when a saved harness has that name',
+        marker === reserved &&
+            tryEnv === '1' &&
+            shadowedTools.status === 200 &&
+            shadowedTools.names.includes('draftTool') &&
+            !shadowedTools.names.includes('calculator') &&
+            plantedTools.status === 200 &&
+            plantedTools.names.includes('calculator') &&
+            !plantedTools.names.includes('draftTool') &&
+            shadowedSeen?.specialists?.some((item) => item.instructions === 'DRAFT-SPECIALIST') &&
+            plantedSeen?.specialists?.some((item) => item.instructions === 'LIVE-SPECIALIST'),
+        `try ${shadowedTools.status} ${shadowedTools.names} saved ${plantedTools.status} ${plantedTools.names} marker ${marker}`
+    )
     check(
         'a draft try roster, its MCP args, and the gateway read the draft specialists and tools',
         draftShell?.instructions === 'DRAFT-SPECIALIST' &&

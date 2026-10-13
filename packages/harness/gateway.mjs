@@ -47,7 +47,7 @@ export function gatewayUrl() {
     return `${gatewayOrigin()}/v1`
 }
 
-export function registerProfileToken({ token, harnessName, specialistName, modelKey, profileName }) {
+export function registerProfileToken({ token, harnessName, specialistName, modelKey, profileName, tryProfile = false }) {
     loadTokensOnce()
     // One token per profile directory. Recompiling bakery--shell replaces only that token.
     // A try profile (try{id}--shell) never evicts the published one, or another try.
@@ -57,7 +57,13 @@ export function registerProfileToken({ token, harnessName, specialistName, model
             if (meta.profileName === directory && existing !== token) tokens.delete(existing)
         }
     }
-    tokens.set(token, { harnessName, specialistName, modelKey: modelKey || '', profileName: directory })
+    tokens.set(token, {
+        harnessName,
+        specialistName,
+        modelKey: modelKey || '',
+        profileName: directory,
+        tryProfile: Boolean(tryProfile)
+    })
 }
 
 export function forgetProfileToken(token) {
@@ -186,7 +192,8 @@ function loadTokensOnce() {
             harnessName,
             specialistName,
             modelKey: env.CUTTLELY_MODEL_KEY || '',
-            profileName: entry
+            profileName: entry,
+            tryProfile: env.CUTTLELY_GATEWAY_TRY === '1'
         })
     }
 }
@@ -295,7 +302,7 @@ async function onRequest(req, res) {
             return
         }
         if (req.method === 'POST' && pathName === '/harness/tools/list') {
-            const record = requireHarness(meta.harnessName)
+            const record = requireHarness(meta)
             const ctx = await ownerContext(record)
             sendJson(res, 200, { tools: await toolSpecs(record, meta.specialistName, ctx) })
             return
@@ -322,18 +329,26 @@ function unixNow() {
 
 const PROFILE_NAME = /^[A-Za-z][A-Za-z0-9_-]{0,63}$/
 
-function requireHarness(name) {
-    if (!PROFILE_NAME.test(name || '')) throw new HarnessError('not_found', `Harness "${name}" was not found.`)
+function requireHarness(meta) {
+    const name = meta?.harnessName || ''
+    if (!PROFILE_NAME.test(name)) throw new HarnessError('not_found', `Harness "${name}" was not found.`)
+    // A try token carries the flag. The profile directory must also have the try marker.
+    // A saved harness of the same name is never used for that token, and a try directory is never used for a published token.
+    if (meta.tryProfile) {
+        const roster = readTryRoster(name)
+        if (!roster) throw new HarnessError('not_found', `Harness "${name}" was not found.`)
+        return roster
+    }
     const saved = getHarness(name)
-    if (saved) return saved
-    // A draft try registers its token under the try profile directory. That name is not a saved harness.
-    const roster = readProfileRoster(name)
-    if (roster) return roster
-    throw new HarnessError('not_found', `Harness "${name}" was not found.`)
+    if (!saved) throw new HarnessError('not_found', `Harness "${name}" was not found.`)
+    return saved
 }
 
-function readProfileRoster(name) {
-    const file = path.join(hermesHome(), 'profiles', name, 'harness-roster.json')
+function readTryRoster(name) {
+    const dir = path.join(hermesHome(), 'profiles', name)
+    const marker = path.join(dir, 'harness-try')
+    if (!fs.existsSync(marker) || fs.readFileSync(marker, 'utf8').trim() !== name) return null
+    const file = path.join(dir, 'harness-roster.json')
     if (!fs.existsSync(file)) return null
     try {
         const parsed = JSON.parse(fs.readFileSync(file, 'utf8'))
@@ -413,7 +428,7 @@ async function completeChat(req, res, meta) {
         sendJson(res, 400, { error: { message: 'tools must be an array.', type: 'invalid_request_error' } })
         return
     }
-    const record = requireHarness(meta.harnessName)
+    const record = requireHarness(meta)
     const ctx = await ownerContext(record)
     const primary = modelBinding(record, meta.specialistName)
     const fallback = fallbackBinding(record, meta.specialistName)
@@ -594,7 +609,7 @@ async function callTool(req, res, meta) {
         sendJson(res, 400, { error: { message: 'Tool name is required.', type: 'invalid_request_error' } })
         return
     }
-    const record = requireHarness(meta.harnessName)
+    const record = requireHarness(meta)
     const ctx = await ownerContext(record)
     const scope = callScope(body.scope, meta.harnessName)
     const args = body.arguments && typeof body.arguments === 'object' && !Array.isArray(body.arguments) ? { ...body.arguments } : {}

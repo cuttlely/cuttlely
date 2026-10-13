@@ -87,13 +87,28 @@ function describedModel(model) {
     return name ? String(name) : ''
 }
 
+// A char-class replace can leave a long run of dashes. An end-anchored dash quantifier is polynomial on that run, so this walks the ends.
+function trimDashEnds(value) {
+    let start = 0
+    let end = value.length
+    while (start < end && value.charCodeAt(start) === 45) start += 1
+    while (end > start && value.charCodeAt(end - 1) === 45) end -= 1
+    return value.slice(start, end)
+}
+
+function trimLeadingDashes(value) {
+    let start = 0
+    while (start < value.length && value.charCodeAt(start) === 45) start += 1
+    return value.slice(start)
+}
+
 export function specialistProfileName(harnessName, specialistName) {
     const harness = String(harnessName || '').toLowerCase()
-    const slug = String(specialistName || '')
-        .toLowerCase()
-        .replace(/[^a-z0-9_-]/g, '-')
-        .replace(/^-+/, '')
-        .replace(/-+$/, '')
+    const slug = trimDashEnds(
+        String(specialistName || '')
+            .toLowerCase()
+            .replace(/[^a-z0-9_-]/g, '-')
+    )
     const profile = `${harness}--${slug}`
     if (!PROFILE_ID_RE.test(profile)) {
         throw new HarnessError('bad_name', `Specialist "${specialistName}" cannot get its own model profile.`)
@@ -279,9 +294,7 @@ function parseServerConfig(mcp) {
 }
 
 function sanitizeServerName(name) {
-    const cleaned = String(name)
-        .replace(/[^A-Za-z0-9_-]/g, '-')
-        .replace(/^-+/, '')
+    const cleaned = trimLeadingDashes(String(name).replace(/[^A-Za-z0-9_-]/g, '-'))
     return cleaned || 'mcp'
 }
 
@@ -414,7 +427,7 @@ function pushProviders(yaml) {
 
 // Hermes sends OPENAI_API_KEY only when OPENAI_BASE_URL equals model.base_url
 // (_host_gated_env_key_candidates). model.api_key and model.key_env stay unset.
-function issueSpecialistToken(record, specialist, profileName) {
+function issueSpecialistToken(record, specialist, profileName, tryProfile) {
     const key = modelKey(specialist.model)
     const base = gatewayUrl()
     const previous = readEnvFile(profileEnvPath(specialist.profileName))
@@ -427,7 +440,8 @@ function issueSpecialistToken(record, specialist, profileName) {
         harnessName: profileName,
         specialistName: specialist.name,
         modelKey: key,
-        profileName: specialist.profileName
+        profileName: specialist.profileName,
+        tryProfile: Boolean(tryProfile)
     })
     return { token, base, modelKey: key }
 }
@@ -588,7 +602,7 @@ export function writePlaybooks(dir, playbooks) {
     }
 }
 
-function compileSpecialistProfile(record, specialist, profileName) {
+function compileSpecialistProfile(record, specialist, profileName, tryProfile) {
     const dir = profileDir(specialist.profileName)
     fs.mkdirSync(dir, { recursive: true })
     const workspace = specialistWorkspace(specialist.profileName)
@@ -596,7 +610,7 @@ function compileSpecialistProfile(record, specialist, profileName) {
     writeIfChanged(path.join(dir, 'harness-parent'), `${profileName}\n`)
     writeIfChanged(path.join(dir, 'SOUL.md'), specialistSoul(specialist))
     writePlaybooks(dir, specialist.playbooks || [])
-    const issued = issueSpecialistToken(record, specialist, profileName)
+    const issued = issueSpecialistToken(record, specialist, profileName, tryProfile)
     const bridgeOn = usesBridge(specialist)
     const bridge = serverNameFor(specialist)
     const enabled = specialist.hermesToolsets.filter((name) => bridgeOn || name !== bridge || requestedBuiltin(specialist, name))
@@ -652,7 +666,8 @@ function compileSpecialistProfile(record, specialist, profileName) {
         OPENAI_API_KEY: issued.token,
         CUTTLELY_MODEL_KEY: issued.modelKey,
         CUTTLELY_GATEWAY_HARNESS: profileName,
-        CUTTLELY_GATEWAY_SPECIALIST: specialist.name
+        CUTTLELY_GATEWAY_SPECIALIST: specialist.name,
+        ...(tryProfile ? { CUTTLELY_GATEWAY_TRY: '1' } : {})
     })
 }
 
@@ -674,16 +689,21 @@ function forgetRetiredSpecialistProfiles(harnessName, keep) {
 
 export function compileProfile(record, options = {}) {
     const profileName = options.profileName || record.name
+    const tryProfile = Boolean(options.tryProfile)
     const dir = profileDir(profileName)
     fs.mkdirSync(path.join(dir, 'memory'), { recursive: true })
     fs.mkdirSync(path.join(dir, 'sessions'), { recursive: true })
+    // A try is this marker, not a name the store might also use.
+    const tryMarker = path.join(dir, 'harness-try')
+    if (tryProfile) writeIfChanged(tryMarker, `${profileName}\n`)
+    else if (fs.existsSync(tryMarker)) fs.rmSync(tryMarker)
 
     const resolved = resolveRoster(record, profileName)
     const keep = new Set()
     for (const specialist of resolved.specialists) {
         if (!specialist.profileName) continue
         keep.add(specialist.profileName)
-        compileSpecialistProfile(record, specialist, profileName)
+        compileSpecialistProfile(record, specialist, profileName, tryProfile)
     }
     forgetRetiredSpecialistProfiles(profileName, keep)
 
@@ -750,7 +770,7 @@ export function tryProfileName(tryId) {
 }
 
 export function compileTryProfile(record, tryId) {
-    return compileProfile(record, { profileName: tryProfileName(tryId) })
+    return compileProfile(record, { profileName: tryProfileName(tryId), tryProfile: true })
 }
 
 export function discardTryProfile(tryId) {
