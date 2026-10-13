@@ -35,7 +35,7 @@ The server's Jest setup sets `CUTTLELY_VERSIONS=off` unless a test sets it, so t
 
 ## CUTTLELY_DRAFTS
 
-Drafts are on unless this variable turns them off. With them on, a chatflow or agentflow canvas saves to a draft, and the prediction API, embeds, shared links, schedules and webhooks keep running Live until you select **Publish**. See [Drafts and Publish](../how-to/versioning.md#drafts-and-publish). With them off:
+Drafts are on unless this variable turns them off. With them on, a chatflow, agentflow, harness, pipeline, or legacy multi-agent canvas saves to a draft. The prediction API, embeds, shared links, schedules, webhooks, a harness's external runs, and a pipeline's scheduled runs keep running Live until you select **Publish**. An assistant still saves straight to Live. See [Drafts and Publish](../how-to/versioning.md#drafts-and-publish) and [Which canvases get a check](../how-to/versioning.md#which-canvases-get-a-check). With them off:
 
 -   The canvas saves straight to Live, and Restore puts a version Live at once.
 -   The canvas shows no **Draft** label, **Publish** button, or **Publish instantly** setting.

@@ -1065,6 +1065,11 @@
             "to": "packages/ui/src/store/constant.js"
         },
         {
+            "from": "packages/ui/src/api/usage.js",
+            "to": "packages/ui/src/api/client.js",
+            "reason": "The Usage page uses the shared page header, card, and API client."
+        },
+        {
             "from": "packages/ui/src/hooks/useCanvasLook.js",
             "to": "packages/ui/src/store/context/ConfigContext.jsx"
         },
@@ -1323,6 +1328,16 @@
         {
             "from": "packages/ui/src/views/setup/GithubStep.jsx",
             "to": "packages/ui/src/ui-component/extended/Logo.jsx"
+        },
+        {
+            "from": "packages/ui/src/views/usage/UsagePage.jsx",
+            "to": "packages/ui/src/layout/MainLayout/ViewHeader.jsx",
+            "reason": "The Usage page uses the shared page header, card, and API client."
+        },
+        {
+            "from": "packages/ui/src/views/usage/UsagePage.jsx",
+            "to": "packages/ui/src/ui-component/cards/MainCard.jsx",
+            "reason": "The Usage page uses the shared page header, card, and API client."
         },
         {
             "from": "packages/ui/src/views/versions/VersionCanvas.jsx",
@@ -2426,11 +2441,11 @@
             "reason": "The node list and pack index sign-in test stays with the inherited nodes routes."
         },
         {
-            "path": "packages/server/src/services/evaluations/LLMEvaluationRunner.test.ts",
+            "path": "packages/server/src/services/evaluations/grader-node-fixture.js",
             "reason": "The publish check test counts grader tokens with the runner's reader, and the grader tests sit beside that runner."
         },
         {
-            "path": "packages/server/src/services/evaluations/grader-node-fixture.js",
+            "path": "packages/server/src/services/evaluations/LLMEvaluationRunner.test.ts",
             "reason": "The publish check test counts grader tokens with the runner's reader, and the grader tests sit beside that runner."
         },
         {
