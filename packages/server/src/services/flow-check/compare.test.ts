@@ -41,6 +41,23 @@ test('the summary counts same, changed and errors, sums tokens and takes the med
     expect(median([])).toBeNull()
 })
 
+test('evaluators add a pass rate per side, and a check without them does not', () => {
+    const score = (result: 'Pass' | 'Fail' | 'Error') => ({ id: result, name: result, result })
+    const summary = summarize([
+        {
+            question: 'a',
+            expected: 'yes',
+            live: side('x', { scores: [score('Pass'), score('Fail')] }),
+            draft: side('y', { scores: [score('Pass'), score('Error')] }),
+            same: false
+        }
+    ])
+    expect(summary.scores).toEqual({
+        live: { passed: 1, failed: 1, errored: 0, passRate: 50 },
+        draft: { passed: 1, failed: 0, errored: 1, passRate: 50 }
+    })
+})
+
 test('token totals come from the tracer metrics, and nothing counted is null', () => {
     expect(
         totalTokens([
