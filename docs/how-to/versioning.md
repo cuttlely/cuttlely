@@ -32,7 +32,7 @@ Each row has:
 
 -   A name that says what changed, written by Cuttlely from the change itself: `Changed System Message on Conversation Chain`, `Moved nodes`, `Changed credential, Temperature on ChatOpenAI`, `Created Bakery helper`. Field names are the labels you see on the node.
 -   **Edited by** and the person who saved it.
--   What happened (`Created`, `Saved`, `Restored`, `Published`, `Rolled back`, `Promoted from Dev`, or `Deleted`), the time, and a short version id.
+-   What happened (`Created`, `Saved`, `Restored`, `Published`, `Rolled back`, `Promoted from` the previous environment, or `Deleted`), the time, and a short version id. The secondary line uses that same environment name. On the saved Dev and Prod pair it is Dev.
 
 A save that changes nothing adds no version. Unsaved changes on the canvas are not in history. The panel says so while the canvas has unsaved changes: `You have unsaved changes. They show up here after you save.`
 
@@ -402,11 +402,11 @@ The fields are in [History settings](../reference/versioning-settings.md#environ
 
 ### See what is new
 
-The **Chatflows** and **Agentflows** lists on Prod show the same news above the flows, one line per flow: **New flow from Dev** for a flow Prod does not have yet, and **New version available from Dev** for one it has. Only the owner sees it.
+The **Chatflows** and **Agentflows** lists name the previous environment: **New flow from** that environment for a flow this server does not have yet, and **New version available from** that environment for one it has. Only the owner sees it. On the saved Dev and Prod pair that name is Dev, as in the picture.
 
 ![The Chatflows list on Prod. A banner at the top of the page reads 3 flows have a new version from Dev, with Review All. Order status and Catering quotes are each marked New flow from Dev, and Bakery helper is marked New version available from Dev. Each has a Review button. The flows themselves are listed below the What are you building? card.](../images/versioning/promote-banner.png)
 
-**Review all** opens the **From Dev** page with every flow that has something new.
+**Review all** opens the promote page with every flow that has something new. On the saved Dev and Prod pair its title is **From Dev**.
 
 ![The From Dev page. It explains that Dev and this server share one GitHub repository and that nothing goes Live here until you promote it. Under 3 flows have a new version from Dev are three cards: Order status and Catering quotes, each New flow from Dev with 1 version published on Dev, and Bakery helper, New version available from Dev, with 2 changes on Dev since the last promote.](../images/versioning/promote-list.png)
 
@@ -414,20 +414,20 @@ The **Chatflows** and **Agentflows** lists on Prod show the same news above the 
 
 Select a flow to open its review page:
 
--   **What changes on this server** compares the version from Dev with what is Live on Prod now.
--   **What changed on Dev** lists the versions Dev published since the last promote, newest first.
--   **Credentials** says whether Prod has every credential the flow uses. See [Credentials stay on each server](#credentials-stay-on-each-server).
--   **Check recent questions** runs the questions Prod's users asked lately on Live and on the version from Dev, side by side, the same way as [Check recent questions before you publish](#check-recent-questions-before-you-publish), including the past-question count. It is optional.
+-   **What changes on this server** compares the version from the previous environment with what is Live here now. On the saved Dev and Prod pair that version is Dev's.
+-   **What changed on** the previous environment lists the versions it published since the last promote, newest first. On the saved pair the heading is **What changed on Dev**.
+-   **Credentials** says whether this server has every credential the flow uses. See [Credentials stay on each server](#credentials-stay-on-each-server).
+-   **Check recent questions** runs the questions this server's users asked lately on Live and on the version from the previous environment, side by side, the same way as [Check recent questions before you publish](#check-recent-questions-before-you-publish), including the past-question count. It is optional. On the saved pair that version is Dev's.
 
 ![The review page for Bakery helper, marked New version available from Dev. What changes on this server lists Changed ChatOpenAI: temperature and Changed Conversation Chain: system message prompt. What changed on Dev lists two versions by Rosa Diaz. Credentials says Every credential it uses is on this server. Below is Check recent questions with two recent questions picked and a Run Check button.](../images/versioning/promote-review.png)
 
 ![The check after it ran. 2 of 2 answered differently. For What time do you open on Saturday?, Live says We open at 7 AM on Saturday and From Dev says We open at 8 am on Saturday. For Do you have gluten-free bread?, Live says Yes, we offer gluten-free bread at Rosa's Bakery and From Dev says Yes, we bake gluten-free bread on Tuesdays.](../images/versioning/promote-check.png)
 
-When it looks right, select **Promote to Live**. The version from Dev is Live on Prod right away, and Prod's version history shows it as **Promoted from Dev**.
+When it looks right, select **Promote to Live**. The version from the previous environment is Live here right away. History titles it `Promoted from` that environment, and the secondary line uses the same name. On the saved Dev and Prod pair both say Dev.
 
 ![Promoted. This version is now Live on this server. History shows it as promoted from Dev. The buttons are Open The Flow, Roll Back, and All New Versions From Dev.](../images/versioning/promote-done.png)
 
-**Roll back** puts the previous Live version back in one step, the same as **Roll back live to this version** in version history. Rolling back does not offer the same version from Dev again; the next version Dev publishes shows up as usual.
+**Roll back** puts the previous Live version back in one step, the same as **Roll back live to this version** in version history. Rolling back does not offer the same version from the previous environment again; the next version that environment publishes shows up as usual. On the saved Dev and Prod pair that environment is Dev.
 
 ![Version history of Bakery helper on Prod. The newest version, marked Published and Live, is Promoted from Dev: Changed ChatOpenAI, Conversation Chain, with the note Promoted from Dev just now. Below it is Promoted from Dev: Created Bakery helper. Each has Roll Back Live To This Version.](../images/versioning/promote-history.png)
 

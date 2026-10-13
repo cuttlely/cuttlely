@@ -1,6 +1,6 @@
 # History API
 
-These routes read a flow's version history, restore a version, keep a [copy in GitHub](#copy-to-github), and [promote a flow from Dev to Prod](#promote-from-dev-to-prod). The app uses them for **Version history**, the version page, the **Version History** settings page and the **From Dev** page. Drafts, Publish, Roll back and the behavior check before Publish are in the [Drafts API](./drafts-api.md). How to use all of it from the app: [Version history](../how-to/versioning.md), starting with [the lifecycle at a glance](../how-to/versioning.md#the-lifecycle-at-a-glance).
+These routes read a flow's version history, restore a version, keep a [copy in GitHub](#copy-to-github), and [promote a flow from Dev to Prod](#promote-from-dev-to-prod). The app uses them for **Version history**, the version page, the **Version History** settings page and the promote page (From Dev on the saved Dev and Prod pair). Drafts, Publish, Roll back and the behavior check before Publish are in the [Drafts API](./drafts-api.md). How to use all of it from the app: [Version history](../how-to/versioning.md), starting with [the lifecycle at a glance](../how-to/versioning.md#the-lifecycle-at-a-glance).
 
 All routes are under `/api/v1/flow-versions`. A signed-in session works, and so does an API key with the permissions below. With an API key, the workspace is the key's workspace.
 
@@ -57,20 +57,20 @@ Returns the flow's newest 200 versions, newest first.
 }
 ```
 
-| Field           | Meaning                                                                                                                                           |
-| --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `sha`           | Full commit id. Use it, or its first 7 characters, as `:sha`.                                                                                     |
-| `date`          | When it was saved, ISO 8601 with the server's UTC offset.                                                                                         |
-| `author`        | Display name of the person who saved it, or `cuttlely` for an API key or system save.                                                             |
-| `authorId`      | That person's user id. `null` for an API key or system save.                                                                                      |
-| `authorKind`    | `user` or `system`.                                                                                                                               |
-| `title`         | The version name Cuttlely wrote from the change.                                                                                                  |
-| `details`       | More lines about the change. Can be empty.                                                                                                        |
-| `kind`          | `create`, `save`, `restore`, `publish`, `rollback`, `promote`, or `delete`. `unknown` for a commit Cuttlely did not write.                        |
-| `promotedFrom`  | For a `promote` version, the full id of the version from Dev it copies. Otherwise `null`.                                                         |
-| `name`          | The flow's name in that version.                                                                                                                  |
-| `hiddenSecrets` | How many secret-looking values this version holds as `[secret hidden]`. `0` when none.                                                            |
-| `published`     | `true` for a version put Live by Publish, Roll back Live or Promote (kind `publish`, `rollback` or `promote`). See [Drafts API](./drafts-api.md). |
+| Field           | Meaning                                                                                                                                             |
+| --------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `sha`           | Full commit id. Use it, or its first 7 characters, as `:sha`.                                                                                       |
+| `date`          | When it was saved, ISO 8601 with the server's UTC offset.                                                                                           |
+| `author`        | Display name of the person who saved it, or `cuttlely` for an API key or system save.                                                               |
+| `authorId`      | That person's user id. `null` for an API key or system save.                                                                                        |
+| `authorKind`    | `user` or `system`.                                                                                                                                 |
+| `title`         | The version name Cuttlely wrote from the change.                                                                                                    |
+| `details`       | More lines about the change. Can be empty.                                                                                                          |
+| `kind`          | `create`, `save`, `restore`, `publish`, `rollback`, `promote`, or `delete`. `unknown` for a commit Cuttlely did not write.                          |
+| `promotedFrom`  | For a `promote` version, the full id of the previous environment's version. Otherwise `null`. On the saved Dev and Prod pair that version is Dev's. |
+| `name`          | The flow's name in that version.                                                                                                                    |
+| `hiddenSecrets` | How many secret-looking values this version holds as `[secret hidden]`. `0` when none.                                                              |
+| `published`     | `true` for a version put Live by Publish, Roll back Live or Promote (kind `publish`, `rollback` or `promote`). See [Drafts API](./drafts-api.md).   |
 
 `lastError` is the reason a save of this flow could not be added to history, when the server's most recent history failure since it started was for this flow. Otherwise it is `null`. A later successful save does not clear it, so a version list can have both a recorded latest version and a `lastError`. It clears when the server restarts or a save of another flow fails.
 
@@ -249,22 +249,22 @@ The connect, disconnect, copy and label routes answer with the status. It never 
 }
 ```
 
-| Field               | Meaning                                                                                                   |
-| ------------------- | --------------------------------------------------------------------------------------------------------- |
-| `enabled`           | `false` when history is off. Then `state` is `off` and nothing is copied.                                 |
-| `credential`        | The **Github API** credential that holds the token: its id and name, never the token.                     |
-| `state`             | One of the states below.                                                                                  |
-| `message`           | One plain sentence for the screen.                                                                        |
-| `waiting`           | Versions on this server that are not on GitHub yet. `null` when it cannot be counted.                     |
-| `lastCopiedAt`      | When the last copy finished, since the server started. `null` before the first copy.                      |
-| `lastCopiedVersion` | The short id of the newest version on GitHub after that copy.                                             |
-| `nextTryAt`         | When Cuttlely tries again after a failure, while `state` is `retrying`.                                   |
-| `environment`       | This server's identity in `environments`: `dev`, `prod`, another server identity, or `null`.              |
-| `environments`      | Promotion order. A saved Dev or Prod label with no list is dev, then prod.                                |
-| `promotes`          | `true` when this server promotes from the previous environment.                                           |
-| `role`              | `copy` when this server publishes versions. `read` on the last environment: it only reads the repository. |
-| `lastCheckedAt`     | Prod: when it last looked for new versions from Dev. `null` on Dev.                                       |
-| `incomingVersion`   | Prod: the short id of the newest version it found there. `null` on Dev or when empty.                     |
+| Field               | Meaning                                                                                                                                                  |
+| ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `enabled`           | `false` when history is off. Then `state` is `off` and nothing is copied.                                                                                |
+| `credential`        | The **Github API** credential that holds the token: its id and name, never the token.                                                                    |
+| `state`             | One of the states below.                                                                                                                                 |
+| `message`           | One plain sentence for the screen.                                                                                                                       |
+| `waiting`           | Versions on this server that are not on GitHub yet. `null` when it cannot be counted.                                                                    |
+| `lastCopiedAt`      | When the last copy finished, since the server started. `null` before the first copy.                                                                     |
+| `lastCopiedVersion` | The short id of the newest version on GitHub after that copy.                                                                                            |
+| `nextTryAt`         | When Cuttlely tries again after a failure, while `state` is `retrying`.                                                                                  |
+| `environment`       | This server's identity in `environments`: `dev`, `prod`, another server identity, or `null`.                                                             |
+| `environments`      | Promotion order. A saved Dev or Prod label with no list is dev, then prod.                                                                               |
+| `promotes`          | `true` when this server promotes from the previous environment.                                                                                          |
+| `role`              | `copy` when this server publishes versions. `read` on the last environment: it only reads the repository.                                                |
+| `lastCheckedAt`     | When this server last looked for new versions from the previous environment. `null` on the first environment. On the saved pair that environment is Dev. |
+| `incomingVersion`   | The short id of the newest version it found there. `null` on the first environment or when empty.                                                        |
 
 | `state`         | Meaning                                                                                                                                                                                                                                                        |
 | --------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -396,15 +396,15 @@ The list also returns `environments` (the order), `source` (the previous server 
 
 `POST /incoming/:chatflowId/promote` accepts an optional `from`, the previous server identity. A `from` that is not the previous environment is 409 `Promotion only moves to the next environment.` Omitting `from` promotes from the previous environment, as the app does.
 
-| Method   | Route                                  | What it does                                                   |
-| -------- | -------------------------------------- | -------------------------------------------------------------- |
-| `GET`    | `/incoming`                            | Flows in this workspace with a new version from Dev            |
-| `GET`    | `/incoming/:chatflowId`                | That flow's new version: changes, credentials, check readiness |
-| `POST`   | `/incoming/:chatflowId/promote`        | Put that version Live here                                     |
-| `GET`    | `/incoming/:chatflowId/check`          | Behavior check setup: recent questions, risky steps, last run  |
-| `POST`   | `/incoming/:chatflowId/check`          | Start the behavior check                                       |
-| `GET`    | `/incoming/:chatflowId/check/:checkId` | Check progress and answers                                     |
-| `DELETE` | `/incoming/:chatflowId/check/:checkId` | Stop the check                                                 |
+| Method   | Route                                  | What it does                                                             |
+| -------- | -------------------------------------- | ------------------------------------------------------------------------ |
+| `GET`    | `/incoming`                            | Flows in this workspace with a new version from the previous environment |
+| `GET`    | `/incoming/:chatflowId`                | That flow's new version: changes, credentials, check readiness           |
+| `POST`   | `/incoming/:chatflowId/promote`        | Put that version Live here                                               |
+| `GET`    | `/incoming/:chatflowId/check`          | Behavior check setup: recent questions, risky steps, last run            |
+| `POST`   | `/incoming/:chatflowId/check`          | Start the behavior check                                                 |
+| `GET`    | `/incoming/:chatflowId/check/:checkId` | Check progress and answers                                               |
+| `DELETE` | `/incoming/:chatflowId/check/:checkId` | Stop the check                                                           |
 
 ### List
 
@@ -448,15 +448,15 @@ The list also returns `environments` (the order), `source` (the previous server 
 
 `GET /api/v1/flow-versions/incoming/:chatflowId` answers with the list entry plus:
 
-| Field                  | Meaning                                                                                                                                                                                                                                                                                                                                                                                                             |
-| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `diff`                 | What Promote changes compared with Live here, as in [Compare](#compare). For a new flow every node is added.                                                                                                                                                                                                                                                                                                        |
-| `missingCredentials`   | Credentials the version uses, by name and type, that this workspace does not have. Promote is refused until they are added on the Credentials page.                                                                                                                                                                                                                                                                 |
-| `ambiguousCredentials` | Names that match more than one credential here, and which one is used, as in [Read one version](#read-one-version).                                                                                                                                                                                                                                                                                                 |
-| `hiddenSecrets`        | How many inputs hold a hidden-secret placeholder. Values Live has here for the same inputs are kept.                                                                                                                                                                                                                                                                                                                |
-| `checkUnavailable`     | `null` when the behavior check can run. Otherwise `code` is `new-flow` (no Live to compare with), `type` (not a chatflow or an agentflow, or Live and the version from Dev are different kinds), `start` (the two versions do not start the same way, or there is no Start input to replay) or `credentials`, with a `message`. A form, webhook or schedule start can be checked when both versions use that start. |
+| Field                  | Meaning                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `diff`                 | What Promote changes compared with Live here, as in [Compare](#compare). For a new flow every node is added.                                                                                                                                                                                                                                                                                                                             |
+| `missingCredentials`   | Credentials the version uses, by name and type, that this workspace does not have. Promote is refused until they are added on the Credentials page.                                                                                                                                                                                                                                                                                      |
+| `ambiguousCredentials` | Names that match more than one credential here, and which one is used, as in [Read one version](#read-one-version).                                                                                                                                                                                                                                                                                                                      |
+| `hiddenSecrets`        | How many inputs hold a hidden-secret placeholder. Values Live has here for the same inputs are kept.                                                                                                                                                                                                                                                                                                                                     |
+| `checkUnavailable`     | `null` when the behavior check can run. Otherwise `code` is `new-flow` (no Live to compare with), `type` (not a chatflow or an agentflow, or Live and the version from the previous environment are different kinds), `start` (the two versions do not start the same way, or there is no Start input to replay) or `credentials`, with a `message`. A form, webhook or schedule start can be checked when both versions use that start. |
 
-404 when the flow has no new version from Dev.
+404 when the flow has no new version from the previous environment.
 
 ### Promote
 
@@ -466,10 +466,10 @@ The list also returns `environments` (the order), `source` (the previous server 
 { "sha": "<40 hex>" }
 ```
 
-`sha` is the full id of the version from the list. Cuttlely checks again that it is still the newest version from Dev for this flow and that every credential it uses is here, then puts it Live through the normal update path, as Roll back does. The answer has the shape of [Restore](#restore), plus `created` and `hasDraft`.
+`sha` is the full id of the version from the list. Cuttlely checks again that it is still the newest version from the previous environment for this flow and that every credential it uses is here, then puts it Live through the normal update path, as Roll back does. The answer has the shape of [Restore](#restore), plus `created` and `hasDraft`. On the saved Dev and Prod pair that environment is Dev.
 
--   History gets a version titled `Promoted from Dev: <title on Dev> (<short id>)`, of kind `promote`, published, with the trailer `Version-From: <full id>` (see [Version files](./version-files.md#commits)). **Roll back** undoes it like any Publish.
--   A flow this server does not have is created with the id it has on Dev, in the caller's workspace, so the next versions from Dev find it.
+-   History gets a version titled `Promoted from <previous environment>: <title on that environment> (<short id>)`, of kind `promote`, published, with the trailer `Version-From` set to that previous environment's version id (see [Version files](./version-files.md#commits)). On the saved Dev and Prod pair the name is Dev. **Roll back** undoes it like any Publish.
+-   A flow this server does not have is created with the id it has on the previous environment, in the caller's workspace, so the next versions from that environment find it.
 -   Credentials are matched by name and type in the caller's workspace. Values never travel: Dev's files hold names only.
 -   A draft here is kept, unchanged, and stays marked as started from the old Live, so **Publish** asks before replacing what was promoted.
 -   Nothing is ever promoted on its own.
@@ -481,4 +481,4 @@ The list also returns `environments` (the order), `source` (the previous server 
 
 ### Behavior check
 
-The check routes work like the publish check in the [Drafts API](./drafts-api.md), with the version from Dev in place of the draft: recent questions from this server's chats are replayed against Live and the version from Dev, mapped to this server's credentials. The same `count` chooses how many, from 1 to 100. It writes nothing. It is a separate check from a draft check of the same flow.
+The check routes work like the publish check in the [Drafts API](./drafts-api.md), with the version from the previous environment in place of the draft: recent questions from this server's chats are replayed against Live and that version, mapped to this server's credentials. On the saved Dev and Prod pair that version is Dev's. The same `count` chooses how many, from 1 to 100. It writes nothing. It is a separate check from a draft check of the same flow.
