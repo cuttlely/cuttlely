@@ -8,7 +8,13 @@ import { databaseEntities } from '../../utils'
 export class LLMEvaluationRunner {
     private llm: any
 
-    async runLLMEvaluators(data: ICommonObject, actualOutputArray: string[], errorArray: string[], llmEvaluatorMap: any[]) {
+    async runLLMEvaluators(
+        data: ICommonObject,
+        actualOutputArray: string[],
+        errorArray: string[],
+        llmEvaluatorMap: any[],
+        run?: { signal?: AbortSignal; addTokens?: (tokens: number) => void }
+    ) {
         const evaluationResults: any[] = []
         if (this.llm === undefined) {
             this.llm = await this.createLLM(data)
@@ -34,11 +40,26 @@ export class LLMEvaluationRunner {
                         PromptTemplate.fromTemplate(evaluator.prompt as string),
                         modelWithStructuredOutput
                     ])
-                    const response = await llmExecutor.invoke({
-                        question: data.input,
-                        actualOutput: actualOutput,
-                        expectedOutput: data.expectedOutput
-                    })
+                    const response = await llmExecutor.invoke(
+                        {
+                            question: data.input,
+                            actualOutput: actualOutput,
+                            expectedOutput: data.expectedOutput
+                        },
+                        {
+                            signal: run?.signal,
+                            callbacks: run?.addTokens
+                                ? [
+                                      {
+                                          handleLLMEnd(output: { llmOutput?: { tokenUsage?: { totalTokens?: number } } }) {
+                                              const total = Number(output?.llmOutput?.tokenUsage?.totalTokens || 0)
+                                              if (Number.isFinite(total) && total > 0) run.addTokens!(total)
+                                          }
+                                      }
+                                  ]
+                                : undefined
+                        }
+                    )
                     evaluationResults.push(response)
                 } catch (error) {
                     evaluationResults.push({

@@ -28,6 +28,13 @@ export interface GradingModel {
     credentialId: string
 }
 
+export interface GradeRun {
+    signal: AbortSignal
+    timeoutMs: number
+}
+
+export type GradeReturn = unknown[] | { grades: unknown[]; tokens?: number | null }
+
 // Tests replace the grader so a check never calls a model. Production leaves this null and uses the runner.
 export const scoreHooks: {
     gradeLlm:
@@ -36,8 +43,9 @@ export const scoreHooks: {
               data: { [key: string]: any },
               actual: string[],
               errors: string[],
-              evaluators: Array<{ evaluatorId: string; evaluator: EvaluatorDTO }>
-          ) => Promise<unknown[]>)
+              evaluators: Array<{ evaluatorId: string; evaluator: EvaluatorDTO }>,
+              run: GradeRun
+          ) => Promise<GradeReturn>)
 } = { gradeLlm: null }
 
 export function readDatasetId(body: { datasetId?: unknown } | null | undefined): string | null {
@@ -119,7 +127,22 @@ export async function loadEvaluators(ids: string[], workspaceId: string): Promis
     return loaded
 }
 
-// The first chat model on the canvas, or the model an agentflow step is set to.
+// Each agentflow step stores its model under its own input names. The config is read the same way the step reads it:
+// the credential field, then `model`, then `modelName`.
+const AGENTFLOW_MODELS: Array<{ name: string; modelKey: string; configKey: string }> = [
+    { name: 'llmAgentflow', modelKey: 'llmModel', configKey: 'llmModelConfig' },
+    { name: 'agentAgentflow', modelKey: 'agentModel', configKey: 'agentModelConfig' },
+    { name: 'conditionAgentAgentflow', modelKey: 'conditionAgentModel', configKey: 'conditionAgentModelConfig' }
+]
+
+function readStepModel(config: Record<string, any> | undefined): { model: string; credentialId: string } {
+    const row = config || {}
+    const credentialId = row.FLOWISE_CREDENTIAL_ID ?? row.credential ?? ''
+    const model = row.model ?? row.modelName ?? ''
+    return { model: String(model || ''), credentialId: String(credentialId || '') }
+}
+
+// The first chat model on the canvas, or the first agentflow step that has a model.
 // The credential id is the one saved on that node. The caller passes the flow's workspace with it.
 export function gradingModel(flowData: string): GradingModel | null {
     let nodes: unknown
@@ -132,20 +155,19 @@ export function gradingModel(flowData: string): GradingModel | null {
     for (const node of nodes) {
         const data = (node as { data?: Record<string, any> })?.data
         if (!data) continue
-        if (data.name === 'llmAgentflow' || data.name === 'agentAgentflow') {
+        const step = AGENTFLOW_MODELS.find((item) => item.name === data.name)
+        if (step) {
             const inputs = (data.inputs || {}) as Record<string, any>
-            const config = (inputs.llmModelConfig || {}) as Record<string, any>
-            const credentialId = config.FLOWISE_CREDENTIAL_ID || config.credential || ''
-            const llm = inputs.llmModel || ''
-            const model = config.modelName || config.model || ''
-            if (llm && credentialId) return { llm: String(llm), model: String(model || ''), credentialId: String(credentialId) }
-            continue
+            const llm = String(inputs[step.modelKey] || '')
+            if (!llm) continue
+            const picked = readStepModel(inputs[step.configKey])
+            return { llm, model: picked.model, credentialId: picked.credentialId }
         }
         if (data.category === 'Chat Models' || data.category === 'LLMs') {
             const inputs = (data.inputs || {}) as Record<string, any>
-            const credentialId = data.credential || ''
-            const model = inputs.modelName || inputs.model || ''
-            if (data.name && credentialId) return { llm: String(data.name), model: String(model), credentialId: String(credentialId) }
+            const credentialId = String(data.credential || '')
+            const model = String(inputs.model ?? inputs.modelName ?? '')
+            if (data.name && credentialId) return { llm: String(data.name), model, credentialId }
         }
     }
     return null
@@ -153,7 +175,7 @@ export function gradingModel(flowData: string): GradingModel | null {
 
 // The check records one token total and one wall-clock time. Numeric evaluators read those.
 // Time measures share that one duration, because the check does not split it into model time and chain time.
-// Prompt and completion tokens are not split, so a measure of those has nothing to read.
+// Prompt and completion tokens are not recorded separately. A measure of those, or of a missing total, scores Error.
 export function checkMetrics(tokens: number | null, ms: number): Record<string, number> {
     const metric: Record<string, number> = {}
     if (typeof ms === 'number' && Number.isFinite(ms)) {
@@ -189,13 +211,36 @@ export interface ScoreInput {
     ms: number
     workspaceId: string
     flowData: string
+    signal?: AbortSignal
+    timeoutMs?: number
 }
 
-async function gradeWithLlm(input: ScoreInput, evaluators: EvaluatorDTO[]): Promise<Array<CheckScore['result']>> {
+function asGrades(returned: GradeReturn): { grades: unknown[]; tokens: number | null } {
+    if (Array.isArray(returned)) return { grades: returned, tokens: null }
+    const tokens = returned?.tokens
+    return { grades: returned?.grades || [], tokens: typeof tokens === 'number' && Number.isFinite(tokens) ? tokens : null }
+}
+
+// Reject when the check aborts the grader, so a hung model call cannot hold the check's slot.
+function untilAbort<T>(work: Promise<T>, signal?: AbortSignal): Promise<T> {
+    if (!signal) return work
+    if (signal.aborted) return Promise.reject(new Error('aborted'))
+    return new Promise((resolve, reject) => {
+        const onAbort = () => reject(new Error('aborted'))
+        signal.addEventListener('abort', onAbort, { once: true })
+        work.then(resolve, reject).finally(() => signal.removeEventListener('abort', onAbort))
+    })
+}
+
+async function gradeWithLlm(
+    input: ScoreInput,
+    evaluators: EvaluatorDTO[]
+): Promise<{ results: Array<CheckScore['result']>; tokens: number | null }> {
+    const errored = () => ({ results: evaluators.map(() => 'Error' as const), tokens: null })
     // A failed answer is Error for every evaluator. The grader is not called.
-    if (input.error) return evaluators.map(() => 'Error')
+    if (input.error || input.signal?.aborted) return errored()
     const model = gradingModel(input.flowData)
-    if (!model || !input.workspaceId) return evaluators.map(() => 'Error')
+    if (!model || !input.workspaceId) return errored()
     const data: { [key: string]: any } = {
         input: input.question,
         expectedOutput: input.expected ?? '',
@@ -203,19 +248,26 @@ async function gradeWithLlm(input: ScoreInput, evaluators: EvaluatorDTO[]): Prom
         llmConfig: { ...model, workspaceId: input.workspaceId }
     }
     const map = evaluators.map((evaluator) => ({ evaluatorId: evaluator.id, evaluator }))
-    try {
-        const responses = scoreHooks.gradeLlm
-            ? await scoreHooks.gradeLlm(data, [input.text ?? ''], [''], map)
-            : await new LLMEvaluationRunner().runLLMEvaluators(data, [input.text ?? ''], [''], map)
-        return evaluators.map((_, index) => llmGradeResult(responses[index]))
-    } catch {
-        return evaluators.map(() => 'Error')
+    const run: GradeRun = { signal: input.signal || new AbortController().signal, timeoutMs: input.timeoutMs ?? 0 }
+    let graderTokens = 0
+    const work = scoreHooks.gradeLlm
+        ? scoreHooks.gradeLlm(data, [input.text ?? ''], [''], map, run)
+        : new LLMEvaluationRunner().runLLMEvaluators(data, [input.text ?? ''], [''], map, {
+              signal: run.signal,
+              addTokens: (tokens) => {
+                  graderTokens += tokens
+              }
+          })
+    const returned = asGrades(await untilAbort(Promise.resolve(work), input.signal))
+    return {
+        results: evaluators.map((_, index) => llmGradeResult(returned.grades[index])),
+        tokens: returned.tokens ?? (graderTokens > 0 ? graderTokens : null)
     }
 }
 
-export async function scoreAnswer(input: ScoreInput): Promise<CheckScore[]> {
+export async function scoreAnswer(input: ScoreInput): Promise<{ scores: CheckScore[]; tokens: number | null }> {
     const evaluators = input.evaluators || []
-    if (!evaluators.length) return []
+    if (!evaluators.length) return { scores: [], tokens: null }
     const byId = new Map<string, CheckScore['result']>()
     const simple = evaluators.filter((evaluator) => evaluator.type === 'numeric' || evaluator.type === 'json' || evaluator.type === 'text')
     const llm = evaluators.filter((evaluator) => evaluator.type === 'llm')
@@ -237,13 +289,18 @@ export async function scoreAnswer(input: ScoreInput): Promise<CheckScore[]> {
             for (const evaluator of simple) byId.set(evaluator.id, 'Error')
         }
     }
+    let tokens: number | null = null
     if (llm.length) {
         const graded = await gradeWithLlm(input, llm)
-        llm.forEach((evaluator, index) => byId.set(evaluator.id, graded[index] || 'Error'))
+        tokens = graded.tokens
+        llm.forEach((evaluator, index) => byId.set(evaluator.id, graded.results[index] || 'Error'))
     }
-    return evaluators.map((evaluator) => ({
-        id: evaluator.id,
-        name: evaluator.name,
-        result: byId.get(evaluator.id) || 'Error'
-    }))
+    return {
+        scores: evaluators.map((evaluator) => ({
+            id: evaluator.id,
+            name: evaluator.name,
+            result: byId.get(evaluator.id) || 'Error'
+        })),
+        tokens
+    }
 }

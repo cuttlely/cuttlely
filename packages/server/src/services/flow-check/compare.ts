@@ -13,6 +13,8 @@ export interface SideResult {
     tokens: number | null
     // Wall-clock time for this one run, in milliseconds.
     ms: number
+    // Tokens the model grader reported for this side. Counted toward the check's token cap. Not shown on the answer.
+    graderTokens?: number | null
     // One entry per evaluator, in the order the check was given. Absent when no evaluators were sent.
     scores?: CheckScore[]
 }

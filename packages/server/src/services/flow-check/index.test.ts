@@ -825,3 +825,114 @@ describe('a start the client abandons', () => {
         expect(again.status).toBe('running')
     })
 })
+
+const gradedCanvas = (word: string) =>
+    JSON.stringify({
+        nodes: [
+            {
+                id: 'chatOpenAI_0',
+                data: {
+                    name: 'chatOpenAI',
+                    category: 'Chat Models',
+                    label: word,
+                    credential: 'cred-team-a',
+                    inputs: { modelName: 'gpt-test' }
+                }
+            }
+        ],
+        edges: []
+    })
+
+describe('grading limits', () => {
+    beforeEach(() => {
+        saveEvaluator('llm-1', 'llm', { prompt: 'Grade {actualOutput}', outputSchema: [] }, 'team-a', 'Graded')
+        states.set('flow-1', { chatflowId: 'flow-1', draftFlowData: gradedCanvas('PAPAYA'), publishInstantly: false })
+    })
+
+    test('a missing prompt, completion, or total token count scores Error, not Fail', async () => {
+        saveEvaluator('prompt', 'numeric', { operator: 'lessThan', measure: 'promptTokens', value: '5' }, 'team-a', 'Prompt')
+        saveEvaluator('completion', 'numeric', { operator: 'lessThan', measure: 'completionTokens', value: '5' }, 'team-a', 'Completion')
+        saveEvaluator('total', 'numeric', { operator: 'lessThan', measure: 'totalTokens', value: '5' }, 'team-a', 'Total')
+        saveEvaluator('length', 'numeric', { operator: 'greaterThan', measure: 'responseLength', value: '1' }, 'team-a', 'Length')
+        replayHooks.run = async () => ({ text: 'ok', metrics: [JSON.stringify({ totalTokens: 50 })] })
+        const started = await startCheck(
+            flow({ flowData: gradedCanvas('MANGO') }) as any,
+            { questions: ['Q'], evaluatorIds: ['prompt', 'completion', 'total', 'length'] },
+            'http://x'
+        )
+        await settle()
+        const done = await getCheck(flow({ flowData: gradedCanvas('MANGO') }), started.id)
+        expect(done.cases[0].live?.scores?.map((score) => score.result)).toEqual(['Error', 'Error', 'Fail', 'Pass'])
+        expect(done.summary.scores?.live).toMatchObject({ failed: 1, errored: 2 })
+
+        checks.clear()
+        replayHooks.run = async () => ({ text: 'ok', metrics: [] })
+        const missing = await startCheck(
+            flow({ flowData: gradedCanvas('MANGO') }) as any,
+            { questions: ['Q'], evaluatorIds: ['total'] },
+            'http://x'
+        )
+        await settle()
+        const noTotal = await getCheck(flow({ flowData: gradedCanvas('MANGO') }), missing.id)
+        expect(noTotal.cases[0].draft?.scores).toEqual([{ id: 'total', name: 'Total', result: 'Error' }])
+        expect(noTotal.summary.scores?.draft).toMatchObject({ failed: 0, errored: 1 })
+    })
+
+    test('Stop during grading ends the check as stopped', async () => {
+        scoreHooks.gradeLlm = () => new Promise(() => undefined)
+        replayHooks.run = async () => ({ text: 'ok', metrics: [JSON.stringify({ totalTokens: 4 })] })
+        const started = await startCheck(
+            flow({ flowData: gradedCanvas('MANGO') }) as any,
+            { questions: ['Q'], evaluatorIds: ['llm-1'] },
+            'http://x'
+        )
+        await new Promise((resolve) => setTimeout(resolve, 30))
+        await stopCheck(flow({ flowData: gradedCanvas('MANGO') }), started.id)
+        await settle()
+        const done = await getCheck(flow({ flowData: gradedCanvas('MANGO') }), started.id)
+        expect(done.status).toBe('stopped')
+        expect(done.stopReason).toBe('stopped')
+        const again = await startCheck(flow({ flowData: gradedCanvas('MANGO') }) as any, { questions: ['Next'] }, 'http://x')
+        expect(again.status).toBe('running')
+    })
+
+    test('a grader that never resolves times out and frees the check', async () => {
+        jest.setTimeout(20000)
+        process.env.CUTTLELY_CHECK_MAX_SECONDS = '10'
+        scoreHooks.gradeLlm = () => new Promise(() => undefined)
+        replayHooks.run = async () => ({ text: 'ok', metrics: [JSON.stringify({ totalTokens: 4 })] })
+        const started = await startCheck(
+            flow({ flowData: gradedCanvas('MANGO') }) as any,
+            { questions: ['Q'], evaluatorIds: ['llm-1'] },
+            'http://x'
+        )
+        for (let i = 0; i < 80 && checks.get('flow-1')?.status === 'running'; i++) await new Promise((resolve) => setTimeout(resolve, 250))
+        const done = await getCheck(flow({ flowData: gradedCanvas('MANGO') }), started.id)
+        expect(done.status).toBe('stopped')
+        expect(done.stopReason).toBe('time')
+        scoreHooks.gradeLlm = null
+        const again = await startCheck(flow({ flowData: gradedCanvas('MANGO') }) as any, { questions: ['Next'] }, 'http://x')
+        expect(again.status).toBe('running')
+    })
+
+    test('grader tokens push the check over the cap before the next question', async () => {
+        process.env.CUTTLELY_CHECK_MAX_TOKENS = '1000'
+        process.env.CUTTLELY_CHECK_CONCURRENCY = '1'
+        const asked: string[] = []
+        replayHooks.run = async ({ question }) => {
+            asked.push(question)
+            return { text: 'ok', metrics: [JSON.stringify({ totalTokens: 600 })] }
+        }
+        scoreHooks.gradeLlm = async () => ({ grades: [{ pass: true }], tokens: 500 })
+        const started = await startCheck(
+            flow({ flowData: gradedCanvas('MANGO') }) as any,
+            { questions: ['Q1', 'Q2'], evaluatorIds: ['llm-1'] },
+            'http://x'
+        )
+        await settle()
+        const done = await getCheck(flow({ flowData: gradedCanvas('MANGO') }), started.id)
+        expect(done.status).toBe('stopped')
+        expect(done.stopReason).toBe('tokens')
+        expect(asked).toEqual(['Q1'])
+    })
+})

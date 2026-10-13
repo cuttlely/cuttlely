@@ -1,3 +1,5 @@
+import fs from 'fs'
+import path from 'path'
 import { checkMetrics, gradingModel, llmGradeResult, questionsFromDataset } from './score'
 
 test('dataset rows stay in sequence order, within the question cap', () => {
@@ -59,4 +61,29 @@ test('the grader uses the model and credential saved on the canvas', () => {
     expect(gradingModel(agent)).toEqual({ llm: 'chatOpenAI', model: 'gpt-test', credentialId: 'cred-2' })
     expect(gradingModel('not json')).toBeNull()
     expect(gradingModel(JSON.stringify({ nodes: [{ data: { name: 'chatOpenAI', category: 'Chat Models' } }] }))).toBeNull()
+})
+
+test('an Agent, a Condition Agent, and the Simple RAG example each use that step model fields', () => {
+    const step = (name: string, modelKey: string, configKey: string, config: Record<string, unknown>) =>
+        JSON.stringify({ nodes: [{ data: { name, inputs: { [modelKey]: 'chatOpenAI', [configKey]: config } } }] })
+    // `model` wins over `modelName`, the same order the step uses.
+    expect(
+        gradingModel(
+            step('agentAgentflow', 'agentModel', 'agentModelConfig', {
+                model: 'from-model',
+                modelName: 'from-name',
+                FLOWISE_CREDENTIAL_ID: 'cred-agent'
+            })
+        )
+    ).toEqual({ llm: 'chatOpenAI', model: 'from-model', credentialId: 'cred-agent' })
+    expect(
+        gradingModel(
+            step('conditionAgentAgentflow', 'conditionAgentModel', 'conditionAgentModelConfig', {
+                modelName: 'gpt-condition',
+                FLOWISE_CREDENTIAL_ID: 'cred-condition'
+            })
+        )
+    ).toEqual({ llm: 'chatOpenAI', model: 'gpt-condition', credentialId: 'cred-condition' })
+    const rag = fs.readFileSync(path.join(__dirname, '../../../marketplaces/agentflowsv2/Simple RAG.json'), 'utf8')
+    expect(gradingModel(rag)).toEqual({ llm: 'chatOpenAI', model: 'gpt-4o-mini', credentialId: '' })
 })

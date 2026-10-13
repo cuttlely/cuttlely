@@ -140,6 +140,8 @@ interface CheckRecord {
     cases: CheckCase[]
     selection: CheckSelection | null
     evaluators: CheckEvaluator[]
+    // Tokens from a side that was dropped when the cap was hit. The case no longer shows them, but they still count.
+    spentTokens: number
     inflight: Set<AbortController>
     stopRequested: boolean
 }
@@ -487,6 +489,7 @@ export async function startCheck(
         })),
         selection,
         evaluators,
+        spentTokens: 0,
         inflight: new Set<AbortController>(),
         stopRequested: false
     }
@@ -531,7 +534,12 @@ function budgetLeft(record: CheckRecord): CheckView['stopReason'] {
     if (record.stopRequested) return 'stopped'
     if (Date.now() >= record.startedAt + record.limits.maxSeconds * 1000) return 'time'
     // Every run so far counts, including the Live half of a question whose draft has not run yet.
-    const used = record.cases.reduce((sum, c) => sum + (c.live?.tokens || 0) + (c.draft?.tokens || 0), 0)
+    const used =
+        record.spentTokens +
+        record.cases.reduce(
+            (sum, c) => sum + (c.live?.tokens || 0) + (c.draft?.tokens || 0) + (c.live?.graderTokens || 0) + (c.draft?.graderTokens || 0),
+            0
+        )
     if (used >= record.limits.maxTokens) return 'tokens'
     return null
 }
@@ -540,8 +548,16 @@ function budgetLeft(record: CheckRecord): CheckView['stopReason'] {
 // A failure is stored on that question. It does not stop the others.
 async function attachScores(record: CheckRecord, side: SideResult | null, question: string, expected: string | null, flowData: string) {
     if (!side || !record.evaluators.length) return
+    // The same per-run limit as the answer itself: 60 seconds, or whatever the check has left.
+    // Stop aborts this controller because it is in the check's in-flight set.
+    const deadline = record.startedAt + record.limits.maxSeconds * 1000
+    const controller = new AbortController()
+    record.inflight.add(controller)
+    const timeoutMs = Math.max(1, Math.min(RUN_TIMEOUT_MS, deadline - Date.now()))
+    const timer = setTimeout(() => controller.abort(), timeoutMs)
+    timer.unref?.()
     try {
-        side.scores = await scoreAnswer({
+        const graded = await scoreAnswer({
             evaluators: record.evaluators,
             question,
             expected,
@@ -550,10 +566,20 @@ async function attachScores(record: CheckRecord, side: SideResult | null, questi
             tokens: side.tokens,
             ms: side.ms,
             workspaceId: record.workspaceId,
-            flowData
+            flowData,
+            signal: controller.signal,
+            timeoutMs
         })
+        side.scores = graded.scores
+        side.graderTokens = graded.tokens
     } catch {
-        side.scores = record.evaluators.map((evaluator) => ({ id: evaluator.id, name: evaluator.name, result: 'Error' as const }))
+        // Stop clears the case after this returns. A grader that timed out is Error, and the check moves on.
+        if (!record.stopRequested) {
+            side.scores = record.evaluators.map((evaluator) => ({ id: evaluator.id, name: evaluator.name, result: 'Error' as const }))
+        }
+    } finally {
+        clearTimeout(timer)
+        record.inflight.delete(controller)
     }
 }
 
@@ -570,6 +596,8 @@ async function runCase(record: CheckRecord, c: CheckCase, flow: IChatFlow, draft
     }
     const stop = budgetLeft(record)
     if (stop) {
+        // The side is not shown, but its replay and grader tokens still count toward the next question.
+        record.spentTokens += (c.live?.tokens || 0) + (c.live?.graderTokens || 0)
         c.live = null
         record.stopReason = record.stopReason || stop
         return
