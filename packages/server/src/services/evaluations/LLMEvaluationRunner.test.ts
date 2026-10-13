@@ -109,7 +109,7 @@ test('an aborted grade does not start another evaluator, and earlier usage is ke
     }))
     const results = await runner.runLLMEvaluators({ input: 'q', expectedOutput: 'e' }, ['answer'], [''], evaluators, {
         signal: controller.signal,
-        addTokens: (count) => {
+        addTokens: (count: number) => {
             tokens += count
         }
     })
@@ -142,7 +142,7 @@ test('a thrown abort does not start the evaluator after it', async () => {
     }))
     await runner.runLLMEvaluators({ input: 'q', expectedOutput: 'e' }, ['answer'], [''], evaluators, {
         signal: controller.signal,
-        addTokens: (count) => {
+        addTokens: (count: number) => {
             tokens += count
         }
     })
