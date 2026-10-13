@@ -43,6 +43,27 @@ function formatMs(value) {
     return value == null ? 'n/a' : `${value} ms`
 }
 
+function formatUsd(value) {
+    const n = Number(value)
+    if (!Number.isFinite(n)) return ''
+    if (n === 0) return '$0'
+    if (Math.abs(n) >= 0.01) return `$${n.toFixed(2)}`
+    return `$${n.toFixed(8).replace(/0+$/, '').replace(/\.$/, '')}`
+}
+
+function estimateLine(label, usd, price) {
+    if (price === 'no price') return `${label}: estimated cost no price`
+    if (price === 'partial') {
+        const money = formatUsd(usd)
+        return money ? `${label}: estimated ${money} (some models have no price)` : `${label}: estimated cost no price`
+    }
+    if (price === 'known') {
+        const money = formatUsd(usd)
+        return money ? `${label}: estimated ${money}` : ''
+    }
+    return ''
+}
+
 export function changedCases(check) {
     return (check?.cases || []).filter((row) => row && row.same === false && row.live && row.draft && !row.live.error && !row.draft.error)
 }
@@ -59,6 +80,11 @@ export function summaryText(check) {
         `Live: ${summary.liveTokens ?? 0} tokens, median ${formatMs(summary.liveMedianMs)}`,
         `Draft: ${summary.draftTokens ?? 0} tokens, median ${formatMs(summary.draftMedianMs)}`
     ]
+    // The check total, with each model priced once. It is not the sum of the per-answer figures.
+    const liveEstimate = estimateLine('Live', summary.liveEstimatedCostUsd, summary.livePrice)
+    const draftEstimate = estimateLine('Draft', summary.draftEstimatedCostUsd, summary.draftPrice)
+    if (liveEstimate) lines.push(liveEstimate)
+    if (draftEstimate) lines.push(draftEstimate)
     if (check.liveEmpty) lines.push('Live has no cards, so only the draft was asked.')
     if (check.stopReason) lines.push(`Stopped: ${check.stopReason}`)
     if (check.error) lines.push(`Error: ${check.error}`)
