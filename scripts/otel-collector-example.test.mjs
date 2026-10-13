@@ -151,6 +151,26 @@ test('recipe exporters do not send traces back to the example receiver ports', (
     assert.match(guide, /localhost:14317/)
 })
 
+test('the Tempo recipe mounts a config that listens on every interface', () => {
+    const guide = fs.readFileSync(guidePath, 'utf8')
+    const tempo = yaml.load(fs.readFileSync(path.join(ROOT, 'examples', 'otel', 'tempo.yaml'), 'utf8'))
+    assert.equal(tempo.storage.trace.backend, 'local')
+    assert.equal(tempo.distributor.receivers.otlp.protocols.grpc.endpoint, '0.0.0.0:4317')
+    const runs = [...guide.matchAll(/```bash\n([\s\S]*?)```/g)].map((fence) => fence[1])
+    const tempoRun = runs.find((block) => block.includes('grafana/tempo:'))
+    assert.ok(tempoRun, 'the guide has no Tempo docker run')
+    assert.match(tempoRun, /examples\/otel\/tempo\.yaml/)
+    assert.match(tempoRun, /-config\.file=/)
+    assert.match(tempoRun, /14317:4317/)
+    assert.match(tempoRun, /grafana\/tempo:3\.1\.0/)
+    const jaegerRun = runs.find((block) => block.includes('jaegertracing/jaeger:'))
+    assert.ok(jaegerRun, 'the guide has no Jaeger docker run')
+    assert.match(jaegerRun, /jaegertracing\/jaeger:2\.22\.0/)
+    assert.match(jaegerRun, /14317:4317/)
+    assert.match(guide, /otelcol` binary from release 0\.162\.0/)
+    assert.match(guide, /includes the `zipkin` exporter/)
+})
+
 test('both compose files pass the trace variables from .env', () => {
     const names = ['CUTTLELY_OTEL_TRACES', 'CUTTLELY_OTEL_TRACES_ENDPOINT', 'CUTTLELY_OTEL_TRACES_PROTOCOL', 'CUTTLELY_OTEL_TRACES_CONTENT']
     for (const file of ['docker-compose.yml', 'docker/docker-compose.yml']) {

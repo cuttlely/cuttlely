@@ -81,11 +81,13 @@ service:
             exporters: [debug]
 ```
 
-From the repository root:
+From the repository root, with the core `otelcol` binary from release 0.162.0:
 
 ```bash
 otelcol --config examples/otel/collector.yaml
 ```
+
+That release's manifest includes the `zipkin` exporter, so the Zipkin recipe below runs on `otelcol`. It does not need `otelcol-contrib`.
 
 A native run, Cuttlely and the collector on the same machine with no container, points `CUTTLELY_OTEL_TRACES_ENDPOINT` at `http://localhost:4318/v1/traces` and sets `CUTTLELY_OTEL_TRACES_PROTOCOL=http`. Restart Cuttlely, and run one chatflow, one agentflow, and one harness. The collector prints one trace per run. The root span is `chatflow.prediction`, `agentflow.run`, or `harness.run`.
 
@@ -100,7 +102,7 @@ Replace the `exporters` and the traces pipeline in the example file.
 Jaeger listens for OTLP gRPC on a port the example collector does not use. The collector still receives on `4317` and `4318`, and it forwards to Jaeger on `14317`. Publish Jaeger's OTLP port `4317` on the host as `14317`:
 
 ```bash
-docker run --rm -p 16686:16686 -p 14317:4317 jaegertracing/all-in-one
+docker run --rm -p 16686:16686 -p 14317:4317 jaegertracing/jaeger:2.22.0
 ```
 
 ```yaml
@@ -117,10 +119,10 @@ service:
             exporters: [otlp/jaeger]
 ```
 
-Grafana Tempo, the same split. Publish Tempo's OTLP port `4317` on the host as `14317`:
+Grafana Tempo, the same split. Tempo exits at startup with no config, and since Tempo 2.7 the OTLP receiver defaults to `localhost:4317` inside the container, which a published port cannot reach. [`examples/otel/tempo.yaml`](../../examples/otel/tempo.yaml) sets `storage.trace.backend` to `local` and `distributor.receivers.otlp.protocols.grpc.endpoint` to `0.0.0.0:4317`. Mount that file and pass `-config.file`. Publish Tempo's OTLP port `4317` on the host as `14317`. This command uses `grafana/tempo:3.1.0`:
 
 ```bash
-docker run --rm -p 14317:4317 grafana/tempo
+docker run --rm -p 14317:4317 -v "$PWD/examples/otel/tempo.yaml:/etc/tempo.yaml:ro" grafana/tempo:3.1.0 -config.file=/etc/tempo.yaml
 ```
 
 ```yaml
