@@ -379,6 +379,9 @@ function leaveSoundMode(video) {
  * once the preview has moved, because a play() issued while the element is still playing can keep the old position.
  */
 function playFromStart(video) {
+    // A refused hero parks its sources. They have to be back before play(), including a replay.
+    // A dialog is not parked, so this leaves that file attached for the next open.
+    restoreSources(video)
     const doc = video.ownerDocument
     if (doc && typeof doc.querySelectorAll === 'function') {
         for (const other of doc.querySelectorAll('video')) {
@@ -428,8 +431,10 @@ function playFromStart(video) {
 }
 
 /**
- * End a sound session. With autoplay off, drop the sources and load the empty element so the poster
- * paints. Otherwise return to the silent preview and resume loops the queue has already started.
+ * End a sound session. With autoplay off, the in-place hero drops its sources and loads the empty
+ * element so the poster paints. A dialog keeps its sources: prefetch will not call load() again,
+ * and parking them would make every later open play an empty element. Otherwise return to the
+ * silent preview and resume loops the queue has already started.
  */
 function settleNarration(video, win) {
     endNarration(video)
@@ -440,7 +445,8 @@ function settleNarration(video, win) {
     }
     if (sounding.has(video)) leaveSoundMode(video)
     const view = win || video.ownerDocument?.defaultView
-    if (view && !canAutoplay(view) && parkSources(video)) {
+    const hero = 'demoVideo' in (video.dataset ?? {})
+    if (view && !canAutoplay(view) && hero && parkSources(video)) {
         video.load()
         return
     }
@@ -496,6 +502,37 @@ function resumeMutedPreviews(doc, win) {
     }
 }
 
+/**
+ * Ends a hero narration when that video leaves the screen. Installed whether or not previews
+ * autoplay. It does not enqueue a download or call load(): coming back does not resume the sound.
+ */
+function watchNarrationScroll(videos, win) {
+    if (!('IntersectionObserver' in win)) return
+    const heroes = videos.filter((video) => 'demoVideo' in (video.dataset ?? {}))
+    if (!heroes.length) return
+    const observer = new win.IntersectionObserver(
+        (entries) => {
+            for (const entry of entries) {
+                if (entry.isIntersecting) continue
+                const video = entry.target
+                const owner = video.ownerDocument
+                if (!owner || narrating.get(owner) !== video) continue
+                try {
+                    video.pause()
+                } catch {
+                    // Already idle.
+                }
+                // ended never fires when the hero scrolls away, so the sound session would stay open.
+                endNarration(video)
+                if (sounding.has(video)) leaveSoundMode(video)
+                resumeMutedPreviews(owner, win)
+            }
+        },
+        { threshold: 0.5 }
+    )
+    for (const video of heroes) observer.observe(video)
+}
+
 /** Plays the demo video and the tile loops while they are on screen, when autoplay is fine for this visitor. */
 export function initDemoVideo(doc = document, win = window) {
     const videos = [...doc.querySelectorAll('[data-demo-video], [data-loop-video]')]
@@ -503,9 +540,12 @@ export function initDemoVideo(doc = document, win = window) {
     if (!videos.length || !('IntersectionObserver' in win) || !canAutoplay(win)) {
         // Nothing starts on its own, so a tap on the narrated demo should play it with its sound.
         for (const video of videos) if ('demoVideo' in (video.dataset ?? {})) video.muted = false
+        // A tap can still start the hero. Scrolling it away has to end that narration.
+        watchNarrationScroll(videos, win)
         return false
     }
     watchLoops(videos, win, doc)
+    watchNarrationScroll(videos, win)
     return true
 }
 
@@ -531,7 +571,7 @@ export function initVideoDialogs(doc = document) {
             dialog.showModal()
             // Every open starts at the beginning. Closing only pauses, so the next open has to seek.
             const pending = playFromStart(video)
-            // playFromStart already restores previews if this play is rejected. Pause the dialog video too.
+            // playFromStart already ends the narration if this play is rejected. Pause the dialog video too.
             if (pending && typeof pending.then === 'function') {
                 pending.catch(() => {
                     try {

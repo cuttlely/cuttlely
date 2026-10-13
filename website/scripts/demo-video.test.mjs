@@ -1553,6 +1553,74 @@ test('scrolling the sounding hero off screen ends the sound session', async () =
     assert.equal(hero.controls, false)
 })
 
+test('scrolling a sounding hero off screen ends narration when autoplay is off', async () => {
+    const hero = shellVideo({ demoVideo: '' })
+    const heroButton = control({ playWithSound: '' })
+    hero.nextElementSibling = heroButton
+    const tile = shellVideo({ loopVideo: '' })
+    const previews = [hero, tile]
+    const observers = []
+    const win = {
+        matchMedia: (query) => ({ matches: query.includes('max-width') }),
+        navigator: { connection: { saveData: false } },
+        addEventListener() {},
+        IntersectionObserver: class {
+            constructor(cb, options) {
+                this.cb = cb
+                this.options = options || {}
+                this.targets = []
+                observers.push(this)
+            }
+            observe(target) {
+                this.targets.push(target)
+            }
+        }
+    }
+    const doc = {
+        hidden: false,
+        visibilityState: 'visible',
+        defaultView: win,
+        addEventListener() {},
+        querySelectorAll: (selector) => {
+            if (selector === 'video' || String(selector).includes('data-demo-video') || String(selector).includes('data-loop-video'))
+                return previews
+            return []
+        }
+    }
+    for (const preview of previews) preview.ownerDocument = doc
+    assert.equal(initDemoVideo(doc, win), false)
+    assert.equal(observers.length, 1)
+    assert.equal(observers[0].options.threshold, 0.5)
+    assert.equal(observers[0].options.rootMargin, undefined)
+    assert.deepEqual(observers[0].targets, [hero])
+    assert.equal(hero.calls.includes('load'), false)
+    assert.equal(tile.preload, 'none')
+    assert.equal(tile.calls.includes('load'), false)
+    heroButton.click()
+    await Promise.resolve()
+    assert.equal(hero.paused, false)
+    assert.equal(hero.muted, false)
+    assert.equal(heroButton.hidden, true)
+    hero.calls.length = 0
+    tile.calls.length = 0
+    observers[0].cb([{ target: hero, isIntersecting: false }])
+    assert.equal(hero.paused, true)
+    assert.equal(heroButton.hidden, false)
+    assert.equal(hero.muted, true)
+    assert.equal(hero.defaultMuted, true)
+    assert.equal(hero.loop, true)
+    assert.equal(hero.controls, false)
+    assert.equal(hero.calls.includes('load'), false)
+    assert.equal(tile.calls.includes('play'), false)
+    assert.equal(tile.calls.includes('load'), false)
+    observers[0].cb([{ target: hero, isIntersecting: true }])
+    assert.equal(hero.muted, true)
+    assert.equal(hero.paused, true)
+    assert.equal(heroButton.hidden, false)
+    assert.equal(hero.controls, false)
+    assert.equal(hero.calls.includes('play'), false)
+})
+
 test('a rejected replay after a parked hero reloads the poster', async () => {
     const source = {
         removed: false,
@@ -1607,6 +1675,101 @@ test('a rejected replay after a parked hero reloads the poster', async () => {
     assert.equal(button.hidden, false)
     assert.equal(video.muted, true)
     assert.equal(video.controls, false)
+})
+
+test('a refused dialog play keeps its sources so the next open plays the file', async () => {
+    const source = {
+        removed: false,
+        remove() {
+            this.removed = true
+        }
+    }
+    const attached = [source]
+    let plays = 0
+    const loads = []
+    const full = {
+        currentTime: 0,
+        muted: true,
+        loop: true,
+        volume: 0.35,
+        controls: true,
+        paused: true,
+        dataset: {},
+        preload: 'none',
+        readyState: 0,
+        querySelectorAll: (selector) => (String(selector) === 'source' ? attached.filter((item) => !item.removed) : []),
+        appendChild(node) {
+            node.removed = false
+        },
+        load() {
+            loads.push(full.querySelectorAll('source').length)
+        },
+        play() {
+            plays += 1
+            if (plays === 1) return Promise.reject(new Error('NotAllowedError'))
+            full.paused = false
+            return Promise.resolve()
+        },
+        pause() {
+            full.paused = true
+        }
+    }
+    const dialog = {
+        querySelector: () => full,
+        showModal() {},
+        close() {},
+        addEventListener() {}
+    }
+    const linkHandlers = {}
+    const link = {
+        dataset: { videoDialogOpen: 'v1' },
+        addEventListener(type, fn) {
+            ;(linkHandlers[type] ||= []).push(fn)
+        },
+        click() {
+            for (const fn of linkHandlers.click || []) fn({ preventDefault() {} })
+        }
+    }
+    const win = {
+        matchMedia: (query) => ({ matches: query.includes('max-width') }),
+        navigator: { connection: { saveData: false } },
+        addEventListener() {},
+        IntersectionObserver: class {
+            constructor() {}
+            observe() {}
+        }
+    }
+    const doc = {
+        hidden: false,
+        visibilityState: 'visible',
+        defaultView: win,
+        addEventListener() {},
+        getElementById: () => dialog,
+        querySelectorAll: (selector) => {
+            if (selector === 'video') return [full]
+            if (String(selector).includes('data-video-dialog-open')) return [link]
+            return []
+        }
+    }
+    full.ownerDocument = doc
+    assert.equal(initDemoVideo(doc, win), false)
+    initVideoDialogs(doc)
+    linkHandlers.pointerenter[0]()
+    assert.deepEqual(loads, [1])
+    assert.equal(source.removed, false)
+    link.click()
+    await Promise.resolve()
+    assert.equal(plays, 1)
+    assert.equal(full.paused, true)
+    assert.equal(source.removed, false)
+    assert.deepEqual(loads, [1])
+    link.click()
+    await Promise.resolve()
+    assert.equal(plays, 2)
+    assert.equal(full.paused, false)
+    assert.equal(full.muted, false)
+    assert.equal(source.removed, false)
+    assert.deepEqual(loads, [1])
 })
 
 test('ending the hero narration resumes on-screen loops the queue has already admitted', () => {
