@@ -5,7 +5,8 @@
 import { spawnSync } from 'child_process'
 import path from 'path'
 import { installInMemoryTraces, openHarnessRunTrace, silenceRunTraces, traceFlow, withNodeSpan, type FinishedTraceSpan } from './tracing'
-import type { HarnessTraceSession } from '@cuttlely/components'
+
+type HarnessTraceSession = NonNullable<ReturnType<typeof openHarnessRunTrace>>
 
 jest.mock('../utils/logger', () => ({
     __esModule: true,
