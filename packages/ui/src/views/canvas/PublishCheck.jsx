@@ -19,6 +19,7 @@ import { useTheme } from '@mui/material/styles'
 import flowDraftsApi from '@/api/flowDrafts'
 import { apiErrorMessage } from '@/utils/flowDrafts'
 import {
+    checkKind,
     checkTitle,
     countPickerLabel,
     loadingText,
@@ -219,7 +220,9 @@ export const PublishCheckView = ({
     onStop,
     count = DEFAULT_COMPARE_COUNT,
     onCount = () => {},
-    words = CHECK_WORDS.publish
+    words = CHECK_WORDS.publish,
+    // 'runs', 'questions', or null. Known from the canvas before the setup request returns.
+    checkKind: hintedKind = null
 }) => {
     const theme = useTheme()
     const [previewShown, setPreviewShown] = useState(RESULT_PAGE_SIZE)
@@ -233,6 +236,8 @@ export const PublishCheckView = ({
     const risky = setup?.riskySteps || []
     const unavailable = setup?.unavailable || null
     const replayInputs = Boolean(setup?.replayInputs)
+    // While the setup request is in flight, the canvas hint is all we have. Setup and loading clear together.
+    const shownKind = loading ? hintedKind : replayInputs ? 'runs' : setup ? 'questions' : hintedKind
     const past = (setup?.questions || []).filter((q) => !q.starter)
     const pastCount = Number.isFinite(Number(setup?.pastCount)) ? Number(setup.pastCount) : past.length
     const used = pastCount > 0 ? Math.min(count, pastCount) : 0
@@ -254,14 +259,14 @@ export const PublishCheckView = ({
 
     return (
         <Box data-testid='publish-check' sx={{ mt: 2, p: 1.5, border: '1px solid', borderColor: theme.palette.divider, borderRadius: 1 }}>
-            <Typography variant='subtitle1' component='h3' sx={{ fontWeight: 600 }}>
-                {checkTitle(replayInputs)}
+            <Typography variant='subtitle1' component='h3' sx={{ fontWeight: 600 }} data-testid='check-title'>
+                {checkTitle(shownKind)}
             </Typography>
             {loading && (
                 <Stack direction='row' spacing={1} alignItems='center' sx={{ mt: 1 }}>
                     <CircularProgress size={16} />
                     <Typography variant='body2' color='text.secondary'>
-                        {loadingText(replayInputs)}
+                        {loadingText(shownKind)}
                     </Typography>
                 </Stack>
             )}
@@ -474,13 +479,15 @@ PublishCheckView.propTypes = {
     onStop: PropTypes.func,
     count: PropTypes.number,
     onCount: PropTypes.func,
-    words: PropTypes.object
+    words: PropTypes.object,
+    checkKind: PropTypes.oneOf(['runs', 'questions', null])
 }
 
 // The publish check panel: loads recent questions, runs the check, polls it, and stops it when the dialog closes.
 // The same panel checks a version from Dev before Promote: variant 'promote' with that check's api.
-const PublishCheck = ({ chatflowId, variant = 'publish', api = flowDraftsApi }) => {
+const PublishCheck = ({ chatflowId, variant = 'publish', api = flowDraftsApi, flowType, canvases }) => {
     const words = CHECK_WORDS[variant] || CHECK_WORDS.publish
+    const hintedKind = checkKind(flowType, canvases)
     const [setup, setSetup] = useState(null)
     const [loading, setLoading] = useState(true)
     const [loadError, setLoadError] = useState('')
@@ -624,10 +631,17 @@ const PublishCheck = ({ chatflowId, variant = 'publish', api = flowDraftsApi }) 
             count={count}
             onCount={setCount}
             words={words}
+            checkKind={hintedKind}
         />
     )
 }
 
-PublishCheck.propTypes = { chatflowId: PropTypes.string, variant: PropTypes.oneOf(['publish', 'promote']), api: PropTypes.object }
+PublishCheck.propTypes = {
+    chatflowId: PropTypes.string,
+    variant: PropTypes.oneOf(['publish', 'promote']),
+    api: PropTypes.object,
+    flowType: PropTypes.string,
+    canvases: PropTypes.array
+}
 
 export default PublishCheck

@@ -2,6 +2,9 @@ import {
     CHECK_INTRO,
     CHECK_TITLE,
     CHECK_RUNS_TITLE,
+    LOADING_UNKNOWN,
+    canvasStartType,
+    checkKind,
     checkTitle,
     countPickerLabel,
     loadingText,
@@ -89,10 +92,25 @@ describe('recorded input preview', () => {
         expect(noPastRunsMessage('form')).toBe('No past runs exist yet. Submit the form once, then check again.')
         expect(noPastRunsMessage()).toBe('')
         expect(noPastRunsMessage('other')).toBe('')
-        expect(checkTitle(false)).toBe(CHECK_TITLE)
-        expect(checkTitle(true)).toBe(CHECK_RUNS_TITLE)
-        expect(loadingText(false)).toBe('Loading recent questions…')
-        expect(loadingText(true)).toBe('Loading recent runs…')
+        expect(checkTitle('questions')).toBe(CHECK_TITLE)
+        expect(checkTitle('runs')).toBe(CHECK_RUNS_TITLE)
+        expect(checkTitle(null)).toBe('Check')
+        expect(loadingText('questions')).toBe('Loading recent questions…')
+        expect(loadingText('runs')).toBe('Loading recent runs…')
+        expect(loadingText(null)).toBe(LOADING_UNKNOWN)
+        const webhookCanvas = JSON.stringify({
+            nodes: [{ data: { name: 'startAgentflow', inputs: { startInputType: 'webhookTrigger' } } }]
+        })
+        const chatCanvas = JSON.stringify({
+            nodes: [{ data: { name: 'startAgentflow', inputs: { startInputType: 'chatInput' } } }]
+        })
+        expect(canvasStartType(webhookCanvas)).toBe('webhookTrigger')
+        expect(checkKind('AGENTFLOW', [webhookCanvas, webhookCanvas])).toBe('runs')
+        expect(checkKind('AGENTFLOW', [chatCanvas, chatCanvas])).toBe('questions')
+        expect(checkKind('CHATFLOW', [chatCanvas])).toBe('questions')
+        expect(checkKind('AGENTFLOW', [webhookCanvas, chatCanvas])).toBeNull()
+        expect(checkKind('AGENTFLOW', ['{'])).toBeNull()
+        expect(checkKind()).toBeNull()
         expect(countPickerLabel({ replayInputs: true, requested: 4, available: 4 })).toBe('Past runs')
         expect(countPickerLabel({ replayInputs: true, requested: 4, available: 2 })).toBe('Requested runs')
         expect(countPickerLabel({ replayInputs: false, requested: 50, available: 37 })).toBe('Requested questions')

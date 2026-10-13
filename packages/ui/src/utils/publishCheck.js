@@ -10,10 +10,55 @@ export const RESULT_PAGE_SIZE = 12
 
 export const CHECK_TITLE = 'Check recent questions'
 export const CHECK_RUNS_TITLE = 'Check recent runs'
+// Used while the canvases do not say whether this check replays questions or recorded runs.
+export const LOADING_UNKNOWN = 'Loading the check…'
 
-export const checkTitle = (replayInputs) => (replayInputs ? CHECK_RUNS_TITLE : CHECK_TITLE)
+const TRIGGER_STARTS = new Set(['formInput', 'webhookTrigger', 'scheduleInput'])
 
-export const loadingText = (replayInputs) => (replayInputs ? 'Loading recent runs…' : 'Loading recent questions…')
+// The Start node's input type, or null when this canvas has no Start node. An empty string means the
+// Start node is there and its input type is blank.
+export const canvasStartType = (flowData) => {
+    if (!flowData) return null
+    try {
+        const nodes = JSON.parse(flowData)?.nodes
+        if (!Array.isArray(nodes)) return null
+        const start = nodes.find((node) => node?.data?.name === 'startAgentflow')
+        if (!start) return null
+        return String(start.data?.inputs?.startInputType || '')
+    } catch {
+        return null
+    }
+}
+
+// 'runs' when the canvases that have a Start node share a form, webhook or schedule start.
+// 'questions' for a chatflow or a chat-started agentflow. Null when the canvases do not say.
+export const checkKind = (type, canvases = []) => {
+    if (type && type !== 'AGENTFLOW' && type !== 'CHATFLOW') return null
+    const present = (Array.isArray(canvases) ? canvases : [])
+        .filter(Boolean)
+        .map(canvasStartType)
+        .filter((start) => start != null)
+    // No type and no Start node: the canvas has not said. Promote hits this until setup returns.
+    if (!type && !present.length) return null
+    if (type !== 'AGENTFLOW') return 'questions'
+    if (!present.length) return null
+    if (TRIGGER_STARTS.has(present[0]) && present.every((start) => start === present[0])) return 'runs'
+    if (present.every((start) => start === 'chatInput')) return 'questions'
+    return null
+}
+
+export const checkTitle = (kind) => {
+    if (kind === 'runs') return CHECK_RUNS_TITLE
+    if (kind === 'questions') return CHECK_TITLE
+    // The canvases have not said which noun to use. Do not claim questions or runs.
+    return 'Check'
+}
+
+export const loadingText = (kind) => {
+    if (kind === 'runs') return 'Loading recent runs…'
+    if (kind === 'questions') return 'Loading recent questions…'
+    return LOADING_UNKNOWN
+}
 
 // The number in the picker is a request. When fewer runs or questions exist, the label says so,
 // so "4" is not read as "4 past runs" next to "Only 2 past runs available".

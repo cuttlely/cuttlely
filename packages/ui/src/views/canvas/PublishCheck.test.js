@@ -327,37 +327,22 @@ describe('PublishCheckView', () => {
         expect(render({ setup: { unavailable: { code: 'off', message: 'Drafts are off on this server.' }, limits } })).toBe('')
     })
 
-    test('loading and load errors never block publishing', () => {
-        expect(render({ loading: true, setup: null })).toContain('Loading recent questions…')
-        expect(render({ loading: true, setup: null })).toContain('Check recent questions')
-        expect(
-            render({
-                loading: true,
-                setup: {
-                    unavailable: null,
-                    replayInputs: true,
-                    replaySource: 'webhook',
-                    questions: [],
-                    riskySteps: [],
-                    limits,
-                    check: null
-                }
-            })
-        ).toContain('Loading recent runs…')
-        expect(
-            render({
-                loading: true,
-                setup: {
-                    unavailable: null,
-                    replayInputs: true,
-                    replaySource: 'webhook',
-                    questions: [],
-                    riskySteps: [],
-                    limits,
-                    check: null
-                }
-            })
-        ).toContain('Check recent runs')
+    test('loading uses the canvas hint, and an unknown start does not say questions or runs', () => {
+        const unknown = render({ loading: true, setup: null })
+        expect(unknown).toContain('Loading the check…')
+        expect(unknown).toContain('data-testid="check-title"')
+        expect(unknown).not.toContain('Check recent questions')
+        expect(unknown).not.toContain('Check recent runs')
+        expect(unknown).not.toContain('Loading recent questions…')
+        expect(unknown).not.toContain('Loading recent runs…')
+        const runs = render({ loading: true, setup: null, checkKind: 'runs' })
+        expect(runs).toContain('Check recent runs')
+        expect(runs).toContain('Loading recent runs…')
+        expect(runs).not.toContain('Check recent questions')
+        const questions = render({ loading: true, setup: null, checkKind: 'questions' })
+        expect(questions).toContain('Check recent questions')
+        expect(questions).toContain('Loading recent questions…')
+        expect(questions).not.toContain('Check recent runs')
         expect(render({ loadError: 'Recent questions could not be loaded.', setup: null })).toContain(
             'Recent questions could not be loaded. You can still publish.'
         )
