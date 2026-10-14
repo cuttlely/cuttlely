@@ -349,13 +349,73 @@ async function stepOpenAI(page) {
     await page.getByRole('option', { name: 'OpenAI main' }).click()
 }
 
+async function framePostgresCard(page, node, file) {
+    const tail = node.getByText(/Pass the statement as sql/i)
+    await tail.waitFor({ timeout: 30000 })
+    await page.setViewportSize({ width: 1440, height: 960 })
+    await page.locator('.react-flow__controls-fitview').click()
+    await sleep(700)
+    const pan = async (dx, dy) => {
+        await page.mouse.move(720, 420)
+        await page.mouse.down()
+        await page.mouse.move(720 + dx, 420 + dy, { steps: 16 })
+        await page.mouse.up()
+        await sleep(300)
+    }
+    for (let i = 0; i < 8; i += 1) {
+        const box = await node.boundingBox()
+        const view = page.viewportSize()
+        if (!box || !view) throw new Error('PostgreSQL MCP is not on screen')
+        const dx = view.width / 2 - (box.x + box.width / 2)
+        const dy = view.height / 2 - (box.y + box.height / 2)
+        if (Math.abs(dx) < 20 && Math.abs(dy) < 20) break
+        await pan(Math.max(-420, Math.min(420, dx)), Math.max(-360, Math.min(360, dy)))
+    }
+    for (let i = 0; i < 3; i += 1) {
+        const box = await node.boundingBox()
+        const view = page.viewportSize()
+        if (!box || !view || box.height > view.height * 0.55) break
+        await page.locator('.react-flow__controls-zoomin').click()
+        await sleep(250)
+    }
+    for (let i = 0; i < 8; i += 1) {
+        const box = await node.boundingBox()
+        const end = await tail.boundingBox()
+        const view = page.viewportSize()
+        if (!box || !end || !view) throw new Error('PostgreSQL MCP card is not measurable')
+        const fits =
+            box.x >= 8 &&
+            box.y >= 48 &&
+            box.x + box.width <= view.width - 8 &&
+            box.y + box.height <= view.height - 8 &&
+            end.y >= 48 &&
+            end.y + end.height <= view.height - 12 &&
+            end.x >= box.x &&
+            end.x + end.width <= box.x + box.width + 4
+        if (fits) {
+            await sleep(500)
+            await page.screenshot({ path: file })
+            await note(page, file)
+            log(path.basename(file))
+            return
+        }
+        if (box.height > view.height - 64 || end.y + end.height > view.height - 8) {
+            await page.locator('.react-flow__controls-zoomout').click()
+            await sleep(250)
+        }
+        const dx = view.width / 2 - (box.x + box.width / 2)
+        const dy = view.height / 2 - (box.y + box.height / 2)
+        await pan(Math.max(-420, Math.min(420, dx)), Math.max(-360, Math.min(360, dy)))
+    }
+    throw new Error('PostgreSQL MCP card is still cut off')
+}
+
 async function stepQueryAndSave(page) {
     const mcp = page.getByTestId('rf__node-postgreSQLMCP_0')
     await mcp.waitFor()
     const box = await mcp.boundingBox()
     if (!box) throw new Error('PostgreSQL MCP is not on screen')
-    await page.mouse.click(box.x + box.width / 2, box.y + box.height * 0.6)
-    for (let i = 0; i < 4; i += 1) await page.locator('.react-flow__controls-zoomin').click()
+    await page.mouse.click(box.x + box.width / 2, box.y + 80)
     const select = mcp.locator('#mcpActions')
     let picked = false
     for (let i = 0; i < 20 && !picked; i += 1) {
@@ -370,11 +430,7 @@ async function stepQueryAndSave(page) {
         }
     }
     if (!picked) throw new Error('QUERY was not in Available Actions')
-    await mcp
-        .getByText(/isolated analyst store/i)
-        .first()
-        .waitFor({ timeout: 15000 })
-    await shot(page, path.join(OUT_H, 'postgres-mcp-query.png'), 1440, 960)
+    await framePostgresCard(page, mcp, path.join(OUT_H, 'postgres-mcp-query.png'))
     await page.getByTitle('Save Harness').click()
     const dialog = page.getByRole('dialog')
     await dialog.getByRole('textbox').fill('chief-of-staff')
@@ -1517,8 +1573,39 @@ const STEPS = [
     ['workspaces', stepWorkspaces],
     ['retake-chats', stepRetakeChats],
     ['postgres', stepPostgres],
-    ['review-fixes', stepReviewFixes]
+    ['review-fixes', stepReviewFixes],
+    ['harness-mcp', stepHarnessMcp]
 ]
+
+async function stepHarnessMcp(page) {
+    if (process.env.DOCS_SHOTS_FROM !== 'harness-mcp') return
+    const id = execFileSync(
+        'sqlite3',
+        [path.join(DATA, 'database.sqlite'), "SELECT id FROM chat_flow WHERE name = 'chief-of-staff' LIMIT 1;"],
+        {
+            encoding: 'utf8'
+        }
+    ).trim()
+    const home = await workspaceIdByName('Default Workspace')
+    await openApp(page, `${BASE}/harnesses`, 'classic')
+    if (home) {
+        await page.evaluate(async (workspaceId) => {
+            await fetch(`/api/v1/workspace/switch?id=${encodeURIComponent(workspaceId)}`, {
+                method: 'POST',
+                credentials: 'include',
+                headers: { 'content-type': 'application/json', 'x-request-from': 'internal' }
+            })
+        }, home)
+    }
+    fs.rmSync(path.join(DATA, 'analyst-mcp.json'), { force: true })
+    await waitFor('http://127.0.0.1:43118/', 120)
+    await openApp(page, `${BASE}/harnesscanvas/${id}`, 'classic')
+    await page.keyboard.press('Escape')
+    const mcp = page.getByTestId('rf__node-postgreSQLMCP_0')
+    await mcp.waitFor({ timeout: 30000 })
+    await mcp.getByText(/Run one SQL statement in the isolated analyst store/).waitFor({ timeout: 90000 })
+    await framePostgresCard(page, mcp, path.join(OUT_H, 'postgres-mcp-query.png'))
+}
 
 function resetData() {
     fs.mkdirSync(TMP, { recursive: true })

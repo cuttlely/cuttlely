@@ -193,7 +193,7 @@ Describe the team in plain words and **Build with AI** puts it on a new harness:
 4. Under **Chat model that builds**, Cuttlely starts on a model you have a key for (OpenAI starts on `gpt-4.1-mini`), with your key picked when only one fits. The list shows the models you have keys for; **Show all … models** lists the rest, and **Only models for your keys** returns to that shorter list. **More settings** holds the advanced ones. Your choice is remembered for next time. There is no default key.
 5. Select **Build**.
 
-![The Build with AI dialog on a blank harness canvas. The line under the title reads It builds a first version you can change and saves it as a new harness. Every part is checked before it lands. Under Describe your team are three example chips and a box with a study team description. Below, Chat model that builds is set to OpenAI with the OpenAI demo credential and the gpt-4.1-mini model. Cancel and Build are at the bottom right.](../images/harnesses/build-with-ai-dialog.png)
+![The Build with AI dialog on a blank harness canvas. The line under the title reads It builds a first version you can change and saves it as a new harness. Every part is checked before it lands. Under Describe your team are three example chips and a box with a study team description. Below, Chat model that builds is set to OpenAI with the OpenAI main credential and the gpt-4.1-mini model. Cancel and Build are at the bottom right.](../images/harnesses/build-with-ai-dialog.png)
 
 The team is saved right away as a new harness, named after its title, and opens on its own canvas. A built team never replaces a harness you already have. When you started from a canvas that already has cards, the new harness opens in a new tab.
 
