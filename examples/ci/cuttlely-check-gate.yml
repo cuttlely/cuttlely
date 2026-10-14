@@ -21,6 +21,7 @@
 # See docs/how-to/ci-gate.md.
 # Cancelling this job stops the server-side check.
 # cancel-in-progress stops the older run, and the CLI cancels its check on SIGTERM.
+# Use one of the two workflows for a given flow. Running both against the same flow on one pull request exits 2 with "A check is already running for this flow."
 # A failed verdict exits 1 and does not read the flow again.
 
 name: Cuttlely scored check

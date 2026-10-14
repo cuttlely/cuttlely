@@ -16,6 +16,7 @@
 # This job is diff mode. It does not pass --gate. npx cuttlely stays unpinned because --fail-on-changed is in the 1.0.3 package.
 # Cancelling this job stops the server-side check.
 # cancel-in-progress stops the older run, and the CLI cancels its check on SIGTERM.
+# Use one of the two workflows for a given flow. Running both against the same flow on one pull request exits 2 with "A check is already running for this flow."
 
 name: Cuttlely draft check
 

@@ -89,7 +89,7 @@ Point the job at a Cuttlely server you already run. The workflow does not start 
 
 Scored mode and `--gate` need Cuttlely 1.1.0 or later. That is the first release with scored mode, and no release with it has been published yet. The diff workflow leaves `npx cuttlely` unpinned because `--fail-on-changed` is in the 1.0.3 package. The scored workflow pins `cuttlely@^1.1.0`.
 
-cancel-in-progress stops the older run, and the CLI cancels its check on SIGTERM.
+Both workflows set `permissions: {}`, because the job never uses the GitHub token, and use `concurrency` with `cancel-in-progress`, so a new push stops the older run and the CLI cancels its check on SIGTERM. Use one of the two workflows for a given flow. The server runs one check per flow at a time, so running both against the same flow on one pull request makes the second one exit 2 with `A check is already running for this flow.`
 
 ```yaml
 name: Cuttlely draft check
