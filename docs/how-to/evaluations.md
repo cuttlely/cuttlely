@@ -1,6 +1,6 @@
 # Evaluations
 
-This is the path from a saved test set to a Publish that waits for it. You create a dataset, add the checks that score an answer, run those examples against a chatflow or an agentflow, then use the same dataset in the Publish dialog and, if you want, refuse Publish until that check passes. To start from a rated answer in the message viewer, follow [Turn real answers into tests](./tests-from-answers.md).
+Test with up to 100 question-and-answer pairs, with more on the roadmap. This is the path from a saved test set to a Publish that waits for it. You create a dataset, add the checks that score an answer, run those examples against a chatflow or an agentflow, then use the same dataset in the Publish dialog and, if you want, refuse Publish until that check passes. To start from a rated answer in the message viewer, follow [Turn real answers into tests](./tests-from-answers.md).
 
 Open **Datasets**, **Evaluators**, and **Evaluations** from the sidebar. Publishing a flow and running an evaluation are separate. The evaluation pages do not start the check in the Publish dialog. A saved dataset can, and the evaluators you tick there score both answers.
 
@@ -203,7 +203,7 @@ That dataset can drive the Publish check. A row that still needs an expected ans
 
 ## Run the Publish check on a dataset
 
-On a chatflow, an agentflow that starts with **Chat Input**, or a harness, the Publish dialog can ask a dataset instead of recent questions.
+On a chatflow, an agentflow that starts with **Chat Input**, or a harness, the Publish dialog can ask a dataset instead of recent questions. [Watch the testing run (56 seconds, sound on)](https://cuttlely.com/media/products/testing.mp4) shows a chatflow draft scored on a test set and published after that set passes.
 
 1. Save a draft, then select **Publish**.
 2. Under **Check recent questions**, set **Questions from** to **A dataset** and choose the dataset. **Questions from** is hidden when your role cannot view datasets.
