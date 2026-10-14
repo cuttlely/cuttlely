@@ -853,16 +853,31 @@ function shellVideo(dataset) {
 
 test('the home page puts a play button on the hero and on every tile loop', () => {
     const src = readFileSync(new URL('../src/pages/index.astro', import.meta.url), 'utf8')
-    assert.equal((src.match(/slug: '/g) || []).length, 6)
-    assert.match(src, /slug: 'testing'/)
-    assert.equal(src.includes("slug: 'chatflows'"), false)
+    const slugs = [...src.matchAll(/slug: '([^']+)'/g)].map((match) => match[1])
+    assert.deepEqual(slugs, ['knowledge-pipelines', 'chatflows', 'agentflows', 'harnesses', 'build-with-ai', 'share-and-embed'])
+    assert.equal(src.includes("slug: 'testing'"), false)
+    assert.equal(src.includes('Test before you publish'), false)
+    assert.match(src, /title: 'Chatflows'/)
+    assert.match(
+        src,
+        /text: 'A chat model, the agent or chain that answers, memory and tools, on one canvas\. Each chatflow gets a prediction API, an embed and a shareable link\.'/
+    )
+    assert.match(src, /href: '\/docs\/how-to\/canvas\/'/)
+    assert.match(src, /length: '0:35'/)
+    assert.match(
+        src,
+        /label: 'A bakery chatflow on a real Cuttlely server: median of 20 runs, 1\.1 seconds to first words after two model calls and the calculator, 1\.3 seconds to the full answer on the first question, and 1\.3 seconds for the follow-up answer, with the order kept\.'/
+    )
     assert.match(src, /<button type="button" class="cl-play-overlay" data-play-with-sound aria-label="Play the demo with sound">/)
     assert.match(src, /aria-label="Play the testing video with sound"/)
     const testingAt = src.indexOf('id="test-every-change-before-it-goes-live"')
     const caseAt = src.indexOf('id="one-complaint-three-specialists"')
     const teamsAt = src.indexOf('id="agent-teams-that-power-your-apps"')
-    assert.ok(caseAt !== -1 && testingAt > caseAt && teamsAt > testingAt)
-    assert.equal((src.match(/Test with up to 100 question-and-answer pairs, with more on the roadmap\./g) || []).length >= 2, true)
+    const toolsAt = src.indexOf('id="tools-your-teams-use"')
+    assert.ok(caseAt !== -1 && testingAt > caseAt && teamsAt > testingAt && toolsAt > teamsAt)
+    const testingSection = src.slice(testingAt, teamsAt)
+    assert.equal((testingSection.match(/Test with up to 100 question-and-answer pairs, with more on the roadmap\./g) || []).length, 1)
+    assert.equal(src.slice(toolsAt).includes('Test with up to 100 question-and-answer pairs'), false)
     const tiles = src.slice(src.indexOf('class="cl-tile-media"'), src.indexOf('class="cl-tile-link"'))
     assert.match(tiles, /data-loop-video/)
     assert.match(tiles, /<button/)

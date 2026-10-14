@@ -13,6 +13,7 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 -   Fresh screenshots for the knowledge pipeline guide and the Usage page.
 -   Docs: fresh pictures of version history, the Publish check, and evaluations.
 -   The README and homepage lead with testing before Publish, with a narrated video.
+-   The home page tools row shows the Chatflows card again. The testing video stays in the section near the top and in the README lead.
 
 ### Upgrade notes / breaking changes
 

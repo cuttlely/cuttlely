@@ -992,10 +992,10 @@ test(
 <button type="button" class="cl-play-overlay" data-play-with-sound aria-label="Play the testing video with sound">Play</button>
 </div>
 </section>
-<div class="stage" id="testing-tile">
-<video data-loop-video muted loop playsinline preload="none" poster="/poster.webp" src="/clip.mp4" aria-label="Testing tile"></video>
-<button type="button" class="cl-play-overlay" data-play-with-sound data-video-dialog-open="testing-dialog" aria-label="Play Test before you publish with sound">Play</button>
-<dialog id="testing-dialog"><video controls playsinline preload="none" src="/clip.mp4"></video></dialog>
+<div class="stage" id="chatflows-tile">
+<video data-loop-video muted loop playsinline preload="none" poster="/poster.webp" src="/clip.mp4" aria-label="Chatflows tile"></video>
+<button type="button" class="cl-play-overlay" data-play-with-sound data-video-dialog-open="chatflows-dialog" aria-label="Play Chatflows with sound">Play</button>
+<dialog id="chatflows-dialog" aria-label="Chatflows: narrated video with captions"><video controls playsinline preload="none" src="/clip.mp4"></video></dialog>
 </div>
 <script type="module">
 import { initDemoVideo, initVideoDialogs } from '/demo-video.mjs'
@@ -1061,6 +1061,20 @@ initVideoDialogs()
                 (state) => state.hero.t > 0.35 && state.hero.muted === true && state.hero.loop === true
             )
             assert.equal(before.heroButtonHidden, false)
+            const chatflowsLoopRead = `(() => {
+            const video = document.querySelector('#chatflows-tile [data-loop-video]')
+            return video ? { t: video.currentTime, paused: video.paused, label: video.getAttribute('aria-label') } : null
+        })()`
+            const loopDeadline = Date.now() + 8000
+            let chatflowsLoop = null
+            while (Date.now() < loopDeadline) {
+                chatflowsLoop = await evalValue(chatflowsLoopRead)
+                if (chatflowsLoop && chatflowsLoop.paused === false && chatflowsLoop.t > 0.15) break
+                await new Promise((resolve) => setTimeout(resolve, 50))
+            }
+            assert.equal(chatflowsLoop.label, 'Chatflows tile')
+            assert.equal(chatflowsLoop.paused, false, `chatflows loop ${JSON.stringify(chatflowsLoop)}`)
+            assert.ok(chatflowsLoop.t > 0.15, `chatflows loop playhead ${chatflowsLoop.t}`)
             // Headless key events do not activate a focused button. Enter and Space still do in a browser,
             // because the control is a real button; this click is the activation those keys perform.
             const pressed = await evalValue(`(() => {
@@ -1127,20 +1141,22 @@ initVideoDialogs()
             assert.equal(again.full.loop, false)
             const overlays = await evalValue(`(() => {
             const section = document.querySelector('[aria-label="Play the testing video with sound"]')
-            const tile = document.querySelector('#testing-tile [data-play-with-sound]')
+            const tile = document.querySelector('#chatflows-tile [data-play-with-sound]')
             const sectionRect = section ? section.getBoundingClientRect() : null
             const tileRect = tile ? tile.getBoundingClientRect() : null
             return {
                 section: section ? { tag: section.tagName, hidden: section.hidden, width: sectionRect.width } : null,
-                tile: tile ? { tag: tile.tagName, hidden: tile.hidden, width: tileRect.width, label: tile.getAttribute('aria-label') } : null
+                tile: tile ? { tag: tile.tagName, hidden: tile.hidden, width: tileRect.width, label: tile.getAttribute('aria-label') } : null,
+                testingTile: document.getElementById('testing-tile') !== null || document.querySelector('[aria-label="Play Test before you publish with sound"]') !== null
             }
         })()`)
             assert.equal(overlays.section.tag, 'BUTTON')
             assert.equal(overlays.section.hidden, false)
             assert.ok(overlays.section.width >= 80)
+            assert.equal(overlays.testingTile, false)
             assert.equal(overlays.tile.tag, 'BUTTON')
             assert.equal(overlays.tile.hidden, false)
-            assert.equal(overlays.tile.label, 'Play Test before you publish with sound')
+            assert.equal(overlays.tile.label, 'Play Chatflows with sound')
             await evalValue(`document.getElementById('testing-player').volume = 0.3`)
             await evalValue(`document.querySelector('[aria-label="Play the testing video with sound"]').click()`)
             const testingRead = `(() => {
@@ -1161,25 +1177,26 @@ initVideoDialogs()
             assert.equal(testing.volume, 0.3)
             assert.equal(testing.buttonHidden, true)
             await evalValue(`document.getElementById('full').close()`)
-            await evalValue(`document.querySelector('#testing-dialog video').volume = 0.3`)
-            await evalValue(`document.querySelector('#testing-tile [data-video-dialog-open]').click()`)
+            await evalValue(`document.querySelector('#chatflows-dialog video').volume = 0.3`)
+            await evalValue(`document.querySelector('#chatflows-tile [data-video-dialog-open]').click()`)
             const tileRead = `(() => {
-            const dialog = document.getElementById('testing-dialog')
+            const dialog = document.getElementById('chatflows-dialog')
             const video = dialog.querySelector('video')
-            return { open: dialog.open, t: video.currentTime, muted: video.muted, loop: video.loop, volume: video.volume }
+            return { open: dialog.open, label: dialog.getAttribute('aria-label'), t: video.currentTime, muted: video.muted, loop: video.loop, volume: video.volume }
         })()`
             const tileDeadline = Date.now() + 4000
-            let testingTile = null
+            let chatflowsTile = null
             while (Date.now() < tileDeadline) {
-                testingTile = await evalValue(tileRead)
-                if (testingTile && testingTile.open === true && testingTile.muted === false && testingTile.t < 0.45) break
+                chatflowsTile = await evalValue(tileRead)
+                if (chatflowsTile && chatflowsTile.open === true && chatflowsTile.muted === false && chatflowsTile.t < 0.45) break
                 await new Promise((resolve) => setTimeout(resolve, 50))
             }
-            assert.equal(testingTile.open, true, `testing tile ${JSON.stringify(testingTile)}`)
-            assert.equal(testingTile.muted, false)
-            assert.equal(testingTile.loop, false)
-            assert.ok(testingTile.t < 0.45, `testing tile playhead ${testingTile.t}`)
-            assert.equal(testingTile.volume, 0.3)
+            assert.equal(chatflowsTile.open, true, `chatflows tile ${JSON.stringify(chatflowsTile)}`)
+            assert.equal(chatflowsTile.label, 'Chatflows: narrated video with captions')
+            assert.equal(chatflowsTile.muted, false)
+            assert.equal(chatflowsTile.loop, false)
+            assert.ok(chatflowsTile.t < 0.45, `chatflows tile playhead ${chatflowsTile.t}`)
+            assert.equal(chatflowsTile.volume, 0.3)
             close()
         } finally {
             browser.kill('SIGKILL')

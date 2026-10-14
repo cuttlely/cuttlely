@@ -45,13 +45,13 @@ const tools: { title: string; text: string; href: string; video: ToolVideo }[] =
         }
     },
     {
-        title: 'Test before you publish',
-        text: 'Test with up to 100 question-and-answer pairs, with more on the roadmap. Compare the draft with Live on real questions, score it, turn on Passing test set, and Publish stays disabled until the current draft passes.',
-        href: '/docs/how-to/tests-from-answers/',
+        title: 'Chatflows',
+        text: 'A chat model, the agent or chain that answers, memory and tools, on one canvas. Each chatflow gets a prediction API, an embed and a shareable link.',
+        href: '/docs/how-to/canvas/',
         video: {
-            slug: 'testing',
-            length: '0:56',
-            label: 'A bakery chatflow on a real Cuttlely 1.1.0 server: rated answers become a test set, Compare flags the answer that changed, the draft scores 87.5% and Publish stays locked, and after the fix the test set passes at 100% and Publish goes through. Test with up to 100 question-and-answer pairs, with more on the roadmap.'
+            slug: 'chatflows',
+            length: '0:35',
+            label: 'A bakery chatflow on a real Cuttlely server: median of 20 runs, 1.1 seconds to first words after two model calls and the calculator, 1.3 seconds to the full answer on the first question, and 1.3 seconds for the follow-up answer, with the order kept.'
         }
     },
     {
@@ -465,9 +465,6 @@ const installs = [
                                 <dialog id={`video-${tool.video.slug}`} class="cl-video-dialog" aria-label={`${tool.title}: narrated video with captions`}>
                                     <video controls playsinline preload="none" width="1280" height="720" poster={mediaUrl(`/media/products/${tool.video.slug}-poster.webp`)}>
                                         <source src={mediaUrl(`/media/products/${tool.video.slug}.mp4`)} type="video/mp4" />
-                                        {tool.video.slug === 'testing' && (
-                                            <track kind="captions" src={mediaUrl('/media/products/testing.vtt')} srclang="en" label="English" />
-                                        )}
                                     </video>
                                     <form method="dialog">
                                         <button class="cl-video-close" aria-label="Close">×</button>

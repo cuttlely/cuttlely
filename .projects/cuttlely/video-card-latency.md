@@ -11,7 +11,7 @@ Questions: chatflow "Two country sourdough loaves and three butter croissants. W
 
 ## Chatflows (canvas test chat, internal prediction stream)
 
-The home page no longer shows this card. The testing card replaced it and does not state these figures.
+The chatflow rows measure a card the home page shows again.
 
 | Metric                                 | Median s | p90 s | Min s | Max s | Correct  |
 | -------------------------------------- | -------- | ----- | ----- | ----- | -------- |
@@ -20,7 +20,7 @@ The home page no longer shows this card. The testing card replaced it and does n
 | Follow-up: full answer                 | 1.28     | 1.42  | 1.14  | 1.51  | 20 of 20 |
 | Follow-up: time to first words (extra) | 1.05     | 1.18  | 0.96  | 1.22  | 20 of 20 |
 
-Measured for the former chatflow card: 1.1 s, 1.3 s, 1.3 s.
+Shown on the card: 1.1 s, 1.3 s, 1.3 s.
 
 ## Agentflows (equivalent flow, same branches and questions, not the recorded canvas)
 
