@@ -102,7 +102,7 @@ The restore is saved as a new version named `Restored: <name of that version> (<
 
 ![The Bakery helper canvas after a restore. The header has no draft label, because this flow has Publish instantly on. A green message at the bottom reads Restored. History has a new version, so you can undo this the same way.](../images/versioning/after-restore.png)
 
-![Version history after the restore. The newest version, marked Current and edited by Rosa Diaz, is Restored: Changed credential, Temperature on ChatOpenAI, followed by the four earlier versions: Changed System Message on Conversation Chain, Moved nodes, Changed credential, Temperature on ChatOpenAI edited by Cuttlely (API key or system), and Created Bakery helper.](../images/versioning/history-after-restore.png)
+![Version history after the restore. Newest first, the rows fully in view are: Restored: Changed credential, Temperature on ChatOpenAI, marked Current, edited by Rosa Diaz, Restored just now; Changed System Message on Conversation Chain, edited by Rosa Diaz, Saved just now; Changed Temperature on ChatOpenAI, edited by Rosa Diaz, Saved just now; Changed System Message on Conversation Chain, edited by Rosa Diaz, Saved 1 minute ago; Moved nodes, edited by Rosa Diaz, Saved 1 minute ago; and Changed credential, Temperature on ChatOpenAI, edited by Cuttlely (API key or system), Saved 1 minute ago. A green message at the bottom reads Restored. History has a new version, so you can undo this the same way.](../images/versioning/history-after-restore.png)
 
 The message after a restore says what happened:
 
@@ -301,7 +301,7 @@ A harness uses the same dialog. The questions are the full prompts people sent t
 
 Legacy multi-agent flows are not checked. The box keeps the message `The check works on chatflows and agentflows.` On an agentflow a check reads execution records only to find those inputs. It writes no new run to **Executions**, and the tokens shown are the ones the model steps (LLM and Agent) report. The same steps that act for real are skipped unless you tick **Run it anyway, including those steps**. An administrator can change the token and time limits with `CUTTLELY_CHECK_MAX_TOKENS` and `CUTTLELY_CHECK_MAX_SECONDS`, and how many questions or inputs run at once with `CUTTLELY_CHECK_CONCURRENCY`; see [Publish check limits](../reference/versioning-settings.md#publish-check-limits). A provider that reports token usage nowhere does not move the token cap, so that check is bounded only by the time limit.
 
-![The check on the Bakery helper agentflow. The change list says Changed LLM: llm messages. Only 3 past questions are available, and 3 of 3 answered differently. Can I order a birthday cake for Friday? is marked Changed: Live says Yes, you need to place your birthday cake order by Wednesday, and Draft says Yes, please place your order by Wednesday for a Friday birthday cake.](../images/versioning/publish-check-agentflow-results.png)
+![The check results on the Bakery helper agentflow. 3 of 3 answered differently. Can I order a birthday cake for Friday? is marked Changed: Live says Yes, you need to place your birthday cake order by Wednesday, and Draft says Yes, please place your order by Wednesday for a Friday birthday cake. What time do you open on Saturday? is marked Changed: Live says We open at 8 AM on Saturdays, and Draft says We open at 7 AM on Saturdays. Do you have gluten-free bread today? is marked Changed: Live says No, we bake gluten-free bread only on Tuesdays, and Draft says Yes, we bake gluten-free bread every day.](../images/versioning/publish-check-agentflow-results.png)
 
 ## Where the history lives
 
@@ -526,7 +526,7 @@ The routes are in the [History API](../reference/versioning-api.md#promote-from-
 
 The **Chatflows** and **Agentflows** lists name the previous environment: **New flow from** that environment for a flow this server does not have yet, and **New version available from** that environment for one it has. Only the owner sees it. On the saved Dev and Prod pair that name is Dev, as in the picture.
 
-![The Chatflows list on Prod. A banner at the top of the page reads 3 flows have a new version from Dev, with Review All. Order status and Catering quotes are each marked New flow from Dev, and Bakery helper is marked New version available from Dev. Each has a Review button. The flows themselves are listed below the What are you building? card.](../images/versioning/promote-banner.png)
+![The Chatflows list on Prod. A banner at the top of the page reads 3 flows have a new version from Dev, with Review All. Order status and Catering quotes are each marked New flow from Dev, and Bakery helper is marked New version available from Dev. Each has a Review button.](../images/versioning/promote-banner.png)
 
 **Review all** opens the promote page with every flow that has something new. On the saved Dev and Prod pair its title is **From Dev**.
 
@@ -544,7 +544,7 @@ Select a flow to open its review page:
 
 ![The review page for Bakery helper, marked New version available from Dev. What changes on this server lists Changed ChatOpenAI: temperature and Changed Conversation Chain: system message prompt. What changed on Dev lists Changed System Message on Conversation Chain and Changed Temperature on ChatOpenAI, both by Rosa Diaz. Credentials says every credential it uses is on this server. Check recent questions says only 2 past questions are available and lists Do you have gluten-free bread today? and What time do you open on Saturday?](../images/versioning/promote-review.png)
 
-![The check after it ran. 2 of 2 answered differently. Estimated cost is no price. Do you have gluten-free bread today? is marked Changed: Live says No, we bake gluten-free bread only on Tuesdays, and From Dev says Yes, we bake gluten-free bread every day.](../images/versioning/promote-check.png)
+![The check after it ran. 2 of 2 answered differently. Estimated cost is no price. Do you have gluten-free bread today? is marked Changed.](../images/versioning/promote-check.png)
 
 When it looks right, select **Promote to Live**. The version from the previous environment is Live here right away. History titles it `Promoted from` that environment, and the secondary line uses the same name. On the saved Dev and Prod pair both say Dev.
 
@@ -552,7 +552,7 @@ When it looks right, select **Promote to Live**. The version from the previous e
 
 **Roll back** puts the previous Live version back in one step, the same as **Roll back live to this version** in version history. Rolling back does not offer the same version from the previous environment again; the next version that environment publishes shows up as usual. On the saved Dev and Prod pair that environment is Dev.
 
-![Version history of Bakery helper on Prod. The newest version, marked Published and Live, is Promoted from Dev: Changed System Message on Conversation Chain, edited by Rosa Diaz, with Roll back Live to this version. The version under it is the same kind of promoted line, marked Published.](../images/versioning/promote-history.png)
+![Version history of Bakery helper on Prod. The newest version, marked Published and Live, begins Promoted from Dev: Changed System Message, edited by Rosa Diaz, with Roll back Live to this version. The version under it is the same kind of promoted line, marked Published.](../images/versioning/promote-history.png)
 
 A new flow is created on Prod with the same name, Live, and the check is not offered for it because there is nothing Live to compare with.
 

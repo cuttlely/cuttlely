@@ -454,12 +454,66 @@ async function openPage(browser, base) {
     return page
 }
 
+async function animationsDone(page, timeout = 8000) {
+    await page
+        .waitForFunction(
+            () => {
+                const running = document.getAnimations().filter((anim) => {
+                    if (anim.playState !== 'running') return false
+                    const timing = anim.effect && anim.effect.getComputedTiming ? anim.effect.getComputedTiming() : null
+                    return !(timing && timing.iterations === Infinity)
+                })
+                return running.length === 0
+            },
+            null,
+            { timeout, polling: 50 }
+        )
+        .catch(() => {})
+}
+
+// The target has to be on screen, opaque, and finished with its own transition. A label that
+// already exists (a button named the same as the card it opens) is not enough.
+async function ready(page, locator, timeout = 20000) {
+    const target = locator.first()
+    await target.waitFor({ state: 'visible', timeout })
+    const handle = await target.elementHandle()
+    if (!handle) throw new Error('the target was not in the page')
+    await page.waitForFunction(
+        (el) => {
+            if (!el || !el.isConnected) return false
+            const chain = []
+            let node = el
+            while (node) {
+                chain.push(node)
+                node = node.parentElement
+            }
+            for (const item of chain) {
+                const style = getComputedStyle(item)
+                if (style.display === 'none' || style.visibility === 'hidden') return false
+                const opacity = Number.parseFloat(style.opacity)
+                if (Number.isFinite(opacity) && opacity < 0.99) return false
+            }
+            const running = typeof document.getAnimations === 'function' ? document.getAnimations() : []
+            return running.every((anim) => {
+                const targetNode = anim.effect && anim.effect.target
+                if (!targetNode || !chain.includes(targetNode)) return true
+                const timing = anim.effect && anim.effect.getComputedTiming ? anim.effect.getComputedTiming() : null
+                if (timing && timing.iterations === Infinity) return true
+                return anim.playState === 'finished' || anim.playState === 'idle'
+            })
+        },
+        handle,
+        { timeout, polling: 50 }
+    )
+}
+
 async function shot(page, rel, size = VIEW) {
     if (!want(rel)) return
     if (page.viewportSize().width !== size.width || page.viewportSize().height !== size.height) {
         await page.setViewportSize(size)
-        await page.waitForTimeout(250)
+        await animationsDone(page)
     }
+    await animationsDone(page)
     const target = path.join(ROOT, rel)
     fs.mkdirSync(path.dirname(target), { recursive: true })
     await page.screenshot({ path: target })
@@ -467,7 +521,48 @@ async function shot(page, rel, size = VIEW) {
 }
 
 async function see(page, text, timeout = 20000) {
-    await page.getByText(text, { exact: false }).first().waitFor({ timeout })
+    const locator = page.getByText(text, { exact: false }).first()
+    await ready(page, locator, timeout)
+}
+
+async function onScreen(page, locator, timeout = 20000) {
+    const target = locator.first()
+    await ready(page, target, timeout)
+    const handle = await target.elementHandle()
+    if (!handle) throw new Error('the target was not in the page')
+    await page.waitForFunction(
+        (el) => {
+            const rect = el.getBoundingClientRect()
+            return (
+                rect.width > 8 &&
+                rect.height > 8 &&
+                rect.top >= 0 &&
+                rect.left >= 0 &&
+                rect.bottom <= window.innerHeight + 1 &&
+                rect.right <= window.innerWidth + 1
+            )
+        },
+        handle,
+        { timeout, polling: 50 }
+    )
+}
+
+async function showFully(page, locator, timeout = 20000) {
+    const target = locator.first()
+    await target.waitFor({ state: 'attached', timeout })
+    await target.evaluate((el) => el.scrollIntoView({ block: 'center', inline: 'nearest' }))
+    await onScreen(page, target, timeout)
+}
+
+async function fitCanvas(page) {
+    const node = page.locator('.react-flow__node').first()
+    await ready(page, node)
+    const fit = page.locator('.react-flow__controls-fitview')
+    if (await fit.count()) {
+        await fit.click()
+        await ready(page, node)
+        await animationsDone(page)
+    }
 }
 
 async function canvasOf(page, base, id, agent = false) {
@@ -485,8 +580,7 @@ async function versionPage(page, base, id, sha) {
 
 async function openPublish(page) {
     await page.getByRole('button', { name: 'Publish', exact: true }).click()
-    await page.getByRole('heading', { name: 'Publish' }).waitFor({ timeout: 15000 })
-    await page.waitForTimeout(400)
+    await ready(page, page.getByRole('dialog').getByRole('heading', { name: 'Publish' }))
 }
 
 function byTitle(versions, part) {
@@ -610,10 +704,15 @@ async function main() {
 
     await versionPage(page, dev.base, flowId, movedVersion.sha)
     await page.getByRole('button', { name: 'Open as draft' }).click()
-    await see(page, 'Open this version as your draft?')
+    const draftDialog = page.getByRole('dialog')
+    await ready(page, draftDialog.getByRole('heading', { name: 'Open this version as your draft?' }))
+    await onScreen(page, draftDialog.getByText('This opens on the canvas as your draft.'))
     await shot(page, 'docs/images/versioning/open-as-draft-confirm.png')
-    await page.getByRole('dialog').getByRole('button', { name: 'Open as draft' }).click()
-    await see(page, 'Opened this version as your draft')
+    await draftDialog.getByRole('button', { name: 'Open as draft' }).click()
+    await ready(page, page.getByTestId('draft-label'))
+    await fitCanvas(page)
+    await onScreen(page, page.getByText('Opened this version as your draft. Live is unchanged until you publish.'))
+    await onScreen(page, page.getByRole('button', { name: 'Publish', exact: true }))
     await shot(page, 'docs/images/versioning/after-open-as-draft.png')
     json(await api(`${dev.base}/api/v1/flow-drafts/${flowId}`, { method: 'DELETE', cookie }), 'discard draft')
 
@@ -754,7 +853,9 @@ async function main() {
     await see(page, 'See how many')
     await page.getByRole('dialog').getByLabel('Dataset').selectOption({ label: 'Counter answers' })
     await page.getByRole('button', { name: 'See how many' }).click()
-    await see(page, 'will be added')
+    const ratedDialog = page.getByRole('dialog')
+    await ready(page, ratedDialog.getByRole('heading', { name: 'Add rated answers to test set' }))
+    await onScreen(page, ratedDialog.getByText('2 rated answers will be added'))
     await shot(page, 'docs/images/evaluations/rated-preview.png')
     await page.getByRole('dialog').getByRole('button', { name: 'Cancel' }).click()
     await page.keyboard.press('Escape')
@@ -810,19 +911,24 @@ async function main() {
     await see(page, 'needs expected answer')
     await shot(page, 'docs/images/evaluations/needs-expected.png')
     await page.getByText('Why was the sourdough late?').click()
-    await see(page, 'Rejected answer')
-    const output = page.getByRole('dialog').locator('textarea:visible').nth(1)
+    const expectedDialog = page.getByRole('dialog')
+    await ready(page, expectedDialog.getByRole('heading', { name: /Edit Item/ }))
+    await ready(page, expectedDialog.getByText('Rejected answer'))
+    const output = expectedDialog.locator('textarea:visible').nth(1)
     await output.fill('The morning bake ran long. The loaf is ready after 9.')
+    await onScreen(page, expectedDialog.getByRole('button', { name: 'Save' }))
     await shot(page, 'docs/images/evaluations/fill-expected.png')
     await page.getByRole('dialog').getByRole('button', { name: 'Save' }).click()
     await page.waitForTimeout(500)
 
     await page.goto(`${dev.base}/datasets`, { waitUntil: 'domcontentloaded' })
     await page.getByRole('button', { name: 'Add New' }).click()
-    await see(page, 'Add Dataset')
-    await page.getByRole('dialog').locator('input').first().fill('Saturday hours')
-    const desc = page.getByRole('dialog').locator('textarea, input').nth(1)
+    const addDataset = page.getByRole('dialog')
+    await ready(page, addDataset.getByRole('heading', { name: 'Add Dataset' }))
+    await addDataset.locator('input').first().fill('Saturday hours')
+    const desc = addDataset.locator('textarea, input').nth(1)
     await desc.fill('Questions the bakery counter should answer.')
+    await onScreen(page, addDataset.getByRole('button', { name: 'Add', exact: true }))
     await shot(page, 'docs/images/evaluations/dataset-add.png')
     await page.getByRole('dialog').getByRole('button', { name: 'Cancel' }).click()
 
@@ -830,11 +936,19 @@ async function main() {
     await see(page, 'Do you have rye loaves today?')
     await shot(page, 'docs/images/evaluations/dataset-rows.png')
     await page.getByRole('button', { name: 'Upload CSV' }).click()
-    await see(page, 'Upload CSV')
+    const upload = page.getByRole('dialog')
+    await ready(page, upload.getByRole('heading', { name: /Upload Items/ }))
     const csv = path.join(os.tmpdir(), 'saturday-hours.csv')
     fs.writeFileSync(csv, 'Input,Output\nDo you have rye loaves today?,Yes, rye is baked every morning.\n')
-    await page.locator('input[type=file]').setInputFiles(csv)
-    await page.getByText('Treat First Row as headers').click()
+    await upload.locator('input[type=file]').setInputFiles(csv)
+    await ready(page, upload.getByText('saturday-hours.csv'))
+    const headers = upload.locator('.MuiSwitch-root')
+    await headers.click()
+    await page.waitForFunction(() => {
+        const box = document.querySelector('[role="dialog"] .MuiSwitch-input')
+        return Boolean(box && box.checked)
+    })
+    await ready(page, upload.getByRole('heading', { name: /Upload Items/ }))
     await shot(page, 'docs/images/evaluations/dataset-csv.png')
     await page.keyboard.press('Escape')
 
@@ -844,11 +958,32 @@ async function main() {
     await shot(page, 'docs/images/evaluations/evaluator-text.png', TALL)
     await page.keyboard.press('Escape')
     await page.getByText('Order is JSON', { exact: true }).click()
-    await see(page, 'Is Valid JSON')
+    const jsonDialog = page.getByRole('dialog')
+    await ready(page, jsonDialog.getByRole('heading', { name: 'Edit Evaluator' }))
+    await page.waitForFunction(() => {
+        const type = document.querySelector('#evaluatorType')
+        const avail = document.querySelector('#availableEvaluators')
+        return type?.value === 'Evaluate Result (JSON)' && avail?.value === 'Is Valid JSON'
+    })
+    await ready(page, jsonDialog.getByRole('heading', { name: 'Edit Evaluator' }))
     await shot(page, 'docs/images/evaluations/evaluator-json.png', TALL)
     await page.keyboard.press('Escape')
     await page.getByText('Short answer', { exact: true }).click()
-    await see(page, 'Output Chars Length')
+    const numericDialog = page.getByRole('dialog')
+    await ready(page, numericDialog.getByRole('heading', { name: 'Edit Evaluator' }))
+    await page.waitForFunction(() => {
+        const type = document.querySelector('#evaluatorType')
+        const avail = document.querySelector('#availableEvaluators')
+        const metric = document.querySelector('#metric')
+        const value = document.querySelector('[role="dialog"] input[type="number"]')
+        return (
+            type?.value === 'Evaluate Metrics (Numeric)' &&
+            avail?.value === 'Output Chars Length' &&
+            metric?.value === 'Less Than' &&
+            value?.value === '400'
+        )
+    })
+    await ready(page, numericDialog.getByRole('heading', { name: 'Edit Evaluator' }))
     await shot(page, 'docs/images/evaluations/evaluator-numeric.png', TALL)
     await page.keyboard.press('Escape')
     await page.getByText('Matches the counter card', { exact: true }).click()
@@ -856,15 +991,25 @@ async function main() {
     await shot(page, 'docs/images/evaluations/evaluator-model.png', TALL)
     await page.keyboard.press('Escape')
 
-    await canvasOf(page, dev.base, flowId)
+    const answersFlow = await createFlow(dev.base, cookie, {
+        name: 'Bakery helper',
+        type: 'CHATFLOW',
+        deployed: false,
+        flowData
+    })
+    await saveDraft(dev.base, cookie, answersFlow.id, withSystem(flowData, DRAFT_SATURDAY))
+    await canvasOf(page, dev.base, answersFlow.id)
     await openPublish(page)
-    await page.getByLabel('Questions from').selectOption('dataset')
-    await page.getByLabel('Dataset').selectOption({ label: 'Counter answers' })
-    await page.getByText('Mentions rye').click()
-    await page.getByText('Short answer').click()
-    await see(page, '6 runs for 3 questions')
+    const publishAnswers = page.getByRole('dialog')
+    await publishAnswers.getByLabel('Questions from').selectOption('dataset')
+    await publishAnswers.getByLabel('Dataset').selectOption({ label: 'Counter answers' })
+    await publishAnswers.getByText('Mentions rye', { exact: true }).click()
+    await publishAnswers.getByText('Short answer', { exact: true }).click()
+    await ready(page, publishAnswers.getByRole('button', { name: 'Run check', exact: true }))
+    await onScreen(page, publishAnswers.getByText('6 runs for 3 questions'))
     await shot(page, 'docs/images/evaluations/publish-from-answers.png')
     await page.keyboard.press('Escape')
+    json(await api(`${dev.base}/api/v1/chatflows/${answersFlow.id}`, { method: 'DELETE', cookie }), 'delete answers flow')
 
     const gateBody = (datasetId) => ({
         publishGate: { enabled: true, datasetId, evaluatorIds: [ryeEval.id, shortEval.id], threshold: 100 }
@@ -961,9 +1106,20 @@ async function main() {
     console.log('evaluation', evalRow.status)
     await page.goto(`${dev.base}/evaluations`, { waitUntil: 'domcontentloaded' })
     await page.getByRole('button', { name: 'New Evaluation' }).click()
-    await see(page, 'Saturday hours')
-    const dialog = page.getByRole('dialog')
-    await dialog.locator('input').first().fill('Saturday hours check')
+    const wizard = page.getByRole('dialog')
+    await ready(page, wizard.getByRole('heading', { name: 'Start New Evaluation' }))
+    await wizard.locator('#evaluationName').fill('Saturday hours check')
+    await wizard.locator('#dataset').click()
+    const saturdayOption = page.getByRole('option', { name: 'Saturday hours', exact: true })
+    await ready(page, saturdayOption)
+    await saturdayOption.click()
+    await page.waitForFunction(() => document.querySelector('#dataset')?.value === 'Saturday hours')
+    await wizard.locator('#chatflow1').click()
+    const bakeryOption = page.getByRole('option', { name: /^Bakery helper/ })
+    await ready(page, bakeryOption.first())
+    await bakeryOption.first().click()
+    await ready(page, wizard.locator('.MuiChip-label', { hasText: 'Bakery helper' }))
+    await animationsDone(page)
     await shot(page, 'docs/images/evaluations/evaluation-new.png', TALL)
     await page.keyboard.press('Escape')
     await page.goto(`${dev.base}/evaluation_results/${evaluationId}`, { waitUntil: 'domcontentloaded' })
@@ -1049,8 +1205,12 @@ async function main() {
     await saveDraft(dev.base, cookie, agent.id, JSON.stringify(agentDraft))
     await canvasOf(page, dev.base, agent.id, true)
     await openPublish(page)
-    await page.getByRole('button', { name: 'Run check' }).click()
+    await page.getByRole('button', { name: 'Run check', exact: true }).click()
     await see(page, 'answered differently', 180000)
+    const birthday = page.getByTestId('check-case').filter({ hasText: 'birthday cake' })
+    await showFully(page, birthday)
+    await onScreen(page, birthday.getByText('Yes, you need to place your birthday cake order by Wednesday'))
+    await onScreen(page, birthday.getByText('Yes, please place your order by Wednesday for a Friday birthday cake'))
     await shot(page, 'docs/images/versioning/publish-check-agentflow-results.png')
     await page.keyboard.press('Escape')
     json(await api(`${dev.base}/api/v1/chatflows/${agent.id}`, { method: 'DELETE', cookie }), 'delete agent')
@@ -1064,9 +1224,21 @@ async function main() {
     await see(page, 'Sign in to GitHub')
     await page.getByLabel('GitHub token').fill('docs-shot-token')
     await shot(page, 'docs/images/versioning/github-sign-in.png', COMPACT)
+    await page.getByTestId('github-token-help-button').evaluate((el) => el.scrollIntoView({ block: 'start' }))
+    await animationsDone(page)
     await page.getByTestId('github-token-help-button').click()
-    await see(page, 'Which token to use')
-    await shot(page, 'docs/images/versioning/github-token-help.png', COMPACT)
+    const help = page.getByTestId('github-token-help')
+    await ready(page, help)
+    const helpBox = await help.boundingBox()
+    const helpView = page.viewportSize()
+    if (helpBox && helpBox.y + helpBox.height > helpView.height - 8) {
+        await page.setViewportSize({ width: helpView.width, height: Math.ceil(helpBox.y + helpBox.height + 48) })
+        await animationsDone(page)
+    }
+    await onScreen(page, help)
+    await onScreen(page, help.getByText('Create a token on GitHub'))
+    await onScreen(page, help.getByText('Read the guide'))
+    await shot(page, 'docs/images/versioning/github-token-help.png', page.viewportSize())
     await page.keyboard.press('Escape')
     await page.setViewportSize(VIEW)
     await page.getByRole('button', { name: 'Continue' }).click()
@@ -1074,6 +1246,14 @@ async function main() {
     await page.getByText('rosas-bakery/cuttlely-flows').click()
     await shot(page, 'docs/images/versioning/github-pick-repo.png')
     await page.getByText('Make a new private repository').click()
+    const repoName = page.getByRole('textbox', { name: 'New repository name' })
+    await ready(page, repoName)
+    const repoHandle = await repoName.elementHandle()
+    await page.waitForFunction((el) => {
+        const root = el.closest('.MuiFormControl-root')
+        return el.value === 'cuttlely-flows' && Boolean(root && root.innerText.includes('rosas-bakery/'))
+    }, repoHandle)
+    await onScreen(page, repoName)
     await shot(page, 'docs/images/versioning/github-new-repo.png')
     await page.getByText('rosas-bakery/cuttlely-flows').click()
     await page.getByRole('button', { name: 'Connect', exact: true }).click()
@@ -1206,10 +1386,14 @@ async function main() {
     await versionPage(page, dev.base, flowId, credentialVersion.sha)
     await page.getByRole('button', { name: 'Compare with now' }).click()
     await page.getByRole('button', { name: 'Restore this version' }).click()
-    await see(page, 'Restore this version?')
+    const restoreDialog = page.getByRole('dialog')
+    await ready(page, restoreDialog.getByRole('heading', { name: 'Restore this version?' }))
+    await onScreen(page, restoreDialog.getByText('The flow goes back to this version and is live right away.'))
     await shot(page, 'docs/images/versioning/restore-confirm.png')
-    await page.getByRole('dialog').getByRole('button', { name: 'Restore', exact: true }).click()
-    await see(page, 'Restored.')
+    await restoreDialog.getByRole('button', { name: 'Restore', exact: true }).click()
+    await ready(page, page.locator('.react-flow__node').first())
+    await fitCanvas(page)
+    await onScreen(page, page.getByText('Restored. History has a new version, so you can undo this the same way.'))
     await shot(page, 'docs/images/versioning/after-restore.png')
     await page.getByTitle('Version history').click()
     await see(page, 'Restored:')
@@ -1238,6 +1422,7 @@ async function main() {
 
     console.log('extra flows', orderFlow.name, catering.name, 'prod key ready', Boolean(prodKey))
     console.log('done')
+    process.exit(0)
 }
 
 async function simpleChat(base, cookie, name, credentialId) {
