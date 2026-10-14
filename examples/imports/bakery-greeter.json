@@ -1,0 +1,104 @@
+{
+    "name": "Bakery greeter",
+    "data": {
+        "nodes": [
+            {
+                "id": "ChatInput-1",
+                "type": "genericNode",
+                "position": { "x": 0, "y": 0 },
+                "data": {
+                    "id": "ChatInput-1",
+                    "type": "ChatInput",
+                    "node": { "template": { "input_value": { "value": "Hello" } }, "display_name": "ChatInput" }
+                }
+            },
+            {
+                "id": "Prompt-1",
+                "type": "genericNode",
+                "position": { "x": 0, "y": 160 },
+                "data": {
+                    "id": "Prompt-1",
+                    "type": "Prompt",
+                    "node": {
+                        "template": { "template": { "value": "Greet the customer at the counter and offer today's bread." } },
+                        "display_name": "Prompt"
+                    }
+                }
+            },
+            {
+                "id": "LanguageModelComponent-1",
+                "type": "genericNode",
+                "position": { "x": 280, "y": 40 },
+                "data": {
+                    "id": "LanguageModelComponent-1",
+                    "type": "LanguageModelComponent",
+                    "node": {
+                        "template": {
+                            "provider": { "value": "OpenAI" },
+                            "model_name": { "value": "gpt-4.1-mini" },
+                            "temperature": { "value": 0.2 }
+                        },
+                        "display_name": "LanguageModelComponent"
+                    }
+                }
+            },
+            {
+                "id": "ChatOutput-1",
+                "type": "genericNode",
+                "position": { "x": 560, "y": 40 },
+                "data": {
+                    "id": "ChatOutput-1",
+                    "type": "ChatOutput",
+                    "node": { "template": { "input_value": { "value": "" } }, "display_name": "ChatOutput" }
+                }
+            }
+        ],
+        "edges": [
+            {
+                "source": "ChatInput-1",
+                "target": "LanguageModelComponent-1",
+                "sourceHandle": "{\"dataType\":\"ChatInput\",\"id\":\"ChatInput-1\",\"name\":\"out\",\"output_types\":[\"Message\"]}",
+                "targetHandle": "{\"fieldName\":\"input_value\",\"id\":\"LanguageModelComponent-1\",\"inputTypes\":[\"Message\"],\"type\":\"str\"}",
+                "data": {
+                    "sourceHandle": { "dataType": "ChatInput", "id": "ChatInput-1", "name": "out", "output_types": ["Message"] },
+                    "targetHandle": {
+                        "fieldName": "input_value",
+                        "id": "LanguageModelComponent-1",
+                        "inputTypes": ["Message"],
+                        "type": "str"
+                    }
+                }
+            },
+            {
+                "source": "Prompt-1",
+                "target": "LanguageModelComponent-1",
+                "sourceHandle": "{\"dataType\":\"Prompt\",\"id\":\"Prompt-1\",\"name\":\"out\",\"output_types\":[\"Message\"]}",
+                "targetHandle": "{\"fieldName\":\"system_message\",\"id\":\"LanguageModelComponent-1\",\"inputTypes\":[\"Message\"],\"type\":\"str\"}",
+                "data": {
+                    "sourceHandle": { "dataType": "Prompt", "id": "Prompt-1", "name": "out", "output_types": ["Message"] },
+                    "targetHandle": {
+                        "fieldName": "system_message",
+                        "id": "LanguageModelComponent-1",
+                        "inputTypes": ["Message"],
+                        "type": "str"
+                    }
+                }
+            },
+            {
+                "source": "LanguageModelComponent-1",
+                "target": "ChatOutput-1",
+                "sourceHandle": "{\"dataType\":\"LanguageModelComponent\",\"id\":\"LanguageModelComponent-1\",\"name\":\"out\",\"output_types\":[\"Message\"]}",
+                "targetHandle": "{\"fieldName\":\"input_value\",\"id\":\"ChatOutput-1\",\"inputTypes\":[\"Message\"],\"type\":\"str\"}",
+                "data": {
+                    "sourceHandle": {
+                        "dataType": "LanguageModelComponent",
+                        "id": "LanguageModelComponent-1",
+                        "name": "out",
+                        "output_types": ["Message"]
+                    },
+                    "targetHandle": { "fieldName": "input_value", "id": "ChatOutput-1", "inputTypes": ["Message"], "type": "str" }
+                }
+            }
+        ]
+    }
+}
