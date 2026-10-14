@@ -145,7 +145,7 @@ The response is `{ "dryRun", "count", "skipped", "preview", "truncated", "cursor
 
 Open the dataset. A thumbs-down row shows `needs expected answer` in the **Expected Output** column. Under the question, a row saved from one answer says `From a chat answer on` and the date. A row saved from a rating says `From a thumbs-up rating` or `From a thumbs-down rating`.
 
-![Dataset Counter answers. The rye row says From a chat answer on 10/13/2026 and the expected output is Yes, rye is baked every morning. Why was the sourdough late? and Can I pick up on Monday? each say From a thumbs-down rating, and the expected output is needs expected answer.](../images/evaluations/needs-expected.png)
+![Dataset Counter answers. The rye row says From a chat answer on 10/14/2026 and the expected output is Yes, rye is baked every morning. Why was the sourdough late? and Can I pick up on Monday? each say From a thumbs-down rating, and the expected output is needs expected answer.](../images/evaluations/needs-expected.png)
 
 Open the row. The dialog title is **Edit Item in**, the dataset name, and **Dataset**. It says `This row needs an expected answer. The rating is not a correct answer.` When the row still has them, it also shows `Rejected answer:` and `Feedback:`. Type the answer the check should expect in **Anticipated Output**, then select **Save**. The table header for that column is **Expected Output**.
 
@@ -166,7 +166,7 @@ On a chatflow, or an agentflow that starts with **Chat Input**, the Publish dial
 
 Each row runs in the saved order, once on Live and once on the draft. The expected answer is shown under the question. Each side shows Pass, Fail, or Error, and a pass rate. The finished check reports passed or failed for the draft against a pass mark. The mark is 100 unless the request sends `threshold`. What the scores mean, and the refusals for a form, webhook, or schedule start, are in [Run the Publish check on a dataset](./evaluations.md#run-the-publish-check-on-a-dataset).
 
-![Publish dialog for Bakery helper. The change list says Changed Conversation Chain: system message. Questions from is A dataset and the dataset is Counter answers. Mentions rye and Short answer are ticked. The note says each question runs twice, once on Live and once on your draft, and that is 6 runs for 3 questions. The button is Run Check.](../images/evaluations/publish-from-answers.png)
+![Publish dialog for Bakery helper. The change list says Changed Conversation Chain: system message prompt. Questions from is A dataset and the dataset is Counter answers. Mentions rye and Short answer are ticked. The note says each question runs twice, once on Live and once on your draft, and that is 6 runs for 3 questions. The button is Run Check.](../images/evaluations/publish-from-answers.png)
 
 ## Turn on the gate
 
@@ -174,9 +174,9 @@ A chatflow, or an agentflow that starts with a chat message, can refuse Publish 
 
 1. Open **Settings**, then **Configuration**. The dialog title is **Chatflow Configuration**. Select **Passing test set**.
 2. Choose **Counter answers**, tick the evaluators, and set **Pass at**. 100 means every score must pass. An errored score counts as not passed.
-3. Turn on **Require a passing test set before Publish**. The section says `Publish waits for a passing test set.` and the menu row shows **ON**.
+3. Turn on **Require a passing test set before Publish**. The menu row shows **ON**. The note says `Publish is refused until this draft passes the dataset at the mark you set.` Saving the switch also says `Publish waits for a passing test set.`
 
-![Chatflow Configuration on Bakery helper, Passing test set. The menu row shows ON. Require a passing test set before Publish is checked, the dataset is Counter answers, Pass at is 100, and Mentions rye and Short answer are ticked. The note says Publish waits for a passing test set.](../images/evaluations/gate-from-answers.png)
+![Chatflow Configuration on Bakery helper, Passing test set. The menu row shows ON. Require a passing test set before Publish is checked, the dataset is Counter answers, Pass at is 100, and Mentions rye and Short answer are ticked. The note says Publish is refused until this draft passes the dataset at the mark you set.](../images/evaluations/gate-from-answers.png)
 
 In the Publish dialog, **Publish** stays disabled, with the reason, until the latest result passed for this draft, these settings, the same rows, and the same answer post-processing. `POST /api/v1/flow-drafts/<flow id>/publish` returns 409 with that reason until then. The messages, and the starts that cannot use the gate, are in [Set the pass mark and turn on the gate](./evaluations.md#set-the-pass-mark-and-turn-on-the-gate). The gate covers Publish of the current draft only, and the other ways of changing Live are in the table in [Require a passing test set before you publish](./versioning.md#require-a-passing-test-set-before-you-publish).
 
