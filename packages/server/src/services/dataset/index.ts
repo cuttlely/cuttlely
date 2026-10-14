@@ -19,14 +19,15 @@ const CHAT_MESSAGE_SOURCE = 'chat_message'
 const CHAT_RATING_SOURCE = 'chat_rating'
 const RATING_VALUES = new Set(['THUMBS_UP', 'THUMBS_DOWN'])
 // One call does not copy an unbounded history. Callers can ask for fewer.
-function ratingImportCap(): number {
+export function ratingImportCap(): number {
     return runtimeNumber('CUTTLELY_RATING_IMPORT_CAP')
 }
 const RATING_PAGE = 200
 // A window full of stored or question-less ratings must not walk the whole history.
-function ratingScanCap(): number {
+export function ratingScanCap(): number {
     return runtimeNumber('CUTTLELY_RATING_SCAN_CAP')
 }
+export { ratingImportCap as RATING_IMPORT_CAP, ratingScanCap as RATING_SCAN_CAP }
 const RATING_PREVIEW_ROWS = 5
 const RATING_PREVIEW_CHARS = 160
 const RATING_DAY_MS = 24 * 60 * 60 * 1000

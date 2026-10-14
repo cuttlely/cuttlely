@@ -3809,7 +3809,7 @@ describe('evaluation routes', () => {
                 type: 'CHATFLOW',
                 workspaceId: WORKSPACE
             })
-            for (let index = 0; index < RATING_SCAN_CAP; index += 1) {
+            for (let index = 0; index < RATING_SCAN_CAP(); index += 1) {
                 const at = new Date(now - index)
                 const answer = await dataSource.getRepository(ChatMessage).save({
                     role: 'apiMessage',
@@ -3886,7 +3886,7 @@ describe('evaluation routes', () => {
                 content: 'No.',
                 createdDate: older
             })
-            for (let index = 0; index < RATING_SCAN_CAP; index += 1) {
+            for (let index = 0; index < RATING_SCAN_CAP(); index += 1) {
                 const at = new Date(now - index)
                 const answer = await dataSource.getRepository(ChatMessage).save({
                     role: 'apiMessage',
