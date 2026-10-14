@@ -158,7 +158,7 @@ An evaluation runs one dataset against one or more chatflows or agentflows and s
 4. **LLM Graded Metrics.** Leave **No Grading** unless a model evaluator should run. Grading needs a model and a credential this team owns.
 5. Select **Start New Evaluation**.
 
-The list shows the run as pending, then completed or error. The pass-rate chip reads `Pass Rate: N%`. A pass rate of 0 is shown as `Pass Rate: N/A` on that chip. Open the row for the counts and each example: the input, the expected output, the answer, and Pass, Fail, or Error for every evaluator. The result page shows the pass percentage, including 0.
+The list shows the run as pending, then completed or error. Once the run has a pass rate, the chip reads `Pass Rate: N%` with two decimals, including `Pass Rate: 0.00%` when nothing passed and `Pass Rate: 100.00%` when every score passed. Open the row for the counts and each example: the input, the expected output, the answer, and Pass, Fail, or Error for every evaluator. The result page shows that same percentage, including `0.00%`.
 
 **Re-run Evaluation** on the result asks you to confirm **Run Again**. It stores another version under the same name. It uses the same checks as a new run: a deleted flow, a flow from another team, or a flow this role cannot view is rejected and no new version is saved. Delete removes a run, or every version of that name.
 
