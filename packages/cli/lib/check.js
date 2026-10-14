@@ -12,6 +12,9 @@ export const EXIT_PASS = 0
 export const EXIT_CHANGED = 1
 export const EXIT_ERROR = 2
 
+// Flow, dataset, and evaluator ids share this shape.
+export const RESOURCE_ID_RE = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/
+
 const ANSWER_CLIP = 240
 
 function redact(text, secret) {
@@ -72,14 +75,52 @@ function errorCases(check) {
     return (check?.cases || []).filter((row) => row && (row.live?.error || row.draft?.error))
 }
 
+function verdictLine(verdict) {
+    const rate = verdict.passRate == null ? 'no scored answers' : `${verdict.passRate}%`
+    const mark = verdict.threshold == null ? 'n/a' : `${verdict.threshold}%`
+    const passed = Number(verdict.passed ?? 0)
+    const failed = Number(verdict.failed ?? 0)
+    const errored = Number(verdict.errored ?? 0)
+    return `Pass rate: ${rate} (threshold ${mark}). ${passed} passed, ${failed} failed, ${errored} errored.`
+}
+
+function failingCases(check) {
+    return (check?.cases || []).filter((row) => {
+        const scores = row?.draft?.scores
+        if (!Array.isArray(scores) || !scores.length) return false
+        return scores.some((score) => score && score.result !== 'Pass')
+    })
+}
+
+function failingLines(check) {
+    const rows = failingCases(check)
+    if (!rows.length) return []
+    const lines = ['', 'Failing']
+    for (const row of rows) {
+        lines.push(`  ${oneLine(row.question)}`)
+        for (const score of row.draft.scores) {
+            if (!score || score.result === 'Pass') continue
+            lines.push(`    ${score.name ? `${score.name}: ${score.result}` : score.result}`)
+        }
+        if (row.expected) lines.push(`    Expected: ${oneLine(row.expected)}`)
+        if (row.draft?.text) lines.push(`    Draft: ${oneLine(row.draft.text)}`)
+        else if (row.draft?.error) lines.push(`    ${oneLine(row.draft.error)}`)
+    }
+    return lines
+}
+
 export function summaryText(check) {
     const summary = check.summary || {}
     const lines = [
         `Check ${check.id} ${check.status}`,
-        `Questions: ${summary.ran ?? 0} ran, ${summary.same ?? 0} same, ${summary.changed ?? 0} changed, ${summary.errors ?? 0} errors`,
+        `Questions: ${summary.ran ?? 0} ran, ${summary.same ?? 0} same, ${summary.changed ?? 0} changed, ${summary.errors ?? 0} errors`
+    ]
+    // Present only when the server finished a dataset check. Diff mode has no verdict.
+    if (check.verdict && typeof check.verdict === 'object') lines.push(verdictLine(check.verdict))
+    lines.push(
         `Live: ${summary.liveTokens ?? 0} tokens, median ${formatMs(summary.liveMedianMs)}`,
         `Draft: ${summary.draftTokens ?? 0} tokens, median ${formatMs(summary.draftMedianMs)}`
-    ]
+    )
     // The check total, with each model priced once. It is not the sum of the per-answer figures.
     const liveEstimate = estimateLine('Live', summary.liveEstimatedCostUsd, summary.livePrice)
     const draftEstimate = estimateLine('Draft', summary.draftEstimatedCostUsd, summary.draftPrice)
@@ -106,11 +147,11 @@ export function summaryText(check) {
             lines.push(`    ${oneLine(why)}`)
         }
     }
+    if (check.verdict && typeof check.verdict === 'object') lines.push(...failingLines(check))
     return lines.join('\n')
 }
 
-// Replay is the only verdict this command runs. A later scored mode (pass or fail
-// from a test set) should return the same { code, label } and be selected in selectVerdict.
+// Replay is the question check. Scored mode reads the server verdict and does not rescore.
 export function replayVerdict(check, { failOnChanged }) {
     if (!check || typeof check !== 'object') return { code: EXIT_ERROR, label: 'error' }
     if (check.status === 'failed') return { code: EXIT_ERROR, label: 'failed' }
@@ -123,7 +164,21 @@ export function replayVerdict(check, { failOnChanged }) {
     return { code: EXIT_PASS, label: 'pass' }
 }
 
+// Exit 1 is the server's failed verdict. A missing verdict is an error, not a guess from the pass rate.
+export function scoredVerdict(check) {
+    if (!check || typeof check !== 'object') return { code: EXIT_ERROR, label: 'error' }
+    if (check.status === 'failed') return { code: EXIT_ERROR, label: 'failed' }
+    if (check.status === 'stopped') return { code: EXIT_ERROR, label: 'stopped' }
+    if (check.status !== 'done') return { code: EXIT_ERROR, label: 'incomplete' }
+    if (check.draftChanged) return { code: EXIT_ERROR, label: 'draft-changed' }
+    const result = check.verdict && check.verdict.result
+    if (result === 'passed') return { code: EXIT_PASS, label: 'passed' }
+    if (result === 'failed') return { code: EXIT_CHANGED, label: 'score-failed' }
+    return { code: EXIT_ERROR, label: 'no-verdict' }
+}
+
 export function selectVerdict(check, options) {
+    if (options && options.scored) return scoredVerdict(check)
     return replayVerdict(check, options)
 }
 
@@ -171,8 +226,98 @@ function isNoDraft(result) {
 
 // Starting a check needs update. Reading it needs view. A key with only one of those gets 403,
 // and the server message does not say which permission is missing.
-function permissionDeniedMessage() {
-    return 'The API key needs chatflows:view and chatflows:update, or agentflows:view and agentflows:update.'
+function permissionDeniedMessage(scored) {
+    const flow = 'The API key needs chatflows:view and chatflows:update, or agentflows:view and agentflows:update.'
+    if (!scored) return flow
+    return `${flow} Scored mode also needs datasets:view and evaluators:view.`
+}
+
+function scoreFailedLine(verdict) {
+    const rate = !verdict || verdict.passRate == null ? 'no scored answers' : `${verdict.passRate}%`
+    const mark = !verdict || verdict.threshold == null ? 'n/a' : `${verdict.threshold}%`
+    return `The test set failed at ${rate} (threshold ${mark}).`
+}
+
+const STALE_GATE = 'The saved test set changed during the check. Run it again.'
+// The check can use the whole --timeout. The confirmation read gets its own window, capped so a hung read cannot double a 3600s wait.
+const CONFIRM_READ_CAP_SECONDS = 30
+
+function confirmReadSeconds(timeoutSeconds) {
+    return Math.min(timeoutSeconds, CONFIRM_READ_CAP_SECONDS)
+}
+
+// An enabled gate always stores a dataset and at least one evaluator. A read that
+// omits them withheld the ids: datasets:view and evaluators:view are what reveal them.
+function withheldIdsMessage(datasetMissing, evaluatorsMissing) {
+    if (datasetMissing && evaluatorsMissing) {
+        return 'The response did not include the dataset id or the evaluator ids. The API key needs datasets:view and evaluators:view.'
+    }
+    if (datasetMissing) return 'The response did not include the dataset id. The API key needs datasets:view.'
+    return 'The response did not include the evaluator ids. The API key needs evaluators:view.'
+}
+
+function datasetIdMissing(gate) {
+    return typeof gate.datasetId !== 'string' || gate.datasetId.trim() === ''
+}
+
+function evaluatorIdsMissing(gate) {
+    return !Array.isArray(gate.evaluatorIds) || gate.evaluatorIds.length === 0
+}
+
+// --gate copies the dataset, evaluators, and threshold the flow already saved.
+function gateSettings(body) {
+    const gate = body && body.publishGate
+    if (!gate || gate.enabled !== true) {
+        return { ok: false, message: 'This flow has no saved test set. Turn the passing test set on, or pass --dataset.' }
+    }
+    const datasetMissing = datasetIdMissing(gate)
+    const evaluatorsMissing = evaluatorIdsMissing(gate)
+    if (datasetMissing || evaluatorsMissing) return { ok: false, message: withheldIdsMessage(datasetMissing, evaluatorsMissing) }
+    if (!RESOURCE_ID_RE.test(gate.datasetId)) {
+        return { ok: false, message: 'The saved test set has no dataset id.' }
+    }
+    const evaluatorIds = []
+    const seen = new Set()
+    for (const id of gate.evaluatorIds) {
+        if (typeof id !== 'string' || !RESOURCE_ID_RE.test(id)) {
+            return { ok: false, message: 'The saved test set has an evaluator id this command cannot use.' }
+        }
+        if (seen.has(id)) continue
+        seen.add(id)
+        evaluatorIds.push(id)
+    }
+    let threshold = null
+    if (gate.threshold != null) {
+        if (typeof gate.threshold !== 'number' || !Number.isInteger(gate.threshold) || gate.threshold < 0 || gate.threshold > 100) {
+            return { ok: false, message: 'The saved pass mark is not a whole number from 0 to 100.' }
+        }
+        threshold = gate.threshold
+    }
+    return { ok: true, datasetId: gate.datasetId, evaluatorIds, threshold }
+}
+
+// A passed --gate check is current only when Publish would still accept this run.
+function gateBlockMessage(gate) {
+    if (gate && typeof gate.block === 'string' && gate.block.trim()) return gate.block
+    return STALE_GATE
+}
+
+function gatePassStillCurrent(body, checkId) {
+    const gate = body && body.publishGate
+    const message = gateBlockMessage(gate)
+    if (!gate || gate.enabled !== true) return { ok: false, message }
+    if (typeof gate.block === 'string' && gate.block.trim()) return { ok: false, message }
+    const result = gate.result
+    if (!result || result.checkId !== checkId || result.verdict !== 'passed') return { ok: false, message }
+    return { ok: true }
+}
+
+function requestBody({ scored, datasetId, evaluatorIds, threshold }) {
+    if (!scored) return { count: DEFAULT_QUESTION_COUNT }
+    const body = { datasetId }
+    if (evaluatorIds && evaluatorIds.length) body.evaluatorIds = evaluatorIds
+    if (threshold != null) body.threshold = threshold
+    return body
 }
 
 function writeResult(writeFile, jsonPath, check, secret) {
@@ -208,7 +353,12 @@ export async function runCheck(options, io = {}) {
     const timeoutSeconds = options.timeoutSeconds ?? DEFAULT_TIMEOUT_SECONDS
     const flow = options.flow
     const failOnChanged = Boolean(options.failOnChanged)
-    const base = `${server}/api/v1/flow-drafts/${encodeURIComponent(flow)}/check`
+    const scored = Boolean(options.scored || options.gate)
+    let datasetId = options.datasetId
+    let evaluatorIds = options.evaluatorIds || []
+    let threshold = options.threshold ?? null
+    const flowUrl = `${server}/api/v1/flow-drafts/${encodeURIComponent(flow)}`
+    const base = `${flowUrl}/check`
     const headers = { Authorization: `Bearer ${secret}`, Accept: 'application/json' }
     const deadline = now() + timeoutSeconds * 1000
 
@@ -255,16 +405,34 @@ export async function runCheck(options, io = {}) {
     }
 
     try {
+        if (options.gate) {
+            const loaded = await callApi(fetchImpl, flowUrl, {
+                method: 'GET',
+                headers,
+                signal: deadlineSignal(deadline, now)
+            })
+            if (loaded.timeout) return fail(`Timed out after ${timeoutSeconds}s before the check started.`)
+            if (loaded.network) return fail(`Could not reach ${server}. ${loaded.message}`)
+            if (!loaded.ok) {
+                if (loaded.status === 403) return fail(permissionDeniedMessage(true))
+                return fail(`Check failed (${loaded.status}): ${loaded.message}`)
+            }
+            const parsed = gateSettings(loaded.json)
+            if (!parsed.ok) return fail(parsed.message)
+            datasetId = parsed.datasetId
+            evaluatorIds = parsed.evaluatorIds
+            threshold = parsed.threshold
+        }
         const started = await callApi(fetchImpl, base, {
             method: 'POST',
             headers: { ...headers, 'Content-Type': 'application/json' },
-            body: JSON.stringify({ count: DEFAULT_QUESTION_COUNT }),
+            body: JSON.stringify(requestBody({ scored, datasetId, evaluatorIds, threshold })),
             signal: deadlineSignal(deadline, now)
         })
         if (started.timeout) return fail(`Timed out after ${timeoutSeconds}s before the check started.`)
         if (started.network) return fail(`Could not reach ${server}. ${started.message}`)
         if (!started.ok) {
-            if (started.status === 403) return fail(permissionDeniedMessage())
+            if (started.status === 403) return fail(permissionDeniedMessage(scored))
             if (isNoDraft(started)) return fail(`No draft to check. ${started.message}`)
             return fail(`Check failed (${started.status}): ${started.message}`)
         }
@@ -293,7 +461,7 @@ export async function runCheck(options, io = {}) {
             })
             if (polled.timeout) return giveUp()
             if (polled.network) return failRunning(`Could not reach ${server}. ${polled.message}`)
-            if (polled.status === 403) return failRunning(permissionDeniedMessage())
+            if (polled.status === 403) return failRunning(permissionDeniedMessage(scored))
             if (!polled.ok) return failRunning(`Check failed (${polled.status}): ${polled.message}`)
             if (!polled.json || typeof polled.json !== 'object') return failRunning('The server did not return a check.')
             const previous = check.completed
@@ -316,7 +484,7 @@ export async function runCheck(options, io = {}) {
             return EXIT_ERROR
         }
         out(say(summaryText(check)))
-        const verdict = selectVerdict(check, { failOnChanged })
+        const verdict = selectVerdict(check, { failOnChanged, scored })
         if (verdict.label === 'draft-changed') {
             err('The draft changed while the check was running, so the result is out of date.')
         } else if (verdict.label === 'failed') {
@@ -326,10 +494,32 @@ export async function runCheck(options, io = {}) {
         } else if (verdict.label === 'changed') {
             const count = Number(check.summary?.changed ?? 0)
             err(count === 1 ? '1 answer changed.' : `${count} answers changed.`)
+        } else if (verdict.label === 'score-failed') {
+            err(scoreFailedLine(check.verdict))
+        } else if (verdict.label === 'no-verdict') {
+            err('The server did not return a verdict for this test set.')
         } else if (verdict.code === EXIT_ERROR) {
             err('The check did not finish.')
         }
         if (verdict.code === EXIT_ERROR) await stopIfStarted()
+        // --gate can exit 0 only when this run is still the stored pass. A threshold,
+        // row, or evaluator change during the check makes Publish refuse it.
+        if (options.gate && verdict.code === EXIT_PASS) {
+            const confirmSeconds = confirmReadSeconds(timeoutSeconds)
+            const again = await callApi(fetchImpl, flowUrl, {
+                method: 'GET',
+                headers,
+                signal: deadlineSignal(now() + confirmSeconds * 1000, now)
+            })
+            if (again.timeout) return fail(`Timed out after ${confirmSeconds}s before the saved test set could be read again.`)
+            if (again.network) return fail(`Could not reach ${server}. ${again.message}`)
+            if (!again.ok) {
+                if (again.status === 403) return fail(permissionDeniedMessage(true))
+                return fail(`Check failed (${again.status}): ${again.message}`)
+            }
+            const current = gatePassStillCurrent(again.json, check.id)
+            if (!current.ok) return fail(current.message)
+        }
         return verdict.code
     } catch (error) {
         await stopIfStarted()
