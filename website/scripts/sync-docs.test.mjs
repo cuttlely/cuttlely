@@ -23,7 +23,17 @@ describe('sync-docs', () => {
         assert.equal(rewriteTarget('../../render.yaml', from, () => 'file').url, `${REPO}/blob/main/render.yaml`)
         assert.equal(rewriteTarget('../../examples/web-app', from, () => 'dir').url, `${REPO}/tree/main/examples/web-app`)
         assert.equal(rewriteTarget('https://render.com', from), null)
+        assert.equal(rewriteTarget('https://cuttlely.com/media/products/testing.mp4', from), null)
         assert.equal(rewriteTarget('#database', from), null)
+    })
+
+    it('leaves a poster image link and an absolute media link unchanged', () => {
+        const md = [
+            '[![Poster](../images/evaluations/testing-video-poster.png)](https://cuttlely.com/media/products/testing.mp4)',
+            '',
+            '[Watch the testing run (56 seconds, sound on)](https://cuttlely.com/media/products/testing.mp4)'
+        ].join('\n')
+        assert.equal(rewriteLinks(md, 'docs/how-to/tests-from-answers.md'), md)
     })
 
     it('leaves images, code blocks and inline code alone, and handles code in link text', () => {

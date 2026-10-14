@@ -252,7 +252,7 @@ With the setting off, Publish and every path above behave as they do today.
 
 ### Check recent questions before you publish
 
-The Publish dialog can ask a few questions people really asked this flow again, once on Live and once on your draft, and show the two answers side by side. You see what your change does to real answers before anyone else does. The check is optional: **Publish** works with or without it, unless the flow requires a passing test set. To run the same check from a pipeline, see [Fail a build when answers change](./ci-gate.md).
+The Publish dialog can ask a few questions people really asked this flow again, once on Live and once on your draft, and show the two answers side by side. You see what your change does to real answers before anyone else does. The check is optional: **Publish** works with or without it, unless the flow requires a passing test set. To run the same check from a pipeline, see [Fail a build when answers change](./ci-gate.md). [Watch the testing run (56 seconds, sound on)](https://cuttlely.com/media/products/testing.mp4) shows a chatflow draft compared with Live, each answer marked Same, Changed, or Error, then scored on a test set and published after that set passes.
 
 1. Select **Publish** on the canvas. Under **Check recent questions**, choose **Past questions**: 4, 10, 25, 50, or 100. 4 is selected first.
 2. The check uses the most recent questions people asked this flow, newest first, from the API, embeds, shared links and the canvas test chat. The same wording counts once: capitals and extra spaces are ignored, and the newest copy is kept. Asking for the same number again uses the same questions, until someone asks a newer one. It is not a random sample. Questions sent with a file are left out.
