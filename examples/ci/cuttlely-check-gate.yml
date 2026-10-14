@@ -13,7 +13,7 @@
 #   A harness exits 2.
 #   The key also needs datasets:view and evaluators:view.
 # Scored mode and --gate need Cuttlely 1.1.0 or later.
-# That is the first release with scored mode, and no release with it has been published yet.
+# 1.1.0 is the first release with scored mode.
 # npx installs cuttlely@^1.1.0. The 1.0.3 package has no --gate.
 # Exit 0 only when a second read still stores this check as passed with an empty block.
 # That read waits at most 30 seconds. --dataset exits on the server verdict.

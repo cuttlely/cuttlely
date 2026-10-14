@@ -4,9 +4,31 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-10-14
+
 ### Added
 
--   The scored CI example installs `cuttlely@^1.1.0`. Scored mode and `--gate` need Cuttlely 1.1.0 or later, the first release with scored mode. No release with it has been published yet. The 1.0.3 package has no `--gate`. [Fail a build when answers change](./docs/how-to/ci-gate.md).
+-   Scored mode for `cuttlely check`. `--dataset <id>` runs the dataset check on the flow's draft and exits on the server verdict: 0 when it passed, 1 when it failed, and 2 on a timeout, a server error or a usage error. `--evaluator <id>` repeats for each evaluator, and `--threshold` sets the pass mark from 0 to 100 (100 when omitted). `--gate` uses the dataset, evaluators and pass mark saved on the flow, and exits 0 only when a second read of the flow still stores that check as passed. Diff mode stays the default. Scored mode and `--gate` are in 1.1.0 and later. The 1.0.3 package has no `--gate`. [Fail a build when answers change](./docs/how-to/ci-gate.md).
+-   Example GitHub Actions workflows for both check modes. `examples/ci/cuttlely-check.yml` replays recent questions with `--fail-on-changed`, and `examples/ci/cuttlely-check-gate.yml` installs `cuttlely@^1.1.0` and runs `--gate`. Both set `permissions: {}` and cancel an older run of the same workflow.
+-   **Passing test set.** A chatflow or an agentflow can require a passing dataset check before Publish. The setting is off until it is turned on, and stores a dataset, its evaluators and a pass mark from 0 to 100. With it on, Publish returns 409 unless the latest stored result passed for the current draft, the same settings, the same test set and the same answer post-processing. Errored scores count as not passed. A harness cannot use the setting, and an agentflow that starts with a form, a webhook or a schedule cannot turn it on. A direct chatflow update, Restore straight to Live, Roll back and Promote from Dev still change Live. See [Evaluations](./docs/how-to/evaluations.md#set-the-pass-mark-and-turn-on-the-gate).
+-   **Add to test set** on an answer in the message viewer saves that question and answer as a dataset row, with an editable expected answer. The row records the message, the flow and the date it came from. Saving the same answer into the same dataset again returns the existing row. The route is `POST /api/v1/datasets/rows/from-message`.
+-   **Add rated answers to test set** in the message viewer copies thumbs-up or thumbs-down answers for a flow from the last 1 to 90 days into a dataset. A dry run shows how many rows would be added before anything is written. A thumbs-up row uses the answer as the expected output. A thumbs-down row leaves the expected answer empty and marks it as needing one. A message already in the dataset is skipped, and one add writes at most 500 new rows. The route is `POST /api/v1/datasets/rows/from-ratings`. Both routes need `datasets:create` or `datasets:update`, plus view permission for the flow's type.
+-   Harness runs can send OpenTelemetry traces, with the same switch and attribute names as chatflow and agentflow runs. `harness.run` is the root, with a span for the route, each specialist, the handoff, each in-process model call and each tool call. A harness run from a chatflow Harness node is nested under that chatflow's trace. A canvas draft try and a Publish check replay send nothing. See [Run traces](./docs/how-to/observability.md#harness-runs).
+-   An analyst query step on the run card shows how many rows the query returned and a short table preview, which starts closed. The preview is saved with the run trace and keeps only the first few rows and columns, with each value cut short. It does not store the SQL. `CUTTLELY_ANALYST_TRACE_PREVIEW=false` leaves the cell values out of new traces.
+-   New guides. [Evaluations](./docs/how-to/evaluations.md) walks from a test set to a gated Publish. [Run traces](./docs/how-to/observability.md) sends chatflow, agentflow and harness traces to a collector you run, with `examples/otel/collector.yaml`. [Usage over time](./docs/how-to/context-and-tokens.md#usage-over-time) and the [Usage API](./docs/reference/usage-api.md) explain the Usage page, model prices and the check cost lines.
+
+### Changed
+
+-   Chatflow, harness, pipeline, marketplace and version cards take a colour accent: a tint, a border in the card's colour and a coloured ring around the icon, as workflow cards already had. Neighbouring categories use different hues, and title and summary text meet WCAG AA in the light and dark themes. Card size, layout, connection handles and saved flow data are unchanged.
+-   The Docker Compose files pass `CUTTLELY_OTEL_TRACES`, `CUTTLELY_OTEL_TRACES_ENDPOINT`, `CUTTLELY_OTEL_TRACES_PROTOCOL`, `CUTTLELY_OTEL_TRACES_CONTENT` and `METRICS_SERVICE_NAME` from `.env`, on the server and on the queue worker. A blank value is unset.
+
+### Fixed
+
+-   The Flow and Model filter labels on the Usage page no longer cover the selected value.
+
+### Upgrade notes / breaking changes
+
+-   **Database changes.** Three migrations run at startup. They add columns to `flow_version_state` for the passing test set setting and its last result, and nullable source and rating columns to `dataset_row`. Existing rows are unchanged. Back up first, as [Upgrading Cuttlely](./docs/upgrading.md) describes.
 
 ## [1.0.3] - 2026-10-13
 
@@ -230,7 +252,8 @@ Back up your data directory, including its encryption key, before any upgrade. [
 -   **Node 24.** Running from source needs Node 24 (`.nvmrc`).
 -   **Data directory.** Data lives in `~/.cuttlely`, or `/var/cuttlely/data` in Docker and on Render. Keep the encryption key with the database.
 
-[Unreleased]: https://github.com/cuttlely/cuttlely/compare/v1.0.3...HEAD
+[Unreleased]: https://github.com/cuttlely/cuttlely/compare/v1.1.0...HEAD
+[1.1.0]: https://github.com/cuttlely/cuttlely/compare/v1.0.3...v1.1.0
 [1.0.3]: https://github.com/cuttlely/cuttlely/compare/v1.0.2...v1.0.3
 [1.0.2]: https://github.com/cuttlely/cuttlely/compare/v1.0.1...v1.0.2
 [1.0.1]: https://github.com/cuttlely/cuttlely/compare/v1.0.0...v1.0.1
