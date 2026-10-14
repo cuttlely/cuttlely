@@ -55,7 +55,7 @@ A check the server marks stopped or failed also exits 2. If the draft is saved, 
 
 ## Scored mode
 
-Scored mode and `--gate` need Cuttlely 1.1.0 or later. That is the first release with scored mode, and no release with it has been published yet. The published 1.0.3 package has no `--gate`. Diff mode, including `--fail-on-changed`, is in 1.0.3.
+Scored mode and `--gate` need Cuttlely 1.1.0 or later. 1.1.0 is the first release with scored mode. The published 1.0.3 package has no `--gate`. Diff mode, including `--fail-on-changed`, is in 1.0.3.
 
 `--dataset` or `--gate` runs the dataset check instead of the four recent questions. Diff mode stays the default: a command with neither flag still sends `{ "count": 4 }` and still uses the exit codes above. How a test set is built, and how to turn the passing test set on, is in [Evaluations](./evaluations.md#set-the-pass-mark-and-turn-on-the-gate).
 
@@ -87,7 +87,7 @@ A flow that starts from a form, a webhook, or a schedule cannot take a dataset c
 
 Point the job at a Cuttlely server you already run. The workflow does not start one. Store the API key as a repository secret named `CUTTLELY_API_KEY`. The step does not print the secret. A diff job needs `chatflows:view` and `chatflows:update`, or `agentflows:view` and `agentflows:update`. A scored job needs that same pair plus `datasets:view` and `evaluators:view`. Set `CUTTLELY_URL` and `CUTTLELY_FLOW_ID` as repository variables.
 
-Scored mode and `--gate` need Cuttlely 1.1.0 or later. That is the first release with scored mode, and no release with it has been published yet. The diff workflow leaves `npx cuttlely` unpinned because `--fail-on-changed` is in the 1.0.3 package. The scored workflow pins `cuttlely@^1.1.0`.
+Scored mode and `--gate` need Cuttlely 1.1.0 or later. 1.1.0 is the first release with scored mode. The diff workflow leaves `npx cuttlely` unpinned because `--fail-on-changed` is in the 1.0.3 package. The scored workflow pins `cuttlely@^1.1.0`.
 
 Both workflows set `permissions: {}`, because the job never uses the GitHub token, and use `concurrency` with `cancel-in-progress`, so a new push stops the older run and the CLI cancels its check on SIGTERM. Use one of the two workflows for a given flow. The server runs one check per flow at a time, so running both against the same flow on one pull request makes the second one exit 2 with `A check is already running for this flow.`
 
