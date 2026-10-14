@@ -70,20 +70,24 @@ function parseFeedbackIds(value: unknown): string[] | null {
 }
 
 // Postgres keeps microseconds. A JS Date does not, so the comparison uses the cursor row's stored time.
+// The outer names are escaped here. TypeORM's property rewrite is not relied on, so camelCase is not folded.
 function olderThanStoredCursor(repo: Repository<ChatMessageFeedback>): string {
     const escape = (name: string) => repo.metadata.connection.driver.escape(name)
+    const column = (property: string, fallback: string) =>
+        escape(repo.metadata.findColumnWithPropertyName(property)?.databaseName || fallback)
+    const created = column('createdDate', 'createdDate')
+    const id = column('id', 'id')
+    const flowName = column('chatflowid', 'chatflowid')
+    const ratingName = column('rating', 'rating')
     const table = escape(repo.metadata.tableName)
-    const createdColumn = repo.metadata.findColumnWithPropertyName('createdDate')
-    const idColumn = repo.metadata.findColumnWithPropertyName('id')
-    const created = escape(createdColumn?.databaseName || 'createdDate')
-    const id = escape(idColumn?.databaseName || 'id')
-    const anchor = `(SELECT ${created} FROM ${table} WHERE ${id} = :beforeId)`
-    return `(feedback.createdDate < ${anchor} OR (feedback.createdDate = ${anchor} AND feedback.id < :beforeId))`
+    const alias = escape('feedback')
+    const anchor = `(SELECT ${created} FROM ${table} WHERE ${id} = :beforeId AND ${flowName} = :anchorFlowId AND ${ratingName} = :anchorRating)`
+    return `(${alias}.${created} < ${anchor} OR (${alias}.${created} = ${anchor} AND ${alias}.${id} < :beforeId))`
 }
 
 function loadRatingFeedback(
     repo: Repository<ChatMessageFeedback>,
-    args: { flowId: string; rating: string; since: Date; before: RatingCursor | null; skip: number; take: number }
+    args: { flowId: string; rating: string; since: Date; before: RatingCursor | null; take: number }
 ) {
     const query = repo
         .createQueryBuilder('feedback')
@@ -91,9 +95,24 @@ function loadRatingFeedback(
         .andWhere('feedback.rating = :rating', { rating: args.rating })
         .andWhere('feedback.createdDate >= :since', { since: args.since })
     if (args.before) {
-        query.andWhere(olderThanStoredCursor(repo), { beforeId: args.before.id })
+        query.andWhere(olderThanStoredCursor(repo), {
+            beforeId: args.before.id,
+            anchorFlowId: args.flowId,
+            anchorRating: args.rating
+        })
     }
-    return query.orderBy('feedback.createdDate', 'DESC').addOrderBy('feedback.id', 'DESC').skip(args.skip).take(args.take).getMany()
+    return query.orderBy('feedback.createdDate', 'DESC').addOrderBy('feedback.id', 'DESC').take(args.take).getMany()
+}
+
+// Tests shrink a page and delete a row after it has been read. Production leaves both unset.
+let ratingPageForTest: number | null = null
+let afterRatingPageForTest: ((page: ChatMessageFeedback[]) => Promise<void> | void) | null = null
+
+export function setRatingScanTestHook(
+    hook: { pageSize?: number; afterPage?: (page: ChatMessageFeedback[]) => Promise<void> | void } | null
+) {
+    ratingPageForTest = hook?.pageSize && hook.pageSize > 0 ? hook.pageSize : null
+    afterRatingPageForTest = hook?.afterPage ?? null
 }
 
 function viewPermissionForFlow(type: string | undefined): string {
@@ -746,10 +765,17 @@ const addDatasetRowsFromRatings = async (
         }
 
         const fixedIds = parseFeedbackIds(body.feedbackIds)
+        // A write is the preview's ids. Omitting them used to scan again and could write a different set.
+        if (!dryRun && (!fixedIds || fixedIds.length === 0)) {
+            throw new AppError(StatusCodes.BAD_REQUEST, 'feedbackIds is required.')
+        }
         const before = fixedIds ? null : parseRatingCursor(body.cursor)
         const feedbackRepo = appServer.AppDataSource.getRepository(ChatMessageFeedback)
         if (before) {
-            const anchor = await feedbackRepo.findOne({ where: { id: before.id }, select: { id: true } })
+            const anchor = await feedbackRepo.findOne({
+                where: { id: before.id, chatflowid: flow.id, rating },
+                select: { id: true }
+            })
             if (!anchor) throw new AppError(StatusCodes.BAD_REQUEST, 'cursor must be a createdDate and an id.')
         }
         const messageRepo = appServer.AppDataSource.getRepository(ChatMessage)
@@ -757,17 +783,16 @@ const addDatasetRowsFromRatings = async (
         const planned: RatingPlan[] = []
         const seenMessages = new Set<string>()
         let skipped = 0
-        let offset = 0
         let scanned = 0
         let lastScanned: ChatMessageFeedback | null = null
+        let pageBefore = before
         while (!fixedIds && planned.length < limit && scanned < RATING_SCAN_CAP) {
-            const take = Math.min(RATING_PAGE, RATING_SCAN_CAP - scanned)
+            const take = Math.min(ratingPageForTest ?? RATING_PAGE, RATING_SCAN_CAP - scanned)
             const page = await loadRatingFeedback(feedbackRepo, {
                 flowId: flow.id,
                 rating,
                 since,
-                before,
-                skip: offset,
+                before: pageBefore,
                 take
             })
             if (!page.length) break
@@ -822,9 +847,11 @@ const addDatasetRowsFromRatings = async (
                     row
                 })
             }
-            offset += inspected
             // A short page is the end of the window. A partial page still has ratings this call did not read.
             if (inspected < page.length || page.length < take) break
+            if (afterRatingPageForTest) await afterRatingPageForTest(page)
+            const anchorRow = page[page.length - 1]
+            pageBefore = { createdDate: new Date(anchorRow.createdDate), id: anchorRow.id }
         }
 
         // Add sends the ids from the preview, so a rating that arrives later cannot take a planned row's place.
@@ -888,7 +915,6 @@ const addDatasetRowsFromRatings = async (
                 rating,
                 since,
                 before: { createdDate: new Date(lastScanned.createdDate), id: lastScanned.id },
-                skip: 0,
                 take: 1
             })
             truncated = more.length > 0

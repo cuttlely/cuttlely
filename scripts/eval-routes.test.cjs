@@ -98,7 +98,17 @@ const { Execution } = serverRequire('./src/database/entities/Execution.ts')
 const { WorkspaceShared } = serverRequire('./src/database/entities/identity/WorkspaceShared.ts')
 const { casesFromDataset } = serverRequire('./src/services/flow-check/score.ts')
 const flowCheck = serverRequire('./src/services/flow-check/index.ts')
-const { RATING_SCAN_CAP } = serverRequire('./src/services/dataset/index.ts')
+const { RATING_SCAN_CAP, setRatingScanTestHook } = serverRequire('./src/services/dataset/index.ts')
+
+async function writeRated(api, body) {
+    const preview = await api.post('/datasets/rows/from-ratings').send({ ...body, dryRun: true })
+    if (preview.status !== 200) return preview
+    return api.post('/datasets/rows/from-ratings').send({
+        ...body,
+        dryRun: false,
+        feedbackIds: preview.body.feedbackIds
+    })
+}
 
 Module._load = originalLoad
 
@@ -1926,9 +1936,25 @@ describe('evaluation routes', () => {
                 cursor: { createdDate: new Date().toISOString(), id: '00000000-0000-4000-8000-000000000000' }
             })
             assert.equal(missingCursor.status, 400, JSON.stringify(missingCursor.body))
+            const missingIds = await api.post('/datasets/rows/from-ratings').send({
+                datasetId: dataset.id,
+                flowId: flow.id,
+                rating: 'THUMBS_DOWN',
+                days: 7
+            })
+            assert.equal(missingIds.status, 400, JSON.stringify(missingIds.body))
+            const emptyIds = await api.post('/datasets/rows/from-ratings').send({
+                datasetId: dataset.id,
+                flowId: flow.id,
+                rating: 'THUMBS_DOWN',
+                days: 7,
+                dryRun: false,
+                feedbackIds: []
+            })
+            assert.equal(emptyIds.status, 400, JSON.stringify(emptyIds.body))
             assert.equal(await dataSource.getRepository(DatasetRow).count({ where: { datasetId: dataset.id } }), beforeRows)
 
-            const capped = await api.post('/datasets/rows/from-ratings').send({
+            const capped = await writeRated(api, {
                 datasetId: dataset.id,
                 flowId: flow.id,
                 rating: 'THUMBS_DOWN',
@@ -1946,7 +1972,7 @@ describe('evaluation routes', () => {
             assert.ok(cappedRows.every((row) => row.sourceMessageId !== oldestDown.message.id))
             assert.ok(cappedRows.every((row) => row.sourceMessageId !== outside.message.id))
 
-            const again = await api.post('/datasets/rows/from-ratings').send({
+            const again = await writeRated(api, {
                 datasetId: dataset.id,
                 flowId: flow.id,
                 rating: 'THUMBS_DOWN',
@@ -1955,7 +1981,7 @@ describe('evaluation routes', () => {
             })
             assert.equal(again.status, 200, JSON.stringify(again.body))
             assert.equal(again.body.count, 1)
-            assert.equal(again.body.skipped, 2)
+            assert.equal(again.body.skipped, 0)
             const downRows = await dataSource.getRepository(DatasetRow).find({
                 where: { datasetId: dataset.id },
                 order: { sequenceNo: 'ASC' }
@@ -1976,7 +2002,7 @@ describe('evaluation routes', () => {
             assert.equal(quiet.output, '')
             assert.ok(!downRows.some((row) => row.sourceMessageId === outside.message.id))
 
-            const duplicate = await api.post('/datasets/rows/from-ratings').send({
+            const duplicate = await writeRated(api, {
                 datasetId: dataset.id,
                 flowId: flow.id,
                 rating: 'THUMBS_DOWN',
@@ -1984,10 +2010,10 @@ describe('evaluation routes', () => {
             })
             assert.equal(duplicate.status, 200, JSON.stringify(duplicate.body))
             assert.equal(duplicate.body.count, 1)
-            assert.equal(duplicate.body.skipped, 3)
+            assert.equal(duplicate.body.skipped, 0)
             assert.equal(await dataSource.getRepository(DatasetRow).count({ where: { datasetId: dataset.id } }), 4)
 
-            const upSaved = await api.post('/datasets/rows/from-ratings').send({
+            const upSaved = await writeRated(api, {
                 datasetId: dataset.id,
                 flowId: flow.id,
                 rating: 'THUMBS_UP',
@@ -2229,7 +2255,7 @@ describe('evaluation routes', () => {
                 createdDate: new Date(when.getTime() + 2000)
             })
 
-            const down = await api.post('/datasets/rows/from-ratings').send({
+            const down = await writeRated(api, {
                 datasetId: dataset.id,
                 flowId: flow.id,
                 rating: 'THUMBS_DOWN',
@@ -2245,7 +2271,7 @@ describe('evaluation routes', () => {
             assert.equal(stored[0].output, '')
             assert.notEqual(stored[0].input, 'other session question')
 
-            const up = await api.post('/datasets/rows/from-ratings').send({
+            const up = await writeRated(api, {
                 datasetId: dataset.id,
                 flowId: flow.id,
                 rating: 'THUMBS_UP',
@@ -2311,12 +2337,21 @@ describe('evaluation routes', () => {
                 })
                 messages.push(answer)
             }
+            const preview = await api.post('/datasets/rows/from-ratings').send({
+                datasetId: dataset.id,
+                flowId: flow.id,
+                rating: 'THUMBS_DOWN',
+                days: 1,
+                dryRun: true
+            })
+            assert.equal(preview.status, 200, JSON.stringify(preview.body))
             const send = () =>
                 api.post('/datasets/rows/from-ratings').send({
                     datasetId: dataset.id,
                     flowId: flow.id,
                     rating: 'THUMBS_DOWN',
-                    days: 1
+                    days: 1,
+                    feedbackIds: preview.body.feedbackIds
                 })
             const [first, second] = await Promise.all([send(), send()])
             assert.equal(first.status, 200, JSON.stringify(first.body))
@@ -2366,6 +2401,14 @@ describe('evaluation routes', () => {
                 chatId: 'chat-lone',
                 createdDate: loneQuestionAt
             })
+            const otherPreview = await api.post('/datasets/rows/from-ratings').send({
+                datasetId: other.id,
+                flowId: flow.id,
+                rating: 'THUMBS_DOWN',
+                days: 1,
+                dryRun: true
+            })
+            assert.equal(otherPreview.status, 200, JSON.stringify(otherPreview.body))
             const [singleOther, bulkOther] = await Promise.all([
                 api.post('/datasets/rows/from-message').send({
                     datasetId: other.id,
@@ -2376,7 +2419,8 @@ describe('evaluation routes', () => {
                     datasetId: other.id,
                     flowId: flow.id,
                     rating: 'THUMBS_DOWN',
-                    days: 1
+                    days: 1,
+                    feedbackIds: otherPreview.body.feedbackIds
                 })
             ])
             assert.equal(singleOther.status, 200, JSON.stringify(singleOther.body))
@@ -2436,6 +2480,14 @@ describe('evaluation routes', () => {
                 })
                 messages.push(answer)
             }
+            const preview = await api.post('/datasets/rows/from-ratings').send({
+                datasetId: dataset.id,
+                flowId: flow.id,
+                rating: 'THUMBS_DOWN',
+                days: 1,
+                dryRun: true
+            })
+            assert.equal(preview.status, 200, JSON.stringify(preview.body))
             const [single, bulk] = await Promise.all([
                 api.post('/datasets/rows/from-message').send({
                     datasetId: dataset.id,
@@ -2446,7 +2498,8 @@ describe('evaluation routes', () => {
                     datasetId: dataset.id,
                     flowId: flow.id,
                     rating: 'THUMBS_DOWN',
-                    days: 1
+                    days: 1,
+                    feedbackIds: preview.body.feedbackIds
                 })
             ])
             assert.equal(single.status, 200, JSON.stringify(single.body))
@@ -2511,13 +2564,22 @@ describe('evaluation routes', () => {
                     createdDate: at
                 })
             }
+            const preview = await api.post('/datasets/rows/from-ratings').send({
+                datasetId: datasets[0].id,
+                flowId: flow.id,
+                rating: 'THUMBS_DOWN',
+                days: 1,
+                dryRun: true
+            })
+            assert.equal(preview.status, 200, JSON.stringify(preview.body))
             const [left, right] = await Promise.all(
                 datasets.map((dataset) =>
                     api.post('/datasets/rows/from-ratings').send({
                         datasetId: dataset.id,
                         flowId: flow.id,
                         rating: 'THUMBS_DOWN',
-                        days: 1
+                        days: 1,
+                        feedbackIds: preview.body.feedbackIds
                     })
                 )
             )
@@ -2531,6 +2593,142 @@ describe('evaluation routes', () => {
                 assert.equal(new Set(rows.map((row) => row.sequenceNo)).size, 8)
             }
         } finally {
+            asOwner()
+            await cleanup()
+        }
+    })
+
+    it('a cursor from another flow is rejected', async () => {
+        const { dataSource, api, cleanup } = await openSqlite()
+        const when = new Date(Date.now() - 30 * 60 * 1000)
+        try {
+            asOwner()
+            const dataset = await dataSource.getRepository(Dataset).save({
+                name: 'Cursor scope',
+                description: 'Made-up rows',
+                workspaceId: WORKSPACE
+            })
+            const flow = await dataSource.getRepository(ChatFlow).save({
+                name: 'Bakery desk',
+                flowData: '{}',
+                type: 'CHATFLOW',
+                workspaceId: WORKSPACE
+            })
+            const other = await dataSource.getRepository(ChatFlow).save({
+                name: 'Other desk',
+                flowData: '{}',
+                type: 'CHATFLOW',
+                workspaceId: WORKSPACE
+            })
+            await dataSource.getRepository(ChatMessage).save({
+                role: 'userMessage',
+                chatflowid: other.id,
+                content: 'Other question',
+                chatType: 'INTERNAL',
+                chatId: 'chat-other-flow',
+                createdDate: new Date(when.getTime() - 1000)
+            })
+            const answer = await dataSource.getRepository(ChatMessage).save({
+                role: 'apiMessage',
+                chatflowid: other.id,
+                content: 'Other answer',
+                chatType: 'INTERNAL',
+                chatId: 'chat-other-flow',
+                createdDate: when
+            })
+            const feedback = await dataSource.getRepository(ChatMessageFeedback).save({
+                chatflowid: other.id,
+                chatId: 'chat-other-flow',
+                messageId: answer.id,
+                rating: 'THUMBS_DOWN',
+                content: 'No.',
+                createdDate: when
+            })
+            const result = await api.post('/datasets/rows/from-ratings').send({
+                datasetId: dataset.id,
+                flowId: flow.id,
+                rating: 'THUMBS_DOWN',
+                days: 1,
+                dryRun: true,
+                cursor: { createdDate: when.toISOString(), id: feedback.id }
+            })
+            assert.equal(result.status, 400, JSON.stringify(result.body))
+            assert.equal(await dataSource.getRepository(DatasetRow).count({ where: { datasetId: dataset.id } }), 0)
+        } finally {
+            asOwner()
+            await cleanup()
+        }
+    })
+
+    it('a row deleted from an earlier page does not skip a later rating', async () => {
+        const { dataSource, api, cleanup } = await openSqlite()
+        const now = Date.now()
+        try {
+            asOwner()
+            const dataset = await dataSource.getRepository(Dataset).save({
+                name: 'Keyset page',
+                description: 'Made-up rows',
+                workspaceId: WORKSPACE
+            })
+            const flow = await dataSource.getRepository(ChatFlow).save({
+                name: 'Bakery desk',
+                flowData: '{}',
+                type: 'CHATFLOW',
+                workspaceId: WORKSPACE
+            })
+            const feedbacks = []
+            for (let index = 0; index < 4; index += 1) {
+                const at = new Date(now - index * 60 * 60 * 1000)
+                await dataSource.getRepository(ChatMessage).save({
+                    role: 'userMessage',
+                    chatflowid: flow.id,
+                    content: `Question ${index}`,
+                    chatType: 'INTERNAL',
+                    chatId: `chat-key-${index}`,
+                    createdDate: new Date(at.getTime() - 1000)
+                })
+                const answer = await dataSource.getRepository(ChatMessage).save({
+                    role: 'apiMessage',
+                    chatflowid: flow.id,
+                    content: `Answer ${index}`,
+                    chatType: 'INTERNAL',
+                    chatId: `chat-key-${index}`,
+                    createdDate: at
+                })
+                const feedback = await dataSource.getRepository(ChatMessageFeedback).save({
+                    chatflowid: flow.id,
+                    chatId: `chat-key-${index}`,
+                    messageId: answer.id,
+                    rating: 'THUMBS_DOWN',
+                    content: 'No.',
+                    createdDate: at
+                })
+                feedbacks.push(feedback)
+            }
+            let deleted = false
+            setRatingScanTestHook({
+                pageSize: 2,
+                afterPage: async (page) => {
+                    if (deleted) return
+                    deleted = true
+                    await dataSource.getRepository(ChatMessageFeedback).delete({ id: page[0].id })
+                }
+            })
+            const result = await api.post('/datasets/rows/from-ratings').send({
+                datasetId: dataset.id,
+                flowId: flow.id,
+                rating: 'THUMBS_DOWN',
+                days: 1,
+                dryRun: true
+            })
+            assert.equal(result.status, 200, JSON.stringify(result.body))
+            assert.equal(deleted, true)
+            assert.equal(result.body.truncated, false)
+            for (const feedback of feedbacks) {
+                assert.equal(result.body.feedbackIds.includes(feedback.id), true)
+            }
+        } finally {
+            setRatingScanTestHook(null)
             asOwner()
             await cleanup()
         }
@@ -2819,12 +3017,21 @@ describe('evaluation routes', () => {
             assert.equal(first.body.truncated, true)
             assert.equal(first.body.cursor.id, feedbacks[2].feedback.id)
             assert.notEqual(first.body.cursor.id, feedbacks[4].feedback.id)
+            const tail = await api.post('/datasets/rows/from-ratings').send({
+                datasetId: dataset.id,
+                flowId: flow.id,
+                rating: 'THUMBS_DOWN',
+                days: 1,
+                dryRun: true,
+                cursor: first.body.cursor
+            })
+            assert.equal(tail.status, 200, JSON.stringify(tail.body))
             const continued = await api.post('/datasets/rows/from-ratings').send({
                 datasetId: dataset.id,
                 flowId: flow.id,
                 rating: 'THUMBS_DOWN',
                 days: 1,
-                cursor: first.body.cursor
+                feedbackIds: tail.body.feedbackIds
             })
             assert.equal(continued.status, 200, JSON.stringify(continued.body))
             assert.equal(continued.body.count, 2)
@@ -2983,7 +3190,7 @@ describe('evaluation routes', () => {
                 flowId: flow.id,
                 rating: 'THUMBS_DOWN',
                 days: 1,
-                cursor: result.body.cursor
+                feedbackIds: continued.body.feedbackIds
             })
             assert.equal(written.status, 200, JSON.stringify(written.body))
             assert.equal(written.body.count, 1)
