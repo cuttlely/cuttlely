@@ -128,7 +128,7 @@ A new install has no users. With `CUTTLELY_LOCAL_ADMIN=true`, there are two ways
 2. Fill in **Administrator Name**, **Administrator Email**, **Password**, and **Confirm Password**. The password needs 8 to 128 characters, with a lowercase letter, an uppercase letter, a digit, and a special character.
 3. Select **Sign Up**.
 
-![The Setup Account page on a new install, with the mascot above the Cuttlely logo. Fields for Administrator Name, Administrator Email, Password, and Confirm Password, each with a hint, and a violet Sign up button. The text says account setup makes no external connections.](../images/from-source/organization-setup.png)
+![Setup Account on a new install, with the mascot above the Cuttlely logo. The note says account setup does not make any external connections and data stays on this server. Empty fields for Administrator Name, Administrator Email, Password and Confirm Password, and a Sign Up button.](../images/from-source/organization-setup.png)
 
 You are signed in, and the app opens **Chatflows**.
 
@@ -152,15 +152,15 @@ Several `npm warn` lines come first, including `Unknown cli config "--email"`. T
 
 Then open [http://localhost:43117](http://localhost:43117). The app opens **Sign In**. Type the email and password and select **Sign in**.
 
-![The Sign In page with Email and Password fields and the password sign-in button.](../images/from-source/first-open-signin.png)
+![The Sign In page with empty Email and Password fields, an eye icon on the password, and a Sign In button.](../images/from-source/first-open-signin.png)
 
 More about the account, a lost password, and WorkOS for a team: [Sign in](./sign-in.md).
 
 ## The first page
 
-After sign-in the app opens **Chatflows**. The sidebar lists everything else, from **Harness · Agent Team** to **Document Stores**, plus **Admin** for users and teams. Your name and **Logout** are under the gear at the top right.
+After sign-in the app opens **Chatflows**. The sidebar lists everything else, from **Harness · Agent Team** to **Document Stores**, then **Datasets**, **Evaluators**, **Evaluations** and **Usage**, plus **Admin** for users and teams. Your name and **Logout** are under the gear at the top right.
 
-![Chatflows on a new install. The sidebar lists Harness · Agent Team, Chatflows, ETL, Agentflows, Executions, Assistants, Templates, Tools, Credentials, Variables, API Keys, and Document Stores. The page has Import, Start from a template, and Add New at the top, a Try the demo card, the Your applications deserve agents. headline with the mascot in a What are you building? card with a small Bring flows from another tool link, and below it the lightbulb mascot with the No chatflows yet note.](../images/from-source/first-signed-in.png)
+![Chatflows on a new install. Import, Start from a template and Add New are at the top. A Try the demo card offers Add a model key, Try the demo, and the bakery quickstart. Your applications deserve agents. sits above What are you building?, with Agent team, Chat / simple AI app, Workflow / automation and Knowledge / data pipeline. The lightbulb mascot is above No chatflows yet. Pick Chat / simple AI app above, or start from a template.](../images/from-source/first-signed-in.png)
 
 Next steps: save a model key under **Credentials**, then build an [agent team](./harnesses.md) or an [ETL pipeline](./etl.md).
 
