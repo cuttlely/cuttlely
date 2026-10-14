@@ -101,6 +101,83 @@ const { casesFromDataset } = serverRequire('./src/services/flow-check/score.ts')
 const flowCheck = serverRequire('./src/services/flow-check/index.ts')
 const { RATING_SCAN_CAP, setRatingScanTestHook } = serverRequire('./src/services/dataset/index.ts')
 
+async function stampFeedback(dataSource, id, value) {
+    if (dataSource.options.type === 'postgres') {
+        await dataSource.query(`UPDATE "chat_message_feedback" SET "createdDate" = $1 WHERE "id" = $2`, [value, id])
+        return
+    }
+    await dataSource.query(`UPDATE "chat_message_feedback" SET "createdDate" = ? WHERE "id" = ?`, [value, id])
+}
+
+async function assertDeletedMicrosecondAnchor(dataSource, api) {
+    const now = Date.now()
+    const dataset = await dataSource.getRepository(Dataset).save({
+        name: 'Microsecond anchor',
+        description: 'Made-up rows',
+        workspaceId: WORKSPACE
+    })
+    const flow = await dataSource.getRepository(ChatFlow).save({
+        name: 'Bakery desk',
+        flowData: '{}',
+        type: 'CHATFLOW',
+        workspaceId: WORKSPACE
+    })
+    const fraction = new Date(now - 2 * 60 * 60 * 1000).toISOString().replace(/\.\d{3}Z$/, '')
+    const digits = ['000600', '000400', '000200', '000100']
+    const feedbacks = []
+    for (let index = 0; index < digits.length; index += 1) {
+        const at = new Date(now - 2 * 60 * 60 * 1000)
+        await dataSource.getRepository(ChatMessage).save({
+            role: 'userMessage',
+            chatflowid: flow.id,
+            content: `Question ${index}`,
+            chatType: 'INTERNAL',
+            chatId: `chat-micro-${index}`,
+            createdDate: new Date(at.getTime() - 1000)
+        })
+        const answer = await dataSource.getRepository(ChatMessage).save({
+            role: 'apiMessage',
+            chatflowid: flow.id,
+            content: `Answer ${index}`,
+            chatType: 'INTERNAL',
+            chatId: `chat-micro-${index}`,
+            createdDate: at
+        })
+        const feedback = await dataSource.getRepository(ChatMessageFeedback).save({
+            chatflowid: flow.id,
+            chatId: `chat-micro-${index}`,
+            messageId: answer.id,
+            rating: 'THUMBS_DOWN',
+            content: 'No.',
+            createdDate: at
+        })
+        await stampFeedback(dataSource, feedback.id, `${fraction}.${digits[index]}Z`)
+        feedbacks.push(feedback)
+    }
+    let deleted = false
+    setRatingScanTestHook({
+        pageSize: 2,
+        afterPage: async (page) => {
+            if (deleted) return
+            deleted = true
+            await dataSource.getRepository(ChatMessageFeedback).delete({ id: page[page.length - 1].id })
+        }
+    })
+    const result = await api.post('/datasets/rows/from-ratings').send({
+        datasetId: dataset.id,
+        flowId: flow.id,
+        rating: 'THUMBS_DOWN',
+        days: 1,
+        dryRun: true
+    })
+    assert.equal(result.status, 200, JSON.stringify(result.body))
+    assert.equal(deleted, true)
+    assert.equal(result.body.feedbackIds.length, 4)
+    for (const feedback of feedbacks) {
+        assert.equal(result.body.feedbackIds.includes(feedback.id), true, feedback.id)
+    }
+}
+
 async function writeRated(api, body) {
     const preview = await api.post('/datasets/rows/from-ratings').send({ ...body, dryRun: true })
     if (preview.status !== 200) return preview
@@ -2869,6 +2946,58 @@ describe('evaluation routes', () => {
             setRatingScanTestHook(null)
             asOwner()
             await cleanup()
+        }
+    })
+
+    it('deleting a microsecond anchor between pages does not drop the other ratings in that millisecond', async () => {
+        const { dataSource, api, cleanup } = await openSqlite()
+        try {
+            await assertDeletedMicrosecondAnchor(dataSource, api)
+        } finally {
+            setRatingScanTestHook(null)
+            asOwner()
+            await cleanup()
+        }
+    })
+
+    it('deleting a microsecond anchor between pages does not drop the other ratings in that millisecond on postgres', async (t) => {
+        if (!PG_PASSWORD) {
+            t.skip('postgres evaluation routes: PGPASSWORD is unset')
+            return
+        }
+        const { Client } = serverRequire('pg')
+        const name = `cuttlely_eval_anchor_${process.pid}`
+        const admin = new Client({ host: '127.0.0.1', user: 'postgres', password: PG_PASSWORD, database: 'postgres' })
+        await admin.connect()
+        await admin.query(`DROP DATABASE IF EXISTS ${name}`)
+        await admin.query(`CREATE DATABASE ${name}`)
+        await admin.end()
+        const dataSource = new DataSource({
+            type: 'postgres',
+            host: '127.0.0.1',
+            port: 5432,
+            username: 'postgres',
+            password: PG_PASSWORD,
+            database: name,
+            synchronize: false,
+            entities: ROUND_TRIP_ENTITIES,
+            migrations: postgresMigrations
+        })
+        try {
+            await dataSource.initialize()
+            await dataSource.runMigrations()
+            appHandle.AppDataSource = dataSource
+            asOwner()
+            await seed(dataSource)
+            await assertDeletedMicrosecondAnchor(dataSource, request(httpApp()))
+        } finally {
+            setRatingScanTestHook(null)
+            asOwner()
+            if (dataSource.isInitialized) await dataSource.destroy()
+            const drop = new Client({ host: '127.0.0.1', user: 'postgres', password: PG_PASSWORD, database: 'postgres' })
+            await drop.connect()
+            await drop.query(`DROP DATABASE IF EXISTS ${name}`)
+            await drop.end()
         }
     })
 

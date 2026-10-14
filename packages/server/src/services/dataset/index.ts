@@ -27,7 +27,7 @@ const RATING_PREVIEW_CHARS = 160
 const RATING_DAY_MS = 24 * 60 * 60 * 1000
 const RATING_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
-type RatingCursor = { createdDate: Date; id: string }
+type RatingCursor = { createdDate: Date | string; id: string }
 
 function ratingCursorStamp(value: Date | string): string {
     const date = value instanceof Date ? value : new Date(value)
@@ -84,10 +84,30 @@ function olderThanStoredCursor(repo: Repository<ChatMessageFeedback>): string {
     const anchorWhere = `${id} = :beforeId AND ${flowName} = :anchorFlowId AND ${ratingName} = :anchorRating`
     const stored = `(SELECT ${created} FROM ${table} WHERE ${anchorWhere})`
     const storedMatch = `(${alias}.${created} < ${stored} OR (${alias}.${created} = ${stored} AND ${alias}.${id} < :beforeId))`
-    // The row we just read can be deleted before the next page. Then use the time already loaded for it.
+    // The row we just read can be deleted before the next page. :beforeDate is the stored text, not a JS Date.
     const loadedMatch = `(${alias}.${created} < :beforeDate OR (${alias}.${created} = :beforeDate AND ${alias}.${id} < :beforeId))`
     const present = `EXISTS (SELECT 1 FROM ${table} WHERE ${anchorWhere})`
     return `((${present} AND ${storedMatch}) OR (NOT ${present} AND ${loadedMatch}))`
+}
+
+// A JS Date drops microseconds. Read the column as text so a deleted anchor keeps its stored time.
+async function rawCreatedDates(repo: Repository<ChatMessageFeedback>, ids: string[]): Promise<Map<string, string>> {
+    const found = new Map<string, string>()
+    if (!ids.length) return found
+    const type = String(repo.metadata.connection.options.type || '')
+    const asText = type === 'mysql' || type === 'mariadb' ? 'CHAR' : 'TEXT'
+    const rows = await repo
+        .createQueryBuilder('feedback')
+        .select('feedback.id', 'id')
+        .addSelect(`CAST(feedback.createdDate AS ${asText})`, 'created_text')
+        .where('feedback.id IN (:...ids)', { ids })
+        .getRawMany()
+    for (const row of rows) {
+        const id = row.id ?? row.feedback_id
+        const text = row.created_text ?? row.createdText ?? row.feedback_created_text
+        if (id != null && text != null) found.set(String(id), String(text))
+    }
+    return found
 }
 
 function loadRatingFeedback(
@@ -794,6 +814,7 @@ const addDatasetRowsFromRatings = async (
         let skipped = 0
         let scanned = 0
         let lastScanned: ChatMessageFeedback | null = null
+        const rawById = new Map<string, string>()
         let pageBefore = before
         while (!fixedIds && planned.length < limit && scanned < RATING_SCAN_CAP) {
             const take = Math.min(ratingPageForTest ?? RATING_PAGE, RATING_SCAN_CAP - scanned)
@@ -805,6 +826,11 @@ const addDatasetRowsFromRatings = async (
                 take
             })
             if (!page.length) break
+            const rawPage = await rawCreatedDates(
+                feedbackRepo,
+                page.map((item) => item.id)
+            )
+            for (const [id, value] of rawPage) rawById.set(id, value)
             const messageIds = [...new Set(page.map((item) => item.messageId).filter((id) => typeof id === 'string' && id.length > 0))]
             const messages = messageIds.length ? await messageRepo.find({ where: { id: In(messageIds) } }) : []
             const messageById = new Map(messages.map((item) => [item.id, item]))
@@ -860,7 +886,7 @@ const addDatasetRowsFromRatings = async (
             if (inspected < page.length || page.length < take) break
             if (afterRatingPageForTest) await afterRatingPageForTest(page)
             const anchorRow = page[page.length - 1]
-            pageBefore = { createdDate: new Date(anchorRow.createdDate), id: anchorRow.id }
+            pageBefore = { createdDate: rawById.get(anchorRow.id) ?? anchorRow.createdDate, id: anchorRow.id }
         }
 
         // Add sends the ids from the preview, so a rating that arrives later cannot take a planned row's place.
@@ -923,7 +949,7 @@ const addDatasetRowsFromRatings = async (
                 flowId: flow.id,
                 rating,
                 since,
-                before: { createdDate: new Date(lastScanned.createdDate), id: lastScanned.id },
+                before: { createdDate: rawById.get(lastScanned.id) ?? lastScanned.createdDate, id: lastScanned.id },
                 take: 1
             })
             truncated = more.length > 0
@@ -1013,6 +1039,8 @@ const addDatasetRowsFromRatings = async (
                     storedNow.add(item.messageId)
                     saved.push(item)
                 }
+                // The lock update above sets updatedDate. Touch it again after a row lands, as a single-answer save does.
+                if (saved.length > 0) await changeUpdateOnDataset(dataset.id, workspaceId, entityManager)
                 return { saved, skippedNow }
             })
         let written: RatingPlan[] = []
