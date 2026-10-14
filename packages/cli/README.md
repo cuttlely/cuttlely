@@ -12,10 +12,10 @@ Requires Node.js 20 or newer, and Docker.
 npx cuttlely start
 ```
 
-That pulls `ghcr.io/cuttlely/cuttlely:1.0.0` (the same version as this package), keeps data in the Docker volume `cuttlely-data`, publishes port **43117**, waits until `http://127.0.0.1:43117/api/v1/ping` answers `pong`, prints `http://localhost:43117`, and opens it.
+That pulls `ghcr.io/cuttlely/cuttlely`, tagged with the same version as the `cuttlely` package you ran, keeps data in the Docker volume `cuttlely-data`, publishes port **43117**, waits until `http://127.0.0.1:43117/api/v1/ping` answers `pong`, prints `http://localhost:43117`, and opens it.
 
 ```bash
-npx cuttlely start --port 8080 --tag 1.0.0 --env-file .env --no-open
+npx cuttlely start --port 8080 --tag 1.1.0 --env-file .env --no-open
 ```
 
 | Flag         | Meaning                                                                  |
@@ -88,11 +88,11 @@ npx cuttlely check --flow <flow id> --gate
 
 Do not combine those flags with `--fail-on-changed`.
 
-| Code | When                                                                                                                                                                                                                                                                                               |
-| ---- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 0    | The server verdict is passed. With `--gate`, a second read of the flow still has the passing test set on, no block, and this check's id stored as a passed result.                                                                                                                                 |
-| 1    | The server verdict is failed.                                                                                                                                                                                                                                                                      |
-| 2    | The same failures as the question check, a missing verdict, a usage error, a withheld dataset or evaluator id, or a `--gate` pass that is no longer the stored result. The message is the server's block text, or `The saved test set changed during the check. Run it again.` when there is none. |
+| Code | When                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| ---- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 0    | The server verdict is passed. With `--gate`, a second read of the flow still stores this check as passed with an empty `block` (`publishGate.enabled` is true, `publishGate.result.checkId` is this check, and `publishGate.result.verdict` is `passed`).                                                                                                                                                                                                                                                                                                                                                                             |
+| 1    | The server verdict is failed.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| 2    | The same failures as the question check, a missing verdict, a usage error, or a withheld dataset or evaluator id. `--gate` also exits 2 when the confirmation read fails: a non-empty block, a different checkId, or a missing passed. When the server verdict is `passed`, turning the passing test set off, or changing its dataset, evaluators, or pass mark, while the check runs makes that confirmation read no longer match. The message is the server's `block` text, or `The saved test set changed during the check. Run it again.` when there is no block text. A failed verdict exits 1 and does not read the flow again. |
 
 A 403 names the flow view and update permissions, plus `datasets:view` and `evaluators:view`. The summary prints the pass rate, the threshold, and the cases whose draft scores are not Pass. `--json` writes the full check, including each score.
 

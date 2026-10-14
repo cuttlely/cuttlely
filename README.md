@@ -113,13 +113,13 @@ Load files, a CSV or a code repository, clean and split them, embed them and sto
 
 A chat model, the agent or chain that answers, memory and tools, on one canvas. Each chatflow gets a prediction API, an embed for your website and a shareable link, and a chatflow with a **Harness** card puts a whole team behind them. [Canvas guide](./docs/how-to/canvas.md)
 
-![A chatflow built with Build with AI. The test chat answers a tip question with a calculator step.](./docs/images/canvas/build-with-ai-chat.png)
+![A chatflow built with Build with AI. The test chat asks what 18 times 24 is, shows a calculator step, and answers 432.](./docs/images/canvas/build-with-ai-chat.png)
 
 #### Agentflows: step-by-step workflows
 
 Workflows that run step by step and can start from a chat message, a form, a webhook or a schedule. Selecting a card opens its settings in a side panel. [Canvas guide](./docs/how-to/canvas.md#workflows)
 
-![A workflow with Start and Reply cards. The Reply card's message is open in a side panel.](./docs/images/canvas/canvas-workflow-panel.png)
+![The Bakery greeting workflow. Start connects to Reply, and the Reply card's message, Welcome to the bakery! Ask me about today's bread., is open in a side panel.](./docs/images/canvas/canvas-workflow-panel.png)
 
 #### Built in everywhere
 
@@ -172,7 +172,7 @@ You need Docker and one model key. The steps use OpenAI. Any chat model provider
 3. Open the link and create your account. The password needs at least 8 characters, including a lowercase letter, an uppercase letter, a digit and a special character. You are signed in and land on **Chatflows**.
 4. Try the demo. **Chatflows** shows a **Try the demo** card. Select **Add a model key**, choose **OpenAI API**, give it a name, paste the key, and select **Add**. The key is stored encrypted. Then select **Try the demo**: a ready-made customer care team opens with its chat open. Select the first starter question, a complaint about a late espresso machine. The run card shows Harness Prime sending the work to the customer and operations specialists, then to the policy specialist, and the answer gives the decision, the reply to the customer, the actions and the evidence. All the data is made up. [Try the demo](./docs/how-to/try-the-demo.md) shows each step, and the bakery quickstart on the same card.
 
-    ![The customer care team's chat after the first starter question: the run card says Harness Prime sent work to customer, operations, then policy, each done with one tool call, and the decision says the delay is Larkfield's fault, with a shipping refund, an express reship arriving 2026-10-08, a $55.80 store credit and a call from the Customer Care Lead.](./docs/images/try-the-demo/customer-care-run.png)
+    ![The customer care team's chat after the first starter question. The run card says Harness Prime sent work to customer, operations, then policy, each done, and the decision says the delay is Larkfield Home's fault, with a shipping refund, an Express reship arriving 2026-10-08, a recall, a store credit and a call from the Customer Care Lead.](./docs/images/try-the-demo/customer-care-run.png)
 
 5. Build your own team: open **Harness · Agent Team**, select **New agent team**, then **Build with AI** (the sparkle button). Your model and key are already picked under **Chat model that builds**. Pick one of the examples and select **Build**, then open the chat and select a starter question.
 6. Next time, sign in at [http://localhost:43117/signin](http://localhost:43117/signin) with **Sign in**.

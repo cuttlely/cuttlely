@@ -210,6 +210,8 @@ On a chatflow, an agentflow that starts with **Chat Input**, or a harness, the P
 3. Tick the evaluators. That list is hidden when your role cannot view evaluators.
 4. Select **Run check**.
 
+When **Passing test set** is on, select **Run the test set** in the notice under the box to record the gate result ([Require a passing test set before you publish](./versioning.md#require-a-passing-test-set-before-you-publish)).
+
 Each row runs in the saved order, once on Live and once on the draft. The expected answer is shown under the question. A row with no expected answer still runs. Text, JSON, and numeric evaluators score that answer. A model evaluator needs the expected answer, so it scores Error and the grading model is not called. Each side shows Pass, Fail, or Error for every evaluator, and a pass rate: passed divided by passed, failed, and errored, from 0 to 100 with one decimal. An answer that failed to run scores Error. A check with no evaluators still shows the expected answer and compares the two answers, and a dataset check's verdict is failed because nothing was scored.
 
 The finished dataset check also reports passed or failed for the draft against a pass mark. The mark is 100 unless the request sends `threshold`, a whole number from 0 to 100. Errored scores count as not passed. The verdict uses those counts, not the rounded pass rate, so one failed or errored score does not pass a mark of 100 even when the displayed rate rounds to 100.0. A check that is not using a dataset has no verdict. That line does not block Publish unless the flow requires a passing test set.

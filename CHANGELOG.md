@@ -4,13 +4,20 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ## [Unreleased]
 
-### Docs
+### Changed
 
--   Fresh screenshots for the harness guide and Analyst mode, shot from the current app with synthetic bakery data.
+-   Docs name the Run the test set button and the gate's scope.
+-   Docs: the CI gate guide now covers harness checks and a test set changed during `--gate`.
+-   Guides name the Build with AI control **Show all … models** (select **Only models for your keys** to return to the shorter list), the **Admin** menu item **Server Settings**, and 1.1.0 in the Docker image examples.
 
 ### Upgrade notes / breaking changes
 
 -   The old Analyst import paths are gone. Import the modules in `packages/harness/runtime/` instead of `scripts/analyst-store.mjs`, `scripts/analyst-postgres.mjs`, `scripts/analyst-page.mjs`, `scripts/analyst-sqlite-worker.mjs`, `scripts/analyst-mcp-status.mjs`, `scripts/hermes-stream.mjs`, and `harness/runtime/`.
+
+### Docs
+
+-   Fresh screenshots for the canvas, share and embed, the API and Try the demo.
+-   Fresh screenshots for the harness guide and Analyst mode, shot from the current app with synthetic bakery data.
 
 ## [1.1.0] - 2026-10-14
 

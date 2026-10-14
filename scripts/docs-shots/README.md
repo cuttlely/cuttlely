@@ -1,14 +1,28 @@
 # Docs screenshots
 
-`reshoot-harnesses-analyst.mjs` reshoots the pictures in `docs/images/harnesses/` and `docs/images/analyst/` from a local server. It does not call a model provider and it does not sign in to an outside account.
+Two scripts. Neither signs in to an outside service. A model key is read from the environment only, and neither script prints it.
 
-From the repo root, on Node 24:
+## Canvas, share, API and Try the demo
+
+```bash
+pnpm build
+bash scripts/setup-hermes.sh
+node scripts/docs-shots/capture.mjs
+```
+
+The script starts a fresh server on an empty data directory, signs in with the local owner account, and takes the pictures with Playwright at browser zoom 100%.
+
+Set `DOCS_SHOT_USE_EXTERNAL=1` and `OPENAI_API_KEY` to answer with that key. With the variable unset, a loopback stand-in answers so the pictures stay on made-up bakery and customer-care text and do not show a currency amount. No picture shows a key, a token or a masked prefix.
+
+`DOCS_SHOTS=canvas,share,api,demo,demo-chart,card` limits the set. `demo-chart` reshoots only the bakery March croissant answer. `all` is the default.
+
+## Harnesses and Analyst
 
 ```bash
 node scripts/docs-shots/reshoot-harnesses-analyst.mjs
 ```
 
-When `OPENAI_API_KEY` is unset, `model-stand-in.mjs` answers chat completions on `127.0.0.1`. The server is pointed at it with `OPENAI_BASE_URL`. A key in the environment is used instead, and only by that name: the script never prints it.
+This reshoots `docs/images/harnesses/` and `docs/images/analyst/`. When `OPENAI_API_KEY` is unset, `model-stand-in.mjs` answers chat completions on `127.0.0.1` and the server is pointed at it with `OPENAI_BASE_URL`.
 
 `bakery-mcp.mjs` is the local MCP server for the SQL-refusal picture. It speaks stdio and does not open a database.
 
