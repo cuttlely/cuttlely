@@ -51,21 +51,21 @@ A question that errors is listed under **Errors** and is not a Changed answer. W
 | 1    | `--fail-on-changed` was set and at least one answer was Changed.                                                                         |
 | 2    | The check timed out, the server returned an error, `CUTTLELY_API_KEY` was missing, the flow has no draft, or the command was used wrong. |
 
-A check the server marks stopped or failed also exits 2. If the draft is saved, published, or discarded while the check runs, the command exits 2, because the answers may be for a draft that is already gone. After the check has started, a timeout, a 403, or any other failure asks the server to stop it. Cancelling the command, including a cancelled CI job, stops that server-side check too. That stop is best effort: if it fails, the exit code is still 2.
+A check the server marks stopped or failed also exits 2. If the draft is saved, published, or discarded while the check runs, the command exits 2, because the answers may be for a draft that is already gone. After the check has started, a timeout, a 403, or any other failure asks the server to stop it. Cancelling the command, including a cancelled CI job, stops that server-side check too. The command prints `The check was cancelled.` and exits 2. That stop is best effort: if it fails, the exit code is still 2.
 
 ## Scored mode
 
-`--dataset` or `--gate` runs the dataset check instead of the four recent questions. Diff mode stays the default: a command with neither flag still sends `{ "count": 4 }` and still uses the exit codes above.
+Scored mode and `--gate` need Cuttlely 1.1.0 or later. That is the first release with scored mode, and no release with it has been published yet. The published 1.0.3 package has no `--gate`. Diff mode, including `--fail-on-changed`, is in 1.0.3.
 
-The command exits on the server `verdict`. It does not score the answers, and it does not compare the pass rate itself. `passed` exits 0. `failed` exits 1. A missing verdict, a stopped or failed check, a draft that changed during the check, a timeout, a 403, a missing key, no draft, or a usage error exits 2.
+`--dataset` or `--gate` runs the dataset check instead of the four recent questions. Diff mode stays the default: a command with neither flag still sends `{ "count": 4 }` and still uses the exit codes above. How a test set is built, and how to turn the passing test set on, is in [Evaluations](./evaluations.md#set-the-pass-mark-and-turn-on-the-gate).
 
-`--gate` reads the flow again after a passed verdict. That second read has to keep the passing test set on, with an empty `block`, and `publishGate.result.checkId` equal to this check with verdict `passed`. Otherwise the command exits 2. The message is the server's `block` text, or `The saved test set changed during the check. Run it again.` when there is no block text. A check started with `--dataset` does not read the flow again.
+`--dataset` exits on the server `verdict`. It does not score the answers, and it does not compare the pass rate itself. `passed` exits 0. `failed` exits 1. `--gate` with a failed verdict exits 1 and does not read the flow again. `--gate` exits 0 only when that verdict is `passed` and a second read of the flow still stores this check as passed with an empty `block` (`publishGate.result.checkId` is this check and `publishGate.result.verdict` is `passed`). That read waits at most 30 seconds. Exit 2 means the confirmation read failed: a non-empty block, a different checkId, or a missing passed. The message is the server's `block` text, or `The saved test set changed during the check. Run it again.` when there is no block text. A missing verdict, a stopped or failed check, a draft that changed during the check, a timeout, a 403, a missing key, no draft, or a usage error also exits 2.
 
 An enabled gate always has a dataset and at least one evaluator. If that read leaves the dataset id out, or the evaluator list empty, the command exits 2 before it starts a check. The message says the key needs `datasets:view`, `evaluators:view`, or both.
 
 ```bash
-npx cuttlely check --flow <flow id> --dataset <dataset id> --evaluator <evaluator id> --threshold 80
-npx cuttlely check --flow <flow id> --gate
+npx cuttlely@^1.1.0 check --flow <flow id> --dataset <dataset id> --evaluator <evaluator id> --threshold 80
+npx cuttlely@^1.1.0 check --flow <flow id> --gate
 ```
 
 | Flag          | Meaning                                                                                                                                           |
@@ -79,19 +79,29 @@ npx cuttlely check --flow <flow id> --gate
 
 The key needs the same flow view and update pair as the question check, plus `datasets:view` and `evaluators:view`. A 403 names that whole set.
 
-The summary adds the draft pass rate, the threshold, and the cases whose draft scores are not Pass. `--json` writes the full check, including each case's scores. The same object is [Read a check](../reference/drafts-api.md#read-a-check).
+The summary adds the draft pass rate, the threshold, and the cases whose draft scores are not Pass. `--json` writes the full check, including each case's scores. Diff mode reads `summary.changed`. A scored check reads `verdict.result`. What those scores mean is in [Evaluations](./evaluations.md#run-the-publish-check-on-a-dataset). The file does not contain the API key. The same object is [Read a check](../reference/drafts-api.md#read-a-check).
 
 A flow that starts from a form, a webhook, or a schedule cannot take a dataset check. The server refuses that start, and the command exits 2. `--dataset` can score a harness, and the exit code is still the server verdict. `--gate` is only for a chatflow or an agentflow that has the passing test set on. A harness cannot store that setting, so `--gate` exits 2 before any check.
 
 ## GitHub Actions
 
-Point the job at a Cuttlely server you already run. The workflow does not start one. Store the API key as a repository secret named `CUTTLELY_API_KEY`. The key needs `chatflows:view` and `chatflows:update`, or `agentflows:view` and `agentflows:update`. Set `CUTTLELY_URL` and `CUTTLELY_FLOW_ID` as repository variables.
+Point the job at a Cuttlely server you already run. The workflow does not start one. Store the API key as a repository secret named `CUTTLELY_API_KEY`. The step does not print the secret. A diff job needs `chatflows:view` and `chatflows:update`, or `agentflows:view` and `agentflows:update`. A scored job needs that same pair plus `datasets:view` and `evaluators:view`. Set `CUTTLELY_URL` and `CUTTLELY_FLOW_ID` as repository variables.
+
+Scored mode and `--gate` need Cuttlely 1.1.0 or later. That is the first release with scored mode, and no release with it has been published yet. The diff workflow leaves `npx cuttlely` unpinned because `--fail-on-changed` is in the 1.0.3 package. The scored workflow pins `cuttlely@^1.1.0`.
+
+Both workflows set `permissions: {}`, because the job never uses the GitHub token, and use `concurrency` with `cancel-in-progress`, so a new push stops the older run and the CLI cancels its check on SIGTERM. Use one of the two workflows for a given flow. The server runs one check per flow at a time, so running both against the same flow on one pull request makes the second one exit 2 with `A check is already running for this flow.`
 
 ```yaml
 name: Cuttlely draft check
 
 on:
     pull_request:
+
+permissions: {}
+
+concurrency:
+    group: cuttlely-check-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+    cancel-in-progress: true
 
 jobs:
     check:
@@ -112,3 +122,35 @@ jobs:
 ```
 
 The same file is [examples/ci/cuttlely-check.yml](../../examples/ci/cuttlely-check.yml). A Changed answer fails the job. Upload `check.json` from the job if you want the Live and draft answers in the build log.
+
+`--gate` is only for a chatflow or an agentflow with the passing test set on. A harness exits 2. The file is [examples/ci/cuttlely-check-gate.yml](../../examples/ci/cuttlely-check-gate.yml).
+
+```yaml
+name: Cuttlely scored check
+
+on:
+    pull_request:
+
+permissions: {}
+
+concurrency:
+    group: cuttlely-check-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+    cancel-in-progress: true
+
+jobs:
+    check:
+        runs-on: ubuntu-latest
+        steps:
+            - name: Check the saved test set
+              env:
+                  CUTTLELY_API_KEY: ${{ secrets.CUTTLELY_API_KEY }}
+                  CUTTLELY_URL: ${{ vars.CUTTLELY_URL }}
+                  CUTTLELY_FLOW_ID: ${{ vars.CUTTLELY_FLOW_ID }}
+              run: |
+                  npx --yes cuttlely@^1.1.0 check \
+                    --flow "$CUTTLELY_FLOW_ID" \
+                    --server "$CUTTLELY_URL" \
+                    --timeout 300 \
+                    --gate \
+                    --json check.json
+```

@@ -1,20 +1,33 @@
 # Run the Publish check against a Cuttlely server you already operate.
-# This workflow does not start Cuttlely.
+# This workflow does not start Cuttlely. It uses no GitHub Action.
+# If you add a uses: step, pin it to a version tag such as actions/checkout@v4.
 #
 # Repository secret: CUTTLELY_API_KEY
 #   An API key with both view and update for the flow:
 #   chatflows:view and chatflows:update, or agentflows:view and agentflows:update.
 #   Update starts the check. View is required to read the result.
+#   The step does not print the secret. The command reads CUTTLELY_API_KEY from the environment.
 # Repository variables: CUTTLELY_URL, CUTTLELY_FLOW_ID
 #   The server origin, and the flow id from the canvas address bar.
 #   pnpm dev serves the API on port 3000. scripts/start-cuttlely.sh and npx cuttlely start listen on port 43117.
 # The flow needs a draft and at least one past question. See docs/how-to/ci-gate.md.
+# Scored mode and --gate need Cuttlely 1.1.0 or later.
+# That is the first release with scored mode, and no release with it has been published yet.
+# This job is diff mode. It does not pass --gate. npx cuttlely stays unpinned because --fail-on-changed is in the 1.0.3 package.
 # Cancelling this job stops the server-side check.
+# cancel-in-progress stops the older run, and the CLI cancels its check on SIGTERM.
+# Use one of the two workflows for a given flow. Running both against the same flow on one pull request exits 2 with "A check is already running for this flow."
 
 name: Cuttlely draft check
 
 on:
     pull_request:
+
+permissions: {}
+
+concurrency:
+    group: cuttlely-check-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+    cancel-in-progress: true
 
 jobs:
     check:

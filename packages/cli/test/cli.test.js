@@ -1340,6 +1340,8 @@ function parseYaml(text) {
     const indentOf = (line) => line.match(/^ */)[0].length
     const unquote = (value) => {
         if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) return value.slice(1, -1)
+        // The example workflows set permissions to an empty map. Any other flow collection stays refused.
+        if (value === '{}') return {}
         if (value.startsWith('{') || value.startsWith('[')) throw new Error('flow collections are not supported')
         return value
     }

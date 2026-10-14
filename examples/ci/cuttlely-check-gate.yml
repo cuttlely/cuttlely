@@ -1,0 +1,53 @@
+# Run the scored Publish check against a Cuttlely server you already operate.
+# This workflow does not start Cuttlely. It uses no GitHub Action.
+# If you add a uses: step, pin it to a version tag such as actions/checkout@v4.
+#
+# Repository secret: CUTTLELY_API_KEY
+#   An API key with both view and update for the flow, plus datasets:view and evaluators:view.
+#   chatflows:view and chatflows:update, or agentflows:view and agentflows:update.
+#   Update starts the check. View is required to read the result.
+#   The step does not print the secret. The command reads CUTTLELY_API_KEY from the environment.
+# Repository variables: CUTTLELY_URL, CUTTLELY_FLOW_ID
+#   The server origin, and the flow id from the canvas address bar.
+#   The flow needs a draft and the passing test set on. --gate is only for a chatflow or an agentflow.
+#   A harness exits 2.
+#   The key also needs datasets:view and evaluators:view.
+# Scored mode and --gate need Cuttlely 1.1.0 or later.
+# That is the first release with scored mode, and no release with it has been published yet.
+# npx installs cuttlely@^1.1.0. The 1.0.3 package has no --gate.
+# Exit 0 only when a second read still stores this check as passed with an empty block.
+# That read waits at most 30 seconds. --dataset exits on the server verdict.
+#   pnpm dev serves the API on port 3000. scripts/start-cuttlely.sh and npx cuttlely start listen on port 43117.
+# See docs/how-to/ci-gate.md.
+# Cancelling this job stops the server-side check.
+# cancel-in-progress stops the older run, and the CLI cancels its check on SIGTERM.
+# Use one of the two workflows for a given flow. Running both against the same flow on one pull request exits 2 with "A check is already running for this flow."
+# A failed verdict exits 1 and does not read the flow again.
+
+name: Cuttlely scored check
+
+on:
+    pull_request:
+
+permissions: {}
+
+concurrency:
+    group: cuttlely-check-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+    cancel-in-progress: true
+
+jobs:
+    check:
+        runs-on: ubuntu-latest
+        steps:
+            - name: Check the saved test set
+              env:
+                  CUTTLELY_API_KEY: ${{ secrets.CUTTLELY_API_KEY }}
+                  CUTTLELY_URL: ${{ vars.CUTTLELY_URL }}
+                  CUTTLELY_FLOW_ID: ${{ vars.CUTTLELY_FLOW_ID }}
+              run: |
+                  npx --yes cuttlely@^1.1.0 check \
+                    --flow "$CUTTLELY_FLOW_ID" \
+                    --server "$CUTTLELY_URL" \
+                    --timeout 300 \
+                    --gate \
+                    --json check.json
