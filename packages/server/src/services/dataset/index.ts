@@ -26,13 +26,9 @@ const RATING_PREVIEW_ROWS = 5
 const RATING_PREVIEW_CHARS = 160
 const RATING_DAY_MS = 24 * 60 * 60 * 1000
 const RATING_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+const RATING_CURSOR_DATE_MAX = 80
 
-type RatingCursor = { createdDate: Date | string; id: string }
-
-function ratingCursorStamp(value: Date | string): string {
-    const date = value instanceof Date ? value : new Date(value)
-    return date.toISOString()
-}
+type RatingCursor = { createdDate: string; id: string }
 
 // The next call passes this back and the scan starts strictly older than this rating.
 function parseRatingCursor(value: unknown): RatingCursor | null {
@@ -44,13 +40,14 @@ function parseRatingCursor(value: unknown): RatingCursor | null {
     if (typeof cursor.id !== 'string' || !RATING_ID_PATTERN.test(cursor.id)) {
         throw new AppError(StatusCodes.BAD_REQUEST, 'cursor must be a createdDate and an id.')
     }
-    if (typeof cursor.createdDate !== 'string' && !(cursor.createdDate instanceof Date)) {
+    if (typeof cursor.createdDate !== 'string') {
         throw new AppError(StatusCodes.BAD_REQUEST, 'cursor must be a createdDate and an id.')
     }
-    const createdDate = cursor.createdDate instanceof Date ? cursor.createdDate : new Date(cursor.createdDate)
-    if (Number.isNaN(createdDate.getTime())) {
+    const createdDate = cursor.createdDate.trim()
+    if (createdDate.length === 0 || createdDate.length > RATING_CURSOR_DATE_MAX || Number.isNaN(new Date(createdDate).getTime())) {
         throw new AppError(StatusCodes.BAD_REQUEST, 'cursor must be a createdDate and an id.')
     }
+    // Keep the caller's text. A JS Date would drop microseconds before the next page is read.
     return { createdDate, id: cursor.id }
 }
 
@@ -77,17 +74,9 @@ function olderThanStoredCursor(repo: Repository<ChatMessageFeedback>): string {
         escape(repo.metadata.findColumnWithPropertyName(property)?.databaseName || fallback)
     const created = column('createdDate', 'createdDate')
     const id = column('id', 'id')
-    const flowName = column('chatflowid', 'chatflowid')
-    const ratingName = column('rating', 'rating')
-    const table = escape(repo.metadata.tableName)
     const alias = escape('feedback')
-    const anchorWhere = `${id} = :beforeId AND ${flowName} = :anchorFlowId AND ${ratingName} = :anchorRating`
-    const stored = `(SELECT ${created} FROM ${table} WHERE ${anchorWhere})`
-    const storedMatch = `(${alias}.${created} < ${stored} OR (${alias}.${created} = ${stored} AND ${alias}.${id} < :beforeId))`
-    // The row we just read can be deleted before the next page. :beforeDate is the stored text, not a JS Date.
-    const loadedMatch = `(${alias}.${created} < :beforeDate OR (${alias}.${created} = :beforeDate AND ${alias}.${id} < :beforeId))`
-    const present = `EXISTS (SELECT 1 FROM ${table} WHERE ${anchorWhere})`
-    return `((${present} AND ${storedMatch}) OR (NOT ${present} AND ${loadedMatch}))`
+    // Bound text and id. The rating may already be gone; the stored text on the cursor is enough.
+    return `(${alias}.${created} < :beforeDate OR (${alias}.${created} = :beforeDate AND ${alias}.${id} < :beforeId))`
 }
 
 function createdDateAsText(repo: Repository<ChatMessageFeedback>): string {
@@ -119,22 +108,6 @@ async function rawCreatedDates(repo: Repository<ChatMessageFeedback>, ids: strin
     return found
 }
 
-// Same cast as rawCreatedDates, scoped to this flow and rating. Missing means the cursor is not valid.
-async function rawAnchorCreatedDate(
-    repo: Repository<ChatMessageFeedback>,
-    args: { id: string; flowId: string; rating: string }
-): Promise<string | null> {
-    const rows = await repo
-        .createQueryBuilder('feedback')
-        .select('feedback.id', 'id')
-        .addSelect(createdDateAsText(repo), 'created_text')
-        .where('feedback.id = :id', { id: args.id })
-        .andWhere('feedback.chatflowid = :flowId', { flowId: args.flowId })
-        .andWhere('feedback.rating = :rating', { rating: args.rating })
-        .getRawMany()
-    return rows.length ? textFromRawCreated(rows[0]) : null
-}
-
 function loadRatingFeedback(
     repo: Repository<ChatMessageFeedback>,
     args: { flowId: string; rating: string; since: Date; before: RatingCursor | null; take: number }
@@ -147,9 +120,7 @@ function loadRatingFeedback(
     if (args.before) {
         query.andWhere(olderThanStoredCursor(repo), {
             beforeId: args.before.id,
-            beforeDate: args.before.createdDate,
-            anchorFlowId: args.flowId,
-            anchorRating: args.rating
+            beforeDate: args.before.createdDate
         })
     }
     return query.orderBy('feedback.createdDate', 'DESC').addOrderBy('feedback.id', 'DESC').take(args.take).getMany()
@@ -831,12 +802,7 @@ const addDatasetRowsFromRatings = async (
         }
         const before = fixedIds ? null : parseRatingCursor(body.cursor)
         const feedbackRepo = appServer.AppDataSource.getRepository(ChatMessageFeedback)
-        if (before) {
-            const stored = await rawAnchorCreatedDate(feedbackRepo, { id: before.id, flowId: flow.id, rating })
-            if (!stored) throw new AppError(StatusCodes.BAD_REQUEST, 'cursor must be a createdDate and an id.')
-            before.createdDate = stored
-            if (beforeFirstRatingPageForTest) await beforeFirstRatingPageForTest()
-        }
+        if (before && beforeFirstRatingPageForTest) await beforeFirstRatingPageForTest()
         const messageRepo = appServer.AppDataSource.getRepository(ChatMessage)
         const rowRepo = appServer.AppDataSource.getRepository(DatasetRow)
         const planned: RatingPlan[] = []
@@ -916,7 +882,8 @@ const addDatasetRowsFromRatings = async (
             if (inspected < page.length || page.length < take) break
             if (afterRatingPageForTest) await afterRatingPageForTest(page)
             const anchorRow = page[page.length - 1]
-            pageBefore = { createdDate: rawById.get(anchorRow.id) ?? anchorRow.createdDate, id: anchorRow.id }
+            const anchorText = rawById.get(anchorRow.id)
+            if (anchorText) pageBefore = { createdDate: anchorText, id: anchorRow.id }
         }
 
         // Add sends the ids from the preview, so a rating that arrives later cannot take a planned row's place.
@@ -974,17 +941,18 @@ const addDatasetRowsFromRatings = async (
 
         // Probe from the last rating this call actually read. A full page, including an exact cap, stays untruncated when nothing is older.
         let truncated = false
-        if (!fixedIds && lastScanned) {
+        const cursorText = lastScanned ? rawById.get(lastScanned.id) : undefined
+        if (!fixedIds && lastScanned && cursorText) {
             const more = await loadRatingFeedback(feedbackRepo, {
                 flowId: flow.id,
                 rating,
                 since,
-                before: { createdDate: rawById.get(lastScanned.id) ?? lastScanned.createdDate, id: lastScanned.id },
+                before: { createdDate: cursorText, id: lastScanned.id },
                 take: 1
             })
             truncated = more.length > 0
         }
-        const cursor = truncated && lastScanned ? { createdDate: ratingCursorStamp(lastScanned.createdDate), id: lastScanned.id } : null
+        const cursor = truncated && lastScanned && cursorText ? { createdDate: cursorText, id: lastScanned.id } : null
         const feedbackIds = planned.map((item) => item.feedbackId)
 
         const toPreview = (items: RatingPlan[]) =>
