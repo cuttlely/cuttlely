@@ -120,10 +120,7 @@ const adminPath = path.join(TMP, 'admin.json')
 
 function ensureAdmin() {
     if (fs.existsSync(adminPath)) return JSON.parse(fs.readFileSync(adminPath, 'utf8'))
-    const alphabet = 'abcdefghijkmnopqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789'
-    let password = 'Aa1!'
-    const bytes = crypto.randomBytes(24)
-    for (const byte of bytes) password += alphabet[byte % alphabet.length]
+    const password = `Aa1!${crypto.randomBytes(12).toString('hex')}`
     const admin = { email: 'rosa.diaz@example.com', password }
     fs.writeFileSync(adminPath, JSON.stringify(admin), { mode: 0o600 })
     return admin
