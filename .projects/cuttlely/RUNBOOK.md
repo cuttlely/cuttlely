@@ -214,7 +214,7 @@ The root `Dockerfile` has two stages. The build stage has the compilers, install
 
 ## Website
 
-The website source is `website/` (Astro and Starlight, static, with its own npm lockfile outside the pnpm workspace). The docs are written only in `docs/`; `website/scripts/sync-docs.mjs` copies them in before each build. `website/README.md` has the commands (`npm ci`, `npm run dev`, `npm run build`, `npm test`). `pnpm verify` runs the website unit tests and the `website-docs` link check without installing the website, so a broken link in `docs/` fails the gate.
+The website source is `website/` (Astro and Starlight, static, with its own npm lockfile outside the pnpm workspace). The docs are written only in `docs/`; `website/scripts/sync-docs.mjs` copies them in before each build. `website/README.md` has the commands (`npm ci`, `npm run dev`, `npm run build`, `npm test`). `pnpm verify` runs the website unit tests and the `website-docs` link check without installing the website, so a broken link in `docs/` fails the gate. `node scripts/docs-shots/capture.mjs` reshoots the canvas, share and embed, API and Try the demo pictures from a fresh local server.
 
 ## Release
 
