@@ -103,6 +103,7 @@ const STEPS = [
             path.join(ROOT, 'scripts', 'outbound-guard.test.mjs'),
             path.join(ROOT, 'scripts', 'model-list.test.mjs'),
             path.join(ROOT, 'scripts', 'brand-names.test.mjs'),
+            path.join(ROOT, 'scripts', 'docs-shots', 'fixtures.test.mjs'),
             path.join(ROOT, 'examples', 'web-app', 'server.test.mjs'),
             path.join(ROOT, 'scripts', 'otel-collector-example.test.mjs'),
             path.join(ROOT, 'website', 'scripts', 'sync-docs.test.mjs'),

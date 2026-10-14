@@ -2,7 +2,7 @@
 
 **Admin** > **Server Settings** is where the owner changes how this server runs: sign-in, the database, the agent runtime, the analyst, models, file storage, security, integrations and advanced options. You change values on the page, review them, and restart Cuttlely to apply them. Nothing here needs a terminal or a host's environment page.
 
-![Server settings in the light theme, open at Sign-in & identity. The Set up your server tiles sit at the top, the sections are listed on the left, and the Sign in with WorkOS AuthKit card has a Set up AuthKit button. Owner password sign-in is on and marked Locked. In the sidebar, Admin, Server Settings is the page you are on.](../images/server-settings/server-settings-signin.png)
+![Server settings in the light theme. Set up your server shows three tiles, 0 of 3 done: Sign-in for your team, Analyst, and A model key, with Skip for now. Sign-in & identity is selected. The Sign in with WorkOS AuthKit card has Set up AuthKit. Owner password sign-in is On and marked Locked.](../images/server-settings/server-settings-signin.png)
 
 ## Who can open it
 
@@ -12,19 +12,24 @@ Only the owner, the first account (shown as **Super User**), signed in in a brow
 
 A fresh server shows three optional first steps at the top: **Sign-in for your team** (AuthKit), **Analyst**, and **A model key** (Credentials). Each opens the same section of the page. **Skip for now** hides them; nothing waits on them.
 
-![The Set up your server tiles above the sections: Sign-in for your team, Analyst and A model key, each with a link to start, and Skip for now.](../images/server-settings/server-settings-get-started.png)
+![Set up your server at the top of Server settings: Sign-in for your team with Set up AuthKit, Analyst with Turn on the analyst, and A model key with Add a model key. The line says Three optional steps. 0 of 3 done. Skip for now is at the right.](../images/server-settings/server-settings-get-started.png)
 
 ## Change a setting
 
 1. Pick a section on the left, or search. Search matches labels, help text and the variable name.
+
+![Search settings with timeout in the box. Analyst shows Query timeout at 15 seconds, and Advanced shows MCP sign-in wait at 15 seconds.](../images/server-settings/server-settings-search.png)
+
 2. Change the value. Each setting says in plain words what it does, and shows its variable name in small type for reference.
 3. The bar at the bottom counts your edits. Select **Review and save**.
 4. Review lists each change from old to new. Secrets show only as set, replaced or removed. A change marked **High risk** (it could stop Cuttlely from starting, or keep people from signing in) needs `RESTART` typed before **Save changes** works.
-5. Saved changes wait for a restart. Select **Restart now** in the bar.
+5. Saved changes wait for a restart. Select **Restart now** in the bar. When this server cannot restart itself, the button says **How to restart**.
 
-![Review before saving: the Review 3 changes dialog lists each setting with its old and new value, with Back and Save changes buttons.](../images/server-settings/server-settings-review.png)
+![Security & network after a save. A green notice reads Saved. Restart Cuttlely to apply. The bar says 6 saved changes wait for a restart, with Discard and How to restart.](../images/server-settings/server-settings-saved.png)
 
-![A high-risk change: the Review 2 changes dialog warns that the change can stop people from signing in, and RESTART is typed in the box before Save changes.](../images/server-settings/server-settings-review-high-risk.png)
+![Review 3 changes. Keep warm every goes from Default (Off) to 30 minutes. MCP sign-in wait goes from Default (15 seconds) to 20 seconds. Row cap goes from Default (100 rows) to 40. Back and Save changes are at the bottom.](../images/server-settings/server-settings-review.png)
+
+![Review 2 changes. File storage, marked High risk, goes from Default (This server) to S3 or compatible. Proxies in front of Cuttlely, marked High risk, goes from Default (None) to 1. The warning says a high-risk change can stop Cuttlely from starting or keep people from signing in. RESTART is typed in the box. Back and Save changes are at the bottom.](../images/server-settings/server-settings-review-high-risk.png)
 
 Every change applies at the next restart. Until then the server keeps running with what it started with, and **Discard** puts the saved file back the way it was at start.
 
@@ -40,7 +45,7 @@ A blank value counts as not set. A value set by the host always wins, so the pag
 
 `CUTTLELY_FILE_SIZE_LIMIT` is the same limit as the existing upload size variable, and `DISABLE_CUTTLELY_TELEMETRY` is the usage-event switch. When both names of one of those settings are set, the `CUTTLELY_` name is used. The encryption key is not on this page. `CUTTLELY_SECRETKEY_OVERWRITE` is that key's compatibility alias. If it and the existing overwrite variable are both set to different values, Cuttlely refuses to start. `METRICS_PREFIX`, under Metrics, is optional. Empty keeps the metric names this server already publishes.
 
-![Advanced, where Log detail is set by the host and marked Locked. The save bar at the bottom says 3 saved changes wait for a restart, with Discard and How to restart.](../images/server-settings/server-settings-locked.png)
+![Advanced, where Log detail is Normal and marked Locked. The bar says 6 saved changes wait for a restart, with Discard and How to restart. A green notice reads Saved. Restart Cuttlely to apply.](../images/server-settings/server-settings-locked.png)
 
 ## Secrets
 
@@ -58,11 +63,11 @@ If the encryption key changes, a saved secret shows **Saved, but this server can
 
 Errors come back in plain words, never with a secret in them. Model keys themselves live in **Credentials**; the Models section links there.
 
-![Models & keys: model keys live in Credentials, with an Open Credentials button. Below are Model list source and Model registry lookups, and the model list test.](../images/server-settings/server-settings-models.png)
+![Models & keys. Model keys live in Credentials, with Open Credentials. Model list source is Default (Daily from Cuttlely). Model registry lookups is Off.](../images/server-settings/server-settings-models.png)
 
-![Storage, with File storage and Largest upload. Test the storage passed: files are kept on this server and Cuttlely can write to them.](../images/server-settings/test-connection-storage-ok.png)
+![Storage. File storage is Default (This server) and Largest upload is 50mb. Test file storage passed: Files are kept on this server, and Cuttlely can write there. Write a small test file is checked. The button is Test again.](../images/server-settings/test-connection-storage-ok.png)
 
-![Analyst, with an edited Separate Postgres for the analyst address. Test the analyst database failed and says it could not connect, with a Test again button.](../images/server-settings/test-connection-analyst-failed.png)
+![Analyst limits and the test card. Test the analyst database failed: Could not connect to the analyst database. The button is Test again. The bar says 1 unsaved change.](../images/server-settings/test-connection-analyst-failed.png)
 
 ## Analyst limits
 
@@ -88,11 +93,13 @@ In **Sign-in & identity**, **Set up AuthKit** walks through four steps:
 
 The password sign-in stays on by default as a backup. It can't be turned off until a test sign-in with these exact AuthKit values has passed.
 
-![Set up AuthKit, step 1, Connect WorkOS, in the Staging environment, with an obviously fake API key and Client ID.](../images/server-settings/authkit-step-keys.png)
+![Set up AuthKit, Connect WorkOS, with a Staging chip. The API key is masked. Client ID reads client_demo_bakery. Next is at the bottom right.](../images/server-settings/authkit-step-keys.png)
 
-![Set up AuthKit, step 2, Addresses: the redirect URI and the sign-in, homepage and sign-out addresses to copy into WorkOS, each with a copy button.](../images/server-settings/authkit-step-addresses.png)
+![Set up AuthKit, Addresses, with a Staging chip. Redirect URI, Sign-out URI, App homepage URL and Initiate login URI are filled from http://127.0.0.1:44117, each with a copy button.](../images/server-settings/authkit-step-addresses.png)
 
-![Set up AuthKit, the check before the test sign-in: WorkOS did not accept the API key, while Client ID, Redirect URI and Session seal pass.](../images/server-settings/authkit-step-check.png)
+![Set up AuthKit, Session seal, with a Staging chip. The session seal is masked and Generate seal is beside it. First owner email is rosa.diaz@example.com.](../images/server-settings/authkit-step-seal.png)
+
+![Set up AuthKit, Test and turn on, with a Staging chip. API key is a warning: Staging key. WorkOS could not be reached to confirm it. Client ID, Redirect URI and Session seal pass. Test sign-in is the button. Nothing is saved yet.](../images/server-settings/authkit-step-check.png)
 
 ## Switch database
 
@@ -105,7 +112,11 @@ The password sign-in stays on by default as a backup. It can't be turned off unt
 
 Nothing is copied. Flows, credentials and accounts stay in the old database, and **Switch back** returns to it. A database that already holds Cuttlely data from another server needs that server's encryption key, or its saved credentials won't open; the dialog warns. With Analyst storage on Auto, the analyst's private stores follow the new database.
 
-![Switch database, the test for a Postgres server that can't be reached: Connect and sign in failed, with Back, Test again and Next.](../images/server-settings/database-switch-test.png)
+![Database, running on SQLite, on this server, with Switch database. Database type is Default (SQLite).](../images/server-settings/database-card.png)
+
+![Switch database, step 1 of 4, Choose a database. Postgres is selected. SQLite is the other choice. Cancel and Next are at the bottom.](../images/server-settings/database-switch-choose.png)
+
+![Switch database, step 3 of 4, Test. Could not connect to the database. Connect and sign in says 127.0.0.1:1 refused the connection. Back and Test again are shown, and Next is unavailable.](../images/server-settings/database-switch-test.png)
 
 ## Restart
 
@@ -118,9 +129,9 @@ Nothing is copied. Flows, credentials and accounts stay in the old database, and
 
 When Cuttlely restarts in place, a full-screen view follows it: the settings it saved, any runs it lets finish, stopping, each start-up step as Cuttlely works through it, and back. **Continue** reloads the page with the new settings. If it takes more than three minutes, the view says so and points you to the server log.
 
-![Restarting: the live start-up step.](../images/server-settings/restart-screen-starting.png)
+![Restarting Cuttlely. Saved 6 settings and Stopping are done. Starting: Loading the building blocks (the slowest step) is in progress. Back is still waiting.](../images/server-settings/restart-screen-starting.png)
 
-![Back, with the new settings applied.](../images/server-settings/restart-screen-back.png)
+![Cuttlely is back. Running with 6 new settings applied. Saved 6 settings, Stopping, Starting and Back are done. Continue is the button.](../images/server-settings/restart-screen-back.png)
 
 If chats or agent team runs are still answering when you select **Restart now**, Cuttlely asks first. **Let them finish** waits for them, for up to the turn time limit (45 seconds unless `CUTTLELY_HARNESS_TURN_BUDGET_MS` says otherwise), and new runs get a short "restarting" answer meanwhile. **Restart now** stops them.
 
@@ -130,9 +141,9 @@ When Cuttlely cannot restart itself, **How to restart** opens the steps with **C
 
 If two starts in a row don't finish after a change, safe boot puts back the last settings that started and shows a banner. A start that can't open the database with changed settings stops right away instead of running half-started, and the start script tries again, so this takes a few seconds, not a page that never loads. Settings that didn't start never count as the last settings that worked. If you were on the restart screen, it says **The new settings did not start** and **See what changed** opens History. **Try it again** puts the set-aside settings back for the next restart.
 
-![The restart screen after settings that did not start. The title reads The new settings did not start, and the text says safe boot put back the last settings that worked and your changes are kept aside. The steps are Saved 6 settings and Stopping with green checks, Starting with the new settings with a red cross, then Put back the last settings that worked and Back with green checks. See what changed is the button at the bottom.](../images/server-settings/restart-screen-failed.png)
+![The new settings did not start. The text says safe boot put back the last settings that worked and the changes are kept aside. Saved 6 settings and Stopping are done, Starting with the new settings failed, then Put back the last settings that worked and Back are done. See what changed is the button.](../images/server-settings/restart-screen-failed.png)
 
-![The safe boot banner at the top of Server settings: The last two starts did not finish, so Cuttlely put back the last settings that started. It offers See what changed and Try it again.](../images/server-settings/server-settings-safe-boot.png)
+![The safe boot banner on Server settings: The last two starts did not finish, so Cuttlely put back the last settings that started. See what changed and Try it again are on the right. Owner password sign-in below is On and Locked.](../images/server-settings/server-settings-safe-boot.png)
 
 From a terminal (in Docker, prefix with `docker compose exec -u node Cuttlely`):
 
@@ -148,8 +159,8 @@ From a terminal (in Docker, prefix with `docker compose exec -u node Cuttlely`):
 
 **All settings** lists every setting, where its value comes from and its value (secrets as set or not set), plus the settings that stay out of the browser and why: the encryption key and sign-in secrets, paths and ports, code execution and safety checks, queue workers, start script plumbing, and test-only values. **Copy as .env** copies the values saved here for a `.env` file or a host's environment page; secrets are left out and listed as comments.
 
-![All settings: one table of every setting with its section, where its value comes from and the value, and Copy as .env at the top.](../images/server-settings/server-settings-all-settings.png)
+![All settings. Copy as .env is at the top right. The table starts with Owner password sign-in, Host, On; AuthKit API key, Not set; AuthKit client ID, Default (Not set: AuthKit is off); Callback address, Default (Not set); and Session seal, Not set.](../images/server-settings/server-settings-all-settings.png)
 
 **History** keeps every save, discard, restore, test sign-in, rollback and restart: when, who, and which settings, never a secret value.
 
-![History: each saved change with who made it and when, and the settings it changed from and to.](../images/server-settings/server-settings-history.png)
+![History. Saved 6 changes by rosa.diaz@example.com on Oct 14, 2026, 12:50 PM: MCP sign-in wait default to 20000, Longest MCP tool description default to 512, Longest MCP tool name default to 64, Row cap default to 80, Query timeout default to 20000, and Keep warm every default to 30. The bar says 6 saved changes wait for a restart.](../images/server-settings/server-settings-history.png)
