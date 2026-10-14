@@ -71,7 +71,7 @@ Give your app a team instead of a single prompt. Harness Prime reads the questio
 
 -   **The Analyst** is a specialist with its own database. It creates tables, adds rows and answers questions about them with the real numbers, and it never reads Cuttlely's own tables. Long results come back in pages. Turn it on with `CUTTLELY_ANALYST=auto`. [Analyst guide](./docs/how-to/analyst.md)
 
-![A harness canvas with its test chat open. The run card says Harness Prime sent work to analyst, and the answer shows a table of open tasks.](./docs/images/harnesses/canvas-chat-analyst.png)
+![A harness canvas with its test chat open. The run card says Harness Prime sent work to analyst. The answer is a table of open tasks: draft agenda, open, and send invites, open.](./docs/images/harnesses/canvas-chat-analyst.png)
 
 ### Small context, big answers
 

@@ -47,3 +47,19 @@ node scripts/docs-shots/versioning-evaluations.mjs
 Chat answers come from an in-process stand-in (`fake-model.cjs`) so the script does not call a model provider. The GitHub card uses the local stand-in in `docs/reference/versioning-settings.md` (`CUTTLELY_GITHUB_ALLOW_FILE_REMOTES`, `CUTTLELY_GITHUB_TEST_ROOT`, `CUTTLELY_GITHUB_TEST_API`) and a bare repository on this machine. After a dialog, popover, toast, or collapse opens, the script waits until that element is visible and its transition has finished, then takes the picture.
 
 `DOCS_SHOTS_ONLY=canvas-last-edited,history-drawer` captures a subset. The script prints no passwords, tokens, or model keys.
+
+## Harnesses and Analyst
+
+```bash
+node scripts/docs-shots/reshoot-harnesses-analyst.mjs
+```
+
+This reshoots `docs/images/harnesses/` and `docs/images/analyst/`. The harness list is taken before Build with AI adds teams. The sqlite terminal figure prints the workspace database filename the server created. When `OPENAI_API_KEY` is unset, `model-stand-in.mjs` answers chat completions on `127.0.0.1` and the server is pointed at it with `OPENAI_BASE_URL`.
+
+`bakery-mcp.mjs` is the local MCP server for the SQL-refusal picture. It speaks stdio and does not open a database.
+
+The server uses a new data directory under `/tmp/docs-shots`. Sample names are the bakery ones already in the guides. Light theme, violet accent, zoom 100%.
+
+Postgres pictures need a local Postgres the current user can reach with `sudo -u postgres psql`. The script creates a throwaway login and database for that run.
+
+`DOCS_SHOTS_FROM=<step>` restarts at one step (`empty`, `templates`, `analyst`, `paging`, `trace`, `workspaces`, `postgres`, and the others named in the script).
