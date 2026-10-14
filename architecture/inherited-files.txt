@@ -1107,6 +1107,7 @@ packages/server/src/database/migrations/mariadb/1767000000000-AddMcpServerConfig
 packages/server/src/database/migrations/mariadb/1772000000000-AddScheduleEntities.ts
 packages/server/src/database/migrations/mariadb/1776240000003-AddWebhookSecretToChatFlow.ts
 packages/server/src/database/migrations/mariadb/1795000000000-AddDatasetRowSource.ts
+packages/server/src/database/migrations/mariadb/1796000000000-AddDatasetRowRating.ts
 packages/server/src/database/migrations/mariadb/index.ts
 packages/server/src/database/migrations/mysql/1693840429259-Init.ts
 packages/server/src/database/migrations/mysql/1693997791471-ModifyChatFlow.ts
@@ -1159,6 +1160,7 @@ packages/server/src/database/migrations/mysql/1767000000000-AddMcpServerConfigTo
 packages/server/src/database/migrations/mysql/1772000000000-AddScheduleEntities.ts
 packages/server/src/database/migrations/mysql/1776240000002-AddWebhookSecretToChatFlow.ts
 packages/server/src/database/migrations/mysql/1795000000000-AddDatasetRowSource.ts
+packages/server/src/database/migrations/mysql/1796000000000-AddDatasetRowRating.ts
 packages/server/src/database/migrations/mysql/index.ts
 packages/server/src/database/migrations/postgres/1693891895163-Init.ts
 packages/server/src/database/migrations/postgres/1693995626941-ModifyChatFlow.ts
@@ -1209,6 +1211,7 @@ packages/server/src/database/migrations/postgres/1767000000000-AddMcpServerConfi
 packages/server/src/database/migrations/postgres/1772000000000-AddScheduleEntities.ts
 packages/server/src/database/migrations/postgres/1776240000001-AddWebhookSecretToChatFlow.ts
 packages/server/src/database/migrations/postgres/1795000000000-AddDatasetRowSource.ts
+packages/server/src/database/migrations/postgres/1796000000000-AddDatasetRowRating.ts
 packages/server/src/database/migrations/postgres/index.ts
 packages/server/src/database/migrations/sqlite/1693835579790-Init.ts
 packages/server/src/database/migrations/sqlite/1693920824108-ModifyChatFlow.ts
@@ -1257,6 +1260,7 @@ packages/server/src/database/migrations/sqlite/1767000000000-AddMcpServerConfigT
 packages/server/src/database/migrations/sqlite/1772000000000-AddScheduleEntities.ts
 packages/server/src/database/migrations/sqlite/1776240000000-AddWebhookSecretToChatFlow.ts
 packages/server/src/database/migrations/sqlite/1795000000000-AddDatasetRowSource.ts
+packages/server/src/database/migrations/sqlite/1796000000000-AddDatasetRowRating.ts
 packages/server/src/database/migrations/sqlite/index.ts
 packages/server/src/errors/appError/index.test.ts
 packages/server/src/errors/appError/index.ts
@@ -1685,6 +1689,8 @@ packages/ui/src/ui-component/cards/StarterPromptsCard.jsx
 packages/ui/src/ui-component/cards/StatsCard.jsx
 packages/ui/src/ui-component/checkbox/Checkbox.jsx
 packages/ui/src/ui-component/dialog/AboutDialog.jsx
+packages/ui/src/ui-component/dialog/AddRatedAnswersDialog.jsx
+packages/ui/src/ui-component/dialog/AddRatedAnswersDialog.test.js
 packages/ui/src/ui-component/dialog/AddToTestSetDialog.jsx
 packages/ui/src/ui-component/dialog/AddToTestSetDialog.test.js
 packages/ui/src/ui-component/dialog/AdditionalParamsDialog.jsx
@@ -1877,6 +1883,8 @@ packages/ui/src/views/datasets/AddEditDatasetDialog.jsx
 packages/ui/src/views/datasets/AddEditDatasetRowDialog.jsx
 packages/ui/src/views/datasets/DatasetItems.jsx
 packages/ui/src/views/datasets/UploadCSVFileDialog.jsx
+packages/ui/src/views/datasets/datasetRowLabel.js
+packages/ui/src/views/datasets/datasetRowLabel.test.js
 packages/ui/src/views/datasets/index.jsx
 packages/ui/src/views/docstore/AddDocStoreDialog.jsx
 packages/ui/src/views/docstore/ComponentsListDialog.jsx

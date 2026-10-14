@@ -37,4 +37,22 @@ export class DatasetRow implements IDatasetRow {
     // Each driver maps Date to its own date column, which is what the migration created.
     @Column({ nullable: true, type: Date })
     sourceDate?: Date | null
+
+    // Set when the row was saved from a rating. Null on a row typed in, uploaded, or saved from one answer.
+    @Column({ nullable: true, type: 'varchar', length: 36 })
+    sourceFeedbackId?: string | null
+
+    @Column({ nullable: true, type: 'varchar', length: 16 })
+    sourceRating?: string | null
+
+    @Column({ nullable: true, type: 'text' })
+    sourceFeedbackText?: string | null
+
+    // The answer a thumbs-down rejected. It is not the expected output.
+    @Column({ nullable: true, type: 'text' })
+    sourceRejectedAnswer?: string | null
+
+    // True until someone writes the expected answer. A rejected answer is not that answer.
+    @Column({ nullable: true, type: 'boolean', default: false })
+    needsExpectedAnswer?: boolean | null
 }

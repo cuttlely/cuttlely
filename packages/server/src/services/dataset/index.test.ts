@@ -68,7 +68,7 @@ jest.mock('../../utils/getRunningExpressApp', () => ({
     })
 }))
 
-import datasetService from '.'
+import datasetService, { cursorForNextRatingPage } from '.'
 
 const WORKSPACE_A = 'ws-a'
 const WORKSPACE_B = 'ws-b'
@@ -174,5 +174,22 @@ describe('datasetService.reorderDatasetRow', () => {
         })
         expect(row(ROW_A1)?.sequenceNo).toBe(0)
         expect(row(ROW_B1)?.sequenceNo).toBe(5)
+    })
+})
+
+describe('cursorForNextRatingPage', () => {
+    it('fails a rating page whose stored time is missing instead of reading it again', () => {
+        expect(() => cursorForNextRatingPage('fb-1', null)).toThrow(AppError)
+        expect(() => cursorForNextRatingPage('fb-1', '')).toThrow(AppError)
+        expect(() => cursorForNextRatingPage('fb-1', undefined)).toThrow(
+            expect.objectContaining({
+                statusCode: StatusCodes.INTERNAL_SERVER_ERROR,
+                message: 'Error: datasetService.addDatasetRowsFromRatings - stored time for a rating page is missing.'
+            })
+        )
+        expect(cursorForNextRatingPage('fb-1', '2024-02-29 00:00:00')).toEqual({
+            id: 'fb-1',
+            createdDate: '2024-02-29 00:00:00'
+        })
     })
 })

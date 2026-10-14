@@ -34,6 +34,7 @@ import TablePagination, { DEFAULT_ITEMS_PER_PAGE } from '@/ui-component/paginati
 
 // API
 import datasetsApi from '@/api/dataset'
+import { datasetRowExpectedLabel, datasetRowNeedsExpectedAnswer } from '@/views/datasets/datasetRowLabel'
 
 // Hooks
 import useApi from '@/hooks/useApi'
@@ -448,6 +449,17 @@ const EvalDatasetRows = () => {
                                                                 onMouseUp={() => setDraggable(true)}
                                                             >
                                                                 {item.input}
+                                                                {item.sourceType === 'chat_rating' ? (
+                                                                    <Typography
+                                                                        variant='caption'
+                                                                        display='block'
+                                                                        sx={{ color: theme.palette.grey[600] }}
+                                                                    >
+                                                                        From a{' '}
+                                                                        {item.sourceRating === 'THUMBS_DOWN' ? 'thumbs-down' : 'thumbs-up'}{' '}
+                                                                        rating
+                                                                    </Typography>
+                                                                ) : null}
                                                                 {item.sourceType === 'chat_message' ? (
                                                                     <Typography
                                                                         variant='caption'
@@ -467,7 +479,13 @@ const EvalDatasetRows = () => {
                                                                 onMouseDown={() => setDraggable(false)}
                                                                 onMouseUp={() => setDraggable(true)}
                                                             >
-                                                                {item.output}
+                                                                {datasetRowNeedsExpectedAnswer(item) ? (
+                                                                    <Typography sx={{ color: theme.palette.warning.main }}>
+                                                                        {datasetRowExpectedLabel(item)}
+                                                                    </Typography>
+                                                                ) : (
+                                                                    item.output
+                                                                )}
                                                             </StyledTableCell>
                                                             <StyledTableCell style={{ width: '1%' }}>
                                                                 <DragIndicatorIcon

@@ -65,6 +65,7 @@ import useApi from '@/hooks/useApi'
 import useConfirm from '@/hooks/useConfirm'
 import { useAuth } from '@/hooks/useAuth'
 import AddToTestSetDialog, { canAddAnswerToDataset, questionBeforeAnswer } from '@/ui-component/dialog/AddToTestSetDialog'
+import AddRatedAnswersDialog, { singleFeedbackRating } from '@/ui-component/dialog/AddRatedAnswersDialog'
 
 // Utils
 import { isValidURL, removeDuplicateURL } from '@/utils/genericHelper'
@@ -210,6 +211,8 @@ const ViewMessagesDialog = ({ show, dialogProps, onCancel }) => {
     const [leadEmail, setLeadEmail] = useState('')
     const [anchorEl, setAnchorEl] = useState(null)
     const [addToTestSet, setAddToTestSet] = useState(null)
+    const [addRated, setAddRated] = useState(null)
+    const ratedFilter = singleFeedbackRating(feedbackTypeFilter)
     const open = Boolean(anchorEl)
 
     const getChatmessageApi = useApi(chatmessageApi.getAllChatmessageFromChatflow)
@@ -972,6 +975,15 @@ const ViewMessagesDialog = ({ show, dialogProps, onCancel }) => {
                                 formControlSx={{ mt: 0 }}
                             />
                         </div>
+                        {canAddToTestSet && ratedFilter ? (
+                            <Button
+                                variant='outlined'
+                                sx={{ textTransform: 'none', mr: 1 }}
+                                onClick={() => setAddRated({ rating: ratedFilter })}
+                            >
+                                Add rated answers to test set
+                            </Button>
+                        ) : null}
                         <div style={{ flex: 1 }}></div>
                         <Button
                             id='messages-dialog-action-button'
@@ -1663,6 +1675,15 @@ const ViewMessagesDialog = ({ show, dialogProps, onCancel }) => {
                         canView={canViewDatasets}
                         onCancel={() => setAddToTestSet(null)}
                         onSaved={() => setAddToTestSet(null)}
+                    />
+                    <AddRatedAnswersDialog
+                        show={Boolean(addRated)}
+                        flowId={dialogProps.chatflow?.id || ''}
+                        rating={addRated?.rating || ratedFilter}
+                        canCreate={canCreateDataset}
+                        canView={canViewDatasets}
+                        onCancel={() => setAddRated(null)}
+                        onSaved={() => setAddRated(null)}
                     />
                     <ConfirmDeleteMessageDialog
                         show={hardDeleteDialogOpen}

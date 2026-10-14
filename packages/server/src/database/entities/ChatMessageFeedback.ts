@@ -19,7 +19,8 @@ export class ChatMessageFeedback implements IChatMessageFeedback {
     @Column({ type: 'uuid' })
     messageId: string
 
-    @Column({ nullable: true })
+    // varchar matches the sqlite migration. A string enum otherwise reflects as Object.
+    @Column({ type: 'varchar', nullable: true })
     rating: ChatMessageRatingType
 
     @Column({ nullable: true, type: 'text' })
