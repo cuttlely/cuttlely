@@ -81,7 +81,7 @@ The key needs the same flow view and update pair as the question check, plus `da
 
 The summary adds the draft pass rate, the threshold, and the cases whose draft scores are not Pass. `--json` writes the full check, including each case's scores. The same object is [Read a check](../reference/drafts-api.md#read-a-check).
 
-A flow that starts from a form, a webhook, or a schedule cannot take a dataset check. The server refuses that start, and the command exits 2. A harness can be scored; the exit code is still the server verdict.
+A flow that starts from a form, a webhook, or a schedule cannot take a dataset check. The server refuses that start, and the command exits 2. `--dataset` can score a harness, and the exit code is still the server verdict. `--gate` is only for a chatflow or an agentflow that has the passing test set on. A harness cannot store that setting, so `--gate` exits 2 before any check.
 
 ## GitHub Actions
 
