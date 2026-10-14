@@ -27,7 +27,10 @@ jest.mock('../../services/flow-versions', () => ({ __esModule: true, default: ve
 jest.mock('../../database/entities/ChatFlow', () => ({ ChatFlow: class ChatFlow {} }))
 const putVersionLive = jest.fn()
 jest.mock('../flow-versions', () => ({ putVersionLive: (...args: any[]) => putVersionLive(...args) }))
-jest.mock('../../services/flow-drafts', () => ({ __esModule: true, default: drafts }))
+jest.mock('../../services/flow-drafts', () => {
+    const { redactDraftStatus } = jest.requireActual('../../services/flow-drafts/gate')
+    return { __esModule: true, default: drafts, redactDraftStatus }
+})
 const checkService = {
     getCheckSetup: jest.fn(async () => ({ unavailable: null, questions: [] })),
     startCheck: jest.fn(async () => ({ id: 'c1', status: 'running' })),
@@ -101,6 +104,64 @@ test('turning the passing test set on needs dataset and evaluator view', async (
     drafts.updateDraftSettings.mockClear()
     await controller.updateSettings(request({ publishGate: { enabled: false } }), response(), jest.fn())
     expect(drafts.updateDraftSettings).toHaveBeenCalled()
+})
+
+test('a caller without dataset or evaluator view does not receive those ids', async () => {
+    const gate = {
+        enabled: false,
+        datasetId: 'ds-1',
+        evaluatorIds: ['ev-1'],
+        threshold: 100,
+        block: null,
+        result: {
+            draftHash: 'abc',
+            datasetId: 'ds-1',
+            evaluatorIds: ['ev-1'],
+            threshold: 100,
+            passRate: 100,
+            passed: 1,
+            failed: 0,
+            errored: 0,
+            verdict: 'passed',
+            checkedAt: '2026-10-13T00:00:00.000Z',
+            contentHash: 'h',
+            postProcessHash: 'p'
+        }
+    }
+    const status = { mode: 'draft', publishGate: gate }
+    drafts.getDraftStatus.mockResolvedValue(status)
+    drafts.saveDraft.mockResolvedValue(status)
+    drafts.updateDraftSettings.mockResolvedValue(status)
+    granted.add('chatflows:view')
+    granted.add('chatflows:update')
+    const read = response()
+    await controller.getDraft(request(), read, jest.fn())
+    expect(read.json.mock.calls[0][0].publishGate).toMatchObject({
+        enabled: false,
+        datasetId: null,
+        evaluatorIds: [],
+        threshold: 100,
+        block: null,
+        result: { datasetId: '', evaluatorIds: [], verdict: 'passed', passed: 1, failed: 0, errored: 0, passRate: 100, threshold: 100 }
+    })
+    expect(JSON.stringify(read.json.mock.calls[0][0])).not.toContain('ds-1')
+    expect(JSON.stringify(read.json.mock.calls[0][0])).not.toContain('ev-1')
+    const saved = response()
+    await controller.saveDraft(request({ flowData: '{"nodes":[],"edges":[]}' }), saved, jest.fn())
+    expect(saved.json.mock.calls[0][0].publishGate.datasetId).toBeNull()
+    expect(saved.json.mock.calls[0][0].publishGate.result.evaluatorIds).toEqual([])
+    const updated = response()
+    await controller.updateSettings(request({ publishGate: { enabled: false } }), updated, jest.fn())
+    expect(updated.json.mock.calls[0][0].publishGate.datasetId).toBeNull()
+    expect(updated.json.mock.calls[0][0].publishGate.evaluatorIds).toEqual([])
+    expect(updated.json.mock.calls[0][0].publishGate.result.verdict).toBe('passed')
+    granted.add('datasets:view')
+    granted.add('evaluators:view')
+    const visible = response()
+    await controller.getDraft(request(), visible, jest.fn())
+    expect(visible.json.mock.calls[0][0].publishGate.datasetId).toBe('ds-1')
+    expect(visible.json.mock.calls[0][0].publishGate.evaluatorIds).toEqual(['ev-1'])
+    expect(visible.json.mock.calls[0][0].publishGate.result.evaluatorIds).toEqual(['ev-1'])
 })
 
 test('a publish gate refusal does not write Live', async () => {

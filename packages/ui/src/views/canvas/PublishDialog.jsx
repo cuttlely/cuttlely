@@ -18,8 +18,10 @@ import {
 
 import flowDraftsApi from '@/api/flowDrafts'
 import useConfirm from '@/hooks/useConfirm'
+import { useAuth } from '@/hooks/useAuth'
+import { GATE_RUN_PERMISSION } from '@/utils/publishCheck'
 import { CHANGE_COLORS } from '@/utils/versionHistory'
-import { POLL_MS } from '@/utils/publishCheck'
+import { POLL_MS, pollGateCheck } from '@/utils/publishCheck'
 import {
     STALE_DRAFT_WARNING,
     apiErrorMessage,
@@ -74,7 +76,7 @@ PublishChangeList.propTypes = {
     lines: PropTypes.array
 }
 
-export const PublishGateNotice = ({ gate, busy, runAnyway, onRunAnyway, onRun, startBlock }) => {
+export const PublishGateNotice = ({ gate, busy, runAnyway, onRunAnyway, onRun, startBlock, canRun = true }) => {
     if (!gate?.enabled) return null
     if (startBlock) {
         return (
@@ -102,9 +104,15 @@ export const PublishGateNotice = ({ gate, busy, runAnyway, onRunAnyway, onRun, s
                 }
                 label={<Typography variant='body2'>Run steps that could send or write something</Typography>}
             />
-            <Button variant='outlined' onClick={onRun} disabled={busy} data-testid='publish-gate-run' sx={{ mt: 1 }}>
-                {busy ? 'Running the test set…' : 'Run the test set'}
-            </Button>
+            {canRun ? (
+                <Button variant='outlined' onClick={onRun} disabled={busy} data-testid='publish-gate-run' sx={{ mt: 1 }}>
+                    {busy ? 'Running the test set…' : 'Run the test set'}
+                </Button>
+            ) : (
+                <Typography variant='body2' sx={{ mt: 1 }} data-testid='publish-gate-permission'>
+                    {GATE_RUN_PERMISSION}
+                </Typography>
+            )}
         </Alert>
     )
 }
@@ -115,12 +123,15 @@ PublishGateNotice.propTypes = {
     runAnyway: PropTypes.bool,
     onRunAnyway: PropTypes.func,
     onRun: PropTypes.func,
-    startBlock: PropTypes.string
+    startBlock: PropTypes.string,
+    canRun: PropTypes.bool
 }
 
 const PublishDialog = ({ open, chatflow, draftStatus, isDirty, onClose, onDraftStatus, onChatflowUpdated, onApplyCanvas }) => {
     const dispatch = useDispatch()
     const { confirm } = useConfirm()
+    const { hasPermission } = useAuth()
+    const canRunGate = hasPermission('datasets:view') && hasPermission('evaluators:view')
     const [replaceLiveChanges, setReplaceLiveChanges] = useState(false)
     const [busy, setBusy] = useState(false)
     const [gateBusy, setGateBusy] = useState(false)
@@ -148,6 +159,59 @@ const PublishDialog = ({ open, chatflow, draftStatus, isDirty, onClose, onDraftS
 
     const onStatus = useRef(onDraftStatus)
     onStatus.current = onDraftStatus
+    const mounted = useRef(true)
+    const gateGeneration = useRef(0)
+    useEffect(() => {
+        if (!open) {
+            // The dialog stays mounted. Bump the generation and clear the busy flag here. The poll's
+            // finally still checks the generation, so an older run cannot clear a newer one.
+            gateGeneration.current += 1
+            setGateBusy(false)
+            return undefined
+        }
+        if (!chatflow?.id) return undefined
+        const generation = gateGeneration.current
+        let cancelled = false
+        // A check that is still running was started before this open. Re-read it instead of keeping
+        // the busy flag from the previous open.
+        flowDraftsApi
+            .getCheckSetup(chatflow.id)
+            .then(async (res) => {
+                const running = res?.data?.check
+                if (cancelled || gateGeneration.current !== generation) return
+                // An optional recent-question check must not disable Publish. Only a dataset run
+                // that matches the passing-test settings is the gate run.
+                if (!running || running.status !== 'running' || !running.id || !running.matchesPublishGate) return
+                setGateBusy(true)
+                try {
+                    const view = await pollGateCheck({
+                        view: running,
+                        pollMs: POLL_MS,
+                        shouldStop: () => cancelled || !mounted.current || gateGeneration.current !== generation,
+                        sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+                        read: async () => (await flowDraftsApi.getCheck(chatflow.id, running.id)).data
+                    })
+                    if (cancelled || !mounted.current || gateGeneration.current !== generation) return
+                    const status = await flowDraftsApi.getStatus(chatflow.id)
+                    if (cancelled || !mounted.current || gateGeneration.current !== generation) return
+                    if (status?.data) onStatus.current(status.data)
+                    if (view?.status !== 'done') setError(view?.error || 'The test set did not finish.')
+                } finally {
+                    if (mounted.current && gateGeneration.current === generation) setGateBusy(false)
+                }
+            })
+            .catch(() => {})
+        return () => {
+            cancelled = true
+        }
+    }, [open, chatflow?.id])
+    useEffect(
+        () => () => {
+            mounted.current = false
+            gateGeneration.current += 1
+        },
+        []
+    )
     useEffect(() => {
         if (!open || !chatflow?.id) return
         let cancelled = false
@@ -179,6 +243,8 @@ const PublishDialog = ({ open, chatflow, draftStatus, isDirty, onClose, onDraftS
     const onRunGate = async () => {
         const gate = draftStatus?.publishGate
         if (!chatflow?.id || !gate?.enabled || gateBusy || busy) return
+        const generation = ++gateGeneration.current
+        const stopped = () => !mounted.current || gateGeneration.current !== generation
         setGateBusy(true)
         setError('')
         try {
@@ -188,19 +254,25 @@ const PublishDialog = ({ open, chatflow, draftStatus, isDirty, onClose, onDraftS
                 threshold: gate.threshold ?? 100,
                 includeRiskySteps: runAnyway
             })
-            let view = started.data
-            for (let i = 0; i < 200 && view?.status === 'running'; i += 1) {
-                await new Promise((resolve) => setTimeout(resolve, POLL_MS))
-                const next = await flowDraftsApi.getCheck(chatflow.id, view.id)
-                view = next.data
-            }
+            if (stopped()) return
+            // Closing the dialog stops this poll. It does not stop the check, so a run already
+            // started can still record a pass for the draft it scored.
+            const view = await pollGateCheck({
+                view: started.data,
+                pollMs: POLL_MS,
+                shouldStop: stopped,
+                sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+                read: async () => (await flowDraftsApi.getCheck(chatflow.id, started.data?.id)).data
+            })
+            if (stopped()) return
             const status = await flowDraftsApi.getStatus(chatflow.id)
+            if (stopped()) return
             if (status.data) onDraftStatus(status.data)
             if (view?.status !== 'done') setError(view?.error || 'The test set did not finish.')
         } catch (err) {
-            setError(apiErrorMessage(err, 'The test set could not start.'))
+            if (!stopped()) setError(apiErrorMessage(err, 'The test set could not start.'))
         } finally {
-            setGateBusy(false)
+            if (mounted.current && gateGeneration.current === generation) setGateBusy(false)
         }
     }
 
@@ -289,6 +361,7 @@ const PublishDialog = ({ open, chatflow, draftStatus, isDirty, onClose, onDraftS
                         onRunAnyway={setRunAnyway}
                         onRun={onRunGate}
                         startBlock={startBlock}
+                        canRun={canRunGate}
                     />
                 )}
                 {stale && (

@@ -1105,6 +1105,7 @@ packages/server/src/database/migrations/mariadb/1766000000000-AddCustomMcpServer
 packages/server/src/database/migrations/mariadb/1767000000000-AddMcpServerConfigToChatFlow.ts
 packages/server/src/database/migrations/mariadb/1772000000000-AddScheduleEntities.ts
 packages/server/src/database/migrations/mariadb/1776240000003-AddWebhookSecretToChatFlow.ts
+packages/server/src/database/migrations/mariadb/1795000000000-AddDatasetRowSource.ts
 packages/server/src/database/migrations/mariadb/index.ts
 packages/server/src/database/migrations/mysql/1693840429259-Init.ts
 packages/server/src/database/migrations/mysql/1693997791471-ModifyChatFlow.ts
@@ -1156,6 +1157,7 @@ packages/server/src/database/migrations/mysql/1766000000000-AddCustomMcpServer.t
 packages/server/src/database/migrations/mysql/1767000000000-AddMcpServerConfigToChatFlow.ts
 packages/server/src/database/migrations/mysql/1772000000000-AddScheduleEntities.ts
 packages/server/src/database/migrations/mysql/1776240000002-AddWebhookSecretToChatFlow.ts
+packages/server/src/database/migrations/mysql/1795000000000-AddDatasetRowSource.ts
 packages/server/src/database/migrations/mysql/index.ts
 packages/server/src/database/migrations/postgres/1693891895163-Init.ts
 packages/server/src/database/migrations/postgres/1693995626941-ModifyChatFlow.ts
@@ -1205,6 +1207,7 @@ packages/server/src/database/migrations/postgres/1766000000000-AddCustomMcpServe
 packages/server/src/database/migrations/postgres/1767000000000-AddMcpServerConfigToChatFlow.ts
 packages/server/src/database/migrations/postgres/1772000000000-AddScheduleEntities.ts
 packages/server/src/database/migrations/postgres/1776240000001-AddWebhookSecretToChatFlow.ts
+packages/server/src/database/migrations/postgres/1795000000000-AddDatasetRowSource.ts
 packages/server/src/database/migrations/postgres/index.ts
 packages/server/src/database/migrations/sqlite/1693835579790-Init.ts
 packages/server/src/database/migrations/sqlite/1693920824108-ModifyChatFlow.ts
@@ -1252,6 +1255,7 @@ packages/server/src/database/migrations/sqlite/1766000000000-AddCustomMcpServer.
 packages/server/src/database/migrations/sqlite/1767000000000-AddMcpServerConfigToChatFlow.ts
 packages/server/src/database/migrations/sqlite/1772000000000-AddScheduleEntities.ts
 packages/server/src/database/migrations/sqlite/1776240000000-AddWebhookSecretToChatFlow.ts
+packages/server/src/database/migrations/sqlite/1795000000000-AddDatasetRowSource.ts
 packages/server/src/database/migrations/sqlite/index.ts
 packages/server/src/errors/appError/index.test.ts
 packages/server/src/errors/appError/index.ts
@@ -1262,6 +1266,7 @@ packages/server/src/metrics/OpenTelemetry.ts
 packages/server/src/metrics/Prometheus.test.ts
 packages/server/src/metrics/Prometheus.ts
 packages/server/src/metrics/graphTraces.test.ts
+packages/server/src/metrics/harnessTraces.test.ts
 packages/server/src/metrics/tracing.test.ts
 packages/server/src/metrics/tracing.ts
 packages/server/src/middlewares/errors/index.ts
@@ -1679,6 +1684,8 @@ packages/ui/src/ui-component/cards/StarterPromptsCard.jsx
 packages/ui/src/ui-component/cards/StatsCard.jsx
 packages/ui/src/ui-component/checkbox/Checkbox.jsx
 packages/ui/src/ui-component/dialog/AboutDialog.jsx
+packages/ui/src/ui-component/dialog/AddToTestSetDialog.jsx
+packages/ui/src/ui-component/dialog/AddToTestSetDialog.test.js
 packages/ui/src/ui-component/dialog/AdditionalParamsDialog.jsx
 packages/ui/src/ui-component/dialog/AllowedDomainsDialog.jsx
 packages/ui/src/ui-component/dialog/ChatFeedbackContentDialog.jsx

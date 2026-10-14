@@ -117,6 +117,15 @@ test('a dataset verdict uses the draft pass rate, and errored scores are not pas
     expect(draftVerdict({ passed: 0, failed: 0, errored: 2, passRate: 0 }, 1).result).toBe('failed')
     expect(draftVerdict({ passed: 4, failed: 0, errored: 0, passRate: 100 }, 100).result).toBe('passed')
     expect(draftVerdict({ passed: 3, failed: 0, errored: 1, passRate: 75 }, 100).result).toBe('failed')
+    expect(draftVerdict({ passed: 2999, failed: 1, errored: 0, passRate: 100 }, 100)).toMatchObject({
+        result: 'failed',
+        passRate: 100,
+        passed: 2999,
+        failed: 1,
+        threshold: 100
+    })
+    expect(draftVerdict({ passed: 9, failed: 1, errored: 0, passRate: 90 }, 90).result).toBe('passed')
+    expect(draftVerdict({ passed: 8, failed: 2, errored: 0, passRate: 80 }, 81).result).toBe('failed')
     expect(draftVerdict(undefined, 0)).toMatchObject({ result: 'failed', passRate: null, passed: 0, errored: 0 })
     expect(draftVerdict(undefined, 100).result).toBe('failed')
     expect(parseCheckThreshold(undefined, true)).toEqual({ ok: true, threshold: 100 })

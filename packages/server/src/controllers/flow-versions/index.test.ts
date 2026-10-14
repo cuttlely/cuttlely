@@ -28,7 +28,10 @@ const drafts = {
     draftToPublish: jest.fn(),
     saveDraft: jest.fn(async (): Promise<any> => ({ mode: 'draft', draft: { flowData: '{"nodes":[1],"edges":[]}' } }))
 }
-jest.mock('../../services/flow-drafts', () => ({ __esModule: true, default: drafts }))
+jest.mock('../../services/flow-drafts', () => {
+    const { redactDraftStatus } = jest.requireActual('../../services/flow-drafts/gate')
+    return { __esModule: true, default: drafts, redactDraftStatus }
+})
 jest.mock('../../database/entities/ChatFlow', () => ({ ChatFlow: class ChatFlow {} }))
 
 const granted = new Set<string>()

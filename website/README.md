@@ -6,6 +6,8 @@ The docs are written in [`docs/`](../docs) and nowhere else. Before every build,
 
 Content screenshots on the home page and in the docs open in a full-screen viewer (zoom, pan, keyboard and touch). With JavaScript off, the same images are links to the full image file. Logos, icons and the mascot are not part of that.
 
+Home page videos keep a silent looping preview, or the poster when autoplay is off, with a play button over the hero and each product tile. The hero button is centred. The tile button is smaller than the hero button and sits just left of the product name in the preview. The button starts that video from the beginning with sound and pauses any other video. A hero that was playing with sound returns to the silent preview, button included. While that sound playback is running, on-screen previews stay paused even if a download finishes or they scroll back into view. Scrolling that video off screen ends the sound session, including when autoplay is off. Closing a dialog, the narration ending, a media error on that video, or the play being refused resumes on-screen previews the loading queue has already started, and does not fetch the ones still waiting. An error on any other video leaves the session running. With autoplay off, a refused hero play returns the poster. A refused dialog play ends the narration and leaves its sources attached, so the next open plays the file. A volume the visitor set is left as it is. The hero plays in place, and returns to its poster when autoplay is off. A tile opens its narrated video. With JavaScript off, the tile's "Watch with sound" link still opens the file.
+
 ## Run it
 
 Node 22.12 or newer. The website has its own dependencies and lockfile, separate from the pnpm workspace.
