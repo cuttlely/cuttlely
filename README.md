@@ -13,9 +13,27 @@
 [![npm](https://img.shields.io/npm/v/cuttlely)](https://www.npmjs.com/package/cuttlely)
 [![CI](https://github.com/cuttlely/cuttlely/actions/workflows/main.yml/badge.svg?branch=main)](https://github.com/cuttlely/cuttlely/actions/workflows/main.yml)
 
+English | [繁體中文](./i18n/README-TW.md) | [简体中文](./i18n/README-ZH.md) | [日本語](./i18n/README-JA.md) | [한국어](./i18n/README-KR.md)
+
 **Your applications deserve agents.**
 
 The open-source agent platform for applications. Cuttlely gives your applications their own intelligent capabilities and coordinated agent teams. Start chatting with a team in minutes, then call it from your app through the API. It runs on infrastructure you control.
+
+## Contents
+
+-   [What you can build](#what-you-can-build)
+    -   [Agent teams that power your apps](#agent-teams-that-power-your-apps)
+-   [Test every change before it goes live](#test-every-change-before-it-goes-live)
+-   [Use your team](#use-your-team)
+    -   [Use a team from your app](#use-a-team-from-your-app)
+    -   [Small context, big answers](#small-context-big-answers)
+    -   [Tools your teams use](#tools-your-teams-use)
+-   [Your first 10 minutes](#your-first-10-minutes)
+-   [Guides](#guides)
+-   [Bring your existing flows](#bring-your-existing-flows)
+-   [Contributing](#contributing)
+-   [About and credits](#about-and-credits)
+-   [Contact](#contact)
 
 <p align="center">
 <a href="https://cuttlely.com/media/customer-care-demo.mp4"><img src="./website/public/media/customer-care-demo-poster.webp" alt="Watch a narrated run of the customer care team in Try the demo, 78 seconds with captions. The title card shows the Cuttlely mascot waving next to the logo and the line Your applications deserve agents." width="880"></a>
@@ -25,11 +43,19 @@ The open-source agent platform for applications. Cuttlely gives your application
 
 A customer writes in about a late order. A customer specialist reads the account, an operations specialist finds that the parcel never left the warehouse, and a policy specialist checks the written policy once operations is done, each with its own data and tools. Harness Prime writes the decision, the reply and the actions, with the evidence. [Try the demo](./docs/how-to/try-the-demo.md) opens this team on your own model key.
 
-An agent team is a lead agent with specialists. The lead, Harness Prime, splits each question into parts. Specialists do the work with their own models, tools and data, and an analyst queries real tables and hands back the actual numbers. Your app sends the team a question through the API and gets back one researched answer, a chart or an action. In Cuttlely, an agent team is called a harness. Knowledge pipelines, visual workflows and Build with AI give your teams what they need, and every change waits as a draft until you publish it. Cuttlely is open source and runs on your laptop, your own server or Render.
+## What you can build
 
-English | [繁體中文](./i18n/README-TW.md) | [简体中文](./i18n/README-ZH.md) | [日本語](./i18n/README-JA.md) | [한국어](./i18n/README-KR.md)
+### Agent teams that power your apps
+
+Give your app a team instead of a single prompt. An agent team is a lead agent with specialists. In Cuttlely, an agent team is called a harness. The lead, Harness Prime, reads the question, splits it into parts, sends each part to the right specialist, and writes one answer. Each specialist can have its own model, tools, playbooks and data. A chatflow calls the whole team by name, so your app, a share link or a website embed can reach it. Your app sends the team a question through the API and gets back one researched answer, a chart or an action. [Harnesses guide](./docs/how-to/harnesses.md)
+
+-   **The Analyst** is a specialist with its own database. It creates tables, adds rows and answers questions about them with the real numbers, and it never reads Cuttlely's own tables. Long results come back in pages. Turn it on with `CUTTLELY_ANALYST=auto`. [Analyst guide](./docs/how-to/analyst.md)
+
+![A harness canvas with its test chat open. The run card says Harness Prime sent work to analyst. The answer is a table of open tasks: draft agenda, open, and send invites, open.](./docs/images/harnesses/canvas-chat-analyst.png)
 
 ## Test every change before it goes live
+
+<span id="ship-changes-safely-draft-compare-publish-roll-back"></span>
 
 Test with up to 100 question-and-answer pairs, with more on the roadmap.
 
@@ -39,51 +65,22 @@ Test with up to 100 question-and-answer pairs, with more on the roadmap.
 <a href="https://cuttlely.com/media/products/testing.mp4">Watch the testing run (56 seconds, sound on)</a>
 </p>
 
+-   **Drafts never touch Live.** On chatflows, agentflows, harnesses, and pipelines the canvas saves to a draft. The API, embeds, shared links, schedules, webhooks, a harness's external runs route, and a pipeline's scheduled runs keep serving Live until you publish. The canvas test chat runs your draft, including a harness canvas chat and Try it. **Preview** on a pipeline runs the draft and does not write to the store.
 -   **Compare before you publish.** Recent questions run on Live and on the draft, and each answer is marked Same, Changed, or Error.
 -   **Real answers become tests.** Add one answer with [Add to test set](./docs/how-to/tests-from-answers.md), or thumbs-up or thumbs-down answers from a time window, up to 500 new rows at a time.
 -   **Score the draft.** Text, JSON, numeric and model evaluators give Pass, Fail or Error and a pass rate for Live and the draft. [Evaluations](./docs/how-to/evaluations.md)
--   **Publish waits for a pass.** Turn on Passing test set and Publish stays disabled until the current draft passes. [`cuttlely check --gate`](./docs/how-to/ci-gate.md) runs the same check in CI.
+-   **Publish waits for a pass.** The Passing test set gate is off until you turn it on, for a chatflow or an agentflow that starts from chat. Once on, Publish stays disabled until the current draft passes. [`cuttlely check --gate`](./docs/how-to/ci-gate.md) runs the same check in CI.
+-   **Every version is kept.** Open an old version as your draft or roll Live back in one step, and promote from Dev to Prod, which goes Live only when its owner selects **Promote to Live**.
 
-The gate covers Publish of the current draft only. Roll back Live, Promote from Dev, and `PUT /api/v1/chatflows/:id` still change Live. The table is under [Require a passing test set before you publish](./docs/how-to/versioning.md#require-a-passing-test-set-before-you-publish).
+Some paths, like Roll back and Promote from Dev, still change Live: [see which](./docs/how-to/versioning.md#require-a-passing-test-set-before-you-publish).
 
-## Contents
+On a chatflow, an agentflow, or a harness, the Publish dialog can replay recent questions (4, 10, 25, 50, or 100; 4 is selected first), once on Live and once on your draft, and show both answers side by side with the tokens and time each one took. An agentflow that starts from a form, a webhook, or a schedule replays that many recorded inputs instead. A pipeline lists what changed and does not run that check. The check never changes Live or your draft and leaves nothing in chat history. A flow with steps that post or write for real is skipped unless you choose to run it anyway. On a chatflow or a chat-started agentflow, under **Questions from**, choose **A dataset**, pick the evaluators, and turn on the passing test set. A harness can score a dataset for that run only, and a form, webhook, or schedule start cannot.
 
--   [Test every change before it goes live](#test-every-change-before-it-goes-live)
--   [What you can build](#what-you-can-build)
-    -   [Agent teams that power your apps](#agent-teams-that-power-your-apps)
-    -   [Small context, big answers](#small-context-big-answers)
-    -   [Use a team from your app](#use-a-team-from-your-app)
-    -   [Chat with a team in minutes](#chat-with-a-team-in-minutes)
-    -   [Tools your teams use](#tools-your-teams-use)
--   [Ship changes safely: draft, compare, publish, roll back](#ship-changes-safely-draft-compare-publish-roll-back)
--   [Your first 10 minutes](#your-first-10-minutes)
--   [Guides](#guides)
--   [Bring your existing flows](#bring-your-existing-flows)
--   [Contributing](#contributing)
--   [About and credits](#about-and-credits)
--   [Contact](#contact)
+![The Publish dialog for Bakery helper after a check: 1 of 4 answered differently and 3 of 4 answered the same. What time do you open on Saturday? is marked Changed, with Live: We open at 8 AM on Saturdays and Draft: We open at 7 AM on Saturdays. Do you have gluten-free bread today? is marked Same, and both sides say No, we bake gluten-free bread only on Tuesdays. Estimated cost is no price.](./docs/images/versioning/publish-check-results.png)
 
-## What you can build
+[Version history guide](./docs/how-to/versioning.md) · [Check recent questions before you publish](./docs/how-to/versioning.md#check-recent-questions-before-you-publish) · [Move a flow from Dev to Prod](./docs/how-to/versioning.md#move-a-flow-from-dev-to-prod)
 
-### Agent teams that power your apps
-
-Give your app a team instead of a single prompt. Harness Prime reads the question, sends each part to the right specialist, and writes one answer. Each specialist can have its own model, tools, playbooks and data. A chatflow calls the whole team by name, so your app, a share link or a website embed can reach it. [Harnesses guide](./docs/how-to/harnesses.md)
-
--   **The Analyst** is a specialist with its own database. It creates tables, adds rows and answers questions about them with the real numbers, and it never reads Cuttlely's own tables. Long results come back in pages. Turn it on with `CUTTLELY_ANALYST=auto`. [Analyst guide](./docs/how-to/analyst.md)
-
-![A harness canvas with its test chat open. The run card says Harness Prime sent work to analyst. The answer is a table of open tasks: draft agenda, open, and send invites, open.](./docs/images/harnesses/canvas-chat-analyst.png)
-
-### Small context, big answers
-
-Long chats, big tables and long rule books don't have to mean long prompts. Each agent sees only what its job needs, and every run shows the tokens it used.
-
--   **Each specialist gets its own job.** A common pattern hands every agent the whole chat. Harness Prime writes each specialist a task that stands on its own, with a short recap of the recent turns.
--   **Data stays in the database.** A common pattern pastes query results into the prompt. The analyst hands back one page of rows. Say "show more" for the next page. Earlier pages stay out of the next prompt.
--   **Rules load when they're needed.** A common pattern puts every instruction in one giant system prompt. Long rules go in playbooks. A specialist opens one only when a question needs it.
--   **Short handoffs.** A common pattern pastes whole documents into the prompt that writes the final answer. Harness Prime reads a capped part of each specialist's answer, with the source names and a short snippet. The documents go back to your app in the response.
--   **See every token.** The run card shows input and output tokens, cached tokens when the model reports them, and the time each step took. The API response carries the same numbers. The Publish check shows Live and the draft side by side with the tokens and time each one used.
-
-[How Cuttlely keeps context small](./docs/how-to/context-and-tokens.md)
+## Use your team
 
 ### Use a team from your app
 
@@ -115,9 +112,17 @@ curl -s http://localhost:43117/api/v1/prediction/<chatflow-id> \
 
 Harness Prime split the question: `baker` priced the order and `orders` checked the pickup day. The full response also has the tokens, the timings, the sources and any images the team made. The [API guide](./docs/api.md) covers the rest: API keys, streaming, conversation memory, file uploads, errors, and a runnable example web app that keeps your key on your server. Reference: [Prediction API for harnesses](./docs/how-to/harnesses.md#prediction-api) and [Call the harness from a chatflow](./docs/how-to/harnesses.md#call-the-harness-from-a-chatflow).
 
-### Chat with a team in minutes
+### Small context, big answers
 
-New to agents? You do not need to write code. Describe a team with **Build with AI** and a first version lands on the canvas with starter questions. Ask them in the test chat, and the run card shows which specialists did the work. When it answers well, the chatflow that calls the team gives you a link to share and an embed for your website, so other people can chat with it too. [Your first 10 minutes](#your-first-10-minutes) walks through it.
+Long chats, big tables and long rule books don't have to mean long prompts. Each agent sees only what its job needs, and every run shows the tokens it used.
+
+-   **Each specialist gets its own job.** A common pattern hands every agent the whole chat. Harness Prime writes each specialist a task that stands on its own, with a short recap of the recent turns.
+-   **Data stays in the database.** A common pattern pastes query results into the prompt. The analyst hands back one page of rows. Say "show more" for the next page. Earlier pages stay out of the next prompt.
+-   **Rules load when they're needed.** A common pattern puts every instruction in one giant system prompt. Long rules go in playbooks. A specialist opens one only when a question needs it.
+-   **Short handoffs.** A common pattern pastes whole documents into the prompt that writes the final answer. Harness Prime reads a capped part of each specialist's answer, with the source names and a short snippet. The documents go back to your app in the response.
+-   **See every token.** The run card shows input and output tokens, cached tokens when the model reports them, and the time each step took. The API response carries the same numbers. The Publish check shows Live and the draft side by side with the tokens and time each one used.
+
+[How Cuttlely keeps context small](./docs/how-to/context-and-tokens.md)
 
 ### Tools your teams use
 
@@ -144,20 +149,9 @@ Workflows that run step by step and can start from a chat message, a form, a web
 -   **Build with AI on every canvas.** Describe a team, an assistant, a pipeline or a workflow, and a first version lands on the canvas. Every part and connection is checked first. The building model is one of your own credentials. [Build a team](./docs/how-to/harnesses.md#build-a-team-with-ai), [a chatflow](./docs/how-to/canvas.md#build-a-chatflow-with-ai), [a pipeline](./docs/how-to/etl.md#build-a-pipeline-with-ai)
 -   **An agent runtime in the box.** Specialists run in an agent runtime that ships with Cuttlely and starts with it, on the same server. There is nothing extra to install or host. [Harnesses guide](./docs/how-to/harnesses.md#agent-runtime-health)
 
-## Ship changes safely: draft, compare, publish, roll back
-
-Changing an AI app that people already use should not mean testing on them. Cuttlely treats every change as a release.
-
--   **Drafts never touch Live.** On chatflows, agentflows, harnesses, and pipelines the canvas saves to a draft. The API, embeds, shared links, schedules, webhooks, a harness's external runs route, and a pipeline's scheduled runs keep serving Live until you publish. The canvas test chat runs your draft, including a harness canvas chat and Try it. **Preview** on a pipeline runs the draft and does not write to the store.
--   **Compare before you publish.** On a chatflow, an agentflow, or a harness, the Publish dialog can replay recent questions (4, 10, 25, 50, or 100; 4 is selected first), once on Live and once on your draft, and show both answers side by side with the tokens and time each one took. An agentflow that starts from a form, a webhook, or a schedule replays that many recorded inputs instead. A pipeline lists what changed and does not run that check. The check never changes Live or your draft and leaves nothing in chat history. A flow with steps that post or write for real is skipped unless you choose to run it anyway. On a chatflow or a chat-started agentflow, under **Questions from**, choose **A dataset**, pick the evaluators, and turn on the passing test set, as [Test every change before it goes live](#test-every-change-before-it-goes-live) describes. A harness can score a dataset for that run only, and a form, webhook, or schedule start cannot.
--   **Every version is kept.** Chatflows, agentflows, harnesses and pipelines keep each saved version, with what changed and who changed it. Open an old version as your draft, or roll Live back to it, in one step.
--   **Promote from Dev to Prod.** Connect a Dev server and a Prod server to the same GitHub repository. Prod lists what Dev published, shows what would change and which credentials it needs, can run the same side-by-side check, and goes Live only when its owner selects **Promote to Live**. Each server keeps its own credentials; only their names travel.
-
-![The Publish dialog for Bakery helper after a check: 1 of 4 answered differently and 3 of 4 answered the same. What time do you open on Saturday? is marked Changed, with Live: We open at 8 AM on Saturdays and Draft: We open at 7 AM on Saturdays. Do you have gluten-free bread today? is marked Same, and both sides say No, we bake gluten-free bread only on Tuesdays. Estimated cost is no price.](./docs/images/versioning/publish-check-results.png)
-
-[Version history guide](./docs/how-to/versioning.md) · [Check recent questions before you publish](./docs/how-to/versioning.md#check-recent-questions-before-you-publish) · [Move a flow from Dev to Prod](./docs/how-to/versioning.md#move-a-flow-from-dev-to-prod)
-
 ## Your first 10 minutes
+
+New to agents? You do not need to write code. Describe a team with **Build with AI** and a first version lands on the canvas with starter questions. Ask them in the test chat, and the run card shows which specialists did the work. When it answers well, the chatflow that calls the team gives you a link to share and an embed for your website, so other people can chat with it too.
 
 You need Docker and one model key. The steps use OpenAI. Any chat model provider listed under **Credentials** works the same way.
 

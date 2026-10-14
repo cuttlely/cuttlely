@@ -13,6 +13,7 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 -   Fresh screenshots for the knowledge pipeline guide and the Usage page.
 -   Docs: fresh pictures of version history, the Publish check, and evaluations.
 -   The README and homepage lead with testing before Publish, with a narrated video.
+-   README and homepage follow one order: team, testing, API, tools, start; homepage adds three start steps.
 
 ### Upgrade notes / breaking changes
 

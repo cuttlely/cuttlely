@@ -854,15 +854,28 @@ function shellVideo(dataset) {
 test('the home page puts a play button on the hero and on every tile loop', () => {
     const src = readFileSync(new URL('../src/pages/index.astro', import.meta.url), 'utf8')
     assert.equal((src.match(/slug: '/g) || []).length, 6)
-    assert.match(src, /slug: 'testing'/)
-    assert.equal(src.includes("slug: 'chatflows'"), false)
+    assert.match(src, /slug: 'chatflows'/)
+    assert.equal(src.includes("slug: 'testing'"), false)
     assert.match(src, /<button type="button" class="cl-play-overlay" data-play-with-sound aria-label="Play the demo with sound">/)
     assert.match(src, /aria-label="Play the testing video with sound"/)
-    const testingAt = src.indexOf('id="test-every-change-before-it-goes-live"')
-    const caseAt = src.indexOf('id="one-complaint-three-specialists"')
-    const teamsAt = src.indexOf('id="agent-teams-that-power-your-apps"')
-    assert.ok(caseAt !== -1 && testingAt > caseAt && teamsAt > testingAt)
-    assert.equal((src.match(/Test with up to 100 question-and-answer pairs, with more on the roadmap\./g) || []).length >= 2, true)
+    const ids = [
+        'watch-a-team-resolve-a-complaint',
+        'one-complaint-three-specialists',
+        'agent-teams-that-power-your-apps',
+        'test-every-change-before-it-goes-live',
+        'use-a-team-from-your-app',
+        'small-context-big-answers',
+        'tools-your-teams-use',
+        'start-in-minutes',
+        'bring-your-existing-flows'
+    ]
+    let at = -1
+    for (const id of ids) {
+        const next = src.indexOf(`id="${id}"`)
+        assert.ok(next > at, id)
+        at = next
+    }
+    assert.equal((src.match(/Test with up to 100 question-and-answer pairs, with more on the roadmap\./g) || []).length, 1)
     const tiles = src.slice(src.indexOf('class="cl-tile-media"'), src.indexOf('class="cl-tile-link"'))
     assert.match(tiles, /data-loop-video/)
     assert.match(tiles, /<button/)
@@ -870,6 +883,19 @@ test('the home page puts a play button on the hero and on every tile loop', () =
     assert.match(tiles, /data-play-with-sound/)
     assert.match(tiles, /data-video-dialog-open=\{`video-\$\{tool\.video\.slug\}`\}/)
     assert.match(tiles, /aria-label=\{`Play \$\{tool\.title\} with sound`\}/)
+})
+
+test('the home page keeps the old anchors, one testing video, and no testing tile', () => {
+    const src = readFileSync(new URL('../src/pages/index.astro', import.meta.url), 'utf8')
+    for (const id of ['chat-with-a-team-in-minutes', 'ship-changes-safely-draft-compare-publish-roll-back', 'run-it-your-way']) {
+        assert.match(src, new RegExp(`id="${id}"`))
+    }
+    const tools = src.slice(src.indexOf('const tools'), src.indexOf('const installs'))
+    assert.equal(tools.includes("slug: 'testing'"), false)
+    assert.equal(tools.includes('Test before you publish'), false)
+    assert.match(tools, /slug: 'chatflows'/)
+    assert.equal((src.match(/\/media\/products\/testing\.mp4/g) || []).length, 1)
+    assert.equal((src.match(/aria-label="Play the testing video with sound"/g) || []).length, 1)
 })
 
 test('reduced motion, a narrow screen and Save-Data keep the poster and the play button', () => {
