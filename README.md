@@ -135,7 +135,7 @@ Changing an AI app that people already use should not mean testing on them. Cutt
 -   **Every version is kept.** Chatflows, agentflows, harnesses and pipelines keep each saved version, with what changed and who changed it. Open an old version as your draft, or roll Live back to it, in one step.
 -   **Promote from Dev to Prod.** Connect a Dev server and a Prod server to the same GitHub repository. Prod lists what Dev published, shows what would change and which credentials it needs, can run the same side-by-side check, and goes Live only when its owner selects **Promote to Live**. Each server keeps its own credentials; only their names travel.
 
-![The Publish dialog for Bakery helper after a check: 1 of 4 answered differently and 3 of 4 answered the same. What time do you open on Saturday? is marked Changed, with Live: We open at 8 AM on Saturdays and Draft: We open at 7 AM on Saturdays. Estimated cost is no price.](./docs/images/versioning/publish-check-results.png)
+![The Publish dialog for Bakery helper after a check: 1 of 4 answered differently and 3 of 4 answered the same. What time do you open on Saturday? is marked Changed, with Live: We open at 8 AM on Saturdays and Draft: We open at 7 AM on Saturdays. Do you have gluten-free bread today? is marked Same, and both sides say No, we bake gluten-free bread only on Tuesdays. Estimated cost is no price.](./docs/images/versioning/publish-check-results.png)
 
 [Version history guide](./docs/how-to/versioning.md) · [Check recent questions before you publish](./docs/how-to/versioning.md#check-recent-questions-before-you-publish) · [Move a flow from Dev to Prod](./docs/how-to/versioning.md#move-a-flow-from-dev-to-prod)
 

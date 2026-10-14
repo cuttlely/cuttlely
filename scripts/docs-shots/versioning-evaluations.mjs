@@ -454,21 +454,23 @@ async function openPage(browser, base) {
     return page
 }
 
-async function animationsDone(page, timeout = 8000) {
-    await page
-        .waitForFunction(
-            () => {
-                const running = document.getAnimations().filter((anim) => {
-                    if (anim.playState !== 'running') return false
-                    const timing = anim.effect && anim.effect.getComputedTiming ? anim.effect.getComputedTiming() : null
-                    return !(timing && timing.iterations === Infinity)
-                })
-                return running.length === 0
-            },
-            null,
-            { timeout, polling: 50 }
-        )
-        .catch(() => {})
+async function animationsDone(page, timeout = 12000) {
+    await page.waitForFunction(
+        () =>
+            document.getAnimations().every((anim) => {
+                if (anim.playState !== 'running') return true
+                const targetNode = anim.effect && anim.effect.target
+                if (targetNode && targetNode.nodeType === 1) {
+                    const style = getComputedStyle(targetNode)
+                    if (style.display === 'none' || style.visibility === 'hidden' || Number.parseFloat(style.opacity) === 0) return true
+                }
+                const timing = anim.effect && anim.effect.getComputedTiming ? anim.effect.getComputedTiming() : null
+                if (timing && timing.iterations === Infinity) return true
+                return false
+            }),
+        null,
+        { timeout, polling: 50 }
+    )
 }
 
 // The target has to be on screen, opaque, and finished with its own transition. A label that
@@ -497,6 +499,9 @@ async function ready(page, locator, timeout = 20000) {
             return running.every((anim) => {
                 const targetNode = anim.effect && anim.effect.target
                 if (!targetNode || !chain.includes(targetNode)) return true
+                const style = targetNode.nodeType === 1 ? getComputedStyle(targetNode) : null
+                if (style && (style.display === 'none' || style.visibility === 'hidden' || Number.parseFloat(style.opacity) === 0))
+                    return true
                 const timing = anim.effect && anim.effect.getComputedTiming ? anim.effect.getComputedTiming() : null
                 if (timing && timing.iterations === Infinity) return true
                 return anim.playState === 'finished' || anim.playState === 'idle'
@@ -547,6 +552,52 @@ async function onScreen(page, locator, timeout = 20000) {
     )
 }
 
+// Scroll the target up until its box sits fully above a fixed footer or bar.
+async function sitAbove(page, locator, footer, timeout = 20000) {
+    const target = locator.first()
+    await target.waitFor({ state: 'visible', timeout })
+    const bar = footer.first()
+    const node = await target.elementHandle()
+    const stop = (await bar.count()) ? await bar.elementHandle() : null
+    if (!node) throw new Error('the target was not in the page')
+    await page.waitForFunction(
+        ({ el, barEl }) => {
+            const scrollParent = (start) => {
+                let parent = start.parentElement
+                while (parent) {
+                    const style = getComputedStyle(parent)
+                    if (/(auto|scroll)/.test(style.overflowY) && parent.scrollHeight > parent.clientHeight + 2) return parent
+                    parent = parent.parentElement
+                }
+                return null
+            }
+            const fits = () => {
+                const rect = el.getBoundingClientRect()
+                const limit = barEl ? barEl.getBoundingClientRect().top : window.innerHeight
+                return (
+                    rect.width > 8 &&
+                    rect.height > 8 &&
+                    rect.top >= 8 &&
+                    rect.left >= 0 &&
+                    rect.bottom <= limit - 6 &&
+                    rect.right <= window.innerWidth + 1
+                )
+            }
+            if (fits()) return true
+            const parent = scrollParent(el)
+            const rect = el.getBoundingClientRect()
+            const limit = barEl ? barEl.getBoundingClientRect().top : window.innerHeight
+            const delta = Math.max(16, rect.bottom - limit + 12)
+            if (parent) parent.scrollTop += delta
+            else window.scrollBy(0, delta)
+            return fits()
+        },
+        { el: node, barEl: stop },
+        { timeout, polling: 50 }
+    )
+    await ready(page, target, timeout)
+}
+
 async function showFully(page, locator, timeout = 20000) {
     const target = locator.first()
     await target.waitFor({ state: 'attached', timeout })
@@ -581,6 +632,30 @@ async function versionPage(page, base, id, sha) {
 async function openPublish(page) {
     await page.getByRole('button', { name: 'Publish', exact: true }).click()
     await ready(page, page.getByRole('dialog').getByRole('heading', { name: 'Publish' }))
+}
+
+async function openGate(page, dataset) {
+    await page.getByRole('button', { name: 'Settings', exact: true }).click()
+    await page.getByText('Configuration', { exact: true }).click()
+    const dialog = page.getByRole('dialog')
+    await ready(page, dialog.getByRole('heading', { name: 'Chatflow Configuration' }))
+    await page.getByText('View Messages', { exact: true }).waitFor({ state: 'hidden' })
+    await dialog.getByText('Passing test set', { exact: true }).click()
+    const note = dialog.getByText('Publish is refused until this draft passes the dataset at the mark you set.')
+    await ready(page, note)
+    const datasetSelect = dialog.locator('[data-testid="publish-gate-dataset"]')
+    await ready(page, datasetSelect)
+    const selectHandle = await datasetSelect.elementHandle()
+    await page.waitForFunction(
+        ({ el, name }) => {
+            const chosen = el.options && el.options[el.selectedIndex]
+            return Boolean(chosen && chosen.text.trim() === name)
+        },
+        { el: selectHandle, name: dataset }
+    )
+    await ready(page, dialog.getByRole('heading', { name: 'Chatflow Configuration' }))
+    await page.getByText('View Messages', { exact: true }).waitFor({ state: 'hidden' })
+    await animationsDone(page)
 }
 
 function byTitle(versions, part) {
@@ -756,9 +831,12 @@ async function main() {
     await see(page, 'What time do you open on Saturday?')
     await see(page, 'Questions from')
     await shot(page, 'docs/images/versioning/publish-check-questions.png')
-    await page.getByRole('button', { name: 'Run check' }).click()
+    await page.getByRole('button', { name: 'Run check', exact: true }).click()
     await see(page, 'answered', 120000)
-    await page.waitForTimeout(400)
+    const gluten = page.getByTestId('check-case').filter({ hasText: 'gluten-free' })
+    await sitAbove(page, gluten, page.getByRole('button', { name: 'Discard Draft' }))
+    await onScreen(page, gluten.getByText('No, we bake gluten-free bread only on Tuesdays.').nth(0))
+    await onScreen(page, gluten.getByText('No, we bake gluten-free bread only on Tuesdays.').nth(1))
     await shot(page, 'docs/images/versioning/publish-check-results.png')
     await page.keyboard.press('Escape')
 
@@ -845,9 +923,27 @@ async function main() {
     await feedbackBox.click()
     await page.getByRole('option', { name: 'Negative' }).click()
     await page.getByText('Total Sessions').click()
-    await page.getByText('Why was the sourdough late?').first().click()
-    await see(page, 'That does not say when it will be ready.')
-    await see(page, 'Add rated answers to test set')
+    await page.waitForFunction(() => {
+        const chip = [...document.querySelectorAll('.MuiChip-label')].find((el) => (el.textContent || '').trim() === 'Negative')
+        if (!chip) return false
+        let box = chip.parentElement
+        while (box && !(box.textContent || '').trim().startsWith('Feedback')) box = box.parentElement
+        if (box && chip.scrollWidth > chip.clientWidth + 1) {
+            box.style.flex = '0 0 auto'
+            box.style.minWidth = '320px'
+        }
+        return chip.scrollWidth <= chip.clientWidth + 1
+    })
+    const sourdough = page.locator('.MuiListItemButton-root', { hasText: 'Why was the sourdough late?' })
+    await sourdough.click()
+    await page.waitForFunction(() => {
+        const row = [...document.querySelectorAll('.MuiListItemButton-root')].find((el) =>
+            (el.textContent || '').includes('Why was the sourdough late?')
+        )
+        return Boolean(row && row.classList.contains('Mui-selected'))
+    })
+    await ready(page, page.getByText('That does not say when it will be ready.'))
+    await ready(page, page.getByRole('button', { name: 'Add rated answers to test set' }))
     await shot(page, 'docs/images/evaluations/messages-negative.png')
     await page.getByRole('button', { name: 'Add rated answers to test set' }).click()
     await see(page, 'See how many')
@@ -987,7 +1083,9 @@ async function main() {
     await shot(page, 'docs/images/evaluations/evaluator-numeric.png', TALL)
     await page.keyboard.press('Escape')
     await page.getByText('Matches the counter card', { exact: true }).click()
-    await see(page, 'pass')
+    const modelDialog = page.getByRole('dialog')
+    await ready(page, modelDialog.getByRole('heading', { name: 'Edit Evaluator' }))
+    await ready(page, modelDialog.getByText('Does the reply match the expected output? Set pass to true only when it does.'))
     await shot(page, 'docs/images/evaluations/evaluator-model.png', TALL)
     await page.keyboard.press('Escape')
 
@@ -1019,10 +1117,7 @@ async function main() {
         'counter gate'
     )
     await canvasOf(page, dev.base, flowId)
-    await page.getByRole('button', { name: 'Settings', exact: true }).click()
-    await page.getByText('Configuration', { exact: true }).click()
-    await page.getByText('Passing test set', { exact: true }).click()
-    await page.getByTestId('publish-gate-dataset').waitFor()
+    await openGate(page, 'Counter answers')
     await shot(page, 'docs/images/evaluations/gate-from-answers.png')
     await page.keyboard.press('Escape')
     json(
@@ -1030,10 +1125,7 @@ async function main() {
         'saturday gate'
     )
     await canvasOf(page, dev.base, flowId)
-    await page.getByRole('button', { name: 'Settings', exact: true }).click()
-    await page.getByText('Configuration', { exact: true }).click()
-    await page.getByText('Passing test set', { exact: true }).click()
-    await page.getByTestId('publish-gate-dataset').waitFor()
+    await openGate(page, 'Saturday hours')
     await shot(page, 'docs/images/evaluations/publish-gate-settings.png')
     await page.keyboard.press('Escape')
 
@@ -1356,10 +1448,16 @@ async function main() {
         if (await run.count()) {
             await run.click()
             await see(prodPage, 'answered', 180000)
+            const glutenRow = prodPage.getByTestId('check-case').filter({ hasText: 'gluten-free' })
+            await sitAbove(prodPage, glutenRow, prodPage.getByRole('button', { name: 'Promote to Live' }))
+            await onScreen(prodPage, glutenRow.getByText('No, we bake gluten-free bread only on Tuesdays.'))
+            await onScreen(prodPage, glutenRow.getByText('Yes, we bake gluten-free bread every day.'))
             await shot(prodPage, 'docs/images/versioning/promote-check.png')
         }
-        await prodPage.getByRole('button', { name: /Promote to Live/ }).click()
-        await see(prodPage, 'Promoted', 30000)
+        await prodPage.getByRole('button', { name: 'Promote to Live' }).click()
+        await ready(prodPage, prodPage.getByRole('button', { name: 'Roll back' }), 30000)
+        await ready(prodPage, prodPage.getByRole('link', { name: 'Open the flow' }))
+        await ready(prodPage, prodPage.getByRole('link', { name: 'All new versions from Dev' }))
         await shot(prodPage, 'docs/images/versioning/promote-done.png')
         await prodPage
             .getByTitle('Version history')
