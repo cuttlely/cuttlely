@@ -45,13 +45,13 @@ const tools: { title: string; text: string; href: string; video: ToolVideo }[] =
         }
     },
     {
-        title: 'Chatflows',
-        text: 'A chat model, the agent or chain that answers, memory and tools, on one canvas. Each chatflow gets a prediction API, an embed and a shareable link.',
-        href: '/docs/how-to/canvas/',
+        title: 'Test before you publish',
+        text: 'Test with up to 100 question-and-answer pairs, with more on the roadmap. Compare the draft with Live on real questions, score it, and keep Publish locked until the test set passes.',
+        href: '/docs/how-to/tests-from-answers/',
         video: {
-            slug: 'chatflows',
-            length: '0:35',
-            label: 'A bakery chatflow on a real Cuttlely server: median of 20 runs, 1.1 seconds to first words after two model calls and the calculator, 1.3 seconds to the full answer on the first question, and 1.3 seconds for the follow-up answer, with the order kept.'
+            slug: 'testing',
+            length: '0:56',
+            label: 'A bakery chatflow on a real Cuttlely 1.1.0 server: rated answers become a test set, Compare flags the answer that changed, the draft scores 87.5% and Publish stays locked, and after the fix the test set passes at 100% and Publish goes through. Test with up to 100 question-and-answer pairs, with more on the roadmap.'
         }
     },
     {
@@ -236,6 +236,68 @@ const installs = [
             </div>
         </section>
 
+        <section id="test-every-change-before-it-goes-live" class="cl-section cl-split" aria-labelledby="test-every-change-title">
+            <div>
+                <p class="cl-kicker">Test every change</p>
+                <h2 id="test-every-change-title" class="cl-display">Test every change before it goes live</h2>
+                <p class="cl-lead">
+                    Test with up to 100 question-and-answer pairs, with more on the roadmap. Compare the draft with Live on real questions, score it
+                    against answers your customers rated, and keep Publish locked until the test set passes.
+                </p>
+                <ul class="cl-checks">
+                    <li>
+                        <strong>Compare before you publish.</strong> Recent questions run on Live and on the draft, and each answer is marked Same or Changed.
+                    </li>
+                    <li>
+                        <strong>Real answers become tests.</strong> Add one answer with Add to test set, or every rated answer from a time window at once.
+                    </li>
+                    <li>
+                        <strong>Score the draft.</strong> Text, JSON, numeric and model evaluators give Pass, Fail or Error and a pass rate for Live and the draft.
+                    </li>
+                    <li>
+                        <strong>Publish waits for a pass.</strong> Turn on Passing test set and Publish stays disabled until the current draft passes;
+                        <code>cuttlely check --gate</code> runs the same check in CI.
+                    </li>
+                </ul>
+                <p>
+                    <a class="cl-link-arrow" href="/docs/how-to/tests-from-answers/">Turn real answers into tests <Icon name="right-arrow" /></a>
+                </p>
+                <p>
+                    <a class="cl-link-arrow" href="/docs/how-to/evaluations/">Evaluations <Icon name="right-arrow" /></a>
+                </p>
+                <p class="cl-note">
+                    This covers Publish of the current draft only. Roll back Live, Promote from Dev, and <code>PUT /api/v1/chatflows/:id</code> still change Live.
+                    <a href="/docs/how-to/versioning/#require-a-passing-test-set-before-you-publish">See which paths stay open</a>.
+                </p>
+            </div>
+            <figure class="cl-demo-window">
+                <div class="cl-video-stage cl-testing-stage">
+                    <video
+                        class="cl-demo-video"
+                        data-demo-video
+                        controls
+                        muted
+                        loop
+                        playsinline
+                        preload="none"
+                        width="1280"
+                        height="720"
+                        poster={mediaUrl('/media/products/testing-poster.webp')}
+                        aria-label="Testing video. Compare, score, then publish."
+                    >
+                        <source src={mediaUrl('/media/products/testing.webm')} type="video/webm" />
+                        <source src={mediaUrl('/media/products/testing.mp4')} type="video/mp4" />
+                        <track kind="captions" src={mediaUrl('/media/products/testing.vtt')} srclang="en" label="English" />
+                    </video>
+                    <button type="button" class="cl-play-overlay" data-play-with-sound aria-label="Play the testing video with sound">
+                        <svg viewBox="0 0 24 24" width="36" height="36" aria-hidden="true">
+                            <path d="M8 5v14l12-7z" fill="currentColor" />
+                        </svg>
+                    </button>
+                </div>
+            </figure>
+        </section>
+
         <section id="agent-teams-that-power-your-apps" class="cl-section cl-split" aria-labelledby="agent-teams-title">
             <div>
                 <p class="cl-kicker">How a team works</p>
@@ -403,6 +465,9 @@ const installs = [
                                 <dialog id={`video-${tool.video.slug}`} class="cl-video-dialog" aria-label={`${tool.title}: narrated video with captions`}>
                                     <video controls playsinline preload="none" width="1280" height="720" poster={mediaUrl(`/media/products/${tool.video.slug}-poster.webp`)}>
                                         <source src={mediaUrl(`/media/products/${tool.video.slug}.mp4`)} type="video/mp4" />
+                                        {tool.video.slug === 'testing' && (
+                                            <track kind="captions" src={mediaUrl('/media/products/testing.vtt')} srclang="en" label="English" />
+                                        )}
                                     </video>
                                     <form method="dialog">
                                         <button class="cl-video-close" aria-label="Close">×</button>
@@ -428,7 +493,9 @@ const installs = [
                 <p class="cl-lead">Changing an AI app that people already use should not mean testing on them. Cuttlely treats every change as a release.</p>
                 <ul class="cl-checks">
                     <li><strong>Drafts never touch Live.</strong> The API, embeds and shared links keep serving Live until you publish.</li>
-                    <li><strong>Compare before you publish.</strong> Ask recent real questions again on Live and on your draft, and see both answers side by side.</li>
+                    <li>
+                        <strong>Compare before you publish.</strong> See <a href="#test-every-change-before-it-goes-live">Test every change before it goes live</a>.
+                    </li>
                     <li><strong>Every version is kept.</strong> Open an old version as your draft, or roll Live back to it, in one step.</li>
                     <li><strong>Promote from Dev to Prod.</strong> Prod shows what would change and goes Live only when its owner says so.</li>
                 </ul>

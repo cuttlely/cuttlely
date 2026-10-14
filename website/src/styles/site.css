@@ -438,6 +438,10 @@
         height: 5.75rem;
     }
 }
+/* The testing poster puts the title on the center line. Keep the control just left of that line. */
+.cl-testing-stage .cl-play-overlay {
+    transform: translate(calc(-100% - 0.65rem), -50%);
+}
 /* The product name in the preview starts on the center line. The control sits just to the left of that line. */
 .cl-tile-media .cl-play-overlay {
     left: 50%;
