@@ -273,6 +273,9 @@ test('the image context excludes the turbo cache, including a cache inside a pac
         'hermes/.mypy_cache/3.14',
         'hermes/.ruff_cache/CACHEDIR.TAG',
         'packages/ui/build/index.html',
+        'scripts/docs-shots/capture.mjs',
+        'scripts/docs-shots/capture-etl-usage.mjs',
+        'scripts/docs-shots/fake-chat.cjs',
         'node_modules/turbo/package.json',
         '.env',
         '.env.local'

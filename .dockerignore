@@ -45,3 +45,6 @@ hermes/.venv
 
 # The cuttlely.com website is not part of the product image.
 website
+
+# Docs screenshot capture is a local tool, not part of the product image.
+scripts/docs-shots
