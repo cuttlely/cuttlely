@@ -3,7 +3,7 @@ import { StatusCodes } from 'http-status-codes'
 import { AppError } from '../../errors/appError'
 import { ChatFlow } from '../../database/entities/ChatFlow'
 import chatflowsService from '../../services/chatflows'
-import flowDraftsService from '../../services/flow-drafts'
+import flowDraftsService, { redactDraftStatus } from '../../services/flow-drafts'
 import flowCheckService from '../../services/flow-check'
 import flowVersionsService from '../../services/flow-versions'
 import { actorFromUser } from '../../services/flow-versions/author'
@@ -30,10 +30,20 @@ async function flowFor(req: Request, action: 'view' | 'update') {
     return flow
 }
 
+async function shownStatus<T extends { publishGate?: { datasetId?: string | null; evaluatorIds?: string[] } | null }>(
+    req: Request,
+    status: T
+): Promise<T> {
+    return redactDraftStatus(status, {
+        datasets: await hasAnyPermission(req, 'datasets:view'),
+        evaluators: await hasAnyPermission(req, 'evaluators:view')
+    })
+}
+
 const getDraft = async (req: Request, res: Response, next: NextFunction) => {
     try {
         const flow = await flowFor(req, 'view')
-        return res.json(await flowDraftsService.getDraftStatus(flow))
+        return res.json(await shownStatus(req, await flowDraftsService.getDraftStatus(flow)))
     } catch (error) {
         next(error)
     }
@@ -49,7 +59,7 @@ const saveDraft = async (req: Request, res: Response, next: NextFunction) => {
             orgId,
             subscriptionId: req.user?.activeOrganizationSubscriptionId || ''
         })
-        return res.json(status)
+        return res.json(await shownStatus(req, status))
     } catch (error) {
         next(error)
     }
@@ -58,7 +68,7 @@ const saveDraft = async (req: Request, res: Response, next: NextFunction) => {
 const discardDraft = async (req: Request, res: Response, next: NextFunction) => {
     try {
         const flow = await flowFor(req, 'update')
-        return res.json(await flowDraftsService.discardDraft(flow))
+        return res.json(await shownStatus(req, await flowDraftsService.discardDraft(flow)))
     } catch (error) {
         next(error)
     }
@@ -78,9 +88,9 @@ const updateSettings = async (req: Request, res: Response, next: NextFunction) =
             }
         }
         if (body.publishGate !== undefined || (body.publishInstantly !== undefined && body.publishGate !== undefined)) {
-            return res.json(await flowDraftsService.updateDraftSettings(flow, body))
+            return res.json(await shownStatus(req, await flowDraftsService.updateDraftSettings(flow, body)))
         }
-        return res.json(await flowDraftsService.setPublishInstantly(flow, body.publishInstantly))
+        return res.json(await shownStatus(req, await flowDraftsService.setPublishInstantly(flow, body.publishInstantly)))
     } catch (error) {
         next(error)
     }
@@ -128,10 +138,10 @@ const publishDraft = async (req: Request, res: Response, next: NextFunction) => 
         const sha = await recorded
         if (unchanged) {
             // Only the draft that was checked is cleared; a newer one saved meanwhile is kept.
-            const status = await flowDraftsService.clearDraftIfStill(chatflow, draft)
+            const status = await shownStatus(req, await flowDraftsService.clearDraftIfStill(chatflow, draft))
             return res.json({ chatflow: summary(chatflow), version: null, unchanged: true, recorded: false, historyError: null, status })
         }
-        const status = await flowDraftsService.afterLiveSet(chatflow, sha, draft)
+        const status = await shownStatus(req, await flowDraftsService.afterLiveSet(chatflow, sha, draft))
         const version = sha ? (await flowVersionsService.listVersions(flow.id)).versions.find((item) => item.sha === sha) || null : null
         return res.json({
             chatflow: summary(chatflow),
@@ -158,9 +168,12 @@ const rollbackLive = async (req: Request, res: Response, next: NextFunction) => 
         if (!SHA.test(sha)) throw new AppError(StatusCodes.BAD_REQUEST, 'sha is a version id: 7 to 40 lowercase hex characters.')
         // A version of another flow type is refused while the flow has unpublished changes (updateChatflow).
         const result = await putVersionLive(req, flow, sha, { kind: 'rollback', verb: 'Rolled back Live to' })
-        const status = result.chatflow
-            ? await flowDraftsService.afterLiveSet(result.chatflow, result.sha)
-            : await flowDraftsService.getDraftStatus(flow)
+        const status = await shownStatus(
+            req,
+            result.chatflow
+                ? await flowDraftsService.afterLiveSet(result.chatflow, result.sha)
+                : await flowDraftsService.getDraftStatus(flow)
+        )
         // The page keeps this object as the flow. flowData is the canvas that is Live now:
         // the version that was written, or the canvas already stored when nothing changed.
         const liveCanvas = result.chatflow?.flowData || flow.flowData

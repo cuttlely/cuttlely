@@ -158,6 +158,32 @@ describe('PublishGateSettings', () => {
         act(() => root.unmount())
     })
 
+    test('an invalid pass mark does not leave the checkbox on', async () => {
+        datasetsApi.getAllDatasets.mockResolvedValue({ data: [{ id: 'ds-1', name: 'One' }] })
+        evaluatorsApi.getAllEvaluators.mockResolvedValue({ data: [{ id: 'ev-1', name: 'Yes' }] })
+        const root = await renderSettings({
+            type: 'CHATFLOW',
+            start: 'chatInput',
+            draftStatus: {
+                enabled: true,
+                mode: 'draft',
+                publishGate: { enabled: false, datasetId: 'ds-1', evaluatorIds: ['ev-1'], threshold: 100 }
+            }
+        })
+        const mark = document.querySelector('[data-testid="publish-gate-threshold"]')
+        await act(async () => {
+            fireEvent.change(mark, { target: { value: '101' } })
+        })
+        expect(checkbox().checked).toBe(false)
+        await act(async () => {
+            fireEvent.click(checkbox())
+        })
+        expect(checkbox().checked).toBe(false)
+        expect(flowDraftsApi.updateSettings).not.toHaveBeenCalled()
+        expect(document.body.textContent).toContain('The pass mark is a whole number from 0 to 100.')
+        act(() => root.unmount())
+    })
+
     test('a deleted evaluator can be removed, and a replacement does not keep its id', async () => {
         datasetsApi.getAllDatasets.mockResolvedValue({ data: [{ id: 'ds-1', name: 'One' }] })
         evaluatorsApi.getAllEvaluators.mockResolvedValue({

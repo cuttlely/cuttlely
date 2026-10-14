@@ -861,6 +861,52 @@ describe('a passing test set before Publish', () => {
             checkId
         })
 
+    test('a failed read before the gate result is stored notes the check and does not clear', async () => {
+        await arm()
+        const hash = canvasHash(canvas('Draft'))
+        rows[0].publishGateResult = JSON.stringify({
+            draftHash: hash,
+            datasetId: 'ds-1',
+            evaluatorIds: ['ev-1'],
+            threshold: 100,
+            passRate: 100,
+            passed: 1,
+            failed: 0,
+            errored: 0,
+            verdict: 'passed',
+            contentHash: 'abc',
+            postProcessHash: 'def'
+        })
+        const original = fakeRepo.findOneBy.getMockImplementation()
+        let calls = 0
+        fakeRepo.findOneBy.mockImplementation(async (where: any) => {
+            calls += 1
+            if (calls === 1) throw new Error('database is down')
+            return original?.(where)
+        })
+        const updatesBefore = fakeRepo.update.mock.calls.length
+        try {
+            await expect(
+                settlePublishGateCheck(flow(), {
+                    ...pass,
+                    draftHash: hash,
+                    contentHash: 'abc',
+                    postProcessHash: 'def',
+                    checkId: 'check-read'
+                })
+            ).rejects.toThrow('database is down')
+            expect(notedGateCheck('flow-1')).toBe('check-read')
+            expect(fakeRepo.update.mock.calls.slice(updatesBefore).some((call) => call[1]?.publishGateResult === null)).toBe(false)
+            expect(rows[0].publishGateResult).toContain(hash)
+            await expect(draftToPublish(flow())).rejects.toMatchObject({
+                statusCode: 409,
+                message: expect.stringContaining('The test set result could not be saved.')
+            })
+        } finally {
+            fakeRepo.findOneBy.mockImplementation(original as any)
+        }
+    })
+
     test('an ignored check leaves another check failure note, so Publish stays refused', async () => {
         await arm()
         await recordPass()

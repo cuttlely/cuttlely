@@ -34,6 +34,8 @@ import {
 import { datasetStartRefusal } from '../flow-check/kinds'
 import { casesFromDataset, currentTestSetHash, loadEvaluators } from '../flow-check/score'
 
+export { redactDraftStatus } from './gate'
+
 // Test seam. A race test changes the flow's type after a draft save has started and before it writes.
 export const draftWriteHooks: {
     beforeDraftWrite: null | (() => Promise<void>)
@@ -835,8 +837,13 @@ export type GateWriteOutcome = 'stored' | 'ignored'
 // A write that throws notes this check, then tries to clear the stored result. If that clear
 // also throws, the note stays so Publish refuses the older pass.
 export async function settlePublishGateCheck(flow: DraftFlow, input: GateResultInput): Promise<GateWriteOutcome> {
-    const before = readGateResult((await getState(flow.id))?.publishGateResult)
+    let before: ReturnType<typeof readGateResult> = null
+    let priorRead = false
     try {
+        // A throw here is still this check's failure. The note has to be recorded, and the clear
+        // can name the previous result only when this read actually returned it.
+        before = readGateResult((await getState(flow.id))?.publishGateResult)
+        priorRead = true
         const outcome = await recordPublishGateResult(flow, input)
         // A stored result replaces any failure note. An ignored check clears a note only when that
         // note is this check's. Another check's failure note stays, so its older pass stays refused.
@@ -845,10 +852,12 @@ export async function settlePublishGateCheck(flow: DraftFlow, input: GateResultI
         return outcome
     } catch (error) {
         if (input.checkId) noteGateCheck(flow.id, input.checkId)
-        try {
-            await clearPublishGateResult(flow, { checkId: before?.checkId ?? null, checkedAt: before?.checkedAt ?? null })
-        } catch {
-            // The note stays. Publish refuses a stored pass that is not from this check.
+        if (priorRead) {
+            try {
+                await clearPublishGateResult(flow, { checkId: before?.checkId ?? null, checkedAt: before?.checkedAt ?? null })
+            } catch {
+                // The note stays. Publish refuses a stored pass that is not from this check.
+            }
         }
         throw error
     }

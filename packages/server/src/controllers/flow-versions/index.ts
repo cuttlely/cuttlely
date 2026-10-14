@@ -5,7 +5,7 @@ import { ChatFlow } from '../../database/entities/ChatFlow'
 import chatflowsService from '../../services/chatflows'
 import { actorFromUser } from '../../services/flow-versions/author'
 import flowVersionsService from '../../services/flow-versions'
-import flowDraftsService from '../../services/flow-drafts'
+import flowDraftsService, { redactDraftStatus } from '../../services/flow-drafts'
 import { GithubError } from '../../services/flow-versions/github'
 import { hasAnyPermission } from '../../identity/rbac'
 import { missingCredentialsMessage } from './message'
@@ -231,11 +231,17 @@ const restoreVersion = async (req: Request, res: Response, next: NextFunction) =
                 'This version is a different kind of flow, so it cannot become the draft. Use Roll back Live instead.'
             )
         }
-        const status = await flowDraftsService.saveDraft(flow, version.flowData, {
-            userId: req.user?.id || null,
-            orgId,
-            subscriptionId: req.user?.activeOrganizationSubscriptionId || ''
-        })
+        const status = redactDraftStatus(
+            await flowDraftsService.saveDraft(flow, version.flowData, {
+                userId: req.user?.id || null,
+                orgId,
+                subscriptionId: req.user?.activeOrganizationSubscriptionId || ''
+            }),
+            {
+                datasets: await hasAnyPermission(req, 'datasets:view'),
+                evaluators: await hasAnyPermission(req, 'evaluators:view')
+            }
+        )
         return res.json({
             chatflow: { id: flow.id, name: flow.name, type: flow.type, updatedDate: flow.updatedDate },
             restoredFrom: sha,

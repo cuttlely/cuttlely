@@ -968,6 +968,7 @@ export const PublishGateSettings = ({ dialogProps }) => {
             return
         }
         if (next.enabled && whole == null) {
+            setOn(Boolean(gate?.enabled))
             setThreshold(gate?.threshold ?? 100)
             setError('The pass mark is a whole number from 0 to 100.')
             return
