@@ -70,6 +70,7 @@ const STEPS = [
             path.join(ROOT, 'scripts', 'proprietary-paths.test.mjs'),
             path.join(ROOT, 'scripts', 'etl-list-sqlite.test.mjs'),
             path.join(ROOT, 'scripts', 'eval-routes.test.cjs'),
+            path.join(ROOT, 'scripts', 'flow-drafts-sqlite-race.test.cjs'),
             path.join(ROOT, 'scripts', 'dataset-row-metadata.test.cjs'),
             path.join(ROOT, 'scripts', 'start-local-admin.test.mjs'),
             path.join(ROOT, 'scripts', 'start-restart-loop.test.mjs'),

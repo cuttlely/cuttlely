@@ -15,7 +15,9 @@ export const runAdditionalEvaluators = async (
     actualOutputArray: string[],
     errorArray: string[],
     selectedEvaluators: string[],
-    workspaceId: string
+    workspaceId: string,
+    // When the caller already loaded these records, score that copy. Do not read them again.
+    loaded?: ReadonlyMap<string, any>
 ) => {
     // Validate that inputs are arrays
     if (!Array.isArray(actualOutputArray) || !Array.isArray(selectedEvaluators)) {
@@ -33,8 +35,16 @@ export const runAdditionalEvaluators = async (
             const evaluatorId = selectedEvaluators[i]
             let evaluator = evaluatorDict[evaluatorId]
             if (!evaluator) {
-                evaluator = await evaluatorsService.getEvaluator(evaluatorId, workspaceId)
+                if (loaded) {
+                    evaluator = loaded.get(evaluatorId)
+                } else {
+                    evaluator = await evaluatorsService.getEvaluator(evaluatorId, workspaceId)
+                }
                 evaluatorDict[evaluatorId] = evaluator
+            }
+            if (!evaluator) {
+                subArray.push({ name: 'Missing Evaluator', result: 'Error' })
+                continue
             }
 
             // iterate through each actual output and run the evaluator

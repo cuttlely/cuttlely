@@ -92,6 +92,7 @@ const { EvaluationRun } = serverRequire('./src/database/entities/EvaluationRun.t
 const { Credential } = serverRequire('./src/database/entities/Credential.ts')
 const { Assistant } = serverRequire('./src/database/entities/Assistant.ts')
 const { ChatFlow } = serverRequire('./src/database/entities/ChatFlow.ts')
+const { FlowVersionState } = serverRequire('./src/database/entities/FlowVersionState.ts')
 const { ChatMessage } = serverRequire('./src/database/entities/ChatMessage.ts')
 const { Execution } = serverRequire('./src/database/entities/Execution.ts')
 const { WorkspaceShared } = serverRequire('./src/database/entities/identity/WorkspaceShared.ts')
@@ -112,6 +113,7 @@ const ROUND_TRIP_ENTITIES = [
     Credential,
     Assistant,
     ChatFlow,
+    FlowVersionState,
     ChatMessage,
     Execution,
     WorkspaceShared

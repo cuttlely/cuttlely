@@ -1,11 +1,36 @@
 // The publish check runner: limits, stopping, and that it never writes chat history or Live.
 const states = new Map<string, any>()
 let draftsOn = true
+const recordPublishGateResult: jest.Mock = jest.fn(async () => undefined)
+const clearPublishGateResult: jest.Mock = jest.fn(async () => undefined)
+const noteGateCheck: jest.Mock = jest.fn()
+const clearGateCheckNote: jest.Mock = jest.fn()
+const settlePublishGateCheck: jest.Mock = jest.fn(async (flow: { id?: string }, input: { checkId?: string }) => {
+    try {
+        const outcome = await recordPublishGateResult(flow, input)
+        const noted = noteGateCheck.mock.calls.filter((call) => call[0] === flow?.id).at(-1)?.[1]
+        if (outcome === 'stored' || (input?.checkId && noted === input.checkId)) clearGateCheckNote(flow?.id)
+        return outcome === 'ignored' ? 'ignored' : 'stored'
+    } catch (error) {
+        noteGateCheck(flow?.id, input?.checkId)
+        try {
+            await clearPublishGateResult(flow)
+        } catch {
+            // The note stays when the clear also throws.
+        }
+        throw error
+    }
+})
 jest.mock('../flow-drafts', () => ({
     __esModule: true,
     default: {
         getState: async (id: string) => states.get(id) || null,
-        isDraftsEnabled: () => draftsOn
+        isDraftsEnabled: () => draftsOn,
+        recordPublishGateResult: (...args: unknown[]) => recordPublishGateResult(...args),
+        clearPublishGateResult: (...args: unknown[]) => clearPublishGateResult(...args),
+        noteGateCheck: (...args: unknown[]) => noteGateCheck(...args),
+        clearGateCheckNote: (...args: unknown[]) => clearGateCheckNote(...args),
+        settlePublishGateCheck: (...args: unknown[]) => settlePublishGateCheck(...args)
     },
     canvasHash: (flowData: string) => `hash:${flowData}`
 }))
@@ -95,7 +120,7 @@ jest.mock('@cuttlely/components', () => ({ EvaluationRunner: { metrics: new Map(
 jest.mock('../../utils/logger', () => ({ __esModule: true, default: { error: jest.fn(), debug: jest.fn() } }))
 
 import { checks, getCheck, getCheckSetup, priceHooks, replayHooks, startCheck, stopCheck } from './index'
-import { scoreHooks } from './score'
+import { currentTestSetHash, scoreHooks } from './score'
 import { noteGraderTokens } from '../evaluations/LLMEvaluationRunner'
 
 const canvas = (word: string, extra: any[] = []) =>
@@ -1036,6 +1061,104 @@ describe('a dataset and evaluators', () => {
         expect(writes.update).not.toHaveBeenCalled()
     })
 
+    test('reports a draft verdict against the threshold, and refuses a threshold that is not 0 to 100', async () => {
+        const started = await startCheck(flow() as any, { datasetId: 'ds-1', threshold: 0 }, 'http://x')
+        expect(started.verdict).toBeNull()
+        await settle()
+        const done = await getCheck(flow(), started.id)
+        expect(done.verdict).toEqual({ result: 'failed', threshold: 0, passed: 0, failed: 0, errored: 0, passRate: null })
+        expect(recordPublishGateResult).toHaveBeenCalledWith(
+            expect.objectContaining({ id: 'flow-1' }),
+            expect.objectContaining({ threshold: 0, verdict: 'failed', datasetId: 'ds-1' })
+        )
+        const stored = JSON.stringify((recordPublishGateResult.mock.calls.at(-1) as unknown[] | undefined)?.[1])
+        expect(stored).not.toContain('First?')
+        expect(stored).not.toContain('"one"')
+        await expect(startCheck(flow() as any, { datasetId: 'ds-1', threshold: 101 }, 'http://x')).rejects.toMatchObject({
+            statusCode: 400
+        })
+        await expect(startCheck(flow() as any, { datasetId: 'ds-1', threshold: -1 }, 'http://x')).rejects.toMatchObject({ statusCode: 400 })
+        await expect(startCheck(flow() as any, { questions: ['Hi'], threshold: 80 }, 'http://x')).rejects.toMatchObject({
+            statusCode: 400,
+            message: 'threshold is only used with a dataset.'
+        })
+    })
+
+    test('a failed gate write clears the stored result and fails the check', async () => {
+        recordPublishGateResult.mockRejectedValueOnce(new Error('disk full'))
+        const started = await startCheck(flow() as any, { datasetId: 'ds-1', threshold: 0 }, 'http://x')
+        await settle()
+        const failed = await getCheck(flow(), started.id)
+        expect(failed.status).toBe('failed')
+        expect(failed.error).toBe('The test set result could not be saved.')
+        expect(failed.error).not.toContain('disk full')
+        expect(failed.verdict).toBeNull()
+        expect(clearPublishGateResult).toHaveBeenCalledWith(expect.objectContaining({ id: 'flow-1' }))
+        expect(recordPublishGateResult).toHaveBeenCalled()
+        expect(noteGateCheck).toHaveBeenCalledWith('flow-1', started.id)
+    })
+
+    test('a failed gate write still fails the check when clearing the old pass also throws', async () => {
+        recordPublishGateResult.mockRejectedValueOnce(new Error('disk full'))
+        clearPublishGateResult.mockRejectedValueOnce(new Error('still full'))
+        const started = await startCheck(flow() as any, { datasetId: 'ds-1', threshold: 0 }, 'http://x')
+        await settle()
+        const failed = await getCheck(flow(), started.id)
+        expect(failed.status).toBe('failed')
+        expect(failed.error).toBe('The test set result could not be saved.')
+        expect(failed.error).not.toContain('still full')
+        expect(noteGateCheck).toHaveBeenCalledWith('flow-1', started.id)
+        expect(clearPublishGateResult).toHaveBeenCalledWith(expect.objectContaining({ id: 'flow-1' }))
+    })
+
+    test('a check that does not match the gate is ignored and does not note a failed save', async () => {
+        recordPublishGateResult.mockResolvedValueOnce('ignored')
+        const started = await startCheck(flow() as any, { datasetId: 'ds-1', threshold: 0 }, 'http://x')
+        await settle()
+        const done = await getCheck(flow(), started.id)
+        expect(done.status).toBe('done')
+        expect(noteGateCheck).not.toHaveBeenCalled()
+        expect(clearGateCheckNote).not.toHaveBeenCalled()
+    })
+
+    test('a dataset check matches the passing test set only when the settings are the same', async () => {
+        const current = states.get('flow-1')
+        states.set('flow-1', {
+            ...current,
+            publishGate: true,
+            publishGateDatasetId: 'ds-1',
+            publishGateEvaluatorIds: '[]',
+            publishGateThreshold: 0
+        })
+        const started = await startCheck(flow() as any, { datasetId: 'ds-1', threshold: 0 }, 'http://x')
+        const setup = await getCheckSetup(flow() as any)
+        expect(setup.check?.id).toBe(started.id)
+        expect(setup.check?.matchesPublishGate).toBe(true)
+        states.get('flow-1').publishGateDatasetId = 'ds-other'
+        expect((await getCheckSetup(flow() as any)).check?.matchesPublishGate).toBe(false)
+    })
+
+    test('a write during scoring cannot pair a pass with the new test set hash', async () => {
+        datasetRows.length = 0
+        datasetRows.push({ id: 'r1', datasetId: 'ds-1', input: 'First?', output: 'one', sequenceNo: 1 })
+        saveEvaluator('text-1', 'text', { operator: 'ContainsAny', value: 'mango' })
+        const before = await currentTestSetHash('ds-1', ['text-1'], 'team-a')
+        replayHooks.run = async () => {
+            datasetRows[0].output = 'changed-after-the-score-started'
+            evaluatorRows.get('text-1').config = JSON.stringify({ operator: 'ContainsAny', value: 'nope' })
+            return { text: 'mango pie', metrics: [JSON.stringify({ totalTokens: 50 })] }
+        }
+        const started = await startCheck(flow() as any, { datasetId: 'ds-1', evaluatorIds: ['text-1'], threshold: 100 }, 'http://x')
+        await settle()
+        const done = await getCheck(flow(), started.id)
+        expect(done.verdict?.result).toBe('passed')
+        const stored = (recordPublishGateResult.mock.calls.at(-1) as unknown[] | undefined)?.[1] as { contentHash?: string }
+        const after = await currentTestSetHash('ds-1', ['text-1'], 'team-a')
+        expect(after).not.toBe(before)
+        expect(stored.contentHash).toBe(before)
+        expect(stored.contentHash).not.toBe(after)
+    })
+
     test('scores text, json, numeric and llm evaluators, and an errored answer is Error', async () => {
         saveEvaluator('text-1', 'text', { operator: 'ContainsAny', value: 'mango' }, 'team-a', 'Mentions mango')
         saveEvaluator('json-1', 'json', { operator: 'IsValidJSON' }, 'team-a', 'Valid JSON')
@@ -1071,6 +1194,7 @@ describe('a dataset and evaluators', () => {
         expect(draft.map((score) => score.result)).toEqual(['Pass', 'Fail', 'Pass', 'Pass'])
         expect(done.summary.scores?.live).toEqual({ passed: 6, failed: 6, errored: 0, passRate: 50 })
         expect(done.summary.scores?.draft).toEqual({ passed: 9, failed: 3, errored: 0, passRate: 75 })
+        expect(done.verdict).toMatchObject({ result: 'failed', threshold: 100, passRate: 75, passed: 9, failed: 3, errored: 0 })
         expect(graded[0]).toMatchObject({ workspaceId: 'team-a', credentialId: 'cred-team-a', question: 'First?', expected: 'one' })
         expect(writes.save).not.toHaveBeenCalled()
 
