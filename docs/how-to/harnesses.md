@@ -149,11 +149,11 @@ The chat button at the top right of a saved harness canvas runs the draft when o
 
 The reply starts with a **Run** card, then the answer.
 
-![The canvas chat after a document question. The Run card says Harness Prime sent work to researcher, with Route, Specialists, Handoff, and Profile times. The researcher row shows done, ChatOpenAI · gpt-4.1-mini, 1 tool. Below it the answer quotes the sample note and says the vectors were built with Local Hash Embeddings.](../images/harnesses/canvas-chat-researcher.png)
+![The canvas chat after a document question. The Run card says Harness Prime sent work to researcher, with Route, Specialists, Handoff, and Profile times. The researcher row shows done, OpenAI gpt-5.6-luna, 1 tool. Below it the answer quotes the sample note and says the vectors were built with Local Hash Embeddings.](../images/harnesses/canvas-chat-researcher.png)
 
 3. Ask a database question, for example: `Use the analyst database. Create a tasks table with id, title, and status. Insert three tasks: draft agenda (open), book room (done), send invites (open). Show the open tasks.`
 
-![The canvas chat after the database question. The Run card says Harness Prime sent work to analyst, and the analyst row shows done, 3 tools. The answer lists the open tasks in the tasks table: draft agenda and send invites.](../images/harnesses/canvas-chat-analyst.png)
+![The canvas chat after the database question. The Run card says Harness Prime sent work to analyst, and the analyst row shows done, OpenAI gpt-5.6-luna, 3 tools. The answer is a table with title and status: draft agenda open, and send invites open.](../images/harnesses/canvas-chat-analyst.png)
 
 The model writes its own wording, so your answer will differ. What should match is the route: the document question goes to `researcher` and the database question goes to `analyst`.
 
@@ -228,7 +228,7 @@ While it runs, the button reads **Running** and **Stop** cancels the run. The ru
 
 ![Try it while the run is going. The Run button reads Running, a Stop button is next to it, the Run card says Harness Prime sent work to analyst with the analyst running, and the answer box says Waiting for the first token.](../images/harnesses/harness-try-it-running.png)
 
-![Try it after the run. The Run card says Finished, 3.3 s, and the answer says There are 2 open tasks and lists draft agenda and send invites.](../images/harnesses/harness-try-it-done.png)
+![Try it after the run. The Run card says Finished 502 ms, the analyst row is done on OpenAI gpt-5.6-luna, and the answer says There are 2 open tasks and lists draft agenda and send invites.](../images/harnesses/harness-try-it-done.png)
 
 **Try it** uses your signed-in session. It runs the draft when the canvas has one, and Live otherwise, including the draft's specialists, tools, and models. `POST /api/v1/harnesses/chief-of-staff/runs` is what an external caller uses, and that route stays on Live until you publish.
 
