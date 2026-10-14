@@ -50,13 +50,13 @@ export CUTTLELY_API_KEY=<key>
 npx cuttlely check --flow <flow id> --server http://127.0.0.1:43117 --timeout 300 --json check.json --fail-on-changed
 ```
 
-| Flag                | Meaning                                                                                                   |
-| ------------------- | --------------------------------------------------------------------------------------------------------- |
-| `--flow`            | Flow id from the canvas address bar. Required.                                                            |
-| `--server`          | Server origin. Default `http://127.0.0.1:43117`.                                                          |
-| `--timeout`         | Seconds to wait. Default 300.                                                                             |
-| `--json`            | Write the full check JSON to this path.                                                                   |
-| `--fail-on-changed` | Exit 1 when any answer is Changed. Without it, a finished check exits 0 and the summary still lists them. |
+| Flag                | Meaning                                                                                                                                 |
+| ------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| `--flow`            | Flow id from the canvas address bar. Required.                                                                                          |
+| `--server`          | Server origin. Default `http://127.0.0.1:43117`.                                                                                        |
+| `--timeout`         | Seconds to wait for the check. Default 300. The final confirmation read after a `--gate` pass has its own window of at most 30 seconds. |
+| `--json`            | Write the full check JSON to this path.                                                                                                 |
+| `--fail-on-changed` | Exit 1 when any answer is Changed. Without it, a finished check exits 0 and the summary still lists them.                               |
 
 `pnpm dev` serves the API on port 3000. `scripts/start-cuttlely.sh` and `npx cuttlely start` listen on port 43117.
 
@@ -69,6 +69,32 @@ npx cuttlely check --flow <flow id> --server http://127.0.0.1:43117 --timeout 30
 A check the server marks stopped or failed also exits 2. If the draft is saved, published, or discarded while the check runs, the command exits 2, because the answers may be for a draft that is already gone. After the check has started, a timeout, a 403, or any other failure asks the server to stop it. Cancelling the command stops that server-side check too. That stop is best effort: if it fails, the exit code is still 2.
 
 The key needs both permissions for the flow: `chatflows:view` and `chatflows:update`, or `agentflows:view` and `agentflows:update`. Update starts the check. View is what reading the result uses. The guide is [Fail a build when answers change](https://github.com/cuttlely/cuttlely/blob/main/docs/how-to/ci-gate.md).
+
+## Score a test set
+
+`--dataset` or `--gate` asks a dataset instead of the four recent questions. The command exits on the server verdict. It does not score the answers itself.
+
+```bash
+npx cuttlely check --flow <flow id> --dataset <dataset id> --evaluator <evaluator id> --threshold 80
+npx cuttlely check --flow <flow id> --gate
+```
+
+| Flag          | Meaning                                                                                   |
+| ------------- | ----------------------------------------------------------------------------------------- |
+| `--dataset`   | Dataset id. Selects scored mode.                                                          |
+| `--evaluator` | Evaluator id. Repeat for another evaluator.                                               |
+| `--threshold` | Pass mark from 0 to 100. Omit it and the server uses 100.                                 |
+| `--gate`      | Dataset, evaluators, and threshold saved on the flow. Do not combine it with `--dataset`. |
+
+Do not combine those flags with `--fail-on-changed`.
+
+| Code | When                                                                                                                                                                                                                                                                                               |
+| ---- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 0    | The server verdict is passed. With `--gate`, a second read of the flow still has the passing test set on, no block, and this check's id stored as a passed result.                                                                                                                                 |
+| 1    | The server verdict is failed.                                                                                                                                                                                                                                                                      |
+| 2    | The same failures as the question check, a missing verdict, a usage error, a withheld dataset or evaluator id, or a `--gate` pass that is no longer the stored result. The message is the server's block text, or `The saved test set changed during the check. Run it again.` when there is none. |
+
+A 403 names the flow view and update permissions, plus `datasets:view` and `evaluators:view`. The summary prints the pass rate, the threshold, and the cases whose draft scores are not Pass. `--json` writes the full check, including each score.
 
 The container name is `cuttlely`. `start` leaves it running when it is already on the same image and port. `upgrade` always pulls and starts it again. The volume is `cuttlely-data`, mounted at `/var/cuttlely`.
 

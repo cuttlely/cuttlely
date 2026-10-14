@@ -21,13 +21,13 @@ export CUTTLELY_API_KEY=<key>
 npx cuttlely check --flow <flow id> --fail-on-changed
 ```
 
-| Flag                | Meaning                                                                                                                                         |
-| ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
-| `--flow`            | The flow id from the canvas address bar. Required.                                                                                              |
-| `--server`          | Server origin. Default `http://127.0.0.1:43117`, the port [`npx cuttlely start`](./docker.md#install-with-npm) publishes.                       |
-| `--timeout`         | Seconds to wait. Default 300, from 1 to 3600. The server stops starting new questions at its own limit, 180 seconds unless an admin changed it. |
-| `--json`            | Write the full check to this path. Same object as [Read a check](../reference/drafts-api.md#read-a-check).                                      |
-| `--fail-on-changed` | Exit 1 when any answer is Changed. Without this flag a finished check exits 0 even when answers differ, and the summary still lists them.       |
+| Flag                | Meaning                                                                                                                                                                                                                                                   |
+| ------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--flow`            | The flow id from the canvas address bar. Required.                                                                                                                                                                                                        |
+| `--server`          | Server origin. Default `http://127.0.0.1:43117`, the port [`npx cuttlely start`](./docker.md#install-with-npm) publishes.                                                                                                                                 |
+| `--timeout`         | Seconds to wait for the check. Default 300, from 1 to 3600. The server stops starting new questions at its own limit, 180 seconds unless an admin changed it. The final confirmation read after a `--gate` pass has its own window of at most 30 seconds. |
+| `--json`            | Write the full check to this path. Same object as [Read a check](../reference/drafts-api.md#read-a-check).                                                                                                                                                |
+| `--fail-on-changed` | Exit 1 when any answer is Changed. Without this flag a finished check exits 0 even when answers differ, and the summary still lists them.                                                                                                                 |
 
 `pnpm dev` serves the API on port 3000. `scripts/start-cuttlely.sh` and `npx cuttlely start` listen on port 43117, which is already the default for `--server`.
 
@@ -52,6 +52,36 @@ A question that errors is listed under **Errors** and is not a Changed answer. W
 | 2    | The check timed out, the server returned an error, `CUTTLELY_API_KEY` was missing, the flow has no draft, or the command was used wrong. |
 
 A check the server marks stopped or failed also exits 2. If the draft is saved, published, or discarded while the check runs, the command exits 2, because the answers may be for a draft that is already gone. After the check has started, a timeout, a 403, or any other failure asks the server to stop it. Cancelling the command, including a cancelled CI job, stops that server-side check too. That stop is best effort: if it fails, the exit code is still 2.
+
+## Scored mode
+
+`--dataset` or `--gate` runs the dataset check instead of the four recent questions. Diff mode stays the default: a command with neither flag still sends `{ "count": 4 }` and still uses the exit codes above.
+
+The command exits on the server `verdict`. It does not score the answers, and it does not compare the pass rate itself. `passed` exits 0. `failed` exits 1. A missing verdict, a stopped or failed check, a draft that changed during the check, a timeout, a 403, a missing key, no draft, or a usage error exits 2.
+
+`--gate` reads the flow again after a passed verdict. That second read has to keep the passing test set on, with an empty `block`, and `publishGate.result.checkId` equal to this check with verdict `passed`. Otherwise the command exits 2. The message is the server's `block` text, or `The saved test set changed during the check. Run it again.` when there is no block text. A check started with `--dataset` does not read the flow again.
+
+An enabled gate always has a dataset and at least one evaluator. If that read leaves the dataset id out, or the evaluator list empty, the command exits 2 before it starts a check. The message says the key needs `datasets:view`, `evaluators:view`, or both.
+
+```bash
+npx cuttlely check --flow <flow id> --dataset <dataset id> --evaluator <evaluator id> --threshold 80
+npx cuttlely check --flow <flow id> --gate
+```
+
+| Flag          | Meaning                                                                                                                                           |
+| ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--dataset`   | Dataset id. Selects scored mode. The server asks that dataset's rows.                                                                             |
+| `--evaluator` | Evaluator id. Repeat the flag for another evaluator.                                                                                              |
+| `--threshold` | Pass mark, a whole number from 0 to 100. Omit it and the server uses 100.                                                                         |
+| `--gate`      | Use the dataset, evaluators, and threshold saved on the flow (`publishGate` from `GET /api/v1/flow-drafts/:id`). Do not pass `--dataset` with it. |
+
+`--evaluator` and `--threshold` need `--dataset`. `--gate` already carries those settings, so do not pass `--evaluator` or `--threshold` with it either. Combining any of these flags with `--fail-on-changed` is a usage error (exit 2).
+
+The key needs the same flow view and update pair as the question check, plus `datasets:view` and `evaluators:view`. A 403 names that whole set.
+
+The summary adds the draft pass rate, the threshold, and the cases whose draft scores are not Pass. `--json` writes the full check, including each case's scores. The same object is [Read a check](../reference/drafts-api.md#read-a-check).
+
+A flow that starts from a form, a webhook, or a schedule cannot take a dataset check. The server refuses that start, and the command exits 2. `--dataset` can score a harness, and the exit code is still the server verdict. `--gate` is only for a chatflow or an agentflow that has the passing test set on. A harness cannot store that setting, so `--gate` exits 2 before any check.
 
 ## GitHub Actions
 
