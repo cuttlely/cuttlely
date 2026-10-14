@@ -14,6 +14,8 @@
  * limitations under the License.
  */
 
+import { readFileSync } from 'fs'
+import { join } from 'path'
 import express, { Request } from 'express'
 import request from 'supertest'
 import type { DataSource } from 'typeorm'
@@ -34,8 +36,15 @@ import { requireOwner, requirePermission, setTeamPermissionLookup } from './rbac
 import { enabledSignInMethods } from './signInOptions'
 import { IdentityStore } from './store'
 import { teamAccess } from './sqlStore'
-import { WHITELIST_URLS } from '../utils/constants'
 import { HandlerResult, LocalSession, SessionUser, UserRow } from './types'
+
+/** The public route list, read as text so this test does not import the inherited constants module. */
+function whitelistUrls(): string[] {
+    const text = readFileSync(join(__dirname, '../utils/constants.ts'), 'utf8')
+    const start = text.indexOf('export const WHITELIST_URLS')
+    const end = text.indexOf('export const API_KEY_BLACKLIST_URLS')
+    return [...text.slice(start, end).matchAll(/'([^']+)'/g)].map((match) => match[1])
+}
 
 jest.setTimeout(120000)
 
@@ -619,15 +628,16 @@ describe('local users mode', () => {
     })
 
     it('keeps login and options public, and requires CSRF on logout and password change', async () => {
-        expect(WHITELIST_URLS).toContain('/api/v1/auth/local/login')
-        expect(WHITELIST_URLS).toContain('/api/v1/auth/options')
-        expect(WHITELIST_URLS).toContain('/api/v1/auth/local/logout')
-        expect(WHITELIST_URLS.some((url) => '/api/v1/auth/local/password'.startsWith(url))).toBe(false)
+        const whitelist = whitelistUrls()
+        expect(whitelist).toContain('/api/v1/auth/local/login')
+        expect(whitelist).toContain('/api/v1/auth/options')
+        expect(whitelist).toContain('/api/v1/auth/local/logout')
+        expect(whitelist.some((url) => '/api/v1/auth/local/password'.startsWith(url))).toBe(false)
 
         const server = express()
         server.use(
             apiV1Auth({
-                whitelistURLs: WHITELIST_URLS,
+                whitelistURLs: whitelist,
                 apiKeyBlacklistURLs: [],
                 licenseRequired: () => false,
                 dataSource: { getRepository: () => ({ findOne: async () => null }) } as unknown as DataSource,
