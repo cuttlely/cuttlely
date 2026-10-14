@@ -59,6 +59,10 @@ A check the server marks stopped or failed also exits 2. If the draft is saved, 
 
 The command exits on the server `verdict`. It does not score the answers, and it does not compare the pass rate itself. `passed` exits 0. `failed` exits 1. A missing verdict, a stopped or failed check, a draft that changed during the check, a timeout, a 403, a missing key, no draft, or a usage error exits 2.
 
+`--gate` reads the flow again after a passed verdict. That second read has to keep the passing test set on, with an empty `block`, and `publishGate.result.checkId` equal to this check with verdict `passed`. Otherwise the command exits 2. The message is the server's `block` text, or `The saved test set changed during the check. Run it again.` when there is no block text. A check started with `--dataset` does not read the flow again.
+
+An enabled gate always has a dataset and at least one evaluator. If that read leaves the dataset id out, or the evaluator list empty, the command exits 2 before it starts a check. The message says the key needs `datasets:view`, `evaluators:view`, or both.
+
 ```bash
 npx cuttlely check --flow <flow id> --dataset <dataset id> --evaluator <evaluator id> --threshold 80
 npx cuttlely check --flow <flow id> --gate

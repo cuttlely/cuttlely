@@ -863,6 +863,19 @@ function gateBody({ enabled = true, datasetId = 'ds-1', evaluatorIds = ['ev-1'],
     return { publishGate: { enabled, datasetId, evaluatorIds, threshold, result: null, block: null } }
 }
 
+function storedPass(checkId = 'check-1', { block = null, enabled = true, verdict = 'passed' } = {}) {
+    return {
+        publishGate: {
+            enabled,
+            datasetId: enabled ? 'ds-1' : null,
+            evaluatorIds: enabled ? ['ev-1'] : [],
+            threshold: enabled ? 80 : null,
+            block,
+            result: enabled ? { checkId, verdict } : null
+        }
+    }
+}
+
 test('scored check exits 0 on a server pass and writes each score', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'cuttlely-scored-'))
     const jsonPath = join(dir, 'check.json')
@@ -893,6 +906,7 @@ test('scored check exits 0 on a server pass and writes each score', async () => 
     assert.equal(code, 0)
     assert.deepEqual(JSON.parse(calls[0].body), { datasetId: 'ds-1', evaluatorIds: ['ev-1', 'ev-2'], threshold: 80 })
     assert.equal(calls[0].body.includes('count'), false)
+    assert.equal(calls.length, 2)
     assert.match(io.text(), /Pass rate: 100% \(threshold 80%\)/)
     assert.doesNotMatch(io.text(), /\nFailing\n/)
     assert.equal(io.errors(), '')
@@ -962,7 +976,8 @@ test('scored check uses the saved test set with --gate', async () => {
     const cases = [scoreCase({ question: 'Do you have rye bread today?', expected: 'Yes, after 10.', draftResult: 'Pass' })]
     const { fetch, calls } = scriptedFetch([
         httpResult(200, gateBody({ evaluatorIds: ['ev-1', 'ev-1', 'ev-2'], threshold: 0 })),
-        httpResult(202, scoredCheck(passedVerdict(100, 0), cases))
+        httpResult(202, scoredCheck(passedVerdict(100, 0), cases)),
+        httpResult(200, storedPass('check-1'))
     ])
     const code = await main(['check', '--flow', 'flow-1', '--gate'], { ...io, fetch })
     assert.equal(code, 0)
@@ -970,6 +985,8 @@ test('scored check uses the saved test set with --gate', async () => {
     assert.equal(calls[0].url, `${DEFAULT_SERVER}/api/v1/flow-drafts/flow-1`)
     assert.deepEqual(JSON.parse(calls[1].body), { datasetId: 'ds-1', evaluatorIds: ['ev-1', 'ev-2'], threshold: 0 })
     assert.equal(calls[1].init.method, 'POST')
+    assert.equal(calls[2].init.method, 'GET')
+    assert.equal(calls[2].url, calls[0].url)
 
     const off = checkIo()
     const disabled = scriptedFetch([httpResult(200, gateBody({ enabled: false, datasetId: null, evaluatorIds: [], threshold: null }))])
@@ -980,10 +997,76 @@ test('scored check uses the saved test set with --gate', async () => {
     const omitted = checkIo()
     const noMark = scriptedFetch([
         httpResult(200, gateBody({ threshold: null })),
-        httpResult(202, scoredCheck(passedVerdict(100, 100), cases))
+        httpResult(202, scoredCheck(passedVerdict(100, 100), cases)),
+        httpResult(200, storedPass('check-1'))
     ])
     assert.equal(await main(['check', '--flow', 'flow-1', '--gate'], { ...omitted, fetch: noMark.fetch }), 0)
     assert.deepEqual(JSON.parse(noMark.calls[1].body), { datasetId: 'ds-1', evaluatorIds: ['ev-1'] })
+})
+
+test('--gate refuses a withheld dataset id or evaluator list before it starts a check', async () => {
+    const cases = [
+        {
+            body: gateBody({ evaluatorIds: [] }),
+            message: /did not include the evaluator ids.*evaluators:view/
+        },
+        {
+            body: gateBody({ datasetId: null }),
+            message: /did not include the dataset id.*datasets:view/
+        },
+        {
+            body: gateBody({ datasetId: null, evaluatorIds: [] }),
+            message: /datasets:view and evaluators:view/
+        }
+    ]
+    for (const row of cases) {
+        const io = checkIo()
+        const { fetch, calls } = scriptedFetch([httpResult(200, row.body)])
+        assert.equal(await main(['check', '--flow', 'flow-1', '--gate'], { ...io, fetch }), 2)
+        assert.match(io.errors(), row.message)
+        assert.equal(calls.length, 1)
+        assert.equal(calls[0].init.method, 'GET')
+        assert.doesNotMatch(io.errors(), /no dataset id\./)
+    }
+})
+
+test('--gate exits 2 when the stored pass is no longer this check', async () => {
+    const cases = [scoreCase({ question: 'Do you have rye bread today?', expected: 'Yes, after 10.', draftResult: 'Pass' })]
+    const done = scoredCheck(passedVerdict(100, 80), cases)
+    const rows = [
+        {
+            name: 'threshold',
+            confirm: storedPass('check-1', { block: 'Publish needs a passing test set at 90%. The last result was 100% and passed.' }),
+            message: /Publish needs a passing test set at 90%/
+        },
+        {
+            name: 'rows',
+            confirm: storedPass('check-1', { block: 'The test set has changed since that check.' }),
+            message: /The test set has changed since that check\./
+        },
+        {
+            name: 'check id',
+            confirm: storedPass('check-other'),
+            message: /The saved test set changed during the check\. Run it again\./
+        },
+        {
+            name: 'turned off',
+            confirm: storedPass('check-1', { enabled: false }),
+            message: /The saved test set changed during the check\. Run it again\./
+        }
+    ]
+    for (const row of rows) {
+        const io = checkIo()
+        const { fetch, calls } = scriptedFetch([httpResult(200, gateBody()), httpResult(202, done), httpResult(200, row.confirm)])
+        assert.equal(await main(['check', '--flow', 'flow-1', '--gate'], { ...io, fetch }), 2, row.name)
+        assert.match(io.errors(), row.message, row.name)
+        assert.deepEqual(
+            calls.map((call) => call.init.method),
+            ['GET', 'POST', 'GET'],
+            row.name
+        )
+        assert.equal(calls.filter((call) => call.init.method === 'POST').length, 1, row.name)
+    }
 })
 
 test('scored usage errors exit 2 without calling the server', async () => {
