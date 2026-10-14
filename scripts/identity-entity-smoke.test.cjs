@@ -336,7 +336,8 @@ describe('identity postgres schema', () => {
                     'AddTokenUsageDay1791900000000',
                     'AddPublishGate1792000000000',
                     'AddModelPriceOverride1793000000000',
-                    'AddDatasetRowSource1795000000000'
+                    'AddDatasetRowSource1795000000000',
+                    'AddDatasetRowRating1796000000000'
                 ]
             )
             assert.equal((await dataSource.runMigrations()).length, 0)
@@ -438,7 +439,8 @@ describe('identity mariadb schema', () => {
                     'AddPublishGate1792000000000',
                     'AddModelPriceOverride1793000000000',
                     'BinCollationOnTokenUsageDayModel1794000000000',
-                    'AddDatasetRowSource1795000000000'
+                    'AddDatasetRowSource1795000000000',
+                    'AddDatasetRowRating1796000000000'
                 ]
             )
             assert.equal((await dataSource.runMigrations()).length, 0)
@@ -619,7 +621,8 @@ describe('identity mysql 8 schema', () => {
                     'AddPublishGate1792000000000',
                     'AddModelPriceOverride1793000000000',
                     'BinCollationOnTokenUsageDayModel1794000000000',
-                    'AddDatasetRowSource1795000000000'
+                    'AddDatasetRowSource1795000000000',
+                    'AddDatasetRowRating1796000000000'
                 ]
             )
             assert.equal((await dataSource.runMigrations()).length, 0)
@@ -667,7 +670,8 @@ describe('identity sqlite upgrade', () => {
                     'AddTokenUsageDay1791900000000',
                     'AddPublishGate1792000000000',
                     'AddModelPriceOverride1793000000000',
-                    'AddDatasetRowSource1795000000000'
+                    'AddDatasetRowSource1795000000000',
+                    'AddDatasetRowRating1796000000000'
                 ]
             )
             assert.equal((await dataSource.runMigrations()).length, 0)

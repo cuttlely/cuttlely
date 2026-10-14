@@ -21,6 +21,11 @@ export interface IDatasetRow {
     sourceMessageId?: string | null
     sourceFlowId?: string | null
     sourceDate?: Date | null
+    sourceFeedbackId?: string | null
+    sourceRating?: string | null
+    sourceFeedbackText?: string | null
+    sourceRejectedAnswer?: string | null
+    needsExpectedAnswer?: boolean | null
 }
 
 export enum EvaluationStatus {

@@ -1,17 +1,200 @@
+import { randomUUID } from 'crypto'
 import { Request } from 'express'
 import { StatusCodes } from 'http-status-codes'
 import { Readable } from 'stream'
-import { In } from 'typeorm'
+import { In, Repository } from 'typeorm'
 import { ChatFlow, EnumChatflowType } from '../../database/entities/ChatFlow'
 import { ChatMessage } from '../../database/entities/ChatMessage'
+import { ChatMessageFeedback } from '../../database/entities/ChatMessageFeedback'
 import { Dataset } from '../../database/entities/Dataset'
 import { DatasetRow } from '../../database/entities/DatasetRow'
 import { AppError } from '../../errors/appError'
+import { ChatMessageRatingType } from '../../Interface'
 import { getErrorMessage } from '../../errors/utils'
 import { hasAnyPermission } from '../../identity/rbac'
 import { getRunningExpressApp } from '../../utils/getRunningExpressApp'
 
 const CHAT_MESSAGE_SOURCE = 'chat_message'
+const CHAT_RATING_SOURCE = 'chat_rating'
+const RATING_VALUES = new Set(['THUMBS_UP', 'THUMBS_DOWN'])
+// One call does not copy an unbounded history. Callers can ask for fewer.
+export const RATING_IMPORT_CAP = 500
+const RATING_PAGE = 200
+// A window full of stored or question-less ratings must not walk the whole history.
+export const RATING_SCAN_CAP = 1000
+const RATING_PREVIEW_ROWS = 5
+const RATING_PREVIEW_CHARS = 160
+const RATING_DAY_MS = 24 * 60 * 60 * 1000
+const RATING_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+const RATING_CURSOR_DATE_MAX = 80
+// CAST text the drivers return: YYYY-MM-DD HH:MM:SS, optional fraction of 1 to 6 digits.
+// Postgres drops trailing zeros. "1" and an ISO "T" form both parse as dates and are still rejected.
+const STORED_RATING_TIMESTAMP = /^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2}):(\d{2})(?:\.(\d{1,6}))?$/
+
+type RatingCursor = { createdDate: string; id: string }
+
+function daysInRatingMonth(year: number, month: number): number {
+    if (month === 2) {
+        const leap = (year % 4 === 0 && year % 100 !== 0) || year % 400 === 0
+        return leap ? 29 : 28
+    }
+    if (month === 4 || month === 6 || month === 9 || month === 11) return 30
+    return 31
+}
+
+function isStoredRatingTimestamp(value: string): boolean {
+    if (value.length === 0 || value.length > RATING_CURSOR_DATE_MAX) return false
+    const match = STORED_RATING_TIMESTAMP.exec(value)
+    if (!match) return false
+    const year = Number(match[1])
+    const month = Number(match[2])
+    const day = Number(match[3])
+    const hour = Number(match[4])
+    const minute = Number(match[5])
+    const second = Number(match[6])
+    if (month < 1 || month > 12 || day < 1 || day > daysInRatingMonth(year, month)) return false
+    return hour <= 23 && minute <= 59 && second <= 59
+}
+
+// The next call passes this back and the scan starts strictly older than this rating.
+function parseRatingCursor(value: unknown): RatingCursor | null {
+    if (value === undefined || value === null) return null
+    if (typeof value !== 'object' || Array.isArray(value)) {
+        throw new AppError(StatusCodes.BAD_REQUEST, 'cursor must be a createdDate and an id.')
+    }
+    const cursor = value as { createdDate?: unknown; id?: unknown }
+    if (typeof cursor.id !== 'string' || !RATING_ID_PATTERN.test(cursor.id)) {
+        throw new AppError(StatusCodes.BAD_REQUEST, 'cursor must be a createdDate and an id.')
+    }
+    if (typeof cursor.createdDate !== 'string' || !isStoredRatingTimestamp(cursor.createdDate)) {
+        throw new AppError(StatusCodes.BAD_REQUEST, 'cursor must be a createdDate and an id.')
+    }
+    // Keep the caller's text. A JS Date would drop microseconds before the next page is read.
+    return { createdDate: cursor.createdDate, id: cursor.id }
+}
+
+function parseFeedbackIds(value: unknown): string[] | null {
+    if (value === undefined || value === null) return null
+    if (!Array.isArray(value) || value.length > RATING_IMPORT_CAP) {
+        throw new AppError(StatusCodes.BAD_REQUEST, 'feedbackIds must be a list of ids.')
+    }
+    const ids: string[] = []
+    for (const item of value) {
+        if (typeof item !== 'string' || !RATING_ID_PATTERN.test(item) || ids.includes(item)) {
+            throw new AppError(StatusCodes.BAD_REQUEST, 'feedbackIds must be a list of ids.')
+        }
+        ids.push(item)
+    }
+    return ids
+}
+
+function escapedFeedbackName(repo: Repository<ChatMessageFeedback>, property: string, fallback: string): string {
+    const escape = (name: string) => repo.metadata.connection.driver.escape(name)
+    return escape(repo.metadata.findColumnWithPropertyName(property)?.databaseName || fallback)
+}
+
+function escapedFeedbackAlias(repo: Repository<ChatMessageFeedback>): string {
+    return repo.metadata.connection.driver.escape('feedback')
+}
+
+// Postgres keeps microseconds. A JS Date does not, so the comparison uses the cursor's stored text.
+// The outer names are escaped here. TypeORM's property rewrite is not relied on, so camelCase is not folded.
+function olderThanStoredCursor(repo: Repository<ChatMessageFeedback>): string {
+    const created = escapedFeedbackName(repo, 'createdDate', 'createdDate')
+    const id = escapedFeedbackName(repo, 'id', 'id')
+    const alias = escapedFeedbackAlias(repo)
+    // Bound text and id. The rating may already be gone; the stored text on the cursor is enough.
+    return `(${alias}.${created} < :beforeDate OR (${alias}.${created} = :beforeDate AND ${alias}.${id} < :beforeId))`
+}
+
+function createdDateAsText(repo: Repository<ChatMessageFeedback>): string {
+    const type = String(repo.metadata.connection.options.type || '')
+    const asText = type === 'mysql' || type === 'mariadb' ? 'CHAR' : 'TEXT'
+    return `CAST(${escapedFeedbackAlias(repo)}.${escapedFeedbackName(repo, 'createdDate', 'createdDate')} AS ${asText})`
+}
+
+function textFromRawCreated(row: Record<string, unknown>): string | null {
+    let text: unknown = row.created_text ?? row.createdText ?? row.feedback_created_text
+    if (text == null) {
+        for (const [key, value] of Object.entries(row)) {
+            if (key === 'created_text' || key.endsWith('_created_text')) {
+                text = value
+                break
+            }
+        }
+    }
+    return typeof text === 'string' && text.length > 0 ? text : null
+}
+
+function rawFeedbackId(row: Record<string, unknown>): string | null {
+    const id = row.feedback_id ?? row.id ?? row.feedbackId
+    return id == null ? null : String(id)
+}
+
+// The stored text is selected with the page. A later lookup would miss a rating deleted in between.
+async function loadRatingFeedback(
+    repo: Repository<ChatMessageFeedback>,
+    args: { flowId: string; rating: string; since: Date; before: RatingCursor | null; take: number }
+): Promise<{ feedback: ChatMessageFeedback; createdText: string | null }[]> {
+    const query = repo
+        .createQueryBuilder('feedback')
+        .addSelect(createdDateAsText(repo), 'created_text')
+        .where('feedback.chatflowid = :flowId', { flowId: args.flowId })
+        .andWhere('feedback.rating = :rating', { rating: args.rating })
+        .andWhere('feedback.createdDate >= :since', { since: args.since })
+    if (args.before) {
+        query.andWhere(olderThanStoredCursor(repo), {
+            beforeId: args.before.id,
+            beforeDate: args.before.createdDate
+        })
+    }
+    const { entities, raw } = await query
+        .orderBy('feedback.createdDate', 'DESC')
+        .addOrderBy('feedback.id', 'DESC')
+        .take(args.take)
+        .getRawAndEntities()
+    const textById = new Map<string, string>()
+    for (const row of raw) {
+        const id = rawFeedbackId(row)
+        const text = textFromRawCreated(row)
+        if (id && text) textById.set(id, text)
+    }
+    return entities.map((feedback, index) => ({
+        feedback,
+        createdText: textById.get(feedback.id) ?? textFromRawCreated(raw[index] ?? {})
+    }))
+}
+
+// A full page has to move past this rating. Without its stored text the same page would be read again.
+export function cursorForNextRatingPage(anchorId: string, createdText: string | null | undefined): RatingCursor {
+    if (typeof createdText !== 'string' || createdText.length === 0) {
+        throw new AppError(
+            StatusCodes.INTERNAL_SERVER_ERROR,
+            'Error: datasetService.addDatasetRowsFromRatings - stored time for a rating page is missing.'
+        )
+    }
+    return { createdDate: createdText, id: anchorId }
+}
+
+// Tests shrink a page, delete a row after the page query, or delete one between pages. Production leaves these unset.
+let ratingPageForTest: number | null = null
+let afterRatingPageForTest: ((page: ChatMessageFeedback[]) => Promise<void> | void) | null = null
+let afterRatingPageLoadedForTest: ((page: ChatMessageFeedback[]) => Promise<void> | void) | null = null
+let beforeFirstRatingPageForTest: (() => Promise<void> | void) | null = null
+
+export function setRatingScanTestHook(
+    hook: {
+        pageSize?: number
+        afterPage?: (page: ChatMessageFeedback[]) => Promise<void> | void
+        afterPageLoaded?: (page: ChatMessageFeedback[]) => Promise<void> | void
+        beforeFirstPage?: () => Promise<void> | void
+    } | null
+) {
+    ratingPageForTest = hook?.pageSize && hook.pageSize > 0 ? hook.pageSize : null
+    afterRatingPageForTest = hook?.afterPage ?? null
+    afterRatingPageLoadedForTest = hook?.afterPageLoaded ?? null
+    beforeFirstRatingPageForTest = hook?.beforeFirstPage ?? null
+}
 
 function viewPermissionForFlow(type: string | undefined): string {
     if (type === EnumChatflowType.AGENTFLOW || type === EnumChatflowType.MULTIAGENT) return 'agentflows:view'
@@ -22,6 +205,37 @@ function viewPermissionForFlow(type: string | undefined): string {
 function isUniqueViolation(error: unknown): boolean {
     const message = getErrorMessage(error).toLowerCase()
     return message.includes('unique') || message.includes('duplicate')
+}
+
+function isDatabaseBusy(error: unknown): boolean {
+    const message = getErrorMessage(error).toLowerCase()
+    return (
+        message.includes('sqlite_busy') ||
+        message.includes('database is locked') ||
+        message.includes('deadlock') ||
+        message.includes('cannot start a transaction within a transaction')
+    )
+}
+
+// SQLite has one connection. Two BEGIN calls, even for different datasets, fail, and the failed rollback can undo the first write.
+// Other drivers keep a queue per dataset.
+const ratingWrites = new Map<string, Promise<unknown>>()
+const SQLITE_RATING_QUEUE = 'sqlite'
+
+function ratingWriteKey(datasetId: string): string {
+    const type = getRunningExpressApp().AppDataSource.options.type
+    if (type === 'sqlite') return SQLITE_RATING_QUEUE
+    return datasetId
+}
+
+function writeRatingsInTurn<T>(datasetId: string, work: () => Promise<T>): Promise<T> {
+    const key = ratingWriteKey(datasetId)
+    const previous = ratingWrites.get(key) || Promise.resolve()
+    const run = previous.catch(() => undefined).then(work)
+    ratingWrites.set(key, run)
+    return run.finally(() => {
+        if (ratingWrites.get(key) === run) ratingWrites.delete(key)
+    })
 }
 
 import csv from 'csv-parser'
@@ -364,6 +578,10 @@ const updateDatasetRow = async (id: string, body: any) => {
 
         item.input = body.input
         item.output = body.output
+        // Filling the expected answer clears the marker. Clearing a thumbs-down row brings the marker back.
+        if (item.needsExpectedAnswer || item.sourceRating === 'THUMBS_DOWN') {
+            item.needsExpectedAnswer = !String(body.output ?? '').trim()
+        }
         const result = await appServer.AppDataSource.getRepository(DatasetRow).save(item)
         await changeUpdateOnDataset(item.datasetId, body.workspaceId)
         return result
@@ -430,6 +648,45 @@ const patchDeleteRows = async (ids: string[] = [], workspaceId: string) => {
     }
 }
 
+// The message immediately before this answer in the same chat session.
+// A null session or memory matches only a null session or memory. Another session is a different conversation.
+async function questionBeforeAnswer(message: ChatMessage): Promise<string | null> {
+    const appServer = getRunningExpressApp()
+    const previousQuery = appServer.AppDataSource.getRepository(ChatMessage)
+        .createQueryBuilder('m')
+        .where('m.chatflowid = :chatflowid', { chatflowid: message.chatflowid })
+        .andWhere('m.chatId = :chatId', { chatId: message.chatId })
+        .andWhere('m.id != :id', { id: message.id })
+        .andWhere('(m.createdDate < :createdDate OR (m.createdDate = :createdDate AND m.id < :id))', {
+            createdDate: message.createdDate,
+            id: message.id
+        })
+    if (message.sessionId == null) previousQuery.andWhere('m.sessionId IS NULL')
+    else previousQuery.andWhere('m.sessionId = :sessionId', { sessionId: message.sessionId })
+    if (message.memoryType == null) previousQuery.andWhere('m.memoryType IS NULL')
+    else previousQuery.andWhere('m.memoryType = :memoryType', { memoryType: message.memoryType })
+    const previous = await previousQuery.orderBy('m.createdDate', 'DESC').addOrderBy('m.id', 'DESC').getOne()
+    const input = previous?.role === 'userMessage' ? String(previous.content ?? '') : ''
+    if (!previous || previous.role !== 'userMessage' || input.trim().length === 0) return null
+    return input
+}
+
+function clipRatingPreview(text: string): string {
+    const value = text.replace(/\s+/g, ' ').trim()
+    if (value.length <= RATING_PREVIEW_CHARS) return value
+    return `${value.slice(0, RATING_PREVIEW_CHARS)}…`
+}
+
+type RatingPlan = {
+    feedbackId: string
+    messageId: string
+    input: string
+    output: string
+    rating: ChatMessageRatingType
+    needsExpectedAnswer: boolean
+    row: DatasetRow
+}
+
 // Save one chat answer as a dataset row. The input is the question that led to that answer.
 // output defaults to the answer. A second save of the same answer into the same dataset returns the row already stored.
 const addDatasetRowFromChatMessage = async (
@@ -472,24 +729,8 @@ const addDatasetRowFromChatMessage = async (
             throw new AppError(StatusCodes.BAD_REQUEST, 'This message is not an answer.')
         }
 
-        // The turn is the message immediately before this answer in the same chat session.
-        // Another session or memory on the same chatId is a different conversation.
-        const previousQuery = appServer.AppDataSource.getRepository(ChatMessage)
-            .createQueryBuilder('m')
-            .where('m.chatflowid = :chatflowid', { chatflowid: message.chatflowid })
-            .andWhere('m.chatId = :chatId', { chatId: message.chatId })
-            .andWhere('m.id != :id', { id: message.id })
-            .andWhere('(m.createdDate < :createdDate OR (m.createdDate = :createdDate AND m.id < :id))', {
-                createdDate: message.createdDate,
-                id: message.id
-            })
-        if (message.sessionId == null) previousQuery.andWhere('m.sessionId IS NULL')
-        else previousQuery.andWhere('m.sessionId = :sessionId', { sessionId: message.sessionId })
-        if (message.memoryType == null) previousQuery.andWhere('m.memoryType IS NULL')
-        else previousQuery.andWhere('m.memoryType = :memoryType', { memoryType: message.memoryType })
-        const previous = await previousQuery.orderBy('m.createdDate', 'DESC').addOrderBy('m.id', 'DESC').getOne()
-        const input = previous?.role === 'userMessage' ? String(previous.content ?? '') : ''
-        if (!previous || previous.role !== 'userMessage' || input.trim().length === 0) {
+        const input = await questionBeforeAnswer(message)
+        if (!input) {
             throw new AppError(StatusCodes.BAD_REQUEST, 'No question was found for this answer.')
         }
         const output = typeof body.output === 'string' ? body.output : String(message.content ?? '')
@@ -498,30 +739,35 @@ const addDatasetRowFromChatMessage = async (
         const existing = await rows.findOneBy({ datasetId: dataset.id, sourceMessageId: message.id })
         if (existing) return existing
 
-        const maxValueEntity = await rows.find({
-            where: { datasetId: dataset.id },
-            order: { sequenceNo: 'DESC' },
-            take: 1
-        })
-        let sequenceNo = 0
-        if (maxValueEntity && maxValueEntity.length > 0) {
-            sequenceNo = maxValueEntity[0].sequenceNo + 1
-        }
-        const created = new DatasetRow()
-        created.datasetId = dataset.id
-        created.input = input
-        created.output = output
-        created.sequenceNo = sequenceNo
-        created.sourceType = CHAT_MESSAGE_SOURCE
-        created.sourceMessageId = message.id
-        created.sourceFlowId = flow.id
-        created.sourceDate = message.createdDate
         try {
-            return await appServer.AppDataSource.transaction(async (manager) => {
-                const saved = await manager.getRepository(DatasetRow).save(created)
-                await changeUpdateOnDataset(dataset.id, workspaceId, manager)
-                return saved
-            })
+            // The same turn as a bulk import. Sqlite cannot start a second transaction on its one connection.
+            return await writeRatingsInTurn(dataset.id, () =>
+                appServer.AppDataSource.transaction(async (manager) => {
+                    const rowRepo = manager.getRepository(DatasetRow)
+                    // Same write lock as a bulk import. The next sequence is read only after it.
+                    await manager.getRepository(Dataset).update({ id: dataset.id, workspaceId }, { updatedDate: new Date() })
+                    const already = await rowRepo.findOneBy({ datasetId: dataset.id, sourceMessageId: message.id })
+                    if (already) return already
+                    const maxValueEntity = await rowRepo.find({
+                        where: { datasetId: dataset.id },
+                        order: { sequenceNo: 'DESC' },
+                        take: 1
+                    })
+                    const sequenceNo = maxValueEntity.length > 0 ? maxValueEntity[0].sequenceNo + 1 : 0
+                    const created = new DatasetRow()
+                    created.datasetId = dataset.id
+                    created.input = input
+                    created.output = output
+                    created.sequenceNo = sequenceNo
+                    created.sourceType = CHAT_MESSAGE_SOURCE
+                    created.sourceMessageId = message.id
+                    created.sourceFlowId = flow.id
+                    created.sourceDate = message.createdDate
+                    const saved = await rowRepo.save(created)
+                    await changeUpdateOnDataset(dataset.id, workspaceId, manager)
+                    return saved
+                })
+            )
         } catch (error) {
             if (error instanceof AppError) throw error
             if (!isUniqueViolation(error)) throw error
@@ -538,6 +784,346 @@ const addDatasetRowFromChatMessage = async (
     }
 }
 
+// Copy rated answers from one flow into a dataset. A dry run counts them and does not write.
+// A thumbs-up row expects the answer that was given. A thumbs-down row does not: the expected answer stays empty.
+const addDatasetRowsFromRatings = async (
+    body: {
+        datasetId?: unknown
+        flowId?: unknown
+        rating?: unknown
+        days?: unknown
+        limit?: unknown
+        dryRun?: unknown
+        cursor?: unknown
+        feedbackIds?: unknown
+    },
+    workspaceId: string,
+    req: Request
+) => {
+    try {
+        if (typeof workspaceId !== 'string' || workspaceId.length === 0) {
+            throw new AppError(StatusCodes.NOT_FOUND, 'Dataset not found')
+        }
+        if (typeof body?.datasetId !== 'string' || body.datasetId.length === 0) {
+            throw new AppError(StatusCodes.BAD_REQUEST, 'datasetId is required')
+        }
+        if (typeof body?.flowId !== 'string' || body.flowId.length === 0) {
+            throw new AppError(StatusCodes.BAD_REQUEST, 'flowId is required')
+        }
+        if (typeof body?.rating !== 'string' || !RATING_VALUES.has(body.rating)) {
+            throw new AppError(StatusCodes.BAD_REQUEST, 'rating must be THUMBS_UP or THUMBS_DOWN.')
+        }
+        if (typeof body?.days !== 'number' || !Number.isInteger(body.days) || body.days < 1 || body.days > 90) {
+            throw new AppError(StatusCodes.BAD_REQUEST, 'days must be a whole number from 1 to 90.')
+        }
+        if (body.limit !== undefined && body.limit !== null) {
+            if (typeof body.limit !== 'number' || !Number.isInteger(body.limit) || body.limit < 1) {
+                throw new AppError(StatusCodes.BAD_REQUEST, 'limit must be a whole number of at least 1.')
+            }
+        }
+        if (body.dryRun !== undefined && typeof body.dryRun !== 'boolean') {
+            throw new AppError(StatusCodes.BAD_REQUEST, 'dryRun must be true or false.')
+        }
+        const rating = body.rating as ChatMessageRatingType
+        const days = body.days
+        const limit = typeof body.limit === 'number' ? Math.min(body.limit, RATING_IMPORT_CAP) : RATING_IMPORT_CAP
+        const dryRun = body.dryRun === true
+        const since = new Date(Date.now() - days * RATING_DAY_MS)
+
+        const appServer = getRunningExpressApp()
+        const dataset = await appServer.AppDataSource.getRepository(Dataset).findOneBy({
+            id: body.datasetId,
+            workspaceId
+        })
+        if (!dataset) throw new AppError(StatusCodes.NOT_FOUND, `Dataset ${body.datasetId} not found`)
+        const flow = await appServer.AppDataSource.getRepository(ChatFlow).findOneBy({
+            id: body.flowId,
+            workspaceId
+        })
+        if (!flow) throw new AppError(StatusCodes.NOT_FOUND, `Flow ${body.flowId} not found`)
+        if (!(await hasAnyPermission(req, viewPermissionForFlow(flow.type)))) {
+            throw new AppError(StatusCodes.FORBIDDEN, 'You do not have permission to view this flow.')
+        }
+
+        const fixedIds = parseFeedbackIds(body.feedbackIds)
+        // A write is the preview's ids. Omitting them used to scan again and could write a different set.
+        if (!dryRun && (!fixedIds || fixedIds.length === 0)) {
+            throw new AppError(StatusCodes.BAD_REQUEST, 'feedbackIds is required.')
+        }
+        if (!dryRun && fixedIds && fixedIds.length > limit) {
+            throw new AppError(StatusCodes.BAD_REQUEST, 'feedbackIds must not be longer than the limit.')
+        }
+        // A cursor sent with the preview ids is still checked. The ids choose the rows, so the cursor is not used.
+        const suppliedCursor = parseRatingCursor(body.cursor)
+        const before = fixedIds ? null : suppliedCursor
+        const feedbackRepo = appServer.AppDataSource.getRepository(ChatMessageFeedback)
+        if (before && beforeFirstRatingPageForTest) await beforeFirstRatingPageForTest()
+        const messageRepo = appServer.AppDataSource.getRepository(ChatMessage)
+        const rowRepo = appServer.AppDataSource.getRepository(DatasetRow)
+        const planned: RatingPlan[] = []
+        const seenMessages = new Set<string>()
+        let skipped = 0
+        let scanned = 0
+        let lastScanned: ChatMessageFeedback | null = null
+        const rawById = new Map<string, string>()
+        let pageBefore = before
+        while (!fixedIds && planned.length < limit && scanned < RATING_SCAN_CAP) {
+            const take = Math.min(ratingPageForTest ?? RATING_PAGE, RATING_SCAN_CAP - scanned)
+            const loaded = await loadRatingFeedback(feedbackRepo, {
+                flowId: flow.id,
+                rating,
+                since,
+                before: pageBefore,
+                take
+            })
+            if (!loaded.length) break
+            const page = loaded.map((item) => item.feedback)
+            // The stored text is already on this result. A delete here cannot drop the cursor.
+            if (afterRatingPageLoadedForTest) await afterRatingPageLoadedForTest(page)
+            for (const item of loaded) {
+                if (item.createdText) rawById.set(item.feedback.id, item.createdText)
+            }
+            const messageIds = [...new Set(page.map((item) => item.messageId).filter((id) => typeof id === 'string' && id.length > 0))]
+            const messages = messageIds.length ? await messageRepo.find({ where: { id: In(messageIds) } }) : []
+            const messageById = new Map(messages.map((item) => [item.id, item]))
+            const existing = messageIds.length
+                ? await rowRepo.find({
+                      where: { datasetId: dataset.id, sourceMessageId: In(messageIds) },
+                      select: { id: true, sourceMessageId: true }
+                  })
+                : []
+            const stored = new Set(existing.map((item) => item.sourceMessageId).filter((id): id is string => Boolean(id)))
+            let inspected = 0
+            for (const feedback of page) {
+                if (planned.length >= limit || scanned >= RATING_SCAN_CAP) break
+                scanned += 1
+                inspected += 1
+                lastScanned = feedback
+                const message = messageById.get(feedback.messageId)
+                if (!message || message.role !== 'apiMessage' || message.chatflowid !== flow.id) continue
+                if (stored.has(message.id) || seenMessages.has(message.id)) {
+                    if (!seenMessages.has(message.id)) skipped += 1
+                    seenMessages.add(message.id)
+                    continue
+                }
+                const input = await questionBeforeAnswer(message)
+                if (!input) continue
+                seenMessages.add(message.id)
+                const thumbsDown = rating === ChatMessageRatingType.THUMBS_DOWN
+                const answer = String(message.content ?? '')
+                const row = new DatasetRow()
+                row.datasetId = dataset.id
+                row.input = input
+                row.output = thumbsDown ? '' : answer
+                row.sourceType = CHAT_RATING_SOURCE
+                row.sourceMessageId = message.id
+                row.sourceFlowId = flow.id
+                row.sourceDate = feedback.createdDate
+                row.sourceFeedbackId = feedback.id
+                row.sourceRating = rating
+                row.sourceFeedbackText = feedback.content ? String(feedback.content) : null
+                row.sourceRejectedAnswer = thumbsDown ? answer : null
+                row.needsExpectedAnswer = thumbsDown
+                planned.push({
+                    feedbackId: feedback.id,
+                    messageId: message.id,
+                    input,
+                    output: row.output,
+                    rating,
+                    needsExpectedAnswer: thumbsDown,
+                    row
+                })
+            }
+            // A short page is the end of the window. A partial page still has ratings this call did not read.
+            if (inspected < page.length || page.length < take) break
+            if (afterRatingPageForTest) await afterRatingPageForTest(page)
+            const anchorRow = page[page.length - 1]
+            pageBefore = cursorForNextRatingPage(anchorRow.id, rawById.get(anchorRow.id))
+        }
+
+        // Add sends the ids from the preview, so a rating that arrives later cannot take a planned row's place.
+        if (fixedIds && fixedIds.length) {
+            const found = await feedbackRepo.find({ where: { id: In(fixedIds), chatflowid: flow.id, rating } })
+            const byId = new Map(found.map((item) => [item.id, item]))
+            const page = fixedIds.map((id) => byId.get(id)).filter((item): item is ChatMessageFeedback => Boolean(item))
+            const messageIds = [...new Set(page.map((item) => item.messageId).filter((id) => typeof id === 'string' && id.length > 0))]
+            const messages = messageIds.length ? await messageRepo.find({ where: { id: In(messageIds) } }) : []
+            const messageById = new Map(messages.map((item) => [item.id, item]))
+            const existing = messageIds.length
+                ? await rowRepo.find({
+                      where: { datasetId: dataset.id, sourceMessageId: In(messageIds) },
+                      select: { id: true, sourceMessageId: true }
+                  })
+                : []
+            const stored = new Set(existing.map((item) => item.sourceMessageId).filter((id): id is string => Boolean(id)))
+            for (const feedback of page) {
+                const message = messageById.get(feedback.messageId)
+                if (!message || message.role !== 'apiMessage' || message.chatflowid !== flow.id) continue
+                if (stored.has(message.id) || seenMessages.has(message.id)) {
+                    if (!seenMessages.has(message.id)) skipped += 1
+                    seenMessages.add(message.id)
+                    continue
+                }
+                const input = await questionBeforeAnswer(message)
+                if (!input) continue
+                seenMessages.add(message.id)
+                const thumbsDown = rating === ChatMessageRatingType.THUMBS_DOWN
+                const answer = String(message.content ?? '')
+                const row = new DatasetRow()
+                row.datasetId = dataset.id
+                row.input = input
+                row.output = thumbsDown ? '' : answer
+                row.sourceType = CHAT_RATING_SOURCE
+                row.sourceMessageId = message.id
+                row.sourceFlowId = flow.id
+                row.sourceDate = feedback.createdDate
+                row.sourceFeedbackId = feedback.id
+                row.sourceRating = rating
+                row.sourceFeedbackText = feedback.content ? String(feedback.content) : null
+                row.sourceRejectedAnswer = thumbsDown ? answer : null
+                row.needsExpectedAnswer = thumbsDown
+                planned.push({
+                    feedbackId: feedback.id,
+                    messageId: message.id,
+                    input,
+                    output: row.output,
+                    rating,
+                    needsExpectedAnswer: thumbsDown,
+                    row
+                })
+            }
+        }
+
+        // Probe from the last rating this call actually read. A full page, including an exact cap, stays untruncated when nothing is older.
+        let truncated = false
+        const cursorText = lastScanned ? rawById.get(lastScanned.id) : undefined
+        if (!fixedIds && lastScanned && cursorText) {
+            const more = await loadRatingFeedback(feedbackRepo, {
+                flowId: flow.id,
+                rating,
+                since,
+                before: { createdDate: cursorText, id: lastScanned.id },
+                take: 1
+            })
+            truncated = more.length > 0
+        }
+        const cursor = truncated && lastScanned && cursorText ? { createdDate: cursorText, id: lastScanned.id } : null
+        const feedbackIds = planned.map((item) => item.feedbackId)
+
+        const toPreview = (items: RatingPlan[]) =>
+            items.slice(0, RATING_PREVIEW_ROWS).map((item) => ({
+                input: clipRatingPreview(item.input),
+                output: clipRatingPreview(item.output),
+                rating: item.rating,
+                feedbackId: item.feedbackId,
+                messageId: item.messageId,
+                needsExpectedAnswer: item.needsExpectedAnswer
+            }))
+        if (dryRun || !planned.length) {
+            return { dryRun, count: planned.length, skipped, preview: toPreview(planned), truncated, cursor, feedbackIds }
+        }
+
+        const writeOnce = () =>
+            appServer.AppDataSource.transaction(async (entityManager) => {
+                // The dataset update is the write lock. The next sequence is read only after it, so two imports cannot share a number.
+                await entityManager.getRepository(Dataset).update({ id: dataset.id, workspaceId }, { updatedDate: new Date() })
+                const rows = entityManager.getRepository(DatasetRow)
+                const messageIds = planned.map((item) => item.messageId)
+                const already = await rows.find({
+                    where: { datasetId: dataset.id, sourceMessageId: In(messageIds) },
+                    select: { id: true, sourceMessageId: true }
+                })
+                const storedNow = new Set(already.map((item) => item.sourceMessageId).filter((id): id is string => Boolean(id)))
+                const maxValueEntity = await rows.find({
+                    where: { datasetId: dataset.id },
+                    order: { sequenceNo: 'DESC' },
+                    take: 1
+                })
+                let sequenceNo = maxValueEntity.length > 0 ? maxValueEntity[0].sequenceNo + 1 : 0
+                const saved: RatingPlan[] = []
+                let skippedNow = 0
+                for (const item of planned) {
+                    if (storedNow.has(item.messageId)) {
+                        skippedNow += 1
+                        continue
+                    }
+                    const id = randomUUID()
+                    item.row.id = id
+                    item.row.sequenceNo = sequenceNo
+                    // ON CONFLICT DO NOTHING on sqlite and postgres, INSERT IGNORE on mysql and mariadb.
+                    // A duplicate source message is skipped and the other rows in this write stay.
+                    try {
+                        const insert = entityManager
+                            .createQueryBuilder()
+                            .insert()
+                            .into(DatasetRow)
+                            .values({
+                                id,
+                                datasetId: item.row.datasetId,
+                                input: item.row.input,
+                                output: item.row.output,
+                                sequenceNo,
+                                sourceType: item.row.sourceType,
+                                sourceMessageId: item.row.sourceMessageId,
+                                sourceFlowId: item.row.sourceFlowId,
+                                sourceDate: item.row.sourceDate,
+                                sourceFeedbackId: item.row.sourceFeedbackId,
+                                sourceRating: item.row.sourceRating,
+                                sourceFeedbackText: item.row.sourceFeedbackText ?? null,
+                                sourceRejectedAnswer: item.row.sourceRejectedAnswer ?? null,
+                                needsExpectedAnswer: item.row.needsExpectedAnswer ?? false
+                            })
+                            .orIgnore()
+                            .updateEntity(false)
+                        // Stay inside the caller's transaction. A nested commit releases the sequence lock early.
+                        insert.useTransaction(false)
+                        await insert.execute()
+                    } catch (error) {
+                        if (isDatabaseBusy(error)) throw error
+                        if (!isUniqueViolation(error)) throw error
+                    }
+                    const landed = await rows.findOne({ where: { id }, select: { id: true } })
+                    if (!landed) {
+                        skippedNow += 1
+                        storedNow.add(item.messageId)
+                        continue
+                    }
+                    sequenceNo += 1
+                    storedNow.add(item.messageId)
+                    saved.push(item)
+                }
+                // The lock update above sets updatedDate. Touch it again after a row lands, as a single-answer save does.
+                if (saved.length > 0) await changeUpdateOnDataset(dataset.id, workspaceId, entityManager)
+                return { saved, skippedNow }
+            })
+        let written: RatingPlan[] = []
+        await writeRatingsInTurn(dataset.id, async () => {
+            for (let attempt = 0; attempt < 5; attempt += 1) {
+                try {
+                    const result = await writeOnce()
+                    written = result.saved
+                    skipped += result.skippedNow
+                    return
+                } catch (error) {
+                    if (!isDatabaseBusy(error) || attempt === 4) throw error
+                }
+            }
+        })
+        return {
+            dryRun: false,
+            count: written.length,
+            skipped,
+            preview: toPreview(written),
+            truncated,
+            cursor,
+            feedbackIds: written.map((item) => item.feedbackId)
+        }
+    } catch (error) {
+        if (error instanceof AppError) throw error
+        throw new AppError(StatusCodes.INTERNAL_SERVER_ERROR, `Error: datasetService.addDatasetRowsFromRatings - ${getErrorMessage(error)}`)
+    }
+}
+
 export default {
     getAllDatasets,
     getDataset,
@@ -546,6 +1132,7 @@ export default {
     deleteDataset,
     addDatasetRow,
     addDatasetRowFromChatMessage,
+    addDatasetRowsFromRatings,
     updateDatasetRow,
     deleteDatasetRow,
     patchDeleteRows,
