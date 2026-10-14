@@ -108,6 +108,30 @@ const addDatasetRow = async (req: Request, res: Response, next: NextFunction) =>
     }
 }
 
+const addDatasetRowFromChatMessage = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+        if (!req.body) {
+            throw new AppError(StatusCodes.PRECONDITION_FAILED, `Error: datasetService.addDatasetRowFromChatMessage - body not provided!`)
+        }
+        const workspaceId = req.user?.activeWorkspaceId
+        if (!workspaceId) {
+            throw new AppError(
+                StatusCodes.NOT_FOUND,
+                `Error: datasetController.addDatasetRowFromChatMessage - workspace ${workspaceId} not found!`
+            )
+        }
+        const body = stripProtectedFields(req.body)
+        const apiResponse = await datasetService.addDatasetRowFromChatMessage(
+            { datasetId: body.datasetId, messageId: body.messageId, output: body.output },
+            workspaceId,
+            req
+        )
+        return res.json(apiResponse)
+    } catch (error) {
+        next(error)
+    }
+}
+
 const updateDatasetRow = async (req: Request, res: Response, next: NextFunction) => {
     try {
         if (!req.body) {
@@ -180,6 +204,7 @@ export default {
     updateDataset,
     deleteDataset,
     addDatasetRow,
+    addDatasetRowFromChatMessage,
     updateDatasetRow,
     deleteDatasetRow,
     patchDeleteRows,

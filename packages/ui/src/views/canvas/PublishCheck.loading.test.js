@@ -109,6 +109,34 @@ describe('PublishCheck while getCheckSetup is still pending', () => {
         renderer.unmount()
     })
 
+    test('unmount does not stop a check that setup found already running', async () => {
+        flowDraftsApi.getCheckSetup.mockResolvedValue({
+            data: {
+                questions: [],
+                pastCount: 0,
+                check: { id: 'check-elsewhere', status: 'running', limits: { maxSeconds: 1800 } }
+            }
+        })
+        flowDraftsApi.stopCheck.mockResolvedValue({ data: { id: 'check-elsewhere', status: 'stopped' } })
+        flowDraftsApi.getCheck.mockResolvedValue({ data: { id: 'check-elsewhere', status: 'running' } })
+        let renderer
+        await TestRenderer.act(async () => {
+            renderer = TestRenderer.create(
+                createElement(
+                    ThemeProvider,
+                    { theme: createTheme() },
+                    createElement(PublishCheck, { chatflowId: 'flow-1', flowType: 'CHATFLOW' })
+                )
+            )
+        })
+        await TestRenderer.act(async () => {})
+        const text = JSON.stringify(renderer.toJSON())
+        expect(text).toContain('Closing this window leaves this check running.')
+        expect(text).not.toContain('stops a check that is still running.')
+        renderer.unmount()
+        expect(flowDraftsApi.stopCheck).not.toHaveBeenCalled()
+    })
+
     test('a chat start says questions during the wait', async () => {
         const renderer = await mount('AGENTFLOW', 'chatInput')
         expect(flowDraftsApi.getCheckSetup).toHaveBeenCalledWith('flow-1')

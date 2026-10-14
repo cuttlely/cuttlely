@@ -8,7 +8,7 @@
 // already has, and the first edit after drafts include harnesses creates a draft.
 import crypto from 'crypto'
 import { StatusCodes } from 'http-status-codes'
-import { type EntityManager } from 'typeorm'
+import { IsNull, type EntityManager, type FindOptionsWhere } from 'typeorm'
 import { ChatFlow } from '../../database/entities/ChatFlow'
 import { FlowVersionState } from '../../database/entities/FlowVersionState'
 import { AppError } from '../../errors/appError'
@@ -31,10 +31,21 @@ import {
     postProcessHash,
     testSetChangedReason
 } from './gate'
+import { datasetStartRefusal } from '../flow-check/kinds'
 import { casesFromDataset, currentTestSetHash, loadEvaluators } from '../flow-check/score'
 
+export { redactDraftStatus } from './gate'
+
 // Test seam. A race test changes the flow's type after a draft save has started and before it writes.
-export const draftWriteHooks: { beforeDraftWrite: null | (() => Promise<void>) } = { beforeDraftWrite: null }
+export const draftWriteHooks: {
+    beforeDraftWrite: null | (() => Promise<void>)
+    // After the row is read and before this save writes. A test uses it to commit another write in between.
+    afterStateRead: null | (() => Promise<void>)
+    // After the settings read and before the locked re-read. A test uses it to commit a draft in between.
+    beforeSettingsWrite: null | (() => Promise<void>)
+} = { beforeDraftWrite: null, afterStateRead: null, beforeSettingsWrite: null }
+
+const OVERLAPPED_SAVE = 'That save overlapped another save. Try again.'
 
 const TYPE_CHANGED =
     "This flow changed to another kind of flow after these edits started, so they can't be saved. Discard them to continue."
@@ -48,16 +59,34 @@ function unlockedManager(ds: any): EntityManager {
     )
 }
 
+// One chain of state writes per flow. SQLite has a single connection and no row lock, so two
+// first inserts would both see no row. A transaction on that connection would also pull other
+// requests' statements into it, so the writes wait here instead.
+const sqliteStateWrites = new Map<string, Promise<void>>()
+
+function enqueueSqliteStateWrite<T>(chatflowId: string, fn: () => Promise<T>): Promise<T> {
+    const previous = sqliteStateWrites.get(chatflowId) ?? Promise.resolve()
+    const run = previous.then(fn, fn)
+    const settled = run.then(
+        () => undefined,
+        () => undefined
+    )
+    sqliteStateWrites.set(chatflowId, settled)
+    void settled.then(() => {
+        if (sqliteStateWrites.get(chatflowId) === settled) sqliteStateWrites.delete(chatflowId)
+    })
+    return run
+}
+
 // Postgres, MySQL and MariaDB: lock the chatflow row so a draft save and a type change cannot pass
-// each other's check. SQLite has no SELECT FOR UPDATE, and this driver uses one connection, so a
-// transaction here would pull other requests' statements into it. SQLite relies on the conditional
-// UPDATE (no draft, or the type still matches) instead.
+// each other's check. SQLite serializes the same read-then-insert in this process, one flow at a time.
 export async function withChatflowLock<T>(chatflowId: string, fn: (manager: EntityManager) => Promise<T>): Promise<T> {
     const ds = getRunningExpressApp().AppDataSource as any
     const driver = ds.options?.type
     const sqlite = driver === 'sqlite' || driver === 'better-sqlite3'
-    if (!driver || sqlite || !ds.createQueryRunner) {
-        if (!sqlite && typeof ds.transaction === 'function') return ds.transaction(fn)
+    if (sqlite) return enqueueSqliteStateWrite(chatflowId, () => fn(unlockedManager(ds)))
+    if (!driver || !ds.createQueryRunner) {
+        if (typeof ds.transaction === 'function') return ds.transaction(fn)
         return fn(unlockedManager(ds))
     }
     const qr = ds.createQueryRunner()
@@ -208,14 +237,20 @@ function gateSettingsOf(state: FlowVersionState | null) {
     }
 }
 
-export function gateStatusFor(flow: Pick<DraftFlow, 'type'>, state: FlowVersionState | null, draftFlowData?: string | null): GateStatus {
+export function gateStatusFor(
+    flow: Pick<DraftFlow, 'type' | 'flowData'>,
+    state: FlowVersionState | null,
+    draftFlowData?: string | null
+): GateStatus {
     const settings = gateSettingsOf(state)
     const result = readGateResult(state?.publishGateResult)
     // Harness and other canvases share this row. The setting is refused for them, and a harness check
     // does not write a pass, so the gate stays off even when the flag is set.
     const enabled = publishGateApplies(flow.type) && settings.enabled
+    // A start that cannot take a dataset keeps the gate on. Dropping it would let a start change publish with no pass.
+    const startBlock = enabled ? datasetGateBlock(flow.type, [flow.flowData, draftFlowData]) : null
     const block = enabled
-        ? publishBlockReason({ ...settings, enabled: true }, result, draftFlowData ? canvasHash(draftFlowData) : null)
+        ? startBlock || publishBlockReason({ ...settings, enabled: true }, result, draftFlowData ? canvasHash(draftFlowData) : null)
         : null
     if (!state) return emptyGateStatus()
     return { ...settings, enabled, result, block }
@@ -228,10 +263,30 @@ export function statusFrom(flow: DraftFlow, state: FlowVersionState | null): Dra
         mode,
         reason,
         publishInstantly: Boolean(state?.publishInstantly),
-        publishGate: gateStatusFor(flow, state, state?.draftFlowData),
+        publishGate: gateStatusWithNote(flow, gateStatusFor(flow, state, state?.draftFlowData)),
         // A draft left over from before Publish instantly or a type change is still shown, so it is not lost.
         draft: draftInfo(flow, state),
         lastPublished: state?.publishedDate ? { sha: state.liveSha || null, date: new Date(state.publishedDate).toISOString() } : null
+    }
+}
+
+// The same 400 a dataset check returns, plus how to leave the block. The gate stays on.
+function datasetGateBlock(type: string | null | undefined, canvases: Array<string | null | undefined>): string | null {
+    const refusal = datasetStartRefusal(type, canvases)
+    if (!refusal) return null
+    return `${refusal} Turn off the passing test set before you publish.`
+}
+
+// An older pass stays usable only when this process has not started a later check. A check that failed
+// to store its result, and failed to clear the previous one, notes its id here. Publish then refuses
+// a stored result that is not from that check.
+function gateStatusWithNote(flow: DraftFlow, gate: GateStatus): GateStatus {
+    const noted = notedGateCheck(flow.id)
+    if (!gate.enabled || !noted || gate.block || gate.result?.checkId === noted) return gate
+    const threshold = gate.threshold ?? 100
+    return {
+        ...gate,
+        block: `Publish needs a passing test set at ${threshold}%. The test set result could not be saved.`
     }
 }
 
@@ -339,17 +394,46 @@ export async function saveDraft(flow: DraftFlow, flowData: unknown, context: Sav
         }
         const stateRepo = manager.getRepository(FlowVersionState)
         const state = await stateRepo.findOneBy({ chatflowId: flow.id })
-        const row = state || stateRepo.create({ chatflowId: flow.id, workspaceId: flow.workspaceId, publishInstantly: false })
-        if (sameCanvas(canvas, flow.flowData)) {
-            clearDraft(row)
-        } else {
-            if (!row.draftFlowData) row.draftBaseHash = draftBase(flow)
-            row.draftFlowData = stampNodePack(canvas)
-            row.draftUpdatedDate = new Date()
-            row.draftUpdatedBy = context.userId || null
+        if (draftWriteHooks.afterStateRead) await draftWriteHooks.afterStateRead()
+        const clearing = sameCanvas(canvas, flow.flowData)
+        const draftPatch = clearing
+            ? { ...NO_DRAFT }
+            : {
+                  draftFlowData: stampNodePack(canvas),
+                  draftBaseHash: state?.draftFlowData ? state.draftBaseHash ?? null : draftBase(flow),
+                  draftUpdatedDate: new Date(),
+                  draftUpdatedBy: context.userId || null
+              }
+        if (!state && !draftPatch.draftFlowData) return statusFrom(flow, null)
+        if (!state) {
+            // SQLite takes no row lock, so a settings insert can win the first row. Keep that row
+            // and write only the draft columns. On Postgres the unique violation aborts the
+            // transaction, so the re-read runs only after rolling back to the savepoint.
+            let saved: FlowVersionState | null = null
+            await insertStateOrRecover(
+                manager,
+                async () => {
+                    saved = await stateRepo.save(
+                        stateRepo.create({
+                            chatflowId: flow.id,
+                            workspaceId: flow.workspaceId,
+                            publishInstantly: false,
+                            ...draftPatch
+                        })
+                    )
+                },
+                async () => {
+                    const existing = await stateRepo.findOneBy({ chatflowId: flow.id })
+                    if (!existing) throw new AppError(StatusCodes.CONFLICT, OVERLAPPED_SAVE)
+                    await stateRepo.update({ chatflowId: flow.id }, draftPatch)
+                    saved = await stateRepo.findOneBy({ chatflowId: flow.id })
+                }
+            )
+            return statusFrom(flow, saved)
         }
-        if (!state && !row.draftFlowData) return statusFrom(flow, null)
-        return statusFrom(flow, await stateRepo.save(row))
+        // Only the draft columns. A settings or gate-result write that landed after this read stays.
+        await stateRepo.update({ chatflowId: flow.id }, draftPatch)
+        return statusFrom(flow, await stateRepo.findOneBy({ chatflowId: flow.id }))
     })
     return withTestSet(flow, saved)
 }
@@ -365,8 +449,9 @@ function clearDraft(row: FlowVersionState) {
 export async function discardDraft(flow: DraftFlow): Promise<DraftStatus> {
     const state = await getState(flow.id)
     if (!state?.draftFlowData) return withTestSet(flow, statusFrom(flow, state))
-    clearDraft(state)
-    return withTestSet(flow, statusFrom(flow, await repo().save(state)))
+    if (draftWriteHooks.afterStateRead) await draftWriteHooks.afterStateRead()
+    await repo().update({ chatflowId: flow.id }, NO_DRAFT)
+    return getDraftStatus(flow)
 }
 
 // The draft canvas to publish. Refused when drafts are off or there is nothing to publish, and when Live
@@ -418,6 +503,18 @@ export async function afterLiveSet(
     published?: string,
     options: { keepDraftBase?: boolean } = {}
 ): Promise<DraftStatus> {
+    const write = () => writeAfterLiveSet(flow, sha, published, options)
+    const driver = (getRunningExpressApp().AppDataSource as { options?: { type?: string } } | undefined)?.options?.type
+    if (driver === 'sqlite' || driver === 'better-sqlite3') return enqueueSqliteStateWrite(flow.id, write)
+    return write()
+}
+
+async function writeAfterLiveSet(
+    flow: DraftFlow,
+    sha: string | null,
+    published: string | undefined,
+    options: { keepDraftBase?: boolean }
+): Promise<DraftStatus> {
     if (published !== undefined) await repo().update({ chatflowId: flow.id, draftFlowData: published }, NO_DRAFT)
     const publishedDate = new Date()
     const state = await getState(flow.id)
@@ -429,7 +526,19 @@ export async function afterLiveSet(
             liveSha: sha,
             publishedDate
         })
-        return statusFrom(flow, await repo().save(row))
+        try {
+            return statusFrom(flow, await repo().save(row))
+        } catch (error) {
+            // A draft or settings insert can win the row. Keep that row and write only the publication columns.
+            if (!isUniqueViolation(error)) throw error
+            const existing = await getState(flow.id)
+            if (!existing) throw new AppError(StatusCodes.CONFLICT, OVERLAPPED_SAVE)
+            await repo().update({ chatflowId: flow.id }, { liveSha: sha, publishedDate })
+            if (existing.draftFlowData && !options.keepDraftBase && !isOtherType(existing.draftBaseHash, flow)) {
+                await repo().update({ chatflowId: flow.id, draftFlowData: existing.draftFlowData }, { draftBaseHash: draftBase(flow) })
+            }
+            return getDraftStatus(flow)
+        }
     }
     await repo().update({ chatflowId: flow.id }, { liveSha: sha, publishedDate })
     // Rebased only when it is a canvas of this flow's type; one of another type stays unpublishable.
@@ -469,6 +578,8 @@ export async function updateDraftSettings(
         if (!publishGateApplies(flow.type)) {
             throw new AppError(StatusCodes.BAD_REQUEST, 'A passing test set before Publish is for chatflows and agentflows.')
         }
+        const refusal = datasetStartRefusal(flow.type, [flow.flowData, state?.draftFlowData])
+        if (refusal) throw new AppError(StatusCodes.BAD_REQUEST, refusal)
     }
     if (nextInstant && state?.draftFlowData) {
         throw new AppError(
@@ -479,18 +590,210 @@ export async function updateDraftSettings(
     // The ids are resolved in this flow's workspace before anything is written. A missing id and an id
     // from another workspace are the same 404, and the stored settings stay as they were.
     if (gate?.enabled && gate.datasetId) await assertGateTargets(flow.workspaceId, gate.datasetId, gate.evaluatorIds)
-    if (!state && !nextInstant && !nextGate) return withTestSet(flow, statusFrom(flow, null))
-    const row = state || repo().create({ chatflowId: flow.id, workspaceId: flow.workspaceId, publishInstantly: false, publishGate: false })
-    if (hasInstant) row.publishInstantly = nextInstant
-    if (gate?.enabled) {
-        row.publishGate = true
-        row.publishGateDatasetId = gate.datasetId
-        row.publishGateEvaluatorIds = JSON.stringify(gate.evaluatorIds)
-        row.publishGateThreshold = gate.threshold
-    } else if (gate && !gate.enabled) {
-        row.publishGate = false
+    // A draft save or a publish can land during that lookup. Write only the settings columns, then
+    // re-read, so the stale row from before the lookup cannot put the old draft or publication back.
+    // Turning one setting on is conditional on the other still being off. A publish-instantly save
+    // that commits during the lookup must not leave both flags true: publishInstantly would win and
+    // the gate would never be consulted.
+    await withChatflowLock(flow.id, async (manager) => {
+        if (draftWriteHooks.beforeSettingsWrite) await draftWriteHooks.beforeSettingsWrite()
+        const stateRepo = manager.getRepository(FlowVersionState)
+        // A direct Live update can change the type or the start after the unlocked read.
+        const lockedFlow = await flowUnderLock(manager, flow)
+        let row = await stateRepo.findOneBy({ chatflowId: flow.id })
+        if (!row) {
+            if (!nextInstant && !nextGate) return
+            refuseLockedSettings(lockedFlow, emptyLockedRow(), hasInstant, nextInstant, gate)
+            let inserted = false
+            await insertStateOrRecover(
+                manager,
+                async () => {
+                    await stateRepo.save(stateRepo.create(newSettingsRow(flow, nextInstant, gate)))
+                    inserted = true
+                },
+                async () => {
+                    row = await stateRepo.findOneBy({ chatflowId: flow.id })
+                    if (!row) throw new AppError(StatusCodes.CONFLICT, OVERLAPPED_SAVE)
+                }
+            )
+            if (inserted) return
+        }
+        if (!row) throw new AppError(StatusCodes.CONFLICT, OVERLAPPED_SAVE)
+        // The read above the lock can be stale. A draft, the other flag, or a start that cannot
+        // take a dataset may have landed. Refuse before any settings column is written.
+        refuseLockedSettings(lockedFlow, row, hasInstant, nextInstant, gate)
+        await applySettingsUpdate(stateRepo, flow.id, hasInstant, nextInstant, gate)
+    })
+    return withTestSet(flow, statusFrom(flow, await getState(flow.id)))
+}
+
+function emptyLockedRow(): FlowVersionState {
+    return { publishInstantly: false, publishGate: false, draftFlowData: null } as FlowVersionState
+}
+
+// The chatflow row this lock is holding. Type and Live canvas are whatever is stored now.
+async function flowUnderLock(manager: EntityManager, flow: DraftFlow): Promise<DraftFlow> {
+    const chat = await manager.getRepository(ChatFlow).findOneBy({ id: flow.id })
+    if (!chat) throw new AppError(StatusCodes.NOT_FOUND, `Chatflow ${flow.id} not found`)
+    return {
+        ...flow,
+        type: chat.type || flow.type,
+        flowData: typeof chat.flowData === 'string' ? chat.flowData : flow.flowData
     }
-    return withTestSet(flow, statusFrom(flow, await repo().save(row)))
+}
+
+function newSettingsRow(
+    flow: DraftFlow,
+    nextInstant: boolean,
+    gate: { enabled: boolean; datasetId: string | null; evaluatorIds: string[]; threshold: number | null } | null
+) {
+    return {
+        chatflowId: flow.id,
+        workspaceId: flow.workspaceId,
+        publishInstantly: Boolean(nextInstant),
+        publishGate: Boolean(gate?.enabled),
+        ...(gate?.enabled
+            ? {
+                  publishGateDatasetId: gate.datasetId,
+                  publishGateEvaluatorIds: JSON.stringify(gate.evaluatorIds),
+                  publishGateThreshold: gate.threshold
+              }
+            : {})
+    }
+}
+
+// The same refusals as the unlocked read, using the row the lock just read. Nothing is written when one fails.
+function refuseLockedSettings(
+    flow: DraftFlow,
+    row: FlowVersionState,
+    hasInstant: boolean,
+    nextInstant: boolean,
+    gate: { enabled: boolean; datasetId: string | null; evaluatorIds: string[]; threshold: number | null } | null
+): void {
+    const endInstant = hasInstant ? nextInstant : Boolean(row.publishInstantly)
+    const endGate = gate ? gate.enabled : Boolean(row.publishGate)
+    if (endInstant && endGate) {
+        throw new AppError(StatusCodes.BAD_REQUEST, conflictingSettingsMessage(Boolean(gate?.enabled)))
+    }
+    if (gate?.enabled) {
+        if (!isDraftsEnabled()) throw new AppError(StatusCodes.BAD_REQUEST, 'Drafts are off on this server.')
+        if (!publishGateApplies(flow.type)) {
+            throw new AppError(StatusCodes.BAD_REQUEST, 'A passing test set before Publish is for chatflows and agentflows.')
+        }
+        const refusal = datasetStartRefusal(flow.type, [flow.flowData, row.draftFlowData])
+        if (refusal) throw new AppError(StatusCodes.BAD_REQUEST, refusal)
+    }
+    if (endInstant && row.draftFlowData) {
+        throw new AppError(
+            StatusCodes.CONFLICT,
+            'This flow has unpublished changes. Publish or discard them before turning on Publish instantly.'
+        )
+    }
+}
+
+// Off flags go first, so one request can turn Publish instantly off and the passing test set on,
+// or the reverse. The on is then conditional on the other flag still being off.
+async function applySettingsUpdate(
+    stateRepo: StateWriter,
+    flowId: string,
+    hasInstant: boolean,
+    nextInstant: boolean,
+    gate: { enabled: boolean; datasetId: string | null; evaluatorIds: string[]; threshold: number | null } | null
+): Promise<void> {
+    if (hasInstant && !nextInstant) await stateRepo.update({ chatflowId: flowId }, { publishInstantly: false })
+    if (gate && !gate.enabled) await stateRepo.update({ chatflowId: flowId }, { publishGate: false })
+    if (gate?.enabled) {
+        await updateUnlessOtherFlag(
+            stateRepo,
+            flowId,
+            { chatflowId: flowId, publishInstantly: false },
+            {
+                publishGate: true,
+                publishGateDatasetId: gate.datasetId,
+                publishGateEvaluatorIds: JSON.stringify(gate.evaluatorIds),
+                publishGateThreshold: gate.threshold
+            },
+            (row) => Boolean(row.publishInstantly),
+            true
+        )
+    }
+    if (hasInstant && nextInstant) {
+        await updateUnlessOtherFlag(
+            stateRepo,
+            flowId,
+            { chatflowId: flowId, publishGate: false },
+            { publishInstantly: true },
+            (row) => Boolean(row.publishGate),
+            false
+        )
+    }
+}
+
+function isUniqueViolation(error: unknown): boolean {
+    const err = error as { code?: string; message?: string; driverError?: { code?: string } }
+    const code = String(err?.code || err?.driverError?.code || '')
+    if (['23505', 'ER_DUP_ENTRY', 'SQLITE_CONSTRAINT', 'SQLITE_CONSTRAINT_UNIQUE'].includes(code)) return true
+    return /unique constraint|duplicate key|duplicate entry/i.test(String(err?.message || ''))
+}
+
+// Postgres aborts the whole transaction on a unique violation. A savepoint lets the re-read and the
+// column update run on the same connection. Other engines do not abort, so they only need the catch.
+async function insertStateOrRecover(manager: EntityManager, insert: () => Promise<void>, recover: () => Promise<void>): Promise<void> {
+    const driver = (getRunningExpressApp().AppDataSource as { options?: { type?: string } } | undefined)?.options?.type
+    const query = driver === 'postgres' && typeof manager.query === 'function' ? (sql: string) => manager.query(sql) : null
+    if (query) await query('SAVEPOINT cuttlely_state_insert')
+    try {
+        await insert()
+        if (query) await query('RELEASE SAVEPOINT cuttlely_state_insert')
+    } catch (error) {
+        if (query) {
+            try {
+                await query('ROLLBACK TO SAVEPOINT cuttlely_state_insert')
+            } catch {
+                throw error
+            }
+        }
+        if (!isUniqueViolation(error)) throw error
+        await recover()
+    }
+}
+
+type StateWriter = {
+    update: (where: any, patch: any) => Promise<{ affected?: number | null }>
+    findOneBy: (where: any) => Promise<FlowVersionState | null>
+}
+
+function patchAlreadyStored(row: FlowVersionState | null, patch: Partial<FlowVersionState>): boolean {
+    if (!row) return false
+    return (Object.keys(patch) as Array<keyof FlowVersionState>).every((key) => row[key] === patch[key])
+}
+
+// MySQL and MariaDB report 0 changed rows when the values are already stored. That is a save,
+// not proof that the other flag is on. Re-read on this locked repository. When the values are
+// not already stored, repeat the same conditional update. A 400 means the other flag is on, or
+// the conditional update still matched no row.
+async function updateUnlessOtherFlag(
+    stateRepo: StateWriter,
+    flowId: string,
+    where: { chatflowId: string; publishInstantly?: boolean; publishGate?: boolean },
+    patch: Partial<FlowVersionState>,
+    otherFlagOn: (row: FlowVersionState) => boolean,
+    turningGateOn: boolean
+): Promise<void> {
+    const refuse = () => {
+        throw new AppError(StatusCodes.BAD_REQUEST, conflictingSettingsMessage(turningGateOn))
+    }
+    const read = () => stateRepo.findOneBy({ chatflowId: flowId })
+    const updated = await stateRepo.update(where, patch)
+    if (updated?.affected) return
+    const row = await read()
+    if (!row || otherFlagOn(row)) refuse()
+    if (patchAlreadyStored(row, patch)) return
+    const retried = await stateRepo.update(where, patch)
+    if (retried?.affected) return
+    const again = await read()
+    if (patchAlreadyStored(again, patch)) return
+    refuse()
 }
 
 export interface GateResultInput {
@@ -505,6 +808,59 @@ export interface GateResultInput {
     verdict: 'passed' | 'failed'
     contentHash?: string
     postProcessHash?: string
+    checkId?: string
+}
+
+// The check run that must match the stored result. Set before the result is written, including when
+// that write fails, so Publish can refuse an older pass that this run did not replace.
+const gateCheckNotes = new Map<string, string>()
+
+export function noteGateCheck(flowId: string, checkId: string): void {
+    if (flowId && checkId) gateCheckNotes.set(flowId, checkId)
+}
+
+export function notedGateCheck(flowId: string): string | null {
+    return gateCheckNotes.get(flowId) || null
+}
+
+export function clearGateCheckNote(flowId: string): void {
+    gateCheckNotes.delete(flowId)
+}
+
+export function clearGateCheckNotes(): void {
+    gateCheckNotes.clear()
+}
+
+export type GateWriteOutcome = 'stored' | 'ignored'
+
+// Records the check when it matches the gate. A skipped write must not leave a note behind.
+// A write that throws notes this check, then tries to clear the stored result. If that clear
+// also throws, the note stays so Publish refuses the older pass.
+export async function settlePublishGateCheck(flow: DraftFlow, input: GateResultInput): Promise<GateWriteOutcome> {
+    let before: ReturnType<typeof readGateResult> = null
+    let priorRead = false
+    try {
+        // A throw here is still this check's failure. The note has to be recorded, and the clear
+        // can name the previous result only when this read actually returned it.
+        before = readGateResult((await getState(flow.id))?.publishGateResult)
+        priorRead = true
+        const outcome = await recordPublishGateResult(flow, input)
+        // A stored result replaces any failure note. An ignored check clears a note only when that
+        // note is this check's. Another check's failure note stays, so its older pass stays refused.
+        const noted = notedGateCheck(flow.id)
+        if (outcome === 'stored' || (input.checkId && noted === input.checkId)) clearGateCheckNote(flow.id)
+        return outcome
+    } catch (error) {
+        if (input.checkId) noteGateCheck(flow.id, input.checkId)
+        if (priorRead) {
+            try {
+                await clearPublishGateResult(flow, { checkId: before?.checkId ?? null, checkedAt: before?.checkedAt ?? null })
+            } catch {
+                // The note stays. Publish refuses a stored pass that is not from this check.
+            }
+        }
+        throw error
+    }
 }
 
 // The same workspace lookup the dataset check uses. A missing id and an id from another workspace
@@ -516,10 +872,10 @@ async function assertGateTargets(workspaceId: string, datasetId: string, evaluat
 
 // Writes the last gate result onto the flow row. A check that does not match the current gate settings
 // is ignored, so an exploratory check does not replace a pass. Nothing in the row is an answer.
-export async function recordPublishGateResult(flow: DraftFlow, input: GateResultInput): Promise<void> {
-    if (!publishGateApplies(flow.type)) return
+export async function recordPublishGateResult(flow: DraftFlow, input: GateResultInput): Promise<GateWriteOutcome> {
+    if (!publishGateApplies(flow.type)) return 'ignored'
     const state = await getState(flow.id)
-    if (!state?.publishGate) return
+    if (!state?.publishGate) return 'ignored'
     const settings = gateSettingsOf(state)
     if (
         !sameGateSettings(settings, {
@@ -528,7 +884,7 @@ export async function recordPublishGateResult(flow: DraftFlow, input: GateResult
             threshold: input.threshold
         })
     ) {
-        return
+        return 'ignored'
     }
     const record: Omit<GateResult, 'checkedAt'> = {
         draftHash: input.draftHash,
@@ -541,9 +897,40 @@ export async function recordPublishGateResult(flow: DraftFlow, input: GateResult
         errored: input.errored,
         verdict: input.verdict,
         contentHash: input.contentHash || '',
-        postProcessHash: input.postProcessHash || ''
+        postProcessHash: input.postProcessHash || '',
+        ...(input.checkId ? { checkId: input.checkId } : {})
     }
-    await repo().update({ chatflowId: flow.id }, { publishGateResult: gateResultRecord(record) })
+    // The where is the gate this check read. A newer pass, or a gate that changed, does not match,
+    // and this check leaves that row alone.
+    const gateWhere: FindOptionsWhere<FlowVersionState> = {
+        chatflowId: flow.id,
+        publishGate: true,
+        publishGateDatasetId: state.publishGateDatasetId == null ? IsNull() : state.publishGateDatasetId,
+        publishGateEvaluatorIds: state.publishGateEvaluatorIds == null ? IsNull() : state.publishGateEvaluatorIds,
+        publishGateThreshold: state.publishGateThreshold == null ? IsNull() : state.publishGateThreshold
+    }
+    const updated = await repo().update(gateWhere, { publishGateResult: gateResultRecord(record) })
+    if (updated?.affected === 0) return 'ignored'
+    return 'stored'
+}
+
+// Drops the stored gate result and leaves the draft and the other settings alone. A check whose
+// write failed calls this so an older pass cannot publish. When `previous` is set, the clear runs
+// only while the row still holds that result. A pass another process stored (a different check id
+// or a different time) is left in place.
+export async function clearPublishGateResult(
+    flow: Pick<DraftFlow, 'id'>,
+    previous?: { checkId?: string | null; checkedAt?: string | null } | null
+): Promise<void> {
+    const state = await getState(flow.id)
+    const stored = state?.publishGateResult
+    if (!stored) return
+    if (previous) {
+        const current = readGateResult(stored)
+        if ((previous.checkId || null) !== (current?.checkId || null)) return
+        if ((previous.checkedAt || null) !== (current?.checkedAt || null)) return
+    }
+    await repo().update({ chatflowId: flow.id, publishGateResult: stored }, { publishGateResult: null })
 }
 
 // The canvas the flow's own test runs: the draft when the flow saves to drafts and has one,
@@ -575,6 +962,10 @@ export default {
     setPublishInstantly,
     updateDraftSettings,
     recordPublishGateResult,
+    settlePublishGateCheck,
+    clearPublishGateResult,
+    noteGateCheck,
+    clearGateCheckNote,
     flowDataForTestChat,
     deleteStateFor
 }

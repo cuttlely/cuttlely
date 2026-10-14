@@ -62,7 +62,7 @@ import {
     triggerStart,
     typeUnavailable
 } from './kinds'
-import { postProcessHash, publishGateApplies } from '../flow-drafts/gate'
+import { postProcessHash, publishGateApplies, readEvaluatorIdList, sameGateSettings } from '../flow-drafts/gate'
 import { harnessCheckHooks, harnessQuestionsFor, harnessQuestionsToRun, replayHarnessQuestion } from './harness'
 import { CheckEvaluator, loadEvaluators, loadTestSet, readDatasetId, readEvaluatorIds, scoreAnswer } from './score'
 
@@ -159,6 +159,8 @@ export interface CheckView {
     selection: CheckSelection | null
     // Set when a dataset check has finished. Null for any other check, and while a dataset check is still running.
     verdict: DraftVerdict | null
+    // True when this dataset check uses the flow's current passing-test settings. A recent-question check is false.
+    matchesPublishGate?: boolean
 }
 
 interface CheckRecord {
@@ -508,8 +510,31 @@ export async function getCheckSetup(
         liveEmpty: liveIsEmpty(flow.flowData),
         replayInputs: Boolean(kind),
         replaySource: kind ? sourceOf(kind) : null,
-        check: record ? view(record, draft ? canvasHash(draft) : null, reveal) : null
+        check: record ? await present(flow, record, draft, reveal) : null
     }
+}
+
+async function gateRunMatches(flow: DraftFlow, record: CheckRecord): Promise<boolean> {
+    if (!publishGateApplies(flow.type) || !record.fromDataset || !record.datasetId || record.threshold == null) return false
+    const state = await flowDraftsService.getState(flow.id)
+    if (!state?.publishGate) return false
+    return sameGateSettings(
+        {
+            datasetId: state.publishGateDatasetId || null,
+            evaluatorIds: readEvaluatorIdList(state.publishGateEvaluatorIds),
+            threshold: typeof state.publishGateThreshold === 'number' ? state.publishGateThreshold : null
+        },
+        {
+            datasetId: record.datasetId,
+            evaluatorIds: record.evaluators.map((item) => item.id),
+            threshold: record.threshold
+        }
+    )
+}
+
+async function present(flow: DraftFlow, record: CheckRecord, draft: string | null, reveal?: CheckReveal): Promise<CheckView> {
+    const shown = view(record, draft ? canvasHash(draft) : null, reveal)
+    return { ...shown, matchesPublishGate: await gateRunMatches(flow, record) }
 }
 
 // The same ownership check replay uses. A canvas left in another team does not open that harness session.
@@ -538,7 +563,7 @@ export async function getCheck(flow: DraftFlow, checkId: string, given?: Candida
     const record = checks.get(candidate.key)
     if (!record || record.id !== checkId) throw new AppError(StatusCodes.NOT_FOUND, 'That check was not found. Run it again.')
     const draft = candidate.canvas
-    return view(record, draft ? canvasHash(draft) : null, reveal)
+    return present(flow, record, draft, reveal)
 }
 
 export async function stopCheck(flow: DraftFlow, checkId: string, given?: Candidate, reveal?: CheckReveal): Promise<CheckView> {
@@ -964,16 +989,15 @@ async function runCheck(record: CheckRecord, flow: IChatFlow, draft: string, bas
         } else {
             // Store the verdict before status is done, so a poll cannot see a finished check with nothing saved yet.
             // A harness check can replay a dataset. It does not store a pass: the gate cannot be turned on for one.
-            if (
-                publishGateApplies(flow.type) &&
-                record.fromDataset &&
-                record.datasetId &&
-                record.threshold != null &&
-                flowDraftsService.recordPublishGateResult
-            ) {
+            // A failed write clears any older pass and fails the check. Leaving the check done would let that
+            // older pass publish even though this check did not store its result.
+            let stored = true
+            if (publishGateApplies(flow.type) && record.fromDataset && record.datasetId && record.threshold != null) {
                 const verdict = draftVerdict(summarize(record.cases, record.liveEmpty).scores?.draft, record.threshold)
-                await flowDraftsService
-                    .recordPublishGateResult(flow as DraftFlow, {
+                try {
+                    // A skipped write clears any note. A thrown write notes this check, and the note
+                    // stays only when clearing the stored result also throws.
+                    await flowDraftsService.settlePublishGateCheck(flow as DraftFlow, {
                         draftHash: record.draftHash,
                         datasetId: record.datasetId,
                         evaluatorIds: record.evaluators.map((evaluator) => evaluator.id),
@@ -984,15 +1008,21 @@ async function runCheck(record: CheckRecord, flow: IChatFlow, draft: string, bas
                         errored: verdict.errored,
                         verdict: verdict.result,
                         contentHash: record.contentHash,
-                        postProcessHash: record.postProcessHash
+                        postProcessHash: record.postProcessHash,
+                        checkId: record.id
                     })
-                    .catch((error: Error) => {
-                        logger.error(
-                            `[server]: could not store the publish gate result for flow ${flow.id}: ${error?.message || 'unknown error'}`
-                        )
-                    })
+                } catch (error) {
+                    stored = false
+                    logger.error(
+                        `[server]: could not store the publish gate result for flow ${flow.id}: ${
+                            (error as Error)?.message || 'unknown error'
+                        }`
+                    )
+                    record.status = 'failed'
+                    record.error = 'The test set result could not be saved.'
+                }
             }
-            record.status = 'done'
+            if (stored) record.status = 'done'
         }
     } catch (error) {
         record.status = 'failed'

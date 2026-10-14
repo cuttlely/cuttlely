@@ -927,10 +927,44 @@
                     "nullable": true,
                     "default": "-1",
                     "pk": 0
+                },
+                {
+                    "name": "sourceType",
+                    "type": "varchar(32)",
+                    "nullable": true,
+                    "default": null,
+                    "pk": 0
+                },
+                {
+                    "name": "sourceMessageId",
+                    "type": "varchar(36)",
+                    "nullable": true,
+                    "default": null,
+                    "pk": 0
+                },
+                {
+                    "name": "sourceFlowId",
+                    "type": "varchar(36)",
+                    "nullable": true,
+                    "default": null,
+                    "pk": 0
+                },
+                {
+                    "name": "sourceDate",
+                    "type": "datetime",
+                    "nullable": true,
+                    "default": null,
+                    "pk": 0
                 }
             ],
             "foreignKeys": [],
             "indexes": [
+                {
+                    "name": "IDX_dataset_row_source_message",
+                    "unique": true,
+                    "columns": ["datasetId", "sourceMessageId"],
+                    "origin": "c"
+                },
                 {
                     "name": "sqlite_autoindex_dataset_row_1",
                     "unique": true,
@@ -4059,10 +4093,39 @@
                     "type": "integer",
                     "nullable": true,
                     "default": "'-1'::integer"
+                },
+                {
+                    "name": "sourceType",
+                    "type": "varchar(32)",
+                    "nullable": true,
+                    "default": null
+                },
+                {
+                    "name": "sourceMessageId",
+                    "type": "varchar(36)",
+                    "nullable": true,
+                    "default": null
+                },
+                {
+                    "name": "sourceFlowId",
+                    "type": "varchar(36)",
+                    "nullable": true,
+                    "default": null
+                },
+                {
+                    "name": "sourceDate",
+                    "type": "timestamp",
+                    "nullable": true,
+                    "default": null
                 }
             ],
             "foreignKeys": [],
             "indexes": [
+                {
+                    "name": "IDX_dataset_row_source_message",
+                    "unique": true,
+                    "columns": ["datasetId", "sourceMessageId"]
+                },
                 {
                     "name": "PK_98909027dd804f54-9840ab99f8",
                     "unique": true,
@@ -7144,10 +7207,47 @@
                     "default": "-1",
                     "extra": "",
                     "collation": null
+                },
+                {
+                    "name": "sourceType",
+                    "type": "varchar(32)",
+                    "nullable": true,
+                    "default": "NULL",
+                    "extra": "",
+                    "collation": "utf8mb4_unicode_520_ci"
+                },
+                {
+                    "name": "sourceMessageId",
+                    "type": "varchar(36)",
+                    "nullable": true,
+                    "default": "NULL",
+                    "extra": "",
+                    "collation": "utf8mb4_unicode_520_ci"
+                },
+                {
+                    "name": "sourceFlowId",
+                    "type": "varchar(36)",
+                    "nullable": true,
+                    "default": "NULL",
+                    "extra": "",
+                    "collation": "utf8mb4_unicode_520_ci"
+                },
+                {
+                    "name": "sourceDate",
+                    "type": "datetime(6)",
+                    "nullable": true,
+                    "default": "NULL",
+                    "extra": "",
+                    "collation": null
                 }
             ],
             "foreignKeys": [],
             "indexes": [
+                {
+                    "name": "IDX_dataset_row_source_message",
+                    "unique": true,
+                    "columns": ["datasetId", "sourceMessageId"]
+                },
                 {
                     "name": "PRIMARY",
                     "unique": true,
@@ -10813,10 +10913,47 @@
                     "default": "-1",
                     "extra": "",
                     "collation": null
+                },
+                {
+                    "name": "sourceType",
+                    "type": "varchar(32)",
+                    "nullable": true,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_0900_ai_ci"
+                },
+                {
+                    "name": "sourceMessageId",
+                    "type": "varchar(36)",
+                    "nullable": true,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_0900_ai_ci"
+                },
+                {
+                    "name": "sourceFlowId",
+                    "type": "varchar(36)",
+                    "nullable": true,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_0900_ai_ci"
+                },
+                {
+                    "name": "sourceDate",
+                    "type": "datetime(6)",
+                    "nullable": true,
+                    "default": null,
+                    "extra": "",
+                    "collation": null
                 }
             ],
             "foreignKeys": [],
             "indexes": [
+                {
+                    "name": "IDX_dataset_row_source_message",
+                    "unique": true,
+                    "columns": ["datasetId", "sourceMessageId"]
+                },
                 {
                     "name": "PRIMARY",
                     "unique": true,

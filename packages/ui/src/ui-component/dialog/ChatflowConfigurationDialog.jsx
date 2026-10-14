@@ -253,12 +253,18 @@ const ChatflowConfigurationDialog = ({ show, isAgentCanvas, dialogProps, onCance
             ...group,
             sections: group.sections.filter((section) => {
                 if (section.id === 'publishInstantly' && !showPublishInstantly(draftStatus)) return false
-                if (section.id === 'publishGate' && !showPublishGate(draftStatus, dialogProps?.chatflow?.type || chatflow?.type))
+                if (
+                    section.id === 'publishGate' &&
+                    !showPublishGate(draftStatus, dialogProps?.chatflow?.type || chatflow?.type, [
+                        chatflow?.flowData,
+                        draftStatus?.draft?.flowData
+                    ])
+                )
                     return false
                 return !isAgentCanvas || !section.hideInAgentFlow
             })
         })).filter((group) => group.sections.length > 0)
-    }, [isAgentCanvas, draftStatus, chatflow?.type, dialogProps?.chatflow?.type])
+    }, [isAgentCanvas, draftStatus, chatflow?.type, chatflow?.flowData, dialogProps?.chatflow?.type])
 
     // Get all section IDs for validation
     const allSectionIds = useMemo(() => {

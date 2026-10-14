@@ -1,0 +1,185 @@
+jest.mock('@/api/dataset', () => ({
+    __esModule: true,
+    default: {
+        getAllDatasets: jest.fn(),
+        createDataset: jest.fn(),
+        addDatasetRowFromChatMessage: jest.fn()
+    }
+}))
+jest.mock('@/utils/useNotifier', () => () => {})
+jest.mock('react-redux', () => ({
+    useDispatch: () => () => {},
+    useSelector: () => ({})
+}))
+
+import { createElement } from 'react'
+import { renderToStaticMarkup } from 'react-dom/server'
+import { ThemeProvider, createTheme } from '@mui/material/styles'
+
+import { AddToTestSetForm, canAddAnswerToDataset, questionBeforeAnswer } from './AddToTestSetDialog'
+
+const theme = createTheme()
+const noop = () => {}
+
+function markup(props) {
+    return renderToStaticMarkup(
+        createElement(
+            ThemeProvider,
+            { theme },
+            createElement(AddToTestSetForm, {
+                onExpectedChange: noop,
+                onDatasetChange: noop,
+                onShowNew: noop,
+                onNewName: noop,
+                onCreate: noop,
+                onSave: noop,
+                onCancel: noop,
+                ...props
+            })
+        )
+    )
+}
+
+describe('questionBeforeAnswer', () => {
+    const user = { id: 'u1', type: 'userMessage', message: 'Where is the rye?' }
+    const answer = { id: 'a1', type: 'apiMessage', message: 'In the back.' }
+    const later = { id: 'u2', type: 'userMessage', message: 'And the wheat?' }
+
+    test('uses the question that led to that answer', () => {
+        const messages = [{ type: 'timeMessage', message: '2026-01-01' }, user, answer, later]
+        expect(questionBeforeAnswer(messages, answer)).toBe('Where is the rye?')
+    })
+
+    test('does not use a question from an earlier answer', () => {
+        const first = { id: 'a0', type: 'apiMessage', message: 'Earlier.' }
+        expect(questionBeforeAnswer([user, first, answer], answer)).toBe('')
+    })
+
+    test('stays inside the same chat session and memory', () => {
+        const own = {
+            id: 'u-own',
+            type: 'userMessage',
+            message: 'own session question',
+            chatId: 'chat-1',
+            sessionId: 'sess-1',
+            memoryType: 'buffer'
+        }
+        const otherSession = {
+            id: 'u-other',
+            type: 'userMessage',
+            message: 'other session question',
+            chatId: 'chat-1',
+            sessionId: 'sess-2',
+            memoryType: 'buffer'
+        }
+        const otherMemory = {
+            id: 'u-window',
+            type: 'userMessage',
+            message: 'window question',
+            chatId: 'chat-1',
+            sessionId: 'sess-1',
+            memoryType: 'window'
+        }
+        const sessionAnswer = {
+            id: 'a-session',
+            type: 'apiMessage',
+            message: 'yes',
+            chatId: 'chat-1',
+            sessionId: 'sess-1',
+            memoryType: 'buffer'
+        }
+        expect(questionBeforeAnswer([own, otherSession, otherMemory, sessionAnswer], sessionAnswer)).toBe('own session question')
+    })
+})
+
+describe('AddToTestSetForm', () => {
+    const datasets = [{ id: 'ds-1', name: 'Bakery questions' }]
+
+    test('shows the question, an editable expected answer, the dataset list, and the personal-data warning', () => {
+        const html = markup({
+            question: 'Where is the rye?',
+            expected: 'In the back.',
+            datasets,
+            datasetId: 'ds-1',
+            canCreate: true,
+            showNew: false,
+            newName: '',
+            creating: false,
+            saving: false
+        })
+        expect(html).toContain('Real messages can contain personal data. Check the question and the expected answer before saving.')
+        expect(html).toContain('Where is the rye?')
+        expect(html).toContain('In the back.')
+        expect(html).toContain('Bakery questions')
+        expect(html).toContain('New dataset')
+        expect(html).toContain('Expected answer')
+    })
+
+    test('hides new dataset when the role cannot create one', () => {
+        const html = markup({
+            question: 'Where is the rye?',
+            expected: 'In the back.',
+            datasets,
+            datasetId: '',
+            canCreate: false,
+            canView: true,
+            showNew: false,
+            newName: '',
+            creating: false,
+            saving: false
+        })
+        expect(html).not.toContain('New dataset')
+        expect(html).toContain('Bakery questions')
+    })
+
+    test('create without view keeps New dataset and hides the existing list', () => {
+        const html = markup({
+            question: 'Where is the rye?',
+            expected: 'In the back.',
+            datasets,
+            datasetId: '',
+            canCreate: true,
+            canView: false,
+            showNew: false,
+            newName: '',
+            creating: false,
+            saving: false
+        })
+        expect(html).toContain('New dataset')
+        expect(html).not.toContain('Bakery questions')
+        expect(html).not.toContain('Choose a dataset')
+    })
+
+    test('shows a visible error when the dataset list fails to load', () => {
+        const html = markup({
+            question: 'Where is the rye?',
+            expected: 'In the back.',
+            datasets: [],
+            datasetId: '',
+            canCreate: false,
+            canView: true,
+            loadError: 'Could not load datasets',
+            showNew: false,
+            newName: '',
+            creating: false,
+            saving: false
+        })
+        expect(html).toContain('Could not load datasets')
+    })
+})
+
+describe('canAddAnswerToDataset', () => {
+    const allow =
+        (...keys) =>
+        (permissionId) =>
+            String(permissionId)
+                .split(',')
+                .some((key) => keys.includes(key))
+
+    test('create can open the dialog without view, and update needs view', () => {
+        expect(canAddAnswerToDataset(allow('datasets:create'))).toBe(true)
+        expect(canAddAnswerToDataset(allow('datasets:update'))).toBe(false)
+        expect(canAddAnswerToDataset(allow('datasets:update', 'datasets:view'))).toBe(true)
+        expect(canAddAnswerToDataset(allow('datasets:view'))).toBe(false)
+    })
+})

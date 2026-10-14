@@ -100,8 +100,33 @@ export const inputMeta = (source, date) => {
 export const INPUT_PREVIEW_CHARS = 180
 export const CHECK_VARY_NOTE = 'Answers from a model can vary a little between runs, even with no change.'
 export const CHECK_CLOSE_NOTE = 'Closing this window or publishing stops a check that is still running.'
+export const CHECK_ADOPTED_NOTE = 'Closing this window leaves this check running.'
+export const GATE_RUN_PERMISSION =
+    'Someone who can view datasets and evaluators has to run the test set, or the passing test set can be turned off.'
 export const RUN_ANYWAY_LABEL = 'Run it anyway, including those steps'
 export const POLL_MS = 1000
+
+// The server allows CUTTLELY_CHECK_MAX_SECONDS up to 1800. A missing limit uses that ceiling.
+// One extra poll interval lets the last status land after the server stops the check.
+export const gatePollBudgetMs = (limits, pollMs = POLL_MS) => {
+    const raw = Number(limits?.maxSeconds)
+    const seconds = Number.isFinite(raw) && raw > 0 ? raw : 1800
+    return seconds * 1000 + pollMs
+}
+
+// Polls until the check leaves running, or the server's time limit passes. shouldStop ends the
+// loop without stopping the check, so a gate run can still record a pass after the dialog closes.
+export const pollGateCheck = async ({ view, read, sleep, pollMs = POLL_MS, now = Date.now, shouldStop = () => false }) => {
+    const deadline = now() + gatePollBudgetMs(view?.limits, pollMs)
+    let current = view
+    while (current?.status === 'running' && now() < deadline) {
+        if (shouldStop()) return current
+        await sleep(pollMs)
+        if (shouldStop()) return current
+        current = await read()
+    }
+    return current
+}
 
 // A blank field is not 0. Only a whole number from 0 to 100 is a pass mark.
 export const passMarkNumber = (value) => {

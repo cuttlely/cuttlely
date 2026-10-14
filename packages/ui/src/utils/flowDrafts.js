@@ -1,6 +1,7 @@
 // Plain-words decisions for Draft and Publish. The canvas and the dialogs call these
 // so a flow with drafts off (mode "live") keeps today's save path.
 
+import { canvasStartType } from './publishCheck'
 import { describeDiff, relativeTime } from './versionHistory'
 
 export const STALE_DRAFT_WARNING =
@@ -17,11 +18,33 @@ export const showDraftChrome = (status) => status?.mode === 'draft'
 
 export const showPublishInstantly = (status) => Boolean(status?.enabled) && status.reason !== 'off' && status.reason !== 'type'
 
-// The passing-test gate is only for chatflows and agentflows. A harness uses the same Publish route, and this stays off there.
-export const showPublishGate = (status, type) => {
+const TRIGGER_STARTS = {
+    formInput: 'a form',
+    webhookTrigger: 'a webhook',
+    scheduleInput: 'a schedule'
+}
+
+// A form, webhook, or schedule start cannot run a dataset check. Null when the gate can still be met.
+export const datasetGateBlock = (type, canvases = []) => {
+    if ((type || 'CHATFLOW') !== 'AGENTFLOW') return null
+    const starts = (Array.isArray(canvases) ? canvases : [])
+        .filter(Boolean)
+        .map(canvasStartType)
+        .filter((start) => start != null && start !== '')
+    if (!starts.length || starts.every((start) => start === 'chatInput')) return null
+    const which = starts.map((start) => TRIGGER_STARTS[start]).find(Boolean) || 'something other than a chat message'
+    return `A dataset check asks each row as a chat message. This flow starts with ${which}, so it cannot use a dataset. Turn off the passing test set before you publish.`
+}
+
+// The passing-test gate is only for chatflows and agentflows. A form, webhook, or schedule
+// start hides it while it is off, so it cannot be turned on. When it is already on, the
+// section stays so it can be turned off.
+export const showPublishGate = (status, type, canvases) => {
     if (!showPublishInstantly(status)) return false
     const kind = type || 'CHATFLOW'
-    return kind === 'CHATFLOW' || kind === 'AGENTFLOW'
+    if (kind !== 'CHATFLOW' && kind !== 'AGENTFLOW') return false
+    if (status?.publishGate?.enabled) return true
+    return !datasetGateBlock(kind, canvases)
 }
 
 export const publishInstantlyLocked = (status) => Boolean(status?.draft)

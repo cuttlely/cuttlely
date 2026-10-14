@@ -20,6 +20,7 @@ import {
     showsPublishCheck,
     publishResultMessage,
     showDraftChrome,
+    datasetGateBlock,
     showPublishGate,
     showPublishInstantly,
     testChatFlow
@@ -85,6 +86,19 @@ describe('draft chrome', () => {
         expect(showPublishGate(drafts, 'HARNESS')).toBe(false)
         expect(showPublishGate(drafts, 'MULTIAGENT')).toBe(false)
         expect(showPublishGate(drafts, 'ETL')).toBe(false)
+        const start = (input) =>
+            JSON.stringify({ nodes: [{ data: { name: 'startAgentflow', inputs: { startInputType: input } } }], edges: [] })
+        expect(showPublishGate(drafts, 'AGENTFLOW', [start('chatInput')])).toBe(true)
+        expect(showPublishGate(drafts, 'AGENTFLOW', [start('formInput')])).toBe(false)
+        expect(showPublishGate(drafts, 'AGENTFLOW', [start('webhookTrigger')])).toBe(false)
+        expect(showPublishGate(drafts, 'AGENTFLOW', [start('scheduleInput')])).toBe(false)
+        const alreadyOn = { ...drafts, publishGate: { enabled: true } }
+        expect(showPublishGate(alreadyOn, 'AGENTFLOW', [start('formInput')])).toBe(true)
+        expect(showPublishGate(alreadyOn, 'AGENTFLOW', [start('webhookTrigger')])).toBe(true)
+        expect(showPublishGate(alreadyOn, 'AGENTFLOW', [start('scheduleInput')])).toBe(true)
+        const blocked = datasetGateBlock('AGENTFLOW', [start('webhookTrigger')])
+        expect(blocked).toEqual(expect.stringContaining('starts with a webhook, so it cannot use a dataset.'))
+        expect(blocked).toEqual(expect.stringContaining('Turn off the passing test set before you publish.'))
         expect(showPublishGate({ enabled: true, mode: 'live', reason: 'type' }, 'CHATFLOW')).toBe(false)
     })
 })

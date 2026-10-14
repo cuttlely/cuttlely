@@ -13,11 +13,23 @@ jest.mock('@/api/flowDrafts', () => ({
         getStatus: jest.fn()
     }
 }))
-jest.mock('@/hooks/useAuth', () => ({
-    useAuth: () => ({ hasPermission: () => false })
+jest.mock('@/hooks/useAuth', () => {
+    const state = { allow: () => true }
+    return {
+        useAuth: () => ({ hasPermission: (key) => state.allow(key) }),
+        __setAllow: (allow) => {
+            state.allow = allow
+        }
+    }
+})
+jest.mock('@/api/dataset', () => ({
+    __esModule: true,
+    default: { getAllDatasets: jest.fn(() => Promise.resolve({ data: [] })) }
 }))
-jest.mock('@/api/dataset', () => ({ __esModule: true, default: { getAllDatasets: jest.fn() } }))
-jest.mock('@/api/evaluators', () => ({ __esModule: true, default: { getAllEvaluators: jest.fn() } }))
+jest.mock('@/api/evaluators', () => ({
+    __esModule: true,
+    default: { getAllEvaluators: jest.fn(() => Promise.resolve({ data: [] })) }
+}))
 jest.mock('@/hooks/useConfirm', () => {
     const confirm = jest.fn()
     return { __esModule: true, default: () => ({ confirm }) }
@@ -33,6 +45,9 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { ThemeProvider, createTheme } from '@mui/material/styles'
 
 import flowDraftsApi from '@/api/flowDrafts'
+import { GATE_RUN_PERMISSION } from '@/utils/publishCheck'
+
+const { __setAllow } = jest.requireMock('@/hooks/useAuth')
 import PublishDialog, { PublishChangeList, PublishGateNotice } from './PublishDialog'
 
 const { confirm } = jest.requireMock('@/hooks/useConfirm').default()
@@ -101,6 +116,7 @@ const canvas = (startInputType, reply) =>
 
 describe('PublishDialog while the check setup is still pending', () => {
     afterEach(() => {
+        __setAllow(() => true)
         flowDraftsApi.getCheckSetup.mockReset()
         flowDraftsApi.getStatus.mockReset()
         document.body.innerHTML = ''
@@ -191,6 +207,260 @@ describe('PublishDialog while the check setup is still pending', () => {
         })
         expect(flowDraftsApi.getStatus).toHaveBeenCalledWith('flow-1')
         expect(onDraftStatus).toHaveBeenCalledWith(expect.objectContaining({ publishGate: expect.objectContaining({ block: reason }) }))
+        act(() => root.unmount())
+    })
+
+    test('a form start with the gate already on says how to turn it off and does not offer a run', async () => {
+        flowDraftsApi.getCheckSetup.mockImplementation(() => new Promise(() => {}))
+        flowDraftsApi.getStatus.mockResolvedValue({
+            data: { publishGate: { enabled: true, block: 'There is no result for this draft yet.' } }
+        })
+        const form = JSON.stringify({
+            nodes: [{ id: 'start', data: { name: 'startAgentflow', inputs: { startInputType: 'formInput' } } }],
+            edges: []
+        })
+        const container = document.createElement('div')
+        document.body.appendChild(container)
+        const root = createRoot(container)
+        await act(async () => {
+            root.render(
+                createElement(
+                    ThemeProvider,
+                    { theme: createTheme() },
+                    createElement(PublishDialog, {
+                        open: true,
+                        chatflow: { id: 'flow-1', type: 'AGENTFLOW', name: 'Order form', flowData: form },
+                        draftStatus: {
+                            draft: { flowData: form },
+                            publishGate: {
+                                enabled: true,
+                                block: 'Publish needs a passing test set at 100%. There is no result for this draft yet.'
+                            }
+                        },
+                        isDirty: false,
+                        onClose: () => {},
+                        onDraftStatus: () => {},
+                        onChatflowUpdated: () => {},
+                        onApplyCanvas: () => {}
+                    })
+                )
+            )
+        })
+        expect(document.body.textContent).toContain('starts with a form, so it cannot use a dataset.')
+        expect(document.body.textContent).toContain('Turn off the passing test set before you publish.')
+        expect(document.body.textContent).not.toContain('Run the test set')
+        act(() => root.unmount())
+    })
+
+    test('closing the dialog stops polling a gate run and does not stop the check', async () => {
+        flowDraftsApi.getCheckSetup.mockImplementation(() => new Promise(() => {}))
+        flowDraftsApi.getStatus.mockResolvedValue({ data: { publishGate: { enabled: true, block: null } } })
+        flowDraftsApi.startCheck.mockResolvedValue({
+            data: { id: 'check-1', status: 'running', limits: { maxSeconds: 1800 } }
+        })
+        flowDraftsApi.getCheck.mockResolvedValue({ data: { id: 'check-1', status: 'done' } })
+        flowDraftsApi.stopCheck.mockResolvedValue({ data: { id: 'check-1', status: 'stopped' } })
+        const container = document.createElement('div')
+        document.body.appendChild(container)
+        const root = createRoot(container)
+        await act(async () => {
+            root.render(
+                createElement(
+                    ThemeProvider,
+                    { theme: createTheme() },
+                    createElement(PublishDialog, {
+                        open: true,
+                        chatflow: { id: 'flow-1', type: 'CHATFLOW', name: 'Bakery helper', flowData: canvas('chatInput', 'Reply') },
+                        draftStatus: {
+                            draft: { flowData: canvas('chatInput', 'Oven reply') },
+                            publishGate: {
+                                enabled: true,
+                                datasetId: 'ds-1',
+                                evaluatorIds: ['ev-1'],
+                                threshold: 100,
+                                block: 'Publish needs a passing test set at 100%. There is no result for this draft yet.'
+                            }
+                        },
+                        isDirty: false,
+                        onClose: () => {},
+                        onDraftStatus: () => {},
+                        onChatflowUpdated: () => {},
+                        onApplyCanvas: () => {}
+                    })
+                )
+            )
+        })
+        const button = [...document.body.querySelectorAll('button')].find((item) => item.textContent === 'Run the test set')
+        expect(button).toBeTruthy()
+        await act(async () => {
+            button.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+        })
+        expect(flowDraftsApi.startCheck).toHaveBeenCalledWith('flow-1', {
+            datasetId: 'ds-1',
+            evaluatorIds: ['ev-1'],
+            threshold: 100,
+            includeRiskySteps: false
+        })
+        act(() => root.unmount())
+        await act(async () => {
+            await new Promise((resolve) => setTimeout(resolve, 1100))
+        })
+        expect(flowDraftsApi.stopCheck).not.toHaveBeenCalled()
+        expect(flowDraftsApi.getCheck).not.toHaveBeenCalled()
+    })
+
+    test('closing and reopening leaves Run and Publish usable after a stored pass', async () => {
+        const passed = {
+            enabled: true,
+            datasetId: 'ds-1',
+            evaluatorIds: ['ev-1'],
+            threshold: 100,
+            block: null,
+            result: { verdict: 'passed', passRate: 100, passed: 1, failed: 0, errored: 0 }
+        }
+        const blocked = {
+            ...passed,
+            block: 'Publish needs a passing test set at 100%. There is no result for this draft yet.',
+            result: null
+        }
+        const chatflow = { id: 'flow-1', type: 'CHATFLOW', name: 'Bakery helper', flowData: canvas('chatInput', 'Reply') }
+        const draft = { flowData: canvas('chatInput', 'Oven reply') }
+        flowDraftsApi.getCheckSetup.mockImplementation(() => new Promise(() => {}))
+        flowDraftsApi.getStatus.mockResolvedValue({ data: { publishGate: blocked } })
+        flowDraftsApi.startCheck.mockResolvedValue({
+            data: { id: 'check-1', status: 'running', limits: { maxSeconds: 1800 } }
+        })
+        const container = document.createElement('div')
+        document.body.appendChild(container)
+        const root = createRoot(container)
+        const render = async (open, gate) => {
+            await act(async () => {
+                root.render(
+                    createElement(
+                        ThemeProvider,
+                        { theme: createTheme() },
+                        createElement(PublishDialog, {
+                            open,
+                            chatflow,
+                            draftStatus: { draft, publishGate: gate },
+                            isDirty: false,
+                            onClose: () => {},
+                            onDraftStatus: () => {},
+                            onChatflowUpdated: () => {},
+                            onApplyCanvas: () => {}
+                        })
+                    )
+                )
+            })
+        }
+        const runButton = () => document.querySelector('[data-testid="publish-gate-run"]')
+        const publishButton = () => [...document.body.querySelectorAll('button')].find((item) => item.textContent === 'Publish')
+        await render(true, blocked)
+        await act(async () => {
+            runButton().dispatchEvent(new MouseEvent('click', { bubbles: true }))
+        })
+        expect(runButton().textContent).toBe('Running the test set…')
+        expect(publishButton().disabled).toBe(true)
+        flowDraftsApi.getCheckSetup.mockResolvedValue({
+            data: { questions: [], check: { id: 'check-1', status: 'done' } }
+        })
+        flowDraftsApi.getStatus.mockResolvedValue({ data: { publishGate: passed } })
+        await render(false, blocked)
+        await render(true, passed)
+        expect(runButton().textContent).toBe('Run the test set')
+        expect(runButton().disabled).toBe(false)
+        expect(publishButton().disabled).toBe(false)
+        expect(flowDraftsApi.stopCheck).not.toHaveBeenCalled()
+        act(() => root.unmount())
+    })
+
+    test('a recent-question check does not disable Publish, and a matching test set does', async () => {
+        const passed = {
+            enabled: true,
+            datasetId: 'ds-1',
+            evaluatorIds: ['ev-1'],
+            threshold: 100,
+            block: null,
+            result: { verdict: 'passed', passRate: 100, passed: 1, failed: 0, errored: 0 }
+        }
+        const chatflow = { id: 'flow-1', type: 'CHATFLOW', name: 'Bakery helper', flowData: canvas('chatInput', 'Reply') }
+        const draft = { flowData: canvas('chatInput', 'Oven reply') }
+        flowDraftsApi.getStatus.mockResolvedValue({ data: { publishGate: passed } })
+        flowDraftsApi.getCheck.mockImplementation(() => new Promise(() => {}))
+        const container = document.createElement('div')
+        document.body.appendChild(container)
+        const root = createRoot(container)
+        const render = async (check) => {
+            flowDraftsApi.getCheckSetup.mockResolvedValue({ data: { questions: [], check } })
+            await act(async () => {
+                root.render(
+                    createElement(
+                        ThemeProvider,
+                        { theme: createTheme() },
+                        createElement(PublishDialog, {
+                            open: true,
+                            chatflow,
+                            draftStatus: { draft, publishGate: passed },
+                            isDirty: false,
+                            onClose: () => {},
+                            onDraftStatus: () => {},
+                            onChatflowUpdated: () => {},
+                            onApplyCanvas: () => {}
+                        })
+                    )
+                )
+            })
+        }
+        const publishButton = () => [...document.body.querySelectorAll('button')].find((item) => item.textContent === 'Publish')
+        const runButton = () => document.querySelector('[data-testid="publish-gate-run"]')
+        await render({ id: 'questions', status: 'running', matchesPublishGate: false })
+        expect(runButton().textContent).toBe('Run the test set')
+        expect(publishButton().disabled).toBe(false)
+        await act(async () => {
+            root.render(createElement(ThemeProvider, { theme: createTheme() }, createElement('div')))
+        })
+        await render({ id: 'gate', status: 'running', matchesPublishGate: true, limits: { maxSeconds: 1800 } })
+        expect(runButton().textContent).toBe('Running the test set…')
+        expect(publishButton().disabled).toBe(true)
+        act(() => root.unmount())
+    })
+
+    test('Run the test set is hidden without dataset and evaluator view', async () => {
+        __setAllow((key) => key !== 'evaluators:view')
+        flowDraftsApi.getCheckSetup.mockImplementation(() => new Promise(() => {}))
+        flowDraftsApi.getStatus.mockResolvedValue({ data: {} })
+        const container = document.createElement('div')
+        document.body.appendChild(container)
+        const root = createRoot(container)
+        await act(async () => {
+            root.render(
+                createElement(
+                    ThemeProvider,
+                    { theme: createTheme() },
+                    createElement(PublishDialog, {
+                        open: true,
+                        chatflow: { id: 'flow-1', type: 'CHATFLOW', name: 'Bakery helper', flowData: canvas('chatInput', 'Reply') },
+                        draftStatus: {
+                            draft: { flowData: canvas('chatInput', 'Oven reply') },
+                            publishGate: {
+                                enabled: true,
+                                datasetId: 'ds-1',
+                                evaluatorIds: ['ev-1'],
+                                threshold: 100,
+                                block: 'Publish needs a passing test set at 100%. There is no result for this draft yet.'
+                            }
+                        },
+                        isDirty: false,
+                        onClose: () => {},
+                        onDraftStatus: () => {},
+                        onChatflowUpdated: () => {},
+                        onApplyCanvas: () => {}
+                    })
+                )
+            )
+        })
+        expect(document.querySelector('[data-testid="publish-gate-run"]')).toBeNull()
+        expect(document.body.textContent).toContain(GATE_RUN_PERMISSION)
         act(() => root.unmount())
     })
 })

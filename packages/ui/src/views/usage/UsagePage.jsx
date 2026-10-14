@@ -179,6 +179,7 @@ const UsagePage = ({ isOwner = false, client = usageApi }) => {
                         label='Flow'
                         value={state.flowId}
                         onChange={(event) => apply({ flowId: event.target.value })}
+                        InputLabelProps={{ shrink: true }}
                         SelectProps={{ native: true, inputProps: { 'aria-label': 'Flow' } }}
                         sx={{ minWidth: 180 }}
                     >
@@ -195,6 +196,7 @@ const UsagePage = ({ isOwner = false, client = usageApi }) => {
                         label='Model'
                         value={state.model}
                         onChange={(event) => apply({ model: event.target.value })}
+                        InputLabelProps={{ shrink: true }}
                         SelectProps={{ native: true, inputProps: { 'aria-label': 'Model' } }}
                         sx={{ minWidth: 180 }}
                     >

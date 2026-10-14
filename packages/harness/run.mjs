@@ -64,7 +64,7 @@ import {
 import { prepareHarnessTurnUploads } from './uploads.mjs'
 import { acquireTurn, releaseTurn } from './lock.mjs'
 import { appendTurn, readPromptContext, sessionKey } from './session.mjs'
-import { beginHarnessRun, finishHarnessRun, safeTraceId } from './history.mjs'
+import { beginHarnessRun, finishHarnessRun, listRuns, safeTraceId } from './history.mjs'
 import { getHarness, listHarnesses } from './store.mjs'
 import { normalizeArithmeticQuestion, validArgs } from './tool-fallback.mjs'
 import { buildRunTrace, publicModelLabel, publicSources, publicTask, snapshotSpecialist, sumCallTokens } from './trace.mjs'
@@ -441,16 +441,21 @@ function noteUsage(context, reply) {
 
 // A Hermes run reports the tokens of all its model calls in the run status. They count toward the turn and show
 // on the specialist row, like an in-process specialist's calls.
-export function noteHermesUsage(context, specialist, status) {
+export function noteHermesUsage(context, specialist, status, timing = {}) {
     const tokens = noteUsage(context, status)
     if (!tokens) return null
     if (!context.calls) context.calls = []
+    // One total for the whole specialist turn, including tool time. The run card keeps it.
+    // The trace puts it on the specialist span, not a model span, so the model span does not swallow tool time.
     context.calls.push({
         role: 'specialist',
         name: specialist.name,
         model: publicModelLabel(specialist.model),
         fallback: '',
-        tokens
+        tokens,
+        aggregate: true,
+        ...(Number.isFinite(timing.startedAt) ? { startedAt: timing.startedAt } : {}),
+        ...(Number.isFinite(timing.endedAt) ? { endedAt: timing.endedAt } : {})
     })
     return tokens
 }
@@ -622,7 +627,37 @@ async function runRoster(context, input) {
 
 function emit(context, type, data = {}) {
     if (context?.clientSignal?.aborted) return
-    emitHarnessEvent(context?.onEvent, { type, harness: context?.name, chatId: context?.chatId, ...data })
+    // `at` is the event's own clock. The server builds trace spans from these events and does not send a tracer into this process.
+    emitHarnessEvent(context?.onEvent, { type, harness: context?.name, chatId: context?.chatId, ...data, at: Date.now() })
+}
+
+function modelCallRows(calls) {
+    const rows = []
+    for (const call of calls || []) {
+        if (!call || typeof call !== 'object') continue
+        const row = {}
+        if (call.model) row.model = call.model
+        if (Number.isFinite(call.startedAt)) row.startedAt = call.startedAt
+        if (Number.isFinite(call.endedAt)) row.endedAt = call.endedAt
+        if (call.tokens) {
+            row.tokens = {
+                prompt: Number(call.tokens.prompt) || 0,
+                completion: Number(call.tokens.completion) || 0
+            }
+        }
+        if (call.aggregate === true) row.aggregate = true
+        rows.push(row)
+    }
+    return rows
+}
+
+function phaseCalls(context, role, name) {
+    const calls = (context?.calls || []).filter((call) => {
+        if (role === 'specialist') return call.name === name && (call.role === 'specialist' || call.role === 'fill')
+        return call.role === role
+    })
+    const rows = modelCallRows(calls)
+    return rows.length ? { calls: rows } : {}
 }
 
 function toolsFor(context, name) {
@@ -820,6 +855,7 @@ async function callModel(context, model, request) {
     const fallback = request.specialist ? fallbackFor(context, request.specialist) : fallbackFor(context, null)
     let winner = model
     let usedFallback = false
+    const startedAt = Date.now()
     const reply = await withModelFallback({
         primary: model,
         fallback,
@@ -832,6 +868,7 @@ async function callModel(context, model, request) {
             return invokeOne(context, binding, request, windowMs, controlSignal)
         }
     })
+    const endedAt = Date.now()
     const tokens = noteUsage(context, reply)
     if (!context.calls) context.calls = []
     context.calls.push({
@@ -839,7 +876,9 @@ async function callModel(context, model, request) {
         name: request.specialist?.name || 'chief',
         model: publicModelLabel(winner),
         fallback: usedFallback ? publicModelLabel(winner) : '',
-        tokens
+        tokens,
+        startedAt,
+        endedAt
     })
     return reply
 }
@@ -970,7 +1009,7 @@ function capabilityNote(specialist) {
 function finishUnpaged(context, reply, started) {
     context.routeSteps = []
     context.directReply = reply
-    emit(context, 'route', { phase: 'done', steps: [], ms: Date.now() - started })
+    emit(context, 'route', { phase: 'done', steps: [], ms: Date.now() - started, ...phaseCalls(context, 'route') })
     return []
 }
 
@@ -985,7 +1024,7 @@ async function routeSteps(context, input, history) {
         if (routed.reply) return finishUnpaged(context, routed.reply, started)
         const steps = routed.steps
         context.routeSteps = publicSteps(steps)
-        emit(context, 'route', { phase: 'done', steps: context.routeSteps, ms: Date.now() - started })
+        emit(context, 'route', { phase: 'done', steps: context.routeSteps, ms: Date.now() - started, ...phaseCalls(context, 'route') })
         return steps
     }
     const blocked = applyAnalystPageRoute(input, [], specialists, cursor)
@@ -1035,7 +1074,8 @@ async function routeSteps(context, input, history) {
         ms: Date.now() - started,
         ...(last?.model ? { model: last.model } : {}),
         ...(last?.fallback ? { fallback: last.fallback } : {}),
-        ...(sumCallTokens(routed) ? { tokens: sumCallTokens(routed) } : {})
+        ...(sumCallTokens(routed) ? { tokens: sumCallTokens(routed) } : {}),
+        ...phaseCalls(context, 'route')
     })
     return steps
 }
@@ -1157,7 +1197,8 @@ async function runStep(context, step) {
             status: 'completed',
             ms,
             task: publicTask(step.task),
-            ...specialistEventFields(context, specialist, out.sources)
+            ...specialistEventFields(context, specialist, out.sources),
+            ...phaseCalls(context, 'specialist', specialist.name)
         })
         return {
             name: specialist.name,
@@ -1184,7 +1225,8 @@ async function runStep(context, step) {
             ms,
             error: message,
             task: publicTask(step.task),
-            ...specialistEventFields(context, specialist, [], true)
+            ...specialistEventFields(context, specialist, [], true),
+            ...phaseCalls(context, 'specialist', specialist.name)
         })
         return {
             name: specialist.name,
@@ -1346,7 +1388,7 @@ async function runHermesSpecialist(context, specialist, task) {
                       runId: created.run_id,
                       onEvent: (event) => forwardHermes(context, specialist, event)
                   })
-        noteHermesUsage(context, specialist, status)
+        noteHermesUsage(context, specialist, status, { startedAt: specialistStarted, endedAt: Date.now() })
         if (['failed', 'error', 'cancelled'].includes(status.status)) {
             throw new HarnessError('specialist_failed', status.error || status.message || `Specialist "${specialist.name}" failed.`)
         }
@@ -1763,7 +1805,8 @@ async function chiefHandoff(context, input, history, results) {
             ms: Date.now() - handoffStarted,
             ...(last?.model ? { model: last.model } : {}),
             ...(last?.fallback ? { fallback: last.fallback } : {}),
-            ...(sumCallTokens(handed) ? { tokens: sumCallTokens(handed) } : {})
+            ...(sumCallTokens(handed) ? { tokens: sumCallTokens(handed) } : {}),
+            ...phaseCalls(context, 'handoff')
         })
         return keepClosingLines(preserveAnalystRows(reply.content, results, input), results)
     } catch (error) {
@@ -1839,7 +1882,7 @@ async function runDirectTool(context, specialist, input) {
         throw new HarnessError('specialist_failed', `Specialist "${specialist.name}" failed.`)
     }
     context.routeSteps = publicSteps([{ specialist, task: question }])
-    emit(context, 'route', { phase: 'done', direct: true, steps: context.routeSteps, ms: 0 })
+    emit(context, 'route', { phase: 'done', direct: true, steps: context.routeSteps, ms: 0, ...phaseCalls(context, 'route') })
     emit(context, 'specialist', {
         phase: 'start',
         name: specialist.name,
@@ -1883,7 +1926,8 @@ async function runDirectTool(context, specialist, input) {
                 ms: Date.now() - started,
                 error: budgetFailure(context, specialist.name),
                 task: publicTask(question),
-                ...specialistEventFields(context, specialist, [], true)
+                ...specialistEventFields(context, specialist, [], true),
+                ...phaseCalls(context, 'specialist', specialist.name)
             })
             throw new HarnessError('over_budget', budgetFailure(context, specialist.name))
         }
@@ -1899,7 +1943,8 @@ async function runDirectTool(context, specialist, input) {
             ms: Date.now() - started,
             error: budgetFailure(context, specialist.name),
             task: publicTask(question),
-            ...specialistEventFields(context, specialist, [], true)
+            ...specialistEventFields(context, specialist, [], true),
+            ...phaseCalls(context, 'specialist', specialist.name)
         })
         throw new HarnessError('over_budget', budgetFailure(context, specialist.name))
     }
@@ -1914,7 +1959,8 @@ async function runDirectTool(context, specialist, input) {
             ms: finished - started,
             error: 'empty output',
             task: publicTask(question),
-            ...specialistEventFields(context, specialist, [], true)
+            ...specialistEventFields(context, specialist, [], true),
+            ...phaseCalls(context, 'specialist', specialist.name)
         })
         throw new HarnessError('empty_output', `Harness "${name}" finished without a tool result.`)
     }
@@ -1925,7 +1971,8 @@ async function runDirectTool(context, specialist, input) {
         status: 'completed',
         ms: finished - started,
         task: publicTask(question),
-        ...specialistEventFields(context, specialist, output.documents)
+        ...specialistEventFields(context, specialist, output.documents),
+        ...phaseCalls(context, 'specialist', specialist.name)
     })
     const timings = { prepareMs: fillStarted - started, fillMs: filled - fillStarted, toolMs: finished - filled }
     const report = predictionReport(context, { routeMs: 0, specialistsMs: timings.toolMs, handoffMs: 0 })

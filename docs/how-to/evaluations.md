@@ -16,6 +16,7 @@ The organization owner can do every row. Anyone else needs the key on their role
 | Add a dataset, add a row, or upload a CSV     | `datasets:create`                                                                                                                                                                                                                        |
 | Edit a dataset or a row, and change row order | `datasets:update`. Add and **Upload CSV** on a dataset also accept `datasets:create`.                                                                                                                                                    |
 | Delete a dataset or a row                     | `datasets:delete`                                                                                                                                                                                                                        |
+| Save a chat answer as a row                   | **Add to test set** needs `datasets:create`, or `datasets:update` together with `datasets:view`. It also needs the view key for that flow.                                                                                               |
 | Open Evaluators                               | `evaluators:view`                                                                                                                                                                                                                        |
 | Add an evaluator                              | `evaluators:create`. That key also updates one.                                                                                                                                                                                          |
 | Edit an evaluator                             | `evaluators:update`                                                                                                                                                                                                                      |
@@ -26,7 +27,7 @@ The organization owner can do every row. Anyone else needs the key on their role
 | Delete an evaluation                          | `evaluations:delete`                                                                                                                                                                                                                     |
 | Read the Publish check                        | `chatflows:view` on a chatflow, a harness, or a pipeline. `agentflows:view` on an agentflow.                                                                                                                                             |
 | Start or stop the Publish check               | `chatflows:update` or `agentflows:update`, the same split as the read. Sending `datasetId` also needs `datasets:view`. Sending any evaluator id also needs `evaluators:view`. Without that view key the route is 403 and nothing starts. |
-| Turn on **Passing test set**                  | Permission to update the flow, plus `datasets:view` and `evaluators:view`. Without a view key the settings update is 403 and nothing is stored.                                                                                          |
+| Turn on **Passing test set**                  | Permission to update the flow, plus `datasets:view` and `evaluators:view`. Turning it off needs only the update permission. Without a view key, turning it on is 403 and nothing is stored.                                              |
 | Publish                                       | `chatflows:update` or `agentflows:update`.                                                                                                                                                                                               |
 
 `evaluations:update` is offered in the role dialog. No page and no API route check it, so granting it changes nothing.
@@ -166,6 +167,20 @@ The list shows the run as pending, then completed or error. The pass-rate chip r
 
 A run calls each selected flow on this server, the same way a prediction does. You do not set a separate address. An unknown flow, a flow from another team, a custom assistant, or a run with no chatflow or agentflow is rejected and no evaluation is saved. A missing name is not the rejection: the create requires a dataset and at least one flow. `chatflowId` must be a list of flow ids. A flow that requires an API key cannot be replayed from this page, because the key is stored as a hash and the run cannot recover it. A flow with no key can be run. A chatflow or agentflow can use a model credential this team owns or one shared into the team.
 
+## Add a real answer to a test set
+
+On an answer in the message viewer, **Add to test set** saves that question and answer as one row.
+
+1. Open the message viewer for the flow.
+2. On an answer, select **Add to test set**. The button is shown when the role can create a dataset, or when it can update a dataset and view datasets. A role that can only update datasets does not see it, because the list of datasets needs `datasets:view`.
+3. Read the question. It is the message immediately before that answer in the same chat session. A question from another session, or another memory in that session, is not used. A second answer in a row has no question, and saving it is refused. The expected answer starts as the real answer. Edit it when the check should expect something else.
+4. Choose a dataset when the role can view datasets, or select **New dataset**, name it, and create it. Creating a dataset needs `datasets:create`. A role that can create a dataset but cannot view datasets still gets **New dataset**, and does not get the existing list. If the list cannot be loaded, the dialog shows the error.
+5. The dialog warns that a real message can contain personal data. Check the question and the expected answer, then save.
+
+The row records where it came from: source `chat_message`, the message id, the flow id, and the date of the answer. Saving that same answer into the same dataset again returns the row already stored and does not add a second one. The flow and the dataset both have to belong to the current team. A flow or a dataset from another team is not found. The role also needs permission to view that kind of flow: `chatflows:view` for a chatflow, a harness, or a pipeline, `agentflows:view` for an agentflow, and `assistants:view` for an assistant.
+
+That dataset can be the one the Publish dialog checks.
+
 ## Run the Publish check on a dataset
 
 On a chatflow, an agentflow that starts with **Chat Input**, or a harness, the Publish dialog can ask a dataset instead of recent questions.
@@ -177,11 +192,11 @@ On a chatflow, an agentflow that starts with **Chat Input**, or a harness, the P
 
 Each row runs in the saved order, once on Live and once on the draft. The expected answer is shown under the question. Each side shows Pass, Fail, or Error for every evaluator, and a pass rate: passed divided by passed, failed, and errored, from 0 to 100 with one decimal. An answer that failed to run scores Error. A check with no evaluators still shows the expected answer and compares the two answers, and a dataset check's verdict is failed because nothing was scored.
 
-The finished dataset check also reports passed or failed for the draft against a pass mark. The mark is 100 unless the request sends `threshold`, a whole number from 0 to 100. Errored scores count as not passed. A check that is not using a dataset has no verdict. That line does not block Publish unless the flow requires a passing test set.
+The finished dataset check also reports passed or failed for the draft against a pass mark. The mark is 100 unless the request sends `threshold`, a whole number from 0 to 100. Errored scores count as not passed. The verdict uses those counts, not the rounded pass rate, so one failed or errored score does not pass a mark of 100 even when the displayed rate rounds to 100.0. A check that is not using a dataset has no verdict. That line does not block Publish unless the flow requires a passing test set.
 
 ![Publish dialog for Bakery helper after Run the test set. The draft pass rate is 75 percent and failed the mark of 100. The rye row passes both checks. The Saturday row fails Mentions rye and passes Short answer. Publish stays disabled, and the reason is Publish needs a passing test set at 100%. The last result was 75% and failed.](../images/evaluations/publish-dataset.png)
 
-A flow that starts with a form, a webhook, or a schedule cannot use a dataset. The box is titled **Check recent runs**, and **Questions from** offers **Recent runs**. Sending `datasetId` is 400:
+A flow that starts with a form, a webhook, or a schedule cannot use a dataset. The box is titled **Check recent runs**. The recent choice is labeled **Recent runs**. The list still offers **A dataset**, and that request is 400:
 
 ```json
 {
@@ -194,7 +209,7 @@ A flow that starts with a form, a webhook, or a schedule cannot use a dataset. T
 
 A webhook start says `a webhook`. A schedule start says `a schedule`. The same refusal is in [Which canvases get a check](./versioning.md#which-canvases-get-a-check).
 
-The answers stay in memory for 30 minutes and are not written down. When the flow requires a passing test set and this check used that dataset, those evaluators, and that pass mark, the server stores the verdict (pass rate, counts, and time) and a hash of the rows it asked and of each evaluator's type and settings. It does not store the rows or the answers.
+The answers stay in memory for 30 minutes and are not written down. When the flow requires a passing test set and this check used that dataset, those evaluators, and that pass mark, the server stores the verdict (pass rate, counts, and time) and a hash of the rows it asked and of each evaluator's type and settings. That hash includes the full expected answer, including characters past the 4,000 the check shows. It does not store the rows or the answers. If that write fails, the check ends `failed` with `The test set result could not be saved.` The stored result is cleared, and Publish is refused. If that clear also fails, the older pass stays stored and Publish is refused with `Publish needs a passing test set at <threshold>%. The test set result could not be saved.` That refusal lasts for this server process. A check that does not match this dataset, these evaluators, and this pass mark does not replace a stored pass.
 
 ## Set the pass mark and turn on the gate
 
@@ -202,7 +217,7 @@ A chatflow, or an agentflow that starts with a chat message, can refuse Publish 
 
 1. Open the flow's configuration and select **Passing test set**.
 2. Choose the dataset, tick the evaluators, and set **Pass at** to a whole number from 0 to 100. 100 is the default, so every score must pass. An errored score counts as not passed. A blank or invalid mark stays at the previous value and is not saved as 0.
-3. Turn on **Require a passing test set before Publish**. The page says `Publish waits for a passing test set.`
+3. Turn on **Require a passing test set before Publish**. The page says `Publish waits for a passing test set.` An evaluator that was removed from the workspace stays listed as **Deleted evaluator** until it is unticked. Unticking it saves the setting without that id.
 
 You need permission to update the flow, and to view datasets and evaluators. Turning it on is refused when drafts are off for the server (`Drafts are off on this server.`), when **Publish instantly** is on (`Turn off Publish instantly before requiring a passing test set.`), when the dataset or an evaluator is missing or belongs to another workspace (404, and nothing is stored), or when the dataset has no question the check can ask (`This dataset has no questions the check can ask.`). Turning **Publish instantly** on while this is on is refused with `Turn off the passing test set before turning on Publish instantly.`
 
@@ -218,9 +233,20 @@ These other ways of changing what is Live do not use this rule: `PUT /api/v1/cha
 
 ### A form, webhook, or schedule start
 
-**Passing test set** is hidden when the agentflow starts with **Form Input**, **Webhook Trigger**, or **Schedule Input**. Turning it on is refused with 400, and nothing is stored. A dataset check on that start is refused, so the gate could not be met.
+**Passing test set** is hidden while it is off when the agentflow starts with **Form Input**, **Webhook Trigger**, or **Schedule Input**, so it cannot be turned on there. Turning it on is 400, and nothing is stored. The message is the same one a dataset check returns:
 
-If the setting was already on and the start is later a form, a webhook, or a schedule, the gate can no longer be met. The Publish dialog explains that, and **Publish** stays disabled. Turning the setting off is still accepted: send `publishGate` with `"enabled": false`. Publish then works as it does with the setting off. A chat-message start can turn the setting on again.
+```json
+{
+    "statusCode": 400,
+    "success": false,
+    "message": "A dataset check asks each row as a chat message. This flow starts with a form, so it cannot use a dataset.",
+    "stack": {}
+}
+```
+
+A webhook start says `a webhook`. A schedule start says `a schedule`.
+
+If the setting was already on and the start is later a form, a webhook, or a schedule, the gate can no longer be met. **Passing test set** stays in the configuration so it can be turned off. It shows that same sentence and then `Turn off the passing test set before you publish.` The checkbox can be cleared. The Publish dialog names the start and says to turn the setting off. It does not offer a run that cannot clear the block, and **Publish** stays disabled. Turning the setting off (`"enabled": false`) needs permission to update the flow and does not need `datasets:view` or `evaluators:view`. Publish then works as it does with the setting off. A chat-message start can turn the setting on again.
 
 ## What a 409 from Publish looks like
 
@@ -254,5 +280,16 @@ The draft, the settings, the rows, or the post-processing changed after a pass. 
 -   `The draft has changed since that check.`
 -   `The test set has changed since that check.` A row the check asked changed, a row it would ask was added, an evaluator's type or settings changed, or the dataset or an evaluator is gone.
 -   `The answer post-processing has changed since that check.`
+
+If the start is later a form, a webhook, or a schedule, Publish is 409 with the dataset refusal and then `Turn off the passing test set before you publish.` For a form:
+
+```json
+{
+    "statusCode": 409,
+    "success": false,
+    "message": "A dataset check asks each row as a chat message. This flow starts with a form, so it cannot use a dataset. Turn off the passing test set before you publish.",
+    "stack": {}
+}
+```
 
 A pass for this draft, these settings, the same rows, and the same post-processing returns 200 and the draft goes Live. With the setting off, this 409 is not used.
