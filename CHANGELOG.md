@@ -6,12 +6,13 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ### Changed
 
--   The README and homepage lead with testing before Publish, with a narrated video.
 -   Docs name the Run the test set button and the gate's scope.
 -   Docs: the CI gate guide now covers harness checks and a test set changed during `--gate`.
 -   Guides name the Build with AI control **Show all … models** (select **Only models for your keys** to return to the shorter list), the **Admin** menu item **Server Settings**, and 1.1.0 in the Docker image examples.
 -   Docs: fresh screenshots for server settings, sign-in, roles, a first run from source, and imports.
 -   Fresh screenshots for the knowledge pipeline guide and the Usage page.
+-   Docs: fresh pictures of version history, the Publish check, and evaluations.
+-   The README and homepage lead with testing before Publish, with a narrated video.
 
 ### Upgrade notes / breaking changes
 
