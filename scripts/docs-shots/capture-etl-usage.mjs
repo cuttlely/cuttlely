@@ -526,7 +526,15 @@ async function main() {
 
         await openPanel(page, 'Preview')
         await page.getByText(/documents from/).waitFor({ timeout: 30000 })
-        await shot(page, path.join(OUT_ETL, 'etl-preview.png'), { note: await bodyNote(page, page.locator('.MuiDrawer-paper')) })
+        await page.setViewportSize({ width: 1680, height: 1200 })
+        const previewDrawer = await revealDrawer(page)
+        const rootChip = previewDrawer.getByText(/^root\b/).first()
+        await reveal(page, rootChip)
+        if (!insideViewport(await rootChip.boundingBox(), page.viewportSize())) {
+            throw new Error('preview root chip is outside the frame')
+        }
+        await shot(page, path.join(OUT_ETL, 'etl-preview.png'), { note: await bodyNote(page, previewDrawer) })
+        await resetFrame(page)
         await setAccordion(page, 'Load', false)
         await setAccordion(page, 'Clean & transform', false)
         await setAccordion(page, 'Split', true)

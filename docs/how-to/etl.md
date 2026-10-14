@@ -14,7 +14,7 @@ Select **ETL** in the sidebar. With no pipelines yet, the page says `No pipeline
 
 ![The ETL page with no pipelines. The title is ETL, with the line Load, clean, split, embed, and store data for retrieval. Import Sample and New Pipeline are at the top right. A What are you building? card offers Agent team, Chat / simple AI app, Workflow / automation, and Knowledge / data pipeline. The empty state reads No pipelines yet, Import a sample, or start a blank pipeline.](../images/etl/etl-empty.png)
 
--   **Import Sample** opens a menu with the two samples from `samples/etl/`.
+-   **Import Sample** opens a menu with the three samples from `samples/etl/`.
 -   **New Pipeline** opens a blank ETL canvas. Add nodes with **+** (**Add Node**), then save.
 -   On a blank canvas, **Build with AI** builds a pipeline from a description of your data. See [Build a pipeline with AI](#build-a-pipeline-with-ai).
 
@@ -318,7 +318,7 @@ Search uses the embeddings model and the store of the version it searches, so th
 
 Select the chat button and ask: `Which shelter is built for alpine starts, and what does it weigh and cost?`
 
-![The gear-desk canvas chat. The visible answer is the retrieval result itself: [1] (data/outdoor-catalog.csv) name Summit Bivy Shelter, category Tents; then Storm Shell 3L Rain Jacket; Returns and exchanges; and Lifetime warranty.](../images/etl/harness-etl-chat.png)
+![The gear-desk canvas chat. The visible answer starts at name Summit Bivy Shelter, category Tents, then Storm Shell 3L Rain Jacket, Returns and exchanges, and Lifetime warranty.](../images/etl/harness-etl-chat.png)
 
 The Run card says `Direct to catalog`. When a harness has exactly one specialist and that specialist has exactly one tool and nothing else, Harness Prime skips routing and the handoff. The model only fills in the search query, and the search results are the answer. Each result starts with its number and source, then the chunk.
 
