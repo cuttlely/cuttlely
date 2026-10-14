@@ -1,6 +1,7 @@
 import fs from 'fs'
 import path from 'path'
-import { checkMetrics, gradingModel, llmGradeResult, questionsFromDataset } from './score'
+import { askedRowsFromDataset, checkMetrics, gradingModel, llmGradeResult, questionsFromDataset } from './score'
+import { testSetHash } from '../flow-drafts/gate'
 
 test('dataset rows stay in sequence order, within the question cap', () => {
     const rows = [
@@ -21,6 +22,29 @@ test('dataset rows stay in sequence order, within the question cap', () => {
     expect(questionsFromDataset([{ input: 'Why was the loaf late?', output: '', sequenceNo: 1 }])).toEqual([
         { question: 'Why was the loaf late?', expected: '' }
     ])
+})
+
+test('rows that share a sequence number keep one order for the hash and the cap', () => {
+    const aye = { id: 'a', input: 'Aye', output: '1', sequenceNo: -1 }
+    const bee = { id: 'b', input: 'Bee', output: '2', sequenceNo: -1 }
+    const sea = { id: 'c', input: 'Sea', output: '3', sequenceNo: 5 }
+    const forward = askedRowsFromDataset([bee, aye, sea])
+    const backward = askedRowsFromDataset([sea, bee, aye])
+    expect(forward.map((row) => row.input)).toEqual(['Aye', 'Bee', 'Sea'])
+    expect(backward).toEqual(forward)
+    const evaluators = [{ id: 'e', type: 'text', config: '{"value":"1"}' }]
+    expect(testSetHash(forward, evaluators)).toBe(testSetHash(backward, evaluators))
+    const tied = Array.from({ length: 101 }, (_, index) => ({
+        id: String(200 - index).padStart(4, '0'),
+        input: `q${index}`,
+        output: `a${index}`,
+        sequenceNo: -1
+    }))
+    const capped = askedRowsFromDataset(tied)
+    const flipped = askedRowsFromDataset([...tied].reverse())
+    expect(capped).toHaveLength(100)
+    expect(flipped).toEqual(capped)
+    expect(testSetHash(capped, evaluators)).toBe(testSetHash(flipped, evaluators))
 })
 
 test('numeric evaluators see the check token total and the run time', () => {

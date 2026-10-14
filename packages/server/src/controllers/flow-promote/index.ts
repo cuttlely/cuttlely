@@ -7,12 +7,13 @@ import { ChatFlow } from '../../database/entities/ChatFlow'
 import chatflowsService from '../../services/chatflows'
 import flowCheckService, { Candidate } from '../../services/flow-check'
 import { typeUnavailable } from '../../services/flow-check/kinds'
-import flowDraftsService from '../../services/flow-drafts'
+import flowDraftsService, { redactDraftStatus } from '../../services/flow-drafts'
 import flowPromoteService from '../../services/flow-promote'
 import flowVersionsService from '../../services/flow-versions'
 import { actorFromUser } from '../../services/flow-versions/author'
 import { getRunningExpressApp } from '../../utils/getRunningExpressApp'
 import { checkUsageLimit } from '../../utils/quotaUsage'
+import { hasAnyPermission } from '../../identity/rbac'
 import { missingCredentialsMessage, putVersionLive } from '../flow-versions'
 
 const verb = () => flowPromoteService.promoteVerb?.() || 'Promoted from Dev'
@@ -69,9 +70,15 @@ const promote = async (req: Request, res: Response, next: NextFunction) => {
             })
             const status = !drafts
                 ? null
-                : result.chatflow
-                ? await flowDraftsService.afterLiveSet(result.chatflow, result.sha, undefined, { keepDraftBase: true })
-                : await flowDraftsService.getDraftStatus(row)
+                : redactDraftStatus(
+                      result.chatflow
+                          ? await flowDraftsService.afterLiveSet(result.chatflow, result.sha, undefined, { keepDraftBase: true })
+                          : await flowDraftsService.getDraftStatus(row),
+                      {
+                          datasets: await hasAnyPermission(req, 'datasets:view'),
+                          evaluators: await hasAnyPermission(req, 'evaluators:view')
+                      }
+                  )
             return res.json({ ...result.body, created: false, hasDraft: Boolean(status?.draft), status })
         }
 
@@ -114,7 +121,13 @@ const promote = async (req: Request, res: Response, next: NextFunction) => {
             }
         )
         const newSha = await recorded
-        const status = drafts ? await flowDraftsService.afterLiveSet(saved, newSha, undefined, { keepDraftBase: true }) : null
+        const recordedStatus = drafts ? await flowDraftsService.afterLiveSet(saved, newSha, undefined, { keepDraftBase: true }) : null
+        const status = recordedStatus
+            ? redactDraftStatus(recordedStatus, {
+                  datasets: await hasAnyPermission(req, 'datasets:view'),
+                  evaluators: await hasAnyPermission(req, 'evaluators:view')
+              })
+            : null
         const after = newSha ? (await flowVersionsService.listVersions(saved.id)).versions.find((item) => item.sha === newSha) : undefined
         return res.json({
             chatflow: { id: saved.id, name: saved.name, type: saved.type, updatedDate: saved.updatedDate },

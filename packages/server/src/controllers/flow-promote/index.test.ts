@@ -12,9 +12,13 @@ jest.mock('../../services/chatflows', () => ({
 const drafts = {
     isDraftsEnabled: jest.fn(() => true),
     getDraftStatus: jest.fn(async (): Promise<any> => ({ mode: 'draft', draft: null })),
-    afterLiveSet: jest.fn(async (): Promise<any> => ({ mode: 'draft', draft: null }))
+    afterLiveSet: jest.fn(async (): Promise<any> => ({ mode: 'draft', draft: null })),
+    draftToPublish: jest.fn()
 }
-jest.mock('../../services/flow-drafts', () => ({ __esModule: true, default: drafts }))
+jest.mock('../../services/flow-drafts', () => {
+    const { redactDraftStatus } = jest.requireActual('../../services/flow-drafts/gate')
+    return { __esModule: true, default: drafts, redactDraftStatus }
+})
 const versions = {
     getVersion: jest.fn(),
     restoreTitle: jest.fn((sha: string, title: string, verb: string) => `${verb}: ${title} (${sha.slice(0, 7)})`),
@@ -36,6 +40,9 @@ const checkService = {
     stopCheck: jest.fn(async () => ({ id: 'c1' }))
 }
 jest.mock('../../services/flow-check', () => ({ __esModule: true, default: checkService }))
+jest.mock('../../identity/rbac', () => ({
+    hasAnyPermission: jest.fn(async () => true)
+}))
 jest.mock('../../database/entities/ChatFlow', () => ({ ChatFlow: class ChatFlow {} }))
 const putVersionLive = jest.fn()
 jest.mock('../flow-versions', () => {
@@ -102,6 +109,7 @@ describe('Promote', () => {
         expect(drafts.afterLiveSet).toHaveBeenCalledWith(saved, 'b'.repeat(40), undefined, { keepDraftBase: true })
         expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ created: false, hasDraft: true, recorded: true }))
         expect(saveChatflow).not.toHaveBeenCalled()
+        expect(drafts.draftToPublish).not.toHaveBeenCalled()
     })
 
     test('a stale or blocked promote is passed on as the error, and nothing is saved', async () => {

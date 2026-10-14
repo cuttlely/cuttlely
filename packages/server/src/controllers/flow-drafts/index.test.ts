@@ -13,6 +13,7 @@ const drafts = {
     saveDraft: jest.fn(async () => ({ mode: 'draft' })),
     discardDraft: jest.fn(async () => ({ mode: 'draft', draft: null })),
     setPublishInstantly: jest.fn(async () => ({ mode: 'live' })),
+    updateDraftSettings: jest.fn(async () => ({ mode: 'draft', publishGate: { enabled: true } })),
     draftToPublish: jest.fn(async (): Promise<string> => '{"nodes":[{"id":"draft"}],"edges":[]}'),
     sameCanvas: jest.fn((a: string, b: string) => a === b),
     afterLiveSet: jest.fn(async () => ({ mode: 'draft', draft: null, lastPublished: { sha: 'x', date: 'd' } })),
@@ -26,7 +27,10 @@ jest.mock('../../services/flow-versions', () => ({ __esModule: true, default: ve
 jest.mock('../../database/entities/ChatFlow', () => ({ ChatFlow: class ChatFlow {} }))
 const putVersionLive = jest.fn()
 jest.mock('../flow-versions', () => ({ putVersionLive: (...args: any[]) => putVersionLive(...args) }))
-jest.mock('../../services/flow-drafts', () => ({ __esModule: true, default: drafts }))
+jest.mock('../../services/flow-drafts', () => {
+    const { redactDraftStatus } = jest.requireActual('../../services/flow-drafts/gate')
+    return { __esModule: true, default: drafts, redactDraftStatus }
+})
 const checkService = {
     getCheckSetup: jest.fn(async () => ({ unavailable: null, questions: [] })),
     startCheck: jest.fn(async () => ({ id: 'c1', status: 'running' })),
@@ -79,6 +83,96 @@ test('saves the canvas as a draft with the user, org and subscription', async ()
         orgId: 'org-1',
         subscriptionId: 'sub-1'
     })
+})
+
+test('turning the passing test set on needs dataset and evaluator view', async () => {
+    granted.add('chatflows:update')
+    const gate = { enabled: true, datasetId: 'ds-1', evaluatorIds: ['ev-1'], threshold: 100 }
+    const missingDatasets = jest.fn()
+    await controller.updateSettings(request({ publishGate: gate }), response(), missingDatasets)
+    expect(missingDatasets.mock.calls[0][0]).toMatchObject({ statusCode: 403, message: 'You do not have permission to view datasets.' })
+    expect(drafts.updateDraftSettings).not.toHaveBeenCalled()
+    granted.add('datasets:view')
+    const missingEvaluators = jest.fn()
+    await controller.updateSettings(request({ publishGate: gate }), response(), missingEvaluators)
+    expect(missingEvaluators.mock.calls[0][0]).toMatchObject({ statusCode: 403, message: 'You do not have permission to view evaluators.' })
+    granted.add('evaluators:view')
+    const res = response()
+    await controller.updateSettings(request({ publishGate: gate }), res, jest.fn())
+    expect(drafts.updateDraftSettings).toHaveBeenCalledWith(expect.objectContaining({ id: FLOW.id }), { publishGate: gate })
+    expect(res.json).toHaveBeenCalled()
+    drafts.updateDraftSettings.mockClear()
+    await controller.updateSettings(request({ publishGate: { enabled: false } }), response(), jest.fn())
+    expect(drafts.updateDraftSettings).toHaveBeenCalled()
+})
+
+test('a caller without dataset or evaluator view does not receive those ids', async () => {
+    const gate = {
+        enabled: false,
+        datasetId: 'ds-1',
+        evaluatorIds: ['ev-1'],
+        threshold: 100,
+        block: null,
+        result: {
+            draftHash: 'abc',
+            datasetId: 'ds-1',
+            evaluatorIds: ['ev-1'],
+            threshold: 100,
+            passRate: 100,
+            passed: 1,
+            failed: 0,
+            errored: 0,
+            verdict: 'passed',
+            checkedAt: '2026-10-13T00:00:00.000Z',
+            contentHash: 'h',
+            postProcessHash: 'p'
+        }
+    }
+    const status = { mode: 'draft', publishGate: gate }
+    drafts.getDraftStatus.mockResolvedValue(status)
+    drafts.saveDraft.mockResolvedValue(status)
+    drafts.updateDraftSettings.mockResolvedValue(status)
+    granted.add('chatflows:view')
+    granted.add('chatflows:update')
+    const read = response()
+    await controller.getDraft(request(), read, jest.fn())
+    expect(read.json.mock.calls[0][0].publishGate).toMatchObject({
+        enabled: false,
+        datasetId: null,
+        evaluatorIds: [],
+        threshold: 100,
+        block: null,
+        result: { datasetId: '', evaluatorIds: [], verdict: 'passed', passed: 1, failed: 0, errored: 0, passRate: 100, threshold: 100 }
+    })
+    expect(JSON.stringify(read.json.mock.calls[0][0])).not.toContain('ds-1')
+    expect(JSON.stringify(read.json.mock.calls[0][0])).not.toContain('ev-1')
+    const saved = response()
+    await controller.saveDraft(request({ flowData: '{"nodes":[],"edges":[]}' }), saved, jest.fn())
+    expect(saved.json.mock.calls[0][0].publishGate.datasetId).toBeNull()
+    expect(saved.json.mock.calls[0][0].publishGate.result.evaluatorIds).toEqual([])
+    const updated = response()
+    await controller.updateSettings(request({ publishGate: { enabled: false } }), updated, jest.fn())
+    expect(updated.json.mock.calls[0][0].publishGate.datasetId).toBeNull()
+    expect(updated.json.mock.calls[0][0].publishGate.evaluatorIds).toEqual([])
+    expect(updated.json.mock.calls[0][0].publishGate.result.verdict).toBe('passed')
+    granted.add('datasets:view')
+    granted.add('evaluators:view')
+    const visible = response()
+    await controller.getDraft(request(), visible, jest.fn())
+    expect(visible.json.mock.calls[0][0].publishGate.datasetId).toBe('ds-1')
+    expect(visible.json.mock.calls[0][0].publishGate.evaluatorIds).toEqual(['ev-1'])
+    expect(visible.json.mock.calls[0][0].publishGate.result.evaluatorIds).toEqual(['ev-1'])
+})
+
+test('a publish gate refusal does not write Live', async () => {
+    granted.add('chatflows:update')
+    drafts.draftToPublish.mockRejectedValueOnce(
+        Object.assign(new Error('Publish needs a passing test set at 100%. There is no result for this draft yet.'), { statusCode: 409 })
+    )
+    const next = jest.fn()
+    await controller.publishDraft(request(), response(), next)
+    expect(next.mock.calls[0][0].statusCode).toBe(409)
+    expect(updateChatflow).not.toHaveBeenCalled()
 })
 
 test('discards and changes Publish instantly', async () => {
@@ -265,6 +359,7 @@ describe('Roll back Live', () => {
         const next = jest.fn()
         await controller.rollbackLive(request({ sha: 'abcdef1' }), res, next)
         expect(next).not.toHaveBeenCalled()
+        expect(drafts.draftToPublish).not.toHaveBeenCalled()
         expect(putVersionLive).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ id: FLOW.id }), 'abcdef1', {
             kind: 'rollback',
             verb: 'Rolled back Live to'

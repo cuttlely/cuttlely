@@ -495,6 +495,21 @@ describe('updateChatflow', () => {
         expect(flowVersionsService.recordFlowVersion).toHaveBeenCalledWith(merged, {})
     })
 
+    it('writes Live when the flow requires a passing test set', async () => {
+        const updates = makeChatflow({ flowData: makePlainFlowData() })
+        const merged = { ...existingFlow, ...updates }
+        mockRepo.merge.mockReturnValue(merged)
+        mockRepo.save.mockResolvedValue(merged)
+        mockRepo.findOneBy.mockResolvedValue({
+            chatflowId: existingFlow.id,
+            publishGate: true,
+            publishGateResult: null
+        })
+        const result = await chatflowsService.updateChatflow(existingFlow as any, updates as any, 'org-1', 'ws-1', 'sub-1')
+        expect(result.flowData).toBe(updates.flowData)
+        expect(mockRepo.save).toHaveBeenCalled()
+    })
+
     it('passes a history label with this one save and hands back its record result', async () => {
         const updates = makeChatflow({ flowData: makeScheduleFlowData() })
         const merged = { ...existingFlow, ...updates }

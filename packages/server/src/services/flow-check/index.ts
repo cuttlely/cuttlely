@@ -16,7 +16,8 @@
 // the route, specialist and handoff tokens that run already summed. The estimate uses those lines,
 // grouped by model, the same lines the usage write stores under the harness name. It does not add a second usage count.
 // Results stay in this server's memory for a short while and are never written to the database or logged.
-// The check is optional and never blocks Publish.
+// The check itself does not block Publish. A flow can require a passing dataset result before Publish;
+// that verdict is stored on the flow, without the answers, and Publish reads it from there.
 import crypto from 'crypto'
 import { StatusCodes } from 'http-status-codes'
 import { v4 as uuidv4 } from 'uuid'
@@ -39,8 +40,11 @@ import {
     CheckScore,
     CheckSummary,
     SideResult,
+    draftVerdict,
+    parseCheckThreshold,
     parseCompareCount,
     pickQuestions,
+    DraftVerdict,
     sameAnswer,
     stepTokens,
     summarize,
@@ -58,8 +62,9 @@ import {
     triggerStart,
     typeUnavailable
 } from './kinds'
+import { postProcessHash, publishGateApplies, readEvaluatorIdList, sameGateSettings } from '../flow-drafts/gate'
 import { harnessCheckHooks, harnessQuestionsFor, harnessQuestionsToRun, replayHarnessQuestion } from './harness'
-import { casesFromDataset, CheckEvaluator, loadEvaluators, readDatasetId, readEvaluatorIds, scoreAnswer } from './score'
+import { CheckEvaluator, loadEvaluators, loadTestSet, readDatasetId, readEvaluatorIds, scoreAnswer } from './score'
 
 // A question list sent without `count` stays capped at 10, which is what this route accepted before.
 export const MAX_QUESTIONS = 10
@@ -152,6 +157,10 @@ export interface CheckView {
     cases: CheckCase[]
     summary: CheckSummary
     selection: CheckSelection | null
+    // Set when a dataset check has finished. Null for any other check, and while a dataset check is still running.
+    verdict: DraftVerdict | null
+    // True when this dataset check uses the flow's current passing-test settings. A recent-question check is false.
+    matchesPublishGate?: boolean
 }
 
 interface CheckRecord {
@@ -171,6 +180,12 @@ interface CheckRecord {
     selection: CheckSelection | null
     // True when the questions are dataset rows. A read hides those rows without datasets:view.
     fromDataset: boolean
+    datasetId: string | null
+    threshold: number | null
+    // Hash of the rows and evaluators this check asked. Empty when the check did not use a dataset.
+    contentHash: string
+    // Hash of the post-processing config this check scored against.
+    postProcessHash: string
     evaluators: CheckEvaluator[]
     // Tokens from a side that was dropped when the cap was hit. The case no longer shows them, but they still count.
     spentTokens: number
@@ -313,6 +328,11 @@ function view(record: CheckRecord, currentDraftHash: string | null, reveal?: Che
     const showRows = !reveal || !record.fromDataset || reveal.datasets
     const showEvaluators = !reveal || reveal.evaluators
     const ran = record.cases.filter((c) => (record.liveEmpty || c.live) && c.draft).length
+    const summary = summarize(record.cases, record.liveEmpty)
+    const verdict =
+        record.fromDataset && record.threshold != null && record.status === 'done'
+            ? draftVerdict(summary.scores?.draft, record.threshold)
+            : null
     return {
         id: record.id,
         status: record.status,
@@ -336,8 +356,9 @@ function view(record: CheckRecord, currentDraftHash: string | null, reveal?: Che
             draft: shownSide(c.draft, showEvaluators),
             same: c.same
         })),
-        summary: summarize(record.cases, record.liveEmpty),
-        selection: record.selection
+        summary,
+        selection: record.selection,
+        verdict
     }
 }
 
@@ -489,8 +510,31 @@ export async function getCheckSetup(
         liveEmpty: liveIsEmpty(flow.flowData),
         replayInputs: Boolean(kind),
         replaySource: kind ? sourceOf(kind) : null,
-        check: record ? view(record, draft ? canvasHash(draft) : null, reveal) : null
+        check: record ? await present(flow, record, draft, reveal) : null
     }
+}
+
+async function gateRunMatches(flow: DraftFlow, record: CheckRecord): Promise<boolean> {
+    if (!publishGateApplies(flow.type) || !record.fromDataset || !record.datasetId || record.threshold == null) return false
+    const state = await flowDraftsService.getState(flow.id)
+    if (!state?.publishGate) return false
+    return sameGateSettings(
+        {
+            datasetId: state.publishGateDatasetId || null,
+            evaluatorIds: readEvaluatorIdList(state.publishGateEvaluatorIds),
+            threshold: typeof state.publishGateThreshold === 'number' ? state.publishGateThreshold : null
+        },
+        {
+            datasetId: record.datasetId,
+            evaluatorIds: record.evaluators.map((item) => item.id),
+            threshold: record.threshold
+        }
+    )
+}
+
+async function present(flow: DraftFlow, record: CheckRecord, draft: string | null, reveal?: CheckReveal): Promise<CheckView> {
+    const shown = view(record, draft ? canvasHash(draft) : null, reveal)
+    return { ...shown, matchesPublishGate: await gateRunMatches(flow, record) }
 }
 
 // The same ownership check replay uses. A canvas left in another team does not open that harness session.
@@ -519,7 +563,7 @@ export async function getCheck(flow: DraftFlow, checkId: string, given?: Candida
     const record = checks.get(candidate.key)
     if (!record || record.id !== checkId) throw new AppError(StatusCodes.NOT_FOUND, 'That check was not found. Run it again.')
     const draft = candidate.canvas
-    return view(record, draft ? canvasHash(draft) : null, reveal)
+    return present(flow, record, draft, reveal)
 }
 
 export async function stopCheck(flow: DraftFlow, checkId: string, given?: Candidate, reveal?: CheckReveal): Promise<CheckView> {
@@ -631,7 +675,14 @@ async function inputsToRun(
 
 export async function startCheck(
     flow: IChatFlow,
-    body: { questions?: unknown; includeRiskySteps?: unknown; count?: unknown; datasetId?: unknown; evaluatorIds?: unknown },
+    body: {
+        questions?: unknown
+        includeRiskySteps?: unknown
+        count?: unknown
+        datasetId?: unknown
+        evaluatorIds?: unknown
+        threshold?: unknown
+    },
     baseURL: string,
     given?: Candidate,
     watch?: StartWatch
@@ -643,12 +694,17 @@ export async function startCheck(
     const request = body || {}
     const datasetId = readDatasetId(request)
     const evaluatorIds = readEvaluatorIds(request)
+    const parsedThreshold = parseCheckThreshold(request.threshold, Boolean(datasetId))
+    if (!parsedThreshold.ok) throw new AppError(StatusCodes.BAD_REQUEST, parsedThreshold.message)
+    const threshold = parsedThreshold.threshold
     if (datasetId && (request.questions !== undefined || request.count !== undefined)) {
         throw new AppError(StatusCodes.BAD_REQUEST, 'Send a datasetId on its own. Do not send questions or count with it.')
     }
     // Resolve the dataset and the evaluators before any other refusal, so a missing one is 404 and starts nothing.
+    // One read: the questions, the scores, and the stored hash all use that copy.
     const workspaceId = String(flow.workspaceId || '')
-    const fromDataset = datasetId ? await casesFromDataset(datasetId, workspaceId) : null
+    const loaded = datasetId ? await loadTestSet(datasetId, evaluatorIds, workspaceId) : null
+    const fromDataset = loaded ? loaded.cases : null
     // The client left while the dataset was loading. Do not store a record or start a replay,
     // and do not stop a check this request did not create.
     if (closed()) throw new AppError(StatusCodes.BAD_REQUEST, 'The check was cancelled before it started.')
@@ -657,7 +713,9 @@ export async function startCheck(
         const refusal = datasetStartRefusal(flow.type, [flow.flowData, draft])
         if (refusal) throw new AppError(StatusCodes.BAD_REQUEST, refusal)
     }
-    const evaluators = await loadEvaluators(evaluatorIds, workspaceId)
+    const evaluators = loaded ? loaded.evaluators : await loadEvaluators(evaluatorIds, workspaceId)
+    const contentHash = loaded?.contentHash || ''
+    const scoredPostProcess = postProcessHash(flow.chatbotConfig)
     if (closed()) throw new AppError(StatusCodes.BAD_REQUEST, 'The check was cancelled before it started.')
     const unavailable = unavailableFor(flow as DraftFlow, candidate, Boolean(given))
     if (unavailable) throw new AppError(StatusCodes.CONFLICT, unavailable.message)
@@ -737,6 +795,10 @@ export async function startCheck(
         })),
         selection,
         fromDataset: Boolean(fromDataset),
+        datasetId,
+        threshold,
+        contentHash,
+        postProcessHash: scoredPostProcess,
         evaluators,
         spentTokens: 0,
         inflight: new Set<AbortController>(),
@@ -922,7 +984,46 @@ async function runCheck(record: CheckRecord, flow: IChatFlow, draft: string, bas
     }
     try {
         await Promise.all(Array.from({ length: workers }, () => worker()))
-        record.status = record.stopReason ? 'stopped' : 'done'
+        if (record.stopReason) {
+            record.status = 'stopped'
+        } else {
+            // Store the verdict before status is done, so a poll cannot see a finished check with nothing saved yet.
+            // A harness check can replay a dataset. It does not store a pass: the gate cannot be turned on for one.
+            // A failed write clears any older pass and fails the check. Leaving the check done would let that
+            // older pass publish even though this check did not store its result.
+            let stored = true
+            if (publishGateApplies(flow.type) && record.fromDataset && record.datasetId && record.threshold != null) {
+                const verdict = draftVerdict(summarize(record.cases, record.liveEmpty).scores?.draft, record.threshold)
+                try {
+                    // A skipped write clears any note. A thrown write notes this check, and the note
+                    // stays only when clearing the stored result also throws.
+                    await flowDraftsService.settlePublishGateCheck(flow as DraftFlow, {
+                        draftHash: record.draftHash,
+                        datasetId: record.datasetId,
+                        evaluatorIds: record.evaluators.map((evaluator) => evaluator.id),
+                        threshold: record.threshold,
+                        passRate: verdict.passRate,
+                        passed: verdict.passed,
+                        failed: verdict.failed,
+                        errored: verdict.errored,
+                        verdict: verdict.result,
+                        contentHash: record.contentHash,
+                        postProcessHash: record.postProcessHash,
+                        checkId: record.id
+                    })
+                } catch (error) {
+                    stored = false
+                    logger.error(
+                        `[server]: could not store the publish gate result for flow ${flow.id}: ${
+                            (error as Error)?.message || 'unknown error'
+                        }`
+                    )
+                    record.status = 'failed'
+                    record.error = 'The test set result could not be saved.'
+                }
+            }
+            if (stored) record.status = 'done'
+        }
     } catch (error) {
         record.status = 'failed'
         record.error = 'The check could not run.'

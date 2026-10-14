@@ -1237,6 +1237,11 @@
         },
         {
             "from": "packages/ui/src/views/canvas/PublishDialog.jsx",
+            "to": "packages/ui/src/hooks/useAuth.jsx",
+            "reason": "The Publish dialog hides Run the test set unless the person can view datasets and evaluators."
+        },
+        {
+            "from": "packages/ui/src/views/canvas/PublishDialog.jsx",
             "to": "packages/ui/src/hooks/useConfirm.jsx"
         },
         {
