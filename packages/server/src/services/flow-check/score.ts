@@ -11,6 +11,7 @@ import { getRunningExpressApp } from '../../utils/getRunningExpressApp'
 export type CheckEvaluator = EvaluatorDTO
 import { runAdditionalEvaluators } from '../evaluations/EvaluatorRunner'
 import { LLMEvaluationRunner } from '../evaluations/LLMEvaluationRunner'
+import { testSetHash } from '../flow-drafts/gate'
 import { COMPARE_COUNT_MAX, CheckScore } from './compare'
 
 export const MAX_QUESTION_CHARS = 2000
@@ -86,31 +87,113 @@ function clipExpected(text: unknown): string {
 
 // Rows stay in sequence order. Blank questions and questions over the check's length limit are left out.
 // The list stops at the check's maximum question count. Repeats are kept: two rows are two questions.
-export function questionsFromDataset(rows: Array<{ input?: unknown; output?: unknown; sequenceNo?: unknown }>): DatasetCase[] {
-    const sorted = [...rows].sort((a, b) => Number(a.sequenceNo) - Number(b.sequenceNo))
-    const cases: DatasetCase[] = []
+export interface AskedRow {
+    id?: string
+    input: string
+    expected: string
+    sequence: number
+}
+
+function rowSequence(value: unknown): number {
+    const number = Number(value)
+    return Number.isFinite(number) ? number : 0
+}
+
+function compareRows(a: { id?: unknown; sequenceNo?: unknown }, b: { id?: unknown; sequenceNo?: unknown }): number {
+    const sequence = rowSequence(a.sequenceNo) - rowSequence(b.sequenceNo)
+    if (sequence !== 0) return sequence
+    const left = String(a.id ?? '')
+    const right = String(b.id ?? '')
+    return left < right ? -1 : left > right ? 1 : 0
+}
+
+type DatasetRowLike = { id?: unknown; input?: unknown; output?: unknown; sequenceNo?: unknown }
+
+// The rows a dataset check actually asks. Sequence ties, including legacy -1 rows, break by row id.
+// The list stops at the check's maximum question count. Repeats are kept: two rows are two questions.
+// `expected` is clipped for display and grading. The hash uses the full output, so a change past the
+// cut still makes a stored pass out of date. The stored record keeps the hash, not the text.
+function selectAsked(rows: DatasetRowLike[], fullExpected: boolean): AskedRow[] {
+    const sorted = [...rows].sort(compareRows)
+    const asked: AskedRow[] = []
     for (const row of sorted) {
         const question = String(row.input ?? '').trim()
         if (!question || question.length > MAX_QUESTION_CHARS) continue
-        cases.push({ question, expected: clipExpected(row.output) })
-        if (cases.length >= COMPARE_COUNT_MAX) break
+        const output = String(row.output ?? '')
+        asked.push({
+            id: String(row.id ?? ''),
+            input: question,
+            expected: fullExpected ? output : clipExpected(output),
+            sequence: rowSequence(row.sequenceNo)
+        })
+        if (asked.length >= COMPARE_COUNT_MAX) break
     }
-    return cases
+    return asked
+}
+
+export function askedRowsFromDataset(rows: DatasetRowLike[]): AskedRow[] {
+    return selectAsked(rows, false)
+}
+
+function rowsForTestSetHash(rows: DatasetRowLike[]): AskedRow[] {
+    return selectAsked(rows, true)
+}
+
+export function questionsFromDataset(rows: Array<{ input?: unknown; output?: unknown; sequenceNo?: unknown }>): DatasetCase[] {
+    return askedRowsFromDataset(rows).map((row) => ({ question: row.input, expected: row.expected }))
+}
+
+async function readDatasetRows(datasetId: string, workspaceId: string) {
+    // A missing workspace matches nothing, the same as a dataset that belongs to another workspace.
+    if (!workspaceId) return null
+    const app = getRunningExpressApp()
+    const dataset = await app.AppDataSource.getRepository(Dataset).findOneBy({ id: datasetId, workspaceId })
+    if (!dataset) return null
+    return app.AppDataSource.getRepository(DatasetRow).find({
+        where: { datasetId: dataset.id },
+        order: { sequenceNo: 'ASC', id: 'ASC' }
+    })
 }
 
 export async function casesFromDataset(datasetId: string, workspaceId: string): Promise<DatasetCase[]> {
-    // A missing workspace matches nothing, the same as a dataset that belongs to another workspace.
-    if (!workspaceId) throw new AppError(StatusCodes.NOT_FOUND, `Dataset ${datasetId} not found`)
-    const app = getRunningExpressApp()
-    const dataset = await app.AppDataSource.getRepository(Dataset).findOneBy({ id: datasetId, workspaceId })
-    if (!dataset) throw new AppError(StatusCodes.NOT_FOUND, `Dataset ${datasetId} not found`)
-    const rows = await app.AppDataSource.getRepository(DatasetRow).find({
-        where: { datasetId: dataset.id },
-        order: { sequenceNo: 'ASC' }
-    })
+    const rows = await readDatasetRows(datasetId, workspaceId)
+    if (!rows) throw new AppError(StatusCodes.NOT_FOUND, `Dataset ${datasetId} not found`)
     const cases = questionsFromDataset(rows)
     if (!cases.length) throw new AppError(StatusCodes.BAD_REQUEST, 'This dataset has no questions the check can ask.')
     return cases
+}
+
+export interface LoadedTestSet {
+    cases: DatasetCase[]
+    evaluators: EvaluatorDTO[]
+    contentHash: string
+}
+
+// One read of the rows and the evaluator records. The cases, the scores, and the hash all use this copy.
+export async function loadTestSet(datasetId: string, evaluatorIds: string[], workspaceId: string): Promise<LoadedTestSet> {
+    const rows = await readDatasetRows(datasetId, workspaceId)
+    if (!rows) throw new AppError(StatusCodes.NOT_FOUND, `Dataset ${datasetId} not found`)
+    const asked = askedRowsFromDataset(rows)
+    const hashed = rowsForTestSetHash(rows)
+    if (!asked.length) throw new AppError(StatusCodes.BAD_REQUEST, 'This dataset has no questions the check can ask.')
+    const repo = getRunningExpressApp().AppDataSource.getRepository(Evaluator)
+    const evaluators: EvaluatorDTO[] = []
+    const shapes: Array<{ id: string; type: string; config: string }> = []
+    for (const id of evaluatorIds) {
+        const row = await repo.findOneBy({ id, workspaceId })
+        if (!row) throw new AppError(StatusCodes.NOT_FOUND, `Evaluator ${id} not found`)
+        try {
+            evaluators.push(EvaluatorDTO.fromEntity(row))
+        } catch {
+            throw new AppError(StatusCodes.NOT_FOUND, `Evaluator ${id} not found`)
+        }
+        shapes.push({ id: row.id, type: String(row.type || ''), config: String(row.config ?? '') })
+    }
+    return {
+        cases: asked.map((row) => ({ question: row.input, expected: row.expected })),
+        evaluators,
+        contentHash: testSetHash(hashed, shapes)
+    }
 }
 
 export async function loadEvaluators(ids: string[], workspaceId: string): Promise<EvaluatorDTO[]> {
@@ -129,6 +212,27 @@ export async function loadEvaluators(ids: string[], workspaceId: string): Promis
         }
     }
     return loaded
+}
+
+// Hash of the rows this check would ask and of each evaluator's type and config. Null when the dataset
+// or an evaluator is missing from this workspace. Evaluator order does not matter. No answers are included.
+export async function currentTestSetHash(datasetId: string, evaluatorIds: string[], workspaceId: string): Promise<string | null> {
+    if (!workspaceId || !datasetId) return null
+    const app = getRunningExpressApp()
+    const dataset = await app.AppDataSource.getRepository(Dataset).findOneBy({ id: datasetId, workspaceId })
+    if (!dataset) return null
+    const rows = await app.AppDataSource.getRepository(DatasetRow).find({
+        where: { datasetId: dataset.id },
+        order: { sequenceNo: 'ASC', id: 'ASC' }
+    })
+    const evaluators: Array<{ id: string; type: string; config: string }> = []
+    const repo = app.AppDataSource.getRepository(Evaluator)
+    for (const id of evaluatorIds) {
+        const row = await repo.findOneBy({ id, workspaceId })
+        if (!row) return null
+        evaluators.push({ id: row.id, type: String(row.type || ''), config: String(row.config ?? '') })
+    }
+    return testSetHash(rowsForTestSetHash(rows), evaluators)
 }
 
 // Each agentflow step stores its model under its own input names. The config is read the same way the step reads it:
@@ -301,7 +405,8 @@ export async function scoreAnswer(input: ScoreInput): Promise<{ scores: CheckSco
                 [input.text ?? ''],
                 [input.error ?? ''],
                 simple.map((evaluator) => evaluator.id),
-                input.workspaceId
+                input.workspaceId,
+                new Map(evaluators.map((evaluator) => [evaluator.id, evaluator]))
             )
             const row = (results && results[0]) || []
             simple.forEach((evaluator, index) => {

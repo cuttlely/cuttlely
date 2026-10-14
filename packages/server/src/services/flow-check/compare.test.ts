@@ -2,8 +2,10 @@
 import {
     COMPARE_COUNT_DEFAULT,
     clampCompareCount,
+    draftVerdict,
     median,
     normalizeAnswer,
+    parseCheckThreshold,
     parseCompareCount,
     pickQuestions,
     sameAnswer,
@@ -105,6 +107,35 @@ test('evaluators add a pass rate per side, and a check without them does not', (
         live: { passed: 1, failed: 1, errored: 0, passRate: 50 },
         draft: { passed: 1, failed: 0, errored: 1, passRate: 50 }
     })
+})
+
+test('a dataset verdict uses the draft pass rate, and errored scores are not passed', () => {
+    const scores = { passed: 1, failed: 0, errored: 1, passRate: 50 }
+    expect(draftVerdict(scores, 50).result).toBe('passed')
+    expect(draftVerdict(scores, 51)).toMatchObject({ result: 'failed', passed: 1, failed: 0, errored: 1, passRate: 50, threshold: 51 })
+    expect(draftVerdict({ passed: 0, failed: 0, errored: 2, passRate: 0 }, 0).result).toBe('passed')
+    expect(draftVerdict({ passed: 0, failed: 0, errored: 2, passRate: 0 }, 1).result).toBe('failed')
+    expect(draftVerdict({ passed: 4, failed: 0, errored: 0, passRate: 100 }, 100).result).toBe('passed')
+    expect(draftVerdict({ passed: 3, failed: 0, errored: 1, passRate: 75 }, 100).result).toBe('failed')
+    expect(draftVerdict({ passed: 2999, failed: 1, errored: 0, passRate: 100 }, 100)).toMatchObject({
+        result: 'failed',
+        passRate: 100,
+        passed: 2999,
+        failed: 1,
+        threshold: 100
+    })
+    expect(draftVerdict({ passed: 9, failed: 1, errored: 0, passRate: 90 }, 90).result).toBe('passed')
+    expect(draftVerdict({ passed: 8, failed: 2, errored: 0, passRate: 80 }, 81).result).toBe('failed')
+    expect(draftVerdict(undefined, 0)).toMatchObject({ result: 'failed', passRate: null, passed: 0, errored: 0 })
+    expect(draftVerdict(undefined, 100).result).toBe('failed')
+    expect(parseCheckThreshold(undefined, true)).toEqual({ ok: true, threshold: 100 })
+    expect(parseCheckThreshold(0, true)).toEqual({ ok: true, threshold: 0 })
+    expect(parseCheckThreshold(100, true)).toEqual({ ok: true, threshold: 100 })
+    expect(parseCheckThreshold(101, true).ok).toBe(false)
+    expect(parseCheckThreshold(-1, true).ok).toBe(false)
+    expect(parseCheckThreshold(1.5, true).ok).toBe(false)
+    expect(parseCheckThreshold(undefined, false)).toEqual({ ok: true, threshold: null })
+    expect(parseCheckThreshold(100, false).ok).toBe(false)
 })
 
 test('token totals come from the tracer metrics, and nothing counted is null', () => {

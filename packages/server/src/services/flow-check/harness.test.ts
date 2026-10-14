@@ -1,11 +1,13 @@
 // The publish check on a harness: questions from run history, both rosters, no writes, risky tools, dataset seam.
 const states = new Map<string, any>()
 let draftsOn = true
+const recordPublishGateResult: jest.Mock = jest.fn(async () => undefined)
 jest.mock('../flow-drafts', () => ({
     __esModule: true,
     default: {
         getState: async (id: string) => states.get(id) || null,
-        isDraftsEnabled: () => draftsOn
+        isDraftsEnabled: () => draftsOn,
+        recordPublishGateResult: (...args: unknown[]) => recordPublishGateResult(...args)
     },
     canvasHash: (flowData: string) => `hash:${flowData}`
 }))
@@ -318,10 +320,13 @@ describe('harness publish check', () => {
         const started = await startCheck(flow() as any, { datasetId: 'ds-1' }, 'http://x')
         await settle()
         const done = await getCheck(flow(), started.id)
+        expect(done.status).toBe('done')
         expect(done.selection).toBeNull()
+        expect(done.verdict).toMatchObject({ result: 'failed', threshold: 100 })
         expect(done.cases.map((item) => item.question)).toEqual(['First?', 'Second?'])
         expect(seen).toEqual(['First?:MANGO', 'First?:PAPAYA', 'Second?:MANGO', 'Second?:PAPAYA'])
         expect(seen.join(' ')).not.toContain('From a real run')
+        expect(recordPublishGateResult).not.toHaveBeenCalled()
     })
 
     test('a chatflow check still reads chat messages', async () => {
