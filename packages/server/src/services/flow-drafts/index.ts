@@ -57,16 +57,34 @@ function unlockedManager(ds: any): EntityManager {
     )
 }
 
+// One chain of state writes per flow. SQLite has a single connection and no row lock, so two
+// first inserts would both see no row. A transaction on that connection would also pull other
+// requests' statements into it, so the writes wait here instead.
+const sqliteStateWrites = new Map<string, Promise<void>>()
+
+function enqueueSqliteStateWrite<T>(chatflowId: string, fn: () => Promise<T>): Promise<T> {
+    const previous = sqliteStateWrites.get(chatflowId) ?? Promise.resolve()
+    const run = previous.then(fn, fn)
+    const settled = run.then(
+        () => undefined,
+        () => undefined
+    )
+    sqliteStateWrites.set(chatflowId, settled)
+    void settled.then(() => {
+        if (sqliteStateWrites.get(chatflowId) === settled) sqliteStateWrites.delete(chatflowId)
+    })
+    return run
+}
+
 // Postgres, MySQL and MariaDB: lock the chatflow row so a draft save and a type change cannot pass
-// each other's check. SQLite has no SELECT FOR UPDATE, and this driver uses one connection, so a
-// transaction here would pull other requests' statements into it. SQLite relies on the conditional
-// UPDATE (no draft, or the type still matches) instead.
+// each other's check. SQLite serializes the same read-then-insert in this process, one flow at a time.
 export async function withChatflowLock<T>(chatflowId: string, fn: (manager: EntityManager) => Promise<T>): Promise<T> {
     const ds = getRunningExpressApp().AppDataSource as any
     const driver = ds.options?.type
     const sqlite = driver === 'sqlite' || driver === 'better-sqlite3'
-    if (!driver || sqlite || !ds.createQueryRunner) {
-        if (!sqlite && typeof ds.transaction === 'function') return ds.transaction(fn)
+    if (sqlite) return enqueueSqliteStateWrite(chatflowId, () => fn(unlockedManager(ds)))
+    if (!driver || !ds.createQueryRunner) {
+        if (typeof ds.transaction === 'function') return ds.transaction(fn)
         return fn(unlockedManager(ds))
     }
     const qr = ds.createQueryRunner()
@@ -483,6 +501,18 @@ export async function afterLiveSet(
     published?: string,
     options: { keepDraftBase?: boolean } = {}
 ): Promise<DraftStatus> {
+    const write = () => writeAfterLiveSet(flow, sha, published, options)
+    const driver = (getRunningExpressApp().AppDataSource as { options?: { type?: string } } | undefined)?.options?.type
+    if (driver === 'sqlite' || driver === 'better-sqlite3') return enqueueSqliteStateWrite(flow.id, write)
+    return write()
+}
+
+async function writeAfterLiveSet(
+    flow: DraftFlow,
+    sha: string | null,
+    published: string | undefined,
+    options: { keepDraftBase?: boolean }
+): Promise<DraftStatus> {
     if (published !== undefined) await repo().update({ chatflowId: flow.id, draftFlowData: published }, NO_DRAFT)
     const publishedDate = new Date()
     const state = await getState(flow.id)
@@ -497,8 +527,7 @@ export async function afterLiveSet(
         try {
             return statusFrom(flow, await repo().save(row))
         } catch (error) {
-            // This insert is outside the chatflow lock. A draft or settings insert can win the row.
-            // Keep that row and write only the publication columns.
+            // A draft or settings insert can win the row. Keep that row and write only the publication columns.
             if (!isUniqueViolation(error)) throw error
             const existing = await getState(flow.id)
             if (!existing) throw new AppError(StatusCodes.CONFLICT, OVERLAPPED_SAVE)
