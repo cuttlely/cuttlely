@@ -66,13 +66,13 @@ Each specialist **Chat Model** input can stay empty. The specialist uses Harness
 
 This is the canvas chat after the sales prompt from [Prompts](#prompts). The Run card names the analyst, its model, and the tool count. The rows are in the answer.
 
-![Harness canvas for chief-of-staff with the chat panel open. The sales prompt was sent, the Run card says Harness Prime sent work to analyst, and the answer starts with the total by region before the update: west 15, east 20.](../images/analyst/canvas-chat-sales.png)
+![Harness canvas for chief-of-staff with the chat panel open. The sales prompt was sent, the Run card says Harness Prime sent work to analyst, the analyst row is done with 6 tools, and the answer starts with Total units by region before the update: west 15, east 20.](../images/analyst/canvas-chat-sales.png)
 
-Docker is the same switch in `.env`, then `docker compose up -d`. The file lands at `/var/cuttlely/data/analyst.db`. See [Docker](./docker.md).
+Docker is the same switch in `.env`, then `docker compose up -d`. The workspace file lands at `/var/cuttlely/data/analyst-<tag>.db`, beside `database.sqlite`. `<tag>` is 10 hex characters from the workspace id. See [Docker](./docker.md) and [Workspaces](#workspaces).
 
 ## SQLite
 
-With `CUTTLELY_ANALYST=auto`, and no Postgres URL credential or `CUTTLELY_POSTGRES_URL`, the first time the analyst tool starts it creates `analyst.db` beside `database.sqlite`. The tool opens only that file.
+With `CUTTLELY_ANALYST=auto`, and no Postgres URL credential or `CUTTLELY_POSTGRES_URL`, the first time the analyst tool starts it creates that workspace's `analyst-<tag>.db` beside `database.sqlite`. A store from before workspaces, `analyst.db`, stays with the first workspace that uses it. [Workspaces](#workspaces). The tool opens only that workspace's file.
 
 When `DATABASE_PATH` is unset, that directory is `~/.cuttlely`. `scripts/start-cuttlely.sh` does not move the app database. Harness files for this checkout are under `<repo>/.cuttlely`. The split is in [From source](./from-source.md#where-your-data-lives).
 
@@ -82,7 +82,7 @@ SQLite uses the same row cap and the same query timeout as Postgres. Both defaul
 
 An id column has to be `INTEGER PRIMARY KEY`. `SERIAL` is not a SQLite type. A column declared that way comes back null. The analyst tool says which dialect it is on. On SQLite it says to use `INTEGER PRIMARY KEY`.
 
-![analyst.db beside database.sqlite. database.sqlite has no table named sales or tickets. analyst.db has sales (west 10, east 20, west 5) and tickets (Ticket 1, Ticket 2, Ticket 3).](../images/analyst/sqlite-analyst-db.png)
+![analyst-ff33404ebc.db beside database.sqlite. The count of tables named sales or tickets in database.sqlite is 0. sqlite3 analyst-ff33404ebc.db .tables lists demo_orders, sales, tasks, and tickets. sales is 1 west 10, 2 east 20, 3 west 5. tickets is Ticket 1, Ticket 2, and Ticket 3.](../images/analyst/sqlite-analyst-db.png)
 
 ## Postgres
 
@@ -90,15 +90,15 @@ Use this when the application database is already Postgres. The variables are in
 
 The account lives in the application database. After you point Cuttlely at Postgres, create the local account again. [Sign in](./sign-in.md).
 
-The first time the analyst tool starts, Cuttlely creates schema `analyst` and login `analyst_reader` in the application database. The login can sign in. It is not a superuser, and it cannot create roles or databases. Its `search_path` is `analyst`. Its `statement_timeout` is the query timeout (`15s` unless you change it). Cuttlely also sets both on every analyst connection, so they hold even if the analyst changes its own login's defaults. It can create and change tables in `analyst`, and it can make TEMP tables, which last for one harness turn. It cannot read application tables.
+The first time the analyst tool starts for a signed-in workspace, Cuttlely creates schema `analyst_<tag>` and login `analyst_reader_<tag>` in the application database. The login can sign in. It is not a superuser, and it cannot create roles or databases. Its `search_path` is that schema. Its `statement_timeout` is the query timeout (`15s` unless you change it). A store from before workspaces, schema `analyst` and login `analyst_reader`, stays with the first workspace that uses it. [Workspaces](#workspaces). Cuttlely also sets both on every analyst connection, so they hold even if the analyst changes its own login's defaults. It can create and change tables in `analyst_<tag>`, and it can make TEMP tables, which last for one harness turn. It cannot read application tables. `<tag>` is 10 hex characters derived from the workspace id.
 
-The role password is random. It is stored in `analyst-role.enc` under `SECRETKEY_PATH`, mode `600`, encrypted with the credential key. When `SECRETKEY_PATH` is unset, that directory is `~/.cuttlely`. Docker and Render set the directory. [Docker](./docker.md). It is not an environment variable and it is not written to the server log. A restart reuses that file. It does not create a second role, and rows already in `analyst` stay.
+The role password is random. It is stored in `analyst-role-<tag>.enc` under `SECRETKEY_PATH`, mode `600`, encrypted with the credential key. The original untagged store uses `analyst-role.enc` instead, and its rows stay in schema `analyst`. When `SECRETKEY_PATH` is unset, that directory is `~/.cuttlely`. Docker and Render set the directory. [Docker](./docker.md). It is not an environment variable and it is not written to the server log. A restart reuses that file. It does not create a second role, and rows already in `analyst_<tag>` stay.
 
-![psql on the cuttlely database. Schema analyst is owned by the cuttlely login. Role analyst_reader is not a superuser and cannot create roles, with statement_timeout=15s and search_path=analyst.](../images/analyst/postgres-analyst-role.png)
+![psql on the cuttlely database. \dn analyst* shows schema analyst_e070b3bf00, owned by the cuttlely login. The role list includes analyst_reader_e070b3bf00, which is not a superuser and cannot create roles, with statement_timeout=15s and search_path=analyst_e070b3bf00.](../images/analyst/postgres-analyst-role.png)
 
 Ask: `Show the analyst login and search_path.`
 
-You should see login `analyst_reader` and search path `analyst`. The model may phrase that in its own words. The run trace has the tool result.
+You should see login `analyst_reader_<tag>` and search path `analyst_<tag>`. The model may phrase that in its own words. The run trace has the tool result.
 
 ## Workspaces
 
@@ -117,11 +117,11 @@ On Postgres, the owner of a table can share it with every login. The analyst's o
 
 The same statement in two teams of one server. In the home team, whose analyst had already made `demo_orders`, it returns 150:
 
-![Try it on the bakery-auto-timeout harness in the home team. The analyst ran SELECT count(*) AS n FROM demo_orders, the chip reads mcp__analyst__query · done · 1 row, and the answer is The query returned a count of 150 rows in the demo_orders table.](../images/analyst/workspace-home-team.png)
+![Try it on the bakery-auto-timeout harness. The prompt is SELECT count(*) AS n FROM demo_orders. The Run card says Harness Prime sent work to analyst, the analyst row is done with 1 tool, and the answer is The query returned a count of 150 rows in the demo_orders table.](../images/analyst/workspace-home-team.png)
 
 A copy of that harness in a second team, Demo team B, gets its own `analyst-<tag>.db`, and the table is not there:
 
-![Try it on the bakery-team-b-auto harness in Demo team B. The same statement fails, the chip reads mcp__analyst__query · failed, and the answer is The query failed because there is no table named demo_orders in the database.](../images/analyst/workspace-second-team.png)
+![Try it on the bakery-team-b-auto harness. The same statement fails. The analyst row is done with 1 tool, the answer is The query failed because there is no table named demo_orders in the database, and the Runs list marks that run completed with errors.](../images/analyst/workspace-second-team.png)
 
 ## Prompts
 
@@ -149,23 +149,23 @@ What that answer looks like, and how to get rows 101-150, is in [Paging through 
 
 A select longer than 100 rows comes back one page at a time. The first answer is rows 1-100. The page line after the rows tells you which page you are on.
 
-These shots are a 150-row `tickets` table in the canvas chat. The prompt creates the table and selects every row:
+These shots are a 150-row `tickets` table. The first two are the canvas chat. The prompt creates the table and selects every row:
 
-![Canvas chat with the prompt that creates a tickets table, inserts 150 rows, and selects all rows. The Run card says Harness Prime sent work to analyst, and the answer lists the rows from id: 1, title: Ticket 1.](../images/analyst/paging-page-1-start.png)
+![Canvas chat with the prompt that creates a tickets table, inserts 150 rows, and selects all rows. The Run card says Harness Prime sent work to analyst, the analyst row is done with 4 tools, and the answer lists the rows from id: 1, title: Ticket 1.](../images/analyst/paging-page-1-start.png)
 
 The end of the first answer is row 100 and the page line:
 
-![The end of page 1 in the canvas chat: rows 90 to 100 of the tickets table, then the line rows 1-100 of 150 (page 1 of 2, say "show more" for the next page).](../images/analyst/paging-page-1-line.png)
+![The end of page 1 in the canvas chat: a table of tickets from 87 through 100, then the line rows 1-100 of 150 (page 1 of 2, say "show more" for the next page).](../images/analyst/paging-page-1-line.png)
 
 In that same chat, say `show more`, `next page`, or `page 2`. That fetches the next page of the same select. It does not run a new query, and the model does not see the earlier pages again.
 
 The last page reads `rows 101-150 of 150 (page 2 of 2, last page)`. With 101 rows and a limit of 100, page 2 is the single row 101. If the total is expensive or unknown, the line says `more rows available` and does not invent a count.
 
-![The end of page 2 after show more in the same chat: tickets 127 to 150, then the line rows 101-150 of 150 (page 2 of 2, last page).](../images/analyst/paging-page-2-last.png)
+![Try it after show more. The prompt is show more. The Run card says Harness Prime sent work to analyst, and the answer lists tickets from id 101 onward, including Ticket 127 and Ticket 128, on the way to the last page.](../images/analyst/paging-page-2-last.png)
 
 An answer that fits on one page has no page line and nothing to page. That includes a count or a total, which is one row. Say `show more` in a chat that has no capped result yet, and Harness Prime answers directly without running the analyst: `There's nothing to page yet. Ask your question again and I'll show the first page.`
 
-![A fresh canvas chat. How many rows are in the tickets table is answered with The tickets table contains 150 rows, with no page line. Then show more gets the direct reply There's nothing to page yet.](../images/analyst/paging-nothing-yet.png)
+![A canvas chat. How many rows are in the tickets table is answered with The tickets table contains 3 rows, with no page line. Then show more gets the direct reply There's nothing to page yet. Ask your question again and I'll show the first page.](../images/analyst/paging-nothing-yet.png)
 
 The cursor lasts 15 minutes. It is dropped when Cuttlely restarts. It works only in the chat that ran the query. After 15 minutes, `show more` gets the direct reply `This page cursor expired. Re-run the query.` Send the question again for a new first page. A bad cursor, or one from another chat, also says to re-run the query. That message is an expected result, so it does not pause the analyst tool.
 
@@ -179,7 +179,7 @@ The preview is saved with the run trace, in **Try it**, in the canvas chat, and 
 
 To leave row values out of new traces, turn off **Query previews in the run trace** under **Admin** > **Server Settings** > **Analyst**, then restart. The chip can still say how many rows came back. [Server settings](./server-settings.md).
 
-![Try it on the chief-of-staff harness. The analyst row is open. The chip reads mcp__analyst__query · done · 100 rows. The preview is open and shows the first rows of a tickets table, id and title, with Ticket 1 through Ticket 5. The caption says Showing 5 of 100 rows, that the rest are in the answer in this chat, and to say show more for the next page. The page line reads rows 1-100 of 150.](../images/analyst/trace-query-preview.png)
+![Try it on the chief-of-staff harness. The analyst row is open. The chip reads mcp__analyst__query · done · 100 rows. The preview shows id and title for Ticket 1 through Ticket 5. The caption says Showing 5 of 100 rows. The rest of these rows are in the answer in this chat. Say show more for the next page. The page line reads rows 1-100 of 150 (page 1 of 2, say "show more" for the next page).](../images/analyst/trace-query-preview.png)
 
 A chip for a create, an insert, or a failed statement has no preview.
 
@@ -202,7 +202,7 @@ The row cap itself is the **Row cap** rule under [Safety](#safety). The default 
 
 In **Try it**, `VACUUM INTO` a file path comes back as the refusal, word for word. The run finishes and the analyst chip is done:
 
-![Try it on the chief-of-staff harness page. The prompt asks the analyst to run VACUUM INTO a file in /tmp, and the answer quotes the error: Analyst mode refused VACUUM. The analyst store cannot open another file. In the Runs list that run is marked completed with errors.](../images/analyst/try-it-vacuum-refused.png)
+![Try it on the chief-of-staff harness page. The prompt asks the analyst to run VACUUM INTO a file in /tmp, and the answer quotes Analyst mode refused ATTACH or VACUUM. The analyst store cannot open another file. In the Runs list that run is marked completed with errors.](../images/analyst/try-it-vacuum-refused.png)
 
 Unqualified `"user"` looks only in schema `analyst` and returns that the relation does not exist. That is `search_path`, not a grant on `public`. Table names can still show up in `pg_catalog`. The analyst still cannot select those tables.
 
@@ -231,9 +231,9 @@ A timeout is an ordinary result, like a syntax error. It does not pause the anal
 
 With the default query timeout, 15 seconds is the limit for every analyst statement. Cuttlely sets it on each call, as [Row cap and query timeout](#row-cap-and-query-timeout) describes. The picture below is that default.
 
-In **Try it** on a harness whose analyst uses `analyst.db`, a recursive count with no end stops at 15 seconds. The answer quotes the timeout sentence. The run finished in 19 seconds, and the server kept answering the whole time:
+In **Try it** on a harness whose analyst uses the workspace analyst file, a recursive count with no end stops at 15 seconds. The answer quotes the timeout sentence. The analyst row in the picture finished in 16 seconds, and the server kept answering the whole time:
 
-![Try it on a harness page. The prompt asks the analyst to run a recursive count with no end. The Run card says Harness Prime sent work to analyst, the analyst is done after 17 seconds, and the answer quotes canceling statement due to statement timeout.](../images/analyst/statement-timeout-sqlite.png)
+![Try it on the chief-of-staff harness. The prompt asks the analyst to run a recursive count with no end. The Run card says Harness Prime sent work to analyst, the analyst row is done after 16 seconds on OpenAI gpt-5.6-luna, and the answer quotes canceling statement due to statement timeout.](../images/analyst/statement-timeout-sqlite.png)
 
 ### Temporary tables
 
@@ -247,11 +247,11 @@ In a harness turn, the analyst keeps one connection to its own store from its fi
 
 In **Try it** on a SQLite auto store, one turn creates `tmp_targets`, fills it, and joins it with the regular table `demo_orders`. The three query chips are three separate tool calls on the same connection:
 
-![Try it on the bakery-auto-timeout harness. The analyst ran CREATE TEMP TABLE tmp_targets, an INSERT of three made-up targets, and a SELECT that joins demo_orders with tmp_targets. Three chips read mcp__analyst__query · done, the last one with 3 rows. The answer lists apple tart 650 ordered, target 900; lemon cake 650, target 400; rye loaf 650, target 300.](../images/analyst/temp-table-join.png)
+![Try it on the chief-of-staff harness. The prompt creates tmp_targets and joins it to demo_orders. The Run card says Harness Prime sent work to analyst, the analyst row is done with 3 tools, and the answer is apple tart 650 ordered, target 900; lemon cake 650, target 400; rye loaf 650, target 300.](../images/analyst/temp-table-join.png)
 
 The next turn in the same chat runs `SELECT * FROM tmp_targets;` and gets `no such table: tmp_targets`:
 
-![The next run in the same Try it chat. The analyst ran SELECT * FROM tmp_targets, the chip reads mcp__analyst__query · failed, and the answer says the query failed with no such table: tmp_targets.](../images/analyst/temp-table-next-turn.png)
+![The next run in the same Try it chat. The prompt is SELECT * FROM tmp_targets. The analyst row is done with 1 tool, and the answer says The query failed with no such table: tmp_targets.](../images/analyst/temp-table-next-turn.png)
 
 ## Other SQL tools
 
@@ -262,7 +262,7 @@ Cuttlely can list and limit the tables the analyst reaches only through its own 
 
 The rule goes by names and fields. A server that runs SQL under a name that says neither is not caught, so connect databases through PostgreSQL MCP.
 
-![Try it on a made-up bakery harness whose Custom MCP server has execute_sql and bakery_hours. The prompt asks for sourdough orders with the execute_sql tool. The analyst chip reads done with no SQL call, and the answer says the execute_sql tool is not available in this session.](../images/analyst/sql-refused.png)
+![Try it on bakery-other-sql. The prompt asks how many sourdough orders the bakery had and to use the execute_sql tool. The analyst row is done with no tool chip, and the answer is The execute_sql tool is not available in this session.](../images/analyst/sql-refused.png)
 
 ## Which setting wins
 
@@ -288,7 +288,7 @@ Refresh **Available Actions** on the PostgreSQL MCP node. The list says **No Ava
 
 The fix is a separate database. Set `CUTTLELY_POSTGRES_URL` to it, or select a Postgres URL credential. Do not paste the application database. On Render, the Blueprint does not set that variable. [Analyst database](./render.md#analyst-database). If that host requires TLS, put `sslmode` on the URL yourself. Cuttlely does not add it.
 
-![Available Actions on PostgreSQL MCP set to No Available Actions. The description says Analyst mode needs the application database user to create roles, and that this database refused that.](../images/analyst/available-actions-create-roles.png)
+![The PostgreSQL MCP card. Connect Credential says no credential is saved for this node yet. Available Actions is No Available Actions. The note under it reads: Analyst mode needs the application database user to create roles. This database refused that. Set CUTTLELY_POSTGRES_URL to a separate database, or select a Postgres URL credential. The analyst does not use the application login.](../images/analyst/available-actions-create-roles.png)
 
 Two other stops use the same fallback, a separate URL, and do not use the application login:
 

@@ -20,6 +20,7 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 ### Docs
 
 -   Fresh screenshots for the canvas, share and embed, the API and Try the demo.
+-   Fresh screenshots for the harness guide and Analyst mode, shot from the current app with synthetic bakery data.
 
 ## [1.1.0] - 2026-10-14
 
