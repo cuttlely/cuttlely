@@ -10,12 +10,22 @@ import { mediaHash, mediaUrl } from './media-version.mjs'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 
+function newest(dir) {
+    let stamp = 0
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+        const full = path.join(dir, entry.name)
+        stamp = Math.max(stamp, entry.isDirectory() ? newest(full) : fs.statSync(full).mtimeMs)
+    }
+    return stamp
+}
+
 /** The built homepage, produced here so `npm test` does not depend on a build that already ran. */
 function builtHomepage() {
     const htmlPath = path.join(root, 'dist', 'index.html')
     const inputs = [path.join(root, 'src/pages/index.astro'), path.join(root, 'scripts/media-version.mjs')]
     const built = fs.existsSync(htmlPath) ? fs.statSync(htmlPath).mtimeMs : 0
-    const stale = inputs.some((file) => fs.statSync(file).mtimeMs > built)
+    const mediaStamp = newest(path.join(root, 'public', 'media'))
+    const stale = inputs.some((file) => fs.statSync(file).mtimeMs > built) || mediaStamp > built
     if (stale) {
         const result = spawnSync('npm', ['run', 'build'], {
             cwd: root,

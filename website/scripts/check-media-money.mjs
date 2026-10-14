@@ -28,9 +28,10 @@ const NAMED_SRC = `\\b(?:${AMOUNT}\\s+${UNIT}|${UNIT}\\s+${AMOUNT})\\b`
 const USD_SRC = String.raw`\b(?:USD\s*\d[\d,]*(?:\.\d+)?|\d[\d,]*(?:\.\d+)?\s*USD)\b`
 
 /**
- * Token counts are not amounts. Punctuation before "in" or "out" is a space, so "$33,out" reads like "$33 out".
- * A symbol glued to a thousands group, or to the three-digit tail of one, is the same kind of count:
- * "$5,541 in", "$5,541in", and "$541 in" (read from "5,541 in").
+ * A symbol glued to a thousands-grouped token count, or to its three-digit tail, directly before
+ * "in" or "out" is a token count: "$5,541 in", "$5,541in", and "$541 in" (read from "5,541 in").
+ * Punctuation jammed against that "in" or "out" is a space first, so "$541,in" is the same shape.
+ * "$25 in" and "$10 out" stay amounts.
  */
 function softenTracePunctuation(text) {
     return String(text)
@@ -43,24 +44,28 @@ function softenTracePunctuation(text) {
  * `decimal` and `spelled` are the low-confidence shapes. `whole2` is a two-digit whole amount.
  * `whole3` is a three-digit whole amount. Anything else valid is `other`.
  */
+/** A run trace names a grouped token count and a short misread on the same line (`1,957 in - $33 out`). */
+function isTraceLine(line) {
+    return /\d{1,3}(?:,\d{3})+\s+(?:in|out)\b/i.test(line) && /[$€£]\s*\d{1,3}\s+(?:in|out)\b/i.test(line)
+}
+
 function classifyAmount(text) {
     const line = softenTracePunctuation(text)
-    if (new RegExp(NAMED_SRC, 'i').test(line) || new RegExp(USD_SRC, 'i').test(line)) return { kind: 'spelled' }
+    if (isTraceLine(line)) return null
+    const named = new RegExp(NAMED_SRC, 'i').exec(line) || new RegExp(USD_SRC, 'i').exec(line)
+    if (named) return { kind: 'spelled', start: named.index, end: named.index + named[0].length, line }
     const symbol = new RegExp(SYMBOL_SRC, 'g')
-    let match
-    while ((match = symbol.exec(line))) {
-        const amount = match[1]
-        const whole = !amount.includes('.')
-        const after = line.slice(match.index + match[0].length)
-        // "533 out" misread as "$33 out" is a token count, not an amount.
-        if (whole && /^\s+(?:in|out)\b/i.test(after)) continue
-        if (!whole) return { kind: 'decimal' }
+    const match = symbol.exec(line)
+    if (!match) return null
+    const amount = match[1]
+    let kind = 'other'
+    if (amount.includes('.')) kind = 'decimal'
+    else {
         const digits = amount.replace(/\D/g, '').length
-        if (digits === 2) return { kind: 'whole2' }
-        if (digits === 3) return { kind: 'whole3' }
-        return { kind: 'other' }
+        if (digits === 2) kind = 'whole2'
+        else if (digits === 3) kind = 'whole3'
     }
-    return null
+    return { kind, start: match.index, end: match.index + match[0].length, line }
 }
 
 /** True when a single line of text names a currency amount. */
@@ -69,14 +74,15 @@ export function lineHasMoney(text) {
 }
 
 /**
- * Below confidence 85, keep a decimal or a spelled unit, and a two-digit whole amount only at 60 or higher.
- * A three-digit whole token below 85 is dropped. A bare `:s£` never names an amount.
+ * Confidence applies to the joined line. Every word at 85 or higher keeps any valid amount.
+ * Otherwise a decimal or a spelled unit still counts, and a two-digit whole amount counts at 60 or higher.
+ * A three-digit whole amount below 85 does not.
  */
-function lowConfidenceAmount(text, conf) {
-    const hit = classifyAmount(text)
-    if (!hit) return false
-    if (hit.kind === 'decimal' || hit.kind === 'spelled') return true
-    return hit.kind === 'whole2' && conf >= 60
+function countsAtConfidence(kind, confs) {
+    if (!confs.length) return false
+    if (confs.every((conf) => conf >= 85)) return true
+    if (kind === 'decimal' || kind === 'spelled') return true
+    return kind === 'whole2' && Math.min(...confs) >= 60
 }
 
 function tool(name) {
@@ -140,21 +146,31 @@ export function moneyIn(tsv) {
         if (parts.length < 12 || !parts[11].trim()) continue
         const conf = Number(parts[10])
         const text = parts[11].trim()
-        // A dim glyph is usually a rule or a box. Below 85, only a decimal, a spelled unit,
-        // or a two-digit whole amount at confidence 60 or higher still counts.
         if (!Number.isFinite(conf) || conf < 0) continue
-        if (conf < 85 && !lowConfidenceAmount(text, conf)) continue
         // page, block, paragraph, line — the same line in another block is a different line.
         const key = [parts[1], parts[2], parts[3], parts[4]].join('\t')
         const bag = lines.get(key) || []
-        bag.push({ order: Number(parts[5]) || 0, text })
+        bag.push({ order: Number(parts[5]) || 0, text, conf })
         lines.set(key, bag)
     }
     const hits = []
     for (const words of lines.values()) {
         words.sort((a, b) => a.order - b.order)
         const line = words.map((word) => word.text).join(' ')
-        if (lineHasMoney(line)) hits.push(line)
+        const hit = classifyAmount(line)
+        if (!hit) continue
+        let cursor = 0
+        const involved = []
+        for (const word of words) {
+            const start = cursor
+            const end = start + word.text.length
+            cursor = end + 1
+            if (hit.line.length === line.length && end > hit.start && start < hit.end) involved.push(word.conf)
+        }
+        const confs = involved.length ? involved : words.map((word) => word.conf)
+        const loneSymbol = words.find((word) => /^[$€£]$/.test(word.text) && word.conf < 85)
+        if (loneSymbol && hit.kind !== 'decimal' && hit.kind !== 'spelled') continue
+        if (countsAtConfidence(hit.kind, confs)) hits.push(line)
     }
     return hits
 }
@@ -177,9 +193,19 @@ async function pool(items, limit, fn) {
  * @param {string} [dir]
  * @returns {Promise<{skipped?: string, hits: {file: string, at: string, text: string}[]}>}
  */
+function missingTool() {
+    if (!tool('tesseract')) return 'tesseract is not installed'
+    if (!tool('ffmpeg')) return 'ffmpeg is not installed'
+    return ''
+}
+
 export async function scanMedia(dir = mediaDir) {
-    if (!tool('tesseract')) return { skipped: 'tesseract is not installed, so the media money check was skipped', hits: [] }
-    if (!tool('ffmpeg')) return { skipped: 'ffmpeg is not installed, so the media money check was skipped', hits: [] }
+    const missing = missingTool()
+    if (missing) {
+        const message = `${missing}, so the media money check was skipped`
+        if (process.env.CUTTLELY_MEDIA_REQUIRE_TOOLS === '1') throw new Error(message)
+        return { skipped: message, hits: [] }
+    }
     const files = walk(dir)
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'media-money-'))
     const hits = []

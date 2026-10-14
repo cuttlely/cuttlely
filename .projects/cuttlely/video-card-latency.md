@@ -7,7 +7,7 @@
 -   Caveat: Time to first words includes the model provider's own latency (queueing, prompt processing and the network round trip) as well as every model call before the answer starts: the tool agent's calculator call in the chatflow and the Classify Message call in the agentflow.
 -   Stats: median = mean of the 10th and 11th of 20; p90 = nearest rank (18th of 20). "Correct" counts runs whose answer passed the content check (right total, right branch, a four-row table). The tiles use the median, rounded to one decimal, and do not round a half down.
 
-Questions: chatflow "Two country sourdough loaves and three butter croissants. What is the total?" then "Add a baguette to that."; agentflow "I received a stale loaf, can I get a replacement?" then "How much are two butter croissants and a baguette?"; shared link "What breads do you have and how much are they?"; embed "Are you open on Sunday? Show the week as a table.".
+Measured questions: chatflow "Two country sourdough loaves and three butter croissants. What is the total?" then "Add a baguette to that."; agentflow "I received a stale loaf, can I get a replacement?" then "How much are two butter croissants and a baguette?"; shared link "What breads do you have and how much are they?"; embed "Are you open on Sunday? Show the week as a table.". On the served narrated recordings those price questions are on-screen chat text, not in the burned-in captions, and the muted loops do not show them. Where the picture still asks one, the wording matches the answer: the chatflow asks how many items, the agentflow order question asks "How many items are two croissants and a baguette?", and the shared link asks "When are today's breads baked?".
 
 ## Chatflows (canvas test chat, internal prediction stream)
 
@@ -54,7 +54,7 @@ Shown on the card: 0.4 s, 0.8 s, 0.4 s.
 -   Chatflows: the recorded canvas. The nodes and system prompt match the video (gpt-4.1-mini, Tool Agent, Buffer Memory, Calculator).
 -   Share and embed: the recorded canvas. The nodes, prompt and share settings match the video (gpt-4.1-mini, Conversation Chain, Buffer Memory; title, welcome, starters, allowed origins), made public as the video does.
 -   Agentflows: the recorded canvas was not kept. The medians are from an equivalent flow with the same branches and questions, not the recorded canvas. The flow has the same four cards (Start, Classify Message, Order Agent, Care Agent) and the same two branches. Its prompts are not the video's prompts.
--   The questions are the videos' exact turns.
+-   The measured questions are the turns above. The narrated recordings show the quantity and bake-schedule wording where a price question was still on screen.
 
 ## Customer care demo
 

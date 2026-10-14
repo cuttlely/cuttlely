@@ -1,0 +1,32 @@
+name: Website media
+on:
+    pull_request:
+        paths:
+            - 'website/**'
+            - '.github/workflows/website-media.yml'
+    push:
+        branches:
+            - main
+        paths:
+            - 'website/**'
+            - '.github/workflows/website-media.yml'
+    workflow_dispatch:
+permissions:
+    contents: read
+concurrency:
+    group: ${{ github.workflow }}-${{ github.ref }}
+    cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+jobs:
+    media:
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v6
+            - uses: actions/setup-node@v6
+              with:
+                  node-version: 24.15.0
+            - name: Install ffmpeg and tesseract
+              run: sudo apt-get update && sudo apt-get install -y ffmpeg tesseract-ocr
+            - name: Homepage media checks
+              env:
+                  CUTTLELY_MEDIA_REQUIRE_TOOLS: '1'
+              run: node --test --test-concurrency=1 website/scripts/check-media-faststart.test.mjs website/scripts/check-media-money.test.mjs website/scripts/check-closing-card.test.mjs

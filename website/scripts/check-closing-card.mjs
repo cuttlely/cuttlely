@@ -108,13 +108,18 @@ async function pool(items, limit, fn) {
     return ret
 }
 
+/** Frames 2110 through 2344, one image per frame. */
+export const CUSTOMER_CARE_FRAME_COUNT = 235
+
 /** Every frame from the fade through the end of one customer-care file. */
 export async function scanCustomerCareFile(file) {
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'closing-card-'))
     const name = path.basename(file)
     try {
         const frames = extract(file, tmp)
-        if (!frames.length) throw new Error(`${name} has no frames from ${FADE_START_FRAME}`)
+        if (frames.length !== CUSTOMER_CARE_FRAME_COUNT) {
+            return [`${name}: expected ${CUSTOMER_CARE_FRAME_COUNT} frames from ${FADE_START_FRAME} through 2344, got ${frames.length}`]
+        }
         const rows = await pool(frames, 8, async (frame, index) => {
             const n = FADE_START_FRAME + index
             return { n, figures: figuresIn(await ocr(frame)) }
