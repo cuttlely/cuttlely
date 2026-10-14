@@ -17,8 +17,11 @@
  */
 
 import { NextFunction, Request, Response, Router } from 'express'
+import { rateLimit } from 'express-rate-limit'
 import logger from '../utils/logger'
+import { LOGIN_FAILURE_LIMIT, LOGIN_FAILURE_WINDOW_MS } from './constants'
 import {
+    TOO_MANY,
     handleCallback,
     handleLocalLogin,
     handleLocalLogout,
@@ -76,15 +79,30 @@ async function dispatch(
 }
 
 export const identityAuthRouter = Router()
+
+/**
+ * Per-client cap in this process for the local password routes.
+ * Account lockout still lives in the handler, in the database, so it holds across instances.
+ * Successful responses are not counted. The key is req.ip, which trusts proxy headers only when TRUST_PROXY says so.
+ */
+const localAuthRateLimit = rateLimit({
+    windowMs: LOGIN_FAILURE_WINDOW_MS,
+    max: LOGIN_FAILURE_LIMIT,
+    standardHeaders: false,
+    legacyHeaders: false,
+    skipSuccessfulRequests: true,
+    message: { message: TOO_MANY }
+})
+
 identityAuthRouter.get('/signin-options', (_req, res) => {
     res.json(signInOptionsBody())
 })
 identityAuthRouter.get('/options', (_req, res) => {
     res.json(enabledSignInMethods())
 })
-identityAuthRouter.post('/local/login', (req, res, next) => void dispatch(req, res, next, handleLocalLogin))
-identityAuthRouter.post('/local/logout', (req, res, next) => void dispatch(req, res, next, handleLocalLogout))
-identityAuthRouter.post('/local/password', (req, res, next) => void dispatch(req, res, next, handleLocalPassword))
+identityAuthRouter.post('/local/login', localAuthRateLimit, (req, res, next) => void dispatch(req, res, next, handleLocalLogin))
+identityAuthRouter.post('/local/logout', localAuthRateLimit, (req, res, next) => void dispatch(req, res, next, handleLocalLogout))
+identityAuthRouter.post('/local/password', localAuthRateLimit, (req, res, next) => void dispatch(req, res, next, handleLocalPassword))
 identityAuthRouter.get('/permissions/ROLE', requirePermission('roles:manage'), (_req, res) => {
     res.json(rolePermissionCatalog())
 })

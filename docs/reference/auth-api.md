@@ -66,6 +66,8 @@ The 401 body is the same for an unknown email, a wrong password, an invited user
 
 Failures are counted per client address and, for an email that matches a user, per that email. An email that matches nobody is not stored as its own key. The client address comes from the connection. Proxy headers are trusted only when `TRUST_PROXY` says so.
 
+These three routes also share a per-client cap in the current process: 10 responses that are not successful, in the same 15 minutes, and then 429 with the same lockout body. A successful sign-in, sign-out, or password change does not count. The account lockout above is the one stored in the database.
+
 A success sets a new cookie. The value is not the stored token: the database keeps a SHA-256 of it. Idle time is 12 hours. The session ends 7 days after it was created even if it is still in use. The cookie is `HttpOnly`, `SameSite=Lax`, `Path=/`, and `Secure` when the request is https or the process is in production.
 
 A disabled user (user status other than `active`, or an organization membership of `disable`) cannot sign in. Their session rows are deleted, so an old cookie fails on the next request. That check is in the database, so it holds after a restart and on another instance.

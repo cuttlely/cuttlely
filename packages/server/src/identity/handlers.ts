@@ -58,7 +58,7 @@ export interface AuthContext {
 const INVALID_LOGIN = 'Invalid email or password.'
 export const SETUP_LINK_NEEDED =
     'Open the setup link from the server log to create the first account. With Docker, run: docker compose logs cuttlely'
-const TOO_MANY = 'Too many sign-in attempts. Try again later.'
+export const TOO_MANY = 'Too many sign-in attempts. Try again later.'
 
 function textUnavailable(): HandlerResult {
     return { type: 'text', status: 503, body: unavailablePage() }
