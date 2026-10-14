@@ -29,8 +29,26 @@ An agent team is a lead agent with specialists. The lead, Harness Prime, splits 
 
 English | [繁體中文](./i18n/README-TW.md) | [简体中文](./i18n/README-ZH.md) | [日本語](./i18n/README-JA.md) | [한국어](./i18n/README-KR.md)
 
+## Test every change before it goes live
+
+Test with up to 100 question-and-answer pairs, with more on the roadmap.
+
+<p align="center">
+<a href="https://cuttlely.com/media/products/testing.mp4"><img src="./website/public/media/products/testing-poster.webp" alt="The testing video title card: the Cuttlely mascot holds a clipboard and a magnifying glass beside the Cuttlely logo, the word Testing, and the line Compare, score, then publish." width="880"></a>
+<br>
+<a href="https://cuttlely.com/media/products/testing.mp4">Watch the testing run (56 seconds, sound on)</a>
+</p>
+
+-   **Compare before you publish.** Recent questions run on Live and on the draft, and each answer is marked Same, Changed, or Error.
+-   **Real answers become tests.** Add one answer with [Add to test set](./docs/how-to/tests-from-answers.md), or thumbs-up or thumbs-down answers from a time window, up to 500 new rows at a time.
+-   **Score the draft.** Text, JSON, numeric and model evaluators give Pass, Fail or Error and a pass rate for Live and the draft. [Evaluations](./docs/how-to/evaluations.md)
+-   **Publish waits for a pass.** Turn on Passing test set and Publish stays disabled until the current draft passes. [`cuttlely check --gate`](./docs/how-to/ci-gate.md) runs the same check in CI.
+
+The gate covers Publish of the current draft only. Roll back Live, Promote from Dev, and `PUT /api/v1/chatflows/:id` still change Live. The table is under [Require a passing test set before you publish](./docs/how-to/versioning.md#require-a-passing-test-set-before-you-publish).
+
 ## Contents
 
+-   [Test every change before it goes live](#test-every-change-before-it-goes-live)
 -   [What you can build](#what-you-can-build)
     -   [Agent teams that power your apps](#agent-teams-that-power-your-apps)
     -   [Small context, big answers](#small-context-big-answers)
@@ -131,7 +149,7 @@ Workflows that run step by step and can start from a chat message, a form, a web
 Changing an AI app that people already use should not mean testing on them. Cuttlely treats every change as a release.
 
 -   **Drafts never touch Live.** On chatflows, agentflows, harnesses, and pipelines the canvas saves to a draft. The API, embeds, shared links, schedules, webhooks, a harness's external runs route, and a pipeline's scheduled runs keep serving Live until you publish. The canvas test chat runs your draft, including a harness canvas chat and Try it. **Preview** on a pipeline runs the draft and does not write to the store.
--   **Compare before you publish.** On a chatflow, an agentflow, or a harness, the Publish dialog can replay recent questions (4, 10, 25, 50, or 100; 4 is selected first), once on Live and once on your draft, and show both answers side by side with the tokens and time each one took. An agentflow that starts from a form, a webhook, or a schedule replays that many recorded inputs instead. A pipeline lists what changed and does not run that check. The check never changes Live or your draft and leaves nothing in chat history. A flow with steps that post or write for real is skipped unless you choose to run it anyway.
+-   **Compare before you publish.** On a chatflow, an agentflow, or a harness, the Publish dialog can replay recent questions (4, 10, 25, 50, or 100; 4 is selected first), once on Live and once on your draft, and show both answers side by side with the tokens and time each one took. An agentflow that starts from a form, a webhook, or a schedule replays that many recorded inputs instead. A pipeline lists what changed and does not run that check. The check never changes Live or your draft and leaves nothing in chat history. A flow with steps that post or write for real is skipped unless you choose to run it anyway. On a chatflow or a chat-started agentflow, under **Questions from**, choose **A dataset**, pick the evaluators, and turn on the passing test set, as [Test every change before it goes live](#test-every-change-before-it-goes-live) describes. A harness can score a dataset for that run only, and a form, webhook, or schedule start cannot.
 -   **Every version is kept.** Chatflows, agentflows, harnesses and pipelines keep each saved version, with what changed and who changed it. Open an old version as your draft, or roll Live back to it, in one step.
 -   **Promote from Dev to Prod.** Connect a Dev server and a Prod server to the same GitHub repository. Prod lists what Dev published, shows what would change and which credentials it needs, can run the same side-by-side check, and goes Live only when its owner selects **Promote to Live**. Each server keeps its own credentials; only their names travel.
 
@@ -190,6 +208,10 @@ Next: [put a pipeline behind your team](./docs/how-to/etl.md), [give a specialis
 -   [ETL](./docs/how-to/etl.md). Load, embed and search your own data.
 -   [Canvas cards](./docs/how-to/canvas.md). Chatflows, agentflows and Build with AI.
 -   [Version history](./docs/how-to/versioning.md). Drafts, the Publish check, restore and Dev to Prod.
+-   [Evaluations](./docs/how-to/evaluations.md). Build a test set, score answers, and keep Publish waiting for a pass.
+-   [Turn real answers into tests](./docs/how-to/tests-from-answers.md). Save one rated answer, or a window of them, as rows in a test set.
+-   [Fail a build when answers change](./docs/how-to/ci-gate.md). Run the Publish check from a pipeline with `cuttlely check`.
+-   [Roles and permissions](./docs/how-to/roles-and-permissions.md). Teams, the built-in roles, and the permission key for each page and route.
 -   [Share and embed a chat](./docs/how-to/share-and-embed.md). A public link or a chat on your website, served by your Cuttlely server.
 -   [Use the API in your own web app](./docs/api.md). Call your flows from your own site or app, with a runnable example.
 -   [Render](./docs/how-to/render.md). A hosted install with Postgres.

@@ -12,6 +12,7 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 -   Docs: fresh screenshots for server settings, sign-in, roles, a first run from source, and imports.
 -   Fresh screenshots for the knowledge pipeline guide and the Usage page.
 -   Docs: fresh pictures of version history, the Publish check, and evaluations.
+-   The README and homepage lead with testing before Publish, with a narrated video.
 
 ### Upgrade notes / breaking changes
 

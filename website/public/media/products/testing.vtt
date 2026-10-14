@@ -1,0 +1,62 @@
+WEBVTT
+
+00:00:03.484 --> 00:00:06.490
+Test every change before it goes live.
+
+00:00:06.510 --> 00:00:09.070
+Start with real answers your customers rated.
+
+00:00:09.090 --> 00:00:11.560
+Test with up to 100 question-and-answer pairs,
+
+00:00:11.580 --> 00:00:13.050
+with more on the roadmap.
+
+00:00:14.962 --> 00:00:16.332
+Then make Publish wait for
+
+00:00:16.352 --> 00:00:18.002
+a passing test set.
+
+00:00:19.284 --> 00:00:21.164
+A teammate edits the draft.
+
+00:00:21.184 --> 00:00:23.084
+Compare asks recent questions on
+
+00:00:23.104 --> 00:00:24.314
+Live and on the draft,
+
+00:00:24.334 --> 00:00:26.714
+and flags the one answer that changed:
+
+00:00:26.734 --> 00:00:28.494
+Saturday now opens at ten,
+
+00:00:28.514 --> 00:00:29.364
+not eight.
+
+00:00:32.136 --> 00:00:34.116
+Score the draft against the test set.
+
+00:00:34.136 --> 00:00:36.586
+It fails at eighty-seven point five percent,
+
+00:00:36.606 --> 00:00:38.356
+so Publish stays locked.
+
+00:00:39.193 --> 00:00:40.673
+Fix the hours, save,
+
+00:00:40.693 --> 00:00:42.573
+and run the test set again.
+
+00:00:46.528 --> 00:00:47.858
+One hundred percent.
+
+00:00:47.878 --> 00:00:49.508
+Now Publish goes through.
+
+00:00:51.940 --> 00:00:55.717
+Cuttlely. The open-source agent platform for applications.
+

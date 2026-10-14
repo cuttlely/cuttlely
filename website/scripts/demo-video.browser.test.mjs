@@ -763,7 +763,8 @@ function connectChrome(port, debugPort) {
         const evalValue = async (expression) => {
             const result = await send('Runtime.evaluate', { expression, returnByValue: true, awaitPromise: true })
             if (result.exceptionDetails) {
-                throw new Error(result.exceptionDetails.text || 'evaluate failed')
+                const details = result.exceptionDetails
+                throw new Error(details.exception?.description || details.text || 'evaluate failed')
             }
             return result.result.value
         }
@@ -985,6 +986,17 @@ test(
 <button type="button" class="cl-play-overlay" data-play-with-sound data-video-dialog-open="full" aria-label="Play the tile with sound">Play</button>
 <dialog id="full"><video controls playsinline preload="none" src="/clip.mp4"></video></dialog>
 </div>
+<section id="test-every-change-before-it-goes-live">
+<div class="stage">
+<video id="testing-player" data-demo-video controls muted loop playsinline preload="none" poster="/poster.webp" src="/clip.mp4"></video>
+<button type="button" class="cl-play-overlay" data-play-with-sound aria-label="Play the testing video with sound">Play</button>
+</div>
+</section>
+<div class="stage" id="testing-tile">
+<video data-loop-video muted loop playsinline preload="none" poster="/poster.webp" src="/clip.mp4" aria-label="Testing tile"></video>
+<button type="button" class="cl-play-overlay" data-play-with-sound data-video-dialog-open="testing-dialog" aria-label="Play Test before you publish with sound">Play</button>
+<dialog id="testing-dialog"><video controls playsinline preload="none" src="/clip.mp4"></video></dialog>
+</div>
 <script type="module">
 import { initDemoVideo, initVideoDialogs } from '/demo-video.mjs'
 initDemoVideo()
@@ -1113,6 +1125,61 @@ initVideoDialogs()
             assert.equal(again.full.muted, false)
             assert.equal(again.full.volume, 0.3)
             assert.equal(again.full.loop, false)
+            const overlays = await evalValue(`(() => {
+            const section = document.querySelector('[aria-label="Play the testing video with sound"]')
+            const tile = document.querySelector('#testing-tile [data-play-with-sound]')
+            const sectionRect = section ? section.getBoundingClientRect() : null
+            const tileRect = tile ? tile.getBoundingClientRect() : null
+            return {
+                section: section ? { tag: section.tagName, hidden: section.hidden, width: sectionRect.width } : null,
+                tile: tile ? { tag: tile.tagName, hidden: tile.hidden, width: tileRect.width, label: tile.getAttribute('aria-label') } : null
+            }
+        })()`)
+            assert.equal(overlays.section.tag, 'BUTTON')
+            assert.equal(overlays.section.hidden, false)
+            assert.ok(overlays.section.width >= 80)
+            assert.equal(overlays.tile.tag, 'BUTTON')
+            assert.equal(overlays.tile.hidden, false)
+            assert.equal(overlays.tile.label, 'Play Test before you publish with sound')
+            await evalValue(`document.getElementById('testing-player').volume = 0.3`)
+            await evalValue(`document.querySelector('[aria-label="Play the testing video with sound"]').click()`)
+            const testingRead = `(() => {
+            const video = document.getElementById('testing-player')
+            const button = document.querySelector('[aria-label="Play the testing video with sound"]')
+            return { t: video.currentTime, muted: video.muted, loop: video.loop, controls: video.controls, volume: video.volume, paused: video.paused, buttonHidden: button.hidden }
+        })()`
+            const testingDeadline = Date.now() + 4000
+            let testing = null
+            while (Date.now() < testingDeadline) {
+                testing = await evalValue(testingRead)
+                if (testing && testing.muted === false && testing.loop === false && testing.t < 0.45 && testing.buttonHidden === true) break
+                await new Promise((resolve) => setTimeout(resolve, 50))
+            }
+            assert.equal(testing.muted, false, `testing player ${JSON.stringify(testing)}`)
+            assert.equal(testing.loop, false)
+            assert.ok(testing.t < 0.45, `testing playhead ${testing.t}`)
+            assert.equal(testing.volume, 0.3)
+            assert.equal(testing.buttonHidden, true)
+            await evalValue(`document.getElementById('full').close()`)
+            await evalValue(`document.querySelector('#testing-dialog video').volume = 0.3`)
+            await evalValue(`document.querySelector('#testing-tile [data-video-dialog-open]').click()`)
+            const tileRead = `(() => {
+            const dialog = document.getElementById('testing-dialog')
+            const video = dialog.querySelector('video')
+            return { open: dialog.open, t: video.currentTime, muted: video.muted, loop: video.loop, volume: video.volume }
+        })()`
+            const tileDeadline = Date.now() + 4000
+            let testingTile = null
+            while (Date.now() < tileDeadline) {
+                testingTile = await evalValue(tileRead)
+                if (testingTile && testingTile.open === true && testingTile.muted === false && testingTile.t < 0.45) break
+                await new Promise((resolve) => setTimeout(resolve, 50))
+            }
+            assert.equal(testingTile.open, true, `testing tile ${JSON.stringify(testingTile)}`)
+            assert.equal(testingTile.muted, false)
+            assert.equal(testingTile.loop, false)
+            assert.ok(testingTile.t < 0.45, `testing tile playhead ${testingTile.t}`)
+            assert.equal(testingTile.volume, 0.3)
             close()
         } finally {
             browser.kill('SIGKILL')
