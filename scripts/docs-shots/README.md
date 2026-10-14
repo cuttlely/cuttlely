@@ -25,4 +25,4 @@ node scripts/docs-shots/capture-settings.mjs
 
 The script starts its own servers on empty data directories, in a headless browser at a fixed size, in the light theme. It signs in with a local owner account it creates itself. It does not read a model key. The AuthKit frames type an obviously fake key into a masked field and never print it.
 
-Sample files for the import frames are `examples/imports/bakery-helper.json` and `examples/imports/bakery-greeter.json`.
+Sample files for the import frames are `examples/imports/bakery-helper.json` and `examples/imports/bakery-greeter.json`. That directory is in `.dockerignore` with this one. The image does not read those files.

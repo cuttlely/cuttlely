@@ -18,7 +18,12 @@ A fresh server shows three optional first steps at the top: **Sign-in for your t
 
 1. Pick a section on the left, or search. Search matches labels, help text and the variable name.
 
-![Search settings with timeout in the box. Analyst shows Query timeout at 15 seconds, and Advanced shows MCP sign-in wait at 15 seconds.](../images/server-settings/server-settings-search.png) 2. Change the value. Each setting says in plain words what it does, and shows its variable name in small type for reference. 3. The bar at the bottom counts your edits. Select **Review and save**. 4. Review lists each change from old to new. Secrets show only as set, replaced or removed. A change marked **High risk** (it could stop Cuttlely from starting, or keep people from signing in) needs `RESTART` typed before **Save changes** works. 5. Saved changes wait for a restart. Select **Restart now** in the bar. When this server cannot restart itself, the button says **How to restart**.
+![Search settings with timeout in the box. Analyst shows Query timeout at 15 seconds, and Advanced shows MCP sign-in wait at 15 seconds.](../images/server-settings/server-settings-search.png)
+
+2. Change the value. Each setting says in plain words what it does, and shows its variable name in small type for reference.
+3. The bar at the bottom counts your edits. Select **Review and save**.
+4. Review lists each change from old to new. Secrets show only as set, replaced or removed. A change marked **High risk** (it could stop Cuttlely from starting, or keep people from signing in) needs `RESTART` typed before **Save changes** works.
+5. Saved changes wait for a restart. Select **Restart now** in the bar. When this server cannot restart itself, the button says **How to restart**.
 
 ![Security & network after a save. A green notice reads Saved. Restart Cuttlely to apply. The bar says 6 saved changes wait for a restart, with Discard and How to restart.](../images/server-settings/server-settings-saved.png)
 

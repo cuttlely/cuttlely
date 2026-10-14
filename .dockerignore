@@ -48,3 +48,6 @@ website
 
 # Docs screenshot capture is a local tool, not part of the product image or the npm packages.
 scripts/docs-shots
+
+# Sample files for those pictures. The image does not read them.
+examples/imports

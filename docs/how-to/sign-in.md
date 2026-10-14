@@ -41,7 +41,7 @@ If accounts already exist but no sign-in method is on (for example a `.env` that
 
 ![Choose how people sign in. Two cards: Use a password for now, and Set up AuthKit. The note says this page works once.](../images/server-settings/setup-link-choose.png)
 
-![Create the owner account, with empty fields for Your name, Email, Password and Password again, and Create account and restart.](../images/server-settings/setup-link-password.png)
+![Create the owner account, with empty fields for Your name, Email, Password and Password again, and Create Account And Restart.](../images/server-settings/setup-link-password.png)
 
 ![Set up AuthKit opened from the setup link, on Connect WorkOS, with a Staging chip. The API key is masked. Client ID reads client_demo_bakery.](../images/server-settings/setup-link-authkit.png)
 
