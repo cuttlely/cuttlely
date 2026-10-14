@@ -278,7 +278,8 @@ describe('AddRatedAnswersDialog', () => {
                     skipped: 0,
                     preview: [{ feedbackId: 'fb-2', messageId: 'm-2', input: 'The older question', needsExpectedAnswer: true }],
                     truncated: false,
-                    cursor: null
+                    cursor: null,
+                    feedbackIds: ['11111111-1111-4111-8111-111111111111']
                 }
             })
         })
@@ -293,7 +294,86 @@ describe('AddRatedAnswersDialog', () => {
         })
         const added = datasetApi.addDatasetRowsFromRatings.mock.calls[2][0]
         expect(added.cursor).toEqual(cursor)
+        expect(added.feedbackIds).toEqual(['11111111-1111-4111-8111-111111111111'])
         expect(added.dryRun).toBe(false)
+        act(() => root.unmount())
+        container.remove()
+    })
+
+    test('a write in flight does not close the dialog, and reopening ignores that write', async () => {
+        let releaseAdd
+        datasetApi.addDatasetRowsFromRatings
+            .mockResolvedValueOnce({
+                data: {
+                    count: 1,
+                    skipped: 0,
+                    preview: [{ feedbackId: 'fb-1', messageId: 'm-1', input: 'Why was the loaf late?', needsExpectedAnswer: true }],
+                    truncated: false,
+                    cursor: null,
+                    feedbackIds: ['11111111-1111-4111-8111-111111111111']
+                }
+            })
+            .mockImplementationOnce(
+                () =>
+                    new Promise((resolve) => {
+                        releaseAdd = resolve
+                    })
+            )
+        const onCancel = jest.fn()
+        const onSaved = jest.fn()
+        const container = document.createElement('div')
+        document.body.appendChild(container)
+        const root = createRoot(container)
+        const draw = (show) =>
+            root.render(
+                createElement(
+                    ThemeProvider,
+                    { theme: createTheme() },
+                    createElement(AddRatedAnswersDialog, {
+                        show,
+                        flowId: 'flow-1',
+                        rating: 'THUMBS_DOWN',
+                        canCreate: true,
+                        canView: true,
+                        onCancel,
+                        onSaved
+                    })
+                )
+            )
+        await act(async () => {
+            draw(true)
+        })
+        const select = document.body.querySelector('[aria-label="Dataset"]')
+        await act(async () => {
+            fireEvent.change(select, { target: { value: 'ds-1' } })
+        })
+        const seeHowMany = [...document.body.querySelectorAll('button')].find((button) => button.textContent === 'See how many')
+        await act(async () => {
+            fireEvent.click(seeHowMany)
+        })
+        const add = [...document.body.querySelectorAll('button')].find((button) => button.textContent === 'Add rated answers')
+        await act(async () => {
+            fireEvent.click(add)
+        })
+        const cancel = [...document.body.querySelectorAll('button')].find((button) => button.textContent === 'Cancel')
+        expect(cancel.disabled).toBe(true)
+        await act(async () => {
+            fireEvent.click(cancel)
+            fireEvent.keyDown(document.body, { key: 'Escape', code: 'Escape' })
+        })
+        expect(onCancel).not.toHaveBeenCalled()
+        await act(async () => {
+            draw(false)
+        })
+        await act(async () => {
+            draw(true)
+        })
+        await act(async () => {
+            releaseAdd({ data: { count: 1, skipped: 0, preview: [], truncated: false, cursor: null, feedbackIds: [] } })
+        })
+        expect(onSaved).not.toHaveBeenCalled()
+        const cancelAgain = [...document.body.querySelectorAll('button')].find((button) => button.textContent === 'Cancel')
+        expect(cancelAgain.disabled).toBe(false)
         act(() => root.unmount())
         container.remove()
     })

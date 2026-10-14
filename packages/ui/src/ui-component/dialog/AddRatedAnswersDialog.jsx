@@ -151,7 +151,7 @@ export function AddRatedAnswersForm({
                 </Box>
             ) : null}
             <DialogActions sx={{ px: 0 }}>
-                <Button variant='outlined' sx={{ textTransform: 'none' }} onClick={onCancel}>
+                <Button variant='outlined' sx={{ textTransform: 'none' }} disabled={checking || adding || creating} onClick={onCancel}>
                     Cancel
                 </Button>
                 <Button variant='outlined' sx={{ textTransform: 'none' }} disabled={!ready} onClick={onCheck}>
@@ -218,6 +218,10 @@ const AddRatedAnswersDialog = ({ show, flowId, rating, canCreate, canView = true
     const previewGeneration = useRef(-1)
     const checkTicket = useRef(0)
     const addingRef = useRef(false)
+    const checkingRef = useRef(false)
+    const creatingRef = useRef(false)
+    // Bumped on each open, so a write that finishes after the dialog is opened again does not finish the new one.
+    const openGeneration = useRef(0)
 
     const invalidatePreview = () => {
         fieldsGeneration.current += 1
@@ -228,6 +232,10 @@ const AddRatedAnswersDialog = ({ show, flowId, rating, canCreate, canView = true
 
     useEffect(() => {
         if (!show) return
+        openGeneration.current += 1
+        addingRef.current = false
+        checkingRef.current = false
+        creatingRef.current = false
         fieldsGeneration.current += 1
         previewGeneration.current = -1
         setDays('7')
@@ -237,6 +245,9 @@ const AddRatedAnswersDialog = ({ show, flowId, rating, canCreate, canView = true
         setNewName('')
         setPreview(null)
         setActiveCursor(null)
+        setChecking(false)
+        setAdding(false)
+        setCreating(false)
         setLoadError('')
     }, [show, flowId, rating])
 
@@ -296,23 +307,28 @@ const AddRatedAnswersDialog = ({ show, flowId, rating, canCreate, canView = true
         if (!datasetId || !flowId || !rating) return
         const generation = fieldsGeneration.current
         const ticket = ++checkTicket.current
+        const session = openGeneration.current
         const requestedCursor = cursor || null
+        checkingRef.current = true
         setChecking(true)
         try {
             const payload = body()
             if (requestedCursor) payload.cursor = requestedCursor
             const response = await datasetApi.addDatasetRowsFromRatings(payload)
-            if (generation !== fieldsGeneration.current || ticket !== checkTicket.current) return
+            if (session !== openGeneration.current || generation !== fieldsGeneration.current || ticket !== checkTicket.current) return
             previewGeneration.current = generation
             setActiveCursor(requestedCursor)
             setPreview(response.data)
         } catch (error) {
-            if (generation !== fieldsGeneration.current || ticket !== checkTicket.current) return
+            if (session !== openGeneration.current || generation !== fieldsGeneration.current || ticket !== checkTicket.current) return
             setActiveCursor(null)
             setPreview(null)
             report(error?.response?.data?.message || 'Could not count the rated answers')
         } finally {
-            if (ticket === checkTicket.current) setChecking(false)
+            if (session === openGeneration.current && ticket === checkTicket.current) {
+                checkingRef.current = false
+                setChecking(false)
+            }
         }
     }
 
@@ -324,9 +340,12 @@ const AddRatedAnswersDialog = ({ show, flowId, rating, canCreate, canView = true
     const onCreate = async () => {
         const name = newName.trim()
         if (!name) return
+        const session = openGeneration.current
+        creatingRef.current = true
         setCreating(true)
         try {
             const response = await datasetApi.createDataset({ name, description: '' })
+            if (session !== openGeneration.current) return
             const created = response.data
             if (created?.id) {
                 setDatasets((current) => [created, ...current.filter((item) => item.id !== created.id)])
@@ -336,21 +355,29 @@ const AddRatedAnswersDialog = ({ show, flowId, rating, canCreate, canView = true
                 invalidatePreview()
             }
         } catch (error) {
+            if (session !== openGeneration.current) return
             report(error?.response?.data?.message || 'Could not create the dataset')
         } finally {
-            setCreating(false)
+            if (session === openGeneration.current) {
+                creatingRef.current = false
+                setCreating(false)
+            }
         }
     }
 
     const onAdd = async () => {
         if (addingRef.current || !preview || preview.count < 1) return
         if (fieldsGeneration.current !== previewGeneration.current) return
+        const session = openGeneration.current
+        const feedbackIds = Array.isArray(preview.feedbackIds) ? preview.feedbackIds : null
         addingRef.current = true
         setAdding(true)
         try {
             const payload = { ...body(), dryRun: false }
             if (activeCursor) payload.cursor = activeCursor
+            if (feedbackIds) payload.feedbackIds = feedbackIds
             const response = await datasetApi.addDatasetRowsFromRatings(payload)
+            if (session !== openGeneration.current) return
             const added = response.data?.count ?? 0
             enqueueSnackbar({
                 message: added === 1 ? 'Added 1 rated answer to the test set' : `Added ${added} rated answers to the test set`,
@@ -361,15 +388,30 @@ const AddRatedAnswersDialog = ({ show, flowId, rating, canCreate, canView = true
             })
             if (onSaved) onSaved()
         } catch (error) {
+            if (session !== openGeneration.current) return
             report(error?.response?.data?.message || 'Could not add the rated answers')
         } finally {
-            addingRef.current = false
-            setAdding(false)
+            if (session === openGeneration.current) {
+                addingRef.current = false
+                setAdding(false)
+            }
         }
     }
 
+    const onDismiss = () => {
+        if (addingRef.current || checkingRef.current || creatingRef.current) return
+        onCancel()
+    }
+
     return (
-        <Dialog open={Boolean(show)} onClose={onCancel} fullWidth maxWidth='sm' aria-labelledby='add-rated-answers-title'>
+        <Dialog
+            open={Boolean(show)}
+            onClose={onDismiss}
+            disableEscapeKeyDown={adding || checking || creating}
+            fullWidth
+            maxWidth='sm'
+            aria-labelledby='add-rated-answers-title'
+        >
             <DialogTitle id='add-rated-answers-title'>Add rated answers to test set</DialogTitle>
             <DialogContent>
                 <AddRatedAnswersForm
@@ -405,7 +447,7 @@ const AddRatedAnswersDialog = ({ show, flowId, rating, canCreate, canView = true
                     onCheck={() => onCheck(null)}
                     onContinue={onContinue}
                     onAdd={onAdd}
-                    onCancel={onCancel}
+                    onCancel={onDismiss}
                 />
             </DialogContent>
         </Dialog>

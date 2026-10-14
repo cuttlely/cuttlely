@@ -54,6 +54,33 @@ function parseRatingCursor(value: unknown): RatingCursor | null {
     return { createdDate, id: cursor.id }
 }
 
+function parseFeedbackIds(value: unknown): string[] | null {
+    if (value === undefined || value === null) return null
+    if (!Array.isArray(value) || value.length > RATING_IMPORT_CAP) {
+        throw new AppError(StatusCodes.BAD_REQUEST, 'feedbackIds must be a list of ids.')
+    }
+    const ids: string[] = []
+    for (const item of value) {
+        if (typeof item !== 'string' || !RATING_ID_PATTERN.test(item) || ids.includes(item)) {
+            throw new AppError(StatusCodes.BAD_REQUEST, 'feedbackIds must be a list of ids.')
+        }
+        ids.push(item)
+    }
+    return ids
+}
+
+// Postgres keeps microseconds. A JS Date does not, so the comparison uses the cursor row's stored time.
+function olderThanStoredCursor(repo: Repository<ChatMessageFeedback>): string {
+    const escape = (name: string) => repo.metadata.connection.driver.escape(name)
+    const table = escape(repo.metadata.tableName)
+    const createdColumn = repo.metadata.findColumnWithPropertyName('createdDate')
+    const idColumn = repo.metadata.findColumnWithPropertyName('id')
+    const created = escape(createdColumn?.databaseName || 'createdDate')
+    const id = escape(idColumn?.databaseName || 'id')
+    const anchor = `(SELECT ${created} FROM ${table} WHERE ${id} = :beforeId)`
+    return `(feedback.createdDate < ${anchor} OR (feedback.createdDate = ${anchor} AND feedback.id < :beforeId))`
+}
+
 function loadRatingFeedback(
     repo: Repository<ChatMessageFeedback>,
     args: { flowId: string; rating: string; since: Date; before: RatingCursor | null; skip: number; take: number }
@@ -64,10 +91,7 @@ function loadRatingFeedback(
         .andWhere('feedback.rating = :rating', { rating: args.rating })
         .andWhere('feedback.createdDate >= :since', { since: args.since })
     if (args.before) {
-        query.andWhere('(feedback.createdDate < :beforeDate OR (feedback.createdDate = :beforeDate AND feedback.id < :beforeId))', {
-            beforeDate: args.before.createdDate,
-            beforeId: args.before.id
-        })
+        query.andWhere(olderThanStoredCursor(repo), { beforeId: args.before.id })
     }
     return query.orderBy('feedback.createdDate', 'DESC').addOrderBy('feedback.id', 'DESC').skip(args.skip).take(args.take).getMany()
 }
@@ -671,6 +695,7 @@ const addDatasetRowsFromRatings = async (
         limit?: unknown
         dryRun?: unknown
         cursor?: unknown
+        feedbackIds?: unknown
     },
     workspaceId: string,
     req: Request
@@ -720,8 +745,13 @@ const addDatasetRowsFromRatings = async (
             throw new AppError(StatusCodes.FORBIDDEN, 'You do not have permission to view this flow.')
         }
 
-        const before = parseRatingCursor(body.cursor)
+        const fixedIds = parseFeedbackIds(body.feedbackIds)
+        const before = fixedIds ? null : parseRatingCursor(body.cursor)
         const feedbackRepo = appServer.AppDataSource.getRepository(ChatMessageFeedback)
+        if (before) {
+            const anchor = await feedbackRepo.findOne({ where: { id: before.id }, select: { id: true } })
+            if (!anchor) throw new AppError(StatusCodes.BAD_REQUEST, 'cursor must be a createdDate and an id.')
+        }
         const messageRepo = appServer.AppDataSource.getRepository(ChatMessage)
         const rowRepo = appServer.AppDataSource.getRepository(DatasetRow)
         const planned: RatingPlan[] = []
@@ -730,7 +760,7 @@ const addDatasetRowsFromRatings = async (
         let offset = 0
         let scanned = 0
         let lastScanned: ChatMessageFeedback | null = null
-        while (planned.length < limit && scanned < RATING_SCAN_CAP) {
+        while (!fixedIds && planned.length < limit && scanned < RATING_SCAN_CAP) {
             const take = Math.min(RATING_PAGE, RATING_SCAN_CAP - scanned)
             const page = await loadRatingFeedback(feedbackRepo, {
                 flowId: flow.id,
@@ -797,9 +827,62 @@ const addDatasetRowsFromRatings = async (
             if (inspected < page.length || page.length < take) break
         }
 
+        // Add sends the ids from the preview, so a rating that arrives later cannot take a planned row's place.
+        if (fixedIds && fixedIds.length) {
+            const found = await feedbackRepo.find({ where: { id: In(fixedIds), chatflowid: flow.id, rating } })
+            const byId = new Map(found.map((item) => [item.id, item]))
+            const page = fixedIds.map((id) => byId.get(id)).filter((item): item is ChatMessageFeedback => Boolean(item))
+            const messageIds = [...new Set(page.map((item) => item.messageId).filter((id) => typeof id === 'string' && id.length > 0))]
+            const messages = messageIds.length ? await messageRepo.find({ where: { id: In(messageIds) } }) : []
+            const messageById = new Map(messages.map((item) => [item.id, item]))
+            const existing = messageIds.length
+                ? await rowRepo.find({
+                      where: { datasetId: dataset.id, sourceMessageId: In(messageIds) },
+                      select: { id: true, sourceMessageId: true }
+                  })
+                : []
+            const stored = new Set(existing.map((item) => item.sourceMessageId).filter((id): id is string => Boolean(id)))
+            for (const feedback of page) {
+                const message = messageById.get(feedback.messageId)
+                if (!message || message.role !== 'apiMessage' || message.chatflowid !== flow.id) continue
+                if (stored.has(message.id) || seenMessages.has(message.id)) {
+                    if (!seenMessages.has(message.id)) skipped += 1
+                    seenMessages.add(message.id)
+                    continue
+                }
+                const input = await questionBeforeAnswer(message)
+                if (!input) continue
+                seenMessages.add(message.id)
+                const thumbsDown = rating === ChatMessageRatingType.THUMBS_DOWN
+                const answer = String(message.content ?? '')
+                const row = new DatasetRow()
+                row.datasetId = dataset.id
+                row.input = input
+                row.output = thumbsDown ? '' : answer
+                row.sourceType = CHAT_RATING_SOURCE
+                row.sourceMessageId = message.id
+                row.sourceFlowId = flow.id
+                row.sourceDate = feedback.createdDate
+                row.sourceFeedbackId = feedback.id
+                row.sourceRating = rating
+                row.sourceFeedbackText = feedback.content ? String(feedback.content) : null
+                row.sourceRejectedAnswer = thumbsDown ? answer : null
+                row.needsExpectedAnswer = thumbsDown
+                planned.push({
+                    feedbackId: feedback.id,
+                    messageId: message.id,
+                    input,
+                    output: row.output,
+                    rating,
+                    needsExpectedAnswer: thumbsDown,
+                    row
+                })
+            }
+        }
+
         // Probe from the last rating this call actually read. A full page, including an exact cap, stays untruncated when nothing is older.
         let truncated = false
-        if (lastScanned) {
+        if (!fixedIds && lastScanned) {
             const more = await loadRatingFeedback(feedbackRepo, {
                 flowId: flow.id,
                 rating,
@@ -811,6 +894,7 @@ const addDatasetRowsFromRatings = async (
             truncated = more.length > 0
         }
         const cursor = truncated && lastScanned ? { createdDate: ratingCursorStamp(lastScanned.createdDate), id: lastScanned.id } : null
+        const feedbackIds = planned.map((item) => item.feedbackId)
 
         const toPreview = (items: RatingPlan[]) =>
             items.slice(0, RATING_PREVIEW_ROWS).map((item) => ({
@@ -822,7 +906,7 @@ const addDatasetRowsFromRatings = async (
                 needsExpectedAnswer: item.needsExpectedAnswer
             }))
         if (dryRun || !planned.length) {
-            return { dryRun, count: planned.length, skipped, preview: toPreview(planned), truncated, cursor }
+            return { dryRun, count: planned.length, skipped, preview: toPreview(planned), truncated, cursor, feedbackIds }
         }
 
         const writeOnce = () =>
@@ -909,7 +993,15 @@ const addDatasetRowsFromRatings = async (
                 }
             }
         })
-        return { dryRun: false, count: written.length, skipped, preview: toPreview(written), truncated, cursor }
+        return {
+            dryRun: false,
+            count: written.length,
+            skipped,
+            preview: toPreview(written),
+            truncated,
+            cursor,
+            feedbackIds: written.map((item) => item.feedbackId)
+        }
     } catch (error) {
         if (error instanceof AppError) throw error
         throw new AppError(StatusCodes.INTERNAL_SERVER_ERROR, `Error: datasetService.addDatasetRowsFromRatings - ${getErrorMessage(error)}`)
