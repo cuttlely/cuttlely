@@ -190,7 +190,7 @@ Describe the team in plain words and **Build with AI** puts it on a new harness:
 1. Select **New agent team**. The blank harness canvas opens.
 2. Select **Build with AI**, the button with the sparkles next to **+**.
 3. Under **Describe your team**, write what the team does and who is on it, or select one of the examples above the box. Name a service, such as Tavily for web search, and the builder adds that tool.
-4. Under **Chat model that builds**, Cuttlely starts on a model you have a key for (OpenAI starts on `gpt-4.1-mini`), with your key picked when only one fits. The list shows the models you have keys for; **Show all models** lists the rest, and **More settings** holds the advanced ones. Your choice is remembered for next time. There is no default key.
+4. Under **Chat model that builds**, Cuttlely starts on a model you have a key for (OpenAI starts on `gpt-4.1-mini`), with your key picked when only one fits. The list shows the models you have keys for; **Show all … models** lists the rest, and **Only models for your keys** returns to that shorter list. **More settings** holds the advanced ones. Your choice is remembered for next time. There is no default key.
 5. Select **Build**.
 
 ![The Build with AI dialog on a blank harness canvas. The line under the title reads It builds a first version you can change and saves it as a new harness. Every part is checked before it lands. Under Describe your team are three example chips and a box with a study team description. Below, Chat model that builds is set to OpenAI with the OpenAI demo credential and the gpt-4.1-mini model. Cancel and Build are at the bottom right.](../images/harnesses/build-with-ai-dialog.png)

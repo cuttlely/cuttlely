@@ -50,7 +50,7 @@ Instead of adding nodes yourself, describe your data and let **Build with AI** p
 1. Open a blank ETL canvas with **New Pipeline**.
 2. Select **Build with AI**, the sparkle button next to **+**.
 3. Under **Describe your data**, write what to load and how people will search it. Give full paths on the server, in a folder a pipeline may read (see [Which folders a pipeline can read](#which-folders-a-pipeline-can-read)), name the id column of a CSV, and say which files of a repository you want. You can also select one of the three examples and edit it.
-4. Under **Chat model that builds**, Cuttlely starts on a model you have a key for on the **Credentials** page, with your key picked when only one fits; **Show all models** and **More settings** hold the rest. There is no built-in key. Your choice is remembered for next time.
+4. Under **Chat model that builds**, Cuttlely starts on a model you have a key for on the **Credentials** page, with your key picked when only one fits; **Show all … models** lists the rest, and **Only models for your keys** returns to that shorter list. **More settings** holds the advanced ones. There is no built-in key. Your choice is remembered for next time.
 5. Select **Build**.
 
 ![The Build with AI dialog on a new ETL canvas. The line under the title reads It builds a first version you can change and saves it as a new pipeline. Every part is checked before it lands. Under Describe your data are three examples and a description of the outdoor catalog CSV, with sku as the id. Chat model that builds is OpenAI with the credential OpenAI main and the model gpt-4.1-mini. Build is at the bottom right.](../images/etl/build-with-ai-dialog.png)

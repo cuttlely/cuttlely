@@ -14,7 +14,7 @@ Any other specialist gets those same last two turns and the same summary. If tha
 
 On Saturday someone asks the bakery team, "How many rye loaves did we sell, and can I order a custom chocolate cake for Monday?" Harness Prime can send `orders` a task about rye loaves and `baker` a task about the Monday cake. `orders` does not also receive every earlier message about cakes.
 
-You can change how large a specialist prompt may be. In **Admin** > **Server settings** > **Agent runtime**, **Specialist prompt cap** is 4,000 tokens by default. `0` turns the cap off. The change applies the next time the server starts. On the specialist card, **Handoff limit** is a different setting: it caps what Harness Prime reads back, which is the next section.
+You can change how large a specialist prompt may be. In **Admin** > **Server Settings** > **Agent runtime**, **Specialist prompt cap** is 4,000 tokens by default. `0` turns the cap off. The change applies the next time the server starts. On the specialist card, **Handoff limit** is a different setting: it caps what Harness Prime reads back, which is the next section.
 
 ## What a specialist hands back
 
@@ -32,7 +32,7 @@ Ask `baker` what is in the chocolate cake. The menu document comes back with a n
 
 The analyst is a specialist. It is not a separate canvas node. Its database tool is the **QUERY** action on **PostgreSQL MCP**.
 
-A query returns one page of rows. The page is 100 rows unless you change **Row cap** under **Admin** > **Server settings** > **Analyst** (`CUTTLELY_ANALYST_ROW_CAP`, from 1 to 1000). A lower cap puts fewer rows into the specialist's prompt and into the handoff, so that turn carries less context. A statement that already asks for fewer rows returns that many. A PostgreSQL MCP node can set a still lower cap; it cannot raise the page above the server cap. The rows stay in the database. The specialist receives that page, formatted as rows, and a page line when more rows exist. The raw tool payload is not pasted into the prompt.
+A query returns one page of rows. The page is 100 rows unless you change **Row cap** under **Admin** > **Server Settings** > **Analyst** (`CUTTLELY_ANALYST_ROW_CAP`, from 1 to 1000). A lower cap puts fewer rows into the specialist's prompt and into the handoff, so that turn carries less context. A statement that already asks for fewer rows returns that many. A PostgreSQL MCP node can set a still lower cap; it cannot raise the page above the server cap. The rows stay in the database. The specialist receives that page, formatted as rows, and a page line when more rows exist. The raw tool payload is not pasted into the prompt.
 
 With 150 Saturday cake orders, the first answer ends like this:
 

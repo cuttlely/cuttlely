@@ -17,11 +17,11 @@ Traces and metrics are separate switches. You can send traces with metrics off, 
 
 The example collector below has a traces pipeline only. It does not print metrics. A metrics pipeline is a separate block in your own collector config.
 
-`METRICS_SERVICE_NAME` is the service name on each trace. When it is unset or blank, traces use `cuttlely`. A blank value is not a host setting, so **Service name** under **Admin** > **Server settings** > **Integrations** > **Metrics** stays editable. That field is shown when **Metrics** is on. Compose passes the variable from `.env`. Set it there when you want the name on traces and you are leaving metrics off. The trace resource also carries the server version.
+`METRICS_SERVICE_NAME` is the service name on each trace. When it is unset or blank, traces use `cuttlely`. A blank value is not a host setting, so **Service name** under **Admin** > **Server Settings** > **Integrations** > **Metrics** stays editable. That field is shown when **Metrics** is on. Compose passes the variable from `.env`. Set it there when you want the name on traces and you are leaving metrics off. The trace resource also carries the server version.
 
 ## Turn traces on
 
-Set these in the server environment, or under **Admin** > **Server settings** > **Integrations** > **Traces**, then restart. A value set by the host is locked on that page.
+Set these in the server environment, or under **Admin** > **Server Settings** > **Integrations** > **Traces**, then restart. A value set by the host is locked on that page.
 
 | Variable                        | On the Traces page                | Default       | What it does                                                                                                                                                                                                                                                                                                                                                                                                                              |
 | ------------------------------- | --------------------------------- | ------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
