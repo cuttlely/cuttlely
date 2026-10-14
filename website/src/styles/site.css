@@ -113,7 +113,8 @@
     flex-direction: column;
     gap: 0;
 }
-.cl-home section {
+.cl-home section,
+.cl-home .cl-anchor {
     scroll-margin-top: calc(var(--sl-nav-height) + 1rem);
 }
 .cl-home h2 {
@@ -733,6 +734,9 @@
     margin: 0 0 1.5rem;
     display: grid;
     gap: 1rem;
+}
+.cl-steps.cl-start-steps {
+    margin: 1.5rem auto 1.5rem;
 }
 .cl-steps li {
     counter-increment: cl-step;

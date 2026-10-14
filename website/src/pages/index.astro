@@ -122,7 +122,7 @@ const installs = [
         </ul>
 
         <section id="watch-a-team-resolve-a-complaint" class="cl-showcase" aria-labelledby="cl-showcase-title">
-            <span id="chat-with-a-team-in-minutes" aria-hidden="true"></span>
+            <span id="chat-with-a-team-in-minutes" class="cl-anchor" aria-hidden="true"></span>
             <figure class="cl-demo-window">
                 <div class="cl-video-stage">
                     <video
@@ -259,7 +259,7 @@ const installs = [
         </section>
 
         <section id="test-every-change-before-it-goes-live" class="cl-section" aria-labelledby="test-every-change-title">
-            <span id="ship-changes-safely-draft-compare-publish-roll-back" aria-hidden="true"></span>
+            <span id="ship-changes-safely-draft-compare-publish-roll-back" class="cl-anchor" aria-hidden="true"></span>
             <div class="cl-center">
                 <p class="cl-kicker">Test every change</p>
                 <h2 id="test-every-change-title" class="cl-display">Test every change before it goes live</h2>
@@ -310,8 +310,21 @@ const installs = [
                     <li>
                         <strong>Every version is kept.</strong> Open an old version as your draft or roll Live back in one step, and promote from Dev to Prod, which goes Live only when its owner selects <strong>Promote to Live</strong>.
                     </li>
+                    <li>Chatflows, agentflows, harnesses and pipelines keep each saved version, with what changed and who changed it.</li>
+                    <li>
+                        Dev and Prod connect to the same GitHub repository. Prod lists what Dev published, shows what would change and which credentials it needs, and can run the same side-by-side check. Each server keeps its own credentials; only their names travel.
+                    </li>
                 </ul>
                 <p>Some paths, like Roll back and Promote from Dev, still change Live: <a href="/docs/how-to/versioning/#require-a-passing-test-set-before-you-publish">see which</a>.</p>
+                <p>
+                    <a class="cl-link-arrow" href="/docs/how-to/tests-from-answers/">Turn real answers into tests <Icon name="right-arrow" /></a>
+                </p>
+                <p>
+                    <a class="cl-link-arrow" href="/docs/how-to/evaluations/">Evaluations <Icon name="right-arrow" /></a>
+                </p>
+                <p>
+                    <a class="cl-link-arrow" href="/docs/how-to/ci-gate/"><code>cuttlely check --gate</code> <Icon name="right-arrow" /></a>
+                </p>
                 <p>
                     <a class="cl-link-arrow" href="/docs/how-to/versioning/">Version history guide <Icon name="right-arrow" /></a>
                 </p>
@@ -482,7 +495,7 @@ const installs = [
         </section>
 
         <section id="start-in-minutes" class="cl-section" aria-labelledby="run-title">
-            <span id="run-it-your-way" aria-hidden="true"></span>
+            <span id="run-it-your-way" class="cl-anchor" aria-hidden="true"></span>
             <div class="cl-center">
                 <p class="cl-kicker">Get started</p>
                 <h2 id="run-title" class="cl-display">Start in minutes</h2>
@@ -491,7 +504,9 @@ const installs = [
                 <li>
                     <strong>Start Cuttlely.</strong> Run <code>docker compose up -d</code> in a clone of the repository, or <code>npx cuttlely start</code> with Node.js 20 or newer. Both need Docker.
                 </li>
-                <li><strong>Create your account.</strong> Open the one-time setup link the server prints and create your account.</li>
+                <li>
+                    <strong>Create your account.</strong> <code>cuttlely start</code> prints only the ready URL. The first-account setup link is on the <code>No account yet</code> line in <code>docker compose logs cuttlely</code> or <code>npx cuttlely logs</code>. Open that setup URL and create your account.
+                </li>
                 <li>
                     <strong>Try the demo.</strong> On Chatflows, select <strong>Add a model key</strong>, paste a key from any chat model provider listed under <strong>Credentials</strong>, then select <strong>Try the demo</strong>. A customer care team opens with its chat ready.
                 </li>

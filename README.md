@@ -71,6 +71,8 @@ Test with up to 100 question-and-answer pairs, with more on the roadmap.
 -   **Score the draft.** Text, JSON, numeric and model evaluators give Pass, Fail or Error and a pass rate for Live and the draft. [Evaluations](./docs/how-to/evaluations.md)
 -   **Publish waits for a pass.** The Passing test set gate is off until you turn it on, for a chatflow or an agentflow that starts from chat. Once on, Publish stays disabled until the current draft passes. [`cuttlely check --gate`](./docs/how-to/ci-gate.md) runs the same check in CI.
 -   **Every version is kept.** Open an old version as your draft or roll Live back in one step, and promote from Dev to Prod, which goes Live only when its owner selects **Promote to Live**.
+-   Chatflows, agentflows, harnesses and pipelines keep each saved version, with what changed and who changed it.
+-   Dev and Prod connect to the same GitHub repository. Prod lists what Dev published, shows what would change and which credentials it needs, and can run the same side-by-side check. Each server keeps its own credentials; only their names travel.
 
 Some paths, like Roll back and Promote from Dev, still change Live: [see which](./docs/how-to/versioning.md#require-a-passing-test-set-before-you-publish).
 
@@ -150,6 +152,8 @@ Workflows that run step by step and can start from a chat message, a form, a web
 -   **An agent runtime in the box.** Specialists run in an agent runtime that ships with Cuttlely and starts with it, on the same server. There is nothing extra to install or host. [Harnesses guide](./docs/how-to/harnesses.md#agent-runtime-health)
 
 ## Your first 10 minutes
+
+<span id="chat-with-a-team-in-minutes"></span>
 
 New to agents? You do not need to write code. Describe a team with **Build with AI** and a first version lands on the canvas with starter questions. Ask them in the test chat, and the run card shows which specialists did the work. When it answers well, the chatflow that calls the team gives you a link to share and an embed for your website, so other people can chat with it too.
 

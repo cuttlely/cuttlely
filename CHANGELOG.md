@@ -14,6 +14,7 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 -   Docs: fresh pictures of version history, the Publish check, and evaluations.
 -   The README and homepage lead with testing before Publish, with a narrated video.
 -   README and homepage follow one order: team, testing, API, tools, start; homepage adds three start steps.
+-   The homepage start step says the first-account link is on the `No account yet` log line, from `docker compose logs cuttlely` or `npx cuttlely logs`.
 
 ### Upgrade notes / breaking changes
 
