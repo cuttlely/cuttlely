@@ -68,7 +68,7 @@ This is the canvas chat after the sales prompt from [Prompts](#prompts). The Run
 
 ![Harness canvas for chief-of-staff with the chat panel open. The sales prompt was sent, the Run card says Harness Prime sent work to analyst, the analyst row is done with 6 tools, and the answer starts with Total units by region before the update: west 15, east 20.](../images/analyst/canvas-chat-sales.png)
 
-Docker is the same switch in `.env`, then `docker compose up -d`. The file lands at `/var/cuttlely/data/analyst.db`. See [Docker](./docker.md).
+Docker is the same switch in `.env`, then `docker compose up -d`. The workspace file lands at `/var/cuttlely/data/analyst-<tag>.db`, beside `database.sqlite`. `<tag>` is 10 hex characters from the workspace id. See [Docker](./docker.md) and [Workspaces](#workspaces).
 
 ## SQLite
 
@@ -82,7 +82,7 @@ SQLite uses the same row cap and the same query timeout as Postgres. Both defaul
 
 An id column has to be `INTEGER PRIMARY KEY`. `SERIAL` is not a SQLite type. A column declared that way comes back null. The analyst tool says which dialect it is on. On SQLite it says to use `INTEGER PRIMARY KEY`.
 
-![analyst-ff33404ebc.db beside database.sqlite. database.sqlite has no table named sales or tickets. The analyst file has sales (1 west 10, 2 east 20, 3 west 5) and tickets (Ticket 1, Ticket 2, Ticket 3).](../images/analyst/sqlite-analyst-db.png)
+![analyst-ff33404ebc.db beside database.sqlite. The count of tables named sales or tickets in database.sqlite is 0. sqlite3 analyst-ff33404ebc.db .tables lists demo_orders, sales, tasks, and tickets. sales is 1 west 10, 2 east 20, 3 west 5. tickets is Ticket 1, Ticket 2, and Ticket 3.](../images/analyst/sqlite-analyst-db.png)
 
 ## Postgres
 
@@ -90,15 +90,15 @@ Use this when the application database is already Postgres. The variables are in
 
 The account lives in the application database. After you point Cuttlely at Postgres, create the local account again. [Sign in](./sign-in.md).
 
-The first time the analyst tool starts for a signed-in workspace, Cuttlely creates schema `analyst_<tag>` and login `analyst_reader_<tag>` in the application database. The login can sign in. It is not a superuser, and it cannot create roles or databases. Its `search_path` is that schema. Its `statement_timeout` is the query timeout (`15s` unless you change it). A store from before workspaces, schema `analyst` and login `analyst_reader`, stays with the first workspace that uses it. [Workspaces](#workspaces). Cuttlely also sets both on every analyst connection, so they hold even if the analyst changes its own login's defaults. It can create and change tables in `analyst`, and it can make TEMP tables, which last for one harness turn. It cannot read application tables.
+The first time the analyst tool starts for a signed-in workspace, Cuttlely creates schema `analyst_<tag>` and login `analyst_reader_<tag>` in the application database. The login can sign in. It is not a superuser, and it cannot create roles or databases. Its `search_path` is that schema. Its `statement_timeout` is the query timeout (`15s` unless you change it). A store from before workspaces, schema `analyst` and login `analyst_reader`, stays with the first workspace that uses it. [Workspaces](#workspaces). Cuttlely also sets both on every analyst connection, so they hold even if the analyst changes its own login's defaults. It can create and change tables in `analyst_<tag>`, and it can make TEMP tables, which last for one harness turn. It cannot read application tables. `<tag>` is 10 hex characters derived from the workspace id.
 
 The role password is random. It is stored in `analyst-role.enc` under `SECRETKEY_PATH`, mode `600`, encrypted with the credential key. When `SECRETKEY_PATH` is unset, that directory is `~/.cuttlely`. Docker and Render set the directory. [Docker](./docker.md). It is not an environment variable and it is not written to the server log. A restart reuses that file. It does not create a second role, and rows already in `analyst` stay.
 
-![psql on the cuttlely database. Schema analyst_aa66189373 is owned by the cuttlely login. Role analyst_reader_aa66189373 is not a superuser and cannot create roles, with statement_timeout=15s and search_path=analyst_aa66189373.](../images/analyst/postgres-analyst-role.png)
+![psql on the cuttlely database. \dn analyst* shows schema analyst_e070b3bf00, owned by the cuttlely login. The role list includes analyst_reader_e070b3bf00, which is not a superuser and cannot create roles, with statement_timeout=15s and search_path=analyst_e070b3bf00.](../images/analyst/postgres-analyst-role.png)
 
 Ask: `Show the analyst login and search_path.`
 
-You should see login `analyst_reader` and search path `analyst`. The model may phrase that in its own words. The run trace has the tool result.
+You should see login `analyst_reader_<tag>` and search path `analyst_<tag>`. The model may phrase that in its own words. The run trace has the tool result.
 
 ## Workspaces
 
@@ -165,7 +165,7 @@ The last page reads `rows 101-150 of 150 (page 2 of 2, last page)`. With 101 row
 
 An answer that fits on one page has no page line and nothing to page. That includes a count or a total, which is one row. Say `show more` in a chat that has no capped result yet, and Harness Prime answers directly without running the analyst: `There's nothing to page yet. Ask your question again and I'll show the first page.`
 
-![A canvas chat. How many rows are in the tickets table is answered with The tickets table contains 150 rows, with no page line. Then show more gets the direct reply There's nothing to page yet. Ask your question again and I'll show the first page.](../images/analyst/paging-nothing-yet.png)
+![A canvas chat. How many rows are in the tickets table is answered with The tickets table contains 3 rows, with no page line. Then show more gets the direct reply There's nothing to page yet. Ask your question again and I'll show the first page.](../images/analyst/paging-nothing-yet.png)
 
 The cursor lasts 15 minutes. It is dropped when Cuttlely restarts. It works only in the chat that ran the query. After 15 minutes, `show more` gets the direct reply `This page cursor expired. Re-run the query.` Send the question again for a new first page. A bad cursor, or one from another chat, also says to re-run the query. That message is an expected result, so it does not pause the analyst tool.
 
@@ -288,7 +288,7 @@ Refresh **Available Actions** on the PostgreSQL MCP node. The list says **No Ava
 
 The fix is a separate database. Set `CUTTLELY_POSTGRES_URL` to it, or select a Postgres URL credential. Do not paste the application database. On Render, the Blueprint does not set that variable. [Analyst database](./render.md#analyst-database). If that host requires TLS, put `sslmode` on the URL yourself. Cuttlely does not add it.
 
-![The PostgreSQL MCP card when the application login cannot create roles. Connect Credential says no credential is saved for this node yet. Available Actions is the field under it.](../images/analyst/available-actions-create-roles.png)
+![The PostgreSQL MCP card. Connect Credential says no credential is saved for this node yet. Available Actions is No Available Actions. The note under it reads: Analyst mode needs the application database user to create roles. This database refused that. Set CUTTLELY_POSTGRES_URL to a separate database, or select a Postgres URL credential. The analyst does not use the application login.](../images/analyst/available-actions-create-roles.png)
 
 Two other stops use the same fallback, a separate URL, and do not use the application login:
 

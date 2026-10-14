@@ -238,7 +238,7 @@ While it runs, the button reads **Running** and **Stop** cancels the run. The ru
 
 Select a row to open its run card under the list. Select a specialist row in the card to see its task and tool chips.
 
-![The Runs list with three succeeded runs. The selected run is open below the list. Its analyst row is expanded and shows the SQL it was asked to run and three chips, each mcp__analyst__query · done, the last with 2 rows. The last line reads Harness Prime combined this result into the answer.](../images/harnesses/harness-run-trace.png)
+![The Runs list with three succeeded runs. The selected run is open below the list. Its analyst row is expanded and shows the task Create a tasks table with id, title, and status, and three chips, each mcp__analyst__query · done, the last with 2 rows. The last line reads Harness Prime combined this result into the answer.](../images/harnesses/harness-run-trace.png)
 
 With no runs yet, the list says `No runs yet. Send a prompt above, or call this harness from a chatflow.` A failed run shows its error code and message in red under the card.
 

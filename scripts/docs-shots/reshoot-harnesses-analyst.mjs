@@ -437,7 +437,14 @@ async function buildTeam(page, description, look) {
     return dialog
 }
 
+async function shotHarnessList(page) {
+    await openApp(page, `${BASE}/harnesses`, 'classic')
+    await page.getByText('chief-of-staff').waitFor()
+    await shot(page, path.join(OUT_H, 'harness-list.png'), 1440, 960)
+}
+
 async function stepBuild(page) {
+    await shotHarnessList(page)
     const study =
         'A study team: a science explainer who teaches a topic in plain words, and a quiz writer who makes three practice questions.'
     let dialog = await buildTeam(page, study, 'panel')
@@ -478,7 +485,6 @@ async function stepBuild(page) {
 async function stepHarnessPage(page) {
     await openApp(page, `${BASE}/harnesses`, 'classic')
     await page.getByText('chief-of-staff').waitFor()
-    await shot(page, path.join(OUT_H, 'harness-list.png'), 1440, 960)
     await page.getByText('chief-of-staff').click()
     await page.getByRole('heading', { name: 'Try it' }).waitFor()
     fs.writeFileSync(HOLD, '1')
@@ -629,17 +635,17 @@ async function stepAnalyst(page) {
         'database.sqlite tables named sales or tickets:',
         `$ sqlite3 database.sqlite "SELECT count(*) FROM sqlite_master WHERE name IN ('sales','tickets');"`,
         q('database.sqlite', "SELECT count(*) FROM sqlite_master WHERE name IN ('sales','tickets');"),
-        "$ echo 'analyst.db tables:'",
-        'analyst.db tables:',
-        '$ sqlite3 analyst.db .tables',
+        `$ echo '${analystDb} tables:'`,
+        `${analystDb} tables:`,
+        `$ sqlite3 ${analystDb} .tables`,
         q(analystDb, '.tables'),
         "$ echo 'sales rows:'",
         'sales rows:',
-        "$ sqlite3 analyst.db 'SELECT id, region, units FROM sales ORDER BY id;'",
+        `$ sqlite3 ${analystDb} 'SELECT id, region, units FROM sales ORDER BY id;'`,
         q(analystDb, 'SELECT id, region, units FROM sales ORDER BY id;'),
         "$ echo 'tickets rows:'",
         'tickets rows:',
-        "$ sqlite3 analyst.db 'SELECT id, title FROM tickets ORDER BY id;'",
+        `$ sqlite3 ${analystDb} 'SELECT id, title FROM tickets ORDER BY id;'`,
         q(analystDb, 'SELECT id, title FROM tickets ORDER BY id;')
     ]
     await terminalShot(page.context().browser(), path.join(OUT_A, 'sqlite-analyst-db.png'), lines, 1324, 648)
@@ -815,7 +821,7 @@ async function scrollTextToTop(page, text) {
 
 async function stepPaging(page) {
     await ensureCanvas()
-    // An older saved chat must not replace the id of the run that owns the page cursor.
+    // The canvas chat keeps one chat id for every turn. An empty history keeps earlier turns out of the frame.
     await page.route('**/internal-chatmessage/**', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }))
     await page.goto(state.canvas, { waitUntil: 'networkidle' })
     await page.getByRole('button', { name: 'chat', exact: true }).click()
@@ -872,10 +878,7 @@ async function stepTrace(page) {
     await page.goto(state.canvas, { waitUntil: 'networkidle' })
     await page.getByRole('button', { name: 'chat', exact: true }).click()
     await page.locator('.cloud-wrapper').locator('visible=true').locator('#userInput').waitFor()
-    await askCanvas(page, 'How many rows are in the tickets table?', /contains \d+ rows/)
-    await askCanvas(page, 'show more', /nothing to page yet/)
-    await scrollTextToTop(page, 'How many rows are in the tickets table?')
-    await compositeChat(page, path.join(OUT_A, 'paging-nothing-yet.png'), 400, 809)
+    await shotNothingYet(page)
     await runTry(page, 'chief-of-staff', 'Use the analyst database. Select every row from tickets.', /Finished/)
     await expandAnalyst(page)
     const chip = page.getByText(/mcp__analyst__query · done · 100 rows/).last()
@@ -996,22 +999,51 @@ function cloneCredential(workspaceId) {
     return id
 }
 
-async function reshootNothing(page) {
+async function shotNothingYet(page) {
     await ensureCanvas()
     await page.goto(state.canvas, { waitUntil: 'networkidle' })
     await page.getByRole('button', { name: 'chat', exact: true }).click()
     await page.locator('.cloud-wrapper').locator('visible=true').locator('#userInput').waitFor()
-    await askCanvas(page, 'How many rows are in the tickets table?', /contains \d+ rows/)
-    await askCanvas(page, 'show more', /nothing to page yet/)
-    await widenChat(page, 400, 809)
-    await scrollTextToTop(page, 'How many rows are in the tickets table?')
-    const tmp = path.join(TMP, 'nothing-element.png')
-    await page.locator('.cloud-wrapper').screenshot({ path: tmp })
-    await placePng(page, tmp, path.join(OUT_A, 'paging-nothing-yet.png'), 400, 809)
+    const full = page.getByText("There's nothing to page yet. Ask your question again and I'll show the first page.").first()
+    if (!(await full.count())) {
+        await askCanvas(page, 'How many rows are in the tickets table?', /contains \d+ rows/)
+        await askCanvas(page, 'show more', /nothing to page yet/)
+    }
+    await full.waitFor()
+    await widenChat(page, 400, 1100)
+    await full.evaluate((el) => {
+        let node = el.parentElement
+        while (node) {
+            const style = getComputedStyle(node)
+            if (/(auto|scroll)/.test(style.overflowY) && node.scrollHeight > node.clientHeight + 8) {
+                const top = el.getBoundingClientRect().top - node.getBoundingClientRect().top + node.scrollTop
+                node.scrollTop = Math.max(0, top - 280)
+                return
+            }
+            node = node.parentElement
+        }
+        el.scrollIntoView({ block: 'center' })
+    })
+    await sleep(300)
+    await page.setViewportSize({ width: 1440, height: 1800 })
+    const chat = page.locator('.cloud-wrapper')
+    const chatBox = await chat.boundingBox()
+    const textBox = await full.boundingBox()
+    if (!chatBox || !textBox) throw new Error('the nothing-to-page reply is not on screen')
+    let clipY = textBox.y + textBox.height + 20 - 809
+    if (clipY < chatBox.y) clipY = chatBox.y
+    if (textBox.y < clipY || textBox.y + textBox.height > clipY + 800) {
+        throw new Error('the nothing-to-page reply is still cut off')
+    }
+    await page.screenshot({
+        path: path.join(OUT_A, 'paging-nothing-yet.png'),
+        clip: { x: chatBox.x, y: clipY, width: 400, height: 809 }
+    })
+    log('paging-nothing-yet.png')
 }
 
 async function stepWorkspaces(page) {
-    if (process.env.DOCS_SHOTS_SKIP_NOTHING !== '1') await reshootNothing(page)
+    if (process.env.DOCS_SHOTS_SKIP_NOTHING !== '1') await shotNothingYet(page)
     const defaultTeam = await workspaceIdByName('Default Workspace')
     if (defaultTeam) await api('POST', `/workspace/switch?id=${encodeURIComponent(defaultTeam)}`)
     const list = await flowList()
@@ -1278,26 +1310,191 @@ async function stepPostgres(page) {
     await page.getByRole('button', { name: 'Use Template' }).click()
     await page.waitForURL(/harnesscanvas/)
     await page.locator('.react-flow__node').first().waitFor({ timeout: 30000 })
-    await page.locator('.react-flow__controls-fitview').click({ force: true })
-    await sleep(800)
     const mcp = page.getByTestId('rf__node-postgreSQLMCP_0')
-    await mcp.evaluate((el) => {
-        el.style.overflow = 'visible'
-        el.style.height = 'auto'
-        el.style.maxHeight = 'none'
-    })
-    await sleep(300)
-    const nodePng = path.join(TMP, 'create-roles-node.png')
-    await mcp.screenshot({ path: nodePng })
-    const b64 = fs.readFileSync(nodePng).toString('base64')
-    const host = await page.context().newPage({ viewport: { width: 1440, height: 960 }, deviceScaleFactor: 1, colorScheme: 'light' })
-    await host.setContent(
-        `<!doctype html><body style="margin:0;background:#f7f7f4;display:flex;align-items:flex-start;justify-content:center;padding:48px"><img alt="" src="data:image/png;base64,${b64}" style="max-width:1100px;background:#fff;border:1px solid #e6e5e0"></body>`
-    )
-    await host.screenshot({ path: path.join(OUT_A, 'available-actions-create-roles.png') })
-    await host.close()
-    log('available-actions-create-roles.png')
+    await mcp.waitFor()
+    const refusal = page.getByText(/Analyst mode needs the application database user to create roles/)
+    for (let i = 0; i < 12; i += 1) {
+        const box = await mcp.boundingBox()
+        const vp = page.viewportSize()
+        if (box && box.y > 80 && box.y < 420 && box.x > 40) break
+        const fromX = 80
+        const fromY = 80
+        const dx = box ? vp.width * 0.62 - (box.x + box.width / 2) : 0
+        const dy = box ? 160 - box.y : 200
+        await page.mouse.move(fromX, fromY)
+        await page.mouse.down()
+        await page.mouse.move(fromX + dx, fromY + dy, { steps: 10 })
+        await page.mouse.up()
+        await sleep(200)
+    }
+    await refusal.waitFor({ timeout: 60000 })
+    let refusalBox = await refusal.boundingBox()
+    if (refusalBox && refusalBox.height < 28) {
+        await page.locator('.react-flow__controls-zoomin').click()
+        await sleep(300)
+        const box = await mcp.boundingBox()
+        const vp = page.viewportSize()
+        if (box) {
+            await page.mouse.move(40, 40)
+            await page.mouse.down()
+            await page.mouse.move(40 + (vp.width * 0.55 - box.x), 40 + (140 - box.y), { steps: 8 })
+            await page.mouse.up()
+            await sleep(200)
+        }
+        refusalBox = await refusal.boundingBox()
+    }
+    if (!refusalBox || refusalBox.height < 12) throw new Error('the create-roles refusal is not legible')
+    const card = await mcp.boundingBox()
+    if (card && refusalBox.y + refusalBox.height > card.y + card.height + 4) {
+        throw new Error('the create-roles refusal is cut off by the node')
+    }
+    await sleep(400)
+    await shot(page, path.join(OUT_A, 'available-actions-create-roles.png'), 1440, 960)
     void savedBase
+}
+
+async function shootSqliteFigure(browser) {
+    const analystDb = fs.readdirSync(DATA).find((name) => name === 'analyst-ff33404ebc.db')
+    if (!analystDb) throw new Error('analyst-ff33404ebc.db is not in the data directory')
+    const db = path.join(DATA, analystDb)
+    execFileSync('sqlite3', [
+        db,
+        'UPDATE sales SET units = 10 WHERE id = 1; UPDATE sales SET units = 20 WHERE id = 2; UPDATE sales SET units = 5 WHERE id = 3; DELETE FROM tickets WHERE id > 3;'
+    ])
+    const q = (file, sql) => execFileSync('sqlite3', [path.join(DATA, file), sql], { encoding: 'utf8' }).trimEnd()
+    const lines = [
+        '$ ls -1 database.sqlite ' + analystDb,
+        ...execFileSync('ls', ['-1', path.join(DATA, 'database.sqlite'), path.join(DATA, analystDb)], { encoding: 'utf8' })
+            .trimEnd()
+            .split('\n')
+            .map((name) => path.basename(name)),
+        "$ echo 'database.sqlite tables named sales or tickets:'",
+        'database.sqlite tables named sales or tickets:',
+        `$ sqlite3 database.sqlite "SELECT count(*) FROM sqlite_master WHERE name IN ('sales','tickets');"`,
+        q('database.sqlite', "SELECT count(*) FROM sqlite_master WHERE name IN ('sales','tickets');"),
+        `$ echo '${analystDb} tables:'`,
+        `${analystDb} tables:`,
+        `$ sqlite3 ${analystDb} .tables`,
+        q(analystDb, '.tables'),
+        "$ echo 'sales rows:'",
+        'sales rows:',
+        `$ sqlite3 ${analystDb} 'SELECT id, region, units FROM sales ORDER BY id;'`,
+        q(analystDb, 'SELECT id, region, units FROM sales ORDER BY id;'),
+        "$ echo 'tickets rows:'",
+        'tickets rows:',
+        `$ sqlite3 ${analystDb} 'SELECT id, title FROM tickets ORDER BY id;'`,
+        q(analystDb, 'SELECT id, title FROM tickets ORDER BY id;')
+    ]
+    await terminalShot(browser, path.join(OUT_A, 'sqlite-analyst-db.png'), lines, 1324, 648)
+}
+
+async function stepReviewFixes(page) {
+    if (process.env.DOCS_SHOTS_REVIEW !== '1') return
+    if (process.env.DOCS_SHOTS_REVIEW_PART === 'tail') {
+        const home = await workspaceIdByName('Default Workspace')
+        await page.goto(`${BASE}/harnesses`, { waitUntil: 'domcontentloaded' })
+        const switched = await page.evaluate(async (id) => {
+            const res = await fetch(`/api/v1/workspace/switch?id=${encodeURIComponent(id)}`, {
+                method: 'POST',
+                credentials: 'include',
+                headers: { 'content-type': 'application/json', 'x-request-from': 'internal' }
+            })
+            return res.status
+        }, home)
+        if (switched >= 300) throw new Error(`could not open the home workspace (${switched})`)
+        state.canvasId = execFileSync(
+            'sqlite3',
+            [path.join(DATA, 'database.sqlite'), "SELECT id FROM chat_flow WHERE name = 'chief-of-staff' LIMIT 1;"],
+            {
+                encoding: 'utf8'
+            }
+        ).trim()
+        state.canvas = `${BASE}/harnesscanvas/${state.canvasId}`
+        if (process.env.DOCS_SHOTS_SKIP_NOTHING !== '1') await shotNothingYet(page)
+        await frameCreateRoles(page)
+        return
+    }
+    const defaultTeam = await workspaceIdByName('Default Workspace')
+    if (defaultTeam) await api('POST', `/workspace/switch?id=${encodeURIComponent(defaultTeam)}`)
+    const flows = await flowList()
+    for (const name of ['News-Team-Harness', 'Study-Team-Harness', 'Study-Team-Harness-2', 'Trip-Planning-Harness']) {
+        const flow = flows.find((item) => item.name === name)
+        if (!flow) continue
+        try {
+            await api('DELETE', `/chatflows/${flow.id}`)
+        } catch (error) {
+            log(`left ${name} in place: ${error.message}`)
+        }
+    }
+    await shotHarnessList(page)
+    if (await page.getByText('News-Team-Harness').count()) throw new Error('the harness list still shows a built team')
+    await shootSqliteFigure(page.context().browser())
+    await shotNothingYet(page)
+    await frameCreateRoles(page)
+}
+
+async function frameCreateRoles(page) {
+    await bootPostgres(page, 'pg-closed', 'cuttlely_closed', 'cuttlely_limited', false)
+    const closed = 'http://127.0.0.1:43127'
+    await page.goto(`${closed}/signin`, { waitUntil: 'networkidle' })
+    const admin = ensureAdmin()
+    const form2 = page
+        .locator('form')
+        .filter({ has: page.locator('input[type=password]') })
+        .first()
+    await form2.locator('input').first().fill(admin.email)
+    await form2.locator('input[type=password]').fill(admin.password)
+    await form2.getByRole('button', { name: /Sign in/ }).click()
+    await page.waitForURL((url) => !url.pathname.startsWith('/signin'), { timeout: 20000 })
+    await page.goto(`${closed}/marketplaces`, { waitUntil: 'domcontentloaded' })
+    await page.evaluate(() => {
+        localStorage.setItem('isDarkMode', 'false')
+        localStorage.setItem('cuttlely.canvasLook', 'classic')
+    })
+    await page.goto(`${closed}/marketplaces`, { waitUntil: 'networkidle' })
+    await page.getByRole('button', { name: 'Harness', exact: true }).click()
+    await page.getByText('Chief of Staff Harness').click()
+    await page.getByRole('button', { name: 'Use Template' }).click()
+    await page.waitForURL(/harnesscanvas/)
+    await page.locator('.react-flow__node').first().waitFor({ timeout: 30000 })
+    const mcp = page.getByTestId('rf__node-postgreSQLMCP_0')
+    await mcp.waitFor()
+    await page.setViewportSize({ width: 1440, height: 960 })
+    for (let i = 0; i < 8; i += 1) {
+        const box = await mcp.boundingBox()
+        if (box && box.y > 40 && box.y + box.height < 900) break
+        await page.mouse.move(720, 520)
+        await page.mouse.down()
+        await page.mouse.move(720, 220, { steps: 12 })
+        await page.mouse.up()
+        await sleep(200)
+    }
+    await mcp.locator('#mcpActions').click()
+    await page.getByRole('option', { name: /No Available Actions/ }).click()
+    const refusal = page.getByText(/This database refused that/)
+    await refusal.waitFor({ timeout: 20000 })
+    const nodeBox = await mcp.boundingBox()
+    if (nodeBox) {
+        await page.mouse.move(nodeBox.x + nodeBox.width / 2, Math.min(nodeBox.y + 40, 700))
+        for (let i = 0; i < 3; i += 1) await page.mouse.wheel(0, -200)
+        await sleep(300)
+    }
+    for (let i = 0; i < 6; i += 1) {
+        const box = await refusal.boundingBox()
+        if (box && box.y > 80 && box.y + box.height < 900 && box.height > 16) break
+        await page.mouse.move(720, 520)
+        await page.mouse.down()
+        await page.mouse.move(720, 260, { steps: 10 })
+        await page.mouse.up()
+        await sleep(200)
+    }
+    const settled = await refusal.boundingBox()
+    if (!settled || settled.height < 36 || settled.y < 40 || settled.y + settled.height > 920) {
+        throw new Error(`the create-roles refusal is still cut off (${settled ? Math.round(settled.height) : 0}px)`)
+    }
+    await sleep(400)
+    await page.screenshot({ path: path.join(OUT_A, 'available-actions-create-roles.png') })
+    log('available-actions-create-roles.png')
 }
 
 const STEPS = [
@@ -1319,7 +1516,8 @@ const STEPS = [
     ['sql-refused', stepSqlRefused],
     ['workspaces', stepWorkspaces],
     ['retake-chats', stepRetakeChats],
-    ['postgres', stepPostgres]
+    ['postgres', stepPostgres],
+    ['review-fixes', stepReviewFixes]
 ]
 
 function resetData() {
