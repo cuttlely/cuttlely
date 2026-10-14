@@ -173,6 +173,11 @@ test('closing card samples show only the sourced figures', async () => {
                 const stamp = Math.round(at * 10) / 10
                 const found = ocrFrame(file, stamp, tmp)
                 for (const figure of found) {
+                    // "1.1 s" and a lone "1" both come back as "1S" on these cards.
+                    if (/^1[Ss]$/.test(figure.text)) {
+                        if (card.allow.includes(1.1)) figure.value = 1.1
+                        else if (card.allow.includes(1)) figure.value = 1
+                    }
                     const value = sourced(figure.value, card.allow)
                     const key = nearest(value, card.allow)
                     if (key === null) {
