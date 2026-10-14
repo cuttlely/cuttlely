@@ -674,7 +674,7 @@ async function main() {
         if (wantsAny(['etl-retriever-pick', 'harness-etl-canvas', 'harness-etl-chat'])) {
             await buildHarness(page, base, cookie, credentialId)
         }
-        await versionStory(page, base, cookie, outdoor.id)
+        await versionStory(page, base, cookie, outdoor.id, { first, second })
         if (wantsAny(['build-with-ai-dialog', 'build-with-ai-built', 'build-with-ai-search'])) {
             await buildWithAi(page, base, cookie)
         }
@@ -755,7 +755,7 @@ async function buildHarness(page, base, cookie, credentialId) {
     await shot(page, path.join(OUT_ETL, 'harness-etl-chat.png'), { note: await bodyNote(page) })
 }
 
-async function versionStory(page, base, cookie, id) {
+async function versionStory(page, base, cookie, id, earlier) {
     const current = await request(`${base}/api/v1/chatflows/${id}`, { cookie })
     if (current.status !== 200) throw new Error(`get flow ${current.status}`)
     const flow = JSON.parse(current.text)
@@ -818,7 +818,32 @@ async function versionStory(page, base, cookie, id) {
     await shot(page, path.join(OUT_ETL, 'etl-versions-after.png'), { note: await bodyNote(page, page.locator('.MuiDrawer-paper')) })
     await page.getByRole('tab', { name: 'History' }).click()
     await page.getByText('failed').waitFor()
-    await shot(page, path.join(OUT_ETL, 'etl-history.png'), { note: await bodyNote(page, page.locator('.MuiDrawer-paper')) })
+    await page.setViewportSize({ width: 1680, height: 1200 })
+    const historyDrawer = await revealDrawer(page)
+    const sameSession = [third.id, failed.id, earlier.second.id, earlier.first.id].map((runId) => runId.slice(0, 8))
+    let historyText = await historyDrawer.innerText()
+    for (const runId of sameSession) {
+        if (!historyText.includes(runId)) throw new Error(`history is missing run ${runId} from this session`)
+    }
+    await scrollPanelTo(page, sameSession[0])
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+        const hidden = []
+        for (const runId of sameSession) {
+            const row = historyDrawer.getByText(new RegExp(runId)).first()
+            if (!insideViewport(await row.boundingBox(), page.viewportSize())) hidden.push(runId)
+        }
+        if (hidden.length === 0) break
+        const viewport = page.viewportSize()
+        await page.setViewportSize({ width: viewport.width, height: viewport.height + 280 })
+        await scrollPanelTo(page, sameSession[0])
+        await revealDrawer(page)
+        if (attempt === 2) throw new Error(`history rows outside the frame: ${hidden.join(', ')}`)
+    }
+    historyText = await historyDrawer.innerText()
+    fs.writeFileSync('/tmp/docs-shot-run-ids.json', JSON.stringify({ sameSession, failed: failed.id, third: third.id }, null, 2))
+    console.log('history runs', sameSession.join(' '))
+    await shot(page, path.join(OUT_ETL, 'etl-history.png'), { note: historyText })
+    await resetFrame(page)
 }
 
 async function buildWithAi(page, base) {
