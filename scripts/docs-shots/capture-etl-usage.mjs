@@ -29,6 +29,17 @@ const PRICE_METADATA = '"metadataColumns": "sku, category, price"'
 const PRICE_METADATA_OFF = '"metadataColumns": "sku, category"'
 
 const notes = {}
+const ONLY = new Set(process.argv.slice(2).map((name) => name.replace(/\.png$/, '')))
+
+function wanted(file) {
+    if (ONLY.size === 0) return true
+    return ONLY.has(path.basename(file, '.png'))
+}
+
+function wantsAny(names) {
+    if (ONLY.size === 0) return true
+    return names.some((name) => ONLY.has(name))
+}
 
 function sampleOriginal() {
     return fs.readFileSync(SAMPLE, 'utf8')
@@ -123,7 +134,76 @@ canvas.save(file)
     if (result.status !== 0) throw new Error(result.stderr || 'pad failed')
 }
 
-async function shot(page, file, { clip, pad, note } = {}) {
+function insideViewport(box, viewport, pad = 1) {
+    return (
+        box &&
+        box.width > 2 &&
+        box.height > 2 &&
+        box.x >= -pad &&
+        box.y >= -pad &&
+        box.x + box.width <= viewport.width + pad &&
+        box.y + box.height <= viewport.height + pad
+    )
+}
+
+// The pipeline drawer is position:fixed against a canvas wider than 1440px,
+// so a 1440px frame cuts its right edge. Scroll that overflow into view,
+// and only then grow the viewport if the element is still outside it.
+async function reveal(page, locator) {
+    for (let attempt = 0; attempt < 6; attempt += 1) {
+        await locator.scrollIntoViewIfNeeded().catch(() => {})
+        const box = await locator.boundingBox()
+        if (!box) throw new Error('nothing to reveal')
+        const viewport = page.viewportSize()
+        if (insideViewport(box, viewport)) return box
+        if (box.x < 0 || box.x + box.width > viewport.width) {
+            const delta = box.x < 0 ? Math.floor(box.x) - 8 : Math.ceil(box.x + box.width - viewport.width + 16)
+            await page.evaluate((dx) => window.scrollBy(dx, 0), delta)
+        }
+        const shifted = await locator.boundingBox()
+        const view = page.viewportSize()
+        if (!insideViewport(shifted, view)) {
+            await page.setViewportSize({
+                width: Math.max(view.width, Math.ceil((shifted?.x || 0) + (shifted?.width || 0) + 24)),
+                height: Math.max(view.height, Math.ceil((shifted?.y || 0) + (shifted?.height || 0) + 24))
+            })
+        }
+        await page.waitForTimeout(200)
+    }
+    const box = await locator.boundingBox()
+    const viewport = page.viewportSize()
+    if (!insideViewport(box, viewport)) throw new Error(`clipped at ${JSON.stringify(box)} in ${JSON.stringify(viewport)}`)
+    return box
+}
+
+async function resetFrame(page) {
+    await page.setViewportSize({ width: 1440, height: 960 })
+    await page.evaluate(() => window.scrollTo(0, 0)).catch(() => {})
+}
+
+async function revealDrawer(page) {
+    const drawer = page.locator('.MuiDrawer-paper').last()
+    const close = drawer.getByRole('button', { name: 'Close', exact: true })
+    await reveal(page, close)
+    const box = await drawer.boundingBox()
+    const viewport = page.viewportSize()
+    if (!box || box.x < -1 || box.x + box.width > viewport.width + 1) {
+        await reveal(page, drawer)
+    }
+    const fitted = await drawer.boundingBox()
+    const view = page.viewportSize()
+    if (!fitted || fitted.x < -1 || fitted.x + fitted.width > view.width + 1) {
+        throw new Error(`drawer clipped at ${JSON.stringify(fitted)} in ${JSON.stringify(view)}`)
+    }
+    return drawer
+}
+
+async function shot(page, file, { clip, pad, note, fit } = {}) {
+    if (!wanted(file)) {
+        console.log('skip', path.basename(file))
+        return
+    }
+    if (fit) await reveal(page, fit)
     fs.mkdirSync(path.dirname(file), { recursive: true })
     if (clip) await page.screenshot({ path: file, clip })
     else await page.screenshot({ path: file })
@@ -420,9 +500,25 @@ async function main() {
         await page.getByText('No pipelines yet').waitFor()
         await shot(page, path.join(OUT_ETL, 'etl-empty.png'), { note: await bodyNote(page) })
         await page.getByRole('button', { name: 'Import Sample' }).first().click()
-        await page.getByRole('heading', { name: 'Bakery Handbook', exact: true }).waitFor()
-        await shot(page, path.join(OUT_ETL, 'etl-import-sample.png'), { note: await bodyNote(page, page.getByRole('menu')) })
+        const sampleMenu = page.getByRole('menu')
+        await sampleMenu.waitFor()
+        const sampleNames = ['Bakery Handbook', 'Cuttlely Handbook', 'Outdoor Catalog']
+        for (const name of sampleNames) {
+            const heading = sampleMenu.getByRole('heading', { name, exact: true })
+            await heading.waitFor()
+            await reveal(page, heading)
+            if (!insideViewport(await heading.boundingBox(), page.viewportSize())) {
+                throw new Error(`${name} is outside the Import Sample frame`)
+            }
+        }
+        await page.waitForTimeout(300)
+        const menuNote = await bodyNote(page, sampleMenu)
+        if (!/Bakery Handbook/.test(menuNote) || !/Cuttlely Handbook/.test(menuNote) || !/Outdoor Catalog/.test(menuNote)) {
+            throw new Error('Import Sample menu is missing a sample')
+        }
+        await shot(page, path.join(OUT_ETL, 'etl-import-sample.png'), { note: menuNote })
         await page.keyboard.press('Escape')
+        await resetFrame(page)
 
         const outdoor = await importOutdoor(base, cookie)
         await openCanvas(page, base, `/etlcanvas/${outdoor.id}`, 'classic')
@@ -447,16 +543,40 @@ async function main() {
         await openCanvas(page, base, `/etlcanvas/${outdoor.id}`, 'classic')
         await openPanel(page, 'Run')
         await page.getByText('succeeded').first().waitFor()
-        await shot(page, path.join(OUT_ETL, 'etl-run-done.png'), { note: await bodyNote(page, page.locator('.MuiDrawer-paper')) })
-        await page.getByText('Delete removed').scrollIntoViewIfNeeded()
-        await shot(page, path.join(OUT_ETL, 'etl-run-steps.png'), { note: await bodyNote(page, page.locator('.MuiDrawer-paper')) })
+        await setAccordion(page, 'New run', false)
+        await page.setViewportSize({ width: 1680, height: 1100 })
+        let drawer = await revealDrawer(page)
+        const runTitle = page.getByRole('heading', { name: /^Run / })
+        await scrollPanelTo(page, await runTitle.innerText())
+        await reveal(page, runTitle)
+        await reveal(page, page.getByText('100.0%', { exact: true }))
+        await reveal(page, drawer.getByText('Deleted', { exact: true }))
+        await shot(page, path.join(OUT_ETL, 'etl-run-done.png'), { note: await bodyNote(page, drawer) })
+        await resetFrame(page)
+
+        await page.setViewportSize({ width: 1680, height: 1400 })
+        drawer = await revealDrawer(page)
+        await scrollPanelTo(page, await runTitle.innerText())
+        await reveal(page, runTitle)
+        await reveal(page, page.getByText('Delete removed'))
+        await shot(page, path.join(OUT_ETL, 'etl-run-steps.png'), { note: await bodyNote(page, drawer) })
+        await resetFrame(page)
 
         const second = await startRun(base, cookie, outdoor.id)
         if (second.status !== 'succeeded') throw new Error(`second run ${second.status}`)
         await openCanvas(page, base, `/etlcanvas/${outdoor.id}`, 'classic')
         await openPanel(page, 'Run')
         await page.getByText(/sources skipped/).waitFor()
-        await shot(page, path.join(OUT_ETL, 'etl-run-incremental.png'), { note: await bodyNote(page, page.locator('.MuiDrawer-paper')) })
+        await setAccordion(page, 'New run', false)
+        await page.setViewportSize({ width: 1680, height: 1100 })
+        drawer = await revealDrawer(page)
+        const secondTitle = page.getByRole('heading', { name: /^Run / })
+        await scrollPanelTo(page, await secondTitle.innerText())
+        await reveal(page, secondTitle)
+        await reveal(page, page.getByText(/sources skipped/))
+        await reveal(page, drawer.getByText('Deleted', { exact: true }))
+        await shot(page, path.join(OUT_ETL, 'etl-run-incremental.png'), { note: await bodyNote(page, drawer) })
+        await resetFrame(page)
         const ask = page.getByPlaceholder('Ask something the data should answer')
         await ask.scrollIntoViewIfNeeded()
         await ask.fill('tent for alpine starts')
@@ -507,52 +627,60 @@ async function main() {
         await page.getByText('Outdoor Catalog').first().waitFor()
         await shot(page, path.join(OUT_ETL, 'etl-list.png'), { note: await bodyNote(page) })
 
-        seedUsage(dataDir)
-        await page.setViewportSize({ width: 2400, height: 1800 })
-        await page.goto(`${base}/usage`, { waitUntil: 'domcontentloaded' })
-        const usageTitle = page.locator('h1').filter({ hasText: /^Usage$/ })
-        await usageTitle.waitFor()
-        await page.getByRole('table', { name: 'Usage by flow' }).waitFor()
-        await page.getByText('No price for bakery-counter').waitFor()
-        const usageHeading = await usageTitle.boundingBox()
-        const usageTable = await page.getByRole('table', { name: 'Usage by flow' }).boundingBox()
-        const usageNote = [
-            await usageTitle.innerText(),
-            await page.getByText(/UTC\./).first().innerText(),
-            await page.getByText(/No price for/).innerText(),
-            await page.getByRole('table', { name: 'Usage by flow' }).innerText()
-        ].join('\n')
-        await shot(page, path.join(OUT_USAGE, 'usage-page.png'), {
-            clip: {
-                x: Math.max(0, Math.floor(usageHeading.x - 28)),
-                y: Math.max(0, Math.floor(usageHeading.y - 20)),
-                width: 2080,
-                height: Math.ceil(usageTable.y + usageTable.height - usageHeading.y + 48)
-            },
-            pad: [2080, 1506],
-            note: usageNote
-        })
-        const find = page.getByLabel('Find a model')
-        await find.scrollIntoViewIfNeeded()
-        await find.fill('bakery-counter')
-        await page.getByRole('cell', { name: 'bakery-counter', exact: true }).waitFor()
-        const prices = await page.locator('#model-prices').boundingBox()
-        await shot(page, path.join(OUT_USAGE, 'usage-prices.png'), {
-            clip: {
-                x: Math.max(0, Math.floor(prices.x - 8)),
-                y: Math.max(0, Math.floor(prices.y - 8)),
-                width: 1904,
-                height: Math.ceil(prices.height + 16)
-            },
-            pad: [1904, 520],
-            note: await bodyNote(page, page.locator('#model-prices'))
-        })
-        await page.setViewportSize({ width: 1440, height: 960 })
+        if (wantsAny(['usage-page', 'usage-prices'])) {
+            seedUsage(dataDir)
+            await page.setViewportSize({ width: 2400, height: 1800 })
+            await page.goto(`${base}/usage`, { waitUntil: 'domcontentloaded' })
+            const usageTitle = page.locator('h1').filter({ hasText: /^Usage$/ })
+            await usageTitle.waitFor()
+            await page.getByRole('table', { name: 'Usage by flow' }).waitFor()
+            await page.getByText('No price for bakery-counter').waitFor()
+            const usageHeading = await usageTitle.boundingBox()
+            const usageTable = await page.getByRole('table', { name: 'Usage by flow' }).boundingBox()
+            const usageNote = [
+                await usageTitle.innerText(),
+                await page.getByText(/UTC\./).first().innerText(),
+                await page.getByText(/No price for/).innerText(),
+                await page.getByRole('table', { name: 'Usage by flow' }).innerText()
+            ].join('\n')
+            await shot(page, path.join(OUT_USAGE, 'usage-page.png'), {
+                clip: {
+                    x: Math.max(0, Math.floor(usageHeading.x - 28)),
+                    y: Math.max(0, Math.floor(usageHeading.y - 20)),
+                    width: 2080,
+                    height: Math.ceil(usageTable.y + usageTable.height - usageHeading.y + 48)
+                },
+                pad: [2080, 1506],
+                note: usageNote
+            })
+            const find = page.getByLabel('Find a model')
+            await find.scrollIntoViewIfNeeded()
+            await find.fill('bakery-counter')
+            await page.getByRole('cell', { name: 'bakery-counter', exact: true }).waitFor()
+            const prices = await page.locator('#model-prices').boundingBox()
+            await shot(page, path.join(OUT_USAGE, 'usage-prices.png'), {
+                clip: {
+                    x: Math.max(0, Math.floor(prices.x - 8)),
+                    y: Math.max(0, Math.floor(prices.y - 8)),
+                    width: 1904,
+                    height: Math.ceil(prices.height + 16)
+                },
+                pad: [1904, 520],
+                note: await bodyNote(page, page.locator('#model-prices'))
+            })
+            await page.setViewportSize({ width: 1440, height: 960 })
+        }
 
-        await buildHarness(page, base, cookie, credentialId)
+        if (wantsAny(['etl-retriever-pick', 'harness-etl-canvas', 'harness-etl-chat'])) {
+            await buildHarness(page, base, cookie, credentialId)
+        }
         await versionStory(page, base, cookie, outdoor.id)
-        await buildWithAi(page, base, cookie)
-        await publishCheck(page, base, cookie, credentialId)
+        if (wantsAny(['build-with-ai-dialog', 'build-with-ai-built', 'build-with-ai-search'])) {
+            await buildWithAi(page, base, cookie)
+        }
+        if (wantsAny(['publish-check-cost'])) {
+            await publishCheck(page, base, cookie, credentialId)
+        }
         contactSheet()
         console.log('capture done')
     } catch (error) {
@@ -637,7 +765,17 @@ async function versionStory(page, base, cookie, id) {
     await openCanvas(page, base, `/etlcanvas/${id}`, 'classic')
     await openPanel(page, 'Preview')
     await page.getByText(/was not found on the server/).waitFor({ timeout: 30000 })
-    await shot(page, path.join(OUT_ETL, 'etl-preview-missing-file.png'), { note: await bodyNote(page, page.locator('.MuiDrawer-paper')) })
+    await page.setViewportSize({ width: 1680, height: 1200 })
+    const missingDrawer = await revealDrawer(page)
+    const missingFile = page.getByRole('alert').filter({ hasText: 'products-2026.csv' })
+    await reveal(page, missingFile)
+    if (!insideViewport(await missingFile.boundingBox(), page.viewportSize())) {
+        throw new Error('missing-file alert is outside the frame')
+    }
+    await shot(page, path.join(OUT_ETL, 'etl-preview-missing-file.png'), {
+        note: await bodyNote(page, missingDrawer)
+    })
+    await resetFrame(page)
     const published = await request(`${base}/api/v1/flow-drafts/${id}/publish`, { method: 'POST', cookie, body: {} })
     if (published.status !== 200) throw new Error(`publish missing ${published.status}: ${published.text.slice(0, 300)}`)
     const failed = await startRun(base, cookie, id)
@@ -645,8 +783,18 @@ async function versionStory(page, base, cookie, id) {
     await openCanvas(page, base, `/etlcanvas/${id}`, 'classic')
     await openPanel(page, 'Run')
     await page.getByText('failed').first().waitFor()
-    await page.getByRole('alert').filter({ hasText: 'products-2026.csv' }).scrollIntoViewIfNeeded()
-    await shot(page, path.join(OUT_ETL, 'etl-run-failed.png'), { note: await bodyNote(page, page.locator('.MuiDrawer-paper')) })
+    await setAccordion(page, 'New run', false)
+    await page.setViewportSize({ width: 1680, height: 1400 })
+    const failedDrawer = await revealDrawer(page)
+    const failedTitle = page.getByRole('heading', { name: /^Run / })
+    await scrollPanelTo(page, await failedTitle.innerText())
+    await reveal(page, failedTitle)
+    await reveal(page, page.getByRole('alert').filter({ hasText: 'products-2026.csv' }))
+    if (!insideViewport(await failedTitle.boundingBox(), page.viewportSize())) {
+        throw new Error('failed run title is outside the frame')
+    }
+    await shot(page, path.join(OUT_ETL, 'etl-run-failed.png'), { note: await bodyNote(page, failedDrawer) })
+    await resetFrame(page)
     await page.getByRole('tab', { name: 'Versions' }).click()
     await page.getByText('Version 2').waitFor()
     await shot(page, path.join(OUT_ETL, 'etl-versions.png'), { note: await bodyNote(page, page.locator('.MuiDrawer-paper')) })

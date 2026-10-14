@@ -23,4 +23,4 @@ pnpm build
 node scripts/docs-shots/capture-etl-usage.mjs
 ```
 
-The server has to be built first (`packages/server/dist`). The script starts a local server on an empty data directory, signs in as the local owner, and drives the pages with Playwright at a fixed viewport. It does not sign in to an outside service. Chat replies come from `fake-chat.cjs`, which reads `DOCS_SHOT_CATALOG`. The capture script sets that to the sample catalog path.
+The server has to be built first (`packages/server/dist`). The script starts a local server on an empty data directory, signs in as the local owner, and drives the pages with Playwright. A picture name on the command line reshoots only that file. Pipeline drawer pictures grow the viewport until the whole drawer, including its right edge, is in the frame. It does not sign in to an outside service. Chat replies come from `fake-chat.cjs`, which reads `DOCS_SHOT_CATALOG`. The capture script sets that to the sample catalog path.
