@@ -20,11 +20,19 @@
 #   pnpm dev serves the API on port 3000. scripts/start-cuttlely.sh and npx cuttlely start listen on port 43117.
 # See docs/how-to/ci-gate.md.
 # Cancelling this job stops the server-side check.
+# cancel-in-progress stops the older run, and the CLI cancels its check on SIGTERM.
+# A failed verdict exits 1 and does not read the flow again.
 
 name: Cuttlely scored check
 
 on:
     pull_request:
+
+permissions: {}
+
+concurrency:
+    group: cuttlely-check-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+    cancel-in-progress: true
 
 jobs:
     check:

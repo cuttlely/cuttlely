@@ -15,11 +15,18 @@
 # That is the first release with scored mode, and no release with it has been published yet.
 # This job is diff mode. It does not pass --gate. npx cuttlely stays unpinned because --fail-on-changed is in the 1.0.3 package.
 # Cancelling this job stops the server-side check.
+# cancel-in-progress stops the older run, and the CLI cancels its check on SIGTERM.
 
 name: Cuttlely draft check
 
 on:
     pull_request:
+
+permissions: {}
+
+concurrency:
+    group: cuttlely-check-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+    cancel-in-progress: true
 
 jobs:
     check:
