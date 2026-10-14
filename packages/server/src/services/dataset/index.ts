@@ -13,15 +13,20 @@ import { ChatMessageRatingType } from '../../Interface'
 import { getErrorMessage } from '../../errors/utils'
 import { hasAnyPermission } from '../../identity/rbac'
 import { getRunningExpressApp } from '../../utils/getRunningExpressApp'
+import { runtimeNumber } from '../../settings/runtime'
 
 const CHAT_MESSAGE_SOURCE = 'chat_message'
 const CHAT_RATING_SOURCE = 'chat_rating'
 const RATING_VALUES = new Set(['THUMBS_UP', 'THUMBS_DOWN'])
 // One call does not copy an unbounded history. Callers can ask for fewer.
-export const RATING_IMPORT_CAP = 500
+function ratingImportCap(): number {
+    return runtimeNumber('CUTTLELY_RATING_IMPORT_CAP')
+}
 const RATING_PAGE = 200
 // A window full of stored or question-less ratings must not walk the whole history.
-export const RATING_SCAN_CAP = 1000
+function ratingScanCap(): number {
+    return runtimeNumber('CUTTLELY_RATING_SCAN_CAP')
+}
 const RATING_PREVIEW_ROWS = 5
 const RATING_PREVIEW_CHARS = 160
 const RATING_DAY_MS = 24 * 60 * 60 * 1000
@@ -75,7 +80,7 @@ function parseRatingCursor(value: unknown): RatingCursor | null {
 
 function parseFeedbackIds(value: unknown): string[] | null {
     if (value === undefined || value === null) return null
-    if (!Array.isArray(value) || value.length > RATING_IMPORT_CAP) {
+    if (!Array.isArray(value) || value.length > ratingImportCap()) {
         throw new AppError(StatusCodes.BAD_REQUEST, 'feedbackIds must be a list of ids.')
     }
     const ids: string[] = []
@@ -826,7 +831,7 @@ const addDatasetRowsFromRatings = async (
         }
         const rating = body.rating as ChatMessageRatingType
         const days = body.days
-        const limit = typeof body.limit === 'number' ? Math.min(body.limit, RATING_IMPORT_CAP) : RATING_IMPORT_CAP
+        const limit = typeof body.limit === 'number' ? Math.min(body.limit, ratingImportCap()) : ratingImportCap()
         const dryRun = body.dryRun === true
         const since = new Date(Date.now() - days * RATING_DAY_MS)
 
@@ -867,8 +872,8 @@ const addDatasetRowsFromRatings = async (
         let lastScanned: ChatMessageFeedback | null = null
         const rawById = new Map<string, string>()
         let pageBefore = before
-        while (!fixedIds && planned.length < limit && scanned < RATING_SCAN_CAP) {
-            const take = Math.min(ratingPageForTest ?? RATING_PAGE, RATING_SCAN_CAP - scanned)
+        while (!fixedIds && planned.length < limit && scanned < ratingScanCap()) {
+            const take = Math.min(ratingPageForTest ?? RATING_PAGE, ratingScanCap() - scanned)
             const loaded = await loadRatingFeedback(feedbackRepo, {
                 flowId: flow.id,
                 rating,
@@ -895,7 +900,7 @@ const addDatasetRowsFromRatings = async (
             const stored = new Set(existing.map((item) => item.sourceMessageId).filter((id): id is string => Boolean(id)))
             let inspected = 0
             for (const feedback of page) {
-                if (planned.length >= limit || scanned >= RATING_SCAN_CAP) break
+                if (planned.length >= limit || scanned >= ratingScanCap()) break
                 scanned += 1
                 inspected += 1
                 lastScanned = feedback

@@ -9,6 +9,7 @@ import { StartState } from '../../settings/apply'
 import { readHistory } from '../../settings/history'
 import { resetRestartRequest, setRestartHandler } from '../../settings/restart'
 import { resetRuns } from '../../settings/runs'
+import { resetRuntimeLimitsForTests, runtimeNumber } from '../../settings/runtime'
 import { SETTINGS_FILE, readSettingsFile, readStoredValues, writeSettingsFile } from '../../settings/store'
 
 jest.mock('../../settings/bootstrap', () => ({
@@ -22,6 +23,13 @@ const SECRET = 'pw-made-up-for-the-bakery-0001'
 const OWNER = { id: 'owner-1', email: 'owner@example.com', activeWorkspaceId: 'team-a', permissions: [] }
 const MEMBER = { id: 'member-1', email: 'baker@example.com', activeWorkspaceId: 'team-a', permissions: ['server:owner'] }
 const API_KEY = { permissions: ['*'], activeWorkspaceId: 'team-a' }
+const WORKSPACE_ADMIN = {
+    id: 'ws-admin',
+    email: 'lead@example.com',
+    activeWorkspaceId: 'team-a',
+    isOrganizationAdmin: true,
+    permissions: ['chatflows:view', 'agentflows:update', 'users:manage']
+}
 
 let dir: string
 let env: Record<string, string | undefined>
@@ -68,8 +76,30 @@ describe('who can use server settings', () => {
     it('lets the owner in and keeps everyone else out, including API keys', async () => {
         expect((await app(OWNER).get('/api/v1/server-settings')).status).toBe(200)
         expect((await app(MEMBER).get('/api/v1/server-settings')).status).toBe(403)
+        expect((await app(WORKSPACE_ADMIN).get('/api/v1/server-settings')).status).toBe(403)
         expect((await app(API_KEY).get('/api/v1/server-settings')).status).toBe(403)
         expect((await app(null).get('/api/v1/server-settings')).status).toBe(401)
+        expect(
+            (
+                await app(API_KEY)
+                    .put('/api/v1/server-settings')
+                    .send({ values: { CUTTLELY_CHECK_CONCURRENCY: '3' } })
+            ).status
+        ).toBe(403)
+        expect(
+            (
+                await app(WORKSPACE_ADMIN)
+                    .put('/api/v1/server-settings')
+                    .send({ values: { CUTTLELY_CHECK_CONCURRENCY: '3' } })
+            ).status
+        ).toBe(403)
+        expect(
+            (
+                await app(null)
+                    .put('/api/v1/server-settings')
+                    .send({ values: { CUTTLELY_CHECK_CONCURRENCY: '3' } })
+            ).status
+        ).toBe(401)
         expect(
             (
                 await app(MEMBER)
@@ -257,5 +287,80 @@ describe('Try it again after safe boot', () => {
         env.CUTTLELY_HARNESS_TURN_BUDGET_MS = '60000'
         const res = await app(OWNER).get('/api/v1/server-settings')
         expect(res.body.runs).toEqual({ inProgress: 0, waitSeconds: 60 })
+    })
+})
+
+describe('runtime limits on the settings API', () => {
+    const previousData = process.env.CUTTLELY_DATA_DIR
+
+    afterEach(() => {
+        if (previousData === undefined) delete process.env.CUTTLELY_DATA_DIR
+        else process.env.CUTTLELY_DATA_DIR = previousData
+        resetRuntimeLimitsForTests()
+    })
+
+    it('returns source, runtime, range and unit, and a save applies without a restart', async () => {
+        process.env.CUTTLELY_DATA_DIR = env.CUTTLELY_DATA_DIR
+        resetRuntimeLimitsForTests()
+        const before = await app(OWNER).get('/api/v1/server-settings')
+        const tokens = before.body.settings.find((setting: { key: string }) => setting.key === 'CUTTLELY_CHECK_MAX_TOKENS')
+        expect(tokens).toMatchObject({
+            runtime: true,
+            source: 'default',
+            unit: 'tokens',
+            range: { min: 1000, max: 2000000 },
+            value: '',
+            effective: '100000',
+            changed: false
+        })
+        const saved = await app(OWNER)
+            .put('/api/v1/server-settings')
+            .send({ values: { CUTTLELY_CHECK_MAX_TOKENS: 5000 } })
+        expect(saved.status).toBe(200)
+        const after = saved.body.settings.find((setting: { key: string }) => setting.key === 'CUTTLELY_CHECK_MAX_TOKENS')
+        expect(after).toMatchObject({ source: 'panel', value: '5000', effective: '5000', changed: false, runtime: true })
+        expect(saved.body.restart.changed).not.toContain('CUTTLELY_CHECK_MAX_TOKENS')
+        expect(runtimeNumber('CUTTLELY_CHECK_MAX_TOKENS')).toBe(5000)
+    })
+
+    it('refuses an out of range value and a pair that does not hold, and saves nothing', async () => {
+        const range = await app(OWNER)
+            .put('/api/v1/server-settings')
+            .send({ values: { CUTTLELY_CHECK_MAX_SECONDS: '5' } })
+        expect(range.status).toBe(400)
+        expect(range.body).toMatchObject({
+            code: 'OUT_OF_RANGE',
+            key: 'CUTTLELY_CHECK_MAX_SECONDS',
+            min: 10,
+            max: 1800
+        })
+        expect(typeof range.body.reason).toBe('string')
+        expect(range.body.reason).not.toContain('5')
+        const fraction = await app(OWNER)
+            .put('/api/v1/server-settings')
+            .send({ values: { CUTTLELY_CHECK_CONCURRENCY: '1.5' } })
+        expect(fraction.status).toBe(400)
+        expect(fraction.body.code).toBe('INVALID')
+        expect(fraction.body.key).toBe('CUTTLELY_CHECK_CONCURRENCY')
+        const pair = await app(OWNER)
+            .put('/api/v1/server-settings')
+            .send({ values: { CUTTLELY_CHECK_COUNT_DEFAULT: '101' } })
+        expect(pair.status).toBe(400)
+        expect(pair.body).toMatchObject({
+            code: 'CROSS_FIELD',
+            key: 'CUTTLELY_CHECK_COUNT_DEFAULT',
+            min: 1,
+            max: 100
+        })
+        expect(fs.existsSync(path.join(dir, SETTINGS_FILE))).toBe(false)
+    })
+
+    it('answers 200 when the settings file is corrupt', async () => {
+        fs.mkdirSync(dir, { recursive: true })
+        fs.writeFileSync(path.join(dir, SETTINGS_FILE), '{', 'utf8')
+        const res = await app(OWNER).get('/api/v1/server-settings')
+        expect(res.status).toBe(200)
+        const tokens = res.body.settings.find((setting: { key: string }) => setting.key === 'CUTTLELY_CHECK_MAX_TOKENS')
+        expect(tokens).toMatchObject({ source: 'default', effective: '100000' })
     })
 })

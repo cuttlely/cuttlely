@@ -250,7 +250,7 @@ const NumberControl = ({ setting, value, disabled, onDraft, error }) => {
             onChange={(event) => onDraft(setting.key, fromDisplay(setting, event.target.value))}
             error={Boolean(error)}
             helperText={error}
-            inputProps={{ min: setting.min, max: setting.max, step: 'any' }}
+            inputProps={{ min: setting.min, max: setting.max, step: setting.runtime ? '1' : 'any' }}
             InputProps={unit ? { endAdornment: <InputAdornment position='end'>{unit}</InputAdornment> } : undefined}
         />
     )

@@ -5,6 +5,7 @@ import { IChatFlow, MODE } from '../Interface'
 import { Mutex } from 'async-mutex'
 import type Redis from 'ioredis'
 import type { QueueEvents, QueueEventsListener, QueueEventsProducer } from 'bullmq'
+import { runtimeNumber } from '../settings/runtime'
 
 interface CustomListener extends QueueEventsListener {
     updateRateLimiter: (args: { limitDuration: number; limitMax: number; limitMsg: string; id: string }) => void
@@ -243,17 +244,20 @@ export class RateLimiterManager {
 
 /** Client routes that fall through to the UI index. A few thousand a minute is ordinary browsing, refreshes, and deep links. */
 export const UI_PAGE_LIMIT_WINDOW_MS = 60 * 1000
-export const UI_PAGE_LIMIT_MAX = 3000
+
+export function uiPageLimitMax(): number {
+    return runtimeNumber('CUTTLELY_UI_PAGE_LIMIT_MAX')
+}
 
 /**
  * Limiter for the UI index fallback only. Success responses carry no rate-limit headers,
  * so a page load still looks like the uncounted handler. The key is the same client
  * address the prediction limiter uses.
  */
-export function uiPageRateLimiter(max = UI_PAGE_LIMIT_MAX) {
+export function uiPageRateLimiter(max?: number) {
     return rateLimit({
         windowMs: UI_PAGE_LIMIT_WINDOW_MS,
-        max,
+        max: max ?? (() => uiPageLimitMax()),
         standardHeaders: false,
         legacyHeaders: false,
         keyGenerator: (req) => rateLimitClientKey(req),

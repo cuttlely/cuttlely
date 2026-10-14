@@ -1,5 +1,6 @@
 // What the Server settings page reads and writes. Owner only (routes/server-settings). Secret values never leave
-// the server: a secret is shown as set or not set. Every change applies at the next start.
+// the server: a secret is shown as set or not set. A runtime limit applies on the next use. Every other change
+// applies at the next start.
 import fs from 'fs'
 import path from 'path'
 import { StartState } from './apply'
@@ -13,7 +14,8 @@ import {
 import { AUTHKIT_KEYS, authKitComplete, authKitEnvironment, authKitTested, readAuthKitProof } from './authkit-proof'
 import { HistoryEntry, appendHistory, describeChanges, readHistory } from './history'
 import { KEPT_OUT, SECTIONS, SETTINGS, SettingDef, isKeptOut, settingFor } from './registry'
-import { ResolvedSetting, effectiveValue, resolveSettings } from './resolve'
+import { ResolvedSetting, effectiveValue, isBlank, resolveSettings } from './resolve'
+import { runtimeConflict, runtimeSnapshot } from './runtime'
 import { requestRestart, restartInPlaceAvailable } from './restart'
 import { ROLLED_BACK_FILE } from './safeboot'
 import { drainRuns, runsInProgress, waitLimitMs } from './runs'
@@ -33,7 +35,9 @@ export type InstallKind = 'docker' | 'render' | 'source'
 
 export interface SettingView extends Omit<SettingDef, 'defaultValue'> {
     defaultValue?: string
-    source: ResolvedSetting['source']
+    source: ResolvedSetting['source'] | 'panel'
+    /** Whole-number bounds for a runtime limit. */
+    range?: { min: number; max: number }
     locked: boolean
     /** Plain settings: the saved or host value ('' when the default applies). Never present for secrets. */
     value?: string
@@ -66,8 +70,22 @@ export interface SettingsView {
 }
 
 export class SettingsError extends Error {
-    constructor(public status: number, public code: string, message: string, public errors: { key: string; message: string }[] = []) {
+    key?: string
+    reason?: string
+    min?: number
+    max?: number
+    constructor(
+        public status: number,
+        public code: string,
+        message: string,
+        public errors: { key: string; message: string }[] = [],
+        detail?: { key?: string; reason?: string; min?: number; max?: number }
+    ) {
         super(message)
+        this.key = detail?.key
+        this.reason = detail?.reason
+        this.min = detail?.min
+        this.max = detail?.max
     }
 }
 
@@ -119,7 +137,10 @@ export async function getView(deps: ServiceDeps): Promise<SettingsView> {
     const hostKeys = new Set(state.hostKeys)
     const resolved = resolveSettings({ env, hostKeys, file: read.values })
     const atStartResolved = resolveSettings({ env, hostKeys, file: state.ignored ? {} : state.atStart })
-    const changed = changedKeys(read.values, state.atStart, read.unreadable).filter((key) => !hostKeys.has(key))
+    const changed = changedKeys(read.values, state.atStart, read.unreadable).filter(
+        (key) => !hostKeys.has(key) && !settingFor(key)?.runtime
+    )
+    const live = runtimeSnapshot(env)
     const settings: SettingView[] = SETTINGS.map((setting, index) => {
         const row = resolved[index]
         const locked = row.source === 'host'
@@ -133,6 +154,19 @@ export async function getView(deps: ServiceDeps): Promise<SettingsView> {
             view.value = row.value
             view.running = atStartResolved[index].value
             view.effective = effectiveValue(row)
+        }
+        if (setting.runtime) {
+            const picked = live.get(setting.key)
+            if (picked) {
+                const shown = picked.source === 'default' ? '' : String(picked.value)
+                view.source = picked.source
+                view.locked = hostKeys.has(setting.key) && !isBlank(env[setting.key])
+                view.changed = false
+                view.range = { min: setting.min ?? 0, max: setting.max ?? 0 }
+                view.value = shown
+                view.running = shown
+                view.effective = String(picked.value)
+            }
         }
         return view
     })
@@ -219,7 +253,7 @@ export async function saveChanges(deps: ServiceDeps, input: unknown, by: string)
         throw new SettingsError(400, 'BAD_REQUEST', 'Send the changed settings as values.')
     }
     const hostKeys = new Set(deps.state.hostKeys)
-    const errors: { key: string; message: string }[] = []
+    const errors: { key: string; message: string; code?: string; min?: number; max?: number }[] = []
     const normalized: Record<string, string> = {}
     for (const [key, raw] of Object.entries(changes as Record<string, unknown>)) {
         const setting = settingFor(key)
@@ -237,11 +271,34 @@ export async function saveChanges(deps: ServiceDeps, input: unknown, by: string)
             continue
         }
         const checked = checkValue(setting, raw)
-        if (!checked.ok) errors.push({ key, message: checked.error })
+        if (!checked.ok) errors.push({ key, message: checked.error, code: checked.code, min: checked.min, max: checked.max })
         else normalized[key] = checked.value
     }
-    if (errors.length) throw new SettingsError(400, 'INVALID', 'Some settings could not be saved.', errors)
+    if (errors.length) throw refuse(errors)
+    const read = await readSaved(deps)
+    const merged: Record<string, string> = { ...read.values }
+    for (const [name, value] of Object.entries(normalized)) {
+        if (value === '') delete merged[name]
+        else merged[name] = value
+    }
+    const conflict = runtimeConflict(deps.env, hostKeys, merged, new Set(Object.keys(normalized)))
+    if (conflict) {
+        throw new SettingsError(400, conflict.code, conflict.reason, [{ key: conflict.key, message: conflict.reason }], conflict)
+    }
     return writeValues(deps, normalized, by, 'save')
+}
+
+function refuse(errors: { key: string; message: string; code?: string; min?: number; max?: number }[]): never {
+    const runtime = errors.filter((error) => error.code)
+    const only = runtime.length > 0 && runtime.length === errors.length
+    const first = runtime[0]
+    throw new SettingsError(
+        400,
+        only && first?.code ? first.code : 'INVALID',
+        only && first ? first.message : 'Some settings could not be saved.',
+        errors.map(({ key, message }) => ({ key, message })),
+        only && first ? { key: first.key, reason: first.message, min: first.min, max: first.max } : undefined
+    )
 }
 
 /** Writes changes to the file (blank removes), keeps secrets nobody touched, records history. */

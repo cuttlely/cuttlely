@@ -159,17 +159,17 @@ Before Publish, the check asks a few recent real questions again, once to Live a
 
 Each question runs the model twice, so a check costs tokens on the flow's model account. The server caps each check:
 
-| Limit          | Value                                                                                                                               |
-| -------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
-| Questions      | `count` from 1 to 100, 4 in the dialog. A list sent without `count` is still at most 10. Each question is at most 2,000 characters. |
-| Tokens         | `CUTTLELY_CHECK_MAX_TOKENS`, 100,000 by default. See [History settings](./versioning-settings.md#publish-check-limits).             |
-| Time           | `CUTTLELY_CHECK_MAX_SECONDS`, 180 by default, and at most 60 seconds for any one run.                                               |
-| At a time      | `CUTTLELY_CHECK_CONCURRENCY`, 2 by default, from 1 to 8. Live and the draft for one question still run one after the other.         |
-| Checks at once | One per flow, three on the server.                                                                                                  |
+| Limit          | Value                                                                                                                                                             |
+| -------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Questions      | `count` from 1 to the question cap (100 by default). 4 in the dialog. A list sent without `count` is still at most 10. Each question is at most 2,000 characters. |
+| Tokens         | `CUTTLELY_CHECK_MAX_TOKENS`, 100,000 by default. See [History settings](./versioning-settings.md#publish-check-limits).                                           |
+| Time           | `CUTTLELY_CHECK_MAX_SECONDS`, 180 by default, and 60 seconds by default for any one run (`CUTTLELY_CHECK_RUN_TIMEOUT_MS`).                                        |
+| At a time      | `CUTTLELY_CHECK_CONCURRENCY`, 2 by default, from 1 to 8. Live and the draft for one question still run one after the other.                                       |
+| Checks at once | One per flow, three on the server.                                                                                                                                |
 
 When a token or time limit is reached, the check stops starting new questions. Questions already started finish, so the token total can go a little past the cap. A question counts only when both Live and the draft answered it. One question failing does not stop the others: that row has an error, and the rest continue. **Stop** keeps the questions that already finished.
 
-Which questions run when you send `count`: the most recent ones people asked this flow, newest first. Message time decides the order, and the message id breaks a tie, newest id first. The same wording counts once. Capitals and extra spaces are ignored, and the newest copy is kept. The same count on the same history returns the same questions. It is not a random sample. Questions sent with files are left out. The server reads the newest messages, 200 at a time, until it has 100 different questions or it has read 2,000 messages or the history ends. If it stops at 2,000 messages before it has 100 different questions, `pastTruncated` is true: there may be older questions it did not reach. If fewer different questions exist than `count`, it compares every one it found.
+Which questions run when you send `count`: the most recent ones people asked this flow, newest first. Message time decides the order, and the message id breaks a tie, newest id first. The same wording counts once. Capitals and extra spaces are ignored, and the newest copy is kept. The same count on the same history returns the same questions. It is not a random sample. Questions sent with files are left out. The server reads the newest messages, 200 at a time, until it has the question cap (100 by default) or it has read the scan cap (2,000 messages by default) or the history ends. If it stops at the scan cap before it has that many different questions, `pastTruncated` is true: there may be older questions it did not reach. If fewer different questions exist than `count`, it compares every one it found.
 
 What a check never does:
 

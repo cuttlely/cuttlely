@@ -97,7 +97,12 @@ function handle(work: (req: Request) => Promise<unknown> | unknown, status = 200
                 return res.status(400).json({ code: 'INVALID', message: error.message, errors: error.errors })
             }
             if (error instanceof SettingsError) {
-                return res.status(error.status).json({ code: error.code, message: error.message, errors: error.errors })
+                const body: Record<string, unknown> = { code: error.code, message: error.message, errors: error.errors }
+                if (error.key !== undefined) body.key = error.key
+                if (error.reason !== undefined) body.reason = error.reason
+                if (error.min !== undefined) body.min = error.min
+                if (error.max !== undefined) body.max = error.max
+                return res.status(error.status).json(body)
             }
             next(error)
         }

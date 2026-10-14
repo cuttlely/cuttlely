@@ -82,6 +82,29 @@ The row cap is the page size. A lower cap puts fewer rows into the specialist's 
 
 The query timeout stops a statement that runs too long, on the private store and on a Postgres URL. A PostgreSQL MCP node can set a lower **Row cap** or a shorter **Query timeout (seconds)** under **Additional Parameters**. Those fields cannot go above the values here. Leave them empty to use these settings. [Analyst mode](./analyst.md#safety).
 
+## Limits that apply immediately
+
+These limits are read on each use. A saved change applies to the next check, import, or page load. A restart is not required. The host value wins when it is a whole number inside the range. Otherwise the value saved here is used, and otherwise the default. A value outside the range is refused when you save it. A host value that is not a whole number in range is ignored.
+
+The question count default cannot be above the question cap. The rating scan must be at least the rated-answer import cap. Saving a pair that breaks either rule is refused.
+
+| Setting                      | Variable                         | Default       | Range                                      |
+| ---------------------------- | -------------------------------- | ------------- | ------------------------------------------ |
+| **Publish check token cap**  | `CUTTLELY_CHECK_MAX_TOKENS`      | 100000 tokens | 1000 to 2000000 tokens                     |
+| **Publish check time limit** | `CUTTLELY_CHECK_MAX_SECONDS`     | 180 seconds   | 10 to 1800 seconds                         |
+| **Questions at once**        | `CUTTLELY_CHECK_CONCURRENCY`     | 2             | 1 to 8                                     |
+| **One run timeout**          | `CUTTLELY_CHECK_RUN_TIMEOUT_MS`  | 60000 ms      | 10000 to 600000 ms                         |
+| **Keep a finished check**    | `CUTTLELY_CHECK_KEEP_MINUTES`    | 30 minutes    | 5 to 1440 minutes                          |
+| **Question cap**             | `CUTTLELY_CHECK_COUNT_MAX`       | 100           | 1 to 500                                   |
+| **Questions by default**     | `CUTTLELY_CHECK_COUNT_DEFAULT`   | 4             | 1 to the question cap                      |
+| **Messages scanned**         | `CUTTLELY_CHECK_SCAN_CAP`        | 2000          | 500 to 20000                               |
+| **Harness turns scanned**    | `CUTTLELY_HARNESS_TURN_SCAN_CAP` | 2000          | 500 to 20000                               |
+| **Rated answers added**      | `CUTTLELY_RATING_IMPORT_CAP`     | 500           | 50 to 5000                                 |
+| **Ratings scanned**          | `CUTTLELY_RATING_SCAN_CAP`       | 1000          | at least the import cap, and at most 20000 |
+| **Page loads a minute**      | `CUTTLELY_UI_PAGE_LIMIT_MAX`     | 3000          | 100 to 50000                               |
+
+The routes are in the [Server settings API](../reference/server-settings-api.md). Publish check behaviour is in [History settings](../reference/versioning-settings.md#publish-check-limits).
+
 ## Set up AuthKit
 
 In **Sign-in & identity**, **Set up AuthKit** walks through four steps:
