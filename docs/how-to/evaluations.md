@@ -13,8 +13,9 @@ The organization owner can do every row. Anyone else needs the key on their role
 | Action                                        | Permission                                                                                                                                                                                                                               |
 | --------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Open Datasets, and read a dataset             | `datasets:view`                                                                                                                                                                                                                          |
-| Add a dataset, add a row, or upload a CSV     | `datasets:create`                                                                                                                                                                                                                        |
-| Edit a dataset or a row, and change row order | `datasets:update`. Add and **Upload CSV** on a dataset also accept `datasets:create`.                                                                                                                                                    |
+| Add a dataset                                 | `datasets:create`                                                                                                                                                                                                                        |
+| Add a row, or upload a CSV                    | `datasets:create` only. The dataset page still shows **New Item** and **Upload CSV** for `datasets:update`, and those saves are refused.                                                                                                 |
+| Edit the dataset, edit a row, or reorder rows | `datasets:create` or `datasets:update`. The dataset page shows the edit control for either key.                                                                                                                                          |
 | Delete a dataset or a row                     | `datasets:delete`                                                                                                                                                                                                                        |
 | Save a chat answer as a row                   | **Add to test set** needs `datasets:create`, or `datasets:update` together with `datasets:view`. It also needs the view key for that flow.                                                                                               |
 | Open Evaluators                               | `evaluators:view`                                                                                                                                                                                                                        |
@@ -44,7 +45,7 @@ A dataset is a named list of rows. Each row is an input and the output you expec
 2. In **Add Dataset**, type a name and a description. Select **Add**.
 3. Open the dataset. Select **New Item**. **Input** and **Anticipated Output** are both required. Select **Add**.
 
-The table headers are **Input** and **Expected Output**. Drag the handle at the right of a row to change the order. The check asks rows in that order. Edit and the trash icon need the update and delete keys above.
+The table headers are **Input** and **Expected Output**. Drag the handle at the right of a row to change the order. The check asks rows in that order. Adding a row and **Upload CSV** need `datasets:create`. The page still shows **New Item** and **Upload CSV** for a role that can only update, and those saves are refused. Editing the dataset, editing a row, and reordering accept `datasets:create` or `datasets:update`. The trash icon needs `datasets:delete`.
 
 A made-up bakery set looks like this:
 
@@ -113,15 +114,15 @@ Use this when the flow is supposed to return an object, such as `{"loaf":"rye","
 
 **Evaluator Type** is **Evaluate Metrics (Numeric)**. Pick the measure, an operator, and a number.
 
-| Label                   | What it measures                                                                                 |
-| ----------------------- | ------------------------------------------------------------------------------------------------ |
-| **Total Tokens**        | Prompt tokens plus completion tokens, when the run recorded a total.                             |
-| **Prompt Tokens**       | Tokens in the prompt. The Publish check does not record this split, so the score is Error.       |
-| **Completion Tokens**   | Tokens the model generated. The Publish check does not record this split, so the score is Error. |
-| **Total API Latency**   | Time for the prediction, in milliseconds.                                                        |
-| **LLM Latency**         | Model time, in milliseconds. On the Publish check this is the same duration as the API time.     |
-| **Chatflow Latency**    | Time spent in the flow, in milliseconds. On the Publish check this is that same duration.        |
-| **Output Chars Length** | Characters in the answer.                                                                        |
+| Label                   | What it measures                                                                                    |
+| ----------------------- | --------------------------------------------------------------------------------------------------- |
+| **Total Tokens**        | Prompt tokens plus completion tokens, when the run recorded a total.                                |
+| **Prompt Tokens**       | Tokens in the prompt. The Publish check does not record this split, so the score is Error.          |
+| **Completion Tokens**   | Tokens the model generated. The Publish check does not record this split, so the score is Error.    |
+| **Total API Latency**   | Time for the prediction, in milliseconds.                                                           |
+| **LLM Latency**         | Model time, in milliseconds. On the Publish check this is the same duration as the API time.        |
+| **Chatflow Latency**    | Time spent in the flow, in milliseconds. On the Publish check this is that same duration.           |
+| **Output Chars Length** | Characters in the answer after it is lowercased and trimmed, so surrounding spaces are not counted. |
 
 Operators are **Equals**, **Not Equals**, **Greater Than**, **Less Than**, **Greater Than or Equals**, and **Less Than or Equals**.
 
@@ -137,10 +138,10 @@ A bakery length check named `Short answer` uses **Output Chars Length**, **Less 
 
 On the evaluation page, the last step of **Start New Evaluation** picks the grading model and a credential saved in this team. On the Publish check, the grader uses the model credential saved on the flow, and only a credential this workspace can use. If that model cannot be started, text, JSON, and numeric scores stay, and each model score is Error with `The grading model could not be started.`
 
-The Publish check turns the grade into Pass or Fail only in these cases:
+The Publish check uses these fields as the score:
 
--   A field named `result` whose value is `Pass`, `Fail`, or `Error`.
--   A boolean field named `pass`, `passed`, or `correct`.
+-   A field named `result` whose value is `Pass`, `Fail`, or `Error`. `Error` stays Error.
+-   A boolean field named `pass`, `passed`, or `correct`. True is Pass and false is Fail.
 -   Exactly one boolean anywhere in the grade. True is Pass and false is Fail.
 
 A grade that is only a number stays Error. The Correctness sample asks for a numeric score, so it does not Pass or Fail the Publish check. For the gate, use a schema with one boolean, for example a property `pass` of type `boolean`, and a prompt that answers whether the reply matches `{expectedOutput}`.
