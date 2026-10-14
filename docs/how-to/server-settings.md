@@ -1,6 +1,6 @@
 # Server settings
 
-**Admin** > **Server settings** is where the owner changes how this server runs: sign-in, the database, the agent runtime, the analyst, models, file storage, security, integrations and advanced options. You change values on the page, review them, and restart Cuttlely to apply them. Nothing here needs a terminal or a host's environment page.
+**Admin** > **Server Settings** is where the owner changes how this server runs: sign-in, the database, the agent runtime, the analyst, models, file storage, security, integrations and advanced options. You change values on the page, review them, and restart Cuttlely to apply them. Nothing here needs a terminal or a host's environment page.
 
 ![Server settings in the light theme, open at Sign-in & identity. The Set up your server tiles sit at the top, the sections are listed on the left, and the Sign in with WorkOS AuthKit card has a Set up AuthKit button. Owner password sign-in is on and marked Locked. In the sidebar, Admin, Server Settings is the page you are on.](../images/server-settings/server-settings-signin.png)
 

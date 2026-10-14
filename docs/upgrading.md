@@ -105,7 +105,7 @@ Then set `CUTTLELY_IMAGE=ghcr.io/cuttlely/cuttlely:<the version you had>` in `.e
 
 ## If a server setting stops Cuttlely from starting
 
-Settings saved from **Admin**, **Server settings** apply when Cuttlely starts. If two starts in a row do not finish after a change, Cuttlely puts back the last settings that started and says so in the log. The settings that did not start are kept beside them as `server.rolled-back.json`.
+Settings saved from **Admin**, **Server Settings** apply when Cuttlely starts. If two starts in a row do not finish after a change, Cuttlely puts back the last settings that started and says so in the log. The settings that did not start are kept beside them as `server.rolled-back.json`.
 
 You can also fix it by hand. Changes apply at the next start, and secret values are never printed.
 
