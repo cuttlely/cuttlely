@@ -109,6 +109,19 @@ async function stampFeedback(dataSource, id, value) {
     await dataSource.query(`UPDATE "chat_message_feedback" SET "createdDate" = ? WHERE "id" = ?`, [value, id])
 }
 
+function storedClock(date) {
+    return date.toISOString().replace('T', ' ').replace('Z', '')
+}
+
+function storedFraction(date) {
+    return date
+        .toISOString()
+        .replace(/\.\d{3}Z$/, '')
+        .replace('T', ' ')
+}
+
+const STORED_RATING_TIMESTAMP = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(\.\d{1,6})?$/
+
 async function assertDeletedMicrosecondAnchor(dataSource, api) {
     const now = Date.now()
     const dataset = await dataSource.getRepository(Dataset).save({
@@ -122,7 +135,7 @@ async function assertDeletedMicrosecondAnchor(dataSource, api) {
         type: 'CHATFLOW',
         workspaceId: WORKSPACE
     })
-    const fraction = new Date(now - 2 * 60 * 60 * 1000).toISOString().replace(/\.\d{3}Z$/, '')
+    const fraction = storedFraction(new Date(now - 2 * 60 * 60 * 1000))
     const digits = ['000600', '000400', '000200', '000100']
     const feedbacks = []
     for (let index = 0; index < digits.length; index += 1) {
@@ -151,7 +164,7 @@ async function assertDeletedMicrosecondAnchor(dataSource, api) {
             content: 'No.',
             createdDate: at
         })
-        await stampFeedback(dataSource, feedback.id, `${fraction}.${digits[index]}Z`)
+        await stampFeedback(dataSource, feedback.id, `${fraction}.${digits[index]}`)
         feedbacks.push(feedback)
     }
     let deleted = false
@@ -191,7 +204,7 @@ async function assertClientCursorDeletedBeforePage(dataSource, api) {
         type: 'CHATFLOW',
         workspaceId: WORKSPACE
     })
-    const fraction = new Date(now - 2 * 60 * 60 * 1000).toISOString().replace(/\.\d{3}Z$/, '')
+    const fraction = storedFraction(new Date(now - 2 * 60 * 60 * 1000))
     const digits = ['000600', '000400', '000200', '000100']
     const feedbacks = []
     for (let index = 0; index < digits.length; index += 1) {
@@ -220,7 +233,7 @@ async function assertClientCursorDeletedBeforePage(dataSource, api) {
             content: 'No.',
             createdDate: at
         })
-        await stampFeedback(dataSource, feedback.id, `${fraction}.${digits[index]}Z`)
+        await stampFeedback(dataSource, feedback.id, `${fraction}.${digits[index]}`)
         feedbacks.push(feedback)
     }
     const first = await api.post('/datasets/rows/from-ratings').send({
@@ -270,7 +283,7 @@ async function assertSecondRequestKeepsSameMillisecond(dataSource, api) {
         type: 'CHATFLOW',
         workspaceId: WORKSPACE
     })
-    const fraction = new Date(now - 2 * 60 * 60 * 1000).toISOString().replace(/\.\d{3}Z$/, '')
+    const fraction = storedFraction(new Date(now - 2 * 60 * 60 * 1000))
     const digits = ['000600', '000400', '000200', '000100']
     const feedbacks = []
     for (let index = 0; index < digits.length; index += 1) {
@@ -299,7 +312,7 @@ async function assertSecondRequestKeepsSameMillisecond(dataSource, api) {
             content: 'No.',
             createdDate: at
         })
-        await stampFeedback(dataSource, feedback.id, `${fraction}.${digits[index]}Z`)
+        await stampFeedback(dataSource, feedback.id, `${fraction}.${digits[index]}`)
         feedbacks.push(feedback)
     }
     const first = await api.post('/datasets/rows/from-ratings').send({
@@ -314,8 +327,7 @@ async function assertSecondRequestKeepsSameMillisecond(dataSource, api) {
     assert.equal(first.body.truncated, true)
     assert.equal(first.body.feedbackIds.length, 2)
     assert.equal(first.body.cursor.id, first.body.feedbackIds[1])
-    const anchorIndex = feedbacks.findIndex((item) => item.id === first.body.cursor.id)
-    assert.equal(String(first.body.cursor.createdDate).includes(digits[anchorIndex]), true)
+    assert.match(String(first.body.cursor.createdDate), STORED_RATING_TIMESTAMP)
     await dataSource.getRepository(ChatMessageFeedback).delete({ id: first.body.cursor.id })
     const second = await api.post('/datasets/rows/from-ratings').send({
         datasetId: dataset.id,
@@ -329,6 +341,90 @@ async function assertSecondRequestKeepsSameMillisecond(dataSource, api) {
     assert.equal(second.body.truncated, false)
     assert.equal(second.body.cursor, null)
     const expected = feedbacks.map((item) => item.id).filter((id) => !first.body.feedbackIds.includes(id))
+    assert.deepEqual(second.body.feedbackIds, expected)
+    assert.equal(new Set(second.body.feedbackIds).size, expected.length)
+}
+
+async function assertCursorTextSurvivesDeleteAfterPageLoad(dataSource, api) {
+    asOwner()
+    const now = Date.now()
+    const dataset = await dataSource.getRepository(Dataset).save({
+        name: 'Page text',
+        description: 'Made-up rows',
+        workspaceId: WORKSPACE
+    })
+    const flow = await dataSource.getRepository(ChatFlow).save({
+        name: 'Bakery desk',
+        flowData: '{}',
+        type: 'CHATFLOW',
+        workspaceId: WORKSPACE
+    })
+    const fraction = storedFraction(new Date(now - 2 * 60 * 60 * 1000))
+    const digits = ['000300', '000200', '000100']
+    const feedbacks = []
+    for (let index = 0; index < digits.length; index += 1) {
+        const at = new Date(now - 2 * 60 * 60 * 1000)
+        await dataSource.getRepository(ChatMessage).save({
+            role: 'userMessage',
+            chatflowid: flow.id,
+            content: `Question ${index}`,
+            chatType: 'INTERNAL',
+            chatId: `chat-loaded-${index}`,
+            createdDate: new Date(at.getTime() - 1000)
+        })
+        const answer = await dataSource.getRepository(ChatMessage).save({
+            role: 'apiMessage',
+            chatflowid: flow.id,
+            content: `Answer ${index}`,
+            chatType: 'INTERNAL',
+            chatId: `chat-loaded-${index}`,
+            createdDate: at
+        })
+        const feedback = await dataSource.getRepository(ChatMessageFeedback).save({
+            chatflowid: flow.id,
+            chatId: `chat-loaded-${index}`,
+            messageId: answer.id,
+            rating: 'THUMBS_DOWN',
+            content: 'No.',
+            createdDate: at
+        })
+        await stampFeedback(dataSource, feedback.id, `${fraction}.${digits[index]}`)
+        feedbacks.push(feedback)
+    }
+    let deletedId = null
+    setRatingScanTestHook({
+        pageSize: 1,
+        afterPageLoaded: async (page) => {
+            if (deletedId) return
+            deletedId = page[page.length - 1].id
+            await dataSource.getRepository(ChatMessageFeedback).delete({ id: deletedId })
+        }
+    })
+    const first = await api.post('/datasets/rows/from-ratings').send({
+        datasetId: dataset.id,
+        flowId: flow.id,
+        rating: 'THUMBS_DOWN',
+        days: 1,
+        limit: 1,
+        dryRun: true
+    })
+    assert.equal(first.status, 200, JSON.stringify(first.body))
+    assert.equal(deletedId, feedbacks[0].id)
+    assert.equal(first.body.truncated, true)
+    assert.equal(first.body.cursor && first.body.cursor.id, deletedId)
+    assert.match(String(first.body.cursor.createdDate), STORED_RATING_TIMESTAMP)
+    setRatingScanTestHook(null)
+    const second = await api.post('/datasets/rows/from-ratings').send({
+        datasetId: dataset.id,
+        flowId: flow.id,
+        rating: 'THUMBS_DOWN',
+        days: 1,
+        dryRun: true,
+        cursor: first.body.cursor
+    })
+    assert.equal(second.status, 200, JSON.stringify(second.body))
+    assert.equal(second.body.truncated, false)
+    const expected = feedbacks.slice(1).map((item) => item.id)
     assert.deepEqual(second.body.feedbackIds, expected)
     assert.equal(new Set(second.body.feedbackIds).size, expected.length)
 }
@@ -2158,16 +2254,34 @@ describe('evaluation routes', () => {
                 rating: 'THUMBS_DOWN',
                 days: 7,
                 dryRun: true,
-                cursor: { createdDate: new Date().toISOString(), id: 'not-a-uuid' }
+                cursor: { createdDate: storedClock(new Date()), id: 'not-a-uuid' }
             })
             assert.equal(badCursorId.status, 400, JSON.stringify(badCursorId.body))
-            const missingCursor = await api.post('/datasets/rows/from-ratings').send({
+            const numericCursor = await api.post('/datasets/rows/from-ratings').send({
+                datasetId: dataset.id,
+                flowId: flow.id,
+                rating: 'THUMBS_DOWN',
+                days: 7,
+                dryRun: true,
+                cursor: { createdDate: '1', id: '00000000-0000-4000-8000-000000000000' }
+            })
+            assert.equal(numericCursor.status, 400, JSON.stringify(numericCursor.body))
+            const isoCursor = await api.post('/datasets/rows/from-ratings').send({
                 datasetId: dataset.id,
                 flowId: flow.id,
                 rating: 'THUMBS_DOWN',
                 days: 7,
                 dryRun: true,
                 cursor: { createdDate: new Date().toISOString(), id: '00000000-0000-4000-8000-000000000000' }
+            })
+            assert.equal(isoCursor.status, 400, JSON.stringify(isoCursor.body))
+            const missingCursor = await api.post('/datasets/rows/from-ratings').send({
+                datasetId: dataset.id,
+                flowId: flow.id,
+                rating: 'THUMBS_DOWN',
+                days: 7,
+                dryRun: true,
+                cursor: { createdDate: storedClock(new Date()), id: '00000000-0000-4000-8000-000000000000' }
             })
             assert.equal(missingCursor.status, 200, JSON.stringify(missingCursor.body))
             const missingIds = await api.post('/datasets/rows/from-ratings').send({
@@ -2884,7 +2998,7 @@ describe('evaluation routes', () => {
                 rating: 'THUMBS_DOWN',
                 days: 1,
                 dryRun: true,
-                cursor: { createdDate: when.toISOString(), id: feedback.id }
+                cursor: { createdDate: storedClock(when), id: feedback.id }
             })
             assert.equal(result.status, 200, JSON.stringify(result.body))
             assert.equal(result.body.count, 0)
@@ -3117,6 +3231,17 @@ describe('evaluation routes', () => {
         }
     })
 
+    it('deleting the last rating after the page loads still returns its stored time', async () => {
+        const { dataSource, api, cleanup } = await openSqlite()
+        try {
+            await assertCursorTextSurvivesDeleteAfterPageLoad(dataSource, api)
+        } finally {
+            setRatingScanTestHook(null)
+            asOwner()
+            await cleanup()
+        }
+    })
+
     it('a second request keeps same-millisecond ratings after the anchor is deleted on postgres', async (t) => {
         if (!PG_PASSWORD) {
             t.skip('postgres evaluation routes: PGPASSWORD is unset')
@@ -3147,6 +3272,47 @@ describe('evaluation routes', () => {
             asOwner()
             await seed(dataSource)
             await assertSecondRequestKeepsSameMillisecond(dataSource, request(httpApp()))
+        } finally {
+            setRatingScanTestHook(null)
+            asOwner()
+            if (dataSource.isInitialized) await dataSource.destroy()
+            const drop = new Client({ host: '127.0.0.1', user: 'postgres', password: PG_PASSWORD, database: 'postgres' })
+            await drop.connect()
+            await drop.query(`DROP DATABASE IF EXISTS ${name}`)
+            await drop.end()
+        }
+    })
+
+    it('deleting the last rating after the page loads still returns its stored time on postgres', async (t) => {
+        if (!PG_PASSWORD) {
+            t.skip('postgres evaluation routes: PGPASSWORD is unset')
+            return
+        }
+        const { Client } = serverRequire('pg')
+        const name = `cuttlely_eval_pagetext_${process.pid}`
+        const admin = new Client({ host: '127.0.0.1', user: 'postgres', password: PG_PASSWORD, database: 'postgres' })
+        await admin.connect()
+        await admin.query(`DROP DATABASE IF EXISTS ${name}`)
+        await admin.query(`CREATE DATABASE ${name}`)
+        await admin.end()
+        const dataSource = new DataSource({
+            type: 'postgres',
+            host: '127.0.0.1',
+            port: 5432,
+            username: 'postgres',
+            password: PG_PASSWORD,
+            database: name,
+            synchronize: false,
+            entities: ROUND_TRIP_ENTITIES,
+            migrations: postgresMigrations
+        })
+        try {
+            await dataSource.initialize()
+            await dataSource.runMigrations()
+            appHandle.AppDataSource = dataSource
+            asOwner()
+            await seed(dataSource)
+            await assertCursorTextSurvivesDeleteAfterPageLoad(dataSource, request(httpApp()))
         } finally {
             setRatingScanTestHook(null)
             asOwner()
@@ -3356,7 +3522,7 @@ describe('evaluation routes', () => {
                 same[1].feedback.id,
                 same[2].feedback.id
             ])
-            const fraction = new Date(now - 3 * 60 * 60 * 1000).toISOString().replace(/\.\d{3}Z$/, '')
+            const fraction = storedFraction(new Date(now - 3 * 60 * 60 * 1000))
             const fine = []
             for (let index = 0; index < 3; index += 1) {
                 fine.push(await make(10 + index, new Date(now - 3 * 60 * 60 * 1000)))
@@ -3364,7 +3530,7 @@ describe('evaluation routes', () => {
             const digits = ['123456', '123400', '123000']
             for (let index = 0; index < fine.length; index += 1) {
                 await dataSource.query(`UPDATE "chat_message_feedback" SET "createdDate" = ? WHERE "id" = ?`, [
-                    `${fraction}.${digits[index]}Z`,
+                    `${fraction}.${digits[index]}`,
                     fine[index].feedback.id
                 ])
             }

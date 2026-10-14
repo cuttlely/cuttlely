@@ -27,8 +27,23 @@ const RATING_PREVIEW_CHARS = 160
 const RATING_DAY_MS = 24 * 60 * 60 * 1000
 const RATING_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const RATING_CURSOR_DATE_MAX = 80
+// CAST text the drivers return: YYYY-MM-DD HH:MM:SS, optional fraction of 1 to 6 digits.
+// Postgres drops trailing zeros. "1" and an ISO "T" form both parse as dates and are still rejected.
+const STORED_RATING_TIMESTAMP = /^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2}):(\d{2})(?:\.(\d{1,6}))?$/
 
 type RatingCursor = { createdDate: string; id: string }
+
+function isStoredRatingTimestamp(value: string): boolean {
+    if (value.length === 0 || value.length > RATING_CURSOR_DATE_MAX) return false
+    const match = STORED_RATING_TIMESTAMP.exec(value)
+    if (!match) return false
+    const month = Number(match[2])
+    const day = Number(match[3])
+    const hour = Number(match[4])
+    const minute = Number(match[5])
+    const second = Number(match[6])
+    return month >= 1 && month <= 12 && day >= 1 && day <= 31 && hour <= 23 && minute <= 59 && second <= 59
+}
 
 // The next call passes this back and the scan starts strictly older than this rating.
 function parseRatingCursor(value: unknown): RatingCursor | null {
@@ -40,15 +55,11 @@ function parseRatingCursor(value: unknown): RatingCursor | null {
     if (typeof cursor.id !== 'string' || !RATING_ID_PATTERN.test(cursor.id)) {
         throw new AppError(StatusCodes.BAD_REQUEST, 'cursor must be a createdDate and an id.')
     }
-    if (typeof cursor.createdDate !== 'string') {
-        throw new AppError(StatusCodes.BAD_REQUEST, 'cursor must be a createdDate and an id.')
-    }
-    const createdDate = cursor.createdDate.trim()
-    if (createdDate.length === 0 || createdDate.length > RATING_CURSOR_DATE_MAX || Number.isNaN(new Date(createdDate).getTime())) {
+    if (typeof cursor.createdDate !== 'string' || !isStoredRatingTimestamp(cursor.createdDate)) {
         throw new AppError(StatusCodes.BAD_REQUEST, 'cursor must be a createdDate and an id.')
     }
     // Keep the caller's text. A JS Date would drop microseconds before the next page is read.
-    return { createdDate, id: cursor.id }
+    return { createdDate: cursor.createdDate, id: cursor.id }
 }
 
 function parseFeedbackIds(value: unknown): string[] | null {
@@ -66,15 +77,21 @@ function parseFeedbackIds(value: unknown): string[] | null {
     return ids
 }
 
-// Postgres keeps microseconds. A JS Date does not, so the comparison uses the cursor row's stored time.
+function escapedFeedbackName(repo: Repository<ChatMessageFeedback>, property: string, fallback: string): string {
+    const escape = (name: string) => repo.metadata.connection.driver.escape(name)
+    return escape(repo.metadata.findColumnWithPropertyName(property)?.databaseName || fallback)
+}
+
+function escapedFeedbackAlias(repo: Repository<ChatMessageFeedback>): string {
+    return repo.metadata.connection.driver.escape('feedback')
+}
+
+// Postgres keeps microseconds. A JS Date does not, so the comparison uses the cursor's stored text.
 // The outer names are escaped here. TypeORM's property rewrite is not relied on, so camelCase is not folded.
 function olderThanStoredCursor(repo: Repository<ChatMessageFeedback>): string {
-    const escape = (name: string) => repo.metadata.connection.driver.escape(name)
-    const column = (property: string, fallback: string) =>
-        escape(repo.metadata.findColumnWithPropertyName(property)?.databaseName || fallback)
-    const created = column('createdDate', 'createdDate')
-    const id = column('id', 'id')
-    const alias = escape('feedback')
+    const created = escapedFeedbackName(repo, 'createdDate', 'createdDate')
+    const id = escapedFeedbackName(repo, 'id', 'id')
+    const alias = escapedFeedbackAlias(repo)
     // Bound text and id. The rating may already be gone; the stored text on the cursor is enough.
     return `(${alias}.${created} < :beforeDate OR (${alias}.${created} = :beforeDate AND ${alias}.${id} < :beforeId))`
 }
@@ -82,38 +99,35 @@ function olderThanStoredCursor(repo: Repository<ChatMessageFeedback>): string {
 function createdDateAsText(repo: Repository<ChatMessageFeedback>): string {
     const type = String(repo.metadata.connection.options.type || '')
     const asText = type === 'mysql' || type === 'mariadb' ? 'CHAR' : 'TEXT'
-    return `CAST(feedback.createdDate AS ${asText})`
+    return `CAST(${escapedFeedbackAlias(repo)}.${escapedFeedbackName(repo, 'createdDate', 'createdDate')} AS ${asText})`
 }
 
 function textFromRawCreated(row: Record<string, unknown>): string | null {
-    const text = row.created_text ?? row.createdText ?? row.feedback_created_text
-    return text == null ? null : String(text)
-}
-
-// A JS Date drops microseconds. Read the column as text so a deleted anchor keeps its stored time.
-async function rawCreatedDates(repo: Repository<ChatMessageFeedback>, ids: string[]): Promise<Map<string, string>> {
-    const found = new Map<string, string>()
-    if (!ids.length) return found
-    const rows = await repo
-        .createQueryBuilder('feedback')
-        .select('feedback.id', 'id')
-        .addSelect(createdDateAsText(repo), 'created_text')
-        .where('feedback.id IN (:...ids)', { ids })
-        .getRawMany()
-    for (const row of rows) {
-        const id = row.id ?? row.feedback_id
-        const text = textFromRawCreated(row)
-        if (id != null && text != null) found.set(String(id), text)
+    let text: unknown = row.created_text ?? row.createdText ?? row.feedback_created_text
+    if (text == null) {
+        for (const [key, value] of Object.entries(row)) {
+            if (key === 'created_text' || key.endsWith('_created_text')) {
+                text = value
+                break
+            }
+        }
     }
-    return found
+    return typeof text === 'string' && text.length > 0 ? text : null
 }
 
-function loadRatingFeedback(
+function rawFeedbackId(row: Record<string, unknown>): string | null {
+    const id = row.feedback_id ?? row.id ?? row.feedbackId
+    return id == null ? null : String(id)
+}
+
+// The stored text is selected with the page. A later lookup would miss a rating deleted in between.
+async function loadRatingFeedback(
     repo: Repository<ChatMessageFeedback>,
     args: { flowId: string; rating: string; since: Date; before: RatingCursor | null; take: number }
-) {
+): Promise<{ feedback: ChatMessageFeedback; createdText: string | null }[]> {
     const query = repo
         .createQueryBuilder('feedback')
+        .addSelect(createdDateAsText(repo), 'created_text')
         .where('feedback.chatflowid = :flowId', { flowId: args.flowId })
         .andWhere('feedback.rating = :rating', { rating: args.rating })
         .andWhere('feedback.createdDate >= :since', { since: args.since })
@@ -123,23 +137,40 @@ function loadRatingFeedback(
             beforeDate: args.before.createdDate
         })
     }
-    return query.orderBy('feedback.createdDate', 'DESC').addOrderBy('feedback.id', 'DESC').take(args.take).getMany()
+    const { entities, raw } = await query
+        .orderBy('feedback.createdDate', 'DESC')
+        .addOrderBy('feedback.id', 'DESC')
+        .take(args.take)
+        .getRawAndEntities()
+    const textById = new Map<string, string>()
+    for (const row of raw) {
+        const id = rawFeedbackId(row)
+        const text = textFromRawCreated(row)
+        if (id && text) textById.set(id, text)
+    }
+    return entities.map((feedback, index) => ({
+        feedback,
+        createdText: textById.get(feedback.id) ?? textFromRawCreated(raw[index] ?? {})
+    }))
 }
 
-// Tests shrink a page and delete a row after it has been read. Production leaves both unset.
+// Tests shrink a page, delete a row after the page query, or delete one between pages. Production leaves these unset.
 let ratingPageForTest: number | null = null
 let afterRatingPageForTest: ((page: ChatMessageFeedback[]) => Promise<void> | void) | null = null
+let afterRatingPageLoadedForTest: ((page: ChatMessageFeedback[]) => Promise<void> | void) | null = null
 let beforeFirstRatingPageForTest: (() => Promise<void> | void) | null = null
 
 export function setRatingScanTestHook(
     hook: {
         pageSize?: number
         afterPage?: (page: ChatMessageFeedback[]) => Promise<void> | void
+        afterPageLoaded?: (page: ChatMessageFeedback[]) => Promise<void> | void
         beforeFirstPage?: () => Promise<void> | void
     } | null
 ) {
     ratingPageForTest = hook?.pageSize && hook.pageSize > 0 ? hook.pageSize : null
     afterRatingPageForTest = hook?.afterPage ?? null
+    afterRatingPageLoadedForTest = hook?.afterPageLoaded ?? null
     beforeFirstRatingPageForTest = hook?.beforeFirstPage ?? null
 }
 
@@ -814,19 +845,20 @@ const addDatasetRowsFromRatings = async (
         let pageBefore = before
         while (!fixedIds && planned.length < limit && scanned < RATING_SCAN_CAP) {
             const take = Math.min(ratingPageForTest ?? RATING_PAGE, RATING_SCAN_CAP - scanned)
-            const page = await loadRatingFeedback(feedbackRepo, {
+            const loaded = await loadRatingFeedback(feedbackRepo, {
                 flowId: flow.id,
                 rating,
                 since,
                 before: pageBefore,
                 take
             })
-            if (!page.length) break
-            const rawPage = await rawCreatedDates(
-                feedbackRepo,
-                page.map((item) => item.id)
-            )
-            for (const [id, value] of rawPage) rawById.set(id, value)
+            if (!loaded.length) break
+            const page = loaded.map((item) => item.feedback)
+            // The stored text is already on this result. A delete here cannot drop the cursor.
+            if (afterRatingPageLoadedForTest) await afterRatingPageLoadedForTest(page)
+            for (const item of loaded) {
+                if (item.createdText) rawById.set(item.feedback.id, item.createdText)
+            }
             const messageIds = [...new Set(page.map((item) => item.messageId).filter((id) => typeof id === 'string' && id.length > 0))]
             const messages = messageIds.length ? await messageRepo.find({ where: { id: In(messageIds) } }) : []
             const messageById = new Map(messages.map((item) => [item.id, item]))
