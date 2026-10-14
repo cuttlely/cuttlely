@@ -15,6 +15,7 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 -   The README and homepage lead with testing before Publish, with a narrated video.
 -   README and homepage follow one order: team, testing, API, tools, start; homepage adds three start steps.
 -   The homepage start step says the first-account link is on the `No account yet` log line, from `docker compose logs cuttlely` or `npx cuttlely logs`.
+-   The testing section says the gate covers Publish of the current draft only, and names Roll back, Promote from Dev, and `PUT /api/v1/chatflows/:id`. The homepage shows the Publish check screenshot.
 
 ### Upgrade notes / breaking changes
 

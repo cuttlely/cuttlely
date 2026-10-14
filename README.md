@@ -74,7 +74,7 @@ Test with up to 100 question-and-answer pairs, with more on the roadmap.
 -   Chatflows, agentflows, harnesses and pipelines keep each saved version, with what changed and who changed it.
 -   Dev and Prod connect to the same GitHub repository. Prod lists what Dev published, shows what would change and which credentials it needs, and can run the same side-by-side check. Each server keeps its own credentials; only their names travel.
 
-Some paths, like Roll back and Promote from Dev, still change Live: [see which](./docs/how-to/versioning.md#require-a-passing-test-set-before-you-publish).
+The gate covers Publish of the current draft only. Roll back Live, Promote from Dev, and `PUT /api/v1/chatflows/:id` still change Live: [see which](./docs/how-to/versioning.md#require-a-passing-test-set-before-you-publish).
 
 On a chatflow, an agentflow, or a harness, the Publish dialog can replay recent questions (4, 10, 25, 50, or 100; 4 is selected first), once on Live and once on your draft, and show both answers side by side with the tokens and time each one took. An agentflow that starts from a form, a webhook, or a schedule replays that many recorded inputs instead. A pipeline lists what changed and does not run that check. The check never changes Live or your draft and leaves nothing in chat history. A flow with steps that post or write for real is skipped unless you choose to run it anyway. On a chatflow or a chat-started agentflow, under **Questions from**, choose **A dataset**, pick the evaluators, and turn on the passing test set. A harness can score a dataset for that run only, and a form, webhook, or schedule start cannot.
 
