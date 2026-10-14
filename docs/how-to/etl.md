@@ -12,7 +12,7 @@ The steps below use the **Outdoor Catalog** sample: a CSV of 33 outdoor products
 
 Select **ETL** in the sidebar. With no pipelines yet, the page says `No pipelines yet` and offers **Import Sample** and **New Pipeline**.
 
-![The ETL page with no pipelines. The title is ETL, with the line Load, clean, split, embed, and store data for retrieval. Import Sample and New Pipeline are at the top right. A What are you building? card is above an empty state that reads No pipelines yet, Import a sample, or start a blank pipeline.](../images/etl/etl-empty.png)
+![The ETL page with no pipelines. The title is ETL, with the line Load, clean, split, embed, and store data for retrieval. Import Sample and New Pipeline are at the top right. A What are you building? card offers Agent team, Chat / simple AI app, Workflow / automation, and Knowledge / data pipeline. The empty state reads No pipelines yet, Import a sample, or start a blank pipeline.](../images/etl/etl-empty.png)
 
 -   **Import Sample** opens a menu with the two samples from `samples/etl/`.
 -   **New Pipeline** opens a blank ETL canvas. Add nodes with **+** (**Add Node**), then save.
@@ -25,11 +25,11 @@ You can also open **Templates** in the sidebar and select the **ETL** chip, or s
 1. Select **Import Sample**.
 2. Select **Outdoor Catalog**.
 
-![The Import Sample menu open on the ETL page. Bakery Handbook: Reads the made-up bakery handbook (Markdown), splits it, and stores local hash embeddings. Used by the Try the demo team. Cuttlely Handbook: Reads this checkout as a repository, splits Markdown, and stores local embeddings. Outdoor Catalog: Loads a product CSV by SKU and stores it with local hash embeddings.](../images/etl/etl-import-sample.png)
+![The Import Sample menu. Bakery Handbook: Reads the made-up bakery handbook (Markdown), splits it, and stores local hash embeddings. Used by the Try the demo team. Cuttlely Handbook: Reads this checkout as a repository, splits Markdown, and stores local embeddings. Outdoor Catalog: Loads a product CSV by SKU and stores it with local hash embeddings.](../images/etl/etl-import-sample.png)
 
 The sample is saved as version 1 and opens on its canvas, `/etlcanvas/<id>`. **Paths** on the Streaming Files node is already set to the sample CSV in your install.
 
-![The Outdoor Catalog canvas. Recursive Character Text Splitter (Chunk Size 800, Chunk Overlap 80), Streaming Files (Paths set to the outdoor-catalog.csv sample, Format CSV), Clean & Transform, Local Vector Store (Collection outdoor-catalog), and Local Hash Embeddings (384 dimensions). Preview, Run, and Schedule buttons sit above the canvas.](../images/etl/etl-canvas-sample.png)
+![The Outdoor Catalog canvas, marked Live. Recursive Character Text Splitter (Chunk Size 800, Chunk Overlap 80), Streaming Files (the outdoor-catalog.csv sample, Format CSV, key column sku), Clean & Transform (Minimum Characters 20), Local Vector Store (collection outdoor-catalog), and Local Hash Embeddings (Dimensions 384). Preview, Run, and Schedule sit at the top right.](../images/etl/etl-canvas-sample.png)
 
 | Node                                  | What it does                                                                                                                          |
 | ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
@@ -53,7 +53,7 @@ Instead of adding nodes yourself, describe your data and let **Build with AI** p
 4. Under **Chat model that builds**, Cuttlely starts on a model you have a key for on the **Credentials** page, with your key picked when only one fits; **Show all models** and **More settings** hold the rest. There is no built-in key. Your choice is remembered for next time.
 5. Select **Build**.
 
-![The Build with AI dialog on a new ETL canvas. The line under the title reads It builds a first version you can change and saves it as a new pipeline. Every part is checked before it lands. Under Describe your data are three examples and a description of the outdoor catalog CSV, with sku as the id. Chat model that builds is OpenAI with the credential OpenAI main and the model gpt-4.1-mini. Build is at the bottom right.](../images/etl/build-with-ai-dialog.png)
+![The Build with AI dialog on a new ETL canvas. The line under the title reads It builds a first version you can change and saves it as a new pipeline. Every part is checked before it lands. Under Describe your data are three examples and a description of the outdoor catalog CSV at /workspace/samples/etl/data/outdoor-catalog.csv, with sku as the id. Chat model that builds is OpenAI, Show all 29 models, credential OpenAI main, model gpt-4.1-mini, temperature 0.9. Build is at the bottom right.](../images/etl/build-with-ai-dialog.png)
 
 The builder uses the bundled pipelines as examples. Unless you name others, it uses **Local Hash Embeddings** and the **Local Vector Store**, so the pipeline runs with no provider key. Before anything is saved, it checks the plan and fixes what fails:
 
@@ -64,11 +64,11 @@ The builder uses the bundled pipelines as examples. Unless you name others, it u
 
 The pipeline is saved right away as a new pipeline, named after its title (with a number when the name is taken), and opens on its own canvas. A message says what was built. When a node needs a credential you don't have yet, the message names it.
 
-![The built pipeline Outdoor Product Catalog ETL on the canvas with compact cards: Recursive Character Text Splitter (Chunk Size 1000, Chunk Overlap 200), Streaming Files with the catalog path, Format CSV and Key Column sku, Clean & Transform, Local Vector Store with Collection outdoor-catalog, and Local Hash Embeddings (384 dimensions) feeding the store. Preview, Run, and Schedule are at the top right.](../images/etl/build-with-ai-built.png)
+![The built pipeline Outdoor Product Catalog ETL, last edited by Rosa Diaz, on the canvas with compact cards: Recursive Character Text Splitter (Chunk Size 1000, Chunk Overlap 200), Streaming Files (Format CSV, Key Column or Field sku), Clean & Transform (Minimum Characters 1), Local Vector Store (Collection outdoor-catalog), and Local Hash Embeddings (Dimensions 384). Preview, Run, and Schedule are at the top right.](../images/etl/build-with-ai-built.png)
 
 Select a card to check or change its settings, then [preview](#preview-the-data) and [run](#run-the-pipeline) it as below. The builder also writes three starter searches. After the first run they wait under **Try retrieval** on the **Run** tab; select one to search.
 
-![The Pipeline panel on the Run tab after the runs, with v1 serving and 33 chunks indexed. Under Try retrieval are three starter searches: What are the best products for hiking?, Show me camping gear with good reviews., and Which products are suitable for outdoor cooking?. The first one was selected, so it fills the search box, and the results show catalog rows from data/outdoor-catalog.csv with their scores, starting with Talus Mid GTX Hiking Boot at 0.122.](../images/etl/build-with-ai-search.png)
+![The Pipeline panel on the Run tab for Outdoor Product Catalog ETL, with v1 serving and 33 chunks indexed. Under Try retrieval the search box reads What are the best products for hiking?, and the three starter chips are What are the best products for hiking?, Show me camping gear with good reviews., and Which products are suitable for outdoor cooking?. The first result chip is score 0.122 from data/outdoor-catalog.csv, Talus Mid GTX Hiking Boot.](../images/etl/build-with-ai-search.png)
 
 Build with AI always makes a new pipeline. When the canvas already has cards, the new pipeline opens in a new tab, so nothing on this canvas is lost. With classic cards, the same button builds the same pipeline with full-size cards. Harnesses and chatflows have the same button: see [Build a team with AI](./harnesses.md#build-a-team-with-ai) and [Build a chatflow with AI](./canvas.md#build-a-chatflow-with-ai).
 
@@ -90,7 +90,7 @@ Preview runs the pipeline on a few documents and shows what each step would prod
 2. Leave **Documents per source** at `5`, or pick `3`, `10`, or `25`.
 3. Select **Refresh Preview**.
 
-![The Preview tab. Documents per source is 5, Call embeddings is off, and Refresh Preview is below. Step 1 Load reads 5 documents from Streaming Files (1 files, 6.0 KB) and shows the first two products as cards with chips for chars, source, root, row, sku, category, and price.](../images/etl/etl-preview.png)
+![The Preview tab. Documents per source is 5, Call embeddings is off, and Refresh Preview is below. Step 1 Load reads 5 documents from Streaming Files (1 files, 6.0 KB) and shows product cards with chips for chars, source, root, row, sku, and category. The first card is Ridgeline 2P Ultralight Tent, sku TNT-2P-ULT, category Tents.](../images/etl/etl-preview.png)
 
 The preview has five numbered steps. Select a step to open it.
 
@@ -102,7 +102,7 @@ The preview has five numbered steps. Select a step to open it.
 | **4 Embed**             | The embeddings model, its dimensions, and the time it took.                                             |
 | **5 Store**             | `Written by a run. Preview never writes.`                                                               |
 
-![The Preview tab with Load and Clean & transform (5 kept, 0 dropped) collapsed, and Split (5 chunks, avg 217 chars, min 198, max 250) open. Each chunk card has a violet new chip.](../images/etl/etl-preview-steps.png)
+![The Preview tab with Split open: 5 chunks, avg 217 chars, min 198, max 250. Each chunk card has a violet new chip. The first open card is Ridgeline 2P Ultralight Tent, 250 chars, sku TNT-2P-ULT.](../images/etl/etl-preview-steps.png)
 
 **Call embeddings** is off by default. Local Hash Embeddings always run in the preview. Turn it on to also call a provider embeddings model. That call is billed to the model's credential.
 
@@ -116,7 +116,7 @@ A run reads every source, embeds the chunks, and writes them to the store. Save 
 2. Leave **Incremental** selected.
 3. Select **Start Run**.
 
-![The Run tab. New run has Incremental selected, with the caption Skips unchanged sources and chunks, embeds what changed, and deletes what disappeared. Batch size 64, Parallel batches 4, and Retries per batch 6 are below, then the green Start Run button.](../images/etl/etl-run-new.png)
+![The Run tab before a run, v1 and 0 chunks indexed. New run has Incremental selected, with the caption Skips unchanged sources and chunks, embeds what changed, and deletes what disappeared. Batch size, Parallel batches, and Retries per batch are below, then the green Start Run button.](../images/etl/etl-run-new.png)
 
 | Setting               | Meaning                                                                                                             |
 | --------------------- | ------------------------------------------------------------------------------------------------------------------- |
@@ -128,7 +128,7 @@ A run reads every source, embeds the chunks, and writes them to the store. Save 
 
 A run card appears under **New run**. The sample takes about a second.
 
-![The run card for Run f903985c: v1 · incremental · attempt 1 · started just now, a green succeeded chip, and a full progress bar at 6.0 KB of 6.0 KB, 100.0%. Embedded 33, Unchanged 0, Deleted 0, Rejected 0, Errors 0.](../images/etl/etl-run-done.png)
+![The run card for Run bde64ac1: v1 · incremental · attempt 1 · started just now, a green succeeded chip, and a full progress bar at 6.0 KB of 6.0 KB, 100.0%. Embedded 33, Unchanged 0, Deleted 0, Rejected 0, Errors 0. The panel reads v1 · serving v1 · 33 chunks indexed.](../images/etl/etl-run-done.png)
 
 The panel's first line now reads `v1 · serving v1 · 33 chunks indexed`. **Serving** is the version the ETL Retriever searches.
 
@@ -149,7 +149,7 @@ The panel's first line now reads `v1 · serving v1 · 33 chunks indexed`. **Serv
 
 Below the numbers, each step has a check mark when it is done, then a line of counts. The log at the bottom lists what happened, with times.
 
-![The steps of the finished run: Load 33 documents, 1 of 1 sources; Clean & transform 33 kept, 0 dropped; Split 33 chunks; Embed 33 embedded, 0 unchanged; Store 33 written; Delete removed 0 deleted. The log says Queued, Started, and Succeeded: 33 records read, 33 new. Try retrieval is below the card.](../images/etl/etl-run-steps.png)
+![The steps of Run bde64ac1: Load 33 documents, 1 of 1 sources; Clean & transform 33 kept, 0 dropped; Split 33 chunks; Embed 33 embedded, 0 unchanged; Store 33 written, 0s writing; Delete removed 0 deleted. The log says Queued, Started, and Succeeded: 33 records read, 33 new. Try retrieval is below the card.](../images/etl/etl-run-steps.png)
 
 While a run is going, **Pause** stops it after the current batch and **Cancel** stops it for good. A paused run shows **Resume**. A run that read to the end but rejected some records, or could not read a file, is `partial`. A file it could not read keeps the chunks from the last run. A `partial` run is served, the same as `succeeded`. If more than 5% of the records are rejected, after at least 100 records, the run fails instead and the served version does not change.
 
@@ -157,7 +157,7 @@ While a run is going, **Pause** stops it after the current batch and **Cancel** 
 
 Select **Start Run** again with nothing changed. The incremental run reads the file, sees it has not changed, and embeds nothing.
 
-![A second run, Run b4c0cb46, succeeded. Embedded 0, Unchanged 0 with 1 sources skipped, Deleted 0. Load reads 0 documents, 1 of 1 sources, 1 unchanged.](../images/etl/etl-run-incremental.png)
+![A second run, Run 2a500170, succeeded. Embedded 0, Unchanged 0 with 1 sources skipped, Deleted 0. Load reads 0 documents, 1 of 1 sources, 1 unchanged.](../images/etl/etl-run-incremental.png)
 
 Add, edit, or remove rows in the CSV and run again. Only the changed rows are embedded, and rows you removed are deleted from the store.
 
@@ -168,7 +168,7 @@ Add, edit, or remove rows in the CSV and run again. Only the changed rows are em
 1. Type a question in **Ask something the data should answer**, for example `tent for alpine starts`.
 2. Select **Search**.
 
-![Try retrieval with the query tent for alpine starts. Four results, each with a score chip and the source file: Basecamp 4 Family Tent at score 0.264, Summit Bivy Shelter at 0.254, Bear-Resistant Food Canister at 0.119, and Ridgeline 2P Ultralight Tent at 0.107](../images/etl/etl-try-retrieval.png)
+![Try retrieval with the query tent for alpine starts. Four results from data/outdoor-catalog.csv: Basecamp 4 Family Tent at score 0.264, Summit Bivy Shelter at 0.254, Bear-Resistant Food Canister at 0.119, and Ridgeline 2P Ultralight Tent at 0.107.](../images/etl/etl-try-retrieval.png)
 
 Each result shows its score, its source, and the chunk text. `No matches.` means the store has nothing close to the question.
 
@@ -184,11 +184,11 @@ To see a failure, change **Paths** on the Streaming Files node to a file that do
 
 **Preview** shows the problem before you run.
 
-![The Preview tab for v2 with a red message: Streaming Files: File or folder products-2026.csv was not found on the server. Load reads 0 documents and says No documents came out of the sources.](../images/etl/etl-preview-missing-file.png)
+![The Preview tab while version 1 is still serving. A red message reads Streaming Files: File or folder "products-2026.csv" was not found on the server. Load reads 0 documents and says No documents came out of the sources.](../images/etl/etl-preview-missing-file.png)
 
 After you publish, a run of that version fails with the same message.
 
-![A failed run of version 2. Split, Embed, Store, and Delete removed have empty circles. A red message says File or folder products-2026.csv was not found on the server. Retry From Checkpoint and Cancel buttons are below it, and the last log line is red. Try retrieval still searches version 1.](../images/etl/etl-run-failed.png)
+![Failed Run 5bb85f2c of version 2. The panel still reads serving v1. A red message says File or folder "products-2026.csv" was not found on the server. Retry From Checkpoint and Cancel are below it, and the last log line repeats that message. Try retrieval still searches version 1.](../images/etl/etl-run-failed.png)
 
 This run failed before it wrote anything, so the served data is as it was. The panel still reads `serving v1`, and **Try retrieval** still searches version 1. A run can also fail partway, for example when the embeddings provider stops answering. The batches it wrote before it stopped are already in the store, and search can return them. Retry the run, or start a new one, so the store matches a finished run again.
 
@@ -213,16 +213,16 @@ A **Code Repository** source can also read the Cuttlely checkout itself while `C
 1. Select **Versions** in the panel.
 2. Select **Restore** on the version you want.
 
-![The Versions tab. Version 2 has a latest chip and was saved at 7:49:02 AM. Version 1 has a green serving chip and a Restore button. Each row reads Streaming Files → Local Vector Store.](../images/etl/etl-versions.png)
+![The Versions tab while version 2 is latest and version 1 is serving. Version 2 was saved at 10:52:36 AM and version 1 at 10:52:26 AM. Version 1 has a Restore button. Each row reads Streaming Files → Local Vector Store.](../images/etl/etl-versions.png)
 
 The canvas loads that version. Nothing is saved yet: an asterisk appears before the name, and **Paths** is back to `outdoor-catalog.csv`.
 
-![The canvas after Restore on version 1. An asterisk before Outdoor Catalog shows the change is not saved. Paths on Streaming Files reads outdoor-catalog.csv again.](../images/etl/etl-version-restored.png)
+![The canvas after Restore on version 1. An asterisk before Outdoor Catalog shows the change is not saved, and the Live chip is still on. Paths on Streaming Files reads outdoor-catalog.csv again, and the Local Vector Store collection is outdoor-catalog.](../images/etl/etl-version-restored.png)
 
 3. Select **Save Pipeline**. The canvas stores a draft. Select **Publish**. The published pipeline is a new version, version 3. Versions 1 and 2 stay in the list.
 4. Run the pipeline. When the run succeeds, version 3 is serving.
 
-![The Versions tab after the save and the run. Version 3 has latest and serving chips. Versions 2 and 1 each have a Restore button.](../images/etl/etl-versions-after.png)
+![The Versions tab after the save and the run. The panel reads v3 · serving v3 · 33 chunks indexed. Version 3 has latest and serving chips. Versions 2 and 1 each have a Restore button. Each row reads Streaming Files → Local Vector Store.](../images/etl/etl-versions-after.png)
 
 The ETL Retriever serves the version of the last `succeeded` or `partial` run, not the last save. A version without a run is never served. A row marked `incomplete` is a version with a problem in its graph, such as a missing source, store, or embeddings connection. Fix the canvas, save the draft, and **Publish**. **Version history** at the top right is the same history for the whole canvas. See [Version history](./versioning.md).
 
@@ -230,7 +230,7 @@ The ETL Retriever serves the version of the last `succeeded` or `partial` run, n
 
 **History** lists every run of the pipeline, newest first. Each row has the run id, the version, the mode, the start time, how long it took, the counts, and the status.
 
-![The History tab with four runs. 9dd2fc71 on v3, succeeded. d5b60540 on v2, failed. b4c0cb46 on v1, succeeded with 0 embedded. f903985c on v1, succeeded with 33 embedded.](../images/etl/etl-history.png)
+![The History tab with four runs, newest first. a9bb2725 on v3, succeeded, 0 embedded. 5bb85f2c on v2, failed. 2a500170 on v1, succeeded, 0 embedded. bde64ac1 on v1, succeeded, 33 embedded.](../images/etl/etl-history.png)
 
 Select a row to open that run's card in **Run**. With no runs, the tab says `No runs yet. Start one from the Run tab.`
 
@@ -243,11 +243,11 @@ A schedule starts a run at a fixed interval or on a cron expression.
 3. Leave **Run** at **Incremental**.
 4. Select **Add Schedule**.
 
-![The Schedules tab. The caption reads Incremental is the default. A tick that finds a run still going is skipped, and the reason is kept on the schedule. Schedules live in this server process and fire again after a restart. New schedule: Kind Interval, Every 6, Unit hours, Run Incremental, and an Add Schedule button. Below: No schedule yet.](../images/etl/etl-schedule-form.png)
+![The Schedules tab before a schedule is saved. The caption reads Incremental is the default. A tick that finds a run still going is skipped, and the reason is kept on the schedule. Schedules live in this server process and fire again after a restart. New schedule: Kind Interval, Every 6, Unit hours, Run Incremental, and an Add Schedule button. Below: No schedule yet.](../images/etl/etl-schedule-form.png)
 
 The schedule appears below the form.
 
-![A schedule card under the form: Every 6 hours, with incremental and green active chips. Next run 10/10/2026, 1:49:37 PM, Last run never, Last result –. Edit, Pause, and Delete buttons.](../images/etl/etl-schedule.png)
+![A schedule card under the form: Every 6 hours, with incremental and green active chips. Next run 10/14/2026, 4:52:32 PM, Last run never, Last result –. Edit, Pause, and Delete buttons.](../images/etl/etl-schedule.png)
 
 -   **Kind** **Cron** takes five fields, `minute hour day month weekday`, in UTC. `0 2 * * *` runs at 02:00 UTC every day.
 -   **Edit** changes the schedule, **Pause** stops it until you select **Resume**, and **Delete** removes it.
@@ -263,7 +263,7 @@ A source reads files on the server, not on your computer. To use a file from you
 3. Select the copy icon (**Copy path**) next to the path that appears.
 4. Paste the path as a new line in **Paths** on the Streaming Files node, save, and run.
 
-![The bottom of the Preview tab. Upload a file to the server, with the hint Large files stream to disk without passing through memory. Paste the path into Streaming Files. Below the Choose File button, the uploaded crumb-co-bakes.csv is listed with its full path on the server and a copy icon.](../images/etl/etl-upload.png)
+![The bottom of the Preview tab. Upload a file to the server, with the hint Large files stream to disk without passing through memory. Paste the path into Streaming Files. Below Choose File, crumb-co-bakes.csv is listed with its path under the server upload folder and a copy icon.](../images/etl/etl-upload.png)
 
 Uploads go to `CUTTLELY_ETL_DIR/uploads/`, in a folder for your workspace. A pipeline in one workspace cannot read another workspace's uploads.
 
@@ -271,7 +271,7 @@ Uploads go to `CUTTLELY_ETL_DIR/uploads/`, in a folder for your workspace. A pip
 
 Once a pipeline is saved, the ETL page lists it. **Search pipelines** filters the list by name. **Upcoming runs** shows the next scheduled run of each pipeline.
 
-![The ETL page with Search pipelines, the What are you building? card, an Upcoming runs panel listing Outdoor Catalog, Every 6 hours, incremental, 10/10/2026 9:57:35 AM, and a table row for Outdoor Catalog: Streaming Files, Local Vector Store, 33 chunks, v1 and serving v1, a green succeeded chip, and the next run.](../images/etl/etl-list.png)
+![The ETL page with Search pipelines and the What are you building? card. Upcoming runs lists Outdoor Catalog, Every 6 hours, incremental, 10/14/2026, 4:52:32 PM. The table row is Outdoor Catalog: Streaming Files, Local Vector Store, Local Hash Embeddings, 33 chunks, v1 and serving v1, a green succeeded chip, and the same next run.](../images/etl/etl-list.png)
 
 | Column   | Meaning                                               |
 | -------- | ----------------------------------------------------- |
@@ -294,13 +294,13 @@ The **ETL Retriever** node searches a pipeline by name. Attach it to a Harness S
 3. Drag from the ETL Retriever output dot to the **Attached** dot on the Harness Specialist.
 4. Under **Pipeline**, select `Outdoor Catalog`. Each pipeline in the list shows the version it serves. A pipeline with no successful run says `No successful run yet`.
 
-    ![The Pipeline list open on the ETL Retriever node. One option: Outdoor Catalog, Serving version 1. The ETL Retriever is joined to the Attached input of a Harness Specialist named catalog.](../images/etl/etl-retriever-pick.png)
+    ![The Pipeline list open on the ETL Retriever. One option: Outdoor Catalog, Serving version 1. Top K is 4. The retriever is on the gear-desk canvas with the catalog specialist, an OpenAI card set to gpt-4o-mini, and Harness Prime.](../images/etl/etl-retriever-pick.png)
 
 5. Name the specialist `catalog`. Give it instructions such as `Answer product questions from the Outdoor Catalog. Search it with the ETL Retriever tool, and quote names, weights, and prices as written.`
 6. Give Harness Prime instructions such as `Product questions go to the catalog specialist. Do not invent products.`
 7. Save the harness as `gear-desk`.
 
-![The saved gear-desk harness. ETL Retriever (Pipeline Outdoor Catalog, Serving version 1, Top K 4, Output Tool) is joined to the catalog Harness Specialist. The specialist is joined to the Specialists input of Harness Prime, and a ChatOpenAI node with the OpenAI main credential and gpt-4o-mini is joined to its Chat Model.](../images/etl/harness-etl-canvas.png)
+![The saved gear-desk harness, last edited by Rosa Diaz. ETL Retriever (Pipeline Outdoor Catalog, Serving version 1, Top K 4, Output Tool) is joined to the catalog Harness Specialist. The specialist is joined to Harness Prime, whose instructions read Product questions go to the catalog specialist. Do not invent products. An OpenAI card set to gpt-4o-mini and temperature 0.2 is joined to Harness Prime's Chat Model.](../images/etl/harness-etl-canvas.png)
 
 | ETL Retriever field                                 | Meaning                                                                                                                        |
 | --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
@@ -318,7 +318,7 @@ Search uses the embeddings model and the store of the version it searches, so th
 
 Select the chat button and ask: `Which shelter is built for alpine starts, and what does it weigh and cost?`
 
-![The gear-desk canvas chat. The Run card says Finished, 1.2 s, Direct to catalog, with the catalog row done, ChatOpenAI · gpt-4o-mini, and 1 tool. The answer below is the search result itself, starting with [1] (data/outdoor-catalog.csv) name: Summit Bivy Shelter, category: Tents.](../images/etl/harness-etl-chat.png)
+![The gear-desk canvas chat. The visible answer is the retrieval result itself: [1] (data/outdoor-catalog.csv) name Summit Bivy Shelter, category Tents; then Storm Shell 3L Rain Jacket; Returns and exchanges; and Lifetime warranty.](../images/etl/harness-etl-chat.png)
 
 The Run card says `Direct to catalog`. When a harness has exactly one specialist and that specialist has exactly one tool and nothing else, Harness Prime skips routing and the handoff. The model only fills in the search query, and the search results are the answer. Each result starts with its number and source, then the chunk.
 
