@@ -6,6 +6,7 @@
 .github/workflows/main.yml
 .github/workflows/proprietary-path-guard.yml
 .github/workflows/test_docker_build.yml
+.github/workflows/website-media.yml
 .gitignore
 .husky/pre-commit
 .husky/pre-push
