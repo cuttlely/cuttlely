@@ -7,6 +7,7 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 ### Changed
 
 -   Docs name the Run the test set button and the gate's scope.
+-   Docs: the CI gate guide now covers harness checks and a test set changed during `--gate`.
 
 ### Upgrade notes / breaking changes
 
