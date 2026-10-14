@@ -1,644 +1,820 @@
-// Retake the docs pictures for server settings, sign-in, roles, a first run, and imports.
-// Headless, fixed viewports, light theme, empty data directories, local owner only.
-// Not part of the runtime image (.dockerignore) and not part of any npm package.
-// It does not sign in to an outside service and it does not print secret values.
+// Reshoot the canvas, share, API and Try the demo pictures from a fresh local server.
+// No outside account. A model key is read from OPENAI_API_KEY when DOCS_SHOT_USE_EXTERNAL=1.
+// Otherwise a loopback stand-in answers, and a local placeholder is the only credential value.
+// Nothing here prints a key, a token or a password.
 import { spawn } from 'node:child_process'
-import { createRequire } from 'node:module'
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync, copyFileSync, existsSync } from 'node:fs'
-import { createServer } from 'node:net'
-import { tmpdir } from 'node:os'
+import crypto from 'node:crypto'
+import fs from 'node:fs'
+import http from 'node:http'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
-const require = createRequire(path.join(ROOT, 'package.json'))
-const IMAGES = path.join(ROOT, 'docs/images')
-const SERVER = path.join(ROOT, 'packages/server')
-const EXAMPLES = path.join(ROOT, 'examples/imports')
-const PASSWORD = 'DocsShot1!'
-const ROSA = { name: 'Rosa Diaz', email: 'rosa.diaz@example.com' }
-const CASEY = { name: 'Casey Quinn', email: 'casey.quinn@example.com' }
-const AVERY = { name: 'Avery Chen', email: 'avery.chen@example.com' }
-// Obviously fake. Typed into a masked field. Never written to a log.
-const FAKE_AUTHKIT_KEY = ['sk', 'test', 'demo', 'bakery', 'not', 'real'].join('_')
-const FAKE_CLIENT_ID = 'client_demo_bakery'
-const WIDE = { width: 1440, height: 960 }
-const TALL = { width: 1440, height: 1240 }
+const ONLY = new Set(
+    (process.env.DOCS_SHOTS || 'all')
+        .split(',')
+        .map((item) => item.trim())
+        .filter(Boolean)
+)
+const want = (name) => ONLY.has('all') || ONLY.has(name)
+const STUB_PORT = Number(process.env.DOCS_SHOT_STUB_PORT || 8791)
+const APP_PORT = Number(process.env.DOCS_SHOT_PORT || 43117)
+const PAGE_PORT = Number(process.env.DOCS_SHOT_PAGE_PORT || 8792)
+const BASE = `http://127.0.0.1:${APP_PORT}`
+const EXTERNAL = process.env.DOCS_SHOT_USE_EXTERNAL === '1' && Boolean(process.env.OPENAI_API_KEY)
+const DATA = fs.mkdtempSync(path.join('/tmp', 'cuttlely-docs-shots-'))
+const NOTES = []
+const children = []
 
-function freePort() {
-    return new Promise((resolve, reject) => {
-        const server = createServer()
-        server.once('error', reject)
-        server.listen(0, '127.0.0.1', () => {
-            const address = server.address()
-            const port = typeof address === 'object' && address ? address.port : 0
-            server.close(() => resolve(port))
-        })
-    })
+const EMAIL = 'owner@crumb.example'
+const OWNER = 'Rosa Diaz'
+const PASSWORD = `Aa1!${crypto.randomBytes(12).toString('hex')}`
+const LOCAL_KEY = EXTERNAL ? process.env.OPENAI_API_KEY : `local-${crypto.randomBytes(12).toString('hex')}`
+
+function log(line) {
+    console.log(`[docs-shots] ${line}`)
 }
 
-function childEnv(dataDir, port, extra) {
-    const env = { ...process.env }
-    for (const key of Object.keys(env)) {
-        if (/KEY|TOKEN|SECRET|PASSWORD|POSTGRES|DATABASE_URL|API_KEY/i.test(key) && key !== 'SECRETKEY_PATH') delete env[key]
-    }
-    delete env.CUTTLELY_LOCAL_ADMIN
-    delete env.WORKOS_API_KEY
-    delete env.WORKOS_CLIENT_ID
-    delete env.WORKOS_REDIRECT_URI
-    delete env.WORKOS_COOKIE_PASSWORD
-    delete env.MODEL_LIST_CONFIG_JSON
-    env.HOST = '127.0.0.1'
-    env.PORT = String(port)
-    env.DATABASE_PATH = dataDir
-    env.SECRETKEY_PATH = dataDir
-    env.CUTTLELY_DATA_DIR = path.join(dataDir, 'cuttlely')
-    env.CUTTLELY_WARM_HERMES = 'false'
-    env.CUTTLELY_HARNESS_QUEUE = 'off'
-    env.PATH = process.env.PATH
-    return { ...env, ...extra }
+function track(child) {
+    children.push(child)
+    return child
 }
 
-function startServer(dataDir, port, extra) {
-    const logs = []
-    const child = spawn(
-        process.execPath,
-        [
-            '-r',
-            path.join(ROOT, 'scripts/refuse-sso-load.cjs'),
-            '-r',
-            path.join(ROOT, 'scripts/smoke-fake-model.cjs'),
-            path.join(SERVER, 'bin/run'),
-            'start'
-        ],
-        { cwd: SERVER, env: childEnv(dataDir, port, extra), detached: true, stdio: ['ignore', 'pipe', 'pipe'] }
-    )
-    const keep = (chunk) => {
-        logs.push(String(chunk))
-        if (logs.length > 200) logs.shift()
-    }
-    child.stdout.on('data', keep)
-    child.stderr.on('data', keep)
-    const stop = () => {
+function stopAll() {
+    for (const child of children) {
         try {
             process.kill(-child.pid, 'SIGTERM')
         } catch {
-            child.kill('SIGTERM')
+            try {
+                child.kill('SIGTERM')
+            } catch {
+                // already gone
+            }
         }
     }
-    return { child, logs, stop, dataDir, port, base: `http://127.0.0.1:${port}` }
 }
 
-async function waitForPing(server) {
-    const deadline = Date.now() + 12 * 60 * 1000
+process.on('exit', stopAll)
+process.on('SIGINT', () => {
+    stopAll()
+    process.exit(1)
+})
+
+async function waitFor(url, seconds, label) {
+    const started = Date.now()
     let last = ''
-    while (Date.now() < deadline) {
-        if (server.child.exitCode !== null) throw new Error(`server exited ${server.child.exitCode}\n${server.logs.join('').slice(-2000)}`)
+    while (Date.now() - started < seconds * 1000) {
         try {
-            const response = await fetch(`${server.base}/api/v1/ping`, { signal: AbortSignal.timeout(2000) })
-            const text = await response.text()
-            if (response.status === 200 && text.includes('pong')) return
-            last = `${response.status} ${text.slice(0, 120)}`
+            const res = await fetch(url)
+            if (res.ok || res.status === 401) return
+            last = String(res.status)
         } catch (error) {
-            last = error instanceof Error ? error.name : 'waiting'
+            last = error.code || error.message
         }
         await new Promise((resolve) => setTimeout(resolve, 1000))
     }
-    throw new Error(`server did not answer ping (${last})\n${server.logs.join('').slice(-2000)}`)
+    throw new Error(`${label} did not answer (${last})`)
 }
 
-async function launchBrowser() {
-    const { chromium } = require('playwright')
-    const args = ['--no-sandbox', '--disable-dev-shm-usage', '--force-device-scale-factor=1']
-    try {
-        return await chromium.launch({ channel: 'chrome', args })
-    } catch {
-        return chromium.launch({ args })
-    }
-}
-
-async function newPage(browser, size = WIDE) {
-    const context = await browser.newContext({ viewport: size, deviceScaleFactor: 1, colorScheme: 'light' })
-    await context.addInitScript(() => {
-        localStorage.setItem('isDarkMode', 'false')
-    })
-    await context.route(/workos\.com/i, (route) => route.abort())
-    const page = await context.newPage()
-    page.on('dialog', (dialog) => dialog.accept())
-    await page.emulateMedia({ colorScheme: 'light', reducedMotion: 'reduce' })
-    return { context, page }
-}
-
-async function shot(page, rel, size = WIDE) {
-    if (size) await page.setViewportSize(size)
-    const file = path.join(IMAGES, rel)
-    mkdirSync(path.dirname(file), { recursive: true })
-    await page.screenshot({ path: file, animations: 'disabled' })
-    console.log('wrote', rel)
-}
-
-async function shotBox(page, locator, rel, clip) {
-    const box = await locator.boundingBox()
-    if (!box) throw new Error(`no box for ${rel}`)
-    const file = path.join(IMAGES, rel)
-    mkdirSync(path.dirname(file), { recursive: true })
-    const region = clip
-        ? { x: box.x, y: box.y, width: Math.min(clip.width, box.width), height: Math.min(clip.height, box.height) }
-        : { x: box.x, y: box.y, width: box.width, height: box.height }
-    await page.screenshot({ path: file, animations: 'disabled', clip: region })
-    console.log('wrote', rel, `${Math.round(region.width)}x${Math.round(region.height)}`)
-}
-
-async function register(page, base, person) {
-    await page.goto(`${base}/organization-setup`, { waitUntil: 'domcontentloaded' })
-    await page.getByRole('heading', { name: 'Setup Account' }).waitFor()
-    await page.locator('input:not([type="password"])').nth(0).fill(person.name)
-    await page.getByPlaceholder('user@company.com').fill(person.email)
-    const passwords = page.locator('input[type="password"]')
-    await passwords.nth(0).fill(PASSWORD)
-    await passwords.nth(1).fill(PASSWORD)
-    await page.getByRole('button', { name: 'Sign Up' }).click()
-    await page.getByRole('heading', { name: 'Chatflows' }).waitFor({ timeout: 30000 })
-}
-
-async function signIn(page, base, email, password = PASSWORD) {
-    await page.goto(`${base}/signin`, { waitUntil: 'domcontentloaded' })
-    await page.getByRole('heading', { name: 'Sign In' }).waitFor()
-    await page.getByPlaceholder('user@company.com').fill(email)
-    await page.locator('#break-glass-form input[type="password"]').fill(password)
-    await page.locator('#break-glass-form button[type="submit"]').click()
-}
-
-async function openAccountMenu(page) {
-    await page.locator('header .MuiAvatar-root').last().click()
-    await page.getByText('Logout').waitFor()
-}
-
-async function openSettings(page, base) {
-    await page.goto(`${base}/server-settings`, { waitUntil: 'domcontentloaded' })
-    await page.getByRole('heading', { name: 'Server settings' }).waitFor()
-    await page.getByTestId('rail-signin').waitFor()
-}
-
-async function section(page, id) {
-    await page.getByTestId(`rail-${id}`).click()
-}
-
-async function fillNumber(page, key, value) {
-    const input = page.locator(`#field-${key}`)
-    await input.click()
-    await input.fill(String(value))
-    await input.blur()
-}
-
-async function chooseOption(page, key, name) {
-    await page.locator(`#field-${key}`).click()
-    await page.getByRole('option', { name, exact: true }).click()
-}
-
-async function authKitThrough(page, { email } = {}) {
-    const dialog = page.getByRole('dialog', { name: 'Set up AuthKit' })
-    await dialog.waitFor()
-    await dialog.getByTestId('authkit-api-key').fill(FAKE_AUTHKIT_KEY)
-    await dialog.getByTestId('authkit-client-id').fill(FAKE_CLIENT_ID)
-    await dialog.getByTestId('authkit-environment').first().waitFor()
-    await shot(page, 'server-settings/authkit-step-keys.png')
-    await dialog.getByTestId('authkit-next').click()
-    await dialog.getByText('Add these in WorkOS').waitFor()
-    await shot(page, 'server-settings/authkit-step-addresses.png')
-    await dialog.getByTestId('authkit-next').click()
-    if (email) await dialog.getByTestId('authkit-email').fill(email)
-    await dialog.getByTestId('authkit-generate-seal').click()
-    await dialog.getByTestId('authkit-seal').waitFor()
-    await shot(page, 'server-settings/authkit-step-seal.png')
-    await dialog.getByTestId('authkit-next').click()
-    await dialog.getByTestId('authkit-check').getByText('API key').waitFor({ timeout: 20000 })
-    await shot(page, 'server-settings/authkit-step-check.png')
-    await dialog.getByRole('button', { name: 'Close' }).click()
-}
-
-async function holdRestart(page, mode) {
-    await page.route('**/api/v1/server-settings/restart', (route) =>
-        route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ restarting: true }) })
-    )
-    let probes = 0
-    await page.route('**/api/v1/ping', (route) => {
-        probes += 1
-        if (mode === 'starting' || probes === 1) {
-            return route.fulfill({
-                status: 503,
-                contentType: 'application/json',
-                body: JSON.stringify({ status: 'starting', step: 'Loading the building blocks (the slowest step)' })
-            })
-        }
-        return route.fulfill({ status: 200, contentType: 'text/plain', body: 'pong' })
-    })
-    if (mode === 'failed') {
-        await page.route('**/api/v1/server-settings', async (route) => {
-            const url = new URL(route.request().url())
-            if (route.request().method() !== 'GET' || url.pathname !== '/api/v1/server-settings') return route.continue()
-            const response = await route.fetch()
-            const json = await response.json()
-            json.rolledBack = true
-            json.retryAvailable = true
-            return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(json) })
+function startStub() {
+    if (EXTERNAL) return
+    const child = track(
+        spawn(process.execPath, [path.join(ROOT, 'scripts/docs-shots/stub-model.mjs')], {
+            cwd: ROOT,
+            env: { ...process.env, DOCS_SHOT_STUB_PORT: String(STUB_PORT) },
+            stdio: ['ignore', 'inherit', 'inherit'],
+            detached: true
         })
-    }
-    await page.getByTestId('settings-restart').click()
-    await page.getByTestId('restart-screen').waitFor()
-    const expect = mode === 'starting' ? 'Starting:' : mode === 'failed' ? 'The new settings did not start' : 'Cuttlely is back'
-    await page.getByText(expect).first().waitFor({ timeout: 8000 })
-    await shot(page, `server-settings/restart-screen-${mode === 'starting' ? 'starting' : mode === 'failed' ? 'failed' : 'back'}.png`)
-    await page.unroute('**/api/v1/server-settings/restart')
-    await page.unroute('**/api/v1/ping')
-    await page.unroute('**/api/v1/server-settings')
-    await page.keyboard.press('Escape')
+    )
+    child.unref()
 }
 
-async function captureRosa(browser) {
-    const server = startServer(mkdtempSync(path.join(tmpdir(), 'cuttlely-docs-rosa-')), 44117, {
+function startServer() {
+    fs.mkdirSync(path.join(DATA, 'db'), { recursive: true })
+    fs.mkdirSync(path.join(DATA, 'secrets'), { recursive: true })
+    fs.mkdirSync(path.join(DATA, 'hermes'), { recursive: true })
+    const env = {
+        ...process.env,
+        PATH: `${process.env.HOME}/.nvm/versions/node/v24.15.0/bin:${process.env.HOME}/.local/bin:${process.env.PATH}`,
+        PORT: String(APP_PORT),
+        HOST: '127.0.0.1',
+        CUTTLELY_DATA_DIR: DATA,
+        CUTTLELY_HERMES_HOME: path.join(DATA, 'hermes'),
+        DATABASE_PATH: path.join(DATA, 'db'),
+        SECRETKEY_PATH: path.join(DATA, 'secrets'),
         CUTTLELY_LOCAL_ADMIN: 'true',
-        LOG_LEVEL: 'info'
+        CUTTLELY_WARM_HERMES: 'false',
+        MODEL_LIST_CONFIG_JSON: 'bundled',
+        OPENAI_API_KEY: LOCAL_KEY
+    }
+    if (!EXTERNAL) env.OPENAI_BASE_URL = `http://127.0.0.1:${STUB_PORT}/v1`
+    const child = track(
+        spawn('bash', [path.join(ROOT, 'scripts/start-cuttlely.sh')], {
+            cwd: ROOT,
+            env,
+            stdio: ['ignore', 'inherit', 'inherit'],
+            detached: true
+        })
+    )
+    child.unref()
+}
+
+let cookie = ''
+
+async function api(method, urlPath, body) {
+    const res = await fetch(`${BASE}/api/v1${urlPath}`, {
+        method,
+        headers: {
+            'content-type': 'application/json',
+            'x-request-from': 'internal',
+            ...(cookie ? { cookie } : {})
+        },
+        body: body === undefined ? undefined : JSON.stringify(body)
     })
+    const text = await res.text()
+    let data
     try {
-        console.log('rosa', server.base)
-        await waitForPing(server)
-        const { context, page } = await newPage(browser)
-        try {
-            await page.goto(`${server.base}/organization-setup`, { waitUntil: 'domcontentloaded' })
-            await page.getByRole('heading', { name: 'Setup Account' }).waitFor()
-            await shot(page, 'from-source/organization-setup.png')
-            await register(page, server.base, ROSA)
-            await shot(page, 'from-source/first-signed-in.png', TALL)
+        data = text ? JSON.parse(text) : null
+    } catch {
+        data = text
+    }
+    if (!res.ok) {
+        const brief = typeof data === 'string' ? data : JSON.stringify(data)
+        throw new Error(`${method} ${urlPath} -> ${res.status}: ${brief.slice(0, 400)}`)
+    }
+    const set = typeof res.headers.getSetCookie === 'function' ? res.headers.getSetCookie() : []
+    if (set.length) cookie = set.map((item) => item.split(';')[0]).join('; ')
+    return data
+}
 
-            await openAccountMenu(page)
-            await shot(page, 'sign-in/account-menu.png', TALL)
-            await page.keyboard.press('Escape')
+const defs = new Map()
+async function nodeDef(name) {
+    if (!defs.has(name)) defs.set(name, await api('GET', `/nodes/${name}`))
+    return defs.get(name)
+}
 
-            await page.getByRole('button', { name: 'Import' }).click()
-            await page.getByRole('menuitem', { name: 'Import Langflow JSON' }).waitFor()
-            await shot(page, 'bring-your-flows/chatflows-import-buttons.png', TALL)
-            await page.getByRole('menuitem', { name: /JSON$/ }).first().click()
-            const wizard = page.getByRole('dialog', { name: 'Flowise migration wizard' })
-            await wizard.waitFor()
-            await shot(page, 'bring-your-flows/wizard-upload.png')
-            await wizard.locator('input[type="file"]').setInputFiles(path.join(EXAMPLES, 'bakery-helper.json'))
-            await wizard.getByText('Ready to open, with items to finish').waitFor()
-            await shot(page, 'bring-your-flows/wizard-scan.png')
-            await wizard.getByRole('button', { name: 'Next' }).click()
-            await wizard.getByText('Nothing from the file was copied').waitFor()
-            await shot(page, 'bring-your-flows/wizard-credentials.png')
-            await wizard.getByRole('button', { name: 'Next' }).click()
-            await wizard.getByRole('heading', { name: 'Deprecated' }).waitFor()
-            await wizard.getByRole('button', { name: 'Next' }).click()
-            await wizard.getByRole('button', { name: 'Open migrated canvas' }).waitFor()
-            await shot(page, 'bring-your-flows/wizard-result.png')
-            await page.evaluate(() => localStorage.setItem('cuttlely.canvasLook', 'classic'))
-            await wizard.getByRole('button', { name: 'Open migrated canvas' }).click()
-            await page.getByText('ChatOpenAI').first().waitFor({ timeout: 30000 })
-            await page.getByText('Conversation Chain').first().waitFor()
-            await page
-                .locator('.react-flow__controls-fitview')
-                .click({ timeout: 3000 })
-                .catch(() => {})
-            await page
-                .locator('input[value="gpt-4.1-mini"]')
-                .first()
-                .waitFor({ timeout: 5000 })
-                .catch(() => {})
-            await page.waitForTimeout(400)
-            await shot(page, 'bring-your-flows/wizard-opened-canvas.png')
+const PARAM_TYPES = new Set([
+    'asyncOptions',
+    'asyncMultiOptions',
+    'options',
+    'multiOptions',
+    'array',
+    'datagrid',
+    'string',
+    'number',
+    'boolean',
+    'password',
+    'json',
+    'code',
+    'date',
+    'file',
+    'folder',
+    'tabs'
+])
 
-            await page.goto(`${server.base}/chatflows`, { waitUntil: 'domcontentloaded' })
-            await page.getByRole('heading', { name: 'Chatflows' }).waitFor()
-            await page.evaluate(() => localStorage.setItem('cuttlely.canvasLook', 'classic'))
-            const chooser = page.waitForEvent('filechooser')
-            await page.getByRole('button', { name: 'Import' }).click()
-            await page.getByRole('menuitem', { name: 'Import Langflow JSON' }).click()
-            await (await chooser).setFiles(path.join(EXAMPLES, 'bakery-greeter.json'))
-            await page.getByText('Bakery greeter').first().waitFor({ timeout: 30000 })
-            await page.getByText('Imported from Langflow.').waitFor()
-            await page
-                .locator('.react-flow__controls-fitview')
-                .click({ timeout: 3000 })
-                .catch(() => {})
-            await page.waitForTimeout(400)
-            await shot(page, 'bring-your-flows/langflow-opened.png')
-
-            await openSettings(page, server.base)
-            await shot(page, 'server-settings/server-settings-signin.png')
-            await shot(page, 'server-settings/server-settings-get-started.png')
-            await page.getByTestId('authkit-open').click()
-            await authKitThrough(page)
-
-            await section(page, 'models')
-            await page.getByTestId('models-credentials-hint').waitFor()
-            await shot(page, 'server-settings/server-settings-models.png')
-
-            await section(page, 'storage')
-            await page.getByTestId('test-storage-run').click()
-            await page.getByTestId('test-storage-result').getByText('can write').waitFor({ timeout: 20000 })
-            await shot(page, 'server-settings/test-connection-storage-ok.png')
-
-            await section(page, 'analyst')
-            await page.locator('#field-CUTTLELY_POSTGRES_URL').fill('postgres://bakery@127.0.0.1:1/demo')
-            await page.getByTestId('test-analyst-run').click()
-            await page.getByTestId('test-analyst-result').getByText('Could not connect').waitFor({ timeout: 20000 })
-            await shot(page, 'server-settings/test-connection-analyst-failed.png')
-            const resetDraft = page.getByRole('button', { name: 'Reset' })
-            if (await resetDraft.isVisible()) await resetDraft.click()
-
-            await section(page, 'database')
-            await page.getByTestId('database-card').waitFor()
-            await shot(page, 'server-settings/database-card.png')
-            await page.getByTestId('database-switch').click()
-            const database = page.getByRole('dialog').last()
-            await database.getByTestId('db-choice-postgres').waitFor()
-            await shot(page, 'server-settings/database-switch-choose.png')
-            await database.getByTestId('db-next-step').click()
-            await database.locator('[data-testid="db-host"]').fill('127.0.0.1')
-            await database.getByLabel('Port').fill('1')
-            await database.getByLabel('Database name').fill('bakery')
-            await database.locator('[data-testid="db-user"]').fill('bakery')
-            await database.getByTestId('db-next-step').click()
-            await database.getByText('Connect and sign in').waitFor({ timeout: 20000 })
-            await shot(page, 'server-settings/database-switch-test.png')
-            await database.getByRole('button', { name: 'Close' }).click()
-
-            await section(page, 'all')
-            await page.getByRole('heading', { name: 'All settings' }).waitFor()
-            await page.getByTestId('copy-env').waitFor()
-            await shot(page, 'server-settings/server-settings-all-settings.png')
-            copyFileSync(
-                path.join(IMAGES, 'server-settings/server-settings-all-settings.png'),
-                path.join(IMAGES, 'server-settings/server-settings-all.png')
-            )
-            console.log('wrote server-settings/server-settings-all.png')
-
-            await page.getByLabel('Search settings').fill('timeout')
-            await page.getByText('MCP sign-in wait').waitFor()
-            await shot(page, 'server-settings/server-settings-search.png')
-            await page.getByLabel('Clear search').click()
-            await page.reload({ waitUntil: 'domcontentloaded' })
-            await page.getByTestId('rail-analyst').waitFor()
-
-            await section(page, 'analyst')
-            await fillNumber(page, 'CUTTLELY_ANALYST_ROW_CAP', '40')
-            await section(page, 'runtime')
-            await fillNumber(page, 'CUTTLELY_HERMES_KEEP_WARM_MINUTES', '30')
-            await section(page, 'advanced')
-            await fillNumber(page, 'CUSTOM_MCP_AUTHORIZE_TIMEOUT_MS', '20')
-            await page.getByTestId('settings-review').click()
-            const reviewTitle = page.getByRole('heading', { name: /Review/ })
-            await reviewTitle.waitFor()
-            const reviewText = await reviewTitle.innerText()
-            if (reviewText !== 'Review 3 changes') {
-                const body = await page.getByRole('dialog').innerText()
-                throw new Error(`expected Review 3 changes, got ${reviewText}\n${body.slice(0, 700)}`)
+async function buildNode(name, id, { inputs = {}, credential, output, label, position = { x: 0, y: 0 }, type = 'customNode' } = {}) {
+    const def = await nodeDef(name)
+    const inputParams = []
+    const inputAnchors = []
+    const defaults = {}
+    for (const input of def.inputs || []) {
+        const entry = { ...input, id: `${id}-input-${input.name}-${input.type}` }
+        if (PARAM_TYPES.has(input.type)) inputParams.push(entry)
+        else inputAnchors.push(entry)
+        defaults[input.name] = input.default ?? ''
+    }
+    if (def.credential) inputParams.unshift({ ...def.credential, id: `${id}-input-credential-credential` })
+    let outputAnchors
+    let outputs = {}
+    if (def.outputs?.length) {
+        const options = def.outputs.map((item) => ({
+            id: `${id}-output-${item.name}-${(item.baseClasses || []).join('|')}`,
+            name: item.name,
+            label: item.label,
+            type: (item.baseClasses || []).join(' | ')
+        }))
+        outputAnchors = [{ name: 'output', label: 'Output', type: 'options', options, default: output || def.outputs[0].name }]
+        outputs = { output: output || def.outputs[0].name }
+    } else {
+        outputAnchors = [
+            {
+                id: `${id}-output-${def.name}-${(def.baseClasses || [def.type]).join('|')}`,
+                name: def.name,
+                label: def.type,
+                type: (def.baseClasses || [def.type]).join(' | ')
             }
-            await shot(page, 'server-settings/server-settings-review.png')
-            await page.getByRole('button', { name: 'Back' }).click()
-            await page.getByRole('button', { name: 'Reset' }).click()
+        ]
+    }
+    const data = {
+        id,
+        label: label || def.label,
+        version: def.version,
+        name: def.name,
+        type: def.type,
+        color: def.color,
+        baseClasses: def.baseClasses,
+        category: def.category,
+        description: def.description,
+        inputParams,
+        inputAnchors,
+        inputs: { ...defaults, ...inputs },
+        outputAnchors,
+        outputs,
+        selected: false
+    }
+    if (credential) {
+        data.credential = credential
+        data.inputs.FLOWISE_CREDENTIAL_ID = credential
+    }
+    return { id, position, type, width: 300, height: 400, data }
+}
 
-            await section(page, 'storage')
-            await chooseOption(page, 'STORAGE_TYPE', 'S3 or compatible')
-            await section(page, 'security')
-            await fillNumber(page, 'TRUST_PROXY', '1').catch(async () => {
-                await page.locator('#field-TRUST_PROXY').fill('1')
-            })
-            await page.getByTestId('settings-review').click()
-            await page.getByRole('heading', { name: 'Review 2 changes' }).waitFor()
-            await page.getByTestId('review-confirm').fill('RESTART')
-            await shot(page, 'server-settings/server-settings-review-high-risk.png')
-            await page.getByRole('button', { name: 'Back' }).click()
-            await page.getByRole('button', { name: 'Reset' }).click()
+function sourceHandle(node) {
+    const anchor = node.data.outputAnchors[0]
+    if (anchor.type === 'options') return anchor.options.find((item) => item.name === node.data.outputs.output).id
+    return anchor.id
+}
 
-            await section(page, 'analyst')
-            await fillNumber(page, 'CUTTLELY_ANALYST_ROW_CAP', '80')
-            await fillNumber(page, 'CUTTLELY_ANALYST_STATEMENT_TIMEOUT_MS', '20')
-            await section(page, 'runtime')
-            await fillNumber(page, 'CUTTLELY_HERMES_KEEP_WARM_MINUTES', '30')
-            await section(page, 'advanced')
-            await fillNumber(page, 'CUSTOM_MCP_AUTHORIZE_TIMEOUT_MS', '20')
-            await fillNumber(page, 'CUSTOM_MCP_TOOL_NAME_MAX_LENGTH', '64')
-            await fillNumber(page, 'CUSTOM_MCP_TOOL_DESCRIPTION_MAX_LENGTH', '512')
-            await page.getByTestId('settings-save-bar-text').getByText('6 unsaved changes').waitFor()
-            await page.getByTestId('settings-review').click()
-            await page.getByTestId('review-save').click()
-            await page.getByText('Saved. Restart Cuttlely to apply.').waitFor()
-            await section(page, 'security')
-            await shot(page, 'server-settings/server-settings-saved.png')
-            await section(page, 'advanced')
-            await page.getByTestId('setting-LOG_LEVEL').scrollIntoViewIfNeeded()
-            await shot(page, 'server-settings/server-settings-locked.png')
-            await section(page, 'history')
-            await page.getByTestId('settings-history').waitFor()
-            await page.waitForTimeout(400)
-            await shot(page, 'server-settings/server-settings-history.png')
+function connect(source, target, inputName) {
+    const anchor = target.data.inputAnchors.find((item) => item.name === inputName)
+    if (!anchor) throw new Error(`${target.id} has no input ${inputName}`)
+    const ref = `{{${source.id}.data.instance}}`
+    const current = target.data.inputs[inputName]
+    if (anchor.list || Array.isArray(current)) target.data.inputs[inputName] = [...(Array.isArray(current) ? current : []), ref]
+    else target.data.inputs[inputName] = ref
+    return {
+        source: source.id,
+        sourceHandle: sourceHandle(source),
+        target: target.id,
+        targetHandle: anchor.id,
+        type: 'buttonedge',
+        id: `${source.id}-${sourceHandle(source)}-${target.id}-${anchor.id}`
+    }
+}
 
-            await holdRestart(page, 'starting')
-            await page.reload({ waitUntil: 'domcontentloaded' })
-            await page.getByTestId('settings-restart').waitFor()
-            await holdRestart(page, 'back')
-            await page.reload({ waitUntil: 'domcontentloaded' })
-            await page.getByTestId('settings-restart').waitFor()
-            await holdRestart(page, 'failed')
-        } finally {
-            // Sign-out is done below on a fresh navigation if still signed in.
-            await context.close()
+async function saveFlow({ name, type, nodes, edges, chatbotConfig, isPublic = false, apikeyid = '' }) {
+    const body = {
+        name,
+        type,
+        deployed: false,
+        isPublic,
+        apikeyid,
+        flowData: JSON.stringify({ nodes, edges, viewport: { x: 0, y: 0, zoom: 0.8 } })
+    }
+    if (chatbotConfig) body.chatbotConfig = JSON.stringify(chatbotConfig)
+    return api('POST', '/chatflows', body)
+}
+
+async function disableStreaming(name) {
+    const listed = await api('GET', '/chatflows?type=HARNESS')
+    const rows = Array.isArray(listed) ? listed : listed?.data || []
+    const flow = rows.find((item) => item.name === name)
+    if (!flow) return
+    const full = await api('GET', `/chatflows/${flow.id}`)
+    const data = JSON.parse(full.flowData)
+    let changed = false
+    for (const node of data.nodes || []) {
+        if (node?.data?.name === 'chatOpenAI') {
+            node.data.inputs = { ...(node.data.inputs || {}), streaming: false }
+            changed = true
         }
+    }
+    if (changed) await api('PUT', `/chatflows/${flow.id}`, { flowData: JSON.stringify(data) })
+}
 
-        const signedOut = await newPage(browser)
-        try {
-            await signedOut.page.goto(`${server.base}/signin`, { waitUntil: 'domcontentloaded' })
-            await signedOut.page.getByRole('heading', { name: 'Sign In' }).waitFor()
-            await shot(signedOut.page, 'sign-in/signin-break-glass.png')
-            copyFileSync(path.join(IMAGES, 'sign-in/signin-break-glass.png'), path.join(IMAGES, 'from-source/first-open-signin.png'))
-            console.log('wrote from-source/first-open-signin.png')
-            await signedOut.page.getByPlaceholder('user@company.com').fill(ROSA.email)
-            await signedOut.page.locator('#break-glass-form input[type="password"]').fill('wrong-pass')
-            await signedOut.page.locator('#break-glass-form button[type="submit"]').click()
-            await signedOut.page.getByText('Invalid email or password.').waitFor()
-            await shot(signedOut.page, 'sign-in/signin-wrong-password.png')
-        } finally {
-            await signedOut.context.close()
-        }
-        const exited = new Promise((resolve) => server.child.once('exit', resolve))
-        server.stop()
-        await Promise.race([exited, new Promise((resolve) => setTimeout(resolve, 8000))])
-        const closed = startServer(server.dataDir, 44120, { LOG_LEVEL: 'info' })
-        try {
-            console.log('not configured', closed.base)
-            await waitForPing(closed)
-            const off = await newPage(browser)
-            try {
-                await off.page.goto(`${closed.base}/signin`, { waitUntil: 'domcontentloaded' })
-                await off.page.getByText('Sign-in is not configured.').waitFor()
-                await shot(off.page, 'sign-in/signin-not-configured.png')
-            } finally {
-                await off.context.close()
-            }
-        } finally {
-            closed.stop()
-            rmSync(server.dataDir, { recursive: true, force: true })
-        }
+async function publish(id) {
+    try {
+        await api('POST', `/flow-drafts/${id}/publish`, {})
     } catch (error) {
-        server.stop()
-        throw error
+        if (!/no draft|already|unchanged|404|no unpublished/i.test(String(error.message))) throw error
     }
 }
 
-async function captureSetup(browser) {
-    const server = startServer(mkdtempSync(path.join(tmpdir(), 'cuttlely-docs-setup-')), 44118, { LOG_LEVEL: 'info' })
-    try {
-        console.log('setup', server.base)
-        await waitForPing(server)
-        const joined = server.logs.join('')
-        const link = joined.match(/https?:\/\/\S+\/server-setup\?code=[A-Za-z0-9_-]+/)
-        if (!link) throw new Error(`no setup link in the log\n${joined.slice(-1500)}`)
-        const { context, page } = await newPage(browser)
-        try {
-            await page.goto(link[0].replace('://localhost', '://127.0.0.1'), { waitUntil: 'domcontentloaded' })
-            await page.getByTestId('setup-choose-password').waitFor()
-            await shot(page, 'server-settings/setup-link-choose.png')
-            await page.getByTestId('setup-choose-authkit').click()
-            const dialog = page.getByRole('dialog', { name: 'Set up AuthKit' })
-            await dialog.waitFor()
-            await dialog.getByTestId('authkit-api-key').fill(FAKE_AUTHKIT_KEY)
-            await dialog.getByTestId('authkit-client-id').fill(FAKE_CLIENT_ID)
-            await shot(page, 'server-settings/setup-link-authkit.png')
-            await dialog.getByRole('button', { name: 'Cancel' }).click()
-            await page.getByTestId('setup-choose-password').click()
-            await page.getByText('Create the owner account').waitFor()
-            await shot(page, 'server-settings/setup-link-password.png')
-            const bad = new URL(link[0].replace('://localhost', '://127.0.0.1'))
-            bad.searchParams.set('code', 'not-a-real-code')
-            await page.goto(bad.toString(), { waitUntil: 'domcontentloaded' })
-            await page.getByText("This setup link can't be used").waitFor()
-            await shot(page, 'server-settings/setup-link-closed.png')
-        } finally {
-            await context.close()
+function moneyHit(text) {
+    return text.match(/\$\s?\d/) || text.match(/(?<![A-Za-z0-9.-])\d+\.\d{2}\b/)
+}
+
+async function assertNoMoney(page, file) {
+    const text = await page.locator('body').innerText()
+    const hit = moneyHit(text)
+    NOTES.push({ file, hit: hit ? hit[0] : '', sample: text.replace(/\s+/g, ' ').slice(0, 500) })
+    if (hit) throw new Error(`${file} shows a money figure (${hit[0]})`)
+}
+
+async function hideMoney(page) {
+    await page.evaluate(() => {
+        const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT)
+        const nodes = []
+        while (walker.nextNode()) nodes.push(walker.currentNode)
+        for (const node of nodes) {
+            if (/\$\s?\d/.test(node.nodeValue || '')) {
+                node.nodeValue = node.nodeValue
+                    .replace(/\.?\s*Estimated cost:[^.]*/gi, '')
+                    .replace(/,?\s*estimated(?:\s+cost)?:?\s*\$?[\d.,]*/gi, '')
+                    .replace(/\$[\d.,]+/g, '')
+                    .replace(/(\d(?:\.\d)?\s*s)\.\d{3,}/g, '$1')
+            }
         }
-    } finally {
-        server.stop()
-        rmSync(server.dataDir, { recursive: true, force: true })
-    }
-}
-
-async function captureRoles(browser) {
-    const server = startServer(mkdtempSync(path.join(tmpdir(), 'cuttlely-docs-roles-')), 44119, {
-        CUTTLELY_LOCAL_ADMIN: 'true',
-        LOG_LEVEL: 'info'
     })
-    try {
-        console.log('roles', server.base)
-        await waitForPing(server)
-        const { context, page } = await newPage(browser)
-        try {
-            await register(page, server.base, CASEY)
-            await page.goto(`${server.base}/roles`, { waitUntil: 'domcontentloaded' })
-            await page.getByRole('button', { name: 'Add Role' }).click()
-            const dialog = page.getByRole('dialog', { name: 'Create New Role' })
-            await dialog.locator('input').nth(0).fill('Reader')
-            await dialog.locator('input').nth(1).fill('Can open chatflows and harnesses.')
-            await dialog
-                .locator('label')
-                .filter({ hasText: /^View$/ })
-                .first()
-                .click()
-            await shotBox(page, dialog, 'roles/create-role.png', { width: 900, height: 850 })
-            await dialog.getByRole('button', { name: 'Create Role' }).click()
-            await page.getByText('Reader').first().waitFor()
+}
 
-            await page.goto(`${server.base}/users`, { waitUntil: 'domcontentloaded' })
-            await page.getByRole('button', { name: 'Add User' }).click()
-            const add = page.getByRole('dialog', { name: 'Add User' })
-            await add.locator('input').nth(0).fill(AVERY.name)
-            await add.locator('input').nth(1).fill(AVERY.email)
-            const roleBox = add.locator('[role="combobox"]').last()
-            await roleBox.click()
-            await page.getByRole('option', { name: 'Reader' }).click()
-            await shotBox(page, add, 'roles/add-user.png', { width: 600, height: 498 })
-            await add.getByRole('button', { name: 'Create User' }).click()
-            await page.getByText(AVERY.name).waitFor()
-            await shot(page, 'roles/users-list.png')
+async function shoot(page, file, { width = 1440, height = 960, scheme = 'light', clip } = {}) {
+    await page.setViewportSize({ width, height })
+    await page.emulateMedia({ colorScheme: scheme })
+    await hideMoney(page)
+    await page.waitForTimeout(200)
+    await assertNoMoney(page, file)
+    const dest = path.join(ROOT, 'docs/images', file)
+    fs.mkdirSync(path.dirname(dest), { recursive: true })
+    await page.screenshot({ path: dest, ...(clip ? { clip } : {}) })
+    log(`wrote ${file}`)
+}
 
-            await page.goto(`${server.base}/roles`, { waitUntil: 'domcontentloaded' })
-            await page.getByText('Reader').first().waitFor()
-            await shot(page, 'roles/roles-list.png')
-        } finally {
-            await context.close()
-        }
-    } finally {
-        server.stop()
-        rmSync(server.dataDir, { recursive: true, force: true })
+async function signIn(page) {
+    await page.goto(`${BASE}/signin`, { waitUntil: 'domcontentloaded' })
+    const form = page
+        .locator('form')
+        .filter({ has: page.locator('input[type=password]') })
+        .first()
+    await form.locator('input').first().fill(EMAIL)
+    await form.locator('input[type=password]').fill(PASSWORD)
+    await form.getByRole('button', { name: /^Sign in/ }).click()
+    await page.waitForURL((url) => !url.pathname.startsWith('/signin'), { timeout: 20000 })
+}
+
+async function dismissDialogs(page) {
+    for (let i = 0; i < 3; i += 1) {
+        const dialog = page.locator('.MuiDialog-root [role="dialog"]')
+        if (!(await dialog.count())) return
+        const text = (await dialog.first().innerText()).replace(/\s+/g, ' ').slice(0, 160)
+        if (/How can I help|Type your question|Clear Chat/.test(text)) return
+        log(`closing a dialog: ${text}`)
+        const close = dialog.getByRole('button', { name: /^(close|cancel|got it|ok|done)$/i })
+        if (await close.count()) await close.first().click()
+        else await page.keyboard.press('Escape')
+        await page.waitForTimeout(300)
     }
 }
 
-async function safeBoot(browser) {
-    const dataDir = mkdtempSync(path.join(tmpdir(), 'cuttlely-docs-safe-'))
-    const first = startServer(dataDir, 44121, { CUTTLELY_LOCAL_ADMIN: 'true', LOG_LEVEL: 'info' })
-    try {
-        await waitForPing(first)
-        const { context, page } = await newPage(browser)
-        try {
-            await register(page, first.base, ROSA)
-            await openSettings(page, first.base)
-            await section(page, 'analyst')
-            await fillNumber(page, 'CUTTLELY_ANALYST_ROW_CAP', '90')
-            await page.getByTestId('settings-review').click()
-            await page.getByTestId('review-save').click()
-            await page.getByText('Saved. Restart Cuttlely to apply.').waitFor()
-        } finally {
-            await context.close()
-        }
-    } finally {
-        first.stop()
+async function askExpanded(page, question) {
+    const input = page.getByPlaceholder('Type your question...')
+    await input.fill(question)
+    await input.press('Enter')
+}
+
+async function scrollChat(page, text) {
+    await page.evaluate((needle) => {
+        const root = document.querySelector('.MuiDialog-root') || document.body
+        const scroller = [...root.querySelectorAll('div')].reverse().find((el) => el.scrollHeight > el.clientHeight + 80)
+        if (!scroller) return
+        const target = [...scroller.querySelectorAll('p, span, strong, div, button, li')].find(
+            (el) => el.childNodes.length < 8 && el.textContent.includes(needle)
+        )
+        if (target) target.scrollIntoView({ block: 'start' })
+    }, text)
+    await page.waitForTimeout(300)
+}
+
+async function fitCanvas(page) {
+    await dismissDialogs(page)
+    const fit = page.locator('.react-flow__controls-fitview')
+    if (await fit.count()) await fit.click({ timeout: 4000 }).catch(() => {})
+}
+
+async function openCanvas(page, route, id) {
+    await page.goto(`${BASE}/${route}/${id}`, { waitUntil: 'domcontentloaded' })
+    await page.locator('.react-flow__node').first().waitFor({ timeout: 20000 })
+    await page.waitForTimeout(600)
+    await fitCanvas(page)
+    await page.waitForTimeout(400)
+}
+
+async function bakeryFlow(credentialId) {
+    const prompt = await buildNode('promptTemplate', 'promptTemplate_0', {
+        label: 'Recipe prompt',
+        position: { x: 80, y: 180 },
+        inputs: { template: 'Suggest a bread recipe for {season}.' }
+    })
+    const model = await buildNode('chatOllama', 'chatOllama_0', {
+        label: 'Local model',
+        position: { x: 80, y: 520 },
+        inputs: { baseUrl: 'http://localhost:11434', modelName: 'bakery-local', temperature: 0.2 }
+    })
+    const chain = await buildNode('llmChain', 'llmChain_0', { label: 'Recipe chain', position: { x: 620, y: 220 } })
+    const edges = [connect(prompt, chain, 'prompt'), connect(model, chain, 'model')]
+    return saveFlow({ name: 'Bakery recipes', type: 'CHATFLOW', nodes: [prompt, model, chain], edges })
+}
+
+async function grokFlow() {
+    const grok = await buildNode('chatXAI', 'chatXAI_0', { label: 'xAI Grok', position: { x: 280, y: 180 } })
+    return saveFlow({ name: 'Grok model', type: 'CHATFLOW', nodes: [grok], edges: [] })
+}
+
+async function workflowFlow() {
+    const start = await buildNode('startAgentflow', 'startAgentflow_0', {
+        label: 'Start',
+        position: { x: 80, y: 240 },
+        type: 'agentFlow'
+    })
+    const reply = await buildNode('directReplyAgentflow', 'directReplyAgentflow_0', {
+        label: 'Reply',
+        position: { x: 420, y: 240 },
+        type: 'agentFlow',
+        inputs: { directReplyMessage: "Welcome to the bakery! Ask me about today's bread." }
+    })
+    const source = start.data.outputAnchors?.[0]?.id || `${start.id}-output-${start.data.name}`
+    const edge = {
+        id: `${start.id}-${source}-${reply.id}-${reply.id}`,
+        type: 'agentFlow',
+        source: start.id,
+        sourceHandle: source,
+        target: reply.id,
+        targetHandle: reply.id,
+        data: { sourceColor: start.data.color, targetColor: reply.data.color }
     }
-    await new Promise((resolve) => setTimeout(resolve, 800))
-    const settingsDir = path.join(dataDir, 'cuttlely', 'settings')
-    writeFileSync(path.join(settingsDir, 'boot.json'), JSON.stringify({ pending: 2 }) + '\n')
-    const second = startServer(dataDir, 44122, { CUTTLELY_LOCAL_ADMIN: 'true', LOG_LEVEL: 'info' })
-    try {
-        console.log('safe boot', second.base)
-        await waitForPing(second)
-        const { context, page } = await newPage(browser)
-        try {
-            await signIn(page, second.base, ROSA.email)
-            await page.getByRole('heading', { name: 'Chatflows' }).waitFor({ timeout: 30000 })
-            await openSettings(page, second.base)
-            await page.getByTestId('safe-boot-banner').waitFor()
-            await shot(page, 'server-settings/server-settings-safe-boot.png')
-        } finally {
-            await context.close()
+    return saveFlow({ name: 'Bakery greeting', type: 'AGENTFLOW', nodes: [start, reply], edges: [edge] })
+}
+
+const SHARE_CONFIG = {
+    title: 'Crumb & Co.',
+    welcomeMessage: "Hi! I can help with today's breads and opening hours.",
+    textInput: { placeholder: 'Ask about breads or hours' },
+    starterPrompts: {
+        0: { prompt: 'What breads do you bake?' },
+        1: { prompt: 'Are you open on Sunday?' },
+        2: { prompt: 'Do you have anything gluten-free?' }
+    },
+    chatFeedback: { status: true },
+    generateNewSession: true
+}
+
+async function shareFlow(credentialId) {
+    const model = await buildNode('chatOpenAI', 'chatOpenAI_0', {
+        label: 'OpenAI',
+        position: { x: 80, y: 80 },
+        credential: credentialId,
+        inputs: { modelName: 'gpt-4.1-mini' }
+    })
+    const memory = await buildNode('bufferMemory', 'bufferMemory_0', { label: 'Buffer Memory', position: { x: 80, y: 420 } })
+    const chain = await buildNode('conversationChain', 'conversationChain_0', {
+        label: 'Counter answers',
+        position: { x: 560, y: 160 },
+        inputs: {
+            systemMessagePrompt:
+                'You are the counter at Crumb & Co., a made-up bakery. Answer about breads and hours. Never state a price or a currency amount.'
         }
-    } finally {
-        second.stop()
-        rmSync(dataDir, { recursive: true, force: true })
+    })
+    const edges = [connect(model, chain, 'model'), connect(memory, chain, 'memory')]
+    const saved = await saveFlow({
+        name: 'Crumb & Co.',
+        type: 'CHATFLOW',
+        nodes: [model, memory, chain],
+        edges,
+        chatbotConfig: SHARE_CONFIG,
+        isPublic: true
+    })
+    await publish(saved.id)
+    return saved
+}
+
+async function chartHarness(credentialId) {
+    return api('POST', '/demo', { credentialId, demo: 'bakery' })
+}
+
+async function chartChat() {
+    const node = await buildNode('harness', 'harness_0', {
+        label: 'Crumb sales',
+        position: { x: 240, y: 180 },
+        inputs: { harnessName: 'bakery-demo' }
+    })
+    const saved = await saveFlow({
+        name: 'Crumb sales chat',
+        type: 'CHATFLOW',
+        nodes: [node],
+        edges: [],
+        isPublic: true,
+        chatbotConfig: {
+            title: 'Crumb & Co.',
+            welcomeMessage: 'Ask for a loaf chart.',
+            textInput: { placeholder: 'Ask about loaves' },
+            allowedOrigins: [BASE, `http://127.0.0.1:${PAGE_PORT}`]
+        }
+    })
+    await publish(saved.id)
+    return saved
+}
+
+function servePages(shareId, chartId) {
+    const pages = {
+        '/bubble': `<!doctype html><html><head><meta charset="utf-8"><title>Crumb & Co. Bakery</title>
+<style>body{font:18px/1.5 Georgia,serif;margin:48px;color:#26251e;background:#f7f7f4}h1{font-weight:500}</style></head>
+<body><h1>Crumb & Co. Bakery</h1><p>Today's breads and opening hours. The chat in the corner can help.</p>
+<script src="${BASE}/embed/chat.js" data-flow-id="${shareId}" data-theme="light" data-open="true" defer></script></body></html>`,
+        '/chart': `<!doctype html><html><head><meta charset="utf-8"><title>Crumb & Co. Bakery</title>
+<style>body{font:18px/1.5 Georgia,serif;margin:48px;color:#26251e;background:#f7f7f4}h1{font-weight:500}</style></head>
+<body><h1>Crumb & Co. Bakery</h1><p>This page is on another site. The chat can show a chart of loaves.</p>
+<script src="${BASE}/embed/chat.js" data-flow-id="${chartId}" data-theme="light" data-open="true" defer></script></body></html>`
     }
+    const server = http.createServer((req, res) => {
+        const html = pages[req.url] || pages['/bubble']
+        res.writeHead(200, { 'content-type': 'text/html' })
+        res.end(html)
+    })
+    return new Promise((resolve) => server.listen(PAGE_PORT, '127.0.0.1', () => resolve(server)))
+}
+
+async function askWidget(page, question) {
+    const input = page.locator('textarea, input[type=text]').last()
+    await input.waitFor({ timeout: 20000 })
+    await input.fill(question)
+    await page.locator('button[title="Send"], button[aria-label="Send"]').last().click()
+    await page.locator('.dc-bot-bubble, .dc-msg.bot').last().waitFor({ timeout: 180000 })
+    await page.waitForFunction(() => !document.querySelector('.dc-typing') && !document.querySelector('button[title="Stop"]'), null, {
+        timeout: 180000
+    })
+    await page.waitForTimeout(800)
 }
 
 async function main() {
-    if (!existsSync(path.join(SERVER, 'dist/ui'))) throw new Error('Build first: pnpm build')
-    const browser = await launchBrowser()
-    try {
-        await captureRosa(browser)
-        await captureSetup(browser)
-        await captureRoles(browser)
-        await safeBoot(browser)
-        if (existsSync(path.join(IMAGES, 'server-settings/server-settings-signin-dark.png'))) {
-            rmSync(path.join(IMAGES, 'server-settings/server-settings-signin-dark.png'))
-            console.log('removed server-settings/server-settings-signin-dark.png')
-        }
-    } finally {
-        await browser.close()
+    log(`data directory ready (not printed)`)
+    startStub()
+    if (!EXTERNAL) await waitFor(`http://127.0.0.1:${STUB_PORT}/health`, 20, 'stand-in')
+    startServer()
+    await waitFor(`${BASE}/api/v1/ping`, 180, 'server')
+    log('server is up')
+
+    await api('POST', '/account/register', { user: { name: OWNER, email: EMAIL, credential: PASSWORD } })
+    await api('POST', '/auth/login', { email: EMAIL, password: PASSWORD })
+    const credential = await api('POST', '/credentials', {
+        name: 'OpenAI demo',
+        credentialName: 'openAIApi',
+        plainDataObj: { openAIApiKey: LOCAL_KEY }
+    })
+
+    const { chromium } = await import('playwright')
+    const browser = await chromium.launch({ headless: true })
+    const context = await browser.newContext({ viewport: { width: 1440, height: 960 }, deviceScaleFactor: 1, colorScheme: 'light' })
+    await context.addInitScript(() => localStorage.setItem('isDarkMode', 'false'))
+    const page = await context.newPage()
+    await signIn(page)
+
+    if (want('card')) {
+        await page.goto(`${BASE}/chatflows`, { waitUntil: 'domcontentloaded' })
+        await page.locator('#try-the-demo').waitFor({ timeout: 20000 })
+        await shoot(page, 'try-the-demo/try-the-demo-card.png')
+        const controls = page.locator('#try-the-demo').getByRole('button', { name: 'Try the demo' })
+        await controls.waitFor()
+        await assertNoMoney(page, 'try-the-demo/try-the-demo-key.png')
+        await page.locator('#try-the-demo').screenshot({ path: path.join(ROOT, 'docs/images/try-the-demo/try-the-demo-key.png') })
+        log('wrote try-the-demo/try-the-demo-key.png')
     }
-    const png = readFileSync(path.join(IMAGES, 'server-settings/server-settings-signin.png'))
-    if (png.readUInt32BE(16) !== 1440) throw new Error('signin shot is not 1440 wide')
-    console.log('docs shots done')
+
+    if (want('demo') || want('demo-chart')) {
+        if (want('demo')) {
+            await page.goto(`${BASE}/chatflows`, { waitUntil: 'domcontentloaded' })
+            await page.locator('#try-the-demo').getByRole('button', { name: 'Try the demo' }).click()
+            await page.waitForURL(/harnesscanvas/, { timeout: 180000 })
+            await page.getByRole('button', { name: /Maya Okafor/ }).waitFor({ timeout: 60000 })
+            await disableStreaming('customer-care-demo')
+            await page.getByRole('button', { name: 'expand' }).click()
+            await page.getByText('Hi there! How can I help?').waitFor()
+            await page.evaluate(() => {
+                const paper = document.querySelector('.MuiDialog-paper')
+                if (paper) {
+                    paper.style.maxWidth = '960px'
+                    paper.style.width = '960px'
+                }
+                document.querySelectorAll('.MuiDialog-paper button').forEach((button) => {
+                    button.style.whiteSpace = 'normal'
+                    button.style.height = 'auto'
+                    button.style.textAlign = 'left'
+                })
+            })
+            await page.waitForTimeout(300)
+            await shoot(page, 'try-the-demo/customer-care-open.png')
+            await page.getByRole('button', { name: /Maya Okafor/ }).click()
+            await page.getByText('Decision', { exact: false }).waitFor({ timeout: 240000 })
+            await page.waitForTimeout(800)
+            const remedy = page.getByText('name the remedy steps')
+            for (let i = 0; i < 3 && !(await remedy.isVisible().catch(() => false)); i += 1) {
+                await page.getByText('policy', { exact: true }).click()
+                await page.waitForTimeout(400)
+            }
+            await shoot(page, 'try-the-demo/customer-care-policy.png')
+            await scrollChat(page, 'Harness Prime sent work')
+            await shoot(page, 'try-the-demo/customer-care-run.png')
+            await scrollChat(page, 'Reply to the customer')
+            await shoot(page, 'try-the-demo/customer-care-answer.png')
+            await askExpanded(
+                page,
+                'Daniel Reyes wrote in on 6 Oct about order LH-20398: "My duvet set was due Saturday and it still isn\'t here. Where is it?"'
+            )
+            await page.getByText('road closure for snow').last().waitFor({ timeout: 240000 })
+            await page.waitForTimeout(800)
+            const trace = page.getByText('warehouse scans, carrier scans').last()
+            for (let i = 0; i < 3 && !(await trace.isVisible().catch(() => false)); i += 1) {
+                await page.getByText('operations', { exact: true }).last().click()
+                await page.waitForTimeout(400)
+            }
+            await shoot(page, 'try-the-demo/customer-care-carrier.png')
+            await askExpanded(page, 'Which orders are held in a warehouse right now, and which of those customers are Plus or Premier?')
+            await page.getByText('LH-20409').last().waitFor({ timeout: 240000 })
+            await page.waitForTimeout(800)
+            await scrollChat(page, 'LH-20409')
+            await shoot(page, 'try-the-demo/customer-care-held.png', { height: 800 })
+        }
+
+        await page.goto(`${BASE}/chatflows`, { waitUntil: 'domcontentloaded' })
+        await page.getByRole('button', { name: /bakery quickstart/i }).click()
+        await page.waitForURL(/harnesscanvas/, { timeout: 240000 })
+        await page
+            .getByText(/croissant|revenue|opening hours/i)
+            .first()
+            .waitFor({ timeout: 60000 })
+        if (await page.getByRole('button', { name: 'expand' }).count()) await page.getByRole('button', { name: 'expand' }).click()
+        if (want('demo')) await shoot(page, 'try-the-demo/demo-open.png')
+        await disableStreaming('bakery-demo')
+        await page.getByRole('button', { name: /croissant/i }).click()
+        await page
+            .getByText(/Riverside sold 335 more croissants/)
+            .last()
+            .waitFor({ timeout: 240000 })
+        await shoot(page, 'try-the-demo/demo-chart.png')
+    }
+
+    if (want('canvas')) {
+        const bakery = await bakeryFlow(credential.id)
+        const grok = await grokFlow()
+        const greeting = await workflowFlow()
+        await page.evaluate(() => localStorage.setItem('cuttlely.canvasLook', 'panel'))
+        await openCanvas(page, 'canvas', bakery.id)
+        await shoot(page, 'canvas/canvas-new-look.png')
+        await page.locator('.react-flow__node', { hasText: 'Recipe prompt' }).click()
+        await page.getByTestId('node-side-panel').waitFor()
+        await shoot(page, 'canvas/canvas-side-panel.png')
+        await openCanvas(page, 'canvas', grok.id)
+        await page.locator('.react-flow__node').first().click()
+        await page.getByTestId('node-side-panel').waitFor()
+        const panel = page.getByTestId('node-side-panel')
+        await panel.locator('input[role="combobox"]').nth(1).click()
+        await page.locator('.MuiAutocomplete-listbox').getByText('grok-4.6').waitFor({ timeout: 20000 })
+        await shoot(page, 'canvas/grok-model-dropdown.png')
+        await page.keyboard.press('Escape')
+        await page.evaluate(() => localStorage.setItem('cuttlely.canvasLook', 'classic'))
+        await openCanvas(page, 'canvas', bakery.id)
+        await shoot(page, 'canvas/canvas-classic.png')
+        await page.goto(`${BASE}/chatflows`, { waitUntil: 'domcontentloaded' })
+        await page.locator('.MuiAvatar-root').last().click()
+        const classicSwitch = page.getByRole('switch', { name: /Classic cards/ })
+        if ((await classicSwitch.getAttribute('aria-checked')) !== 'true') await classicSwitch.click()
+        await page.waitForTimeout(300)
+        await shoot(page, 'canvas/canvas-classic-cards-setting.png', { height: 1240 })
+        await page.keyboard.press('Escape')
+        await page.evaluate(() => localStorage.setItem('cuttlely.canvasLook', 'panel'))
+        await openCanvas(page, 'v2/agentcanvas', greeting.id)
+        await page.locator('.react-flow__node', { hasText: 'Reply' }).click()
+        await page.getByTestId('node-side-panel').waitFor()
+        await shoot(page, 'canvas/canvas-workflow-panel.png')
+
+        await page.evaluate(() => localStorage.setItem('cuttlely.canvasLook', 'panel'))
+        await page.goto(`${BASE}/canvas`, { waitUntil: 'domcontentloaded' })
+        await page.getByRole('button', { name: 'Build with AI' }).click()
+        await page.getByRole('button', { name: /math helper/i }).click()
+        await page.getByRole('button', { name: 'Build', exact: true }).waitFor()
+        await shoot(page, 'canvas/build-with-ai-dialog.png')
+        await page.getByRole('button', { name: 'Build', exact: true }).click()
+        await page.getByText('Math Helper with Calculator').first().waitFor({ timeout: 60000 })
+        await page.locator('.react-flow__controls-fitview').click()
+        await shoot(page, 'canvas/build-with-ai-built.png')
+        await page.getByTitle('Save Chatflow').click()
+        const dialog = page.getByRole('dialog')
+        await dialog.waitFor()
+        await dialog.getByRole('button', { name: 'Save', exact: true }).click()
+        await page.getByText(/Draft/).waitFor({ timeout: 20000 })
+        await page.locator('button[aria-label="chat"]').click()
+        const chatInput = page.getByPlaceholder(/Ask|Type|Send a message|question/i).last()
+        await chatInput.fill('What is 18 times 24?')
+        await page.keyboard.press('Enter')
+        await page.getByText('432').waitFor({ timeout: 120000 })
+        await shoot(page, 'canvas/build-with-ai-chat.png')
+        await page.getByRole('button', { name: 'Publish' }).click()
+        await page.getByRole('button', { name: 'Run check' }).click()
+        await page
+            .getByText(/answered/)
+            .last()
+            .waitFor({ timeout: 180000 })
+        await page.evaluate(() => document.querySelectorAll('[class*="SnackbarContainer"]').forEach((el) => el.remove()))
+        await shoot(page, 'canvas/build-with-ai-check.png')
+    }
+
+    if (want('share') || want('api')) {
+        const share = await shareFlow(credential.id)
+        const harness = want('share') ? await chartHarness(credential.id) : null
+        const chart = harness ? await chartChat() : null
+        const site = chart ? await servePages(share.id, chart.id) : null
+
+        if (want('share')) {
+            await page.goto(`${BASE}/chatbot/${share.id}`, { waitUntil: 'domcontentloaded' })
+            await page.getByText("Hi! I can help with today's breads and opening hours.").waitFor()
+            await shoot(page, 'share-and-embed/share-welcome.png')
+            await askWidget(page, 'Do you have anything gluten-free?')
+            await shoot(page, 'share-and-embed/share-light.png')
+            await page.emulateMedia({ colorScheme: 'dark' })
+            await page.reload({ waitUntil: 'domcontentloaded' })
+            await askWidget(page, 'Are you open on Sunday? Show the week as a table.')
+            await shoot(page, 'share-and-embed/share-dark.png', { scheme: 'dark' })
+            await page.emulateMedia({ colorScheme: 'light' })
+            await page.setViewportSize({ width: 390, height: 844 })
+            await page.reload({ waitUntil: 'domcontentloaded' })
+            await askWidget(page, 'Are you open on Sunday? Show the week as a table.')
+            await shoot(page, 'share-and-embed/share-mobile.png', { width: 390, height: 844 })
+
+            await page.setViewportSize({ width: 1280, height: 1000 })
+            await page.emulateMedia({ colorScheme: 'dark' })
+            await page.goto(`${BASE}/chatbot/${chart.id}`, { waitUntil: 'domcontentloaded' })
+            await askWidget(page, 'Compare sourdough and rye loaves: sourdough 120, rye 75')
+            await page
+                .locator('img')
+                .first()
+                .waitFor({ timeout: 15000 })
+                .catch(() => log('harness chart had no image'))
+            await shoot(page, 'share-and-embed/harness-chart.png', { width: 1280, height: 1000, scheme: 'dark' })
+
+            await page.emulateMedia({ colorScheme: 'light' })
+            await page.setViewportSize({ width: 1440, height: 960 })
+            await page.goto(`http://127.0.0.1:${PAGE_PORT}/bubble`, { waitUntil: 'domcontentloaded' })
+            await askWidget(page, 'Do you have anything gluten-free?')
+            await shoot(page, 'share-and-embed/embed-bubble.png')
+            await page.setViewportSize({ width: 1280, height: 1000 })
+            await page.goto(`http://127.0.0.1:${PAGE_PORT}/chart`, { waitUntil: 'domcontentloaded' })
+            await askWidget(page, 'Chart this week of croissant loaves')
+            await page
+                .locator('img')
+                .first()
+                .waitFor({ timeout: 15000 })
+                .catch(() => log('embed chart had no image'))
+            await shoot(page, 'share-and-embed/embed-chart.png', { width: 1280, height: 1000 })
+        }
+
+        if (want('api')) {
+            const helper = await shareFlow(credential.id)
+            // The example app uses an API key, not the model credential. Create the key and three flows that use it.
+            const created = await api('POST', '/apikey', { keyName: 'Bakery website', permissions: ['chatflows:view'] })
+            const revealed = (Array.isArray(created) ? created : created.data || []).find((row) => row.apiKey)
+            const apiKey = revealed?.apiKey
+            const keyId = revealed?.id
+            if (!apiKey || !keyId) throw new Error('API key was not returned')
+            await api('PUT', `/chatflows/${helper.id}`, { apikeyid: keyId, name: 'Bakery helper', isPublic: false })
+            for (const name of ['Counter answers', 'Bread list']) {
+                const extra = await shareFlow(credential.id)
+                await api('PUT', `/chatflows/${extra.id}`, { apikeyid: keyId, name, isPublic: false })
+            }
+            await page.goto(`${BASE}/apikey`, { waitUntil: 'domcontentloaded' })
+            await page.getByText('Bakery website').waitFor()
+            await page.getByText('Hidden').waitFor()
+            await shoot(page, 'api/api-keys-page.png')
+
+            const app = track(
+                spawn(process.execPath, [path.join(ROOT, 'examples/web-app/server.mjs')], {
+                    cwd: path.join(ROOT, 'examples/web-app'),
+                    env: {
+                        ...process.env,
+                        PORT: '8090',
+                        CUTTLELY_URL: BASE,
+                        CUTTLELY_FLOW_ID: helper.id,
+                        CUTTLELY_API_KEY: apiKey
+                    },
+                    stdio: ['ignore', 'inherit', 'inherit'],
+                    detached: true
+                })
+            )
+            app.unref()
+            await waitFor('http://127.0.0.1:8090/', 20, 'example app')
+            await page.goto('http://127.0.0.1:8090/', { waitUntil: 'domcontentloaded' })
+            const ask = async (question) => {
+                await page.locator('#question').fill(question)
+                await page.locator('#ask').click()
+                await page.locator('#log .a').last().waitFor({ timeout: 60000 })
+                await page.waitForFunction(() => !document.querySelector('#ask').disabled, null, { timeout: 60000 })
+            }
+            await ask('Hi, I am Sam. Is rye bread baked today? It is Saturday.')
+            await ask('What is my name, and are you open on Sunday?')
+            await shoot(page, 'api/api-example-app.png')
+        }
+        if (site) site.close()
+    }
+
+    fs.writeFileSync('/tmp/docs-shot-notes.json', JSON.stringify(NOTES, null, 2))
+    await browser.close()
+    log('capture finished')
 }
 
-main().catch((error) => {
-    console.error(error instanceof Error ? error.message : error)
-    process.exit(1)
-})
+main()
+    .catch((error) => {
+        console.error(`[docs-shots] ${error.message || error}`)
+        fs.writeFileSync('/tmp/docs-shot-notes.json', JSON.stringify(NOTES, null, 2))
+        process.exitCode = 1
+    })
+    .finally(() => {
+        stopAll()
+    })

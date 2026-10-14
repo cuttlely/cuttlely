@@ -87,7 +87,7 @@ pnpm --filter <pkg> test:coverage   # one package at a time on a small machine; 
 bash scripts/setup-hermes.sh          # once: the agent runtime's Python environment (hermes/.venv, with aiohttp and the mcp extra)
 pnpm build
 bash scripts/start-cuttlely.sh        # or: pnpm start:harness
-node scripts/docs-shots/capture.mjs   # retake server settings, sign-in, roles, first-run and import pictures. Needs the build. No model key.
+node scripts/docs-shots/capture-settings.mjs   # retake server settings, sign-in, roles, first-run and import pictures. Needs the build. No model key.
 ```
 
 The server listens on `PORT` (default 43117; set `HOST=0.0.0.0` for all interfaces). The agent runtime listens on `127.0.0.1:$HERMES_API_PORT` (default 8642). Wait for `Cuttlely is ready. Open http://localhost:<port>`. Data goes to `.cuttlely/` (gitignored) unless `CUTTLELY_DATA_DIR` is set.
@@ -215,7 +215,7 @@ The root `Dockerfile` has two stages. The build stage has the compilers, install
 
 ## Website
 
-The website source is `website/` (Astro and Starlight, static, with its own npm lockfile outside the pnpm workspace). The docs are written only in `docs/`; `website/scripts/sync-docs.mjs` copies them in before each build. `website/README.md` has the commands (`npm ci`, `npm run dev`, `npm run build`, `npm test`). `pnpm verify` runs the website unit tests and the `website-docs` link check without installing the website, so a broken link in `docs/` fails the gate.
+The website source is `website/` (Astro and Starlight, static, with its own npm lockfile outside the pnpm workspace). The docs are written only in `docs/`; `website/scripts/sync-docs.mjs` copies them in before each build. `website/README.md` has the commands (`npm ci`, `npm run dev`, `npm run build`, `npm test`). `pnpm verify` runs the website unit tests and the `website-docs` link check without installing the website, so a broken link in `docs/` fails the gate. `node scripts/docs-shots/capture.mjs` reshoots the canvas, share and embed, API and Try the demo pictures from a fresh local server.
 
 ## Release
 
