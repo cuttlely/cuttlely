@@ -62,13 +62,13 @@ A row with an empty input, or an input longer than 2,000 characters, is skipped 
 
 ### From a CSV
 
-CSV upload uses the first two columns only. Column one is the input and column two is the expected output. Further columns are ignored.
+CSV upload uses the first two columns only. Column one is the input and column two is the expected output. Further columns are ignored. A value that contains a comma must be in double quotes, or the comma starts another column.
 
 You can attach the file on **Add Dataset**, or open a dataset and select **Upload CSV**. Turn on **Treat First Row as headers in the upload file?** when the first row is `Input,Output` or any other header. Leave it off when the first row is a real example. Select **Add** or **Upload**.
 
 ```csv
 Input,Output
-Do you have rye loaves today?,Yes, rye is baked every morning.
+Do you have rye loaves today?,"Yes, rye is baked every morning."
 What time do you open on Saturday?,We open at 8 AM on Saturdays.
 ```
 
@@ -101,10 +101,10 @@ A bakery text check named `Mentions rye` uses **Contains Any** and the value `ry
 
 **Evaluator Type** is **Evaluate Result (JSON)**. There is no value to type.
 
-| Label                   | Passes when                        |
-| ----------------------- | ---------------------------------- |
-| **Is Valid JSON**       | The answer parses as JSON.         |
-| **Is Not a Valid JSON** | The answer does not parse as JSON. |
+| Label                   | Passes when                                                                                                                     |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| **Is Valid JSON**       | The answer parses as JSON after it is lowercased and trimmed. `True`, `False`, and `Null` pass. Surrounding spaces are ignored. |
+| **Is Not a Valid JSON** | The answer does not parse as JSON after that same lowercasing and trim.                                                         |
 
 Use this when the flow is supposed to return an object, such as `{"loaf":"rye","count":2}`. A prose sentence fails **Is Valid JSON**.
 
