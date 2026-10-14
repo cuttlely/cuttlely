@@ -8,13 +8,13 @@ The examples use a made-up bakery chatflow, **Bakery helper**, and a dataset nam
 
 The organization owner can do every step. Anyone else needs the keys below. The full route list is in [Roles and permissions](./roles-and-permissions.md).
 
-| Step                                                      | Permission                                                                                                                      |
-| --------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
-| Open **View Messages**                                    | `chatflows:view` on a chatflow, a harness, or a pipeline. `agentflows:view` on an agentflow. `assistants:view` on an assistant. |
-| **Add to test set** and **Add rated answers to test set** | `datasets:create`, or `datasets:update` together with `datasets:view`. The same view key as **View Messages** is also required. |
-| The existing-dataset list in either dialog                | `datasets:view`. Without it the list is hidden. **New dataset** stays available with `datasets:create`.                         |
-| Run the Publish check on a dataset                        | Update permission for the flow, plus `datasets:view`. Ticking evaluators also needs `evaluators:view`.                          |
-| Turn on **Passing test set**                              | Update permission for the flow, plus `datasets:view` and `evaluators:view`. Turning it off needs only the update permission.    |
+| Step                                                      | Permission                                                                                                                                                                                                                                                                    |
+| --------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Open **View Messages**                                    | `chatflows:view` on a chatflow, a harness, or a pipeline. `agentflows:view` on an agentflow. `assistants:view` on an assistant.                                                                                                                                               |
+| **Add to test set** and **Add rated answers to test set** | `datasets:create`, or `datasets:update` together with `datasets:view`. The same view key as **View Messages** is also required.                                                                                                                                               |
+| The existing-dataset list in either dialog                | `datasets:view`. Without it the list is hidden. **New dataset** stays available with `datasets:create`.                                                                                                                                                                       |
+| Run the Publish check on a dataset                        | Update permission for the flow, plus `datasets:view`. Ticking evaluators also needs `evaluators:view`.                                                                                                                                                                        |
+| Turn on **Passing test set**                              | `chatflows:config` on a chatflow, or `agentflows:config` on an agentflow. **Configuration** is hidden without that key. Turning it on also needs update permission for the flow, plus `datasets:view` and `evaluators:view`. Turning it off needs only the update permission. |
 
 A role that can only update datasets does not see either button, because the dataset list needs `datasets:view`.
 
@@ -75,16 +75,16 @@ A thumbs-down is a reply someone rejected. The question belongs in the test set.
 1. In **View Messages**, set **Feedback** to **Negative** only.
 2. Select **Add rated answers to test set**.
 3. **Last days** is how far back to look, a whole number from 1 to 90. It starts at 7. The window uses the date of the rating.
-4. **Limit** is how many new rows this call may add. Leave it blank for 500, the most one call adds. A number above 500 is treated as 500.
+4. **Limit** is how many new rows this call may add. The dialog accepts a whole number from 1 to 500. Leave it blank and the call uses 500. A number outside that range disables **See how many** and **Add Rated Answers**.
 5. Choose the dataset, or create one with **New dataset**.
 6. Select **See how many**. That is a dry run. It shows how many rows would be added, how many are already in the dataset, and a short preview of the questions. It writes nothing.
-7. Select **Add Rated Answers**. The note says `Added N rated answers to the test set`.
+7. Select **Add Rated Answers**. One new row says `Added 1 rated answer to the test set`. Any other count says `Added N rated answers to the test set`.
 
 The warning in this dialog is: `Real messages can contain personal data. Check the questions before adding them to a test set.` The preview is the place to do that. Drop a question that should not be stored, by leaving that rating out of a later, narrower window, or by deleting the row after it is saved.
 
 ![Add rated answers to test set after See how many. Last days is 7, Limit is blank so it shows the 500 placeholder, and the dataset is Counter answers. The preview says 2 rated answers will be added and 0 already in this test set. The questions are Why was the sourdough late? and Can I pick up on Monday?, each marked needs expected answer. The buttons are Cancel, See how many, and Add Rated Answers.](../images/evaluations/rated-preview.png)
 
-The dialog says `Negative ratings on this flow. A thumbs-up answer is saved as the expected output. A thumbs-down answer is not. Those rows are marked needs expected answer until you write one.` With **Positive** selected, only the first sentence is shown, and each row's expected answer is the reply that was given.
+The dialog says `Negative ratings on this flow. A thumbs-up answer is saved as the expected output. A thumbs-down answer is not. Those rows are marked needs expected answer until you write one.` With **Positive** selected, it still says `Positive ratings on this flow. A thumbs-up answer is saved as the expected output.` The thumbs-down sentences are left out, and each row's expected answer is the reply that was given.
 
 **See how many** shows:
 
@@ -151,7 +151,7 @@ Open the row. The dialog title is **Edit Item in**, the dataset name, and **Data
 
 ![Edit Item in Counter answers Dataset for Why was the sourdough late? The note shows the rejected answer The oven was busy and the feedback That does not say when it will be ready. Anticipated Output is The morning bake ran long. The loaf is ready after 9. The buttons are Cancel and Save.](../images/evaluations/fill-expected.png)
 
-Saving a non-empty expected answer clears `needs expected answer`. Clearing **Anticipated Output** on a thumbs-down row brings the marker back. The rejected answer and the feedback text stay on the row either way.
+Type a non-empty expected answer, then select **Save**. That clears `needs expected answer`. **Save** stays disabled while **Anticipated Output** is empty, so the dialog cannot clear the field. A `PUT /api/v1/datasets/rows/:id` that sets `output` to a blank string on a thumbs-down row brings the marker back. The rejected answer and the feedback text stay on the row either way.
 
 A row that still needs an expected answer is asked like any other row. Text, JSON, and numeric evaluators score the answer. A model evaluator scores Error with `This row needs an expected answer.` and the grading model is not called. Fill in the expected answer and run the check again.
 
@@ -166,7 +166,7 @@ On a chatflow, or an agentflow that starts with **Chat Input**, the Publish dial
 
 Each row runs in the saved order, once on Live and once on the draft. The expected answer is shown under the question. Each side shows Pass, Fail, or Error, and a pass rate. The finished check reports passed or failed for the draft against a pass mark. The mark is 100 unless the request sends `threshold`. What the scores mean, and the refusals for a form, webhook, or schedule start, are in [Run the Publish check on a dataset](./evaluations.md#run-the-publish-check-on-a-dataset).
 
-![Publish dialog for Bakery helper. Questions from is A dataset and the dataset is Counter answers. Mentions rye and Short answer are ticked. The button is Run Check.](../images/evaluations/publish-from-answers.png)
+![Publish dialog for Bakery helper. The change list says Changed Conversation Chain: system message. Questions from is A dataset and the dataset is Counter answers. Mentions rye and Short answer are ticked. The note says each question runs twice, once on Live and once on your draft, and that is 6 runs for 3 questions. The button is Run Check.](../images/evaluations/publish-from-answers.png)
 
 ## Turn on the gate
 
