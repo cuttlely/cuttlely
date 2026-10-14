@@ -11,19 +11,19 @@ The examples use a made-up bakery, Crumb & Co.
 3. Turn on **Make Public**. Only a public chatflow opens for people who are not signed in.
 4. Select **Copy Link**, or **Open New Tab** to try it. The link is `https://<your Cuttlely>/chatbot/<chatflow id>`.
 
-![The shared link for the Crumb & Co. chatflow in light mode. The header shows the Cuttlely mark, the title Crumb & Co. and Ready. The question What breads do you have and how much are they? is answered with a table: Country sourdough $7.50, Seeded rye $6.80, Baguette $3.90, Brioche loaf $8.20, then a line about the gluten-free buckwheat loaf on Fridays, with copy, thumbs up and thumbs down buttons under it. The input at the bottom says Ask about breads, pastries or hours, and the footer says Built with Cuttlely.](../images/share-and-embed/share-light.png)
+![The shared link for the Crumb & Co. chatflow in light mode. The header shows the Cuttlely mark, the title Crumb & Co. and Ready. The question Do you have anything gluten-free? is answered Yes. A gluten-free buckwheat loaf is baked on Fridays. Copy, thumbs up and thumbs down sit under the answer. The input says Ask about breads or hours, and the footer says Built with Cuttlely.](../images/share-and-embed/share-light.png)
 
 Before the first question, the chat shows the welcome message and the chatflow's starter prompts.
 
-![The welcome screen of the shared link: Ask Crumb & Co., the welcome message Hi! I can help with today's breads, prices and opening hours., and three starter prompts: What breads do you have and how much are they?, Are you open on Sunday?, Do you have anything gluten-free?](../images/share-and-embed/share-welcome.png)
+![The welcome screen of the shared link: Ask Crumb & Co., the welcome message Hi! I can help with today's breads and opening hours., and three starter prompts: What breads do you bake?, Are you open on Sunday?, Do you have anything gluten-free?](../images/share-and-embed/share-welcome.png)
 
 The chat follows the visitor's light or dark system setting.
 
-![The same link in dark mode. The question Are you open on Sunday? Show the week as a table. is answered with We are closed on Sunday, with closed on Sunday in bold, and a table of opening hours from Monday 7am - 6pm to Saturday 8am - 4pm and Sunday Closed.](../images/share-and-embed/share-dark.png)
+![The same link in dark mode. The question Are you open on Sunday? Show the week as a table. is answered We are closed on Sunday. and a table of opening hours from Monday 7am - 6pm through Friday 7am - 6pm, Saturday 8am - 4pm and Sunday Closed.](../images/share-and-embed/share-dark.png)
 
 On a phone the chat fills the screen.
 
-![The shared link on a phone. The breads table fits the screen width, and the input and send button sit at the bottom.](../images/share-and-embed/share-mobile.png)
+![The shared link on a phone. The question Are you open on Sunday? Show the week as a table. is answered We are closed on Sunday. and an hours table that fits the screen width. The input and send button sit at the bottom.](../images/share-and-embed/share-mobile.png)
 
 ### What the chat shows
 
@@ -35,7 +35,7 @@ On a phone the chat fills the screen.
 -   **Image uploads** (picker, paste or drag) when the chatflow accepts images.
 -   **Harness runs**: a run card with the route and each specialist's time, then the answer and any charts the team made.
 
-![A chatflow that runs the crumb-sales-team harness, in dark mode. The question Compare sourdough and rye sales: sourdough 120, rye 75 is answered under a Run complete card that says 1 specialist · 15.5 s. The answer has a table with Sourdough 120 and Rye 75 and the bar chart the charts specialist drew, titled Sourdough vs Rye Sales.](../images/share-and-embed/harness-chart.png)
+![A chatflow that runs the bakery-demo harness, in dark mode. The question Compare sourdough and rye loaves: sourdough 120, rye 75 is answered under a Run complete card. The answer is a table titled Loaves compared, with Sourdough 120 and Rye 75.](../images/share-and-embed/harness-chart.png)
 
 Model output is always shown as text: HTML in an answer is never run, even when **Render HTML on the chat** is on. Links and images only use `http`, `https`, `mailto` and your server's own paths.
 
@@ -103,7 +103,7 @@ mount(document.querySelector('#chat'), {
 
 `flowId` is the chatflow or agentflow id. `mode` is `bubble` (the default) or `page`. `theme` is `auto`, `light` or `dark`. `mount` returns a controller with `open()`, `close()`, `reset()` and `destroy()`. The script tag's `window.cuttlelyChat.mount` takes the same options. The package file for a script tag is `@cuttlely/chat/chat.js`; set `data-api-host` when that file is not loaded from your Cuttlely server.
 
-![A plain bakery web page, Crumb & Co. Bakery, with the chat open in the bottom right corner. The question Do you have anything gluten-free? is answered: Yes, we have a gluten-free buckwheat loaf available on Fridays only for $8.90. The round button under the panel closes it.](../images/share-and-embed/embed-bubble.png)
+![A plain bakery web page, Crumb & Co. Bakery, with the chat open in the bottom right corner. The question Do you have anything gluten-free? is answered Yes. A gluten-free buckwheat loaf is baked on Fridays. The round button under the panel closes it.](../images/share-and-embed/embed-bubble.png)
 
 ### Allowed domains
 
@@ -115,7 +115,7 @@ A chart a harness makes is a file saved with the chat. The share link and an emb
 
 With no **Allowed Domains** set, chart files on another site follow your server's `CORS_ORIGINS` setting, as before. To show charts in an embed, add your site to **Allowed Domains**.
 
-![The Crumb & Co. Bakery page on another site, with the chat open in the bottom right corner. The sales team answered Chart this week's croissant sales with a table of the six days and a bar chart titled This Week's Croissant Sales, from 42 on Monday to 88 on Saturday.](../images/share-and-embed/embed-chart.png)
+![The Crumb & Co. Bakery page on another site, with the chat open in the bottom right corner. The team answered Chart this week of croissant loaves with a table of Monday 42 through Saturday 88 and a bar chart titled Croissants baked this week.](../images/share-and-embed/embed-chart.png)
 
 ## Troubleshooting
 
