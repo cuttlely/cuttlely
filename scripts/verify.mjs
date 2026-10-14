@@ -98,6 +98,7 @@ const STEPS = [
             path.join(ROOT, 'scripts', 'omit-node-packs.test.mjs'),
             path.join(ROOT, 'scripts', 'node-pack-index.test.mjs'),
             path.join(ROOT, 'packages', 'cli', 'test', 'cli.test.js'),
+            path.join(ROOT, 'scripts', 'ci-examples.test.mjs'),
             path.join(ROOT, 'scripts', 'upgrade-check.test.mjs'),
             path.join(ROOT, 'scripts', 'outbound-guard.test.mjs'),
             path.join(ROOT, 'scripts', 'model-list.test.mjs'),
