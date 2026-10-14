@@ -274,6 +274,9 @@ test('the image context excludes the turbo cache, including a cache inside a pac
         'hermes/.ruff_cache/CACHEDIR.TAG',
         'packages/ui/build/index.html',
         'scripts/docs-shots/capture.mjs',
+        'scripts/docs-shots/capture-settings.mjs',
+        'examples/imports/bakery-helper.json',
+        'examples/imports/bakery-greeter.json',
         'node_modules/turbo/package.json',
         '.env',
         '.env.local'

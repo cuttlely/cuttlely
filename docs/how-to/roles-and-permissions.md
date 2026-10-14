@@ -35,9 +35,9 @@ Open **Admin**, then **Roles**, or go to `/roles`. You need `roles:manage`. The 
 3. Check the permissions. The chatflows group also covers harnesses and ETL pipelines. Checking any action in a group also checks that group's View key. Checking a template action other than Marketplace or Custom also checks those two.
 4. Select **Create Role**.
 
-![The Create New Role dialog. The name is Reader, the description is Can open chatflows and harnesses, and View is checked under CHATFLOWS.](../images/roles/create-role.png)
+![Create New Role. Role Name is Reader. Role Description is Can open chatflows and harnesses. Under CHATFLOWS, View is checked and the note says these permissions also cover Harnesses and ETL pipelines. Cancel and Create Role are at the bottom.](../images/roles/create-role.png)
 
-![The Roles page with Super User, member, and a custom Reader role. The Reader row shows one assigned user.](../images/roles/roles-list.png)
+![Roles. Super User is Built-in, Read-only, with 1 assigned user. member has 0 assigned users. Reader, Can open chatflows and harnesses, permission chatflows:view, has 1 assigned user.](../images/roles/roles-list.png)
 
 The dialog loads its checkboxes from `GET /api/v1/auth/permissions/ROLE`. A key the dialog leaves out cannot be saved on a new role. The eye icon on a row opens that role's permissions. The other eye opens the people assigned to it. **Edit** and the trash icon change or delete a role you created. Super User stays read-only. A role that still has people assigned cannot be deleted.
 
@@ -51,9 +51,9 @@ Open **Admin**, then **Users**, or go to `/users`. You need `users:manage`.
 
 Cuttlely stores the person as active, does not send mail, and does not set a password. They sign in with WorkOS using that email. See [Sign in with WorkOS](./sign-in.md#sign-in-with-workos).
 
-![The Add User dialog with the name Avery Chen, the email avery.chen@example.com, the team Default Workspace, and the role Reader.](../images/roles/add-user.png)
+![Add User. Name is Avery Chen. Email is avery.chen@example.com. The note says they sign in with WorkOS and no password is stored here. Team is Default Workspace. Role is Reader. Cancel and Create User are at the bottom.](../images/roles/add-user.png)
 
-![The Users page. Casey Quinn is Super User and active. Avery Chen is active, with one assigned role.](../images/roles/users-list.png)
+![User Management. Casey Quinn, casey.quinn@example.com, is Super User, read-only, ACTIVE, last login Never, with 1 assigned role. Avery Chen, avery.chen@example.com, is ACTIVE, last login Never, with 1 assigned role. A notice says User created.](../images/roles/users-list.png)
 
 The eye on a row lists each team and the role on that team. The trash icon removes the person. You cannot delete the organization owner or your own row.
 

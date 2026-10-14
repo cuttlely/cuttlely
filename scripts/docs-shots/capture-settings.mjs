@@ -1,0 +1,644 @@
+// Retake the docs pictures for server settings, sign-in, roles, a first run, and imports.
+// Headless, fixed viewports, light theme, empty data directories, local owner only.
+// Not part of the runtime image (.dockerignore) and not part of any npm package.
+// It does not sign in to an outside service and it does not print secret values.
+import { spawn } from 'node:child_process'
+import { createRequire } from 'node:module'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync, copyFileSync, existsSync } from 'node:fs'
+import { createServer } from 'node:net'
+import { tmpdir } from 'node:os'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
+
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
+const require = createRequire(path.join(ROOT, 'package.json'))
+const IMAGES = path.join(ROOT, 'docs/images')
+const SERVER = path.join(ROOT, 'packages/server')
+const EXAMPLES = path.join(ROOT, 'examples/imports')
+const PASSWORD = 'DocsShot1!'
+const ROSA = { name: 'Rosa Diaz', email: 'rosa.diaz@example.com' }
+const CASEY = { name: 'Casey Quinn', email: 'casey.quinn@example.com' }
+const AVERY = { name: 'Avery Chen', email: 'avery.chen@example.com' }
+// Obviously fake. Typed into a masked field. Never written to a log.
+const FAKE_AUTHKIT_KEY = ['sk', 'test', 'demo', 'bakery', 'not', 'real'].join('_')
+const FAKE_CLIENT_ID = 'client_demo_bakery'
+const WIDE = { width: 1440, height: 960 }
+const TALL = { width: 1440, height: 1240 }
+
+function freePort() {
+    return new Promise((resolve, reject) => {
+        const server = createServer()
+        server.once('error', reject)
+        server.listen(0, '127.0.0.1', () => {
+            const address = server.address()
+            const port = typeof address === 'object' && address ? address.port : 0
+            server.close(() => resolve(port))
+        })
+    })
+}
+
+function childEnv(dataDir, port, extra) {
+    const env = { ...process.env }
+    for (const key of Object.keys(env)) {
+        if (/KEY|TOKEN|SECRET|PASSWORD|POSTGRES|DATABASE_URL|API_KEY/i.test(key) && key !== 'SECRETKEY_PATH') delete env[key]
+    }
+    delete env.CUTTLELY_LOCAL_ADMIN
+    delete env.WORKOS_API_KEY
+    delete env.WORKOS_CLIENT_ID
+    delete env.WORKOS_REDIRECT_URI
+    delete env.WORKOS_COOKIE_PASSWORD
+    delete env.MODEL_LIST_CONFIG_JSON
+    env.HOST = '127.0.0.1'
+    env.PORT = String(port)
+    env.DATABASE_PATH = dataDir
+    env.SECRETKEY_PATH = dataDir
+    env.CUTTLELY_DATA_DIR = path.join(dataDir, 'cuttlely')
+    env.CUTTLELY_WARM_HERMES = 'false'
+    env.CUTTLELY_HARNESS_QUEUE = 'off'
+    env.PATH = process.env.PATH
+    return { ...env, ...extra }
+}
+
+function startServer(dataDir, port, extra) {
+    const logs = []
+    const child = spawn(
+        process.execPath,
+        [
+            '-r',
+            path.join(ROOT, 'scripts/refuse-sso-load.cjs'),
+            '-r',
+            path.join(ROOT, 'scripts/smoke-fake-model.cjs'),
+            path.join(SERVER, 'bin/run'),
+            'start'
+        ],
+        { cwd: SERVER, env: childEnv(dataDir, port, extra), detached: true, stdio: ['ignore', 'pipe', 'pipe'] }
+    )
+    const keep = (chunk) => {
+        logs.push(String(chunk))
+        if (logs.length > 200) logs.shift()
+    }
+    child.stdout.on('data', keep)
+    child.stderr.on('data', keep)
+    const stop = () => {
+        try {
+            process.kill(-child.pid, 'SIGTERM')
+        } catch {
+            child.kill('SIGTERM')
+        }
+    }
+    return { child, logs, stop, dataDir, port, base: `http://127.0.0.1:${port}` }
+}
+
+async function waitForPing(server) {
+    const deadline = Date.now() + 12 * 60 * 1000
+    let last = ''
+    while (Date.now() < deadline) {
+        if (server.child.exitCode !== null) throw new Error(`server exited ${server.child.exitCode}\n${server.logs.join('').slice(-2000)}`)
+        try {
+            const response = await fetch(`${server.base}/api/v1/ping`, { signal: AbortSignal.timeout(2000) })
+            const text = await response.text()
+            if (response.status === 200 && text.includes('pong')) return
+            last = `${response.status} ${text.slice(0, 120)}`
+        } catch (error) {
+            last = error instanceof Error ? error.name : 'waiting'
+        }
+        await new Promise((resolve) => setTimeout(resolve, 1000))
+    }
+    throw new Error(`server did not answer ping (${last})\n${server.logs.join('').slice(-2000)}`)
+}
+
+async function launchBrowser() {
+    const { chromium } = require('playwright')
+    const args = ['--no-sandbox', '--disable-dev-shm-usage', '--force-device-scale-factor=1']
+    try {
+        return await chromium.launch({ channel: 'chrome', args })
+    } catch {
+        return chromium.launch({ args })
+    }
+}
+
+async function newPage(browser, size = WIDE) {
+    const context = await browser.newContext({ viewport: size, deviceScaleFactor: 1, colorScheme: 'light' })
+    await context.addInitScript(() => {
+        localStorage.setItem('isDarkMode', 'false')
+    })
+    await context.route(/workos\.com/i, (route) => route.abort())
+    const page = await context.newPage()
+    page.on('dialog', (dialog) => dialog.accept())
+    await page.emulateMedia({ colorScheme: 'light', reducedMotion: 'reduce' })
+    return { context, page }
+}
+
+async function shot(page, rel, size = WIDE) {
+    if (size) await page.setViewportSize(size)
+    const file = path.join(IMAGES, rel)
+    mkdirSync(path.dirname(file), { recursive: true })
+    await page.screenshot({ path: file, animations: 'disabled' })
+    console.log('wrote', rel)
+}
+
+async function shotBox(page, locator, rel, clip) {
+    const box = await locator.boundingBox()
+    if (!box) throw new Error(`no box for ${rel}`)
+    const file = path.join(IMAGES, rel)
+    mkdirSync(path.dirname(file), { recursive: true })
+    const region = clip
+        ? { x: box.x, y: box.y, width: Math.min(clip.width, box.width), height: Math.min(clip.height, box.height) }
+        : { x: box.x, y: box.y, width: box.width, height: box.height }
+    await page.screenshot({ path: file, animations: 'disabled', clip: region })
+    console.log('wrote', rel, `${Math.round(region.width)}x${Math.round(region.height)}`)
+}
+
+async function register(page, base, person) {
+    await page.goto(`${base}/organization-setup`, { waitUntil: 'domcontentloaded' })
+    await page.getByRole('heading', { name: 'Setup Account' }).waitFor()
+    await page.locator('input:not([type="password"])').nth(0).fill(person.name)
+    await page.getByPlaceholder('user@company.com').fill(person.email)
+    const passwords = page.locator('input[type="password"]')
+    await passwords.nth(0).fill(PASSWORD)
+    await passwords.nth(1).fill(PASSWORD)
+    await page.getByRole('button', { name: 'Sign Up' }).click()
+    await page.getByRole('heading', { name: 'Chatflows' }).waitFor({ timeout: 30000 })
+}
+
+async function signIn(page, base, email, password = PASSWORD) {
+    await page.goto(`${base}/signin`, { waitUntil: 'domcontentloaded' })
+    await page.getByRole('heading', { name: 'Sign In' }).waitFor()
+    await page.getByPlaceholder('user@company.com').fill(email)
+    await page.locator('#break-glass-form input[type="password"]').fill(password)
+    await page.locator('#break-glass-form button[type="submit"]').click()
+}
+
+async function openAccountMenu(page) {
+    await page.locator('header .MuiAvatar-root').last().click()
+    await page.getByText('Logout').waitFor()
+}
+
+async function openSettings(page, base) {
+    await page.goto(`${base}/server-settings`, { waitUntil: 'domcontentloaded' })
+    await page.getByRole('heading', { name: 'Server settings' }).waitFor()
+    await page.getByTestId('rail-signin').waitFor()
+}
+
+async function section(page, id) {
+    await page.getByTestId(`rail-${id}`).click()
+}
+
+async function fillNumber(page, key, value) {
+    const input = page.locator(`#field-${key}`)
+    await input.click()
+    await input.fill(String(value))
+    await input.blur()
+}
+
+async function chooseOption(page, key, name) {
+    await page.locator(`#field-${key}`).click()
+    await page.getByRole('option', { name, exact: true }).click()
+}
+
+async function authKitThrough(page, { email } = {}) {
+    const dialog = page.getByRole('dialog', { name: 'Set up AuthKit' })
+    await dialog.waitFor()
+    await dialog.getByTestId('authkit-api-key').fill(FAKE_AUTHKIT_KEY)
+    await dialog.getByTestId('authkit-client-id').fill(FAKE_CLIENT_ID)
+    await dialog.getByTestId('authkit-environment').first().waitFor()
+    await shot(page, 'server-settings/authkit-step-keys.png')
+    await dialog.getByTestId('authkit-next').click()
+    await dialog.getByText('Add these in WorkOS').waitFor()
+    await shot(page, 'server-settings/authkit-step-addresses.png')
+    await dialog.getByTestId('authkit-next').click()
+    if (email) await dialog.getByTestId('authkit-email').fill(email)
+    await dialog.getByTestId('authkit-generate-seal').click()
+    await dialog.getByTestId('authkit-seal').waitFor()
+    await shot(page, 'server-settings/authkit-step-seal.png')
+    await dialog.getByTestId('authkit-next').click()
+    await dialog.getByTestId('authkit-check').getByText('API key').waitFor({ timeout: 20000 })
+    await shot(page, 'server-settings/authkit-step-check.png')
+    await dialog.getByRole('button', { name: 'Close' }).click()
+}
+
+async function holdRestart(page, mode) {
+    await page.route('**/api/v1/server-settings/restart', (route) =>
+        route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ restarting: true }) })
+    )
+    let probes = 0
+    await page.route('**/api/v1/ping', (route) => {
+        probes += 1
+        if (mode === 'starting' || probes === 1) {
+            return route.fulfill({
+                status: 503,
+                contentType: 'application/json',
+                body: JSON.stringify({ status: 'starting', step: 'Loading the building blocks (the slowest step)' })
+            })
+        }
+        return route.fulfill({ status: 200, contentType: 'text/plain', body: 'pong' })
+    })
+    if (mode === 'failed') {
+        await page.route('**/api/v1/server-settings', async (route) => {
+            const url = new URL(route.request().url())
+            if (route.request().method() !== 'GET' || url.pathname !== '/api/v1/server-settings') return route.continue()
+            const response = await route.fetch()
+            const json = await response.json()
+            json.rolledBack = true
+            json.retryAvailable = true
+            return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(json) })
+        })
+    }
+    await page.getByTestId('settings-restart').click()
+    await page.getByTestId('restart-screen').waitFor()
+    const expect = mode === 'starting' ? 'Starting:' : mode === 'failed' ? 'The new settings did not start' : 'Cuttlely is back'
+    await page.getByText(expect).first().waitFor({ timeout: 8000 })
+    await shot(page, `server-settings/restart-screen-${mode === 'starting' ? 'starting' : mode === 'failed' ? 'failed' : 'back'}.png`)
+    await page.unroute('**/api/v1/server-settings/restart')
+    await page.unroute('**/api/v1/ping')
+    await page.unroute('**/api/v1/server-settings')
+    await page.keyboard.press('Escape')
+}
+
+async function captureRosa(browser) {
+    const server = startServer(mkdtempSync(path.join(tmpdir(), 'cuttlely-docs-rosa-')), 44117, {
+        CUTTLELY_LOCAL_ADMIN: 'true',
+        LOG_LEVEL: 'info'
+    })
+    try {
+        console.log('rosa', server.base)
+        await waitForPing(server)
+        const { context, page } = await newPage(browser)
+        try {
+            await page.goto(`${server.base}/organization-setup`, { waitUntil: 'domcontentloaded' })
+            await page.getByRole('heading', { name: 'Setup Account' }).waitFor()
+            await shot(page, 'from-source/organization-setup.png')
+            await register(page, server.base, ROSA)
+            await shot(page, 'from-source/first-signed-in.png', TALL)
+
+            await openAccountMenu(page)
+            await shot(page, 'sign-in/account-menu.png', TALL)
+            await page.keyboard.press('Escape')
+
+            await page.getByRole('button', { name: 'Import' }).click()
+            await page.getByRole('menuitem', { name: 'Import Langflow JSON' }).waitFor()
+            await shot(page, 'bring-your-flows/chatflows-import-buttons.png', TALL)
+            await page.getByRole('menuitem', { name: /JSON$/ }).first().click()
+            const wizard = page.getByRole('dialog', { name: 'Flowise migration wizard' })
+            await wizard.waitFor()
+            await shot(page, 'bring-your-flows/wizard-upload.png')
+            await wizard.locator('input[type="file"]').setInputFiles(path.join(EXAMPLES, 'bakery-helper.json'))
+            await wizard.getByText('Ready to open, with items to finish').waitFor()
+            await shot(page, 'bring-your-flows/wizard-scan.png')
+            await wizard.getByRole('button', { name: 'Next' }).click()
+            await wizard.getByText('Nothing from the file was copied').waitFor()
+            await shot(page, 'bring-your-flows/wizard-credentials.png')
+            await wizard.getByRole('button', { name: 'Next' }).click()
+            await wizard.getByRole('heading', { name: 'Deprecated' }).waitFor()
+            await wizard.getByRole('button', { name: 'Next' }).click()
+            await wizard.getByRole('button', { name: 'Open migrated canvas' }).waitFor()
+            await shot(page, 'bring-your-flows/wizard-result.png')
+            await page.evaluate(() => localStorage.setItem('cuttlely.canvasLook', 'classic'))
+            await wizard.getByRole('button', { name: 'Open migrated canvas' }).click()
+            await page.getByText('ChatOpenAI').first().waitFor({ timeout: 30000 })
+            await page.getByText('Conversation Chain').first().waitFor()
+            await page
+                .locator('.react-flow__controls-fitview')
+                .click({ timeout: 3000 })
+                .catch(() => {})
+            await page
+                .locator('input[value="gpt-4.1-mini"]')
+                .first()
+                .waitFor({ timeout: 5000 })
+                .catch(() => {})
+            await page.waitForTimeout(400)
+            await shot(page, 'bring-your-flows/wizard-opened-canvas.png')
+
+            await page.goto(`${server.base}/chatflows`, { waitUntil: 'domcontentloaded' })
+            await page.getByRole('heading', { name: 'Chatflows' }).waitFor()
+            await page.evaluate(() => localStorage.setItem('cuttlely.canvasLook', 'classic'))
+            const chooser = page.waitForEvent('filechooser')
+            await page.getByRole('button', { name: 'Import' }).click()
+            await page.getByRole('menuitem', { name: 'Import Langflow JSON' }).click()
+            await (await chooser).setFiles(path.join(EXAMPLES, 'bakery-greeter.json'))
+            await page.getByText('Bakery greeter').first().waitFor({ timeout: 30000 })
+            await page.getByText('Imported from Langflow.').waitFor()
+            await page
+                .locator('.react-flow__controls-fitview')
+                .click({ timeout: 3000 })
+                .catch(() => {})
+            await page.waitForTimeout(400)
+            await shot(page, 'bring-your-flows/langflow-opened.png')
+
+            await openSettings(page, server.base)
+            await shot(page, 'server-settings/server-settings-signin.png')
+            await shot(page, 'server-settings/server-settings-get-started.png')
+            await page.getByTestId('authkit-open').click()
+            await authKitThrough(page)
+
+            await section(page, 'models')
+            await page.getByTestId('models-credentials-hint').waitFor()
+            await shot(page, 'server-settings/server-settings-models.png')
+
+            await section(page, 'storage')
+            await page.getByTestId('test-storage-run').click()
+            await page.getByTestId('test-storage-result').getByText('can write').waitFor({ timeout: 20000 })
+            await shot(page, 'server-settings/test-connection-storage-ok.png')
+
+            await section(page, 'analyst')
+            await page.locator('#field-CUTTLELY_POSTGRES_URL').fill('postgres://bakery@127.0.0.1:1/demo')
+            await page.getByTestId('test-analyst-run').click()
+            await page.getByTestId('test-analyst-result').getByText('Could not connect').waitFor({ timeout: 20000 })
+            await shot(page, 'server-settings/test-connection-analyst-failed.png')
+            const resetDraft = page.getByRole('button', { name: 'Reset' })
+            if (await resetDraft.isVisible()) await resetDraft.click()
+
+            await section(page, 'database')
+            await page.getByTestId('database-card').waitFor()
+            await shot(page, 'server-settings/database-card.png')
+            await page.getByTestId('database-switch').click()
+            const database = page.getByRole('dialog').last()
+            await database.getByTestId('db-choice-postgres').waitFor()
+            await shot(page, 'server-settings/database-switch-choose.png')
+            await database.getByTestId('db-next-step').click()
+            await database.locator('[data-testid="db-host"]').fill('127.0.0.1')
+            await database.getByLabel('Port').fill('1')
+            await database.getByLabel('Database name').fill('bakery')
+            await database.locator('[data-testid="db-user"]').fill('bakery')
+            await database.getByTestId('db-next-step').click()
+            await database.getByText('Connect and sign in').waitFor({ timeout: 20000 })
+            await shot(page, 'server-settings/database-switch-test.png')
+            await database.getByRole('button', { name: 'Close' }).click()
+
+            await section(page, 'all')
+            await page.getByRole('heading', { name: 'All settings' }).waitFor()
+            await page.getByTestId('copy-env').waitFor()
+            await shot(page, 'server-settings/server-settings-all-settings.png')
+            copyFileSync(
+                path.join(IMAGES, 'server-settings/server-settings-all-settings.png'),
+                path.join(IMAGES, 'server-settings/server-settings-all.png')
+            )
+            console.log('wrote server-settings/server-settings-all.png')
+
+            await page.getByLabel('Search settings').fill('timeout')
+            await page.getByText('MCP sign-in wait').waitFor()
+            await shot(page, 'server-settings/server-settings-search.png')
+            await page.getByLabel('Clear search').click()
+            await page.reload({ waitUntil: 'domcontentloaded' })
+            await page.getByTestId('rail-analyst').waitFor()
+
+            await section(page, 'analyst')
+            await fillNumber(page, 'CUTTLELY_ANALYST_ROW_CAP', '40')
+            await section(page, 'runtime')
+            await fillNumber(page, 'CUTTLELY_HERMES_KEEP_WARM_MINUTES', '30')
+            await section(page, 'advanced')
+            await fillNumber(page, 'CUSTOM_MCP_AUTHORIZE_TIMEOUT_MS', '20')
+            await page.getByTestId('settings-review').click()
+            const reviewTitle = page.getByRole('heading', { name: /Review/ })
+            await reviewTitle.waitFor()
+            const reviewText = await reviewTitle.innerText()
+            if (reviewText !== 'Review 3 changes') {
+                const body = await page.getByRole('dialog').innerText()
+                throw new Error(`expected Review 3 changes, got ${reviewText}\n${body.slice(0, 700)}`)
+            }
+            await shot(page, 'server-settings/server-settings-review.png')
+            await page.getByRole('button', { name: 'Back' }).click()
+            await page.getByRole('button', { name: 'Reset' }).click()
+
+            await section(page, 'storage')
+            await chooseOption(page, 'STORAGE_TYPE', 'S3 or compatible')
+            await section(page, 'security')
+            await fillNumber(page, 'TRUST_PROXY', '1').catch(async () => {
+                await page.locator('#field-TRUST_PROXY').fill('1')
+            })
+            await page.getByTestId('settings-review').click()
+            await page.getByRole('heading', { name: 'Review 2 changes' }).waitFor()
+            await page.getByTestId('review-confirm').fill('RESTART')
+            await shot(page, 'server-settings/server-settings-review-high-risk.png')
+            await page.getByRole('button', { name: 'Back' }).click()
+            await page.getByRole('button', { name: 'Reset' }).click()
+
+            await section(page, 'analyst')
+            await fillNumber(page, 'CUTTLELY_ANALYST_ROW_CAP', '80')
+            await fillNumber(page, 'CUTTLELY_ANALYST_STATEMENT_TIMEOUT_MS', '20')
+            await section(page, 'runtime')
+            await fillNumber(page, 'CUTTLELY_HERMES_KEEP_WARM_MINUTES', '30')
+            await section(page, 'advanced')
+            await fillNumber(page, 'CUSTOM_MCP_AUTHORIZE_TIMEOUT_MS', '20')
+            await fillNumber(page, 'CUSTOM_MCP_TOOL_NAME_MAX_LENGTH', '64')
+            await fillNumber(page, 'CUSTOM_MCP_TOOL_DESCRIPTION_MAX_LENGTH', '512')
+            await page.getByTestId('settings-save-bar-text').getByText('6 unsaved changes').waitFor()
+            await page.getByTestId('settings-review').click()
+            await page.getByTestId('review-save').click()
+            await page.getByText('Saved. Restart Cuttlely to apply.').waitFor()
+            await section(page, 'security')
+            await shot(page, 'server-settings/server-settings-saved.png')
+            await section(page, 'advanced')
+            await page.getByTestId('setting-LOG_LEVEL').scrollIntoViewIfNeeded()
+            await shot(page, 'server-settings/server-settings-locked.png')
+            await section(page, 'history')
+            await page.getByTestId('settings-history').waitFor()
+            await page.waitForTimeout(400)
+            await shot(page, 'server-settings/server-settings-history.png')
+
+            await holdRestart(page, 'starting')
+            await page.reload({ waitUntil: 'domcontentloaded' })
+            await page.getByTestId('settings-restart').waitFor()
+            await holdRestart(page, 'back')
+            await page.reload({ waitUntil: 'domcontentloaded' })
+            await page.getByTestId('settings-restart').waitFor()
+            await holdRestart(page, 'failed')
+        } finally {
+            // Sign-out is done below on a fresh navigation if still signed in.
+            await context.close()
+        }
+
+        const signedOut = await newPage(browser)
+        try {
+            await signedOut.page.goto(`${server.base}/signin`, { waitUntil: 'domcontentloaded' })
+            await signedOut.page.getByRole('heading', { name: 'Sign In' }).waitFor()
+            await shot(signedOut.page, 'sign-in/signin-break-glass.png')
+            copyFileSync(path.join(IMAGES, 'sign-in/signin-break-glass.png'), path.join(IMAGES, 'from-source/first-open-signin.png'))
+            console.log('wrote from-source/first-open-signin.png')
+            await signedOut.page.getByPlaceholder('user@company.com').fill(ROSA.email)
+            await signedOut.page.locator('#break-glass-form input[type="password"]').fill('wrong-pass')
+            await signedOut.page.locator('#break-glass-form button[type="submit"]').click()
+            await signedOut.page.getByText('Invalid email or password.').waitFor()
+            await shot(signedOut.page, 'sign-in/signin-wrong-password.png')
+        } finally {
+            await signedOut.context.close()
+        }
+        const exited = new Promise((resolve) => server.child.once('exit', resolve))
+        server.stop()
+        await Promise.race([exited, new Promise((resolve) => setTimeout(resolve, 8000))])
+        const closed = startServer(server.dataDir, 44120, { LOG_LEVEL: 'info' })
+        try {
+            console.log('not configured', closed.base)
+            await waitForPing(closed)
+            const off = await newPage(browser)
+            try {
+                await off.page.goto(`${closed.base}/signin`, { waitUntil: 'domcontentloaded' })
+                await off.page.getByText('Sign-in is not configured.').waitFor()
+                await shot(off.page, 'sign-in/signin-not-configured.png')
+            } finally {
+                await off.context.close()
+            }
+        } finally {
+            closed.stop()
+            rmSync(server.dataDir, { recursive: true, force: true })
+        }
+    } catch (error) {
+        server.stop()
+        throw error
+    }
+}
+
+async function captureSetup(browser) {
+    const server = startServer(mkdtempSync(path.join(tmpdir(), 'cuttlely-docs-setup-')), 44118, { LOG_LEVEL: 'info' })
+    try {
+        console.log('setup', server.base)
+        await waitForPing(server)
+        const joined = server.logs.join('')
+        const link = joined.match(/https?:\/\/\S+\/server-setup\?code=[A-Za-z0-9_-]+/)
+        if (!link) throw new Error(`no setup link in the log\n${joined.slice(-1500)}`)
+        const { context, page } = await newPage(browser)
+        try {
+            await page.goto(link[0].replace('://localhost', '://127.0.0.1'), { waitUntil: 'domcontentloaded' })
+            await page.getByTestId('setup-choose-password').waitFor()
+            await shot(page, 'server-settings/setup-link-choose.png')
+            await page.getByTestId('setup-choose-authkit').click()
+            const dialog = page.getByRole('dialog', { name: 'Set up AuthKit' })
+            await dialog.waitFor()
+            await dialog.getByTestId('authkit-api-key').fill(FAKE_AUTHKIT_KEY)
+            await dialog.getByTestId('authkit-client-id').fill(FAKE_CLIENT_ID)
+            await shot(page, 'server-settings/setup-link-authkit.png')
+            await dialog.getByRole('button', { name: 'Cancel' }).click()
+            await page.getByTestId('setup-choose-password').click()
+            await page.getByText('Create the owner account').waitFor()
+            await shot(page, 'server-settings/setup-link-password.png')
+            const bad = new URL(link[0].replace('://localhost', '://127.0.0.1'))
+            bad.searchParams.set('code', 'not-a-real-code')
+            await page.goto(bad.toString(), { waitUntil: 'domcontentloaded' })
+            await page.getByText("This setup link can't be used").waitFor()
+            await shot(page, 'server-settings/setup-link-closed.png')
+        } finally {
+            await context.close()
+        }
+    } finally {
+        server.stop()
+        rmSync(server.dataDir, { recursive: true, force: true })
+    }
+}
+
+async function captureRoles(browser) {
+    const server = startServer(mkdtempSync(path.join(tmpdir(), 'cuttlely-docs-roles-')), 44119, {
+        CUTTLELY_LOCAL_ADMIN: 'true',
+        LOG_LEVEL: 'info'
+    })
+    try {
+        console.log('roles', server.base)
+        await waitForPing(server)
+        const { context, page } = await newPage(browser)
+        try {
+            await register(page, server.base, CASEY)
+            await page.goto(`${server.base}/roles`, { waitUntil: 'domcontentloaded' })
+            await page.getByRole('button', { name: 'Add Role' }).click()
+            const dialog = page.getByRole('dialog', { name: 'Create New Role' })
+            await dialog.locator('input').nth(0).fill('Reader')
+            await dialog.locator('input').nth(1).fill('Can open chatflows and harnesses.')
+            await dialog
+                .locator('label')
+                .filter({ hasText: /^View$/ })
+                .first()
+                .click()
+            await shotBox(page, dialog, 'roles/create-role.png', { width: 900, height: 850 })
+            await dialog.getByRole('button', { name: 'Create Role' }).click()
+            await page.getByText('Reader').first().waitFor()
+
+            await page.goto(`${server.base}/users`, { waitUntil: 'domcontentloaded' })
+            await page.getByRole('button', { name: 'Add User' }).click()
+            const add = page.getByRole('dialog', { name: 'Add User' })
+            await add.locator('input').nth(0).fill(AVERY.name)
+            await add.locator('input').nth(1).fill(AVERY.email)
+            const roleBox = add.locator('[role="combobox"]').last()
+            await roleBox.click()
+            await page.getByRole('option', { name: 'Reader' }).click()
+            await shotBox(page, add, 'roles/add-user.png', { width: 600, height: 498 })
+            await add.getByRole('button', { name: 'Create User' }).click()
+            await page.getByText(AVERY.name).waitFor()
+            await shot(page, 'roles/users-list.png')
+
+            await page.goto(`${server.base}/roles`, { waitUntil: 'domcontentloaded' })
+            await page.getByText('Reader').first().waitFor()
+            await shot(page, 'roles/roles-list.png')
+        } finally {
+            await context.close()
+        }
+    } finally {
+        server.stop()
+        rmSync(server.dataDir, { recursive: true, force: true })
+    }
+}
+
+async function safeBoot(browser) {
+    const dataDir = mkdtempSync(path.join(tmpdir(), 'cuttlely-docs-safe-'))
+    const first = startServer(dataDir, 44121, { CUTTLELY_LOCAL_ADMIN: 'true', LOG_LEVEL: 'info' })
+    try {
+        await waitForPing(first)
+        const { context, page } = await newPage(browser)
+        try {
+            await register(page, first.base, ROSA)
+            await openSettings(page, first.base)
+            await section(page, 'analyst')
+            await fillNumber(page, 'CUTTLELY_ANALYST_ROW_CAP', '90')
+            await page.getByTestId('settings-review').click()
+            await page.getByTestId('review-save').click()
+            await page.getByText('Saved. Restart Cuttlely to apply.').waitFor()
+        } finally {
+            await context.close()
+        }
+    } finally {
+        first.stop()
+    }
+    await new Promise((resolve) => setTimeout(resolve, 800))
+    const settingsDir = path.join(dataDir, 'cuttlely', 'settings')
+    writeFileSync(path.join(settingsDir, 'boot.json'), JSON.stringify({ pending: 2 }) + '\n')
+    const second = startServer(dataDir, 44122, { CUTTLELY_LOCAL_ADMIN: 'true', LOG_LEVEL: 'info' })
+    try {
+        console.log('safe boot', second.base)
+        await waitForPing(second)
+        const { context, page } = await newPage(browser)
+        try {
+            await signIn(page, second.base, ROSA.email)
+            await page.getByRole('heading', { name: 'Chatflows' }).waitFor({ timeout: 30000 })
+            await openSettings(page, second.base)
+            await page.getByTestId('safe-boot-banner').waitFor()
+            await shot(page, 'server-settings/server-settings-safe-boot.png')
+        } finally {
+            await context.close()
+        }
+    } finally {
+        second.stop()
+        rmSync(dataDir, { recursive: true, force: true })
+    }
+}
+
+async function main() {
+    if (!existsSync(path.join(SERVER, 'dist/ui'))) throw new Error('Build first: pnpm build')
+    const browser = await launchBrowser()
+    try {
+        await captureRosa(browser)
+        await captureSetup(browser)
+        await captureRoles(browser)
+        await safeBoot(browser)
+        if (existsSync(path.join(IMAGES, 'server-settings/server-settings-signin-dark.png'))) {
+            rmSync(path.join(IMAGES, 'server-settings/server-settings-signin-dark.png'))
+            console.log('removed server-settings/server-settings-signin-dark.png')
+        }
+    } finally {
+        await browser.close()
+    }
+    const png = readFileSync(path.join(IMAGES, 'server-settings/server-settings-signin.png'))
+    if (png.readUInt32BE(16) !== 1440) throw new Error('signin shot is not 1440 wide')
+    console.log('docs shots done')
+}
+
+main().catch((error) => {
+    console.error(error instanceof Error ? error.message : error)
+    process.exit(1)
+})

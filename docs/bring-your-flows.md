@@ -16,28 +16,28 @@ Install and sign in first: [Docker](./how-to/docker.md) and [Sign in](./how-to/s
 1. In Flowise, export the flow to a JSON file. A file that holds one flow's `nodes` and `edges`, or a saved flow whose `flowData` holds them, both work. Template files with `nodes` and `edges` work the same way.
 2. In Cuttlely, open **Chatflows**, select **Import** at the top right, then **Import Flowise JSON**. On a chatflow canvas, the gear menu has **Import Flowise JSON** too.
 
-    ![Chatflows with the Import menu open at the top right, showing Import Flowise JSON, Import Langflow JSON and What carries over, beside Start from a template and Add New.](./images/bring-your-flows/chatflows-import-buttons.png)
+    ![Chatflows with the Import menu open beside Start from a template and Add New. The menu lists two JSON import items and What carries over.](./images/bring-your-flows/chatflows-import-buttons.png)
 
 3. The **Flowise migration wizard** opens. Select **Choose Flowise JSON** and pick your file.
 
-    ![The Flowise migration wizard on its Upload step, with five steps across the top: Upload, Scan, Credentials, Nodes and Result. The text says API keys are not copied. A Choose Flowise JSON button is below it.](./images/bring-your-flows/wizard-upload.png)
+    ![The migration wizard on Upload, the first of five steps: Upload, Scan, Credentials, Nodes and Result. The text says API keys are not copied. A button below chooses the JSON file. Cancel is at the right.](./images/bring-your-flows/wizard-upload.png)
 
 4. **Scan** counts the nodes and edges and lists what the wizard fixed, such as a credential it cleared. Select **Next**.
 
-    ![The Scan step for a Bakery helper file. An amber note reads Ready to open, with items to finish. Below it: 3 nodes, 2 edges, 2 import with nothing to change, and Cleared the credential on ChatOpenAI. The saved value was not copied.](./images/bring-your-flows/wizard-scan.png)
+    ![The Scan step for Bakery helper. An amber note reads Ready to open, with items to finish. Below it: 3 nodes, 2 edges, 2 import with nothing to change, and Cleared the credential on ChatOpenAI. The saved value was not copied.](./images/bring-your-flows/wizard-scan.png)
 
 5. **Credentials** lists each card that needs a credential. Note them, then select **Next**.
 
-    ![The Credentials step. It reads Select a credential saved in this app for each slot. Nothing from the file was copied. One slot is listed: ChatOpenAI, Connect Credential.](./images/bring-your-flows/wizard-credentials.png)
+    ![The Credentials step. It reads Select a credential saved in this app for each slot. Nothing from the file was copied. One slot is listed: ChatOpenAI — Connect Credential.](./images/bring-your-flows/wizard-credentials.png)
 
 6. **Nodes** lists older nodes that still work but are on their way out, and nodes Cuttlely cannot place. Select **Next**.
 7. **Result** is green when nothing is left to do, and amber when the canvas can open but something still needs you. Select **Open migrated canvas**.
 
-    ![The Result step. An amber note reads Ready to open, with items to finish, and the line The canvas will open. Finish the credential slots on the graph. Open migrated canvas is at the bottom right.](./images/bring-your-flows/wizard-result.png)
+    ![The Result step. An amber note reads Ready to open, with items to finish. The line says the canvas will open and to finish the credential slots on the graph. Open migrated canvas is at the bottom right.](./images/bring-your-flows/wizard-result.png)
 
 8. The flow opens on the canvas that fits it: a chatflow on the chatflow canvas, and an agentflow on the agentflow canvas. Select a credential on each card the wizard named, then select **Save**.
 
-    ![The imported Bakery helper chatflow, not saved yet, drawn with classic cards: ChatOpenAI with an empty Connect Credential box and gpt-4.1-mini, Buffer Memory, and Conversation Chain, all connected.](./images/bring-your-flows/wizard-opened-canvas.png)
+    ![Bakery helper, not saved yet, drawn with classic cards. ChatOpenAI has an empty Connect Credential box and Model Name gpt-4.1-mini. Buffer Memory has Memory Key chat_history. Conversation Chain has a system message starting Answer the bakery counter. The three cards are connected.](./images/bring-your-flows/wizard-opened-canvas.png)
 
 This picture shows classic cards, with every setting on the card. With the default compact cards, select a card to set its credential in the side panel. See [Canvas cards](./how-to/canvas.md).
 
@@ -84,7 +84,7 @@ Cuttlely opens a Langflow export when it is one chat: exactly one chat model, at
 2. In Cuttlely, open **Chatflows** and select **Import**, then **Import Langflow JSON**, and pick the file. The same option is on the chatflow canvas gear menu.
 3. The chat opens on the chatflow canvas. The prompt becomes the system message, and a note on the canvas says the API key was not copied.
 
-    ![A chatflow named Bakery greeter, imported from Langflow and drawn with classic cards: an OpenAI card with gpt-4.1-mini and temperature 0.2, Buffer Memory, and Conversation Chain, with a yellow note that reads Imported from Langflow. API keys were not copied. Select a credential on the chat model. Credentials stay in this app.](./images/bring-your-flows/langflow-opened.png)
+    ![Bakery greeter, not saved yet, drawn with classic cards. OpenAI shows Model Name gpt-4.1-mini, Temperature 0.2, and an empty Connect Credential box. Buffer Memory and Conversation Chain are connected to it. A yellow note reads Imported from Langflow. API keys were not copied. Select a credential on the chat model. Credentials stay in this app.](./images/bring-your-flows/langflow-opened.png)
 
 4. Select a credential on the chat model card, then select **Save**.
 
