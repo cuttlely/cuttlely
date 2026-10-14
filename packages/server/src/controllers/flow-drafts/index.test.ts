@@ -40,7 +40,7 @@ const checkService = {
 jest.mock('../../services/flow-check', () => ({ __esModule: true, default: checkService }))
 const listQuestionHistory = jest.fn(async () => ({ items: [], nextCursor: null }))
 jest.mock('../../services/flow-check/history', () => ({
-    listQuestionHistory: (...args: any[]) => listQuestionHistory(...args)
+    listQuestionHistory: (...args: any[]) => (listQuestionHistory as (...values: any[]) => any)(...args)
 }))
 const granted = new Set<string>()
 jest.mock('../../identity/rbac', () => ({
