@@ -216,7 +216,7 @@ Each row runs in the saved order, once on Live and once on the draft. The expect
 
 The finished dataset check also reports passed or failed for the draft against a pass mark. The mark is 100 unless the request sends `threshold`, a whole number from 0 to 100. Errored scores count as not passed. The verdict uses those counts, not the rounded pass rate, so one failed or errored score does not pass a mark of 100 even when the displayed rate rounds to 100.0. A check that is not using a dataset has no verdict. That line does not block Publish unless the flow requires a passing test set.
 
-![Publish dialog for Bakery helper after Run the test set. The draft pass rate is 75 percent and failed the mark of 100. The rye row passes both checks. The Saturday row fails Mentions rye and passes Short answer. Publish stays disabled, and the reason is Publish needs a passing test set at 100%. The last result was 75% and failed.](../images/evaluations/publish-dataset.png)
+![Publish dialog for Bakery helper with the passing test set on. The notice says Publish needs a passing test set at 100%. The last result was 75% and failed. The draft pass rate is 75% (3 passed, 1 failed, 0 errored) and failed at a threshold of 100%. Publish is disabled. Do you have rye loaves today? is marked Same, with the expected answer Yes, rye is baked every morning.](../images/evaluations/publish-dataset.png)
 
 A flow that starts with a form, a webhook, or a schedule cannot use a dataset. The box is titled **Check recent runs**. The recent choice is labeled **Recent runs**. The list still offers **A dataset**, and that request is 400:
 
