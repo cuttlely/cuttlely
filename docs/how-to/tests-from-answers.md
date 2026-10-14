@@ -182,6 +182,6 @@ In the Publish dialog, **Publish** stays disabled, with the reason, until the la
 
 ## Fail the build on that gate
 
-Scored mode and `--gate` need Cuttlely 1.1.0 or later. That is the first release with scored mode, and no release with it has been published yet. The published 1.0.3 package has no `--gate`.
+Scored mode and `--gate` need Cuttlely 1.1.0 or later. 1.1.0 is the first release with scored mode. The published 1.0.3 package has no `--gate`.
 
 With the passing test set on, a pipeline can run the same check and exit on the server's verdict. The command, the exit codes, and the workflow are in [Fail a build when answers change](./ci-gate.md).
