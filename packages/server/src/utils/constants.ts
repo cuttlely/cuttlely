@@ -22,6 +22,9 @@ export const WHITELIST_URLS = [
     '/api/v1/auth/resolve',
     '/api/v1/auth/login',
     '/api/v1/auth/signin-options',
+    '/api/v1/auth/options',
+    '/api/v1/auth/local/login',
+    '/api/v1/auth/local/logout',
     '/api/v1/auth/callback',
     // The one-time setup link guards itself (routes/server-setup).
     '/api/v1/server-setup',

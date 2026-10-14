@@ -27,6 +27,8 @@ const HANDLED_BY_ROUTE = new Set([
     '/api/v1/auth/callback',
     '/api/v1/auth/refreshToken',
     '/api/v1/auth/resolve',
+    '/api/v1/auth/options',
+    '/api/v1/auth/local/login',
     '/api/v1/account/logout',
     '/api/v1/account/register'
 ])

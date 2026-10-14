@@ -87,6 +87,17 @@ The embed code shown under Share and the shared chat link both load the widget f
 
 `scripts/outbound-guard.test.mjs` runs in `pnpm verify` and fails if a tracker, a remote font, a remote template icon or a call to an upstream server comes back into the shipped code, or if the agent runtime loses its offline defaults (model catalogs, tirith and models.dev off).
 
+## Local passwords
+
+Two password paths exist, and neither ships a default password.
+
+-   `CUTTLELY_LOCAL_ADMIN` is the owner break-glass account. `POST /api/v1/auth/login` accepts only that owner.
+-   `CUTTLELY_LOCAL_USERS` is off unless set to exactly `true`. With AuthKit not configured, `POST /api/v1/auth/local/login` accepts any active user who already has a password. AuthKit leaves that route off. The owner break-glass route still follows its own flag.
+
+A session is bound to that user id. It does not grant the owner role. The role is read on every request. Sign-in, sign-out, disable, and a password change store revocation in `identity_local_session`, so an old cookie fails after a restart. Unknown emails, wrong passwords, users with no password, and disabled users get the same failure body. Ten failures in 15 minutes lock the client address, and a known account, without storing a key for an email that matches nobody. Cookies are `HttpOnly`, `SameSite=Lax`, and `Secure` in production. State-changing session routes need `x-request-from: internal`. The server does not log passwords, hashes, cookies, setup codes, or raw emails.
+
+The first owner is still created with the one-time setup code. No route sets another user's password. Invited users have no password until a sign-in link exists. Details are in [Users without AuthKit](./docs/how-to/users-without-authkit.md) and the [Auth API](./docs/reference/auth-api.md).
+
 ## Maintainer checks
 
 The merge gate is `pnpm verify` on Node 24, described in [CONTRIBUTING.md](./CONTRIBUTING.md). It fails when a secret-like value or a removed commercial path is committed. Do not commit secrets, tokens or `.env` files.

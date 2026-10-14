@@ -147,6 +147,20 @@ class MemoryStore implements IdentityStore {
         this.local.delete(token)
     }
 
+    async deleteLocalSessionsForUser(userId: string): Promise<void> {
+        for (const [key, row] of this.local) {
+            if (row.userId === userId) this.local.delete(key)
+        }
+    }
+
+    async localAccountOpen(userId: string): Promise<boolean> {
+        const user = this.users.find((row) => row.id === userId)
+        if (!user || user.status.toLowerCase() !== 'active') return false
+        return !this.disabled.has(userId)
+    }
+
+    disabled = new Set<string>()
+
     add(user: UserRow, owner = false): void {
         this.users.push(user)
         if (owner) this.ownerId = user.id
@@ -204,6 +218,7 @@ function ctx(partial: Partial<AuthContext> = {}): AuthContext {
     return {
         workosConfigured: false,
         localAdmin: false,
+        localUsers: false,
         cookiePasswordOk: true,
         redirectUri: 'http://127.0.0.1:43117/api/v1/auth/callback',
         secure: false,

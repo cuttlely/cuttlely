@@ -20,6 +20,9 @@ import { NextFunction, Request, Response, Router } from 'express'
 import logger from '../utils/logger'
 import {
     handleCallback,
+    handleLocalLogin,
+    handleLocalLogout,
+    handleLocalPassword,
     handleLoginGet,
     handleLoginPost,
     handleLogout,
@@ -31,7 +34,7 @@ import {
 import { apiKeyPermissionCatalog, rolePermissionCatalog } from './permissionsCatalog'
 import { requireAnyPermission, requirePermission } from './rbac'
 import { registerInvite } from './directoryRoutes'
-import { signInOptionsBody } from './signInOptions'
+import { enabledSignInMethods, signInOptionsBody } from './signInOptions'
 import { buildAuthContext } from './production'
 import { HandlerResult } from './types'
 
@@ -76,6 +79,12 @@ export const identityAuthRouter = Router()
 identityAuthRouter.get('/signin-options', (_req, res) => {
     res.json(signInOptionsBody())
 })
+identityAuthRouter.get('/options', (_req, res) => {
+    res.json(enabledSignInMethods())
+})
+identityAuthRouter.post('/local/login', (req, res, next) => void dispatch(req, res, next, handleLocalLogin))
+identityAuthRouter.post('/local/logout', (req, res, next) => void dispatch(req, res, next, handleLocalLogout))
+identityAuthRouter.post('/local/password', (req, res, next) => void dispatch(req, res, next, handleLocalPassword))
 identityAuthRouter.get('/permissions/ROLE', requirePermission('roles:manage'), (_req, res) => {
     res.json(rolePermissionCatalog())
 })

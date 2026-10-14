@@ -446,6 +446,34 @@ export class SqlIdentityStore implements IdentityStore {
         })
     }
 
+    async deleteLocalSessionsForUser(userId: string): Promise<void> {
+        await this.withRunner(async (runner) => {
+            const d = dialectOf(runner)
+            await query(runner, `DELETE FROM ${quote(d, 'identity_local_session')} WHERE ${quote(d, 'userId')} = ?`, [userId])
+        })
+    }
+
+    async localAccountOpen(userId: string): Promise<boolean> {
+        return this.withRunner(async (runner) => {
+            const d = dialectOf(runner)
+            const users = await query(
+                runner,
+                `SELECT ${quote(d, 'status')} AS ${quote(d, 'status')} FROM ${quote(d, 'user')} WHERE ${quote(d, 'id')} = ?`,
+                [userId]
+            )
+            if (!users.length || text(cell(users[0], 'status')).trim().toLowerCase() !== 'active') return false
+            const disabled = await query(
+                runner,
+                `SELECT COUNT(*) AS ${quote(d, 'count')} FROM ${quote(d, 'organization_user')} WHERE ${quote(
+                    d,
+                    'userId'
+                )} = ? AND LOWER(${quote(d, 'status')}) = 'disable'`,
+                [userId]
+            )
+            return Number(cell(disabled[0] || {}, 'count') || 0) === 0
+        })
+    }
+
     private async withRunner<T>(fn: (runner: QueryRunner) => Promise<T>): Promise<T> {
         const runner = this.dataSource.createQueryRunner()
         await runner.connect()

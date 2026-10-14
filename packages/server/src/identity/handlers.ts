@@ -18,15 +18,17 @@ import { randomUUID } from 'crypto'
 import { localCookie, sealedCookie } from './cookies'
 import {
     ABSOLUTE_MS,
+    EMAIL_MAX_LENGTH,
     IDLE_MS,
     LOCAL_SESSION_COOKIE,
+    PASSWORD_MAX_LENGTH,
     WOS_SESSION_COOKIE,
     signOutReturnTo,
     signinErrorUrl,
     unavailablePage
 } from './constants'
 import { isActiveStatus, linkFailureMessage, linkWorkosUser } from './link'
-import { hashPassword, hashSessionToken, passwordErrors, randomToken, tokensEqual, verifyPassword } from './password'
+import { hashForLoginCompare, hashPassword, hashSessionToken, passwordErrors, randomToken, tokensEqual, verifyPassword } from './password'
 import { LoginLimiter } from './rateLimit'
 import { isLoopbackAddress } from './sessionGuard'
 import { setupCodeMatches } from './setupCode'
@@ -36,6 +38,8 @@ import { HandlerResult, SessionUser, SetCookie, WorkosPort, WorkosUnavailableErr
 export interface AuthContext {
     workosConfigured: boolean
     localAdmin: boolean
+    /** CUTTLELY_LOCAL_USERS is on and AuthKit is not configured. */
+    localUsers: boolean
     cookiePasswordOk: boolean
     redirectUri?: string
     secure: boolean
@@ -90,6 +94,54 @@ async function sessionAfterLogin(store: IdentityStore, userId: string, now: numb
     if (!current) return null
     await store.touchLastLogin(userId, current.activeWorkspaceId, new Date(now))
     return store.sessionFor(userId)
+}
+
+/** Secure in production even when the request itself is not https. Other cookie flags stay as they are. */
+function localSessionSecure(ctx: AuthContext): boolean {
+    return ctx.secure || process.env.NODE_ENV === 'production'
+}
+
+/**
+ * `ok` keeps the session. `end` deletes every session for that user (disabled or no longer active).
+ * `reject` drops this cookie. Break-glass (local admin, local users mode off) accepts only the owner.
+ * A local session never becomes the owner by itself: the caller loads RBAC with sessionFor.
+ */
+async function localCookieGate(ctx: AuthContext, userId: string): Promise<'ok' | 'end' | 'reject'> {
+    if (!ctx.localAdmin && !ctx.localUsers) return 'reject'
+    const open = await ctx.store.localAccountOpen(userId)
+    if (!open) return 'end'
+    if (ctx.localUsers) return 'ok'
+    const owner = await ctx.store.findSuperUser()
+    if (!owner || owner.id !== userId) return 'reject'
+    return 'ok'
+}
+
+async function issueLocalSession(ctx: AuthContext, userId: string): Promise<{ token: string; session: SessionUser } | null> {
+    const token = randomToken()
+    await ctx.store.insertLocalSession({
+        id: randomUUID(),
+        userId,
+        token: hashSessionToken(token),
+        idleExpires: new Date(ctx.now + IDLE_MS),
+        absoluteExpires: new Date(ctx.now + ABSOLUTE_MS)
+    })
+    const session = await sessionAfterLogin(ctx.store, userId, ctx.now)
+    if (!session) return null
+    return { token, session }
+}
+
+function loginFields(body: Record<string, unknown>): { ok: true; email: string; password: string } | { ok: false; message: string } {
+    const emailRaw = body.email
+    const password = body.password
+    if (typeof emailRaw !== 'string' || typeof password !== 'string') {
+        return { ok: false, message: 'Email and password are required.' }
+    }
+    if (emailRaw.length > EMAIL_MAX_LENGTH || password.length > PASSWORD_MAX_LENGTH) {
+        return { ok: false, message: 'Email or password is too long.' }
+    }
+    const email = emailRaw.trim().toLowerCase()
+    if (!email || !password) return { ok: false, message: 'Email and password are required.' }
+    return { ok: true, email, password }
 }
 
 export async function handleLoginGet(ctx: AuthContext): Promise<HandlerResult> {
@@ -197,7 +249,7 @@ export async function handleRefresh(ctx: AuthContext): Promise<HandlerResult> {
     }
 
     const token = ctx.cookies[LOCAL_SESSION_COOKIE]
-    if (token && ctx.localAdmin) {
+    if (token && (ctx.localAdmin || ctx.localUsers)) {
         const digest = hashSessionToken(token)
         const row = await ctx.store.findLocalSession(digest)
         if (!row || !tokensEqual(row.token, digest)) {
@@ -211,11 +263,18 @@ export async function handleRefresh(ctx: AuthContext): Promise<HandlerResult> {
             await ctx.store.deleteLocalSession(digest)
             return json(401, { message: 'Token Expired' }, cleared(ctx, [LOCAL_SESSION_COOKIE]))
         }
+        const gate = await localCookieGate(ctx, row.userId)
+        if (gate === 'end') {
+            await ctx.store.deleteLocalSessionsForUser(row.userId)
+            return json(401, { message: 'Token Expired' }, cleared(ctx, [LOCAL_SESSION_COOKIE]))
+        }
+        if (gate !== 'ok') return json(401, { message: 'Token Expired' }, cleared(ctx, [LOCAL_SESSION_COOKIE]))
         const idleExpires = new Date(Math.min(ctx.now + IDLE_MS, row.absoluteExpires.getTime()))
         await ctx.store.slideLocalSession(digest, idleExpires)
         const session = await ctx.store.sessionFor(row.userId)
         if (!session) return json(401, { message: 'Token Expired' }, cleared(ctx, [LOCAL_SESSION_COOKIE]))
-        return json(200, session, { cookies: [localCookie(token, ctx.secure, idleExpires.getTime() - ctx.now)] })
+        const secure = ctx.localUsers ? localSessionSecure(ctx) : ctx.secure
+        return json(200, session, { cookies: [localCookie(token, secure, idleExpires.getTime() - ctx.now)] })
     }
 
     return json(401, { message: 'Token Expired' })
@@ -290,6 +349,111 @@ export async function handlePasswordRecoveryGone(): Promise<HandlerResult> {
     return json(404, { message: 'Not Found' })
 }
 
+/**
+ * Password sign-in for any active local user who already has a password.
+ * 404 unless local users mode is on. Break-glass stays on POST /api/v1/auth/login.
+ * Unknown email, a wrong password, a null credential, and a disabled user share one 401 body.
+ */
+export async function handleLocalLogin(ctx: AuthContext): Promise<HandlerResult> {
+    if (!ctx.localUsers) return json(404, { message: 'Not Found' })
+    const fields = loginFields(ctx.body)
+    if (!fields.ok) return json(400, { message: fields.message })
+    if (await ctx.rateLimit.blocked(ctx.ip, fields.email, ctx.now)) return json(429, { message: TOO_MANY })
+
+    const matches = await ctx.store.findUsersByEmail(fields.email)
+    const user = matches.length === 1 ? matches[0] : null
+    const open = user ? await ctx.store.localAccountOpen(user.id) : false
+    const eligible = Boolean(user && open && user.credential)
+    const passwordOk = await verifyPassword(fields.password, hashForLoginCompare(eligible, user ? user.credential : null))
+    if (!user || !eligible || !passwordOk) {
+        if (user && !open) await ctx.store.deleteLocalSessionsForUser(user.id)
+        // Unknown emails must not become account keys. The client address still counts.
+        await ctx.rateLimit.recordFailure(ctx.ip, user ? fields.email : '', ctx.now)
+        return json(401, { message: INVALID_LOGIN })
+    }
+
+    const issued = await issueLocalSession(ctx, user.id)
+    if (!issued) return json(401, { message: INVALID_LOGIN })
+    return json(200, issued.session, {
+        cookies: [localCookie(issued.token, localSessionSecure(ctx), IDLE_MS)],
+        ...cleared(ctx, [WOS_SESSION_COOKIE])
+    })
+}
+
+/** Clears this browser's local session. Repeating it returns the same success. CSRF is required. */
+export async function handleLocalLogout(ctx: AuthContext): Promise<HandlerResult> {
+    if (!ctx.localUsers) return json(404, { message: 'Not Found' })
+    if (!ctx.internal) return json(401, { message: 'Unauthorized' })
+    const token = ctx.cookies[LOCAL_SESSION_COOKIE]
+    if (token) await ctx.store.deleteLocalSession(hashSessionToken(token))
+    return json(200, { message: 'logged_out', redirectTo: '/signin' }, cleared(ctx, [LOCAL_SESSION_COOKIE, WOS_SESSION_COOKIE]))
+}
+
+/**
+ * Changes the signed-in user's own password. There is no field for another user's id.
+ * The current password is required. Other sessions end and this browser receives a new cookie.
+ */
+export async function handleLocalPassword(ctx: AuthContext): Promise<HandlerResult> {
+    if (!ctx.localUsers) return json(404, { message: 'Not Found' })
+    if (!ctx.internal) return json(401, { message: 'Unauthorized' })
+    const token = ctx.cookies[LOCAL_SESSION_COOKIE]
+    if (!token) return json(401, { message: 'Unauthorized' })
+    const digest = hashSessionToken(token)
+    const row = await ctx.store.findLocalSession(digest)
+    if (!row || !tokensEqual(row.token, digest)) return json(401, { message: 'Unauthorized' })
+    if (ctx.now >= row.absoluteExpires.getTime() || ctx.now >= row.idleExpires.getTime()) {
+        await ctx.store.deleteLocalSession(digest)
+        return json(401, { message: 'Unauthorized' })
+    }
+    const gate = await localCookieGate(ctx, row.userId)
+    if (gate === 'end') {
+        await ctx.store.deleteLocalSessionsForUser(row.userId)
+        return json(401, { message: 'Unauthorized' })
+    }
+    if (gate !== 'ok') return json(401, { message: 'Unauthorized' })
+
+    const currentRaw = ctx.body.currentPassword
+    const nextRaw = ctx.body.newPassword
+    if (typeof currentRaw !== 'string' || typeof nextRaw !== 'string') {
+        return json(400, { message: 'Current password and new password are required.' })
+    }
+    if (currentRaw.length > PASSWORD_MAX_LENGTH || nextRaw.length > PASSWORD_MAX_LENGTH) {
+        return json(400, { message: 'Password is too long.' })
+    }
+    if (!currentRaw || !nextRaw) return json(400, { message: 'Current password and new password are required.' })
+    const errors = passwordErrors(nextRaw)
+    if (errors.length) return json(400, { message: errors[0] })
+    if (nextRaw === currentRaw) return json(400, { message: 'New password must be different.' })
+
+    const account = await accountForSession(ctx, row.userId)
+    if (await ctx.rateLimit.blocked(ctx.ip, account.email, ctx.now)) return json(429, { message: TOO_MANY })
+    const eligible = Boolean(account.credential)
+    const currentOk = await verifyPassword(currentRaw, hashForLoginCompare(eligible, account.credential))
+    if (!eligible || !currentOk) {
+        await ctx.rateLimit.recordFailure(ctx.ip, account.email, ctx.now)
+        return json(401, { message: INVALID_LOGIN })
+    }
+
+    await ctx.store.setCredential(row.userId, await hashPassword(nextRaw))
+    await ctx.store.deleteLocalSessionsForUser(row.userId)
+    const issued = await issueLocalSession(ctx, row.userId)
+    if (!issued) return json(401, { message: INVALID_LOGIN })
+    return json(200, issued.session, {
+        cookies: [localCookie(issued.token, localSessionSecure(ctx), IDLE_MS)],
+        ...cleared(ctx, [WOS_SESSION_COOKIE])
+    })
+}
+
+/** Email used for lockout. Empty when the row is gone, so no new account key is stored. */
+async function accountForSession(ctx: AuthContext, userId: string): Promise<{ email: string; credential: string | null }> {
+    const session = await ctx.store.sessionFor(userId)
+    if (!session) return { email: '', credential: null }
+    const matches = await ctx.store.findUsersByEmail(session.email)
+    const user = matches.find((row) => row.id === userId) || null
+    if (!user) return { email: '', credential: null }
+    return { email: user.email.trim().toLowerCase(), credential: user.credential }
+}
+
 export async function establishSession(
     ctx: AuthContext
 ): Promise<{ user: SessionUser | null; cookies?: SetCookie[]; clearCookies?: string[]; secure?: boolean }> {
@@ -324,13 +488,19 @@ export async function establishSession(
     }
 
     const token = ctx.cookies[LOCAL_SESSION_COOKIE]
-    if (token && ctx.localAdmin) {
+    if (token && (ctx.localAdmin || ctx.localUsers)) {
         const digest = hashSessionToken(token)
         const row = await ctx.store.findLocalSession(digest)
         if (!row || !tokensEqual(row.token, digest)) return { user: null, clearCookies: [LOCAL_SESSION_COOKIE], secure: ctx.secure }
         if (ctx.now >= row.absoluteExpires.getTime() || ctx.now >= row.idleExpires.getTime()) {
             return { user: null, clearCookies: [LOCAL_SESSION_COOKIE], secure: ctx.secure }
         }
+        const gate = await localCookieGate(ctx, row.userId)
+        if (gate === 'end') {
+            await ctx.store.deleteLocalSessionsForUser(row.userId)
+            return { user: null, clearCookies: [LOCAL_SESSION_COOKIE], secure: ctx.secure }
+        }
+        if (gate !== 'ok') return { user: null, clearCookies: [LOCAL_SESSION_COOKIE], secure: ctx.secure }
         const user = await ctx.store.sessionFor(row.userId)
         return { user, secure: ctx.secure }
     }

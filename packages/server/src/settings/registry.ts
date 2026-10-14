@@ -61,7 +61,7 @@ export const SECTIONS: SectionDef[] = [
     {
         id: 'signin',
         label: 'Sign-in & identity',
-        summary: 'How people sign in: the owner password, or WorkOS AuthKit for a team.',
+        summary: 'How people sign in: the owner password, local user passwords, or WorkOS AuthKit for a team.',
         afterRestart:
             'The sign-in page shows the methods turned on here. People who are signed in stay signed in unless the session seal changes.'
     },
@@ -129,6 +129,18 @@ export const SETTINGS: SettingDef[] = [
         type: 'switch',
         ...TRUE_FALSE,
         defaultLabel: 'On from source and in Docker, off on Render',
+        risk: 'high'
+    },
+    {
+        key: 'CUTTLELY_LOCAL_USERS',
+        section: 'signin',
+        group: 'Local passwords',
+        label: 'Local user passwords',
+        help: 'Email and password for every active user who already has a password, when AuthKit is not configured. AuthKit leaves this off, except the owner password. Off unless set to true. A restart applies it.',
+        type: 'switch',
+        ...TRUE_FALSE,
+        defaultLabel: 'Off',
+        defaultValue: 'false',
         risk: 'high'
     },
     {
