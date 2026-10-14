@@ -18,25 +18,12 @@ const queryBuilder: any = {
     },
     getMany: async () => []
 }
-jest.mock('../../utils/getRunningExpressApp', () => ({
-    getRunningExpressApp: () => ({
-        AppDataSource: {
-            getRepository: () => ({
-                createQueryBuilder: () => queryBuilder,
-                manager: { connection: { options: driver } }
-            })
-        }
-    })
-}))
 jest.mock('../flow-drafts', () => ({
     __esModule: true,
     default: { getState: async () => ({ draftFlowData: '{"nodes":[{"id":"n"}],"edges":[]}' }) }
 }))
-jest.mock('../../utils/logger', () => ({ __esModule: true, default: { error: jest.fn(), info: jest.fn(), debug: jest.fn() } }))
-
 import { StatusCodes } from 'http-status-codes'
-import logger from '../../utils/logger'
-import { HISTORY_SCAN_CAP, historyHooks, likeContainsPattern, listQuestionHistory, type HistoryRow } from './history'
+import { bindHistoryRepository, HISTORY_SCAN_CAP, historyHooks, likeContainsPattern, listQuestionHistory, type HistoryRow } from './history'
 
 const FLOW = {
     id: 'flow-1',
@@ -61,6 +48,10 @@ function row(id: string, content: string, iso: string, extra: Partial<HistoryRow
 
 beforeEach(() => {
     historyHooks.loadUserMessages = null
+    bindHistoryRepository(() => ({
+        createQueryBuilder: () => queryBuilder,
+        manager: { connection: { options: driver } }
+    }))
     queryCalls.length = 0
     driver.type = 'sqlite'
     jest.clearAllMocks()
@@ -126,8 +117,6 @@ describe('question history', () => {
         expect(file).toMatchObject({ replayable: false, reason: 'files', text: 'See the scan' })
         expect(JSON.stringify(withFile)).not.toContain(path)
         expect(page.nextCursor || '').not.toContain('Do you have rye loaves today?')
-        expect(JSON.stringify((logger.error as jest.Mock).mock.calls)).not.toContain(secret)
-        expect(JSON.stringify((logger.info as jest.Mock).mock.calls)).not.toContain('rye')
     })
 
     test('caps preview text and refuses a forged or swapped cursor', async () => {

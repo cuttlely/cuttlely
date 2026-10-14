@@ -64,8 +64,11 @@ import {
 } from './kinds'
 import { postProcessHash, publishGateApplies, readEvaluatorIdList, sameGateSettings } from '../flow-drafts/gate'
 import { harnessCheckHooks, harnessQuestionsFor, harnessQuestionsToRun, replayHarnessQuestion } from './harness'
-import { parseQuestionIds, questionIdPrefix, resolveChatQuestionIds } from './history'
+import { bindHistoryRepository, parseQuestionIds, questionIdPrefix, resolveChatQuestionIds } from './history'
 import { CheckEvaluator, loadEvaluators, loadTestSet, readDatasetId, readEvaluatorIds, scoreAnswer } from './score'
+
+// The history reader uses the same database handle this module already uses.
+bindHistoryRepository(() => getRunningExpressApp().AppDataSource.getRepository(ChatMessage))
 
 // A question list sent without `count` stays capped at 10, which is what this route accepted before.
 export const MAX_QUESTIONS = 10

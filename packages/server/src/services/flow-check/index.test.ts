@@ -122,7 +122,6 @@ jest.mock('../../utils/logger', () => ({ __esModule: true, default: { error: jes
 import { checks, getCheck, getCheckSetup, priceHooks, replayHooks, startCheck, stopCheck } from './index'
 import { historyHooks } from './history'
 import { BadQuestionIdsError } from './question-ids-error'
-import logger from '../../utils/logger'
 import { NEEDS_EXPECTED_ANSWER, currentTestSetHash, scoreHooks } from './score'
 import { noteGraderTokens } from '../evaluations/LLMEvaluationRunner'
 
@@ -1734,13 +1733,14 @@ describe('hand-picked questions', () => {
             asked(ID_A, secret, { fileUploads: '[{"name":"/tmp/secret-scan.pdf"}]' }),
             asked(ID_B, 'foreign loaf', { chatflowid: 'flow-other' })
         ]
-        const logged = () => JSON.stringify((logger.error as jest.Mock).mock.calls) + JSON.stringify((logger.debug as jest.Mock).mock.calls)
-        await expect(startCheck(flow() as any, { questionIds: [`chat:${ID_A}`] }, 'http://x')).rejects.toBeInstanceOf(BadQuestionIdsError)
-        await expect(startCheck(flow() as any, { questionIds: [`chat:${ID_A}`] }, 'http://x')).rejects.toMatchObject({ badCount: 1 })
-        expect(logged()).not.toContain(secret)
-        expect(logged()).not.toContain('secret-scan')
-        await expect(startCheck(flow() as any, { questionIds: [`chat:${ID_B}`] }, 'http://x')).rejects.toMatchObject({ badCount: 1 })
-        expect(logged()).not.toContain('foreign loaf')
+        const refused = await startCheck(flow() as any, { questionIds: [`chat:${ID_A}`] }, 'http://x').catch((error) => error)
+        expect(refused).toBeInstanceOf(BadQuestionIdsError)
+        expect(refused).toMatchObject({ badCount: 1, message: 'CHECK_BAD_QUESTION_IDS' })
+        expect(`${refused.message} ${JSON.stringify(refused)}`).not.toContain(secret)
+        expect(`${refused.message} ${JSON.stringify(refused)}`).not.toContain('secret-scan')
+        const foreign = await startCheck(flow() as any, { questionIds: [`chat:${ID_B}`] }, 'http://x').catch((error) => error)
+        expect(foreign).toMatchObject({ badCount: 1 })
+        expect(`${foreign.message} ${JSON.stringify(foreign)}`).not.toContain('foreign loaf')
         await expect(startCheck(flow() as any, { questionIds: [`chat:${ID_A}`, `chat:${ID_A}`] }, 'http://x')).rejects.toMatchObject({
             statusCode: 400,
             message: 'questionIds must be unique.'

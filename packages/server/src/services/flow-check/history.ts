@@ -3,11 +3,13 @@
 // Agentflow execution records and harness turns are not listed here.
 import { createHmac, randomBytes, timingSafeEqual } from 'crypto'
 import { StatusCodes } from 'http-status-codes'
-import { ChatMessage } from '../../database/entities/ChatMessage'
-import { AppError } from '../../errors/appError'
-import { ChatType } from '../../Interface'
 import { authSecret } from '../../identity/authSecrets'
-import { getRunningExpressApp } from '../../utils/getRunningExpressApp'
+
+class HistoryError extends Error {
+    constructor(readonly statusCode: number, message: string) {
+        super(message)
+    }
+}
 import { COMPARE_COUNT_MAX, normalizeAnswer } from './compare'
 import { triggerStart } from './kinds'
 import flowDraftsService from '../flow-drafts'
@@ -24,7 +26,9 @@ export const HISTORY_SCAN_CAP = 2000
 export const HISTORY_SOURCES = ['chat', 'api', 'embed', 'shared', 'replay'] as const
 export type HistorySource = (typeof HISTORY_SOURCES)[number]
 
-const CHAT_TYPES = [ChatType.EXTERNAL, ChatType.INTERNAL]
+const CHAT_INTERNAL = 'INTERNAL'
+const CHAT_EXTERNAL = 'EXTERNAL'
+const CHAT_TYPES = [CHAT_EXTERNAL, CHAT_INTERNAL]
 const USER_ROLE = 'userMessage'
 
 export interface HistoryRow {
@@ -71,7 +75,23 @@ interface FlowRef {
     workspaceId?: string | null
 }
 
-// Tests stand in for the chat-message read. Production queries the chat table.
+interface HistoryRepository {
+    createQueryBuilder(alias: string): any
+    manager?: { connection?: { options?: { type?: string } } }
+}
+
+// The check module binds the chat-message repository. Tests can stand in for the read.
+let historyRepository: (() => HistoryRepository) | null = null
+
+export function bindHistoryRepository(getRepository: () => HistoryRepository) {
+    historyRepository = getRepository
+}
+
+function chatRepository(): HistoryRepository {
+    if (!historyRepository) throw new HistoryError(StatusCodes.INTERNAL_SERVER_ERROR, 'Question history is not available.')
+    return historyRepository()
+}
+
 export const historyHooks: {
     loadUserMessages: null | ((flowId: string) => Promise<HistoryRow[]>)
 } = { loadUserMessages: null }
@@ -107,11 +127,11 @@ export function parseHistoryLimit(input: unknown): number {
     const raw = Array.isArray(input) ? input[0] : input
     const text = typeof raw === 'number' ? String(raw) : raw
     if (typeof text !== 'string' || !/^-?\d+$/.test(text)) {
-        throw new AppError(StatusCodes.BAD_REQUEST, 'limit must be a whole number from 1 to 100.')
+        throw new HistoryError(StatusCodes.BAD_REQUEST, 'limit must be a whole number from 1 to 100.')
     }
     const limit = Number(text)
     if (!Number.isInteger(limit) || limit < 1 || limit > HISTORY_LIMIT_MAX) {
-        throw new AppError(StatusCodes.BAD_REQUEST, 'limit must be a whole number from 1 to 100.')
+        throw new HistoryError(StatusCodes.BAD_REQUEST, 'limit must be a whole number from 1 to 100.')
     }
     return limit
 }
@@ -119,8 +139,8 @@ export function parseHistoryLimit(input: unknown): number {
 export function parseHistoryQuery(input: unknown): string {
     if (input === undefined || input === null || input === '') return ''
     const text = oneQueryValue(input)
-    if (text === undefined) throw new AppError(StatusCodes.BAD_REQUEST, 'q must be text.')
-    if (text.length > HISTORY_QUERY_MAX) throw new AppError(StatusCodes.BAD_REQUEST, 'q can be at most 200 characters.')
+    if (text === undefined) throw new HistoryError(StatusCodes.BAD_REQUEST, 'q must be text.')
+    if (text.length > HISTORY_QUERY_MAX) throw new HistoryError(StatusCodes.BAD_REQUEST, 'q can be at most 200 characters.')
     return text
 }
 
@@ -128,7 +148,7 @@ export function parseHistorySource(input: unknown): HistorySource | null {
     if (input === undefined || input === null || input === '') return null
     const text = oneQueryValue(input)
     if (!text || !HISTORY_SOURCES.includes(text as HistorySource)) {
-        throw new AppError(StatusCodes.BAD_REQUEST, 'source must be chat, api, embed, shared, or replay.')
+        throw new HistoryError(StatusCodes.BAD_REQUEST, 'source must be chat, api, embed, shared, or replay.')
     }
     return text as HistorySource
 }
@@ -136,8 +156,8 @@ export function parseHistorySource(input: unknown): HistorySource | null {
 // Canvas chat is INTERNAL. A prediction is EXTERNAL and is reported as api.
 // Embed, shared, and replay are accepted filters. Chat rows do not store them separately, so they match nothing.
 export function messageSource(chatType: string | null | undefined): HistorySource | null {
-    if (chatType === ChatType.INTERNAL) return 'chat'
-    if (chatType === ChatType.EXTERNAL) return 'api'
+    if (chatType === CHAT_INTERNAL) return 'chat'
+    if (chatType === CHAT_EXTERNAL) return 'api'
     return null
 }
 
@@ -164,7 +184,7 @@ function hasFiles(fileUploads: string | null | undefined): boolean {
 function inCorpus(row: HistoryRow): boolean {
     if (row.role && row.role !== USER_ROLE) return false
     if (!row.role) return false
-    return row.chatType === ChatType.INTERNAL || row.chatType === ChatType.EXTERNAL
+    return row.chatType === CHAT_INTERNAL || row.chatType === CHAT_EXTERNAL
 }
 
 function belongsToFlow(row: HistoryRow, flowId: string): boolean {
@@ -238,19 +258,19 @@ function signCursor(position: CursorPosition): string {
 function readCursor(token: string, binding: CursorBinding): CursorPosition {
     const parts = token.split('.')
     if (parts.length !== 2 || !parts[0] || !parts[1]) {
-        throw new AppError(StatusCodes.BAD_REQUEST, 'That page cursor does not match this request.')
+        throw new HistoryError(StatusCodes.BAD_REQUEST, 'That page cursor does not match this request.')
     }
     const mac = createHmac('sha256', cursorKey()).update(parts[0]).digest('base64url')
     const left = Buffer.from(parts[1])
     const right = Buffer.from(mac)
     if (left.length !== right.length || !timingSafeEqual(left, right)) {
-        throw new AppError(StatusCodes.BAD_REQUEST, 'That page cursor does not match this request.')
+        throw new HistoryError(StatusCodes.BAD_REQUEST, 'That page cursor does not match this request.')
     }
     let parsed: CursorPosition
     try {
         parsed = JSON.parse(Buffer.from(parts[0], 'base64url').toString('utf8')) as CursorPosition
     } catch {
-        throw new AppError(StatusCodes.BAD_REQUEST, 'That page cursor does not match this request.')
+        throw new HistoryError(StatusCodes.BAD_REQUEST, 'That page cursor does not match this request.')
     }
     if (
         !parsed ||
@@ -262,7 +282,7 @@ function readCursor(token: string, binding: CursorBinding): CursorPosition {
         typeof parsed.createdDate !== 'string' ||
         typeof parsed.id !== 'string'
     ) {
-        throw new AppError(StatusCodes.BAD_REQUEST, 'That page cursor does not match this request.')
+        throw new HistoryError(StatusCodes.BAD_REQUEST, 'That page cursor does not match this request.')
     }
     return parsed
 }
@@ -281,7 +301,7 @@ function escapeClause(driver: string): string {
 }
 
 async function queryScan(flowId: string, q: string, source: HistorySource | null): Promise<HistoryRow[]> {
-    const repo = getRunningExpressApp().AppDataSource.getRepository(ChatMessage)
+    const repo = chatRepository()
     const driver = String(repo.manager?.connection?.options?.type || 'sqlite')
     const qb = repo
         .createQueryBuilder('m')
@@ -289,8 +309,8 @@ async function queryScan(flowId: string, q: string, source: HistorySource | null
         .where('m.chatflowid = :flowId', { flowId })
         .andWhere('m.role = :role', { role: USER_ROLE })
         .andWhere('m.chatType IN (:...types)', { types: CHAT_TYPES })
-    if (source === 'chat') qb.andWhere('m.chatType = :chatType', { chatType: ChatType.INTERNAL })
-    else if (source === 'api') qb.andWhere('m.chatType = :chatType', { chatType: ChatType.EXTERNAL })
+    if (source === 'chat') qb.andWhere('m.chatType = :chatType', { chatType: CHAT_INTERNAL })
+    else if (source === 'api') qb.andWhere('m.chatType = :chatType', { chatType: CHAT_EXTERNAL })
     else if (source) qb.andWhere('1 = 0')
     if (q) qb.andWhere(`LOWER(m.content) LIKE :needle ${escapeClause(driver)}`, { needle: likeContainsPattern(q) })
     qb.orderBy('m.createdDate', 'DESC').addOrderBy('m.id', 'DESC').take(HISTORY_SCAN_CAP)
@@ -318,10 +338,10 @@ export async function listQuestionHistory(
     const canvases = await canvasesFor(flow)
     const prefix = questionIdPrefix(flow.type, canvases)
     if (prefix === 'exec' || prefix === 'turn') {
-        throw new AppError(StatusCodes.CONFLICT, 'Question history for this flow is not available on this route yet.')
+        throw new HistoryError(StatusCodes.CONFLICT, 'Question history for this flow is not available on this route yet.')
     }
     if (prefix !== 'chat') {
-        throw new AppError(StatusCodes.CONFLICT, 'The check works on chatflows and agentflows.')
+        throw new HistoryError(StatusCodes.CONFLICT, 'The check works on chatflows and agentflows.')
     }
     const binding: CursorBinding = {
         caller,
@@ -333,7 +353,7 @@ export async function listQuestionHistory(
     let cursor: CursorPosition | null = null
     if (query.cursor !== undefined && query.cursor !== null && query.cursor !== '') {
         const token = oneQueryValue(query.cursor)
-        if (!token) throw new AppError(StatusCodes.BAD_REQUEST, 'That page cursor does not match this request.')
+        if (!token) throw new HistoryError(StatusCodes.BAD_REQUEST, 'That page cursor does not match this request.')
         cursor = readCursor(token, binding)
     }
     const rows = await scanRows(flow.id, q, source)
@@ -355,15 +375,15 @@ export async function listQuestionHistory(
 const ID_SHAPE = /^(chat|exec|turn):(\S+)$/
 
 export function parseQuestionIds(input: unknown): string[] {
-    if (!Array.isArray(input)) throw new AppError(StatusCodes.BAD_REQUEST, 'questionIds must be a list of ids.')
+    if (!Array.isArray(input)) throw new HistoryError(StatusCodes.BAD_REQUEST, 'questionIds must be a list of ids.')
     if (input.length < 1 || input.length > COMPARE_COUNT_MAX) {
-        throw new AppError(StatusCodes.BAD_REQUEST, 'questionIds must list 1 to 100 ids.')
+        throw new HistoryError(StatusCodes.BAD_REQUEST, 'questionIds must list 1 to 100 ids.')
     }
     if (input.some((id) => typeof id !== 'string' || !id.trim())) {
-        throw new AppError(StatusCodes.BAD_REQUEST, 'questionIds must be a list of ids.')
+        throw new HistoryError(StatusCodes.BAD_REQUEST, 'questionIds must be a list of ids.')
     }
     const ids = input.map((id) => (id as string).trim())
-    if (new Set(ids).size !== ids.length) throw new AppError(StatusCodes.BAD_REQUEST, 'questionIds must be unique.')
+    if (new Set(ids).size !== ids.length) throw new HistoryError(StatusCodes.BAD_REQUEST, 'questionIds must be unique.')
     return ids
 }
 
@@ -393,7 +413,7 @@ async function queryByIds(flowId: string, ids: string[]): Promise<HistoryRow[]> 
         const loaded = await historyHooks.loadUserMessages(flowId)
         return loaded.filter((row) => wanted.has(row.id))
     }
-    const repo = getRunningExpressApp().AppDataSource.getRepository(ChatMessage)
+    const repo = chatRepository()
     return repo
         .createQueryBuilder('m')
         .select(['m.id', 'm.content', 'm.createdDate', 'm.fileUploads', 'm.chatType', 'm.role', 'm.chatflowid'])
@@ -462,10 +482,10 @@ export async function resolveChatQuestionIds(
     }
     const questions = dedupeQuestionTexts([...fromIds, ...typed])
     if (questions.length > COMPARE_COUNT_MAX) {
-        throw new AppError(StatusCodes.BAD_REQUEST, `The check runs at most ${COMPARE_COUNT_MAX} questions.`)
+        throw new HistoryError(StatusCodes.BAD_REQUEST, `The check runs at most ${COMPARE_COUNT_MAX} questions.`)
     }
     if (!questions.length) {
-        throw new AppError(StatusCodes.BAD_REQUEST, 'No past questions to compare. Add a question to check.')
+        throw new HistoryError(StatusCodes.BAD_REQUEST, 'No past questions to compare. Add a question to check.')
     }
     return { questions, skipped: { count: skipped.length, ids: skipped } }
 }

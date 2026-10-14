@@ -2448,12 +2448,20 @@
             "reason": "Dataset row rating migrations and the dialog that adds rated answers to a dataset."
         },
         {
+            "path": "packages/server/src/database/migrations/mariadb/1797000000000-AddChatMessageFlowCreatedIndex.ts",
+            "reason": "The Publish check pages chat questions, so the chat message table keeps a keyset index on flow, time, and id."
+        },
+        {
             "path": "packages/server/src/database/migrations/mysql/1795000000000-AddDatasetRowSource.ts",
             "reason": "Dataset row provenance migrations and the dialog that saves a chat answer into a dataset."
         },
         {
             "path": "packages/server/src/database/migrations/mysql/1796000000000-AddDatasetRowRating.ts",
             "reason": "Dataset row rating migrations and the dialog that adds rated answers to a dataset."
+        },
+        {
+            "path": "packages/server/src/database/migrations/mysql/1797000000000-AddChatMessageFlowCreatedIndex.ts",
+            "reason": "The Publish check pages chat questions, so the chat message table keeps a keyset index on flow, time, and id."
         },
         {
             "path": "packages/server/src/database/migrations/postgres/1795000000000-AddDatasetRowSource.ts",
@@ -2464,12 +2472,20 @@
             "reason": "Dataset row rating migrations and the dialog that adds rated answers to a dataset."
         },
         {
+            "path": "packages/server/src/database/migrations/postgres/1797000000000-AddChatMessageFlowCreatedIndex.ts",
+            "reason": "The Publish check pages chat questions, so the chat message table keeps a keyset index on flow, time, and id."
+        },
+        {
             "path": "packages/server/src/database/migrations/sqlite/1795000000000-AddDatasetRowSource.ts",
             "reason": "Dataset row provenance migrations and the dialog that saves a chat answer into a dataset."
         },
         {
             "path": "packages/server/src/database/migrations/sqlite/1796000000000-AddDatasetRowRating.ts",
             "reason": "Dataset row rating migrations and the dialog that adds rated answers to a dataset."
+        },
+        {
+            "path": "packages/server/src/database/migrations/sqlite/1797000000000-AddChatMessageFlowCreatedIndex.ts",
+            "reason": "The Publish check pages chat questions, so the chat message table keeps a keyset index on flow, time, and id."
         },
         {
             "path": "packages/server/src/errors/appError/index.test.ts",
