@@ -277,6 +277,8 @@ test('the image context excludes the turbo cache, including a cache inside a pac
         'scripts/docs-shots/capture-settings.mjs',
         'examples/imports/bakery-helper.json',
         'examples/imports/bakery-greeter.json',
+        'scripts/docs-shots/capture-etl-usage.mjs',
+        'scripts/docs-shots/fake-chat.cjs',
         'node_modules/turbo/package.json',
         '.env',
         '.env.local'

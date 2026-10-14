@@ -107,7 +107,7 @@ New to agents? You do not need to write code. Describe a team with **Build with 
 
 Load files, a CSV or a code repository, clean and split them, embed them and store them for search. A run only embeds what changed, can run on a schedule, and local embeddings work with no provider key. Teams and chatflows search the result with the **ETL Retriever**. [ETL guide](./docs/how-to/etl.md)
 
-![An ETL pipeline after a run. The run card says succeeded: 33 embedded, 0 errors.](./docs/images/etl/etl-run-done.png)
+![Outdoor Catalog after a run. The run card for Run 6f0c34a1 says succeeded, with 33 embedded and 0 errors.](./docs/images/etl/etl-run-done.png)
 
 #### Chatflows: one assistant you can ship
 
