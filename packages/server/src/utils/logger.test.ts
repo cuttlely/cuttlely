@@ -110,6 +110,13 @@ describe('logger.ts', () => {
             expect(next).toHaveBeenCalled()
         })
 
+        it('does not write a question search on the check history request line', () => {
+            const secret = 'do-you-have-rye-loaves'
+            const logged = redactLoggedUrl(`/api/v1/flow-drafts/flow-1/check/history?limit=50&q=${secret}&source=chat`)
+            expect(logged).toBe('/api/v1/flow-drafts/flow-1/check/history?limit=50&q=[redacted]&source=chat')
+            expect(logged).not.toContain(secret)
+        })
+
         it('does not write a client session id or session token on the request line', () => {
             process.env.DEBUG = 'true'
             const infoSpy = jest.spyOn(logger, 'info').mockImplementation(() => logger)
