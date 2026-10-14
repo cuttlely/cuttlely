@@ -12,10 +12,10 @@ Requires Node.js 20 or newer, and Docker.
 npx cuttlely start
 ```
 
-That pulls `ghcr.io/cuttlely/cuttlely:1.0.0` (the same version as this package), keeps data in the Docker volume `cuttlely-data`, publishes port **43117**, waits until `http://127.0.0.1:43117/api/v1/ping` answers `pong`, prints `http://localhost:43117`, and opens it.
+That pulls `ghcr.io/cuttlely/cuttlely`, tagged with the same version as the `cuttlely` package you ran, keeps data in the Docker volume `cuttlely-data`, publishes port **43117**, waits until `http://127.0.0.1:43117/api/v1/ping` answers `pong`, prints `http://localhost:43117`, and opens it.
 
 ```bash
-npx cuttlely start --port 8080 --tag 1.0.0 --env-file .env --no-open
+npx cuttlely start --port 8080 --tag 1.1.0 --env-file .env --no-open
 ```
 
 | Flag         | Meaning                                                                  |

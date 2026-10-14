@@ -77,7 +77,7 @@ Describe your assistant in plain words and **Build with AI** puts a chatflow on 
 1. On **Chatflows**, select **Add New**. The blank canvas opens.
 2. Select **Build with AI**, the sparkle button next to **+**.
 3. Under **Describe your assistant**, write what it should do, or select one of the examples above the box. Name a service, such as Tavily for web search, and the builder adds that tool. To answer only from facts you give it, write the facts in the description.
-4. Under **Chat model that builds**, Cuttlely starts on a model you have a key for (OpenAI starts on `gpt-4.1-mini`), with your key picked when only one fits. The list shows the models you have keys for; **Show all models** lists the rest, and **More settings** holds the advanced ones. Your choice is remembered for next time. There is no default key.
+4. Under **Chat model that builds**, Cuttlely starts on a model you have a key for (OpenAI starts on `gpt-4.1-mini`), with your key picked when only one fits. The list shows the models you have keys for; **Show all … models** lists the rest, and **Only models for your keys** returns to that shorter list. **More settings** holds the advanced ones. Your choice is remembered for next time. There is no default key.
 5. Select **Build**.
 
 ![The Build with AI dialog on a new chatflow canvas. The line under the title reads It builds a first version you can change. Nothing is saved until you save, and every part is checked before it lands. Under Describe your assistant are three example chips and a box with a math helper description. Below, Chat model that builds is set to OpenAI with the OpenAI demo credential and the gpt-4.1-mini model. Cancel and Build are at the bottom right.](../images/canvas/build-with-ai-dialog.png)

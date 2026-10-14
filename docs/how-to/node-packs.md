@@ -30,7 +30,7 @@ A token that is a directory is that pack. Any other token is a package name. Eac
 
 If a pack defines a node or credential name that is already loaded, the existing one stays and the server logs a warning.
 
-The packs that ship with the install always load. Today that is `@cuttlely/node-pack-vector-stores`, `@cuttlely/node-pack-tools-mcp`, `@cuttlely/node-pack-caches-memory`, and `@cuttlely/node-pack-legacy-chains`. `CUTTLELY_NODE_PACKS` adds packs after that list. A repeated name is loaded once. A blank value adds nothing and removes nothing. Leave the variable unset for the same result. An image built with `INCLUDE_NODE_PACKS=0` writes `/etc/cuttlely/no-node-packs` and skips the shipped packs. Packs named in `CUTTLELY_NODE_PACKS` still load in that image. The variable is read at start from the environment. It is not in Admin, Server settings, because it names directories on the host.
+The packs that ship with the install always load. Today that is `@cuttlely/node-pack-vector-stores`, `@cuttlely/node-pack-tools-mcp`, `@cuttlely/node-pack-caches-memory`, and `@cuttlely/node-pack-legacy-chains`. `CUTTLELY_NODE_PACKS` adds packs after that list. A repeated name is loaded once. A blank value adds nothing and removes nothing. Leave the variable unset for the same result. An image built with `INCLUDE_NODE_PACKS=0` writes `/etc/cuttlely/no-node-packs` and skips the shipped packs. Packs named in `CUTTLELY_NODE_PACKS` still load in that image. The variable is read at start from the environment. It is not in Admin, Server Settings, because it names directories on the host.
 
 ## Packs that ship with Cuttlely
 

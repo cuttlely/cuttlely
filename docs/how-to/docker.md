@@ -26,14 +26,14 @@ With Node.js 20 or newer and Docker running:
 npx cuttlely start
 ```
 
-`npx cuttlely` pulls `ghcr.io/cuttlely/cuttlely`, tagged with the same version as the `cuttlely` package (`1.0.0` unless you pass `--tag`). It stores data in the Docker volume `cuttlely-data`, publishes port 43117, and opens [http://localhost:43117](http://localhost:43117) when `/api/v1/ping` answers `pong`. This is the same image Compose pulls. Compose keeps its data in the volume `cuttlely_cuttlely-data`. `cuttlely start` keeps its data in the volume `cuttlely-data`.
+`npx cuttlely` pulls `ghcr.io/cuttlely/cuttlely`, tagged with the same version as the `cuttlely` package you ran, unless you pass `--tag`. It stores data in the Docker volume `cuttlely-data`, publishes port 43117, and opens [http://localhost:43117](http://localhost:43117) when `/api/v1/ping` answers `pong`. This is the same image Compose pulls. Compose keeps its data in the volume `cuttlely_cuttlely-data`. `cuttlely start` keeps its data in the volume `cuttlely-data`.
 
 ```bash
 npx cuttlely stop
 npx cuttlely status
 npx cuttlely logs
 npx cuttlely upgrade
-npx cuttlely start --port 8080 --tag 1.0.0 --env-file .env --no-open
+npx cuttlely start --port 8080 --tag 1.1.0 --env-file .env --no-open
 ```
 
 `--port` is the host and container port (default `43117`). `--tag` selects the image tag (default is the package version). `--env-file` is passed to Docker for extra settings such as `CUTTLELY_ANALYST`. `--no-open` prints the URL and skips the browser. A global install is `npm install -g cuttlely`, then `cuttlely start`.
@@ -65,7 +65,7 @@ docker compose exec cuttlely curl -fsS http://127.0.0.1:43117/api/v1/ping
 
 Each release is published as `ghcr.io/cuttlely/cuttlely:X.Y.Z`, and the newest release is also `:latest`. The [changelog](../../CHANGELOG.md) lists what changed in each one.
 
--   **Pin a release.** Set `CUTTLELY_IMAGE=ghcr.io/cuttlely/cuttlely:1.0.0` in `.env`, then run `docker compose up -d`.
+-   **Pin a release.** Set `CUTTLELY_IMAGE=ghcr.io/cuttlely/cuttlely:1.1.0` in `.env`, then run `docker compose up -d`.
 -   **Move to the newest release.** Run `docker compose pull`, then `docker compose up -d`. Back up the volume first and read the release's upgrade notes in the changelog. [Upgrading Cuttlely](../upgrading.md) has the backup, upgrade and roll back steps.
 -   **Build your own checkout.** Run `docker compose up -d --build`. The build is tagged with the `CUTTLELY_IMAGE` name, so set `CUTTLELY_IMAGE=cuttlely:local` in `.env` to keep it apart from the published image. [Smaller images](#smaller-images) covers leaving Chromium, optional node packs, or the geolocation database out of that build.
 
@@ -129,7 +129,7 @@ Traces are off until you turn them on. The root `docker-compose.yml` and `docker
 -   `CUTTLELY_OTEL_TRACES_CONTENT`
 -   `METRICS_SERVICE_NAME`
 
-Set them in `.env`, then run `docker compose up -d`. `.env` is the source of those interpolations. A blank `METRICS_SERVICE_NAME` is unset: traces use `cuttlely`, and **Service name** under **Admin** > **Server settings** > **Integrations** > **Metrics** stays editable. `docker/docker-compose-queue-source.yml` passes those same five variables, blank meaning unset, on the server and the worker. The four `CUTTLELY_OTEL_TRACES` variables are **Admin** > **Server settings** > **Integrations** > **Traces**. [Run traces](./observability.md) lists every variable, the span attributes, and a local collector at `examples/otel/collector.yaml`. Metrics stay a separate switch.
+Set them in `.env`, then run `docker compose up -d`. `.env` is the source of those interpolations. A blank `METRICS_SERVICE_NAME` is unset: traces use `cuttlely`, and **Service name** under **Admin** > **Server Settings** > **Integrations** > **Metrics** stays editable. `docker/docker-compose-queue-source.yml` passes those same five variables, blank meaning unset, on the server and the worker. The four `CUTTLELY_OTEL_TRACES` variables are **Admin** > **Server Settings** > **Integrations** > **Traces**. [Run traces](./observability.md) lists every variable, the span attributes, and a local collector at `examples/otel/collector.yaml`. Metrics stay a separate switch.
 
 Inside the container, `localhost` is the container, not the machine running `otelcol`. A collector on the host is `http://host.docker.internal:4318/v1/traces`. On Linux that name is mapped with `extra_hosts: ["host.docker.internal:host-gateway"]` on the `cuttlely` service, and on the queue worker. The root file, `docker/docker-compose.yml`, and `docker/docker-compose-queue-source.yml` include that mapping. A collector you add yourself on the same Compose network is `http://otelcol:4318/v1/traces`. That service is optional. Leave it out of the file you run every day. A native run, Cuttlely and the collector on the same machine with no container, still uses `http://localhost:4318/v1/traces`.
 
