@@ -45,4 +45,4 @@ Cuttlely 1.1.0. The product version is the root `package.json`, `packages/server
 ## Not done
 
 -   The questions and known gaps in [OPEN.md](./OPEN.md). Repository settings for the release are one of those rows.
--   In flight, and not on `main`: [#135](https://github.com/cuttlely/cuttlely/pull/135) is a guide that turns real answers and ratings into tests. [#136](https://github.com/cuttlely/cuttlely/pull/136) refreshes the upgrade fixture from v1.1.0 and edits STATUS, PLAN, and MEMORY in this folder. A pull request that removes the old Analyst re-export modules is not open yet. Those modules are still on `main`. None of the three has landed.
+-   In flight, and not on `main`: [#136](https://github.com/cuttlely/cuttlely/pull/136) refreshes the upgrade fixture from v1.1.0 and edits STATUS, PLAN, and MEMORY in this folder. A pull request that removes the old Analyst re-export modules is not open yet. Those modules are still on `main`. Neither has landed. The guide that turns real answers and ratings into tests is on `main` ([#135](https://github.com/cuttlely/cuttlely/pull/135), `docs/how-to/tests-from-answers.md`).
