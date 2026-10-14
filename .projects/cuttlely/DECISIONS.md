@@ -184,7 +184,7 @@ The shared server error class is `AppError` in `packages/server/src/errors/appEr
 
 ## D46. The harness and pipeline engines are workspace packages
 
-The harness runtime is `@cuttlely/harness` in `packages/harness`. The pipeline runtime is `@cuttlely/etl` in `packages/etl`, and it depends on `@cuttlely/harness`. Both packages are private. `harness/*.mjs` and `etl/*.mjs`, including `etl/check/`, re-export those modules for one release. The server and the canvas nodes load the packages by path with a real dynamic import. `packages/harness/client.mjs` is the execution seam into the agent runtime. `packages/harness/worker.mjs` is the external queue worker. This supersedes the paths named in D8 and D15. D73 removes the Analyst compatibility paths.
+The harness runtime is `@cuttlely/harness` in `packages/harness`. The pipeline runtime is `@cuttlely/etl` in `packages/etl`, and it depends on `@cuttlely/harness`. Both packages are private. `harness/*.mjs` and `etl/*.mjs`, including `harness/runtime/` and `etl/check/`, re-export those modules for one release. `scripts/analyst-*.mjs` and `scripts/hermes-stream.mjs` re-export `packages/harness/runtime/` until the release after 1.0.2. The server and the canvas nodes load the packages by path with a real dynamic import. `packages/harness/client.mjs` is the execution seam into the agent runtime. `packages/harness/worker.mjs` is the external queue worker. This supersedes the paths named in D8 and D15.
 
 ## D47. The server serves the built UI as static files
 
@@ -290,4 +290,4 @@ From the message viewer, when Positive or Negative is the only feedback filter, 
 
 ## D73. Analyst modules are imported from packages/harness/runtime
 
-`scripts/analyst-store.mjs`, `scripts/analyst-postgres.mjs`, `scripts/analyst-page.mjs`, `scripts/analyst-sqlite-worker.mjs`, `scripts/analyst-mcp-status.mjs`, `scripts/hermes-stream.mjs`, and the re-exports under `harness/runtime/` are gone. Import `packages/harness/runtime/` instead. `harness/*.mjs` and `etl/*.mjs` still re-export the packages for one release. This supersedes the Analyst re-export sentence of D46. Why: 1.1.0 is the release after 1.0.2, which is when those paths were allowed to go.
+`scripts/analyst-store.mjs`, `scripts/analyst-postgres.mjs`, `scripts/analyst-page.mjs`, `scripts/analyst-sqlite-worker.mjs`, `scripts/analyst-mcp-status.mjs`, `scripts/hermes-stream.mjs`, and the re-exports under `harness/runtime/` are gone. Import `packages/harness/runtime/` instead. `harness/*.mjs` and `etl/*.mjs` still re-export the packages for one release. This supersedes the Analyst re-export sentence of D46. Why: the old paths were kept for one release after they moved; they shipped in 1.0.3 and 1.1.0, so they can go now.
