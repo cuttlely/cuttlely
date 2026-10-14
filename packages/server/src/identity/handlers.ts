@@ -72,8 +72,14 @@ function json(
     return { type: 'json', status, body, cookies: extra.cookies, clearCookies: extra.clearCookies, secure: extra.secure }
 }
 
+/** Secure in production even when the request itself is not https. Other cookie flags stay as they are. */
+function localSessionSecure(ctx: AuthContext): boolean {
+    return ctx.secure || process.env.NODE_ENV === 'production'
+}
+
 function cleared(ctx: AuthContext, names: string[]): { clearCookies: string[]; secure: boolean } {
-    return { clearCookies: names, secure: ctx.secure }
+    const secure = names.includes(LOCAL_SESSION_COOKIE) ? localSessionSecure(ctx) : ctx.secure
+    return { clearCookies: names, secure }
 }
 
 function bootstrapPage(reason: 'bootstrap-unset' | 'bootstrap-denied'): HandlerResult {
@@ -94,11 +100,6 @@ async function sessionAfterLogin(store: IdentityStore, userId: string, now: numb
     if (!current) return null
     await store.touchLastLogin(userId, current.activeWorkspaceId, new Date(now))
     return store.sessionFor(userId)
-}
-
-/** Secure in production even when the request itself is not https. Other cookie flags stay as they are. */
-function localSessionSecure(ctx: AuthContext): boolean {
-    return ctx.secure || process.env.NODE_ENV === 'production'
 }
 
 /**
@@ -282,6 +283,7 @@ export async function handleRefresh(ctx: AuthContext): Promise<HandlerResult> {
 
 export async function handleLogout(ctx: AuthContext): Promise<HandlerResult> {
     const sealed = ctx.cookies[WOS_SESSION_COOKIE]
+    const localToken = ctx.cookies[LOCAL_SESSION_COOKIE]
     if (sealed && ctx.workosConfigured) {
         if (!ctx.internal) return json(401, { message: 'Unauthorized' })
         let redirectTo = signOutReturnTo(ctx.redirectUri) || '/signin'
@@ -300,13 +302,13 @@ export async function handleLogout(ctx: AuthContext): Promise<HandlerResult> {
                 }
             }
         }
+        if (localToken) await ctx.store.deleteLocalSession(hashSessionToken(localToken))
         return json(200, { message: 'logged_out', redirectTo }, cleared(ctx, [WOS_SESSION_COOKIE, LOCAL_SESSION_COOKIE]))
     }
 
-    const token = ctx.cookies[LOCAL_SESSION_COOKIE]
-    if (token && ctx.localAdmin) {
+    if (localToken) {
         if (!ctx.internal) return json(401, { message: 'Unauthorized' })
-        await ctx.store.deleteLocalSession(hashSessionToken(token))
+        await ctx.store.deleteLocalSession(hashSessionToken(localToken))
         return json(200, { message: 'logged_out', redirectTo: '/signin' }, cleared(ctx, [LOCAL_SESSION_COOKIE, WOS_SESSION_COOKIE]))
     }
     return json(200, { message: 'logged_out', redirectTo: '/signin' }, cleared(ctx, [LOCAL_SESSION_COOKIE, WOS_SESSION_COOKIE]))
@@ -349,6 +351,9 @@ export async function handlePasswordRecoveryGone(): Promise<HandlerResult> {
     return json(404, { message: 'Not Found' })
 }
 
+/** Fixed id for a sign-in that does not match one open user. It matches no session row. */
+export const UNKNOWN_LOCAL_ACCOUNT_ID = '00000000-0000-0000-0000-000000000000'
+
 /**
  * Password sign-in for any active local user who already has a password.
  * 404 unless local users mode is on. Break-glass stays on POST /api/v1/auth/login.
@@ -362,13 +367,12 @@ export async function handleLocalLogin(ctx: AuthContext): Promise<HandlerResult>
 
     const matches = await ctx.store.findUsersByEmail(fields.email)
     const user = matches.length === 1 ? matches[0] : null
-    const open = user ? await ctx.store.localAccountOpen(user.id) : false
+    const open = await ctx.store.localAccountOpen(user ? user.id : UNKNOWN_LOCAL_ACCOUNT_ID)
     const eligible = Boolean(user && open && user.credential)
     const passwordOk = await verifyPassword(fields.password, hashForLoginCompare(eligible, user ? user.credential : null))
-    if (!user || !eligible || !passwordOk) {
-        if (user && !open) await ctx.store.deleteLocalSessionsForUser(user.id)
-        // Unknown emails must not become account keys. The client address still counts.
-        await ctx.rateLimit.recordFailure(ctx.ip, user ? fields.email : '', ctx.now)
+    if (!eligible || !passwordOk) {
+        await ctx.store.deleteLocalSessionsForUser(user && !open ? user.id : UNKNOWN_LOCAL_ACCOUNT_ID)
+        await ctx.rateLimit.recordFailure(ctx.ip, fields.email, ctx.now)
         return json(401, { message: INVALID_LOGIN })
     }
 
@@ -491,16 +495,17 @@ export async function establishSession(
     if (token && (ctx.localAdmin || ctx.localUsers)) {
         const digest = hashSessionToken(token)
         const row = await ctx.store.findLocalSession(digest)
-        if (!row || !tokensEqual(row.token, digest)) return { user: null, clearCookies: [LOCAL_SESSION_COOKIE], secure: ctx.secure }
+        if (!row || !tokensEqual(row.token, digest))
+            return { user: null, clearCookies: [LOCAL_SESSION_COOKIE], secure: localSessionSecure(ctx) }
         if (ctx.now >= row.absoluteExpires.getTime() || ctx.now >= row.idleExpires.getTime()) {
-            return { user: null, clearCookies: [LOCAL_SESSION_COOKIE], secure: ctx.secure }
+            return { user: null, clearCookies: [LOCAL_SESSION_COOKIE], secure: localSessionSecure(ctx) }
         }
         const gate = await localCookieGate(ctx, row.userId)
         if (gate === 'end') {
             await ctx.store.deleteLocalSessionsForUser(row.userId)
-            return { user: null, clearCookies: [LOCAL_SESSION_COOKIE], secure: ctx.secure }
+            return { user: null, clearCookies: [LOCAL_SESSION_COOKIE], secure: localSessionSecure(ctx) }
         }
-        if (gate !== 'ok') return { user: null, clearCookies: [LOCAL_SESSION_COOKIE], secure: ctx.secure }
+        if (gate !== 'ok') return { user: null, clearCookies: [LOCAL_SESSION_COOKIE], secure: localSessionSecure(ctx) }
         const user = await ctx.store.sessionFor(row.userId)
         return { user, secure: ctx.secure }
     }

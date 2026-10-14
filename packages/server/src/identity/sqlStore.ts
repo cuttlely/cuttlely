@@ -24,7 +24,7 @@ import {
     OWNER_ROLE,
     PERSONAL_WORKSPACE
 } from './constants'
-import { LoginLimiter } from './rateLimit'
+import { BoundedAccountFailures, LoginLimiter } from './rateLimit'
 import { IdentityStore } from './store'
 import { CreateOwnerInput, LocalSession, NotEmptyError, SessionUser, UserRow } from './types'
 
@@ -630,6 +630,8 @@ function isUniqueViolation(error: unknown): boolean {
 
 /** Failed break-glass attempts. Old rows are deleted on each check. */
 export class SqlLoginRateLimit implements LoginLimiter {
+    private readonly accounts = new BoundedAccountFailures()
+
     constructor(
         private readonly dataSource: DataSource,
         private readonly limit = LOGIN_FAILURE_LIMIT,
@@ -640,8 +642,7 @@ export class SqlLoginRateLimit implements LoginLimiter {
         return this.with(async (runner) => {
             await this.prune(runner, now)
             if ((await this.countScope(runner, 'ip', ip, now)) >= this.limit) return true
-            const email = account.trim().toLowerCase()
-            return email !== '' && (await this.countScope(runner, 'account', email, now)) >= this.limit
+            return this.accounts.blocked(account, now, this.limit, this.windowMs)
         })
     }
 
@@ -649,8 +650,7 @@ export class SqlLoginRateLimit implements LoginLimiter {
         await this.with(async (runner) => {
             await this.prune(runner, now)
             await this.insert(runner, 'ip', ip, now)
-            const email = account.trim().toLowerCase()
-            if (email) await this.insert(runner, 'account', email, now)
+            this.accounts.record(account, now, this.windowMs)
         })
     }
 

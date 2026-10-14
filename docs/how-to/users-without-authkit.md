@@ -16,7 +16,7 @@ Leave AuthKit unset. If `WORKOS_API_KEY` and `WORKOS_CLIENT_ID` are both set, th
 
 Open `/signin`. When this mode is on, the page shows **Email** and **Password** and posts to `POST /api/v1/auth/local/login`.
 
-A wrong email, an unknown email, an invited user with no password, and a disabled user all show `Invalid email or password.` Ten failures in 15 minutes, from one browser address or against one known account, show `Too many sign-in attempts. Try again later.`
+A wrong email, an unknown email, an invited user with no password, and a disabled user all show `Invalid email or password.` Ten failures in 15 minutes, from one browser address or against one email, show `Too many sign-in attempts. Try again later.` An unknown email locks the same way.
 
 The session is that user. It does not make them the organization owner. A role change applies on the next request. Disabling the user, signing out, or changing the password ends the session, including after a restart.
 

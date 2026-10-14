@@ -22,12 +22,14 @@ import type { DataSource } from 'typeorm'
 import { ABSOLUTE_MS, IDLE_MS, OPEN_SOURCE_FEATURES, localAdminEnabled, localUsersMode } from './constants'
 import { apiV1Auth } from './apiGate'
 import {
+    UNKNOWN_LOCAL_ACCOUNT_ID,
     AuthContext,
     establishSession,
     handleLocalLogin,
     handleLocalLogout,
     handleLocalPassword,
     handleLoginPost,
+    handleLogout,
     handleRefresh
 } from './handlers'
 import { hashPassword, hashSessionToken } from './password'
@@ -186,13 +188,15 @@ function json(result: HandlerResult): {
         options: { httpOnly: boolean; sameSite: string; path: string; secure: boolean; maxAge?: number }
     }[]
     clearCookies?: string[]
+    secure?: boolean
 } {
     if (result.type !== 'json') throw new Error(`expected json, got ${result.type}`)
     return {
         status: result.status,
         body: result.body as Record<string, unknown>,
         cookies: result.cookies,
-        clearCookies: result.clearCookies
+        clearCookies: result.clearCookies,
+        secure: result.secure
     }
 }
 
@@ -318,6 +322,12 @@ describe('local users mode', () => {
             )
             expect(produced.cookies?.[0].options.secure).toBe(true)
             expect(produced.cookies?.[0].options).toMatchObject({ httpOnly: true, sameSite: 'lax', path: '/' })
+            const cleared = json(
+                await handleLocalLogout(
+                    ctx({ store, internal: true, secure: false, cookies: { 'cuttlely-local-session': produced.cookies?.[0].value } })
+                )
+            )
+            expect(cleared.secure).toBe(true)
         } finally {
             if (previous === undefined) delete process.env.NODE_ENV
             else process.env.NODE_ENV = previous
@@ -632,7 +642,7 @@ describe('local users mode', () => {
         expect(whitelist).toContain('/api/v1/auth/local/login')
         expect(whitelist).toContain('/api/v1/auth/options')
         expect(whitelist).toContain('/api/v1/auth/local/logout')
-        expect(whitelist.some((url) => '/api/v1/auth/local/password'.startsWith(url))).toBe(false)
+        expect(whitelist).toContain('/api/v1/auth/local/password')
 
         const server = express()
         server.use(
@@ -652,14 +662,126 @@ describe('local users mode', () => {
         expect((await http.post('/api/v1/auth/local/login')).status).toBe(200)
         expect((await http.get('/api/v1/auth/options')).status).toBe(200)
         expect((await http.post('/api/v1/auth/local/logout')).status).toBe(200)
-        const denied = await http.post('/api/v1/auth/local/password')
-        const invalid = await http.post('/api/v1/auth/local/password').set('x-request-from', 'external')
-        const allowed = await http.post('/api/v1/auth/local/password').set('x-request-from', 'internal')
+        expect((await http.post('/api/v1/auth/local/password')).status).toBe(200)
+        const noCookie = json(
+            await handleLocalPassword(ctx({ store: new MemoryStore(), body: { currentPassword: OTHER, newPassword: GOOD } }))
+        )
+        const badHeader = json(
+            await handleLocalPassword(
+                ctx({
+                    store: new MemoryStore(),
+                    internal: false,
+                    cookies: { 'cuttlely-local-session': 'raw-cookie' },
+                    body: { currentPassword: OTHER, newPassword: GOOD }
+                })
+            )
+        )
+        expect(noCookie.status).toBe(401)
+        expect(badHeader.status).toBe(401)
+        expect(noCookie.body).toEqual({ message: 'Unauthorized' })
+        expect(badHeader.body).toEqual({ message: 'Unauthorized' })
+    })
+
+    it('account sign-out deletes a local users session when break-glass is off', async () => {
+        const { store } = await seed()
+        const ok = json(await handleLocalLogin(ctx({ store, localAdmin: false, body: { email: 'ada@example.com', password: OTHER } })))
+        const raw = ok.cookies?.[0].value || ''
+        const denied = json(await handleLogout(ctx({ store, localAdmin: false, cookies: { 'cuttlely-local-session': raw } })))
         expect(denied.status).toBe(401)
-        expect(invalid.status).toBe(401)
         expect(denied.body).toEqual({ message: 'Unauthorized' })
-        expect(invalid.body).toEqual({ message: 'Unauthorized' })
-        expect(allowed.status).toBe(200)
+        expect(store.local.size).toBe(1)
+        const out = json(await handleLogout(ctx({ store, localAdmin: false, internal: true, cookies: { 'cuttlely-local-session': raw } })))
+        expect(out.status).toBe(200)
+        expect(store.local.size).toBe(0)
+        const again = await establishSession(ctx({ store, localAdmin: false, cookies: { 'cuttlely-local-session': raw } }))
+        expect(again.user).toBeNull()
+        const refreshed = json(await handleRefresh(ctx({ store, localAdmin: false, cookies: { 'cuttlely-local-session': raw } })))
+        expect(refreshed.status).toBe(401)
+    })
+
+    it('does the same store work for every failed sign-in', async () => {
+        const { store } = await seed()
+        const calls: string[] = []
+        const find = store.findUsersByEmail.bind(store)
+        const open = store.localAccountOpen.bind(store)
+        const drop = store.deleteLocalSessionsForUser.bind(store)
+        store.findUsersByEmail = async (email) => {
+            calls.push(`find:${email}`)
+            return find(email)
+        }
+        store.localAccountOpen = async (id) => {
+            calls.push(`open:${id}`)
+            return open(id)
+        }
+        store.deleteLocalSessionsForUser = async (id) => {
+            calls.push(`drop:${id}`)
+            return drop(id)
+        }
+        const attempt = async (email: string, password: string) => {
+            calls.length = 0
+            const result = json(await handleLocalLogin(ctx({ store, body: { email, password } })))
+            return { result, calls: [...calls] }
+        }
+        const unknown = await attempt('nobody@example.com', OTHER)
+        const wrong = await attempt('ada@example.com', 'Wrong-Pass1!')
+        const empty = await attempt('invited@example.com', OTHER)
+        const disabled = await attempt('disabled@example.com', OTHER)
+        expect(unknown.result.status).toBe(401)
+        const names = (rows: string[]) => rows.map((call) => call.split(':')[0])
+        expect(names(unknown.calls)).toEqual(['find', 'open', 'drop'])
+        expect(names(wrong.calls)).toEqual(names(unknown.calls))
+        expect(names(empty.calls)).toEqual(names(unknown.calls))
+        expect(names(disabled.calls)).toEqual(names(unknown.calls))
+        expect(unknown.calls).toContain(`open:${UNKNOWN_LOCAL_ACCOUNT_ID}`)
+        expect(unknown.calls).toContain(`drop:${UNKNOWN_LOCAL_ACCOUNT_ID}`)
+        expect(wrong.calls).toContain(`drop:${UNKNOWN_LOCAL_ACCOUNT_ID}`)
+        expect(empty.calls).toContain('drop:invited')
+        expect(disabled.calls).toContain('drop:disabled')
+    })
+
+    it('locks an unknown email the same way as a known one, and drops the oldest hash when the cap is full', async () => {
+        const { store } = await seed()
+        const unknown = new LoginRateLimit()
+        for (let i = 0; i < 10; i++) {
+            const result = json(
+                await handleLocalLogin(
+                    ctx({
+                        store,
+                        rateLimit: unknown,
+                        ip: `203.0.113.${i}`,
+                        body: { email: 'nobody@example.com', password: 'Wrong-Pass1!' }
+                    })
+                )
+            )
+            expect(result.status).toBe(401)
+        }
+        const lockedUnknown = json(
+            await handleLocalLogin(
+                ctx({ store, rateLimit: unknown, ip: '198.51.100.40', body: { email: 'Nobody@Example.com', password: OTHER } })
+            )
+        )
+        const known = new LoginRateLimit()
+        for (let i = 0; i < 10; i++) {
+            await handleLocalLogin(
+                ctx({ store, rateLimit: known, ip: `198.51.100.${i}`, body: { email: 'ada@example.com', password: 'Wrong-Pass1!' } })
+            )
+        }
+        const lockedKnown = json(
+            await handleLocalLogin(ctx({ store, rateLimit: known, ip: '192.0.2.40', body: { email: 'ada@example.com', password: OTHER } }))
+        )
+        expect(lockedUnknown.status).toBe(429)
+        expect(lockedKnown.status).toBe(429)
+        expect(lockedUnknown.body).toEqual(LOCKED)
+        expect(lockedKnown.body).toEqual(lockedUnknown.body)
+        expect(JSON.stringify(unknown)).not.toContain('nobody@example.com')
+
+        const capped = new LoginRateLimit(10, 15 * 60 * 1000, 2)
+        for (let i = 0; i < 10; i++) await capped.recordFailure(`203.0.113.${i}`, 'old@example.com', NOW)
+        await capped.recordFailure('203.0.113.20', 'mid@example.com', NOW)
+        await capped.recordFailure('203.0.113.21', 'new@example.com', NOW)
+        expect(capped.accountBuckets()).toBe(2)
+        expect(await capped.blocked('198.51.100.77', 'old@example.com', NOW)).toBe(false)
+        expect(await capped.blocked('198.51.100.78', 'new@example.com', NOW)).toBe(false)
     })
 
     it('refuses a break-glass member session when local users mode is off', async () => {

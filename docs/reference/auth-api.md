@@ -64,7 +64,7 @@ The email is trimmed and compared in lower case. An email longer than 254 charac
 
 The 401 body is the same for an unknown email, a wrong password, an invited user with no password, and a disabled user. Each of those runs a password compare. The 429 body is the same no matter which of those states the account is in.
 
-Failures are counted per client address and, for an email that matches a user, per that email. An email that matches nobody is not stored as its own key. The client address comes from the connection. Proxy headers are trusted only when `TRUST_PROXY` says so.
+Failures are counted per client address and per email. An unknown email locks out the same way as a known one. The account key is a hash of the normalized email, kept in a capped list that drops the oldest email when it is full, so the raw email is not stored. The client address comes from the connection. Proxy headers are trusted only when `TRUST_PROXY` says so.
 
 These three routes also share a per-client cap in the current process: 10 responses that are not successful, in the same 15 minutes, and then 429 with the same lockout body. A successful sign-in, sign-out, or password change does not count. The account lockout above is the one stored in the database.
 
@@ -80,7 +80,7 @@ Requires the header `x-request-from: internal`. A missing or any other value is 
 
 With that header the route returns 200 `{ "message": "logged_out", "redirectTo": "/signin" }` and clears the cookie. Calling it again returns that same body. The session row for the cookie is deleted, so the old cookie no longer signs anyone in.
 
-The route is 404 when local users mode is off. The owner break-glass sign-out remains `POST /api/v1/account/logout`.
+The route is 404 when local users mode is off. `POST /api/v1/account/logout` is the in-app sign-out. When the `cuttlely-local-session` cookie is present, that route also requires `x-request-from: internal` and deletes that session row, including when only local users mode is on. The same delete runs on the AuthKit sign-out and when the request has no other session.
 
 ## Change your own password
 
@@ -92,15 +92,16 @@ Requires the caller's own local session and `x-request-from: internal`. There is
 { "currentPassword": "An0ther-Secret!", "newPassword": "Sup3r-Secret!" }
 ```
 
-| Status | When                                                                                       |
-| ------ | ------------------------------------------------------------------------------------------ |
-| 200    | The current password matches. The body is the session user. This browser gets a new cookie |
-| 400    | A password is missing, too long, fails the strength rules, or the new password is the same |
-| 401    | No session, the CSRF header is missing or not `internal`, or the current password is wrong |
-| 404    | Local users mode is off                                                                    |
-| 429    | This client or account is locked out from earlier failures                                 |
+| Status | When                                                                                       | Body                                                           |
+| ------ | ------------------------------------------------------------------------------------------ | -------------------------------------------------------------- |
+| 200    | The current password matches. The body is the session user. This browser gets a new cookie | The session user                                               |
+| 400    | A password is missing, too long, fails the strength rules, or the new password is the same | `{ "message": "..." }`                                         |
+| 401    | No session, or the CSRF header is missing or not `internal`                                | `{ "message": "Unauthorized" }`                                |
+| 401    | The current password is wrong                                                              | `{ "message": "Invalid email or password." }`                  |
+| 404    | Local users mode is off                                                                    | `{ "message": "Not Found" }`                                   |
+| 429    | This client or account is locked out from earlier failures                                 | `{ "message": "Too many sign-in attempts. Try again later." }` |
 
-A wrong current password uses the same `{ "message": "Invalid email or password." }` body as sign-in. The new password must be at least 8 characters and include a lower-case letter, an upper-case letter, a digit, and a symbol, and it must not be the current password.
+The route is public, like sign-out, so a missing session still reaches this handler and returns 401 `{ "message": "Unauthorized" }`. A wrong current password uses `{ "message": "Invalid email or password." }`. The new password must be at least 8 characters and include a lower-case letter, an upper-case letter, a digit, and a symbol, and it must not be the current password.
 
 The current session is replaced. Every other session for that user is deleted. An old cookie from this browser or another one fails on the next request.
 

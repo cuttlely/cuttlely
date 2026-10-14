@@ -72,7 +72,17 @@ function getSensitiveHeaderFields(): string[] {
 }
 
 // Always redacted in a debug request body. `token` is the GitHub token sent when connecting version history.
-const SESSION_LOG_FIELDS = new Set(['chatid', 'sessionid', 'sessiontoken', 'token'])
+const SESSION_LOG_FIELDS = new Set([
+    'chatid',
+    'sessionid',
+    'sessiontoken',
+    'token',
+    'password',
+    'currentpassword',
+    'newpassword',
+    'credential',
+    'setupcode'
+])
 
 /** Drop client session ids, session tokens, and API keys in the path before a request line is written. */
 export function redactLoggedUrl(url: string): string {
@@ -130,7 +140,9 @@ export function expressRequestLogger(req: Request, res: Response, next: NextFunc
             })
             if (sanitizedHeaders['x-cuttlely-session-token']) sanitizedHeaders['x-cuttlely-session-token'] = '[redacted]'
             if (typeof sanitizedHeaders.cookie === 'string') {
-                sanitizedHeaders.cookie = sanitizedHeaders.cookie.replace(/cuttlely_session=[^;]*/gi, 'cuttlely_session=[redacted]')
+                sanitizedHeaders.cookie = sanitizedHeaders.cookie
+                    .replace(/cuttlely_session=[^;]*/gi, 'cuttlely_session=[redacted]')
+                    .replace(/cuttlely-local-session=[^;]*/gi, 'cuttlely-local-session=[redacted]')
             }
 
             // Server settings bodies can hold secrets (database password, API keys). Never log them, even at debug.
@@ -152,11 +164,19 @@ export function expressRequestLogger(req: Request, res: Response, next: NextFunc
         }
 
         const loggedUrl = redactLoggedUrl(req.url)
+        const line = `${getRequestEmoji(req.method)} ${req.method} ${loggedUrl}`
         if (req.method !== 'GET') {
-            requestLogger.info(`${getRequestEmoji(req.method)} ${req.method} ${loggedUrl}`)
-            logger.info(`${getRequestEmoji(req.method)} ${req.method} ${loggedUrl}`)
+            if (isDebugLevel) {
+                requestLogger.info(line, requestMetadata)
+                logger.info(line, requestMetadata)
+            } else {
+                requestLogger.info(line)
+                logger.info(line)
+            }
+        } else if (isDebugLevel) {
+            requestLogger.http(line, requestMetadata)
         } else {
-            requestLogger.http(`${getRequestEmoji(req.method)} ${req.method} ${loggedUrl}`)
+            requestLogger.http(line)
         }
     }
 
