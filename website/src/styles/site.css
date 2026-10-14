@@ -113,7 +113,8 @@
     flex-direction: column;
     gap: 0;
 }
-.cl-home section {
+.cl-home section,
+.cl-home .cl-anchor {
     scroll-margin-top: calc(var(--sl-nav-height) + 1rem);
 }
 .cl-home h2 {
@@ -442,6 +443,18 @@
 .cl-testing-stage .cl-play-overlay {
     transform: translate(calc(-100% - 0.65rem), -50%);
 }
+.cl-testing-window {
+    max-width: 52rem;
+    margin: 1.5rem auto 2rem;
+}
+.cl-testing-points {
+    max-width: 46rem;
+    margin-inline: auto;
+}
+.cl-start-steps {
+    max-width: 46rem;
+    margin: 1.5rem auto 0;
+}
 /* The product name in the preview starts on the center line. The control sits just to the left of that line. */
 .cl-tile-media .cl-play-overlay {
     left: 50%;
@@ -710,6 +723,10 @@
     background: var(--cuttlely-surface);
     box-shadow: 0 30px 60px -35px var(--cuttlely-glow);
 }
+.cl-testing-shot {
+    max-width: 46rem;
+    margin: 1.5rem auto 0;
+}
 .cl-shot-wide {
     max-width: 60rem;
     margin: 2.5rem auto 1.5rem;
@@ -721,6 +738,9 @@
     margin: 0 0 1.5rem;
     display: grid;
     gap: 1rem;
+}
+.cl-steps.cl-start-steps {
+    margin: 1.5rem auto 1.5rem;
 }
 .cl-steps li {
     counter-increment: cl-step;

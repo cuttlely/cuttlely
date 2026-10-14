@@ -45,13 +45,13 @@ const tools: { title: string; text: string; href: string; video: ToolVideo }[] =
         }
     },
     {
-        title: 'Test before you publish',
-        text: 'Test with up to 100 question-and-answer pairs, with more on the roadmap. Compare the draft with Live on real questions, score it, turn on Passing test set, and Publish stays disabled until the current draft passes.',
-        href: '/docs/how-to/tests-from-answers/',
+        title: 'Chatflows',
+        text: 'A chat model, the agent or chain that answers, memory and tools, on one canvas. Each chatflow gets a prediction API, an embed and a shareable link.',
+        href: '/docs/how-to/canvas/',
         video: {
-            slug: 'testing',
-            length: '0:56',
-            label: 'A bakery chatflow on a real Cuttlely 1.1.0 server: rated answers become a test set, Compare flags the answer that changed, the draft scores 87.5% and Publish stays locked, and after the fix the test set passes at 100% and Publish goes through. Test with up to 100 question-and-answer pairs, with more on the roadmap.'
+            slug: 'chatflows',
+            length: '0:35',
+            label: 'A bakery chatflow on a real Cuttlely server: median of 20 runs, 1.1 seconds to first words after two model calls and the calculator, 1.3 seconds to the full answer on the first question, and 1.3 seconds for the follow-up answer, with the order kept.'
         }
     },
     {
@@ -122,7 +122,8 @@ const installs = [
             <li><Icon name="rocket" /> The demo shows a team at work in about a minute</li>
         </ul>
 
-        <section id="chat-with-a-team-in-minutes" class="cl-showcase" aria-labelledby="cl-showcase-title">
+        <section id="watch-a-team-resolve-a-complaint" class="cl-showcase" aria-labelledby="cl-showcase-title">
+            <span id="chat-with-a-team-in-minutes" class="cl-anchor" aria-hidden="true"></span>
             <figure class="cl-demo-window">
                 <div class="cl-video-stage">
                     <video
@@ -236,41 +237,36 @@ const installs = [
             </div>
         </section>
 
-        <section id="test-every-change-before-it-goes-live" class="cl-section cl-split" aria-labelledby="test-every-change-title">
+        <section id="agent-teams-that-power-your-apps" class="cl-section cl-split" aria-labelledby="agent-teams-title">
             <div>
+                <p class="cl-kicker">How a team works</p>
+                <h2 id="agent-teams-title" class="cl-display">Agent teams that power your apps</h2>
+                <p class="cl-lead">Give your app a team instead of a single prompt. In Cuttlely, an agent team is called a harness.</p>
+                <ol class="cl-steps">
+                    <li><strong>Harness Prime splits each question.</strong> The lead agent reads the question, sends each part to the right specialist, and writes one answer.</li>
+                    <li><strong>Specialists do the work.</strong> Each one can have its own model, tools, playbooks and data.</li>
+                    <li><strong>The analyst brings the numbers.</strong> It queries real tables and hands back the actual numbers.</li>
+                </ol>
+                <a class="cl-link-arrow" href="/docs/how-to/harnesses/">Harnesses guide <Icon name="right-arrow" /></a>
+            </div>
+            <figure class="cl-shot">
+                <ZoomableImage
+                    src={analystChat}
+                    alt="A harness canvas with its test chat open. The run card says Harness Prime sent work to analyst. The answer is a table of open tasks: draft agenda, open, and send invites, open."
+                    widths={[640, 960, 1440]}
+                    sizes="(min-width: 68rem) 560px, 100vw"
+                />
+            </figure>
+        </section>
+
+        <section id="test-every-change-before-it-goes-live" class="cl-section" aria-labelledby="test-every-change-title">
+            <span id="ship-changes-safely-draft-compare-publish-roll-back" class="cl-anchor" aria-hidden="true"></span>
+            <div class="cl-center">
                 <p class="cl-kicker">Test every change</p>
                 <h2 id="test-every-change-title" class="cl-display">Test every change before it goes live</h2>
-                <p class="cl-lead">
-                    Test with up to 100 question-and-answer pairs, with more on the roadmap. Compare the draft with Live on real questions, score it
-                    against answers your customers rated, turn on Passing test set, and Publish stays disabled until the current draft passes.
-                </p>
-                <ul class="cl-checks">
-                    <li>
-                        <strong>Compare before you publish.</strong> Recent questions run on Live and on the draft, and each answer is marked Same, Changed, or Error.
-                    </li>
-                    <li>
-                        <strong>Real answers become tests.</strong> Add one answer with Add to test set, or thumbs-up or thumbs-down answers from a time window, up to 500 new rows at a time.
-                    </li>
-                    <li>
-                        <strong>Score the draft.</strong> Text, JSON, numeric and model evaluators give Pass, Fail or Error and a pass rate for Live and the draft.
-                    </li>
-                    <li>
-                        <strong>Publish waits for a pass.</strong> Turn on Passing test set and Publish stays disabled until the current draft passes;
-                        <code>cuttlely check --gate</code> runs the same check in CI.
-                    </li>
-                </ul>
-                <p>
-                    <a class="cl-link-arrow" href="/docs/how-to/tests-from-answers/">Turn real answers into tests <Icon name="right-arrow" /></a>
-                </p>
-                <p>
-                    <a class="cl-link-arrow" href="/docs/how-to/evaluations/">Evaluations <Icon name="right-arrow" /></a>
-                </p>
-                <p class="cl-note">
-                    This covers Publish of the current draft only. Roll back Live, Promote from Dev, and <code>PUT /api/v1/chatflows/:id</code> still change Live.
-                    <a href="/docs/how-to/versioning/#require-a-passing-test-set-before-you-publish">See which paths stay open</a>.
-                </p>
+                <p>Test with up to 100 question-and-answer pairs, with more on the roadmap.</p>
             </div>
-            <figure class="cl-demo-window">
+            <figure class="cl-demo-window cl-testing-window">
                 <div class="cl-video-stage cl-testing-stage">
                     <video
                         class="cl-demo-video"
@@ -296,28 +292,85 @@ const installs = [
                     </button>
                 </div>
             </figure>
-        </section>
-
-        <section id="agent-teams-that-power-your-apps" class="cl-section cl-split" aria-labelledby="agent-teams-title">
-            <div>
-                <p class="cl-kicker">How a team works</p>
-                <h2 id="agent-teams-title" class="cl-display">Agent teams that power your apps</h2>
-                <p class="cl-lead">Give your app a team instead of a single prompt. In Cuttlely, an agent team is called a harness.</p>
-                <ol class="cl-steps">
-                    <li><strong>Harness Prime splits each question.</strong> The lead agent reads the question, sends each part to the right specialist, and writes one answer.</li>
-                    <li><strong>Specialists do the work.</strong> Each one can have its own model, tools, playbooks and data.</li>
-                    <li><strong>The analyst brings the numbers.</strong> It queries real tables and hands back the actual numbers.</li>
-                </ol>
-                <a class="cl-link-arrow" href="/docs/how-to/harnesses/">Harnesses guide <Icon name="right-arrow" /></a>
+            <div class="cl-testing-points">
+                <ul class="cl-checks">
+                    <li><strong>Drafts never touch Live.</strong> The API, embeds and shared links keep serving Live until you publish.</li>
+                    <li>
+                        <strong>Compare before you publish.</strong> Recent questions run on Live and on the draft, and each answer is marked Same, Changed, or Error.
+                    </li>
+                    <li>
+                        <strong>Real answers become tests.</strong> Add one answer with Add to test set, or thumbs-up or thumbs-down answers from a time window, up to 500 new rows at a time.
+                    </li>
+                    <li>
+                        <strong>Score the draft.</strong> Text, JSON, numeric and model evaluators give Pass, Fail or Error and a pass rate for Live and the draft.
+                    </li>
+                    <li>
+                        <strong>Publish waits for a pass.</strong> The Passing test set gate is off until you turn it on, for a chatflow or an agentflow that starts from chat. Once on, Publish stays disabled until the current draft passes.
+                        <code>cuttlely check --gate</code> runs the same check in CI.
+                    </li>
+                    <li>
+                        <strong>Every version is kept.</strong> Open an old version as your draft or roll Live back in one step, and promote from Dev to Prod, which goes Live only when its owner selects <strong>Promote to Live</strong>.
+                    </li>
+                    <li>Chatflows, agentflows, harnesses and pipelines keep each saved version, with what changed and who changed it.</li>
+                    <li>
+                        Dev and Prod connect to the same GitHub repository. Prod lists what Dev published, shows what would change and which credentials it needs, and can run the same side-by-side check. Each server keeps its own credentials; only their names travel.
+                    </li>
+                </ul>
+                <p class="cl-note">
+                    This covers Publish of the current draft only. Roll back Live, Promote from Dev, and <code>PUT /api/v1/chatflows/:id</code> still change Live.
+                    <a href="/docs/how-to/versioning/#require-a-passing-test-set-before-you-publish">See which paths stay open</a>.
+                </p>
+                <p>
+                    <a class="cl-link-arrow" href="/docs/how-to/tests-from-answers/">Turn real answers into tests <Icon name="right-arrow" /></a>
+                </p>
+                <p>
+                    <a class="cl-link-arrow" href="/docs/how-to/evaluations/">Evaluations <Icon name="right-arrow" /></a>
+                </p>
+                <p>
+                    <a class="cl-link-arrow" href="/docs/how-to/ci-gate/"><code>cuttlely check --gate</code> <Icon name="right-arrow" /></a>
+                </p>
+                <p>
+                    <a class="cl-link-arrow" href="/docs/how-to/versioning/">Version history guide <Icon name="right-arrow" /></a>
+                </p>
             </div>
-            <figure class="cl-shot">
-                <ZoomableImage
-                    src={analystChat}
-                    alt="A harness canvas with its test chat open. The run card says Harness Prime sent work to analyst. The answer is a table of open tasks: draft agenda, open, and send invites, open."
-                    widths={[640, 960, 1440]}
-                    sizes="(min-width: 68rem) 560px, 100vw"
+            <figure class="cl-shot cl-testing-shot">
+                <Focus
+                    src={publishCheck}
+                    alt="The Publish dialog for Bakery helper after a check: What time do you open on Saturday? is marked Changed, with Live We open at 8 AM on Saturdays and Draft We open at 7 AM on Saturdays, next to a Same row for Do you have gluten-free bread today? where Live and Draft both say No, we bake gluten-free bread only on Tuesdays."
+                    cx={0.5}
+                    cy={0.7}
+                    zoom={1.45}
+                    ratio={4 / 3}
+                    widths={[960, 1440]}
+                    sizes="(min-width: 46rem) 46rem, 100vw"
                 />
             </figure>
+        </section>
+
+        <section id="use-a-team-from-your-app" class="cl-section" aria-labelledby="api-title">
+            <div class="cl-center">
+                <p class="cl-kicker">Call it from your app</p>
+                <h2 id="api-title" class="cl-display">Use a team from your app</h2>
+                <p class="cl-lead">
+                    Your app sends the team a question through the API and gets back one researched answer, a chart or an action. Here is a real call to a small bakery team
+                    with two specialists, <code>baker</code> and <code>orders</code>.
+                </p>
+            </div>
+            <div class="cl-code-pair">
+                <div>
+                    <p class="cl-code-label">Request</p>
+                    <Code code={curl} lang="bash" />
+                </div>
+                <div>
+                    <p class="cl-code-label">Response</p>
+                    <Code code={answer} lang="json" />
+                </div>
+            </div>
+            <p class="cl-center cl-note">
+                Harness Prime split the question: <code>baker</code> priced the order and <code>orders</code> checked the pickup day. The full response also has the tokens,
+                the timings, the sources and any images the team made.
+            </p>
+            <p class="cl-center"><a class="cl-link-arrow" href="/docs/api/">API guide <Icon name="right-arrow" /></a></p>
         </section>
 
         <section id="small-context-big-answers" class="cl-section" aria-labelledby="context-title">
@@ -395,32 +448,6 @@ const installs = [
             </p>
         </section>
 
-        <section id="use-a-team-from-your-app" class="cl-section" aria-labelledby="api-title">
-            <div class="cl-center">
-                <p class="cl-kicker">Call it from your app</p>
-                <h2 id="api-title" class="cl-display">Use a team from your app</h2>
-                <p class="cl-lead">
-                    Your app sends the team a question through the API and gets back one researched answer, a chart or an action. Here is a real call to a small bakery team
-                    with two specialists, <code>baker</code> and <code>orders</code>.
-                </p>
-            </div>
-            <div class="cl-code-pair">
-                <div>
-                    <p class="cl-code-label">Request</p>
-                    <Code code={curl} lang="bash" />
-                </div>
-                <div>
-                    <p class="cl-code-label">Response</p>
-                    <Code code={answer} lang="json" />
-                </div>
-            </div>
-            <p class="cl-center cl-note">
-                Harness Prime split the question: <code>baker</code> priced the order and <code>orders</code> checked the pickup day. The full response also has the tokens,
-                the timings, the sources and any images the team made.
-            </p>
-            <p class="cl-center"><a class="cl-link-arrow" href="/docs/api/">API guide <Icon name="right-arrow" /></a></p>
-        </section>
-
         <section id="tools-your-teams-use" class="cl-section" aria-labelledby="tools-title">
             <div class="cl-center">
                 <p class="cl-kicker">Built in</p>
@@ -465,9 +492,6 @@ const installs = [
                                 <dialog id={`video-${tool.video.slug}`} class="cl-video-dialog" aria-label={`${tool.title}: narrated video with captions`}>
                                     <video controls playsinline preload="none" width="1280" height="720" poster={mediaUrl(`/media/products/${tool.video.slug}-poster.webp`)}>
                                         <source src={mediaUrl(`/media/products/${tool.video.slug}.mp4`)} type="video/mp4" />
-                                        {tool.video.slug === 'testing' && (
-                                            <track kind="captions" src={mediaUrl('/media/products/testing.vtt')} srclang="en" label="English" />
-                                        )}
                                     </video>
                                     <form method="dialog">
                                         <button class="cl-video-close" aria-label="Close">×</button>
@@ -486,41 +510,26 @@ const installs = [
             </ul>
         </section>
 
-        <section id="ship-changes-safely-draft-compare-publish-roll-back" class="cl-section cl-split cl-split-reverse" aria-labelledby="ship-title">
-            <div>
-                <p class="cl-kicker">Ship changes safely</p>
-                <h2 id="ship-title" class="cl-display">Draft, compare, publish, roll back</h2>
-                <p class="cl-lead">Changing an AI app that people already use should not mean testing on them. Cuttlely treats every change as a release.</p>
-                <ul class="cl-checks">
-                    <li><strong>Drafts never touch Live.</strong> The API, embeds and shared links keep serving Live until you publish.</li>
-                    <li>
-                        <strong>Compare before you publish.</strong> See <a href="#test-every-change-before-it-goes-live">Test every change before it goes live</a>.
-                    </li>
-                    <li><strong>Every version is kept.</strong> Open an old version as your draft, or roll Live back to it, in one step.</li>
-                    <li><strong>Promote from Dev to Prod.</strong> Prod shows what would change and goes Live only when its owner says so.</li>
-                </ul>
-                <a class="cl-link-arrow" href="/docs/how-to/versioning/">Version history guide <Icon name="right-arrow" /></a>
-            </div>
-            <figure class="cl-shot">
-                <Focus
-                    src={publishCheck}
-                    alt="The Publish dialog for Bakery helper after a check: What time do you open on Saturday? is marked Changed, with Live We open at 8 AM on Saturdays and Draft We open at 7 AM on Saturdays, next to a Same row for Do you have gluten-free bread today? where Live and Draft both say No, we bake gluten-free bread only on Tuesdays."
-                    cx={0.5}
-                    cy={0.7}
-                    zoom={1.45}
-                    ratio={4 / 3}
-                    widths={[960, 1440]}
-                    sizes="(min-width: 68rem) 820px, 145vw"
-                />
-            </figure>
-        </section>
-
-        <section id="run-it-your-way" class="cl-section" aria-labelledby="run-title">
+        <section id="start-in-minutes" class="cl-section" aria-labelledby="run-title">
+            <span id="run-it-your-way" class="cl-anchor" aria-hidden="true"></span>
             <div class="cl-center">
-                <p class="cl-kicker">Run it your way</p>
-                <h2 id="run-title" class="cl-display">On your laptop, your server or Render</h2>
-                <p class="cl-lead">Change sign-in, the database, storage and more from <strong>Admin</strong>. People sign in with a password or WorkOS AuthKit.</p>
+                <p class="cl-kicker">Get started</p>
+                <h2 id="run-title" class="cl-display">Start in minutes</h2>
             </div>
+            <ol class="cl-steps cl-start-steps">
+                <li>
+                    <strong>Start Cuttlely.</strong> Run <code>docker compose up -d</code> in a clone of the repository, or <code>npx cuttlely start</code> with Node.js 20 or newer. Both need Docker.
+                </li>
+                <li>
+                    <strong>Create your account.</strong> <code>cuttlely start</code> prints only the ready URL. The first-account setup link is on the <code>No account yet</code> line in <code>docker compose logs cuttlely</code> or <code>npx cuttlely logs</code>. Open that setup URL and create your account.
+                </li>
+                <li>
+                    <strong>Try the demo.</strong> On Chatflows, select <strong>Add a model key</strong>, paste a key from any chat model provider listed under <strong>Credentials</strong>, then select <strong>Try the demo</strong>. A customer care team opens with its chat ready.
+                </li>
+            </ol>
+            <p class="cl-center">
+                <a class="cl-link-arrow" href="/quickstart/">Full steps <Icon name="right-arrow" /></a>
+            </p>
             <ul class="cl-installs">
                 {
                     installs.map((item) => (
@@ -542,6 +551,7 @@ const installs = [
                     sizes="(min-width: 68rem) 1000px, 100vw"
                 />
             </figure>
+            <p class="cl-center">Change sign-in, the database, storage and more from <strong>Admin</strong>. People sign in with a password or WorkOS AuthKit.</p>
             <p class="cl-center cl-note">
                 Cuttlely does not report usage, check for updates or load fonts, scripts or images from other sites. <a href="/security/#what-cuttlely-connects-to"
                     >What Cuttlely connects to</a
