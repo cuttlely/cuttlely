@@ -21,13 +21,13 @@ export CUTTLELY_API_KEY=<key>
 npx cuttlely check --flow <flow id> --fail-on-changed
 ```
 
-| Flag                | Meaning                                                                                                                                         |
-| ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
-| `--flow`            | The flow id from the canvas address bar. Required.                                                                                              |
-| `--server`          | Server origin. Default `http://127.0.0.1:43117`, the port [`npx cuttlely start`](./docker.md#install-with-npm) publishes.                       |
-| `--timeout`         | Seconds to wait. Default 300, from 1 to 3600. The server stops starting new questions at its own limit, 180 seconds unless an admin changed it. |
-| `--json`            | Write the full check to this path. Same object as [Read a check](../reference/drafts-api.md#read-a-check).                                      |
-| `--fail-on-changed` | Exit 1 when any answer is Changed. Without this flag a finished check exits 0 even when answers differ, and the summary still lists them.       |
+| Flag                | Meaning                                                                                                                                                                                                                                                   |
+| ------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--flow`            | The flow id from the canvas address bar. Required.                                                                                                                                                                                                        |
+| `--server`          | Server origin. Default `http://127.0.0.1:43117`, the port [`npx cuttlely start`](./docker.md#install-with-npm) publishes.                                                                                                                                 |
+| `--timeout`         | Seconds to wait for the check. Default 300, from 1 to 3600. The server stops starting new questions at its own limit, 180 seconds unless an admin changed it. The final confirmation read after a `--gate` pass has its own window of at most 30 seconds. |
+| `--json`            | Write the full check to this path. Same object as [Read a check](../reference/drafts-api.md#read-a-check).                                                                                                                                                |
+| `--fail-on-changed` | Exit 1 when any answer is Changed. Without this flag a finished check exits 0 even when answers differ, and the summary still lists them.                                                                                                                 |
 
 `pnpm dev` serves the API on port 3000. `scripts/start-cuttlely.sh` and `npx cuttlely start` listen on port 43117, which is already the default for `--server`.
 

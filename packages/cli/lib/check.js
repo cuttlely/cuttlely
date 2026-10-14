@@ -239,6 +239,12 @@ function scoreFailedLine(verdict) {
 }
 
 const STALE_GATE = 'The saved test set changed during the check. Run it again.'
+// The check can use the whole --timeout. The confirmation read gets its own window, capped so a hung read cannot double a 3600s wait.
+const CONFIRM_READ_CAP_SECONDS = 30
+
+function confirmReadSeconds(timeoutSeconds) {
+    return Math.min(timeoutSeconds, CONFIRM_READ_CAP_SECONDS)
+}
 
 // An enabled gate always stores a dataset and at least one evaluator. A read that
 // omits them withheld the ids: datasets:view and evaluators:view are what reveal them.
@@ -499,12 +505,13 @@ export async function runCheck(options, io = {}) {
         // --gate can exit 0 only when this run is still the stored pass. A threshold,
         // row, or evaluator change during the check makes Publish refuse it.
         if (options.gate && verdict.code === EXIT_PASS) {
+            const confirmSeconds = confirmReadSeconds(timeoutSeconds)
             const again = await callApi(fetchImpl, flowUrl, {
                 method: 'GET',
                 headers,
-                signal: deadlineSignal(now() + timeoutSeconds * 1000, now)
+                signal: deadlineSignal(now() + confirmSeconds * 1000, now)
             })
-            if (again.timeout) return fail(`Timed out after ${timeoutSeconds}s before the saved test set could be read again.`)
+            if (again.timeout) return fail(`Timed out after ${confirmSeconds}s before the saved test set could be read again.`)
             if (again.network) return fail(`Could not reach ${server}. ${again.message}`)
             if (!again.ok) {
                 if (again.status === 403) return fail(permissionDeniedMessage(true))

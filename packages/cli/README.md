@@ -50,13 +50,13 @@ export CUTTLELY_API_KEY=<key>
 npx cuttlely check --flow <flow id> --server http://127.0.0.1:43117 --timeout 300 --json check.json --fail-on-changed
 ```
 
-| Flag                | Meaning                                                                                                   |
-| ------------------- | --------------------------------------------------------------------------------------------------------- |
-| `--flow`            | Flow id from the canvas address bar. Required.                                                            |
-| `--server`          | Server origin. Default `http://127.0.0.1:43117`.                                                          |
-| `--timeout`         | Seconds to wait. Default 300.                                                                             |
-| `--json`            | Write the full check JSON to this path.                                                                   |
-| `--fail-on-changed` | Exit 1 when any answer is Changed. Without it, a finished check exits 0 and the summary still lists them. |
+| Flag                | Meaning                                                                                                                                 |
+| ------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| `--flow`            | Flow id from the canvas address bar. Required.                                                                                          |
+| `--server`          | Server origin. Default `http://127.0.0.1:43117`.                                                                                        |
+| `--timeout`         | Seconds to wait for the check. Default 300. The final confirmation read after a `--gate` pass has its own window of at most 30 seconds. |
+| `--json`            | Write the full check JSON to this path.                                                                                                 |
+| `--fail-on-changed` | Exit 1 when any answer is Changed. Without it, a finished check exits 0 and the summary still lists them.                               |
 
 `pnpm dev` serves the API on port 3000. `scripts/start-cuttlely.sh` and `npx cuttlely start` listen on port 43117.
 

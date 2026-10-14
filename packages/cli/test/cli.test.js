@@ -1030,6 +1030,46 @@ test('--gate refuses a withheld dataset id or evaluator list before it starts a 
     }
 })
 
+test('--gate confirmation read is capped at 30 seconds', async () => {
+    const original = AbortSignal.timeout
+    const seen = []
+    AbortSignal.timeout = (ms) => {
+        seen.push(ms)
+        return new AbortController().signal
+    }
+    const cases = [scoreCase({ question: 'Do you have rye bread today?', expected: 'Yes, after 10.', draftResult: 'Pass' })]
+    const done = scoredCheck(passedVerdict(100, 80), cases)
+    try {
+        for (const [timeout, confirmMs] of [
+            ['3600', 30000],
+            ['300', 30000],
+            ['30', 30000],
+            ['10', 10000]
+        ]) {
+            seen.length = 0
+            const io = checkIo()
+            const { fetch, calls } = scriptedFetch([
+                httpResult(200, gateBody()),
+                httpResult(202, done),
+                httpResult(200, storedPass('check-1'))
+            ])
+            assert.equal(
+                await main(['check', '--flow', 'flow-1', '--gate', '--timeout', timeout], { ...io, fetch, now: () => 0 }),
+                0,
+                timeout
+            )
+            assert.equal(calls.at(-1).init.method, 'GET', timeout)
+            assert.equal(seen.at(-1), confirmMs, timeout)
+            assert.ok(
+                seen.slice(0, -1).every((ms) => ms === Number(timeout) * 1000),
+                timeout
+            )
+        }
+    } finally {
+        AbortSignal.timeout = original
+    }
+})
+
 test('--gate exits 2 when the stored pass is no longer this check', async () => {
     const cases = [scoreCase({ question: 'Do you have rye bread today?', expected: 'Yes, after 10.', draftResult: 'Pass' })]
     const done = scoredCheck(passedVerdict(100, 80), cases)
