@@ -136,7 +136,14 @@ export function rewriteLinks(markdown, fromRepoPath, exists = () => true, proble
                 spans.push(span)
                 return `\u0000${spans.length - 1}\u0000`
             })
-            return masked
+            // A poster link is an image inside a link. Mask the image first so its ]
+            // is not read as the end of the outer link, and so the image path stays relative.
+            const images = []
+            const maskedImages = masked.replace(/!\[[^\]]*\]\([^)\s]+(?:\s+"[^"]*")?\)/g, (img) => {
+                images.push(img)
+                return `\u0001${images.length - 1}\u0001`
+            })
+            return maskedImages
                 .replace(/(!?)\[((?:[^\]\\]|\\.)*)\]\(([^)\s]+)(\s+"[^"]*")?\)/g, (whole, bang, text, target, title = '') => {
                     if (bang) return whole
                     const result = rewriteTarget(target, fromRepoPath, exists)
@@ -144,6 +151,7 @@ export function rewriteLinks(markdown, fromRepoPath, exists = () => true, proble
                     if (result.missing) problems.push(`${fromRepoPath}: link to missing ${result.repoPath}`)
                     return `[${text}](${result.url}${title})`
                 })
+                .replace(/\u0001(\d+)\u0001/g, (_, i) => images[Number(i)])
                 .replace(/\u0000(\d+)\u0000/g, (_, i) => spans[Number(i)])
         })
         .join('\n')
