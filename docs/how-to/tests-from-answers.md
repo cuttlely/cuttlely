@@ -162,7 +162,7 @@ On a chatflow, or an agentflow that starts with **Chat Input**, the Publish dial
 1. Save a draft, then select **Publish**.
 2. Under **Check recent questions**, set **Questions from** to **A dataset** and choose **Counter answers**. **Questions from** is hidden when your role cannot view datasets.
 3. Tick the evaluators. That list is hidden when your role cannot view evaluators.
-4. Select **Run Check**. When **Passing test set** is already on, the button is **Run the test set**.
+4. Select **Run check**. The box keeps **Run check** when **Passing test set** is on. To clear the gate, select **Run the test set** in the notice under the box, which runs the saved dataset, evaluators and pass mark and updates **Publish**.
 
 Each row runs in the saved order, once on Live and once on the draft. The expected answer is shown under the question. Each side shows Pass, Fail, or Error, and a pass rate. The finished check reports passed or failed for the draft against a pass mark. The mark is 100 unless the request sends `threshold`. What the scores mean, and the refusals for a form, webhook, or schedule start, are in [Run the Publish check on a dataset](./evaluations.md#run-the-publish-check-on-a-dataset).
 
@@ -178,7 +178,7 @@ A chatflow, or an agentflow that starts with a chat message, can refuse Publish 
 
 ![Chatflow Configuration on Bakery helper, Passing test set. The menu row shows ON. Require a passing test set before Publish is checked, the dataset is Counter answers, Pass at is 100, and Mentions rye and Short answer are ticked. The note says Publish waits for a passing test set.](../images/evaluations/gate-from-answers.png)
 
-In the Publish dialog, **Publish** stays disabled, with the reason, until the latest result passed for this draft, these settings, the same rows, and the same answer post-processing. `POST /api/v1/flow-drafts/<flow id>/publish` returns 409 with that reason until then. The messages, and the starts that cannot use the gate, are in [Set the pass mark and turn on the gate](./evaluations.md#set-the-pass-mark-and-turn-on-the-gate).
+In the Publish dialog, **Publish** stays disabled, with the reason, until the latest result passed for this draft, these settings, the same rows, and the same answer post-processing. `POST /api/v1/flow-drafts/<flow id>/publish` returns 409 with that reason until then. The messages, and the starts that cannot use the gate, are in [Set the pass mark and turn on the gate](./evaluations.md#set-the-pass-mark-and-turn-on-the-gate). The gate covers Publish of the current draft only, and the other ways of changing Live are in the table in [Require a passing test set before you publish](./versioning.md#require-a-passing-test-set-before-you-publish).
 
 ## Fail the build on that gate
 

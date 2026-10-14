@@ -8,6 +8,11 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 -   Fresh screenshots for the knowledge pipeline guide and the Usage page.
 
+### Changed
+
+-   Docs name the Run the test set button and the gate's scope.
+-   Docs: the CI gate guide now covers harness checks and a test set changed during `--gate`.
+
 ### Upgrade notes / breaking changes
 
 -   The old Analyst import paths are gone. Import the modules in `packages/harness/runtime/` instead of `scripts/analyst-store.mjs`, `scripts/analyst-postgres.mjs`, `scripts/analyst-page.mjs`, `scripts/analyst-sqlite-worker.mjs`, `scripts/analyst-mcp-status.mjs`, `scripts/hermes-stream.mjs`, and `harness/runtime/`.
