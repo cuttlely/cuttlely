@@ -90,24 +90,49 @@ function olderThanStoredCursor(repo: Repository<ChatMessageFeedback>): string {
     return `((${present} AND ${storedMatch}) OR (NOT ${present} AND ${loadedMatch}))`
 }
 
+function createdDateAsText(repo: Repository<ChatMessageFeedback>): string {
+    const type = String(repo.metadata.connection.options.type || '')
+    const asText = type === 'mysql' || type === 'mariadb' ? 'CHAR' : 'TEXT'
+    return `CAST(feedback.createdDate AS ${asText})`
+}
+
+function textFromRawCreated(row: Record<string, unknown>): string | null {
+    const text = row.created_text ?? row.createdText ?? row.feedback_created_text
+    return text == null ? null : String(text)
+}
+
 // A JS Date drops microseconds. Read the column as text so a deleted anchor keeps its stored time.
 async function rawCreatedDates(repo: Repository<ChatMessageFeedback>, ids: string[]): Promise<Map<string, string>> {
     const found = new Map<string, string>()
     if (!ids.length) return found
-    const type = String(repo.metadata.connection.options.type || '')
-    const asText = type === 'mysql' || type === 'mariadb' ? 'CHAR' : 'TEXT'
     const rows = await repo
         .createQueryBuilder('feedback')
         .select('feedback.id', 'id')
-        .addSelect(`CAST(feedback.createdDate AS ${asText})`, 'created_text')
+        .addSelect(createdDateAsText(repo), 'created_text')
         .where('feedback.id IN (:...ids)', { ids })
         .getRawMany()
     for (const row of rows) {
         const id = row.id ?? row.feedback_id
-        const text = row.created_text ?? row.createdText ?? row.feedback_created_text
-        if (id != null && text != null) found.set(String(id), String(text))
+        const text = textFromRawCreated(row)
+        if (id != null && text != null) found.set(String(id), text)
     }
     return found
+}
+
+// Same cast as rawCreatedDates, scoped to this flow and rating. Missing means the cursor is not valid.
+async function rawAnchorCreatedDate(
+    repo: Repository<ChatMessageFeedback>,
+    args: { id: string; flowId: string; rating: string }
+): Promise<string | null> {
+    const rows = await repo
+        .createQueryBuilder('feedback')
+        .select('feedback.id', 'id')
+        .addSelect(createdDateAsText(repo), 'created_text')
+        .where('feedback.id = :id', { id: args.id })
+        .andWhere('feedback.chatflowid = :flowId', { flowId: args.flowId })
+        .andWhere('feedback.rating = :rating', { rating: args.rating })
+        .getRawMany()
+    return rows.length ? textFromRawCreated(rows[0]) : null
 }
 
 function loadRatingFeedback(
@@ -133,12 +158,18 @@ function loadRatingFeedback(
 // Tests shrink a page and delete a row after it has been read. Production leaves both unset.
 let ratingPageForTest: number | null = null
 let afterRatingPageForTest: ((page: ChatMessageFeedback[]) => Promise<void> | void) | null = null
+let beforeFirstRatingPageForTest: (() => Promise<void> | void) | null = null
 
 export function setRatingScanTestHook(
-    hook: { pageSize?: number; afterPage?: (page: ChatMessageFeedback[]) => Promise<void> | void } | null
+    hook: {
+        pageSize?: number
+        afterPage?: (page: ChatMessageFeedback[]) => Promise<void> | void
+        beforeFirstPage?: () => Promise<void> | void
+    } | null
 ) {
     ratingPageForTest = hook?.pageSize && hook.pageSize > 0 ? hook.pageSize : null
     afterRatingPageForTest = hook?.afterPage ?? null
+    beforeFirstRatingPageForTest = hook?.beforeFirstPage ?? null
 }
 
 function viewPermissionForFlow(type: string | undefined): string {
@@ -801,11 +832,10 @@ const addDatasetRowsFromRatings = async (
         const before = fixedIds ? null : parseRatingCursor(body.cursor)
         const feedbackRepo = appServer.AppDataSource.getRepository(ChatMessageFeedback)
         if (before) {
-            const anchor = await feedbackRepo.findOne({
-                where: { id: before.id, chatflowid: flow.id, rating },
-                select: { id: true }
-            })
-            if (!anchor) throw new AppError(StatusCodes.BAD_REQUEST, 'cursor must be a createdDate and an id.')
+            const stored = await rawAnchorCreatedDate(feedbackRepo, { id: before.id, flowId: flow.id, rating })
+            if (!stored) throw new AppError(StatusCodes.BAD_REQUEST, 'cursor must be a createdDate and an id.')
+            before.createdDate = stored
+            if (beforeFirstRatingPageForTest) await beforeFirstRatingPageForTest()
         }
         const messageRepo = appServer.AppDataSource.getRepository(ChatMessage)
         const rowRepo = appServer.AppDataSource.getRepository(DatasetRow)

@@ -178,6 +178,84 @@ async function assertDeletedMicrosecondAnchor(dataSource, api) {
     }
 }
 
+async function assertClientCursorDeletedBeforePage(dataSource, api) {
+    const now = Date.now()
+    const dataset = await dataSource.getRepository(Dataset).save({
+        name: 'Cursor removed',
+        description: 'Made-up rows',
+        workspaceId: WORKSPACE
+    })
+    const flow = await dataSource.getRepository(ChatFlow).save({
+        name: 'Bakery desk',
+        flowData: '{}',
+        type: 'CHATFLOW',
+        workspaceId: WORKSPACE
+    })
+    const fraction = new Date(now - 2 * 60 * 60 * 1000).toISOString().replace(/\.\d{3}Z$/, '')
+    const digits = ['000600', '000400', '000200', '000100']
+    const feedbacks = []
+    for (let index = 0; index < digits.length; index += 1) {
+        const at = new Date(now - 2 * 60 * 60 * 1000)
+        await dataSource.getRepository(ChatMessage).save({
+            role: 'userMessage',
+            chatflowid: flow.id,
+            content: `Question ${index}`,
+            chatType: 'INTERNAL',
+            chatId: `chat-cursor-${index}`,
+            createdDate: new Date(at.getTime() - 1000)
+        })
+        const answer = await dataSource.getRepository(ChatMessage).save({
+            role: 'apiMessage',
+            chatflowid: flow.id,
+            content: `Answer ${index}`,
+            chatType: 'INTERNAL',
+            chatId: `chat-cursor-${index}`,
+            createdDate: at
+        })
+        const feedback = await dataSource.getRepository(ChatMessageFeedback).save({
+            chatflowid: flow.id,
+            chatId: `chat-cursor-${index}`,
+            messageId: answer.id,
+            rating: 'THUMBS_DOWN',
+            content: 'No.',
+            createdDate: at
+        })
+        await stampFeedback(dataSource, feedback.id, `${fraction}.${digits[index]}Z`)
+        feedbacks.push(feedback)
+    }
+    const first = await api.post('/datasets/rows/from-ratings').send({
+        datasetId: dataset.id,
+        flowId: flow.id,
+        rating: 'THUMBS_DOWN',
+        days: 1,
+        limit: 1,
+        dryRun: true
+    })
+    assert.equal(first.status, 200, JSON.stringify(first.body))
+    assert.equal(first.body.cursor.id, feedbacks[0].id)
+    let deleted = false
+    setRatingScanTestHook({
+        beforeFirstPage: async () => {
+            deleted = true
+            await dataSource.getRepository(ChatMessageFeedback).delete({ id: feedbacks[0].id })
+        }
+    })
+    const next = await api.post('/datasets/rows/from-ratings').send({
+        datasetId: dataset.id,
+        flowId: flow.id,
+        rating: 'THUMBS_DOWN',
+        days: 1,
+        dryRun: true,
+        cursor: first.body.cursor
+    })
+    assert.equal(next.status, 200, JSON.stringify(next.body))
+    assert.equal(deleted, true)
+    assert.equal(next.body.feedbackIds.length, 3)
+    for (const feedback of feedbacks.slice(1)) {
+        assert.equal(next.body.feedbackIds.includes(feedback.id), true, feedback.id)
+    }
+}
+
 async function writeRated(api, body) {
     const preview = await api.post('/datasets/rows/from-ratings').send({ ...body, dryRun: true })
     if (preview.status !== 200) return preview
@@ -2946,6 +3024,58 @@ describe('evaluation routes', () => {
             setRatingScanTestHook(null)
             asOwner()
             await cleanup()
+        }
+    })
+
+    it('deleting the client cursor after it is checked does not drop ratings in that millisecond', async () => {
+        const { dataSource, api, cleanup } = await openSqlite()
+        try {
+            await assertClientCursorDeletedBeforePage(dataSource, api)
+        } finally {
+            setRatingScanTestHook(null)
+            asOwner()
+            await cleanup()
+        }
+    })
+
+    it('deleting the client cursor after it is checked does not drop ratings in that millisecond on postgres', async (t) => {
+        if (!PG_PASSWORD) {
+            t.skip('postgres evaluation routes: PGPASSWORD is unset')
+            return
+        }
+        const { Client } = serverRequire('pg')
+        const name = `cuttlely_eval_cursor_${process.pid}`
+        const admin = new Client({ host: '127.0.0.1', user: 'postgres', password: PG_PASSWORD, database: 'postgres' })
+        await admin.connect()
+        await admin.query(`DROP DATABASE IF EXISTS ${name}`)
+        await admin.query(`CREATE DATABASE ${name}`)
+        await admin.end()
+        const dataSource = new DataSource({
+            type: 'postgres',
+            host: '127.0.0.1',
+            port: 5432,
+            username: 'postgres',
+            password: PG_PASSWORD,
+            database: name,
+            synchronize: false,
+            entities: ROUND_TRIP_ENTITIES,
+            migrations: postgresMigrations
+        })
+        try {
+            await dataSource.initialize()
+            await dataSource.runMigrations()
+            appHandle.AppDataSource = dataSource
+            asOwner()
+            await seed(dataSource)
+            await assertClientCursorDeletedBeforePage(dataSource, request(httpApp()))
+        } finally {
+            setRatingScanTestHook(null)
+            asOwner()
+            if (dataSource.isInitialized) await dataSource.destroy()
+            const drop = new Client({ host: '127.0.0.1', user: 'postgres', password: PG_PASSWORD, database: 'postgres' })
+            await drop.connect()
+            await drop.query(`DROP DATABASE IF EXISTS ${name}`)
+            await drop.end()
         }
     })
 
