@@ -73,7 +73,9 @@ Select **Or start with the bakery quickstart** on the card for a smaller team on
 
 ![The bakery-demo team's chat, expanded, with Hi there! How can I help? and three starter questions: which products brought in the most revenue from January to June as a bar chart, the Old Town shop's opening hours and items with nuts, and which shop sold more croissants in March 2026.](../images/try-the-demo/demo-open.png)
 
-![The bakery team's test chat after the croissant starter. The run card says Harness Prime sent work to analyst. The answer is a table titled Croissants baked this week, with Monday 42, Tuesday 55, Wednesday 48, Thursday 63, Friday 71 and Saturday 88.](../images/try-the-demo/demo-chart.png)
+The March croissant starter answers in units. Riverside sold 335 more croissants than Old Town in March 2026: 1346 against 1011.
+
+![The bakery-demo test chat after the March croissant starter. The question is Which shop sold more croissants in March 2026, and by how many? The run card says Harness Prime sent work to analyst, and the analyst row is done. The answer says Riverside sold 335 more croissants than Old Town in March 2026, above a table headed Shop and Units with Riverside 1346 and Old Town 1011.](../images/try-the-demo/demo-chart.png)
 
 `POST /api/v1/demo` with `{"credentialId": "<id>"}` makes the customer care team. Add `"demo": "bakery"` for the bakery team.
 

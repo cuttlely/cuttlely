@@ -182,6 +182,14 @@ function specialistCode(text) {
             folder
         )})\nfrom fulfillment import investigate\nprint(investigate(${JSON.stringify(order)}))`
     }
+    if (marchCroissantQuestion(task) || marchCroissantQuestion(text)) {
+        return [
+            'print("Riverside sold 335 more croissants than Old Town in March 2026.")',
+            'print("Shop Units")',
+            'print("Riverside 1346")',
+            'print("Old Town 1011")'
+        ].join('\n')
+    }
     if (imageFolder(text) || /bakery_chart|loaves|croissant/i.test(text)) return chartCode(text)
     return `print(${JSON.stringify('The lookup finished. No currency amount is included.')})`
 }
@@ -275,12 +283,36 @@ const HELD = `Five orders are held in packing wave W-0929-B.
 
 The Plus and Premier customers in that wave are LH-20409 (Premier), LH-20417 (Plus) and LH-20420 (Plus).`
 
+// March 2026 croissant units from samples/demo/bakery/bakery.sql: Riverside 1346, Old Town 1011.
+const MARCH_CROISSANTS = `Riverside sold 335 more croissants than Old Town in March 2026.
+
+| Shop | Units |
+| --- | --- |
+| Riverside | 1346 |
+| Old Town | 1011 |`
+
+const WEEK_LOAVES = `Croissants baked this week:
+
+| Day | Loaves |
+| --- | --- |
+| Monday | 42 |
+| Tuesday | 55 |
+| Wednesday | 48 |
+| Thursday | 63 |
+| Friday | 71 |
+| Saturday | 88 |`
+
+function marchCroissantQuestion(text) {
+    return /which shop sold more croissants in march 2026/i.test(text)
+}
+
 function handoff(text) {
     const question = lastQuestion(text)
     if (/LH-20398|Daniel/.test(question) || /LH-20398|Daniel/.test(text)) return DANIEL
     if (/held/i.test(question)) return HELD
-    if (/croissant/i.test(question) || /croissant/i.test(text)) {
-        return 'Croissants baked this week:\n\n| Day | Loaves |\n| --- | --- |\n| Monday | 42 |\n| Tuesday | 55 |\n| Wednesday | 48 |\n| Thursday | 63 |\n| Friday | 71 |\n| Saturday | 88 |'
+    if (marchCroissantQuestion(question) || marchCroissantQuestion(text)) return MARCH_CROISSANTS
+    if (/croissant/i.test(question) || /chart this week of croissant loaves/i.test(text)) {
+        return WEEK_LOAVES
     }
     if (/sourdough|rye loaves|120/.test(question) || /Sourdough/.test(text)) {
         return 'Loaves compared:\n\n| Loaf | Count |\n| --- | --- |\n| Sourdough | 120 |\n| Rye | 75 |'
@@ -350,6 +382,7 @@ function decide(body) {
                     content: 'The parcel trace is in. Warehouse scans and carrier scans were read. No currency amount is repeated here.'
                 }
             }
+            if (marchCroissantQuestion(task) || marchCroissantQuestion(text)) return { content: MARCH_CROISSANTS }
             return { content: stripMoney(toolResult(messages)).slice(0, 1500) || 'The chart was saved.' }
         }
         return { toolCalls: [{ name: codeName, arguments: { code: specialistCode(text) } }] }

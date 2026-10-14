@@ -569,58 +569,60 @@ async function main() {
         log('wrote try-the-demo/try-the-demo-key.png')
     }
 
-    if (want('demo')) {
-        await page.goto(`${BASE}/chatflows`, { waitUntil: 'domcontentloaded' })
-        await page.locator('#try-the-demo').getByRole('button', { name: 'Try the demo' }).click()
-        await page.waitForURL(/harnesscanvas/, { timeout: 180000 })
-        await page.getByRole('button', { name: /Maya Okafor/ }).waitFor({ timeout: 60000 })
-        await disableStreaming('customer-care-demo')
-        await page.getByRole('button', { name: 'expand' }).click()
-        await page.getByText('Hi there! How can I help?').waitFor()
-        await page.evaluate(() => {
-            const paper = document.querySelector('.MuiDialog-paper')
-            if (paper) {
-                paper.style.maxWidth = '960px'
-                paper.style.width = '960px'
-            }
-            document.querySelectorAll('.MuiDialog-paper button').forEach((button) => {
-                button.style.whiteSpace = 'normal'
-                button.style.height = 'auto'
-                button.style.textAlign = 'left'
+    if (want('demo') || want('demo-chart')) {
+        if (want('demo')) {
+            await page.goto(`${BASE}/chatflows`, { waitUntil: 'domcontentloaded' })
+            await page.locator('#try-the-demo').getByRole('button', { name: 'Try the demo' }).click()
+            await page.waitForURL(/harnesscanvas/, { timeout: 180000 })
+            await page.getByRole('button', { name: /Maya Okafor/ }).waitFor({ timeout: 60000 })
+            await disableStreaming('customer-care-demo')
+            await page.getByRole('button', { name: 'expand' }).click()
+            await page.getByText('Hi there! How can I help?').waitFor()
+            await page.evaluate(() => {
+                const paper = document.querySelector('.MuiDialog-paper')
+                if (paper) {
+                    paper.style.maxWidth = '960px'
+                    paper.style.width = '960px'
+                }
+                document.querySelectorAll('.MuiDialog-paper button').forEach((button) => {
+                    button.style.whiteSpace = 'normal'
+                    button.style.height = 'auto'
+                    button.style.textAlign = 'left'
+                })
             })
-        })
-        await page.waitForTimeout(300)
-        await shoot(page, 'try-the-demo/customer-care-open.png')
-        await page.getByRole('button', { name: /Maya Okafor/ }).click()
-        await page.getByText('Decision', { exact: false }).waitFor({ timeout: 240000 })
-        await page.waitForTimeout(800)
-        const remedy = page.getByText('name the remedy steps')
-        for (let i = 0; i < 3 && !(await remedy.isVisible().catch(() => false)); i += 1) {
-            await page.getByText('policy', { exact: true }).click()
-            await page.waitForTimeout(400)
+            await page.waitForTimeout(300)
+            await shoot(page, 'try-the-demo/customer-care-open.png')
+            await page.getByRole('button', { name: /Maya Okafor/ }).click()
+            await page.getByText('Decision', { exact: false }).waitFor({ timeout: 240000 })
+            await page.waitForTimeout(800)
+            const remedy = page.getByText('name the remedy steps')
+            for (let i = 0; i < 3 && !(await remedy.isVisible().catch(() => false)); i += 1) {
+                await page.getByText('policy', { exact: true }).click()
+                await page.waitForTimeout(400)
+            }
+            await shoot(page, 'try-the-demo/customer-care-policy.png')
+            await scrollChat(page, 'Harness Prime sent work')
+            await shoot(page, 'try-the-demo/customer-care-run.png')
+            await scrollChat(page, 'Reply to the customer')
+            await shoot(page, 'try-the-demo/customer-care-answer.png')
+            await askExpanded(
+                page,
+                'Daniel Reyes wrote in on 6 Oct about order LH-20398: "My duvet set was due Saturday and it still isn\'t here. Where is it?"'
+            )
+            await page.getByText('road closure for snow').last().waitFor({ timeout: 240000 })
+            await page.waitForTimeout(800)
+            const trace = page.getByText('warehouse scans, carrier scans').last()
+            for (let i = 0; i < 3 && !(await trace.isVisible().catch(() => false)); i += 1) {
+                await page.getByText('operations', { exact: true }).last().click()
+                await page.waitForTimeout(400)
+            }
+            await shoot(page, 'try-the-demo/customer-care-carrier.png')
+            await askExpanded(page, 'Which orders are held in a warehouse right now, and which of those customers are Plus or Premier?')
+            await page.getByText('LH-20409').last().waitFor({ timeout: 240000 })
+            await page.waitForTimeout(800)
+            await scrollChat(page, 'LH-20409')
+            await shoot(page, 'try-the-demo/customer-care-held.png', { height: 800 })
         }
-        await shoot(page, 'try-the-demo/customer-care-policy.png')
-        await scrollChat(page, 'Harness Prime sent work')
-        await shoot(page, 'try-the-demo/customer-care-run.png')
-        await scrollChat(page, 'Reply to the customer')
-        await shoot(page, 'try-the-demo/customer-care-answer.png')
-        await askExpanded(
-            page,
-            'Daniel Reyes wrote in on 6 Oct about order LH-20398: "My duvet set was due Saturday and it still isn\'t here. Where is it?"'
-        )
-        await page.getByText('road closure for snow').last().waitFor({ timeout: 240000 })
-        await page.waitForTimeout(800)
-        const trace = page.getByText('warehouse scans, carrier scans').last()
-        for (let i = 0; i < 3 && !(await trace.isVisible().catch(() => false)); i += 1) {
-            await page.getByText('operations', { exact: true }).last().click()
-            await page.waitForTimeout(400)
-        }
-        await shoot(page, 'try-the-demo/customer-care-carrier.png')
-        await askExpanded(page, 'Which orders are held in a warehouse right now, and which of those customers are Plus or Premier?')
-        await page.getByText('LH-20409').last().waitFor({ timeout: 240000 })
-        await page.waitForTimeout(800)
-        await scrollChat(page, 'LH-20409')
-        await shoot(page, 'try-the-demo/customer-care-held.png', { height: 800 })
 
         await page.goto(`${BASE}/chatflows`, { waitUntil: 'domcontentloaded' })
         await page.getByRole('button', { name: /bakery quickstart/i }).click()
@@ -630,11 +632,11 @@ async function main() {
             .first()
             .waitFor({ timeout: 60000 })
         if (await page.getByRole('button', { name: 'expand' }).count()) await page.getByRole('button', { name: 'expand' }).click()
-        await shoot(page, 'try-the-demo/demo-open.png')
+        if (want('demo')) await shoot(page, 'try-the-demo/demo-open.png')
         await disableStreaming('bakery-demo')
         await page.getByRole('button', { name: /croissant/i }).click()
         await page
-            .getByText(/Croissants baked this week|Monday/)
+            .getByText(/Riverside sold 335 more croissants/)
             .last()
             .waitFor({ timeout: 240000 })
         await shoot(page, 'try-the-demo/demo-chart.png')
