@@ -1,4 +1,5 @@
 import PropTypes from 'prop-types'
+import { useSelector } from 'react-redux'
 
 // material-ui
 import { Box, Divider, Typography } from '@mui/material'
@@ -8,6 +9,7 @@ import NodeInputHandler from './NodeInputHandler'
 import NodeOutputHandler from './NodeOutputHandler'
 import { canvasOutputKey } from '@/utils/canvasFieldKey'
 import { cardPlugParams, cardSummary, panelSections } from '@/utils/canvasLook'
+import { cardSecondaryText } from '@/utils/cardAccent'
 
 export const COMPACT_CARD_WIDTH = 260
 
@@ -23,6 +25,7 @@ const CompactCardBody = ({ data, disabled = false }) => {
     const summary = cardSummary(data)
     const { main, more } = panelSections(data)
     const hasSettings = main.length + more.length > 0
+    const summaryColor = cardSecondaryText(useSelector((state) => Boolean(state.customization?.isDarkMode)))
 
     return (
         <>
@@ -47,7 +50,7 @@ const CompactCardBody = ({ data, disabled = false }) => {
                             <Typography
                                 key={line.name}
                                 variant='body2'
-                                color='text.secondary'
+                                sx={{ color: summaryColor }}
                                 noWrap
                                 title={`${line.label}: ${line.value}`}
                             >
@@ -55,7 +58,7 @@ const CompactCardBody = ({ data, disabled = false }) => {
                             </Typography>
                         ))}
                         {summary.length === 0 && (
-                            <Typography variant='body2' color='text.secondary'>
+                            <Typography variant='body2' sx={{ color: summaryColor }}>
                                 {disabled ? 'Click to see its settings' : 'Click to edit its settings'}
                             </Typography>
                         )}

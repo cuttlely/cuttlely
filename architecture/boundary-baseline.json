@@ -73,6 +73,11 @@
         },
         {
             "from": "packages/components/nodes/harness/Harness/Harness.ts",
+            "to": "packages/components/src/otelRunSpans.ts",
+            "reason": "The harness API and the Harness node build run traces from harness events with the existing tracer."
+        },
+        {
+            "from": "packages/components/nodes/harness/Harness/Harness.ts",
             "to": "packages/components/src/storageUtils.ts"
         },
         {
@@ -634,6 +639,11 @@
         {
             "from": "packages/server/src/services/harnesses/index.ts",
             "to": "packages/server/src/errors/utils.ts"
+        },
+        {
+            "from": "packages/server/src/services/harnesses/index.ts",
+            "to": "packages/server/src/metrics/tracing.ts",
+            "reason": "The harness API and the Harness node build run traces from harness events with the existing tracer."
         },
         {
             "from": "packages/server/src/services/harnesses/index.ts",
@@ -1224,6 +1234,11 @@
             "from": "packages/ui/src/views/canvas/PublishCheck.jsx",
             "to": "packages/ui/src/hooks/useAuth.jsx",
             "reason": "The publish check reads a saved dataset and scores answers with the existing evaluator runners."
+        },
+        {
+            "from": "packages/ui/src/views/canvas/PublishDialog.jsx",
+            "to": "packages/ui/src/hooks/useAuth.jsx",
+            "reason": "The Publish dialog hides Run the test set unless the person can view datasets and evaluators."
         },
         {
             "from": "packages/ui/src/views/canvas/PublishDialog.jsx",
@@ -2425,12 +2440,32 @@
             "reason": "Pack manifest files ship with the vector store pack."
         },
         {
+            "path": "packages/server/src/database/migrations/mariadb/1795000000000-AddDatasetRowSource.ts",
+            "reason": "Dataset row provenance migrations and the dialog that saves a chat answer into a dataset."
+        },
+        {
+            "path": "packages/server/src/database/migrations/mysql/1795000000000-AddDatasetRowSource.ts",
+            "reason": "Dataset row provenance migrations and the dialog that saves a chat answer into a dataset."
+        },
+        {
+            "path": "packages/server/src/database/migrations/postgres/1795000000000-AddDatasetRowSource.ts",
+            "reason": "Dataset row provenance migrations and the dialog that saves a chat answer into a dataset."
+        },
+        {
+            "path": "packages/server/src/database/migrations/sqlite/1795000000000-AddDatasetRowSource.ts",
+            "reason": "Dataset row provenance migrations and the dialog that saves a chat answer into a dataset."
+        },
+        {
             "path": "packages/server/src/errors/appError/index.test.ts",
             "reason": "Shared server error class has its own module. Core callers import that module."
         },
         {
             "path": "packages/server/src/errors/appError/index.ts",
             "reason": "Shared server error class has its own module. Core callers import that module."
+        },
+        {
+            "path": "packages/server/src/metrics/harnessTraces.test.ts",
+            "reason": "The harness API and the Harness node build run traces from harness events with the existing tracer."
         },
         {
             "path": "packages/server/src/metrics/Prometheus.test.ts",
@@ -2467,6 +2502,14 @@
         {
             "path": "packages/server/src/utils/telemetry-geoip-missing.test.ts",
             "reason": "Server unit test for geolocation when the database package is absent."
+        },
+        {
+            "path": "packages/ui/src/ui-component/dialog/AddToTestSetDialog.jsx",
+            "reason": "Dataset row provenance migrations and the dialog that saves a chat answer into a dataset."
+        },
+        {
+            "path": "packages/ui/src/ui-component/dialog/AddToTestSetDialog.test.js",
+            "reason": "Dataset row provenance migrations and the dialog that saves a chat answer into a dataset."
         }
     ]
 }

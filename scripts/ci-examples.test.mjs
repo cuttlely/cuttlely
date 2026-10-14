@@ -151,7 +151,20 @@ function scoredBody(result) {
 }
 
 function gateSettings() {
-    return { publishGate: { enabled: true, datasetId: 'ds-1', evaluatorIds: ['ev-1'], threshold: 80 } }
+    return { publishGate: { enabled: true, datasetId: 'ds-1', evaluatorIds: ['ev-1'], threshold: 80, block: null, result: null } }
+}
+
+function storedPass(checkId = 'check-1', block = null) {
+    return {
+        publishGate: {
+            enabled: true,
+            datasetId: 'ds-1',
+            evaluatorIds: ['ev-1'],
+            threshold: 80,
+            block,
+            result: { checkId, verdict: 'passed' }
+        }
+    }
 }
 
 function listen(handler) {
@@ -239,13 +252,7 @@ test('an unpinned action and a step that prints the key are rejected', () => {
 
 test('every example workflow matches the guide and keeps the key out of the step', () => {
     const guide = readFileSync(GUIDE, 'utf8')
-    for (const heading of [
-        '## Create a scoped API key',
-        '## Pick a mode',
-        '## Exit codes',
-        '## Read the JSON output',
-        '## When the job is cancelled'
-    ]) {
+    for (const heading of ['## Run it', '## Exit codes', '## Scored mode', '## GitHub Actions']) {
         assert.ok(guide.includes(heading), heading)
     }
     assert.match(guide, /repository secret named `CUTTLELY_API_KEY`/)
@@ -253,6 +260,14 @@ test('every example workflow matches the guide and keeps the key out of the step
     assert.match(guide, /verdict\.result/)
     assert.match(guide, /The check was cancelled\./)
     assert.match(guide, /Scored mode and `--gate` need Cuttlely 1\.1\.0 or later/)
+    assert.match(guide, /first release with scored mode/)
+    assert.match(guide, /no release with it has been published yet/)
+    assert.match(guide, /`--gate` exits 0 only when/)
+    assert.match(guide, /empty `block`/)
+    assert.match(guide, /at most 30 seconds/)
+    assert.match(guide, /datasets:view` and `evaluators:view/)
+    assert.match(guide, /A harness exits 2/)
+    assert.match(guide, /evaluations\.md#set-the-pass-mark-and-turn-on-the-gate/)
 
     const examples = loadExamples()
     const documented = flattenCheck(guide).sort()
@@ -267,6 +282,8 @@ test('every example workflow matches the guide and keeps the key out of the step
         assert.equal(example.command.includes('--fail-on-changed') && example.command.includes('--gate'), false)
         assert.doesNotMatch(example.raw, /\becho\b/)
         assert.match(example.raw, /Scored mode and --gate need Cuttlely 1\.1\.0 or later/)
+        assert.match(example.raw, /first release with scored mode/)
+        assert.match(example.raw, /no release with it has been published yet/)
     }
     const gate = examples.find((example) => example.command.includes('--gate'))
     assert.match(gate.command, /^npx --yes cuttlely@\^1\.1\.0 check /)
@@ -284,7 +301,8 @@ test('each documented command exits 0, 1, and 2 against a stub server', async ()
         const passSteps = scored
             ? [
                   { status: 200, body: gateSettings() },
-                  { status: 202, body: passBody }
+                  { status: 202, body: passBody },
+                  { status: 200, body: storedPass() }
               ]
             : [{ status: 202, body: passBody }]
         const passed = await queueServer(passSteps)
@@ -298,6 +316,10 @@ test('each documented command exits 0, 1, and 2 against a stub server', async ()
             if (scored) {
                 assert.deepEqual(posted, { datasetId: 'ds-1', evaluatorIds: ['ev-1'], threshold: 80 })
                 assert.equal(Object.hasOwn(posted, 'count'), false)
+                assert.deepEqual(
+                    passed.calls.map((call) => call.method),
+                    ['GET', 'POST', 'GET']
+                )
             } else {
                 assert.deepEqual(posted, { count: 4 })
             }
@@ -321,8 +343,13 @@ test('each documented command exits 0, 1, and 2 against a stub server', async ()
             const result = await runCommand(argvFromCommand(example.command, failed.url), { CUTTLELY_API_KEY: KEY })
             assert.equal(result.code, 1, example.name)
             const saved = JSON.parse(result.files.get('check.json'))
-            if (scored) assert.equal(saved.verdict.result, 'failed')
-            else assert.equal(saved.summary.changed, 1)
+            if (scored) {
+                assert.equal(saved.verdict.result, 'failed')
+                assert.deepEqual(
+                    failed.calls.map((call) => call.method),
+                    ['GET', 'POST']
+                )
+            } else assert.equal(saved.summary.changed, 1)
         } finally {
             await close(failed.server)
         }
@@ -333,6 +360,37 @@ test('each documented command exits 0, 1, and 2 against a stub server', async ()
             assert.equal(result.code, 2, `${example.name} server error`)
         } finally {
             await close(broken.server)
+        }
+
+        if (scored) {
+            const harness = await queueServer([
+                {
+                    status: 200,
+                    body: { publishGate: { enabled: false, datasetId: null, evaluatorIds: [], threshold: null, result: null, block: null } }
+                }
+            ])
+            try {
+                const result = await runCommand(argvFromCommand(example.command, harness.url), { CUTTLELY_API_KEY: KEY })
+                assert.equal(result.code, 2, `${example.name} harness`)
+                assert.deepEqual(
+                    harness.calls.map((call) => call.method),
+                    ['GET']
+                )
+            } finally {
+                await close(harness.server)
+            }
+
+            const blocked = await queueServer([
+                { status: 200, body: gateSettings() },
+                { status: 202, body: passBody },
+                { status: 200, body: storedPass('check-1', 'Publish needs a passing test set at 100%.') }
+            ])
+            try {
+                const result = await runCommand(argvFromCommand(example.command, blocked.url), { CUTTLELY_API_KEY: KEY })
+                assert.equal(result.code, 2, `${example.name} block`)
+            } finally {
+                await close(blocked.server)
+            }
         }
 
         const missing = await runCommand(argvFromCommand(example.command, 'http://127.0.0.1:9'), {})

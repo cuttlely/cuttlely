@@ -92,6 +92,10 @@ describe('draft chrome', () => {
         expect(showPublishGate(drafts, 'AGENTFLOW', [start('formInput')])).toBe(false)
         expect(showPublishGate(drafts, 'AGENTFLOW', [start('webhookTrigger')])).toBe(false)
         expect(showPublishGate(drafts, 'AGENTFLOW', [start('scheduleInput')])).toBe(false)
+        const alreadyOn = { ...drafts, publishGate: { enabled: true } }
+        expect(showPublishGate(alreadyOn, 'AGENTFLOW', [start('formInput')])).toBe(true)
+        expect(showPublishGate(alreadyOn, 'AGENTFLOW', [start('webhookTrigger')])).toBe(true)
+        expect(showPublishGate(alreadyOn, 'AGENTFLOW', [start('scheduleInput')])).toBe(true)
         const blocked = datasetGateBlock('AGENTFLOW', [start('webhookTrigger')])
         expect(blocked).toEqual(expect.stringContaining('starts with a webhook, so it cannot use a dataset.'))
         expect(blocked).toEqual(expect.stringContaining('Turn off the passing test set before you publish.'))

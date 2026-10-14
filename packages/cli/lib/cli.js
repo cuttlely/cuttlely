@@ -64,7 +64,7 @@ export function helpText() {
         '  2  The check timed out, the server returned an error, CUTTLELY_API_KEY was missing, the flow has no draft, or the command was used wrong.',
         'A check the server marks stopped or failed also exits 2. If the draft is saved, published, or discarded while the check runs, the command exits 2, because the answers may be for a draft that is already gone. After the check has started, a timeout, a 403, or any other failure asks the server to stop it. That stop is best effort: if it fails, the exit code is still 2.',
         'Cancelling the command stops the server-side check.',
-        'A scored check (--dataset or --gate) exits on the server verdict and does not score the answers itself. --gate reads the dataset, evaluators, and threshold saved on the flow. Do not combine --gate with --dataset, or those flags with --fail-on-changed.',
+        'A scored check (--dataset or --gate) exits on the server verdict and does not score the answers itself. --gate reads the dataset, evaluators, and threshold saved on the flow, and reads the flow again after a pass. Exit 0 only when that second read still stores this check as passed with no block. Otherwise exit 2. Do not combine --gate with --dataset, or those flags with --fail-on-changed.',
         '',
         `Install guide: ${INSTALL_DOCS}`
     ].join('\n')

@@ -36,11 +36,14 @@ export const datasetGateBlock = (type, canvases = []) => {
     return `A dataset check asks each row as a chat message. This flow starts with ${which}, so it cannot use a dataset. Turn off the passing test set before you publish.`
 }
 
-// The passing-test gate is only for chatflows and chat-started agentflows.
+// The passing-test gate is only for chatflows and agentflows. A form, webhook, or schedule
+// start hides it while it is off, so it cannot be turned on. When it is already on, the
+// section stays so it can be turned off.
 export const showPublishGate = (status, type, canvases) => {
     if (!showPublishInstantly(status)) return false
     const kind = type || 'CHATFLOW'
     if (kind !== 'CHATFLOW' && kind !== 'AGENTFLOW') return false
+    if (status?.publishGate?.enabled) return true
     return !datasetGateBlock(kind, canvases)
 }
 

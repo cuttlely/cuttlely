@@ -107,23 +107,36 @@ function compareRows(a: { id?: unknown; sequenceNo?: unknown }, b: { id?: unknow
     return left < right ? -1 : left > right ? 1 : 0
 }
 
+type DatasetRowLike = { id?: unknown; input?: unknown; output?: unknown; sequenceNo?: unknown }
+
 // The rows a dataset check actually asks. Sequence ties, including legacy -1 rows, break by row id.
 // The list stops at the check's maximum question count. Repeats are kept: two rows are two questions.
-export function askedRowsFromDataset(rows: Array<{ id?: unknown; input?: unknown; output?: unknown; sequenceNo?: unknown }>): AskedRow[] {
+// `expected` is clipped for display and grading. The hash uses the full output, so a change past the
+// cut still makes a stored pass out of date. The stored record keeps the hash, not the text.
+function selectAsked(rows: DatasetRowLike[], fullExpected: boolean): AskedRow[] {
     const sorted = [...rows].sort(compareRows)
     const asked: AskedRow[] = []
     for (const row of sorted) {
         const question = String(row.input ?? '').trim()
         if (!question || question.length > MAX_QUESTION_CHARS) continue
+        const output = String(row.output ?? '')
         asked.push({
             id: String(row.id ?? ''),
             input: question,
-            expected: clipExpected(row.output),
+            expected: fullExpected ? output : clipExpected(output),
             sequence: rowSequence(row.sequenceNo)
         })
         if (asked.length >= COMPARE_COUNT_MAX) break
     }
     return asked
+}
+
+export function askedRowsFromDataset(rows: DatasetRowLike[]): AskedRow[] {
+    return selectAsked(rows, false)
+}
+
+function rowsForTestSetHash(rows: DatasetRowLike[]): AskedRow[] {
+    return selectAsked(rows, true)
 }
 
 export function questionsFromDataset(rows: Array<{ input?: unknown; output?: unknown; sequenceNo?: unknown }>): DatasetCase[] {
@@ -161,6 +174,7 @@ export async function loadTestSet(datasetId: string, evaluatorIds: string[], wor
     const rows = await readDatasetRows(datasetId, workspaceId)
     if (!rows) throw new AppError(StatusCodes.NOT_FOUND, `Dataset ${datasetId} not found`)
     const asked = askedRowsFromDataset(rows)
+    const hashed = rowsForTestSetHash(rows)
     if (!asked.length) throw new AppError(StatusCodes.BAD_REQUEST, 'This dataset has no questions the check can ask.')
     const repo = getRunningExpressApp().AppDataSource.getRepository(Evaluator)
     const evaluators: EvaluatorDTO[] = []
@@ -178,7 +192,7 @@ export async function loadTestSet(datasetId: string, evaluatorIds: string[], wor
     return {
         cases: asked.map((row) => ({ question: row.input, expected: row.expected })),
         evaluators,
-        contentHash: testSetHash(asked, shapes)
+        contentHash: testSetHash(hashed, shapes)
     }
 }
 
@@ -218,7 +232,7 @@ export async function currentTestSetHash(datasetId: string, evaluatorIds: string
         if (!row) return null
         evaluators.push({ id: row.id, type: String(row.type || ''), config: String(row.config ?? '') })
     }
-    return testSetHash(askedRowsFromDataset(rows), evaluators)
+    return testSetHash(rowsForTestSetHash(rows), evaluators)
 }
 
 // Each agentflow step stores its model under its own input names. The config is read the same way the step reads it:

@@ -30,6 +30,9 @@ import {
     riskyWarning,
     sideCaption,
     passMarkNumber,
+    POLL_MS,
+    gatePollBudgetMs,
+    pollGateCheck,
     passRateText,
     verdictText,
     stopReasonText,
@@ -358,5 +361,64 @@ describe('results', () => {
         expect(passMarkNumber('80')).toBe(80)
         expect(text.includes('\u00a7')).toBe(false)
         expect(/\b(git|commit|branch|sha|replay|endpoint|API)\b/i.test(text)).toBe(false)
+    })
+})
+
+describe('a gate run poll', () => {
+    test('follows the server time limit, including 1800 seconds', () => {
+        expect(gatePollBudgetMs({ maxSeconds: 1800 })).toBe(1800 * 1000 + POLL_MS)
+        expect(gatePollBudgetMs({ maxSeconds: 180 })).toBe(180 * 1000 + POLL_MS)
+        expect(gatePollBudgetMs(undefined)).toBe(1800 * 1000 + POLL_MS)
+        expect(gatePollBudgetMs({ maxSeconds: 0 })).toBe(1800 * 1000 + POLL_MS)
+    })
+
+    test('keeps polling past 200 reads while the check is still running', async () => {
+        let reads = 0
+        const view = await pollGateCheck({
+            view: { status: 'running', limits: { maxSeconds: 1800 } },
+            now: () => 0,
+            sleep: async () => {},
+            read: async () => {
+                reads += 1
+                return reads < 250 ? { status: 'running', limits: { maxSeconds: 1800 } } : { status: 'done', id: 'c1' }
+            }
+        })
+        expect(reads).toBe(250)
+        expect(view).toEqual({ status: 'done', id: 'c1' })
+    })
+
+    test('stops at the server time limit, and a closed dialog stops polling without another read', async () => {
+        let reads = 0
+        const start = 1000
+        let clock = start
+        const limited = await pollGateCheck({
+            view: { status: 'running', limits: { maxSeconds: 10 } },
+            pollMs: 1000,
+            now: () => clock,
+            sleep: async () => {
+                clock += 1000
+            },
+            read: async () => {
+                reads += 1
+                return { status: 'running', limits: { maxSeconds: 10 } }
+            }
+        })
+        expect(limited.status).toBe('running')
+        expect(reads).toBe(11)
+        expect(clock).toBe(start + 11 * 1000)
+
+        let afterClose = 0
+        const closed = await pollGateCheck({
+            view: { status: 'running', id: 'c1', limits: { maxSeconds: 1800 } },
+            now: () => 0,
+            sleep: async () => {},
+            shouldStop: () => true,
+            read: async () => {
+                afterClose += 1
+                return { status: 'done' }
+            }
+        })
+        expect(afterClose).toBe(0)
+        expect(closed).toEqual({ status: 'running', id: 'c1', limits: { maxSeconds: 1800 } })
     })
 })

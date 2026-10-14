@@ -295,14 +295,23 @@ async function runNamedHarness(
     if (!chatId) {
         throw harnessFailure('Harness cannot run: chatId is required.')
     }
+    const flowOptions = pickFlowOptions(options)
+    // Before a span or a run row. A harness in another team exports nothing.
+    if (typeof engine.assertHarnessWorkspace === 'function') {
+        try {
+            engine.assertHarnessWorkspace(harnessName, flowOptions)
+        } catch (error) {
+            throw harnessFailure((error as Error).message || 'Harness cannot run.', (error as { code?: string }).code)
+        }
+    }
+    const harnessTrace = await openNodeHarnessTrace(harnessName, input, options)
+    const forward = harnessOnEvent(options, streamAnswer, runManager, streamed)
+    let runId: string | undefined
     try {
         // Copy the optional method first. A boolean from `typeof engine.runQueuedHarness` does not narrow it.
         const queuedRun = engine.runQueuedHarness
-        const flowOptions = pickFlowOptions(options)
-        // Before enqueue. Inline would otherwise open a run row on the named harness and then refuse.
-        if (typeof engine.assertHarnessWorkspace === 'function') engine.assertHarnessWorkspace(harnessName, flowOptions)
         const run = process.env.CUTTLELY_HARNESS_QUEUE !== 'off' && typeof queuedRun === 'function' ? queuedRun : engine.runHarness
-        return await run({
+        const payload = await run({
             name: harnessName,
             chatId,
             input,
@@ -310,13 +319,51 @@ async function runNamedHarness(
             traceId: typeof options.executionId === 'string' ? options.executionId : undefined,
             componentNodes: options.componentNodes,
             flowOptions,
-            onEvent: harnessOnEvent(options, streamAnswer, runManager, streamed),
+            onEvent: (event: { type: string }) => {
+                harnessTrace?.event(event as Record<string, unknown>)
+                forward?.(event)
+            },
             signal: abortSignalOf(options),
+            onRecorded: (row: unknown) => {
+                const id = row && typeof row === 'object' ? (row as { id?: unknown }).id : undefined
+                if (typeof id === 'string') runId = id
+            },
             ...(images.length ? { images } : {})
         })
+        const jobRunId = takeJobRunId(payload)
+        if (!runId && jobRunId) runId = jobRunId
+        harnessTrace?.finish({ text: typeof payload?.text === 'string' ? payload.text : undefined, runId })
+        return payload
     } catch (error) {
+        if (!runId && error && typeof error === 'object' && typeof (error as { runId?: unknown }).runId === 'string') {
+            runId = (error as { runId: string }).runId
+        }
+        if ((error as { code?: string }).code !== 'wrong_workspace') harnessTrace?.fail(error, { runId })
         throw harnessFailure((error as Error).message || 'Harness cannot run.', (error as { code?: string }).code)
     }
+}
+
+function takeJobRunId(payload: unknown): string | undefined {
+    if (!payload || typeof payload !== 'object' || Array.isArray(payload) || !('runId' in payload)) return undefined
+    const record = payload as { runId?: unknown }
+    const runId = typeof record.runId === 'string' ? record.runId : undefined
+    delete record.runId
+    return runId
+}
+
+// Traces stay off unless the server has turned them on. A publish check exports nothing.
+// The import stays inside the run so loading this node does not load the tracer.
+async function openNodeHarnessTrace(harnessName: string, input: string, options: ICommonObject) {
+    if (process.env.CUTTLELY_OTEL_TRACES !== 'true') return undefined
+    if (options?.replay || options?.cuttlelyReplay) return undefined
+    const { openHarnessRunTrace } = await import('../../../src/otelRunSpans')
+    return openHarnessRunTrace({
+        name: harnessName,
+        workspaceId: typeof options.workspaceId === 'string' ? options.workspaceId : undefined,
+        question: input,
+        replay: options?.replay === true,
+        cuttlelyReplay: options?.cuttlelyReplay === true
+    })
 }
 
 // The tool is initialized before the prediction run attaches sseStreamer. A streaming Tool Agent

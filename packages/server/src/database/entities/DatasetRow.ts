@@ -22,4 +22,19 @@ export class DatasetRow implements IDatasetRow {
 
     @Column({ name: 'sequence_no' })
     sequenceNo: number
+
+    // Null on a row typed in or uploaded. A chat answer records where it was saved from.
+    @Column({ nullable: true, type: 'varchar', length: 32 })
+    sourceType?: string | null
+
+    @Column({ nullable: true, type: 'varchar', length: 36 })
+    sourceMessageId?: string | null
+
+    @Column({ nullable: true, type: 'varchar', length: 36 })
+    sourceFlowId?: string | null
+
+    // Date, not a string type. sqlite rejects "timestamp" and postgres rejects "datetime".
+    // Each driver maps Date to its own date column, which is what the migration created.
+    @Column({ nullable: true, type: Date })
+    sourceDate?: Date | null
 }

@@ -15,14 +15,14 @@ New here? Start with [Your first 10 minutes](../README.md#your-first-10-minutes)
 
 -   [Harnesses](./how-to/harnesses.md). A team of specialists that Harness Prime sends work to. Build one from a description, try it, and call it from a chatflow.
 -   [How the customer care demo works](./how-to/customer-care-demo.md). Specialists that each own one system, a step that waits for another's finding, and amounts that come from code, so you can build the same kind of team on your own data.
--   [Context and tokens](./how-to/context-and-tokens.md). How a team keeps each prompt to the job in front of it, and where a run shows the tokens it used.
+-   [Context and tokens](./how-to/context-and-tokens.md). How a team keeps each prompt to the job in front of it, where a run shows the tokens it used, and [usage over time](./how-to/context-and-tokens.md#usage-over-time).
 -   [Analyst mode](./how-to/analyst.md). A specialist with its own database that creates tables and answers from them. Turn it on with `CUTTLELY_ANALYST=auto`; on Render, see [Analyst database](./how-to/render.md#analyst-database).
 -   [ETL](./how-to/etl.md). Pipelines that load, clean, split, embed and store your data for search, on a schedule if you like.
--   [Evaluations](./how-to/evaluations.md). Datasets of example questions, evaluators that grade an answer, and a run of those examples against a chatflow or agentflow.
+-   [Evaluations](./how-to/evaluations.md). Create a dataset, add text, JSON, numeric, and model checks, run them, and refuse Publish until that test set passes.
 -   [Canvas cards](./how-to/canvas.md). Chatflows and agentflows, compact or classic cards (`CANVAS_CARD_LOOK=classic` sets classic for everyone), Build with AI, and [older V1 agentflows](./how-to/canvas.md#older-v1-agentflows).
 -   [Optional node packs](./how-to/node-packs.md). Vector store nodes, tool and MCP server nodes that call an outside service, cache nodes, memory backends that use an outside service, completion model nodes, and the chain nodes that carry the DEPRECATING badge ship as packs. Load more nodes from a directory or a package, and open a flow whose node is not installed.
 -   [Version history](./how-to/versioning.md). Drafts and Publish, the [check before Publish](./how-to/versioning.md#check-recent-questions-before-you-publish), restore and roll back, a [copy in GitHub](./how-to/versioning.md#keep-a-copy-in-github), and [Dev to Prod](./how-to/versioning.md#move-a-flow-from-dev-to-prod).
--   [Fail a build when answers change](./how-to/ci-gate.md). `cuttlely check` runs the Publish check and can fail the build when an answer comes back Changed, or when a scored test set is below its pass threshold. The example workflows for both modes are in `examples/ci/`.
+-   [Fail a build when answers change](./how-to/ci-gate.md). `cuttlely check` runs the Publish check and can fail the build when an answer comes back Changed, or when the server's verdict is failed. The example workflows are in `examples/ci/`.
 -   [Share and embed a chat](./how-to/share-and-embed.md). A public link for any chatflow, a chat button or full-page chat on your website, how the share settings change the look, and the [`@cuttlely/chat`](./how-to/share-and-embed.md#embed-with-cuttlelychat) package.
 -   [Use the API in your own web app](./api.md). API keys, calling chatflows, agentflows and harnesses, streaming, conversation memory, uploads, errors and allowed origins, with a runnable [example app](../examples/web-app).
 
@@ -42,7 +42,7 @@ New here? Start with [Your first 10 minutes](../README.md#your-first-10-minutes)
 -   [Override configuration](./reference/override-config.md). What a prediction request may change with `overrideConfig`, and what it never can.
 -   [Upgrading Cuttlely](./upgrading.md). Back up, upgrade, check and roll back, for Docker, Render and source installs.
 -   [Changelog](../CHANGELOG.md) and [Releases and support](./releases.md). What changed in each release, what counts as a breaking change, and which versions get fixes.
--   [Run traces](./how-to/observability.md). Optional OpenTelemetry traces for chatflow predictions and agentflow runs, off unless you turn them on.
+-   [Run traces](./how-to/observability.md). Optional OpenTelemetry traces for chatflow predictions, agentflow runs, and harness runs, off unless you turn them on. The local collector config is [examples/otel/collector.yaml](../examples/otel/collector.yaml).
 -   [What Cuttlely connects to](../SECURITY.md#what-cuttlely-connects-to). Every outbound connection, when it happens, and how to turn it off.
 -   [Credits](../CREDITS.md). The open-source projects Cuttlely builds on, with their licenses and links.
 -   [Updating the model list](./reference/model-list.md). For maintainers: the model dropdowns and prices come from `packages/components/models.json`, kept by hand in this repository.

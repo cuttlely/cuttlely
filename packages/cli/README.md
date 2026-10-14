@@ -50,13 +50,13 @@ export CUTTLELY_API_KEY=<key>
 npx cuttlely check --flow <flow id> --server http://127.0.0.1:43117 --timeout 300 --json check.json --fail-on-changed
 ```
 
-| Flag                | Meaning                                                                                                   |
-| ------------------- | --------------------------------------------------------------------------------------------------------- |
-| `--flow`            | Flow id from the canvas address bar. Required.                                                            |
-| `--server`          | Server origin. Default `http://127.0.0.1:43117`.                                                          |
-| `--timeout`         | Seconds to wait. Default 300.                                                                             |
-| `--json`            | Write the full check JSON to this path.                                                                   |
-| `--fail-on-changed` | Exit 1 when any answer is Changed. Without it, a finished check exits 0 and the summary still lists them. |
+| Flag                | Meaning                                                                                                                                 |
+| ------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| `--flow`            | Flow id from the canvas address bar. Required.                                                                                          |
+| `--server`          | Server origin. Default `http://127.0.0.1:43117`.                                                                                        |
+| `--timeout`         | Seconds to wait for the check. Default 300. The final confirmation read after a `--gate` pass has its own window of at most 30 seconds. |
+| `--json`            | Write the full check JSON to this path.                                                                                                 |
+| `--fail-on-changed` | Exit 1 when any answer is Changed. Without it, a finished check exits 0 and the summary still lists them.                               |
 
 `pnpm dev` serves the API on port 3000. `scripts/start-cuttlely.sh` and `npx cuttlely start` listen on port 43117.
 
@@ -88,11 +88,11 @@ npx cuttlely check --flow <flow id> --gate
 
 Do not combine those flags with `--fail-on-changed`.
 
-| Code | When                                                                          |
-| ---- | ----------------------------------------------------------------------------- |
-| 0    | The server verdict is passed.                                                 |
-| 1    | The server verdict is failed.                                                 |
-| 2    | The same failures as the question check, a missing verdict, or a usage error. |
+| Code | When                                                                                                                                                                                                                                                                                               |
+| ---- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 0    | The server verdict is passed. With `--gate`, a second read of the flow still has the passing test set on, no block, and this check's id stored as a passed result.                                                                                                                                 |
+| 1    | The server verdict is failed.                                                                                                                                                                                                                                                                      |
+| 2    | The same failures as the question check, a missing verdict, a usage error, a withheld dataset or evaluator id, or a `--gate` pass that is no longer the stored result. The message is the server's block text, or `The saved test set changed during the check. Run it again.` when there is none. |
 
 A 403 names the flow view and update permissions, plus `datasets:view` and `evaluators:view`. The summary prints the pass rate, the threshold, and the cases whose draft scores are not Pass. `--json` writes the full check, including each score.
 

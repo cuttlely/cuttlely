@@ -20,7 +20,7 @@ import flowDraftsApi from '@/api/flowDrafts'
 import datasetsApi from '@/api/dataset'
 import evaluatorsApi from '@/api/evaluators'
 import { useAuth } from '@/hooks/useAuth'
-import { apiErrorMessage } from '@/utils/flowDrafts'
+import { apiErrorMessage, datasetGateBlock } from '@/utils/flowDrafts'
 import {
     checkKind,
     checkTitle,
@@ -29,7 +29,9 @@ import {
     loadFailureMessage,
     loadingText,
     CHECK_VARY_NOTE,
+    CHECK_ADOPTED_NOTE,
     CHECK_WORDS,
+    GATE_RUN_PERMISSION,
     promoteCheckWords,
     COMPARE_COUNTS,
     DEFAULT_COMPARE_COUNT,
@@ -282,7 +284,9 @@ export const PublishCheckView = ({
     onSource = () => {},
     onDataset = () => {},
     onToggleEvaluator = () => {},
-    gateNote = ''
+    gateNote = '',
+    stopsOnClose = true,
+    canRunGate = true
 }) => {
     const theme = useTheme()
     const [previewShown, setPreviewShown] = useState(RESULT_PAGE_SIZE)
@@ -596,12 +600,23 @@ export const PublishCheckView = ({
                                 Stop
                             </Button>
                         ) : (
-                            <Button variant='outlined' onClick={onRun} disabled={!runnable} data-testid='check-run'>
+                            <Button
+                                variant='outlined'
+                                onClick={onRun}
+                                disabled={!runnable || (Boolean(gateNote) && fromDataset && !canRunGate)}
+                                data-testid='check-run'
+                            >
                                 {starting ? 'Starting…' : check ? 'Run check again' : 'Run check'}
                             </Button>
                         )}
                         <Typography variant='caption' color='text.secondary' data-testid='check-optional'>
-                            {running ? words.closeNote : gateNote || words.optional}
+                            {running
+                                ? stopsOnClose
+                                    ? words.closeNote
+                                    : CHECK_ADOPTED_NOTE
+                                : Boolean(gateNote) && fromDataset && !canRunGate
+                                ? GATE_RUN_PERMISSION
+                                : gateNote || words.optional}
                         </Typography>
                     </Stack>
                     {error && (
@@ -647,7 +662,9 @@ PublishCheckView.propTypes = {
     onSource: PropTypes.func,
     onDataset: PropTypes.func,
     onToggleEvaluator: PropTypes.func,
-    gateNote: PropTypes.string
+    gateNote: PropTypes.string,
+    stopsOnClose: PropTypes.bool,
+    canRunGate: PropTypes.bool
 }
 
 // The publish check panel: loads recent questions, runs the check, polls it, and stops it when the dialog closes.
@@ -676,8 +693,10 @@ const PublishCheck = ({ chatflowId, variant = 'publish', api = flowDraftsApi, fl
     const [evaluatorIds, setEvaluatorIds] = useState([])
     const [starting, setStarting] = useState(false)
     const [error, setError] = useState('')
+    const [stopsOnClose, setStopsOnClose] = useState(false)
+    const canRunGate = canUseDatasets && canUseEvaluators
     const timer = useRef(null)
-    const live = useRef({ mounted: true, checkId: null, running: false })
+    const live = useRef({ mounted: true, checkId: null, running: false, ownedId: null })
 
     const poll = useCallback(
         (checkId) => {
@@ -721,6 +740,8 @@ const PublishCheck = ({ chatflowId, variant = 'publish', api = flowDraftsApi, fl
                     setCheck(previous)
                     state.checkId = previous.id
                     state.running = previous.status === 'running'
+                    state.ownedId = null
+                    setStopsOnClose(false)
                     if (state.running) poll(previous.id)
                 }
             })
@@ -730,8 +751,9 @@ const PublishCheck = ({ chatflowId, variant = 'publish', api = flowDraftsApi, fl
             cancelled = true
             state.mounted = false
             clearTimeout(timer.current)
-            // Closing the dialog (or publishing) stops a check that is still running, so it stops costing tokens.
-            if (state.running && state.checkId) api.stopCheck(chatflowId, state.checkId).catch(() => {})
+            // Stop only a check this instance started. A running check returned by setup (for example a
+            // gate run started from Publish) must keep going so it can still store a pass.
+            if (state.ownedId && state.running) api.stopCheck(chatflowId, state.ownedId).catch(() => {})
         }
     }, [chatflowId, poll, api, hintedKind])
 
@@ -797,9 +819,15 @@ const PublishCheck = ({ chatflowId, variant = 'publish', api = flowDraftsApi, fl
                     ? { count, ...(added.length ? { questions: added } : {}), ...scored, includeRiskySteps: runAnyway }
                     : { questions: pickedQuestions(list), ...scored, includeRiskySteps: runAnyway }
             const res = await api.startCheck(chatflowId, body)
-            if (!live.current.mounted) return
+            if (!live.current.mounted) {
+                // This instance started the check. Stop it if the dialog closed before the response.
+                if (res.data?.status === 'running' && res.data?.id) api.stopCheck(chatflowId, res.data.id).catch(() => {})
+                return
+            }
             setCheck(res.data)
+            setStopsOnClose(true)
             live.current.checkId = res.data?.id
+            live.current.ownedId = res.data?.id || null
             live.current.running = res.data?.status === 'running'
             if (live.current.running) poll(res.data.id)
         } catch (err) {
@@ -857,6 +885,8 @@ const PublishCheck = ({ chatflowId, variant = 'publish', api = flowDraftsApi, fl
                 setEvaluatorIds((current) => (current.includes(id) ? current.filter((item) => item !== id) : [...current, id]))
             }
             gateNote={gateNote}
+            stopsOnClose={stopsOnClose}
+            canRunGate={canRunGate}
         />
     )
 }
@@ -879,14 +909,18 @@ export const PublishGateSettings = ({ dialogProps }) => {
     const gate = draftStatus?.publishGate
     const locked = Boolean(draftStatus?.publishInstantly)
     const canChoose = hasPermission('datasets:view') && hasPermission('evaluators:view')
+    const startBlock = datasetGateBlock(chatflow?.type, [chatflow?.flowData, draftStatus?.draft?.flowData])
+    const chooseLocked = locked || !canChoose || Boolean(startBlock)
     const [on, setOn] = useState(Boolean(gate?.enabled))
     const [datasetId, setDatasetId] = useState(gate?.datasetId || '')
     const [evaluatorIds, setEvaluatorIds] = useState(gate?.evaluatorIds || [])
     const [threshold, setThreshold] = useState(gate?.threshold ?? 100)
     const [datasets, setDatasets] = useState([])
     const [evaluators, setEvaluators] = useState([])
+    const [evaluatorsReady, setEvaluatorsReady] = useState(false)
     const [error, setError] = useState('')
     const [saved, setSaved] = useState('')
+    const writeChain = useRef(Promise.resolve())
 
     const evaluatorKey = (gate?.evaluatorIds || []).join(',')
     useEffect(() => {
@@ -910,7 +944,10 @@ export const PublishGateSettings = ({ dialogProps }) => {
         evaluatorsApi
             .getAllEvaluators()
             .then((res) => {
-                if (!cancelled) setEvaluators(asList(res.data))
+                if (!cancelled) {
+                    setEvaluators(asList(res.data))
+                    setEvaluatorsReady(true)
+                }
             })
             .catch(() => {
                 if (!cancelled) setEvaluators([])
@@ -920,7 +957,7 @@ export const PublishGateSettings = ({ dialogProps }) => {
         }
     }, [canChoose])
 
-    const save = async (next) => {
+    const persist = async (next) => {
         if (!chatflow?.id) return
         setError('')
         setSaved('')
@@ -931,6 +968,7 @@ export const PublishGateSettings = ({ dialogProps }) => {
             return
         }
         if (next.enabled && whole == null) {
+            setOn(Boolean(gate?.enabled))
             setThreshold(gate?.threshold ?? 100)
             setError('The pass mark is a whole number from 0 to 100.')
             return
@@ -949,17 +987,35 @@ export const PublishGateSettings = ({ dialogProps }) => {
         }
     }
 
+    // One settings write at a time, in the order the person chose. A later blur cannot finish first
+    // and leave the server on the older dataset or evaluator.
+    const save = (next) => {
+        const run = writeChain.current.catch(() => {}).then(() => persist(next))
+        writeChain.current = run
+        return run
+    }
+
     const toggleEvaluator = (id) => {
         const nextIds = evaluatorIds.includes(id) ? evaluatorIds.filter((item) => item !== id) : [...evaluatorIds, id]
         setEvaluatorIds(nextIds)
         if (on) save({ enabled: true, datasetId, evaluatorIds: nextIds, threshold })
     }
 
+    const listedIds = new Set(evaluators.map((item) => item.id))
+    // A saved id that the list no longer returns cannot be unticked unless it is shown. The list
+    // request has to have finished, or every saved id looks missing for a moment.
+    const missingEvaluatorIds = evaluatorsReady ? evaluatorIds.filter((id) => !listedIds.has(id)) : []
+
     return (
         <Box data-testid='publish-gate-settings'>
             {locked && (
                 <Alert severity='info' sx={{ mb: 1 }}>
                     Turn off Publish instantly before requiring a passing test set.
+                </Alert>
+            )}
+            {startBlock && (
+                <Alert severity='warning' sx={{ mb: 1 }} data-testid='publish-gate-start'>
+                    {startBlock}
                 </Alert>
             )}
             {!canChoose && (
@@ -971,7 +1027,7 @@ export const PublishGateSettings = ({ dialogProps }) => {
                 control={
                     <Checkbox
                         checked={on}
-                        disabled={locked || !canChoose}
+                        disabled={locked || (!canChoose && !on)}
                         onChange={(event) => {
                             const next = event.target.checked
                             setOn(next)
@@ -991,7 +1047,7 @@ export const PublishGateSettings = ({ dialogProps }) => {
                     size='small'
                     label='Dataset'
                     value={datasetId}
-                    disabled={locked || !canChoose}
+                    disabled={chooseLocked}
                     onChange={(event) => {
                         const nextId = event.target.value
                         setDatasetId(nextId)
@@ -1012,7 +1068,7 @@ export const PublishGateSettings = ({ dialogProps }) => {
                     type='number'
                     label='Pass at'
                     value={threshold}
-                    disabled={locked || !canChoose}
+                    disabled={chooseLocked}
                     onChange={(event) => setThreshold(event.target.value)}
                     onBlur={() => {
                         const mark = passMarkNumber(threshold)
@@ -1030,26 +1086,44 @@ export const PublishGateSettings = ({ dialogProps }) => {
                 <Typography variant='body2' sx={{ fontWeight: 600 }}>
                     Evaluators
                 </Typography>
-                {evaluators.length === 0 ? (
+                {evaluators.length === 0 && missingEvaluatorIds.length === 0 ? (
                     <Typography variant='body2' color='text.secondary'>
                         No evaluators in this workspace.
                     </Typography>
                 ) : (
-                    evaluators.map((evaluator) => (
-                        <FormControlLabel
-                            key={evaluator.id}
-                            data-testid='publish-gate-evaluator'
-                            control={
-                                <Checkbox
-                                    size='small'
-                                    checked={evaluatorIds.includes(evaluator.id)}
-                                    disabled={locked || !canChoose}
-                                    onChange={() => toggleEvaluator(evaluator.id)}
-                                />
-                            }
-                            label={evaluator.name}
-                        />
-                    ))
+                    <>
+                        {evaluators.map((evaluator) => (
+                            <FormControlLabel
+                                key={evaluator.id}
+                                data-testid='publish-gate-evaluator'
+                                control={
+                                    <Checkbox
+                                        size='small'
+                                        checked={evaluatorIds.includes(evaluator.id)}
+                                        disabled={chooseLocked}
+                                        onChange={() => toggleEvaluator(evaluator.id)}
+                                    />
+                                }
+                                label={evaluator.name}
+                            />
+                        ))}
+                        {missingEvaluatorIds.map((id) => (
+                            <FormControlLabel
+                                key={id}
+                                data-testid='publish-gate-evaluator-missing'
+                                control={
+                                    <Checkbox
+                                        size='small'
+                                        checked
+                                        disabled={chooseLocked}
+                                        onChange={() => toggleEvaluator(id)}
+                                        inputProps={{ 'aria-label': 'Deleted evaluator' }}
+                                    />
+                                }
+                                label='Deleted evaluator'
+                            />
+                        ))}
+                    </>
                 )}
             </Stack>
             {saved && (

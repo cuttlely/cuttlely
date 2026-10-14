@@ -238,22 +238,47 @@ function scoreFailedLine(verdict) {
     return `The test set failed at ${rate} (threshold ${mark}).`
 }
 
+const STALE_GATE = 'The saved test set changed during the check. Run it again.'
+// The check can use the whole --timeout. The confirmation read gets its own window, capped so a hung read cannot double a 3600s wait.
+const CONFIRM_READ_CAP_SECONDS = 30
+
+function confirmReadSeconds(timeoutSeconds) {
+    return Math.min(timeoutSeconds, CONFIRM_READ_CAP_SECONDS)
+}
+
+// An enabled gate always stores a dataset and at least one evaluator. A read that
+// omits them withheld the ids: datasets:view and evaluators:view are what reveal them.
+function withheldIdsMessage(datasetMissing, evaluatorsMissing) {
+    if (datasetMissing && evaluatorsMissing) {
+        return 'The response did not include the dataset id or the evaluator ids. The API key needs datasets:view and evaluators:view.'
+    }
+    if (datasetMissing) return 'The response did not include the dataset id. The API key needs datasets:view.'
+    return 'The response did not include the evaluator ids. The API key needs evaluators:view.'
+}
+
+function datasetIdMissing(gate) {
+    return typeof gate.datasetId !== 'string' || gate.datasetId.trim() === ''
+}
+
+function evaluatorIdsMissing(gate) {
+    return !Array.isArray(gate.evaluatorIds) || gate.evaluatorIds.length === 0
+}
+
 // --gate copies the dataset, evaluators, and threshold the flow already saved.
 function gateSettings(body) {
     const gate = body && body.publishGate
     if (!gate || gate.enabled !== true) {
         return { ok: false, message: 'This flow has no saved test set. Turn the passing test set on, or pass --dataset.' }
     }
-    if (typeof gate.datasetId !== 'string' || !RESOURCE_ID_RE.test(gate.datasetId)) {
+    const datasetMissing = datasetIdMissing(gate)
+    const evaluatorsMissing = evaluatorIdsMissing(gate)
+    if (datasetMissing || evaluatorsMissing) return { ok: false, message: withheldIdsMessage(datasetMissing, evaluatorsMissing) }
+    if (!RESOURCE_ID_RE.test(gate.datasetId)) {
         return { ok: false, message: 'The saved test set has no dataset id.' }
-    }
-    const rawIds = gate.evaluatorIds
-    if (rawIds != null && !Array.isArray(rawIds)) {
-        return { ok: false, message: 'The saved test set has no evaluator list.' }
     }
     const evaluatorIds = []
     const seen = new Set()
-    for (const id of rawIds || []) {
+    for (const id of gate.evaluatorIds) {
         if (typeof id !== 'string' || !RESOURCE_ID_RE.test(id)) {
             return { ok: false, message: 'The saved test set has an evaluator id this command cannot use.' }
         }
@@ -269,6 +294,22 @@ function gateSettings(body) {
         threshold = gate.threshold
     }
     return { ok: true, datasetId: gate.datasetId, evaluatorIds, threshold }
+}
+
+// A passed --gate check is current only when Publish would still accept this run.
+function gateBlockMessage(gate) {
+    if (gate && typeof gate.block === 'string' && gate.block.trim()) return gate.block
+    return STALE_GATE
+}
+
+function gatePassStillCurrent(body, checkId) {
+    const gate = body && body.publishGate
+    const message = gateBlockMessage(gate)
+    if (!gate || gate.enabled !== true) return { ok: false, message }
+    if (typeof gate.block === 'string' && gate.block.trim()) return { ok: false, message }
+    const result = gate.result
+    if (!result || result.checkId !== checkId || result.verdict !== 'passed') return { ok: false, message }
+    return { ok: true }
 }
 
 function requestBody({ scored, datasetId, evaluatorIds, threshold }) {
@@ -461,6 +502,24 @@ export async function runCheck(options, io = {}) {
             err('The check did not finish.')
         }
         if (verdict.code === EXIT_ERROR) await stopIfStarted()
+        // --gate can exit 0 only when this run is still the stored pass. A threshold,
+        // row, or evaluator change during the check makes Publish refuse it.
+        if (options.gate && verdict.code === EXIT_PASS) {
+            const confirmSeconds = confirmReadSeconds(timeoutSeconds)
+            const again = await callApi(fetchImpl, flowUrl, {
+                method: 'GET',
+                headers,
+                signal: deadlineSignal(now() + confirmSeconds * 1000, now)
+            })
+            if (again.timeout) return fail(`Timed out after ${confirmSeconds}s before the saved test set could be read again.`)
+            if (again.network) return fail(`Could not reach ${server}. ${again.message}`)
+            if (!again.ok) {
+                if (again.status === 403) return fail(permissionDeniedMessage(true))
+                return fail(`Check failed (${again.status}): ${again.message}`)
+            }
+            const current = gatePassStillCurrent(again.json, check.id)
+            if (!current.ok) return fail(current.message)
+        }
         return verdict.code
     } catch (error) {
         await stopIfStarted()

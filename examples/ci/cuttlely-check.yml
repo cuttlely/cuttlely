@@ -11,7 +11,8 @@
 #   The server origin, and the flow id from the canvas address bar.
 #   pnpm dev serves the API on port 3000. scripts/start-cuttlely.sh and npx cuttlely start listen on port 43117.
 # The flow needs a draft and at least one past question. See docs/how-to/ci-gate.md.
-# Scored mode and --gate need Cuttlely 1.1.0 or later (the next release).
+# Scored mode and --gate need Cuttlely 1.1.0 or later.
+# That is the first release with scored mode, and no release with it has been published yet.
 # This job is diff mode. It does not pass --gate. npx cuttlely stays unpinned because --fail-on-changed is in the 1.0.3 package.
 # Cancelling this job stops the server-side check.
 

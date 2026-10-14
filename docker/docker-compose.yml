@@ -25,6 +25,10 @@ services:
         stop_grace_period: 35s
         ports:
             - '${PORT:-43117}:${PORT:-43117}'
+        # Linux: host.docker.internal is the host, so a collector on the host is reachable
+        # at that name. Docs: docs/how-to/docker.md
+        extra_hosts:
+            - 'host.docker.internal:host-gateway'
         environment:
             HOST: 0.0.0.0
             PORT: ${PORT:-43117}
@@ -57,6 +61,14 @@ services:
             CUTTLELY_FILE_SIZE_LIMIT: ${CUTTLELY_FILE_SIZE_LIMIT:-}
             DISABLE_CUTTLELY_TELEMETRY: ${DISABLE_CUTTLELY_TELEMETRY:-}
             METRICS_PREFIX: ${METRICS_PREFIX:-}
+            # Run traces stay off unless .env sets these. Blank is off. localhost inside this
+            # container is not the host. Docs: docs/how-to/docker.md
+            CUTTLELY_OTEL_TRACES: ${CUTTLELY_OTEL_TRACES:-}
+            CUTTLELY_OTEL_TRACES_ENDPOINT: ${CUTTLELY_OTEL_TRACES_ENDPOINT:-}
+            CUTTLELY_OTEL_TRACES_PROTOCOL: ${CUTTLELY_OTEL_TRACES_PROTOCOL:-}
+            CUTTLELY_OTEL_TRACES_CONTENT: ${CUTTLELY_OTEL_TRACES_CONTENT:-}
+            # Blank is unset: traces use cuttlely, and Service name in Admin stays editable.
+            METRICS_SERVICE_NAME: ${METRICS_SERVICE_NAME:-}
             TRUST_PROXY: ${TRUST_PROXY:-}
             WORKOS_API_KEY: ${WORKOS_API_KEY:-}
             WORKOS_CLIENT_ID: ${WORKOS_CLIENT_ID:-}

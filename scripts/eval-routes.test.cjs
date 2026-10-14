@@ -92,7 +92,12 @@ const { EvaluationRun } = serverRequire('./src/database/entities/EvaluationRun.t
 const { Credential } = serverRequire('./src/database/entities/Credential.ts')
 const { Assistant } = serverRequire('./src/database/entities/Assistant.ts')
 const { ChatFlow } = serverRequire('./src/database/entities/ChatFlow.ts')
+const { FlowVersionState } = serverRequire('./src/database/entities/FlowVersionState.ts')
+const { ChatMessage } = serverRequire('./src/database/entities/ChatMessage.ts')
+const { Execution } = serverRequire('./src/database/entities/Execution.ts')
 const { WorkspaceShared } = serverRequire('./src/database/entities/identity/WorkspaceShared.ts')
+const { casesFromDataset } = serverRequire('./src/services/flow-check/score.ts')
+const flowCheck = serverRequire('./src/services/flow-check/index.ts')
 
 Module._load = originalLoad
 
@@ -108,6 +113,9 @@ const ROUND_TRIP_ENTITIES = [
     Credential,
     Assistant,
     ChatFlow,
+    FlowVersionState,
+    ChatMessage,
+    Execution,
     WorkspaceShared
 ]
 
@@ -179,6 +187,9 @@ async function assertColumns(dataSource, dialect) {
     const names = async (table) => (await tables(table)).map((column) => column.name)
     assert.ok((await names('dataset')).includes('workspaceId'))
     assert.ok((await names('dataset_row')).includes('sequence_no'))
+    for (const column of ['sourceType', 'sourceMessageId', 'sourceFlowId', 'sourceDate']) {
+        assert.ok((await names('dataset_row')).includes(column), column)
+    }
     assert.ok((await names('evaluator')).includes('workspaceId'))
     assert.ok((await names('evaluation')).includes('workspaceId'))
     assert.ok((await names('evaluation_run')).includes('errors'))
@@ -1312,6 +1323,382 @@ describe('evaluation routes', () => {
             await drop.connect()
             await drop.query(`DROP DATABASE IF EXISTS ${name}`)
             await drop.end()
+        }
+    })
+
+    it('saves a chat answer into a dataset, refuses the wrong team or permission, and that dataset runs in the publish check', async () => {
+        const { dataSource, api, cleanup } = await openSqlite()
+        const asked = []
+        flowCheck.replayHooks.run = async ({ question }) => {
+            asked.push(question)
+            return { text: 'checked answer' }
+        }
+        flowCheck.priceHooks.load = async () => null
+        const flowData = JSON.stringify({
+            nodes: [{ data: { name: 'chatOpenAI', category: 'Chat Models', label: 'Chat' } }]
+        })
+        const answerDate = new Date('2026-04-02T15:04:05.000Z')
+        try {
+            asOwner()
+            await dataSource.getRepository(Workspace).save({
+                id: WORKSPACE_B,
+                name: 'Other Team',
+                organizationId: ORG,
+                createdBy: USER,
+                updatedBy: USER
+            })
+            const dataset = await dataSource.getRepository(Dataset).save({
+                name: 'From chats',
+                description: 'Made-up rows',
+                workspaceId: WORKSPACE
+            })
+            const foreignDataset = await dataSource.getRepository(Dataset).save({
+                name: 'Other team rows',
+                description: 'Made-up rows',
+                workspaceId: WORKSPACE_B
+            })
+            const flow = await dataSource.getRepository(ChatFlow).save({
+                name: 'Bakery desk',
+                flowData,
+                type: 'CHATFLOW',
+                workspaceId: WORKSPACE
+            })
+            const foreignFlow = await dataSource.getRepository(ChatFlow).save({
+                name: 'Other desk',
+                flowData,
+                type: 'CHATFLOW',
+                workspaceId: WORKSPACE_B
+            })
+            const agentFlow = await dataSource.getRepository(ChatFlow).save({
+                name: 'Bakery agent',
+                flowData,
+                type: 'AGENTFLOW',
+                workspaceId: WORKSPACE
+            })
+            const userMessage = await dataSource.getRepository(ChatMessage).save({
+                role: 'userMessage',
+                chatflowid: flow.id,
+                content: 'Where is the rye?',
+                chatType: 'INTERNAL',
+                chatId: 'chat-1',
+                createdDate: new Date('2026-04-02T15:04:00.000Z')
+            })
+            await dataSource.getRepository(ChatMessage).save({
+                role: 'userMessage',
+                chatflowid: flow.id,
+                content: 'other session question',
+                chatType: 'INTERNAL',
+                chatId: 'chat-1',
+                sessionId: 'other-session',
+                createdDate: new Date('2026-04-02T15:04:02.000Z')
+            })
+            const sessionUser = await dataSource.getRepository(ChatMessage).save({
+                role: 'userMessage',
+                chatflowid: flow.id,
+                content: 'own session question',
+                chatType: 'INTERNAL',
+                chatId: 'chat-session',
+                sessionId: 'sess-1',
+                memoryType: 'buffer',
+                createdDate: new Date('2026-04-02T15:06:00.000Z')
+            })
+            await dataSource.getRepository(ChatMessage).save({
+                role: 'userMessage',
+                chatflowid: flow.id,
+                content: 'other session question',
+                chatType: 'INTERNAL',
+                chatId: 'chat-session',
+                sessionId: 'sess-2',
+                memoryType: 'buffer',
+                createdDate: new Date('2026-04-02T15:06:01.000Z')
+            })
+            const sessionAnswer = await dataSource.getRepository(ChatMessage).save({
+                role: 'apiMessage',
+                chatflowid: flow.id,
+                content: 'In this session.',
+                chatType: 'INTERNAL',
+                chatId: 'chat-session',
+                sessionId: 'sess-1',
+                memoryType: 'buffer',
+                createdDate: new Date('2026-04-02T15:06:02.000Z')
+            })
+            const memoryUser = await dataSource.getRepository(ChatMessage).save({
+                role: 'userMessage',
+                chatflowid: flow.id,
+                content: 'own memory question',
+                chatType: 'INTERNAL',
+                chatId: 'chat-memory',
+                sessionId: 'shared',
+                memoryType: 'buffer',
+                createdDate: new Date('2026-04-02T15:07:00.000Z')
+            })
+            await dataSource.getRepository(ChatMessage).save({
+                role: 'userMessage',
+                chatflowid: flow.id,
+                content: 'window question',
+                chatType: 'INTERNAL',
+                chatId: 'chat-memory',
+                sessionId: 'shared',
+                memoryType: 'window',
+                createdDate: new Date('2026-04-02T15:07:01.000Z')
+            })
+            const memoryAnswer = await dataSource.getRepository(ChatMessage).save({
+                role: 'apiMessage',
+                chatflowid: flow.id,
+                content: 'In this memory.',
+                chatType: 'INTERNAL',
+                chatId: 'chat-memory',
+                sessionId: 'shared',
+                memoryType: 'buffer',
+                createdDate: new Date('2026-04-02T15:07:02.000Z')
+            })
+            const nullUser = await dataSource.getRepository(ChatMessage).save({
+                role: 'userMessage',
+                chatflowid: flow.id,
+                content: 'null session question',
+                chatType: 'INTERNAL',
+                chatId: 'chat-null',
+                sessionId: null,
+                memoryType: null,
+                createdDate: new Date('2026-04-02T15:08:00.000Z')
+            })
+            await dataSource.getRepository(ChatMessage).save({
+                role: 'userMessage',
+                chatflowid: flow.id,
+                content: 'other session question',
+                chatType: 'INTERNAL',
+                chatId: 'chat-null',
+                sessionId: 'somewhere',
+                memoryType: 'buffer',
+                createdDate: new Date('2026-04-02T15:08:01.000Z')
+            })
+            const nullAnswer = await dataSource.getRepository(ChatMessage).save({
+                role: 'apiMessage',
+                chatflowid: flow.id,
+                content: 'No session.',
+                chatType: 'INTERNAL',
+                chatId: 'chat-null',
+                sessionId: null,
+                memoryType: null,
+                createdDate: new Date('2026-04-02T15:08:02.000Z')
+            })
+            await dataSource.getRepository(ChatMessage).save({
+                role: 'userMessage',
+                chatflowid: flow.id,
+                content: 'other session question',
+                chatType: 'INTERNAL',
+                chatId: 'chat-lonely',
+                sessionId: 'somewhere',
+                memoryType: 'buffer',
+                createdDate: new Date('2026-04-02T15:08:50.000Z')
+            })
+            const lonelyAnswer = await dataSource.getRepository(ChatMessage).save({
+                role: 'apiMessage',
+                chatflowid: flow.id,
+                content: 'No question here.',
+                chatType: 'INTERNAL',
+                chatId: 'chat-lonely',
+                sessionId: null,
+                memoryType: null,
+                createdDate: new Date('2026-04-02T15:09:00.000Z')
+            })
+            const answer = await dataSource.getRepository(ChatMessage).save({
+                role: 'apiMessage',
+                chatflowid: flow.id,
+                content: 'In the back, on the left.',
+                chatType: 'INTERNAL',
+                chatId: 'chat-1',
+                createdDate: answerDate
+            })
+            const secondAnswer = await dataSource.getRepository(ChatMessage).save({
+                role: 'apiMessage',
+                chatflowid: flow.id,
+                content: 'Still in the back.',
+                chatType: 'INTERNAL',
+                chatId: 'chat-1',
+                createdDate: new Date('2026-04-02T15:04:10.000Z')
+            })
+            const foreignAnswer = await dataSource.getRepository(ChatMessage).save({
+                role: 'apiMessage',
+                chatflowid: foreignFlow.id,
+                content: 'Not yours.',
+                chatType: 'INTERNAL',
+                chatId: 'chat-9',
+                createdDate: answerDate
+            })
+            await dataSource.getRepository(ChatMessage).save({
+                role: 'userMessage',
+                chatflowid: foreignFlow.id,
+                content: 'Foreign question?',
+                chatType: 'INTERNAL',
+                chatId: 'chat-9',
+                createdDate: new Date('2026-04-02T15:03:00.000Z')
+            })
+            const agentUser = await dataSource.getRepository(ChatMessage).save({
+                role: 'userMessage',
+                chatflowid: agentFlow.id,
+                content: 'When does the oven start?',
+                chatType: 'INTERNAL',
+                chatId: 'chat-2',
+                createdDate: new Date('2026-04-02T15:05:00.000Z')
+            })
+            const agentAnswer = await dataSource.getRepository(ChatMessage).save({
+                role: 'apiMessage',
+                chatflowid: agentFlow.id,
+                content: 'At four.',
+                chatType: 'INTERNAL',
+                chatId: 'chat-2',
+                createdDate: new Date('2026-04-02T15:05:05.000Z')
+            })
+
+            const manual = await api.post('/datasets/rows').send({ datasetId: dataset.id, input: 'Typed in', output: 'By hand' })
+            assert.equal(manual.status, 200, JSON.stringify(manual.body))
+            assert.equal(manual.body.sourceType ?? null, null)
+            assert.equal(manual.body.sourceMessageId ?? null, null)
+
+            const saved = await api.post('/datasets/rows/from-message').send({
+                datasetId: dataset.id,
+                messageId: answer.id,
+                output: 'On the left in the back.'
+            })
+            assert.equal(saved.status, 200, JSON.stringify(saved.body))
+            assert.equal(saved.body.input, 'Where is the rye?')
+            assert.equal(saved.body.output, 'On the left in the back.')
+            assert.equal(saved.body.sourceType, 'chat_message')
+            assert.equal(saved.body.sourceMessageId, answer.id)
+            assert.equal(saved.body.sourceFlowId, flow.id)
+            assert.equal(new Date(saved.body.sourceDate).toISOString(), new Date(answer.createdDate).toISOString())
+            assert.notEqual(saved.body.output, answer.content)
+
+            const again = await api.post('/datasets/rows/from-message').send({
+                datasetId: dataset.id,
+                messageId: answer.id,
+                output: 'A different expected answer'
+            })
+            assert.equal(again.status, 200, JSON.stringify(again.body))
+            assert.equal(again.body.id, saved.body.id)
+            assert.equal(again.body.output, 'On the left in the back.')
+            assert.equal(
+                await dataSource.getRepository(DatasetRow).count({ where: { datasetId: dataset.id, sourceMessageId: answer.id } }),
+                1
+            )
+
+            const plain = await api.post('/datasets/rows/from-message').send({ datasetId: dataset.id, messageId: userMessage.id })
+            assert.equal(plain.status, 400, JSON.stringify(plain.body))
+            const followed = await api.post('/datasets/rows/from-message').send({ datasetId: dataset.id, messageId: secondAnswer.id })
+            assert.equal(followed.status, 400, JSON.stringify(followed.body))
+            assert.match(followed.body.message, /No question was found/)
+            assert.equal(
+                await dataSource.getRepository(DatasetRow).count({ where: { datasetId: dataset.id, sourceMessageId: secondAnswer.id } }),
+                0
+            )
+
+            const sameChatOtherSession = await api
+                .post('/datasets/rows/from-message')
+                .send({ datasetId: dataset.id, messageId: sessionAnswer.id })
+            assert.equal(sameChatOtherSession.status, 200, JSON.stringify(sameChatOtherSession.body))
+            assert.equal(sameChatOtherSession.body.input, sessionUser.content)
+            assert.notEqual(sameChatOtherSession.body.input, 'other session question')
+
+            const sameSessionOtherMemory = await api
+                .post('/datasets/rows/from-message')
+                .send({ datasetId: dataset.id, messageId: memoryAnswer.id })
+            assert.equal(sameSessionOtherMemory.status, 200, JSON.stringify(sameSessionOtherMemory.body))
+            assert.equal(sameSessionOtherMemory.body.input, memoryUser.content)
+            assert.notEqual(sameSessionOtherMemory.body.input, 'window question')
+
+            const nullSession = await api.post('/datasets/rows/from-message').send({ datasetId: dataset.id, messageId: nullAnswer.id })
+            assert.equal(nullSession.status, 200, JSON.stringify(nullSession.body))
+            assert.equal(nullSession.body.input, nullUser.content)
+            assert.notEqual(nullSession.body.input, 'other session question')
+
+            const noQuestionInSession = await api
+                .post('/datasets/rows/from-message')
+                .send({ datasetId: dataset.id, messageId: lonelyAnswer.id })
+            assert.equal(noQuestionInSession.status, 400, JSON.stringify(noQuestionInSession.body))
+
+            const missingDataset = await api.post('/datasets/rows/from-message').send({
+                datasetId: foreignDataset.id,
+                messageId: answer.id
+            })
+            assert.equal(missingDataset.status, 404, JSON.stringify(missingDataset.body))
+            const missingMessage = await api.post('/datasets/rows/from-message').send({
+                datasetId: dataset.id,
+                messageId: foreignAnswer.id
+            })
+            assert.equal(missingMessage.status, 404, JSON.stringify(missingMessage.body))
+            assert.equal(await dataSource.getRepository(DatasetRow).count({ where: { datasetId: foreignDataset.id } }), 0)
+
+            const asGrants = (permissions) => {
+                currentUser = () => ({
+                    id: MEMBER,
+                    activeWorkspaceId: WORKSPACE,
+                    activeOrganizationId: ORG,
+                    permissions
+                })
+                setTeamPermissionLookup({
+                    async accessFor() {
+                        return { owner: false, permissions }
+                    }
+                })
+            }
+            asGrants(['datasets:view', 'chatflows:view'])
+            assert.equal((await api.post('/datasets/rows/from-message').send({ datasetId: dataset.id, messageId: answer.id })).status, 403)
+            asGrants(['datasets:update'])
+            const noView = await api.post('/datasets/rows/from-message').send({ datasetId: dataset.id, messageId: answer.id })
+            assert.equal(noView.status, 403, JSON.stringify(noView.body))
+            asGrants(['datasets:create'])
+            assert.equal((await api.post('/datasets/rows/from-message').send({ datasetId: dataset.id, messageId: answer.id })).status, 403)
+            asGrants(['datasets:update', 'agentflows:view'])
+            const wrongType = await api.post('/datasets/rows/from-message').send({ datasetId: dataset.id, messageId: answer.id })
+            assert.equal(wrongType.status, 403, JSON.stringify(wrongType.body))
+            asGrants(['datasets:update', 'chatflows:view'])
+            const allowed = await api.post('/datasets/rows/from-message').send({ datasetId: dataset.id, messageId: answer.id })
+            assert.equal(allowed.status, 200, JSON.stringify(allowed.body))
+            assert.equal(allowed.body.id, saved.body.id)
+            asGrants(['datasets:create', 'agentflows:view'])
+            const agentSaved = await api.post('/datasets/rows/from-message').send({ datasetId: dataset.id, messageId: agentAnswer.id })
+            assert.equal(agentSaved.status, 200, JSON.stringify(agentSaved.body))
+            assert.equal(agentSaved.body.input, agentUser.content)
+            assert.equal(agentSaved.body.output, agentAnswer.content)
+            assert.equal(agentSaved.body.sourceType, 'chat_message')
+
+            asOwner()
+            const cases = await casesFromDataset(dataset.id, WORKSPACE)
+            assert.deepEqual(
+                cases.map((item) => item.question),
+                [
+                    'Typed in',
+                    'Where is the rye?',
+                    'own session question',
+                    'own memory question',
+                    'null session question',
+                    'When does the oven start?'
+                ]
+            )
+            assert.equal(cases[1].expected, 'On the left in the back.')
+
+            const started = await flowCheck.startCheck(flow, { datasetId: dataset.id }, 'http://127.0.0.1', {
+                key: flow.id,
+                canvas: flowData
+            })
+            assert.equal(started.cases[1].question, 'Where is the rye?')
+            assert.equal(started.cases[1].expected, 'On the left in the back.')
+            let view = started
+            for (let i = 0; i < 50 && view.status === 'running'; i += 1) {
+                await new Promise((resolve) => setTimeout(resolve, 20))
+                view = await flowCheck.getCheck(flow, started.id, { key: flow.id, canvas: flowData })
+            }
+            assert.equal(view.status, 'done', JSON.stringify(view))
+            assert.equal(view.cases[1].draft.text, 'checked answer')
+            assert.ok(asked.includes('Where is the rye?'))
+            assert.ok(asked.includes('When does the oven start?'))
+        } finally {
+            flowCheck.replayHooks.run = null
+            flowCheck.priceHooks.load = null
+            flowCheck.checks.clear()
+            asOwner()
+            await cleanup()
         }
     })
 })

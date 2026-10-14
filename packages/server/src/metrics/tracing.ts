@@ -1,7 +1,7 @@
-import { replaySilenced, setCuttlelyTracer, silenceRunTraces, tokenCount, writeContent } from '@cuttlely/components'
+import { openHarnessRunTrace, replaySilenced, setCuttlelyTracer, silenceRunTraces, tokenCount, writeContent } from '@cuttlely/components'
 import logger from '../utils/logger'
 
-export { silenceRunTraces }
+export { openHarnessRunTrace, silenceRunTraces }
 
 /**
  * Optional OpenTelemetry traces for chatflow predictions and agentflow runs.
@@ -33,6 +33,8 @@ export interface FinishedTraceSpan {
     spanId: string
     parentSpanId?: string
     attributes: Record<string, string | number | boolean>
+    startTimeMs?: number
+    endTimeMs?: number
 }
 
 export function tracesInstalled(): boolean {
@@ -138,6 +140,11 @@ export async function shutdownCuttlelyTraces(): Promise<void> {
     }
 }
 
+function hrTimeMs(value: [number, number] | undefined): number | undefined {
+    if (!value || value.length < 2) return undefined
+    return value[0] * 1000 + value[1] / 1e6
+}
+
 function plainAttributes(attributes: Record<string, unknown> | undefined): Record<string, string | number | boolean> {
     const plain: Record<string, string | number | boolean> = {}
     if (!attributes) return plain
@@ -166,13 +173,17 @@ export function installInMemoryTraces(): { spans: () => FinishedTraceSpan[]; res
                         name: string
                         parentSpanId?: string
                         attributes: Record<string, unknown>
+                        startTime?: [number, number]
+                        endTime?: [number, number]
                         spanContext: () => { spanId: string; traceId: string }
                     }) => ({
                         name: span.name,
                         traceId: span.spanContext().traceId,
                         spanId: span.spanContext().spanId,
                         parentSpanId: span.parentSpanId,
-                        attributes: plainAttributes(span.attributes)
+                        attributes: plainAttributes(span.attributes),
+                        startTimeMs: hrTimeMs(span.startTime),
+                        endTimeMs: hrTimeMs(span.endTime)
                     })
                 ),
         reset: () => exporter.reset()

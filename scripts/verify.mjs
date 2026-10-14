@@ -70,6 +70,8 @@ const STEPS = [
             path.join(ROOT, 'scripts', 'proprietary-paths.test.mjs'),
             path.join(ROOT, 'scripts', 'etl-list-sqlite.test.mjs'),
             path.join(ROOT, 'scripts', 'eval-routes.test.cjs'),
+            path.join(ROOT, 'scripts', 'flow-drafts-sqlite-race.test.cjs'),
+            path.join(ROOT, 'scripts', 'dataset-row-metadata.test.cjs'),
             path.join(ROOT, 'scripts', 'start-local-admin.test.mjs'),
             path.join(ROOT, 'scripts', 'start-restart-loop.test.mjs'),
             path.join(ROOT, 'scripts', 'etl-delete-vectors.test.mjs'),
@@ -102,11 +104,20 @@ const STEPS = [
             path.join(ROOT, 'scripts', 'model-list.test.mjs'),
             path.join(ROOT, 'scripts', 'brand-names.test.mjs'),
             path.join(ROOT, 'examples', 'web-app', 'server.test.mjs'),
+            path.join(ROOT, 'scripts', 'otel-collector-example.test.mjs'),
             path.join(ROOT, 'website', 'scripts', 'sync-docs.test.mjs'),
             path.join(ROOT, 'website', 'scripts', 'check-site.test.mjs'),
             path.join(ROOT, 'website', 'scripts', 'screenshot-zoom.test.mjs'),
             path.join(ROOT, 'scripts', 'permission-keys.test.mjs')
         ]
+    },
+    {
+        // Own process. This script and harness-draft-usage both stub
+        // packages/server/src/services/harnesses/harness, and node --test runs those files together.
+        name: 'harness-queue-trace',
+        fast: true,
+        command: process.execPath,
+        args: [path.join(ROOT, 'scripts', 'harness-queue-trace.test.mjs')]
     },
     {
         // Every link in docs/, the README quickstart, CHANGELOG, SECURITY and CREDITS resolves for the website.
@@ -162,6 +173,7 @@ const STEPS = [
             'src/layout/MainLayout/Sidebar/MenuList/activeRoute.test.js',
             'src/views/evaluations/evaluationFlows.test.js',
             'src/views/canvas/cardActions.test.js',
+            'src/utils/cardAccent.test.js',
             'src/views/marketplaces/templatePreview.test.js',
             'src/views/roles/rolePermissions.test.js',
             'src/views/docstore/chunkPermissions.test.js',
@@ -321,7 +333,7 @@ function parseArgs(argv) {
             console.log('pnpm verify [--fast] [--skip <step>]')
             console.log(`steps: ${STEPS.map((step) => step.name).join(', ')}`)
             console.log(
-                '--fast runs lint, boundaries, typecheck, verify-test, website-docs, chat-widget, versioning, hermes-vendor, unit, server-settings-ui, handoff-test, render-blueprint, and identity-migration'
+                '--fast runs lint, boundaries, typecheck, verify-test, harness-queue-trace, website-docs, chat-widget, versioning, hermes-vendor, unit, server-settings-ui, handoff-test, render-blueprint, and identity-migration'
             )
             console.log('unit Jest workers default to 50%. Set CUTTLELY_VERIFY_JEST_WORKERS to a positive integer or a percentage.')
             console.log(

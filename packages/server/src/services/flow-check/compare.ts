@@ -77,14 +77,16 @@ export interface DraftVerdict {
 }
 
 // A dataset check's draft side. Errored scores stay in the denominator, so they are not passed.
-// No scores is a fail: a pass rate of null is not at or above the threshold.
+// The rounded pass rate is for display. The verdict uses the counts, so 2999 passes and 1 fail
+// (a rate that rounds to 100.0) does not pass a threshold of 100. No scores is a fail.
 export function draftVerdict(scores: SideScores | null | undefined, threshold: number): DraftVerdict {
     const passed = scores?.passed ?? 0
     const failed = scores?.failed ?? 0
     const errored = scores?.errored ?? 0
+    const total = passed + failed + errored
     const passRate = scores?.passRate ?? null
     return {
-        result: passRate !== null && passRate >= threshold ? 'passed' : 'failed',
+        result: total > 0 && passed * 100 >= threshold * total ? 'passed' : 'failed',
         threshold,
         passed,
         failed,
