@@ -46,7 +46,7 @@ const tools: { title: string; text: string; href: string; video: ToolVideo }[] =
     },
     {
         title: 'Test before you publish',
-        text: 'Test with up to 100 question-and-answer pairs, with more on the roadmap. Compare the draft with Live on real questions, score it, and keep Publish locked until the test set passes.',
+        text: 'Test with up to 100 question-and-answer pairs, with more on the roadmap. Compare the draft with Live on real questions, score it, turn on Passing test set, and Publish stays disabled until the current draft passes.',
         href: '/docs/how-to/tests-from-answers/',
         video: {
             slug: 'testing',
@@ -242,14 +242,14 @@ const installs = [
                 <h2 id="test-every-change-title" class="cl-display">Test every change before it goes live</h2>
                 <p class="cl-lead">
                     Test with up to 100 question-and-answer pairs, with more on the roadmap. Compare the draft with Live on real questions, score it
-                    against answers your customers rated, and keep Publish locked until the test set passes.
+                    against answers your customers rated, turn on Passing test set, and Publish stays disabled until the current draft passes.
                 </p>
                 <ul class="cl-checks">
                     <li>
-                        <strong>Compare before you publish.</strong> Recent questions run on Live and on the draft, and each answer is marked Same or Changed.
+                        <strong>Compare before you publish.</strong> Recent questions run on Live and on the draft, and each answer is marked Same, Changed, or Error.
                     </li>
                     <li>
-                        <strong>Real answers become tests.</strong> Add one answer with Add to test set, or every rated answer from a time window at once.
+                        <strong>Real answers become tests.</strong> Add one answer with Add to test set, or thumbs-up or thumbs-down answers from a time window, up to 500 new rows at a time.
                     </li>
                     <li>
                         <strong>Score the draft.</strong> Text, JSON, numeric and model evaluators give Pass, Fail or Error and a pass rate for Live and the draft.
