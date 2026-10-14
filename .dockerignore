@@ -45,3 +45,6 @@ hermes/.venv
 
 # The cuttlely.com website is not part of the product image.
 website
+
+# Local docs screenshot capture. Not part of the product image or the npm packages.
+scripts/docs-shots

@@ -1,0 +1,115 @@
+{
+    "name": "Bakery helper",
+    "type": "CHATFLOW",
+    "nodes": [
+        {
+            "id": "chatOpenAI_0",
+            "type": "customNode",
+            "position": { "x": 0, "y": 0 },
+            "data": {
+                "id": "chatOpenAI_0",
+                "label": "ChatOpenAI",
+                "name": "chatOpenAI",
+                "type": "ChatOpenAI",
+                "category": "Chat Models",
+                "credential": "demo-slot",
+                "inputParams": [
+                    {
+                        "label": "Connect Credential",
+                        "name": "credential",
+                        "type": "credential",
+                        "credentialNames": ["openAIApi"]
+                    },
+                    { "label": "Model Name", "name": "modelName", "type": "string" }
+                ],
+                "inputAnchors": [],
+                "outputAnchors": [
+                    {
+                        "id": "chatOpenAI_0-output-chatOpenAI-ChatOpenAI",
+                        "name": "chatOpenAI",
+                        "label": "ChatOpenAI",
+                        "type": "ChatOpenAI"
+                    }
+                ],
+                "inputs": { "modelName": "gpt-4.1-mini" }
+            }
+        },
+        {
+            "id": "bufferMemory_0",
+            "type": "customNode",
+            "position": { "x": 0, "y": 720 },
+            "data": {
+                "id": "bufferMemory_0",
+                "label": "Buffer Memory",
+                "name": "bufferMemory",
+                "type": "BufferMemory",
+                "category": "Memory",
+                "inputParams": [{ "label": "Memory Key", "name": "memoryKey", "type": "string" }],
+                "inputAnchors": [],
+                "outputAnchors": [
+                    {
+                        "id": "bufferMemory_0-output-bufferMemory-BufferMemory",
+                        "name": "bufferMemory",
+                        "label": "Buffer Memory",
+                        "type": "BufferMemory"
+                    }
+                ],
+                "inputs": { "memoryKey": "chat_history" }
+            }
+        },
+        {
+            "id": "conversationChain_0",
+            "type": "customNode",
+            "position": { "x": 640, "y": 220 },
+            "data": {
+                "id": "conversationChain_0",
+                "label": "Conversation Chain",
+                "name": "conversationChain",
+                "type": "ConversationChain",
+                "category": "Chains",
+                "inputParams": [{ "label": "System Message", "name": "systemMessagePrompt", "type": "string" }],
+                "inputAnchors": [
+                    {
+                        "id": "conversationChain_0-input-model-BaseLanguageModel",
+                        "name": "model",
+                        "label": "Chat Model",
+                        "type": "BaseChatModel"
+                    },
+                    {
+                        "id": "conversationChain_0-input-memory-BaseMemory",
+                        "name": "memory",
+                        "label": "Memory",
+                        "type": "BaseMemory"
+                    }
+                ],
+                "outputAnchors": [
+                    {
+                        "id": "conversationChain_0-output-conversationChain-ConversationChain",
+                        "name": "conversationChain",
+                        "label": "Conversation Chain",
+                        "type": "ConversationChain"
+                    }
+                ],
+                "inputs": { "systemMessagePrompt": "Answer the bakery counter in one or two sentences." }
+            }
+        }
+    ],
+    "edges": [
+        {
+            "id": "e-model",
+            "source": "chatOpenAI_0",
+            "target": "conversationChain_0",
+            "sourceHandle": "chatOpenAI_0-output-chatOpenAI-ChatOpenAI",
+            "targetHandle": "conversationChain_0-input-model-BaseLanguageModel",
+            "type": "buttonedge"
+        },
+        {
+            "id": "e-memory",
+            "source": "bufferMemory_0",
+            "target": "conversationChain_0",
+            "sourceHandle": "bufferMemory_0-output-bufferMemory-BufferMemory",
+            "targetHandle": "conversationChain_0-input-memory-BaseMemory",
+            "type": "buttonedge"
+        }
+    ]
+}
