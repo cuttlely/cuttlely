@@ -2275,6 +2275,59 @@ describe('evaluation routes', () => {
                 cursor: { createdDate: new Date().toISOString(), id: '00000000-0000-4000-8000-000000000000' }
             })
             assert.equal(isoCursor.status, 400, JSON.stringify(isoCursor.body))
+            for (const createdDate of ['2026-02-31 00:00:00', '2026-04-31 12:00:00', '2026-02-29 00:00:00']) {
+                const impossibleDay = await api.post('/datasets/rows/from-ratings').send({
+                    datasetId: dataset.id,
+                    flowId: flow.id,
+                    rating: 'THUMBS_DOWN',
+                    days: 7,
+                    dryRun: true,
+                    cursor: { createdDate, id: '00000000-0000-4000-8000-000000000000' }
+                })
+                assert.equal(impossibleDay.status, 400, `${createdDate} ${JSON.stringify(impossibleDay.body)}`)
+            }
+            const leapDay = await api.post('/datasets/rows/from-ratings').send({
+                datasetId: dataset.id,
+                flowId: flow.id,
+                rating: 'THUMBS_DOWN',
+                days: 7,
+                dryRun: true,
+                cursor: { createdDate: '2024-02-29 00:00:00', id: '00000000-0000-4000-8000-000000000000' }
+            })
+            assert.equal(leapDay.status, 200, JSON.stringify(leapDay.body))
+            const rowsBeforeCursorWrite = await dataSource.getRepository(DatasetRow).count({ where: { datasetId: dataset.id } })
+            const badIdsCursor = await api.post('/datasets/rows/from-ratings').send({
+                datasetId: dataset.id,
+                flowId: flow.id,
+                rating: 'THUMBS_DOWN',
+                days: 7,
+                dryRun: true,
+                feedbackIds: [recentDown.feedback.id],
+                cursor: { createdDate: '2026-02-31 00:00:00', id: '00000000-0000-4000-8000-000000000000' }
+            })
+            assert.equal(badIdsCursor.status, 400, JSON.stringify(badIdsCursor.body))
+            const badIdsWrite = await api.post('/datasets/rows/from-ratings').send({
+                datasetId: dataset.id,
+                flowId: flow.id,
+                rating: 'THUMBS_DOWN',
+                days: 7,
+                dryRun: false,
+                feedbackIds: [recentDown.feedback.id],
+                cursor: { createdDate: '1', id: '00000000-0000-4000-8000-000000000000' }
+            })
+            assert.equal(badIdsWrite.status, 400, JSON.stringify(badIdsWrite.body))
+            assert.equal(await dataSource.getRepository(DatasetRow).count({ where: { datasetId: dataset.id } }), rowsBeforeCursorWrite)
+            const ignoredCursor = await api.post('/datasets/rows/from-ratings').send({
+                datasetId: dataset.id,
+                flowId: flow.id,
+                rating: 'THUMBS_DOWN',
+                days: 7,
+                dryRun: true,
+                feedbackIds: [recentDown.feedback.id],
+                cursor: { createdDate: '2024-02-29 12:00:00', id: '00000000-0000-4000-8000-000000000000' }
+            })
+            assert.equal(ignoredCursor.status, 200, JSON.stringify(ignoredCursor.body))
+            assert.deepEqual(ignoredCursor.body.feedbackIds, [recentDown.feedback.id])
             const missingCursor = await api.post('/datasets/rows/from-ratings').send({
                 datasetId: dataset.id,
                 flowId: flow.id,

@@ -33,16 +33,27 @@ const STORED_RATING_TIMESTAMP = /^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2}):(\d{2}
 
 type RatingCursor = { createdDate: string; id: string }
 
+function daysInRatingMonth(year: number, month: number): number {
+    if (month === 2) {
+        const leap = (year % 4 === 0 && year % 100 !== 0) || year % 400 === 0
+        return leap ? 29 : 28
+    }
+    if (month === 4 || month === 6 || month === 9 || month === 11) return 30
+    return 31
+}
+
 function isStoredRatingTimestamp(value: string): boolean {
     if (value.length === 0 || value.length > RATING_CURSOR_DATE_MAX) return false
     const match = STORED_RATING_TIMESTAMP.exec(value)
     if (!match) return false
+    const year = Number(match[1])
     const month = Number(match[2])
     const day = Number(match[3])
     const hour = Number(match[4])
     const minute = Number(match[5])
     const second = Number(match[6])
-    return month >= 1 && month <= 12 && day >= 1 && day <= 31 && hour <= 23 && minute <= 59 && second <= 59
+    if (month < 1 || month > 12 || day < 1 || day > daysInRatingMonth(year, month)) return false
+    return hour <= 23 && minute <= 59 && second <= 59
 }
 
 // The next call passes this back and the scan starts strictly older than this rating.
@@ -152,6 +163,17 @@ async function loadRatingFeedback(
         feedback,
         createdText: textById.get(feedback.id) ?? textFromRawCreated(raw[index] ?? {})
     }))
+}
+
+// A full page has to move past this rating. Without its stored text the same page would be read again.
+export function cursorForNextRatingPage(anchorId: string, createdText: string | null | undefined): RatingCursor {
+    if (typeof createdText !== 'string' || createdText.length === 0) {
+        throw new AppError(
+            StatusCodes.INTERNAL_SERVER_ERROR,
+            'Error: datasetService.addDatasetRowsFromRatings - stored time for a rating page is missing.'
+        )
+    }
+    return { createdDate: createdText, id: anchorId }
 }
 
 // Tests shrink a page, delete a row after the page query, or delete one between pages. Production leaves these unset.
@@ -831,7 +853,9 @@ const addDatasetRowsFromRatings = async (
         if (!dryRun && fixedIds && fixedIds.length > limit) {
             throw new AppError(StatusCodes.BAD_REQUEST, 'feedbackIds must not be longer than the limit.')
         }
-        const before = fixedIds ? null : parseRatingCursor(body.cursor)
+        // A cursor sent with the preview ids is still checked. The ids choose the rows, so the cursor is not used.
+        const suppliedCursor = parseRatingCursor(body.cursor)
+        const before = fixedIds ? null : suppliedCursor
         const feedbackRepo = appServer.AppDataSource.getRepository(ChatMessageFeedback)
         if (before && beforeFirstRatingPageForTest) await beforeFirstRatingPageForTest()
         const messageRepo = appServer.AppDataSource.getRepository(ChatMessage)
@@ -914,8 +938,7 @@ const addDatasetRowsFromRatings = async (
             if (inspected < page.length || page.length < take) break
             if (afterRatingPageForTest) await afterRatingPageForTest(page)
             const anchorRow = page[page.length - 1]
-            const anchorText = rawById.get(anchorRow.id)
-            if (anchorText) pageBefore = { createdDate: anchorText, id: anchorRow.id }
+            pageBefore = cursorForNextRatingPage(anchorRow.id, rawById.get(anchorRow.id))
         }
 
         // Add sends the ids from the preview, so a rating that arrives later cannot take a planned row's place.
