@@ -2734,6 +2734,142 @@ describe('evaluation routes', () => {
         }
     })
 
+    it('a write with more rating ids than the limit is rejected', async () => {
+        const { dataSource, api, cleanup } = await openSqlite()
+        const now = Date.now()
+        try {
+            asOwner()
+            const dataset = await dataSource.getRepository(Dataset).save({
+                name: 'Over the limit',
+                description: 'Made-up rows',
+                workspaceId: WORKSPACE
+            })
+            const flow = await dataSource.getRepository(ChatFlow).save({
+                name: 'Bakery desk',
+                flowData: '{}',
+                type: 'CHATFLOW',
+                workspaceId: WORKSPACE
+            })
+            const ids = []
+            for (let index = 0; index < 2; index += 1) {
+                const at = new Date(now - (index + 1) * 60 * 60 * 1000)
+                await dataSource.getRepository(ChatMessage).save({
+                    role: 'userMessage',
+                    chatflowid: flow.id,
+                    content: `Question ${index}`,
+                    chatType: 'INTERNAL',
+                    chatId: `chat-cap-${index}`,
+                    createdDate: new Date(at.getTime() - 1000)
+                })
+                const answer = await dataSource.getRepository(ChatMessage).save({
+                    role: 'apiMessage',
+                    chatflowid: flow.id,
+                    content: `Answer ${index}`,
+                    chatType: 'INTERNAL',
+                    chatId: `chat-cap-${index}`,
+                    createdDate: at
+                })
+                const feedback = await dataSource.getRepository(ChatMessageFeedback).save({
+                    chatflowid: flow.id,
+                    chatId: `chat-cap-${index}`,
+                    messageId: answer.id,
+                    rating: 'THUMBS_DOWN',
+                    content: 'No.',
+                    createdDate: at
+                })
+                ids.push(feedback.id)
+            }
+            const result = await api.post('/datasets/rows/from-ratings').send({
+                datasetId: dataset.id,
+                flowId: flow.id,
+                rating: 'THUMBS_DOWN',
+                days: 1,
+                limit: 1,
+                feedbackIds: ids
+            })
+            assert.equal(result.status, 400, JSON.stringify(result.body))
+            assert.equal(await dataSource.getRepository(DatasetRow).count({ where: { datasetId: dataset.id } }), 0)
+        } finally {
+            asOwner()
+            await cleanup()
+        }
+    })
+
+    it('deleting the last rating of a page does not drop the older ratings', async () => {
+        const { dataSource, api, cleanup } = await openSqlite()
+        const now = Date.now()
+        try {
+            asOwner()
+            const dataset = await dataSource.getRepository(Dataset).save({
+                name: 'Deleted anchor',
+                description: 'Made-up rows',
+                workspaceId: WORKSPACE
+            })
+            const flow = await dataSource.getRepository(ChatFlow).save({
+                name: 'Bakery desk',
+                flowData: '{}',
+                type: 'CHATFLOW',
+                workspaceId: WORKSPACE
+            })
+            const feedbacks = []
+            for (let index = 0; index < 4; index += 1) {
+                const at = new Date(now - index * 60 * 60 * 1000)
+                await dataSource.getRepository(ChatMessage).save({
+                    role: 'userMessage',
+                    chatflowid: flow.id,
+                    content: `Question ${index}`,
+                    chatType: 'INTERNAL',
+                    chatId: `chat-anchor-${index}`,
+                    createdDate: new Date(at.getTime() - 1000)
+                })
+                const answer = await dataSource.getRepository(ChatMessage).save({
+                    role: 'apiMessage',
+                    chatflowid: flow.id,
+                    content: `Answer ${index}`,
+                    chatType: 'INTERNAL',
+                    chatId: `chat-anchor-${index}`,
+                    createdDate: at
+                })
+                const feedback = await dataSource.getRepository(ChatMessageFeedback).save({
+                    chatflowid: flow.id,
+                    chatId: `chat-anchor-${index}`,
+                    messageId: answer.id,
+                    rating: 'THUMBS_DOWN',
+                    content: 'No.',
+                    createdDate: at
+                })
+                feedbacks.push(feedback)
+            }
+            let deleted = false
+            setRatingScanTestHook({
+                pageSize: 2,
+                afterPage: async (page) => {
+                    if (deleted) return
+                    deleted = true
+                    await dataSource.getRepository(ChatMessageFeedback).delete({ id: page[page.length - 1].id })
+                }
+            })
+            const result = await api.post('/datasets/rows/from-ratings').send({
+                datasetId: dataset.id,
+                flowId: flow.id,
+                rating: 'THUMBS_DOWN',
+                days: 1,
+                dryRun: true
+            })
+            assert.equal(result.status, 200, JSON.stringify(result.body))
+            assert.equal(deleted, true)
+            assert.equal(result.body.truncated, false)
+            assert.equal(result.body.feedbackIds.length, 4)
+            for (const feedback of feedbacks) {
+                assert.equal(result.body.feedbackIds.includes(feedback.id), true)
+            }
+        } finally {
+            setRatingScanTestHook(null)
+            asOwner()
+            await cleanup()
+        }
+    })
+
     it('a continuation keeps ratings that share a timestamp', async () => {
         const { dataSource, api, cleanup } = await openSqlite()
         const now = Date.now()

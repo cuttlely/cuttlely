@@ -81,8 +81,13 @@ function olderThanStoredCursor(repo: Repository<ChatMessageFeedback>): string {
     const ratingName = column('rating', 'rating')
     const table = escape(repo.metadata.tableName)
     const alias = escape('feedback')
-    const anchor = `(SELECT ${created} FROM ${table} WHERE ${id} = :beforeId AND ${flowName} = :anchorFlowId AND ${ratingName} = :anchorRating)`
-    return `(${alias}.${created} < ${anchor} OR (${alias}.${created} = ${anchor} AND ${alias}.${id} < :beforeId))`
+    const anchorWhere = `${id} = :beforeId AND ${flowName} = :anchorFlowId AND ${ratingName} = :anchorRating`
+    const stored = `(SELECT ${created} FROM ${table} WHERE ${anchorWhere})`
+    const storedMatch = `(${alias}.${created} < ${stored} OR (${alias}.${created} = ${stored} AND ${alias}.${id} < :beforeId))`
+    // The row we just read can be deleted before the next page. Then use the time already loaded for it.
+    const loadedMatch = `(${alias}.${created} < :beforeDate OR (${alias}.${created} = :beforeDate AND ${alias}.${id} < :beforeId))`
+    const present = `EXISTS (SELECT 1 FROM ${table} WHERE ${anchorWhere})`
+    return `((${present} AND ${storedMatch}) OR (NOT ${present} AND ${loadedMatch}))`
 }
 
 function loadRatingFeedback(
@@ -97,6 +102,7 @@ function loadRatingFeedback(
     if (args.before) {
         query.andWhere(olderThanStoredCursor(repo), {
             beforeId: args.before.id,
+            beforeDate: args.before.createdDate,
             anchorFlowId: args.flowId,
             anchorRating: args.rating
         })
@@ -768,6 +774,9 @@ const addDatasetRowsFromRatings = async (
         // A write is the preview's ids. Omitting them used to scan again and could write a different set.
         if (!dryRun && (!fixedIds || fixedIds.length === 0)) {
             throw new AppError(StatusCodes.BAD_REQUEST, 'feedbackIds is required.')
+        }
+        if (!dryRun && fixedIds && fixedIds.length > limit) {
+            throw new AppError(StatusCodes.BAD_REQUEST, 'feedbackIds must not be longer than the limit.')
         }
         const before = fixedIds ? null : parseRatingCursor(body.cursor)
         const feedbackRepo = appServer.AppDataSource.getRepository(ChatMessageFeedback)
