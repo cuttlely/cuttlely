@@ -30,10 +30,7 @@ async function flowFor(req: Request, action: 'view' | 'update') {
     return flow
 }
 
-async function shownStatus<T extends { publishGate?: { datasetId?: string | null; evaluatorIds?: string[] } | null }>(
-    req: Request,
-    status: T
-): Promise<T> {
+async function shownStatus<T>(req: Request, status: T): Promise<T> {
     return redactDraftStatus(status, {
         datasets: await hasAnyPermission(req, 'datasets:view'),
         evaluators: await hasAnyPermission(req, 'evaluators:view')

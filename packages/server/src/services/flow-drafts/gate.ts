@@ -47,11 +47,9 @@ export function publishGateApplies(type?: string | null): boolean {
 
 // A draft status keeps the verdict, the threshold, the block, and the counts. Dataset and evaluator
 // ids stay out unless the caller can view them, the same way a check hides evaluator ids.
-export function redactDraftStatus<T extends { publishGate?: GateStatus | null }>(
-    status: T,
-    reveal: { datasets: boolean; evaluators: boolean }
-): T {
-    const gate = status?.publishGate
+export function redactDraftStatus<T>(status: T, reveal: { datasets: boolean; evaluators: boolean }): T {
+    if (!status || typeof status !== 'object') return status
+    const gate = (status as { publishGate?: GateStatus | null }).publishGate
     if (!gate) return status
     const result = gate.result
         ? {
