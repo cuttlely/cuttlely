@@ -64,6 +64,26 @@ describe('getCorsOptions', () => {
         })
     })
 
+    describe('session routes and a wildcard origin list', () => {
+        async function originAllowed(url: string, origin: string): Promise<boolean> {
+            process.env.CORS_ORIGINS = '*'
+            delete process.env.APP_URL
+            return new Promise((resolve) => {
+                getCorsOptions()({ url, method: 'OPTIONS' }, (_err: unknown, options: { origin: Function }) => {
+                    void options.origin(origin, (_error: unknown, allow?: boolean) => resolve(allow === true))
+                })
+            })
+        }
+
+        it('refuses a preflight to local sign-in, sign-out, and password change', async () => {
+            const origin = 'https://evil.example'
+            expect(await originAllowed('/api/v1/auth/local/login', origin)).toBe(false)
+            expect(await originAllowed('/api/v1/auth/local/logout', origin)).toBe(false)
+            expect(await originAllowed('/api/v1/auth/local/password', origin)).toBe(false)
+            expect(await originAllowed('/api/v1/auth/login', origin)).toBe(false)
+        })
+    })
+
     describe('validateCorsConfig', () => {
         beforeEach(() => jest.clearAllMocks())
 

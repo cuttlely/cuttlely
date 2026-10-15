@@ -18,8 +18,7 @@ import { readFileSync } from 'fs'
 import { join } from 'path'
 import express, { Request } from 'express'
 import request from 'supertest'
-import type { DataSource } from 'typeorm'
-import { ABSOLUTE_MS, IDLE_MS, OPEN_SOURCE_FEATURES, localAdminEnabled, localUsersMode } from './constants'
+import { ABSOLUTE_MS, IDLE_MS, LOGIN_FAILURE_WINDOW_MS, OPEN_SOURCE_FEATURES, localAdminEnabled, localUsersMode } from './constants'
 import { apiV1Auth } from './apiGate'
 import {
     UNKNOWN_LOCAL_ACCOUNT_ID,
@@ -33,11 +32,12 @@ import {
     handleRefresh
 } from './handlers'
 import { hashPassword, hashSessionToken } from './password'
-import { LoginRateLimit } from './rateLimit'
+import { LoginRateLimit, accountLockKey } from './rateLimit'
+import { addIdentityLoginGuards } from './schemaMigration'
 import { requireOwner, requirePermission, setTeamPermissionLookup } from './rbac'
 import { enabledSignInMethods } from './signInOptions'
 import { IdentityStore } from './store'
-import { teamAccess } from './sqlStore'
+import { SqlLoginRateLimit, teamAccess } from './sqlStore'
 import { HandlerResult, LocalSession, SessionUser, UserRow } from './types'
 
 /** The public route list, read as text so this test does not import the inherited constants module. */
@@ -245,6 +245,17 @@ function envFor(admin: boolean, users: boolean, authKit: boolean): NodeJS.Proces
 }
 
 describe('local users mode', () => {
+    const savedLockSecret = process.env.TOKEN_HASH_SECRET
+
+    beforeAll(() => {
+        process.env.TOKEN_HASH_SECRET = 'test-login-lock-secret'
+    })
+
+    afterAll(() => {
+        if (savedLockSecret === undefined) delete process.env.TOKEN_HASH_SECRET
+        else process.env.TOKEN_HASH_SECRET = savedLockSecret
+    })
+
     afterEach(() => {
         setTeamPermissionLookup(null)
     })
@@ -414,7 +425,8 @@ describe('local users mode', () => {
         for (let i = 0; i < 10; i++) {
             expect(json(await attempt(`missing-${i}@example.com`, 'Wrong-Pass1!')).status).toBe(401)
         }
-        expect(rateLimit.retained()).toBe(10)
+        expect(rateLimit.retained()).toBe(20)
+        expect(JSON.stringify(rateLimit)).not.toContain('missing-0@example.com')
         const lockedUnknown = json(await attempt('another-missing@example.com', OTHER))
         expect(lockedUnknown.status).toBe(429)
         expect(lockedUnknown.body).toEqual(LOCKED)
@@ -806,6 +818,42 @@ describe('local users mode', () => {
         expect(capped.accountBuckets()).toBe(2)
         expect(await capped.blocked('198.51.100.77', 'old@example.com', NOW)).toBe(false)
         expect(await capped.blocked('198.51.100.78', 'new@example.com', NOW)).toBe(false)
+    })
+
+    it('keeps an email lockout after a new database limiter is created', async () => {
+        const { DatabaseSync } = require('node:sqlite') as {
+            DatabaseSync: new (path: string) => {
+                prepare(sql: string): { all(...params: unknown[]): Record<string, unknown>[]; run(...params: unknown[]): unknown }
+            }
+        }
+        const db = new DatabaseSync(':memory:')
+        const query = async (statement: string, params: unknown[] = []) => {
+            const prepared = db.prepare(statement)
+            if (/^\s*select/i.test(statement)) return prepared.all(...params)
+            prepared.run(...params)
+            return []
+        }
+        const runner = {
+            query,
+            connect: async () => undefined,
+            release: async () => undefined,
+            connection: { options: { type: 'sqlite' } }
+        }
+        await addIdentityLoginGuards(runner as never)
+        const database = { createQueryRunner: () => runner }
+        const email = 'nobody@example.com'
+        const first = new SqlLoginRateLimit(database as never)
+        for (let i = 0; i < 10; i++) await first.recordFailure(`203.0.113.${i}`, email, NOW)
+        const restarted = new SqlLoginRateLimit(database as never)
+        expect(await restarted.blocked('198.51.100.9', 'Nobody@Example.com', NOW)).toBe(true)
+        const rows = await query(`SELECT scope, subject FROM identity_login_failure WHERE scope = 'account'`)
+        expect(rows).toHaveLength(10)
+        expect(rows.every((row) => String(row.subject) === accountLockKey(email))).toBe(true)
+        expect(JSON.stringify(rows)).not.toContain(email)
+        const stale = new SqlLoginRateLimit(database as never)
+        expect(await stale.blocked('198.51.100.9', email, NOW + LOGIN_FAILURE_WINDOW_MS + 1)).toBe(false)
+        const left = await query(`SELECT COUNT(*) AS count FROM identity_login_failure`)
+        expect(Number(left[0]?.count || 0)).toBe(0)
     })
 
     it('refuses a break-glass member session when local users mode is off', async () => {

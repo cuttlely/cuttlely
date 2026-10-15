@@ -468,6 +468,8 @@ describe('identity auth', () => {
     })
 
     it('rate limits failed break-glass attempts without clearing the window on success', async () => {
+        const savedSecret = process.env.TOKEN_HASH_SECRET
+        process.env.TOKEN_HASH_SECRET = 'test-login-lock-secret'
         const store = new MemoryStore()
         const credential = await hashPassword(GOOD)
         store.add({ id: 'owner', email: 'owner@example.com', name: 'Owner', status: 'active', externalId: null, credential }, true)
@@ -495,6 +497,8 @@ describe('identity auth', () => {
                 )
             ).status
         ).toBe(401)
+        if (savedSecret === undefined) delete process.env.TOKEN_HASH_SECRET
+        else process.env.TOKEN_HASH_SECRET = savedSecret
     })
 
     it('does not trust X-Forwarded-For unless TRUST_PROXY is set, and drops old failures', async () => {

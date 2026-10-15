@@ -51,6 +51,8 @@ services:
             # Blank leaves the Docker default (on). Set false in .env, or turn it off in Admin, Server settings,
             # when you use WorkOS or publish the port beyond your machine.
             CUTTLELY_LOCAL_ADMIN: ${CUTTLELY_LOCAL_ADMIN:-}
+            # Blank is off. true lets every active user who already has a password sign in when AuthKit is off.
+            CUTTLELY_LOCAL_USERS: ${CUTTLELY_LOCAL_USERS:-}
             # Blank is off. auto creates analyst.db beside the app database (docs/how-to/analyst.md).
             CUTTLELY_ANALYST: ${CUTTLELY_ANALYST:-}
             # Optional node packs. Blank loads only the nodes that ship with Cuttlely.

@@ -81,9 +81,10 @@ async function dispatch(
 export const identityAuthRouter = Router()
 
 /**
- * Per-client cap in this process for the local password routes.
- * Account lockout still lives in the handler, in the database, so it holds across instances.
- * Successful responses are not counted. The key is req.ip, which trusts proxy headers only when TRUST_PROXY says so.
+ * Extra per-client cap in this process for unsuccessful responses on the local password routes.
+ * It does not replace the database lockout. Per-client and per-email failures are rows in
+ * identity_login_failure, so they survive a restart. The email is stored only as an HMAC.
+ * Successful responses are not counted here. The key is req.ip, which trusts proxy headers only when TRUST_PROXY says so.
  */
 const localAuthRateLimit = rateLimit({
     windowMs: LOGIN_FAILURE_WINDOW_MS,
