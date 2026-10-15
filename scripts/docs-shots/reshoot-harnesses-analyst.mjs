@@ -119,6 +119,9 @@ function startServer(extra = {}) {
 
 const adminPath = path.join(TMP, 'admin.json')
 
+// The key the first server started with: OPENAI_API_KEY, or the stand-in key when that is unset.
+let modelKey = ''
+
 function ensureAdmin() {
     if (fs.existsSync(adminPath)) return JSON.parse(fs.readFileSync(adminPath, 'utf8'))
     const password = `Aa1!${crypto.randomBytes(12).toString('hex')}`
@@ -315,7 +318,7 @@ async function stepCredential(page) {
     if (await name.count()) await name.fill('OpenAI main')
     else await dialog.getByRole('textbox').first().fill('OpenAI main')
     await shot(page, path.join(OUT_H, 'credential-openai-form.png'), 1440, 960)
-    const key = process.env.OPENAI_API_KEY
+    const key = modelKey
     await dialog.locator('input[type="password"]').fill(key)
     await dialog.getByRole('button', { name: 'Add', exact: true }).click()
     await page.getByText(/New Credential added/i).waitFor({ timeout: 15000 })
@@ -1197,7 +1200,7 @@ async function stepWorkspaces(page) {
     const { id: credentialId } = await api('POST', '/credentials', {
         name: 'OpenAI main',
         credentialName: 'openAIApi',
-        plainDataObj: { openAIApiKey: process.env.OPENAI_API_KEY }
+        plainDataObj: { openAIApiKey: modelKey }
     })
     const rebound = savedFlow.replaceAll(homeCredential, credentialId)
     await api('POST', '/chatflows', {
@@ -1657,6 +1660,7 @@ async function main() {
         log('local model stand-in is up')
     } else log('using OPENAI_API_KEY from the environment')
     const key = startServer()
+    modelKey = key
     process.env.OPENAI_API_KEY = key
     await waitFor(`${BASE}/api/v1/ping`)
     const readyDeadline = Date.now() + 60000
