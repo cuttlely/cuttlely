@@ -9,7 +9,7 @@ import { accountLinkSnapshot } from './accountLinks'
 import { SettingsBusyError, withSettingsLockSync } from './lock'
 import { SETTINGS, settingFor } from './registry'
 import { hostSetKeys, isBlank, resolveSettings } from './resolve'
-import { runtimeSnapshot } from './runtime'
+import { flagSnapshot, runtimeSnapshot } from './runtime'
 import { ROLLED_BACK_FILE } from './safeboot'
 import { LAST_GOOD_FILE, SETTINGS_FILE, encryptionKeySync, readSettingsFile, settingsDir, writeFileAtomic } from './store'
 
@@ -33,13 +33,14 @@ function listSettings(env: Env, all: boolean): CliResult {
     const read = readSettingsFile(dir, encryptionKeySync(env))
     const rows = resolveSettings({ env, hostKeys: hostSetKeys(env), file: read.values })
     const live = runtimeSnapshot(env)
+    const flags = flagSnapshot(env)
     const account = accountLinkSnapshot(env)
     const lines = [`Settings file: ${path.join(dir, SETTINGS_FILE)}${read.exists ? '' : ' (none yet)'}`]
     const shown = rows.filter((row) => {
         if (all || read.unreadable.includes(row.key)) return true
         const setting = settingFor(row.key)
         if (setting?.envOnly) return !isBlank(env[row.key])
-        const resolved = live.get(row.key) ?? account.get(row.key)
+        const resolved = live.get(row.key) ?? flags.get(row.key) ?? account.get(row.key)
         // A host or saved value that does not resolve still belongs on the list, with the value in effect.
         if (resolved) return resolved.source !== 'default' || row.source !== 'default'
         return row.source !== 'default'
@@ -48,6 +49,7 @@ function listSettings(env: Env, all: boolean): CliResult {
     for (const row of shown) {
         const setting = settingFor(row.key)
         const resolved = live.get(row.key)
+        const flag = flags.get(row.key)
         const savedFirst = account.get(row.key)
         let value = row.value
         let source: string
@@ -58,6 +60,9 @@ function listSettings(env: Env, all: boolean): CliResult {
         } else if (setting?.panelFirst && savedFirst) {
             value = savedFirst.value || `(default: ${setting.defaultLabel})`
             source = savedFirst.source
+        } else if (flag && setting?.type === 'switch') {
+            value = flag.value ? setting.on ?? 'true' : setting.off ?? 'false'
+            source = flag.source
         } else if (resolved) {
             value = String(resolved.value)
             source = resolved.source

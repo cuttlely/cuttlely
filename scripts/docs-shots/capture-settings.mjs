@@ -618,10 +618,46 @@ async function safeBoot(browser) {
     }
 }
 
+async function captureTesting(browser) {
+    const dataDir = mkdtempSync(path.join(tmpdir(), 'cuttlely-docs-testing-'))
+    const port = await freePort()
+    const server = startServer(dataDir, port, { CUTTLELY_LOCAL_ADMIN: 'true', CUTTLELY_CHECK_MAX_SECONDS: '90', LOG_LEVEL: 'error' })
+    try {
+        console.log('testing section', server.base)
+        await waitForPing(server)
+        const { context, page } = await newPage(browser, TALL)
+        try {
+            await register(page, server.base, ROSA)
+            await page.evaluate(() => localStorage.setItem('cuttlely.serverSettings.getStartedDismissed', '1'))
+            await openSettings(page, server.base)
+            await section(page, 'testing')
+            await page.getByTestId('setting-CUTTLELY_PUBLISH_CHECK').waitFor()
+            await page.getByTestId('lock-CUTTLELY_CHECK_MAX_SECONDS').waitFor()
+            await page.getByTestId('range-CUTTLELY_CHECK_MAX_SECONDS').waitFor()
+            await page.getByTestId('readonly-PORT').waitFor()
+            await page.getByRole('heading', { name: 'Testing and Limits' }).scrollIntoViewIfNeeded()
+            await page.setViewportSize({ width: 1440, height: 2200 })
+            const file = path.join(IMAGES, 'server-settings/testing-and-limits.png')
+            mkdirSync(path.dirname(file), { recursive: true })
+            await page.screenshot({ path: file, animations: 'disabled' })
+            console.log('wrote server-settings/testing-and-limits.png')
+        } finally {
+            await context.close()
+        }
+    } finally {
+        server.stop()
+        rmSync(dataDir, { recursive: true, force: true })
+    }
+}
+
 async function main() {
     if (!existsSync(path.join(SERVER, 'dist/ui'))) throw new Error('Build first: pnpm build')
     const browser = await launchBrowser()
     try {
+        if (process.env.DOCS_SHOTS === 'testing') {
+            await captureTesting(browser)
+            return
+        }
         await captureRosa(browser)
         await captureSetup(browser)
         await captureRoles(browser)

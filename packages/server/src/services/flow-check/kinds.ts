@@ -1,7 +1,7 @@
 // Which flows the publish check can replay. Shared by the check and Dev-to-Prod promote.
 
 export interface Unavailable {
-    code: 'off' | 'type' | 'start' | 'no-draft' | 'new-flow' | 'credentials'
+    code: 'off' | 'disabled' | 'type' | 'start' | 'no-draft' | 'new-flow' | 'credentials'
     message: string
 }
 

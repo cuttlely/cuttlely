@@ -18,7 +18,7 @@ import { listReadOnlyStatus } from './readOnly'
 import { KEPT_OUT, SECTIONS, SETTINGS, SettingDef, isKeptOut, isReadOnly, savedValueWins, settingFor } from './registry'
 import { ResolvedSetting, effectiveValue, isBlank, resolveSettings } from './resolve'
 import { accountLinkSnapshot } from './accountLinks'
-import { invalidateRuntimeCache, runtimeConflict, runtimeSnapshot } from './runtime'
+import { flagSnapshot, invalidateRuntimeCache, runtimeConflict, runtimeSnapshot } from './runtime'
 import { requestRestart, restartInPlaceAvailable } from './restart'
 import { ROLLED_BACK_FILE } from './safeboot'
 import { drainRuns, runsInProgress, waitLimitMs } from './runs'
@@ -171,6 +171,7 @@ export async function getView(deps: ServiceDeps): Promise<SettingsView> {
         return !hostKeys.has(key) && !setting?.runtime && !setting?.panelFirst && !setting?.envOnly
     })
     const live = runtimeSnapshot(env)
+    const flags = flagSnapshot(env)
     const settings: SettingView[] = SETTINGS.map((setting, index) => {
         const row = resolved[index]
         const locked = row.source === 'host'
@@ -216,6 +217,19 @@ export async function getView(deps: ServiceDeps): Promise<SettingsView> {
                 if (setting.type === 'number' && setting.min !== undefined && setting.max !== undefined) {
                     view.range = { min: setting.min, max: setting.max }
                 }
+            }
+        } else if (setting.runtime && setting.type === 'switch') {
+            const picked = flags.get(setting.key)
+            if (picked) {
+                const on = setting.on ?? 'true'
+                const off = setting.off ?? 'false'
+                const shown = picked.source === 'default' ? '' : picked.value ? on : off
+                view.source = picked.source
+                view.locked = hostKeys.has(setting.key) && !isBlank(env[setting.key])
+                view.changed = false
+                view.value = shown
+                view.running = shown
+                view.effective = picked.value ? on : off
             }
         } else if (setting.runtime) {
             const picked = live.get(setting.key)
@@ -335,7 +349,13 @@ export async function saveChanges(deps: ServiceDeps, input: unknown, by: string,
             continue
         }
         if (hostKeys.has(key) && !savedValueWins(key) && !setting.panelFirst) {
-            errors.push({ key, message: `${setting.label} is set by the host, so it is locked here.` })
+            // The publish check switch is the one host lock that answers 409. Other host locks stay 400.
+            const code = setting.runtime && setting.type === 'switch' ? 'LOCKED' : undefined
+            errors.push({
+                key,
+                ...(code ? { code } : {}),
+                message: `${setting.label} is set by the host, so it is locked here.`
+            })
             continue
         }
         const guided = guidedOnly(setting)
@@ -365,6 +385,9 @@ function refuse(errors: { key: string; message: string; code?: string; min?: num
     const published = errors.map(({ key, message, code }) => (code ? { key, message, code } : { key, message }))
     if (errors.length > 0 && errors.every((error) => error.code === 'READ_ONLY')) {
         throw new SettingsError(400, 'READ_ONLY', 'This setting cannot be changed.', published)
+    }
+    if (errors.length > 0 && errors.every((error) => error.code === 'LOCKED')) {
+        throw new SettingsError(409, 'LOCKED', errors[0].message, published)
     }
     const runtime = errors.filter((error) => error.code && error.code !== 'READ_ONLY')
     const only = runtime.length > 0 && runtime.length === errors.length

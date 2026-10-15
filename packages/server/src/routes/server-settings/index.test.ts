@@ -11,7 +11,7 @@ import { StartState } from '../../settings/apply'
 import { readHistory } from '../../settings/history'
 import { resetRestartRequest, setRestartHandler } from '../../settings/restart'
 import { resetRuns } from '../../settings/runs'
-import { resetRuntimeLimitsForTests, runtimeNumber } from '../../settings/runtime'
+import { publishCheckEnabled, resetRuntimeLimitsForTests, runtimeNumber } from '../../settings/runtime'
 import { SETTINGS_FILE, readSettingsFile, readStoredValues, writeSettingsFile } from '../../settings/store'
 
 jest.mock('../../settings/bootstrap', () => ({
@@ -518,6 +518,26 @@ describe('runtime limits and history', () => {
         expect((await app(ownerElsewhere).get('/api/v1/server-settings/history')).status).toBe(200)
     })
 
+    it('treats an expired or invalid session as signed out, and a caller with no user id as forbidden', async () => {
+        const expired = await gated({ attachIdentitySession: async () => null })
+            .get('/api/v1/server-settings')
+            .set('Cookie', 'cuttlely.local=not-a-real-session')
+        const invalidToken = await gated({
+            attachIdentitySession: async () => null,
+            validateAPIKey: jest.fn(async () => ({ isValid: true, apiKey: { workspaceId: 'team-a', permissions: ['*'] } }))
+        })
+            .put('/api/v1/server-settings')
+            .set('Authorization', 'Bearer not-a-real-token')
+            .send({ values: { CUTTLELY_PUBLISH_CHECK: 'false' } })
+        expect(expired.status).toBe(401)
+        expect(expired.body).toEqual({ error: 'Unauthorized Access' })
+        expect(invalidToken.status).toBe(401)
+        expect(invalidToken.body).toEqual({ error: 'Unauthorized Access' })
+        const nameless = { email: 'owner@example.com', activeWorkspaceId: 'team-a', permissions: [] }
+        expect((await app(nameless).get('/api/v1/server-settings')).status).toBe(403)
+        expect(fs.existsSync(path.join(dir, SETTINGS_FILE))).toBe(false)
+    })
+
     it('refuses a host-locked limit and does not record a change', async () => {
         state.hostKeys.push('CUTTLELY_SESSION_IDLE_MINUTES')
         env.CUTTLELY_SESSION_IDLE_MINUTES = '30'
@@ -725,6 +745,92 @@ describe('runtime limits on the settings API', () => {
         expect(res.status).toBe(200)
         const tokens = res.body.settings.find((setting: { key: string }) => setting.key === 'CUTTLELY_CHECK_MAX_TOKENS')
         expect(tokens).toMatchObject({ source: 'default', effective: '100000' })
+    })
+
+    it('saves the publish check switch, records it, and ignores a workspace id', async () => {
+        process.env.CUTTLELY_DATA_DIR = env.CUTTLELY_DATA_DIR
+        resetRuntimeLimitsForTests()
+        const before = await app(OWNER).get('/api/v1/server-settings')
+        expect(before.body.workspaceId).toBeUndefined()
+        expect(before.body.readOnly.length).toBeGreaterThan(0)
+        expect(before.body.readOnly.length).toBeLessThan(200)
+        const row = before.body.settings.find((setting: { key: string }) => setting.key === 'CUTTLELY_PUBLISH_CHECK')
+        expect(row).toMatchObject({
+            type: 'switch',
+            runtime: true,
+            section: 'testing',
+            source: 'default',
+            value: '',
+            effective: 'true',
+            on: 'true',
+            off: 'false',
+            locked: false
+        })
+        const saved = await app(OWNER)
+            .put('/api/v1/server-settings')
+            .send({ values: { CUTTLELY_PUBLISH_CHECK: false }, workspaceId: 'team-b' })
+        expect(saved.status).toBe(200)
+        const after = saved.body.settings.find((setting: { key: string }) => setting.key === 'CUTTLELY_PUBLISH_CHECK')
+        expect(after).toMatchObject({ source: 'panel', value: 'false', effective: 'false' })
+        expect(readSettingsFile(dir, KEY).values).toEqual({ CUTTLELY_PUBLISH_CHECK: 'false' })
+        expect(JSON.stringify(readSettingsFile(dir, KEY))).not.toContain('team-b')
+        const history = await app(OWNER).get('/api/v1/server-settings/history?limit=5')
+        expect(history.body.entries[0].changes).toEqual([{ key: 'CUTTLELY_PUBLISH_CHECK', from: '', to: 'false' }])
+        expect(history.body.entries[0].event).toBe('server_setting.updated')
+        const cleared = await app(OWNER)
+            .put('/api/v1/server-settings')
+            .send({ values: { CUTTLELY_PUBLISH_CHECK: null } })
+        expect(cleared.status).toBe(200)
+        expect(readSettingsFile(dir, KEY).values.CUTTLELY_PUBLISH_CHECK).toBeUndefined()
+        resetRuntimeLimitsForTests()
+        expect(publishCheckEnabled(env)).toBe(true)
+    })
+
+    it('refuses a bad publish-check value and a host lock, and does not scope the save to a workspace', async () => {
+        process.env.CUTTLELY_DATA_DIR = env.CUTTLELY_DATA_DIR
+        const cases: Array<{ body: object; code: string }> = [
+            { body: { values: { CUTTLELY_PUBLISH_CHECK: 'yes' } }, code: 'INVALID' },
+            { body: { values: { CUTTLELY_PUBLISH_CHECK: 'TRUE' } }, code: 'INVALID' },
+            { body: { values: { CUTTLELY_PUBLISH_CHECK: 1 } }, code: 'INVALID' },
+            { body: { values: { CUTTLELY_PUBLISH_CHECK: { on: true } } }, code: 'INVALID' },
+            { body: { values: { CUTTLELY_NOT_A_REAL_SETTING: '1' } }, code: 'INVALID' }
+        ]
+        for (const item of cases) {
+            const res = await app(OWNER).put('/api/v1/server-settings').send(item.body)
+            expect(res.status).toBe(400)
+            expect(res.body.code).toBe(item.code)
+        }
+        const empty = await app(OWNER)
+            .put('/api/v1/server-settings')
+            .send({ values: { CUTTLELY_PUBLISH_CHECK: '' } })
+        expect(empty.status).toBe(200)
+        state.hostKeys.push('CUTTLELY_PUBLISH_CHECK')
+        env.CUTTLELY_PUBLISH_CHECK = 'false'
+        resetRuntimeLimitsForTests()
+        const locked = await app(OWNER)
+            .put('/api/v1/server-settings')
+            .send({ values: { CUTTLELY_PUBLISH_CHECK: 'true' } })
+        expect(locked.status).toBe(409)
+        expect(locked.body.code).toBe('LOCKED')
+        expect(locked.body.message).toMatch(/set by the host/)
+        expect(readSettingsFile(dir, KEY).values.CUTTLELY_PUBLISH_CHECK).toBeUndefined()
+        const view = await app(OWNER).get('/api/v1/server-settings')
+        const row = view.body.settings.find((setting: { key: string }) => setting.key === 'CUTTLELY_PUBLISH_CHECK')
+        expect(row).toMatchObject({ locked: true, source: 'host', effective: 'false' })
+        const scoped = await app(OTHER_WORKSPACE)
+            .put('/api/v1/workspaces/team-b/server-settings')
+            .send({ values: { CUTTLELY_PUBLISH_CHECK: 'true' } })
+        expect(scoped.status).toBe(404)
+        const missed = await app(OWNER).get('/api/v1/server-settings/workspaces/team-b')
+        expect(missed.status).toBe(404)
+        expect((await app(OTHER_WORKSPACE).get('/api/v1/server-settings')).status).toBe(403)
+        expect(
+            (
+                await app(OTHER_WORKSPACE)
+                    .put('/api/v1/server-settings')
+                    .send({ values: { CUTTLELY_PUBLISH_CHECK: 'true' } })
+            ).status
+        ).toBe(403)
     })
 })
 

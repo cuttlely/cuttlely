@@ -4,6 +4,7 @@ import {
     IconDatabase,
     IconFolders,
     IconHistory,
+    IconListCheck,
     IconListDetails,
     IconPlugConnected,
     IconRobot,
@@ -21,6 +22,7 @@ export const SECTION_ICONS = {
     storage: IconFolders,
     security: IconShieldLock,
     integrations: IconPlugConnected,
+    testing: IconListCheck,
     advanced: IconAdjustmentsHorizontal,
     all: IconListDetails,
     history: IconHistory

@@ -31,7 +31,7 @@ import { OSS_PRODUCT_ID } from '../../identity/ossPlatform'
 import { getRunningExpressApp } from '../../utils/getRunningExpressApp'
 import { estimateTokenLines, priceBookForWorkspace, usageLinesFromMetrics, usageLinesFromRun } from '../usage'
 import type { PriceBook, UsageLine } from '../usage'
-import { runtimeNumber } from '../../settings/runtime'
+import { PUBLISH_CHECK_OFF_MESSAGE, publishCheckEnabled, runtimeNumber } from '../../settings/runtime'
 import logger from '../../utils/logger'
 import executionsService from '../executions'
 import flowDraftsService, { canvasHash, DraftFlow } from '../flow-drafts'
@@ -134,6 +134,8 @@ export interface CheckSelection {
 }
 
 export interface CheckSetup {
+    /** False when the server switch is off. Absent when the check is available, so older clients keep the same shape. */
+    publishCheck?: boolean
     unavailable: Unavailable | null
     // Recent real questions, newest first, then the starter questions nobody asked yet (marked starter).
     questions: Array<{ text: string; date: string; starter?: boolean; preview?: string; source?: ReplaySource }>
@@ -496,11 +498,41 @@ export function starterQuestions(chatbotConfig?: string | null): string[] {
     }
 }
 
+function checkTurnedOff(): CheckSetup {
+    return {
+        publishCheck: false,
+        unavailable: { code: 'disabled', message: PUBLISH_CHECK_OFF_MESSAGE },
+        questions: [],
+        pastCount: 0,
+        pastTruncated: false,
+        riskySteps: [],
+        limits: checkLimits(),
+        liveEmpty: true,
+        replayInputs: false,
+        replaySource: null,
+        check: null
+    }
+}
+
+function assertPublishCheckOn(): void {
+    if (!publishCheckEnabled()) throw new AppError(StatusCodes.CONFLICT, PUBLISH_CHECK_OFF_MESSAGE)
+}
+
 export async function getCheckSetup(
     flow: DraftFlow & { chatbotConfig?: string | null },
     given?: Candidate,
     reveal?: CheckReveal
 ): Promise<CheckSetup> {
+    if (!publishCheckEnabled()) {
+        purge()
+        const candidate = await candidateFor(flow, given)
+        const record = checks.get(candidate.key)
+        return {
+            ...checkTurnedOff(),
+            // The off banner stays. Only a check still in progress is returned, so it can be stopped.
+            check: record?.status === 'running' ? await present(flow, record, candidate.canvas, reveal) : null
+        }
+    }
     purge()
     const candidate = await candidateFor(flow, given)
     const draft = candidate.canvas
@@ -705,6 +737,7 @@ export async function startCheck(
     given?: Candidate,
     watch?: StartWatch
 ): Promise<CheckView> {
+    assertPublishCheckOn()
     purge()
     const closed = () => Boolean(watch?.closed?.())
     const candidate = await candidateFor(flow as DraftFlow, given)
