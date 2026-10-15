@@ -29,6 +29,7 @@ import { hashPassword, hashSessionToken, passwordErrors } from './password'
 import { cookieMutationAllowed } from './sessionGuard'
 import { announceFirstRunSetup, firstRunSetupLink, resetFirstRunSetupCode } from './setupCode'
 import { resolveTrustProxy } from '../utils/trustProxy'
+import { AuthKitSwitchApply, AuthKitSwitchState, switchedSessions } from './authKitSwitch'
 import { IdentityStore } from './store'
 import { addIdentityLoginGuards, addIdentitySignIn, removeIdentityLoginGuards } from './schemaMigration'
 import { CreateOwnerInput, HandlerResult, LocalSession, NotEmptyError, SessionUser, UserRow, WorkosPort } from './types'
@@ -42,6 +43,7 @@ class MemoryStore implements IdentityStore {
     sessions = new Map<string, SessionUser>()
     local = new Map<string, LocalSession>()
     touched: string[] = []
+    switchState: AuthKitSwitchState | null = null
 
     async countUsers(): Promise<number> {
         return this.users.length
@@ -56,7 +58,8 @@ class MemoryStore implements IdentityStore {
     }
 
     async findUsersByEmail(email: string): Promise<UserRow[]> {
-        return this.users.filter((user) => user.email.toLowerCase() === email.toLowerCase())
+        const needle = email.trim().toLowerCase()
+        return this.users.filter((user) => user.email.trim().toLowerCase() === needle)
     }
 
     async setExternalId(userId: string, externalId: string): Promise<'linked' | 'rebind' | 'missing'> {
@@ -159,6 +162,15 @@ class MemoryStore implements IdentityStore {
         const user = this.users.find((row) => row.id === userId)
         if (!user || user.status.toLowerCase() !== 'active') return false
         return !this.disabled.has(userId)
+    }
+
+    async readAuthKitSwitch(): Promise<AuthKitSwitchState | null> {
+        return this.switchState
+    }
+
+    async applyAuthKitSwitch(configured: boolean, at: Date, options?: AuthKitSwitchApply): Promise<AuthKitSwitchState> {
+        this.switchState = switchedSessions(this.switchState, configured, at, this.local, options)
+        return this.switchState
     }
 
     disabled = new Set<string>()
@@ -1005,5 +1017,89 @@ describe('identity auth', () => {
             expect(sql.some((line) => line.includes('DROP TABLE IF EXISTS') && line.includes('identity_bootstrap'))).toBe(true)
             expect(sql.some((line) => line.includes('DROP TABLE IF EXISTS') && line.includes('identity_login_failure'))).toBe(true)
         }
+    })
+
+    it('links a verified local mailbox ignoring case and surrounding spaces', async () => {
+        const store = new MemoryStore()
+        store.add({ id: 'user-9', email: 'Ada@Example.com', name: 'Ada', status: 'active', externalId: null, credential: 'hash' }, false)
+        const result = await handleCallback(
+            ctx({
+                workosConfigured: true,
+                code: 'code',
+                store,
+                workos: workos({
+                    authenticate: async () => ({
+                        user: { id: 'wos-ada', email: '  ada@example.com  ', emailVerified: true, name: 'Ada' },
+                        sealedSession: 'sealed-ada'
+                    })
+                })
+            })
+        )
+        expect(result).toMatchObject({ type: 'redirect', url: '/' })
+        expect(store.users[0]).toMatchObject({ externalId: 'wos-ada', credential: 'hash', email: 'Ada@Example.com' })
+    })
+
+    it('refuses an unverified email that matches an existing local user', async () => {
+        const store = new MemoryStore()
+        store.add({ id: 'user-9', email: 'ada@example.com', name: 'Ada', status: 'active', externalId: null, credential: 'hash' })
+        const result = await handleCallback(
+            ctx({
+                workosConfigured: true,
+                code: 'code',
+                store,
+                workos: workos({
+                    authenticate: async () => ({
+                        user: { id: 'wos-ada', email: 'ada@example.com', emailVerified: false, name: 'Ada' },
+                        sealedSession: 'sealed'
+                    })
+                })
+            })
+        )
+        if (result.type === 'redirect') expect(decodeURIComponent(result.url)).toContain('not verified')
+        expect(store.users[0].externalId).toBeNull()
+        expect(store.users[0].credential).toBe('hash')
+    })
+
+    it('refuses a duplicate mailbox instead of choosing one team', async () => {
+        const store = new MemoryStore()
+        store.add({ id: 'team-a', email: 'Ada@Example.com', name: 'Ada A', status: 'active', externalId: null, credential: 'hash' })
+        store.add({ id: 'team-b', email: 'ada@example.com', name: 'Ada B', status: 'active', externalId: 'wos-other', credential: null })
+        const result = await handleCallback(
+            ctx({
+                workosConfigured: true,
+                code: 'code',
+                store,
+                workos: workos({
+                    authenticate: async () => ({
+                        user: { id: 'wos-ada', email: 'ada@example.com', emailVerified: true, name: 'Ada' },
+                        sealedSession: 'sealed'
+                    })
+                })
+            })
+        )
+        if (result.type === 'redirect') expect(decodeURIComponent(result.url)).toContain('more than one account')
+        expect(store.users.map((user) => user.externalId)).toEqual([null, 'wos-other'])
+    })
+
+    it('does not link a plus tag or a different domain', async () => {
+        const store = new MemoryStore()
+        store.add({ id: 'user-9', email: 'ada@example.com', name: 'Ada', status: 'active', externalId: null, credential: 'hash' })
+        for (const email of ['ada+notes@example.com', 'ada@example.org']) {
+            const result = await handleCallback(
+                ctx({
+                    workosConfigured: true,
+                    code: 'code',
+                    store,
+                    workos: workos({
+                        authenticate: async () => ({
+                            user: { id: 'wos-near', email, emailVerified: true, name: 'Ada' },
+                            sealedSession: 'sealed'
+                        })
+                    })
+                })
+            )
+            if (result.type === 'redirect') expect(decodeURIComponent(result.url)).toContain('No account')
+        }
+        expect(store.users[0].externalId).toBeNull()
     })
 })

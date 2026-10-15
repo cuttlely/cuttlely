@@ -39,6 +39,7 @@ import { hashPassword, hashSessionToken } from './password'
 import { LoginRateLimit, accountLockKey } from './rateLimit'
 import { addIdentityLoginGuards } from './schemaMigration'
 import { requireOwner, requirePermission, setTeamPermissionLookup } from './rbac'
+import { AuthKitSwitchApply, AuthKitSwitchState, switchedSessions } from './authKitSwitch'
 import { enabledSignInMethods } from './signInOptions'
 import { IdentityStore } from './store'
 import { SqlLoginRateLimit, teamAccess } from './sqlStore'
@@ -124,6 +125,7 @@ class MemoryStore implements IdentityStore {
     sessions = new Map<string, SessionUser>()
     local = new Map<string, LocalSession>()
     disabled = new Set<string>()
+    switchState: AuthKitSwitchState | null = null
     workspaces = new Map<string, string>()
 
     async countUsers(): Promise<number> {
@@ -186,6 +188,15 @@ class MemoryStore implements IdentityStore {
         const user = this.users.find((row) => row.id === userId)
         if (!user || user.status.toLowerCase() !== 'active') return false
         return !this.disabled.has(userId)
+    }
+
+    async readAuthKitSwitch(): Promise<AuthKitSwitchState | null> {
+        return this.switchState
+    }
+
+    async applyAuthKitSwitch(configured: boolean, at: Date, options?: AuthKitSwitchApply): Promise<AuthKitSwitchState> {
+        this.switchState = switchedSessions(this.switchState, configured, at, this.local, options)
+        return this.switchState
     }
 
     add(user: UserRow, owner = false, workspaceId = 'ws-1'): void {
@@ -1073,5 +1084,183 @@ describe('local users mode', () => {
             ctx({ store, localUsers: false, localAdmin: true, cookies: { 'cuttlely-local-session': owner.cookies?.[0].value } })
         )
         expect(kept.user?.id).toBe('owner')
+    })
+
+    it('ends local sessions when AuthKit is turned on and reports that on options', async () => {
+        const { store } = await seed()
+        const member = json(await handleLocalLogin(signed({ store, body: { email: 'ada@example.com', password: OTHER } })))
+        const owner = json(
+            await handleLoginPost(
+                ctx({
+                    store,
+                    localAdmin: true,
+                    localUsers: true,
+                    internal: true,
+                    body: { email: 'owner@example.com', password: GOOD }
+                })
+            )
+        )
+        expect(store.local.size).toBe(2)
+        const at = new Date('2026-10-15T12:00:00.000Z')
+        expect(await store.applyAuthKitSwitch(true, at)).toEqual({
+            configured: true,
+            sessionsEnded: 2,
+            switchedAt: at.toISOString()
+        })
+        expect(store.local.size).toBe(0)
+        const memberGone = await establishSession(
+            ctx({
+                store,
+                localUsers: false,
+                localAdmin: true,
+                workosConfigured: true,
+                cookies: { 'cuttlely-local-session': member.cookies?.[0].value }
+            })
+        )
+        const ownerGone = await establishSession(
+            ctx({
+                store,
+                localUsers: false,
+                localAdmin: true,
+                workosConfigured: true,
+                cookies: { 'cuttlely-local-session': owner.cookies?.[0].value }
+            })
+        )
+        expect(memberGone.user).toBeNull()
+        expect(ownerGone.user).toBeNull()
+
+        const again = json(
+            await handleLoginPost(
+                ctx({
+                    store,
+                    localUsers: false,
+                    localAdmin: true,
+                    workosConfigured: true,
+                    internal: true,
+                    body: { email: 'owner@example.com', password: GOOD }
+                })
+            )
+        )
+        expect(again.status).toBe(200)
+        expect(store.local.size).toBe(1)
+        const second = await store.applyAuthKitSwitch(true, new Date('2026-10-16T00:00:00.000Z'))
+        expect(second.sessionsEnded).toBe(2)
+        expect(store.local.size).toBe(1)
+        const still = await establishSession(
+            ctx({ store, localUsers: false, localAdmin: true, cookies: { 'cuttlely-local-session': again.cookies?.[0].value } })
+        )
+        expect(still.user?.id).toBe('owner')
+        expect(
+            json(
+                await handleLocalLogin(
+                    signed({ store, localUsers: false, workosConfigured: true, body: { email: 'bea@example.com', password: OTHER } })
+                )
+            ).status
+        ).toBe(404)
+
+        mockRouteStore.current = store
+        const saved = {
+            users: process.env.CUTTLELY_LOCAL_USERS,
+            admin: process.env.CUTTLELY_LOCAL_ADMIN,
+            key: process.env.WORKOS_API_KEY,
+            client: process.env.WORKOS_CLIENT_ID
+        }
+        const restoreEnv = () => {
+            if (saved.users === undefined) delete process.env.CUTTLELY_LOCAL_USERS
+            else process.env.CUTTLELY_LOCAL_USERS = saved.users
+            if (saved.admin === undefined) delete process.env.CUTTLELY_LOCAL_ADMIN
+            else process.env.CUTTLELY_LOCAL_ADMIN = saved.admin
+            if (saved.key === undefined) delete process.env.WORKOS_API_KEY
+            else process.env.WORKOS_API_KEY = saved.key
+            if (saved.client === undefined) delete process.env.WORKOS_CLIENT_ID
+            else process.env.WORKOS_CLIENT_ID = saved.client
+        }
+        try {
+            process.env.CUTTLELY_LOCAL_USERS = 'true'
+            process.env.CUTTLELY_LOCAL_ADMIN = 'true'
+            process.env.WORKOS_API_KEY = 'key'
+            process.env.WORKOS_CLIENT_ID = 'client'
+            const http = request(localRouteApp())
+            const options = await http.get('/api/v1/auth/options')
+            expect(options.status).toBe(200)
+            expect(options.body).toEqual({
+                methods: ['authKit', 'localAdmin'],
+                status: {
+                    authKit: true,
+                    localPasswordSignIn: false,
+                    breakGlassOwner: true,
+                    localSessions: 'ended',
+                    sessionsEnded: 2
+                }
+            })
+            expect(JSON.stringify(options.body)).not.toContain('@')
+            const posted = await http.post('/api/v1/auth/options')
+            expect(posted.status).toBe(404)
+            expect(store.local.size).toBe(1)
+
+            store.switchState = null
+            const pending = await http.get('/api/v1/auth/options')
+            expect(pending.body.status.localSessions).toBe('pending')
+            expect(pending.body.status.sessionsEnded).toBe(0)
+
+            await store.applyAuthKitSwitch(true, at)
+            await store.applyAuthKitSwitch(false, new Date('2026-10-17T00:00:00.000Z'), { recordOff: true })
+            delete process.env.WORKOS_API_KEY
+            delete process.env.WORKOS_CLIENT_ID
+            const open = await http.get('/api/v1/auth/options')
+            expect(open.body.status).toMatchObject({
+                authKit: false,
+                localPasswordSignIn: true,
+                localSessions: 'open',
+                sessionsEnded: 1
+            })
+            const otherTeam = json(await handleLocalLogin(signed({ store, body: { email: 'bea@example.com', password: OTHER } })))
+            expect(otherTeam.status).toBe(200)
+            expect(otherTeam.body.activeWorkspaceId).toBe('ws-b')
+            await store.applyAuthKitSwitch(true, new Date('2026-10-18T00:00:00.000Z'))
+            expect(store.local.size).toBe(0)
+            const crossed = await establishSession(
+                ctx({
+                    store,
+                    localUsers: false,
+                    localAdmin: true,
+                    cookies: { 'cuttlely-local-session': otherTeam.cookies?.[0].value }
+                })
+            )
+            expect(crossed.user).toBeNull()
+        } finally {
+            mockRouteStore.current = null
+            restoreEnv()
+        }
+    })
+
+    it('does not end sessions again when a process sees AuthKit off after the web server recorded it on', async () => {
+        const { store } = await seed()
+        const session = (id: string, userId: string) =>
+            store.insertLocalSession({
+                id,
+                userId,
+                token: `${id}-token`,
+                idleExpires: new Date(NOW + IDLE_MS),
+                absoluteExpires: new Date(NOW + ABSOLUTE_MS)
+            })
+        await session('owner-before', 'owner')
+        await session('ada-before', 'user-a')
+        await store.applyAuthKitSwitch(true, new Date('2026-10-15T12:00:00.000Z'))
+        expect(store.local.size).toBe(0)
+        await session('owner-after', 'owner')
+
+        const seenOff = await store.applyAuthKitSwitch(false, new Date('2026-10-16T00:00:00.000Z'))
+        expect(seenOff.configured).toBe(true)
+        expect(store.local.size).toBe(1)
+        const stillOn = await store.applyAuthKitSwitch(true, new Date('2026-10-16T01:00:00.000Z'))
+        expect(stillOn.sessionsEnded).toBe(2)
+        expect(store.local.has('owner-after-token')).toBe(true)
+
+        const turnedOff = await store.applyAuthKitSwitch(false, new Date('2026-10-17T00:00:00.000Z'), { recordOff: true })
+        expect(turnedOff.configured).toBe(false)
+        expect(store.local.size).toBe(1)
+        await store.applyAuthKitSwitch(true, new Date('2026-10-18T00:00:00.000Z'))
+        expect(store.local.size).toBe(0)
     })
 })
