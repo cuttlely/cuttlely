@@ -1,6 +1,7 @@
 // The publish check: before Publish, replay recent real questions from this flow's chat history against
 // Live and the draft, and show the answers, tokens and time side by side.
-// `count` (1 to 100, 4 in the dialog) selects the newest distinct questions. A few run at a time.
+// `count` (1 to the question cap, the default count in the dialog) selects the newest distinct questions.
+// A few run at a time.
 //
 // An agentflow that starts from a form, a webhook or a schedule has no chat questions. The same check
 // reads recent execution records and replays those recorded inputs (the form payload, the webhook
@@ -35,6 +36,7 @@ import logger from '../../utils/logger'
 import executionsService from '../executions'
 import flowDraftsService, { canvasHash, DraftFlow } from '../flow-drafts'
 import {
+    compareCountChoices,
     compareCountDefault,
     compareCountMax,
     CheckCase,
@@ -101,6 +103,7 @@ export function checkLimits() {
     return {
         maxQuestions: compareCountMax(),
         defaultQuestions: compareCountDefault(),
+        counts: compareCountChoices(),
         maxQuestionChars: MAX_QUESTION_CHARS,
         maxTokens: runtimeNumber('CUTTLELY_CHECK_MAX_TOKENS'),
         maxSeconds: runtimeNumber('CUTTLELY_CHECK_MAX_SECONDS'),
@@ -136,7 +139,7 @@ export interface CheckSetup {
     unavailable: Unavailable | null
     // Recent real questions, newest first, then the starter questions nobody asked yet (marked starter).
     questions: Array<{ text: string; date: string; starter?: boolean; preview?: string; source?: ReplaySource }>
-    // Distinct past questions found, not counting starter questions. At most 100.
+    // Distinct past questions found, not counting starter questions. At most the question cap.
     pastCount: number
     pastTruncated: boolean
     riskySteps: RiskyStep[]

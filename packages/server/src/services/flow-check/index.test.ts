@@ -287,6 +287,7 @@ describe('setup', () => {
         expect(setup.limits).toEqual({
             maxQuestions: 100,
             defaultQuestions: 4,
+            counts: [4, 10, 25, 50, 100],
             maxQuestionChars: 2000,
             maxTokens: 100000,
             maxSeconds: 180,
@@ -384,6 +385,73 @@ describe('setup', () => {
         } finally {
             if (previous === undefined) delete process.env.CUTTLELY_DATA_DIR
             else process.env.CUTTLELY_DATA_DIR = previous
+            resetRuntimeLimitsForTests()
+        }
+    })
+
+    test('the question cap above and below 100 changes the picker counts and the refusal', async () => {
+        messages.push({ content: 'When is the rye ready?', createdDate: new Date('2026-10-08T10:00:00Z'), fileUploads: null })
+        process.env.CUTTLELY_CHECK_COUNT_MAX = '40'
+        process.env.CUTTLELY_CHECK_COUNT_DEFAULT = '4'
+        resetRuntimeLimitsForTests()
+        try {
+            expect((await getCheckSetup(flow())).limits).toMatchObject({
+                maxQuestions: 40,
+                defaultQuestions: 4,
+                counts: [4, 10, 25, 40]
+            })
+            await expect(startCheck(flow() as any, { count: 4.5 }, 'http://x')).rejects.toMatchObject({
+                statusCode: 400,
+                message: 'count must be a whole number from 1 to 40.'
+            })
+            const wide = await startCheck(flow() as any, { count: 250 }, 'http://x')
+            expect(wide.selection).toMatchObject({ requested: 40, available: 1, used: 1 })
+            await settle()
+            checks.clear()
+            const typed = Array.from({ length: 41 }, (_, index) => `typed loaf ${index}`)
+            await expect(startCheck(flow() as any, { questionIds: [], questions: typed }, 'http://x')).rejects.toMatchObject({
+                statusCode: 400,
+                message: 'The check runs at most 40 questions.'
+            })
+            const under = await startCheck(flow() as any, { questionIds: [], questions: typed.slice(0, 11) }, 'http://x')
+            expect(under.cases).toHaveLength(11)
+            await settle()
+            checks.clear()
+
+            process.env.CUTTLELY_CHECK_COUNT_MAX = '200'
+            process.env.CUTTLELY_CHECK_COUNT_DEFAULT = '4'
+            resetRuntimeLimitsForTests()
+            expect((await getCheckSetup(flow())).limits).toMatchObject({
+                maxQuestions: 200,
+                defaultQuestions: 4,
+                counts: [4, 10, 25, 50, 100, 200]
+            })
+            await expect(startCheck(flow() as any, { count: 4.5 }, 'http://x')).rejects.toMatchObject({
+                statusCode: 400,
+                message: 'count must be a whole number from 1 to 200.'
+            })
+            const higher = await startCheck(flow() as any, { count: 250 }, 'http://x')
+            expect(higher.selection).toMatchObject({ requested: 200, available: 1, used: 1 })
+            await settle()
+            checks.clear()
+            const many = Array.from({ length: 101 }, (_, index) => `raised loaf ${index}`)
+            const raised = await startCheck(flow() as any, { questionIds: [], questions: many }, 'http://x')
+            expect(raised.cases).toHaveLength(101)
+            await settle()
+            checks.clear()
+            await expect(
+                startCheck(
+                    flow() as any,
+                    { questionIds: [], questions: Array.from({ length: 201 }, (_, index) => `over loaf ${index}`) },
+                    'http://x'
+                )
+            ).rejects.toMatchObject({
+                statusCode: 400,
+                message: 'The check runs at most 200 questions.'
+            })
+        } finally {
+            delete process.env.CUTTLELY_CHECK_COUNT_MAX
+            delete process.env.CUTTLELY_CHECK_COUNT_DEFAULT
             resetRuntimeLimitsForTests()
         }
     })
@@ -1923,6 +1991,42 @@ describe('hand-picked questions', () => {
         ).rejects.toMatchObject({
             statusCode: 409
         })
+        process.env.CUTTLELY_CHECK_COUNT_MAX = '40'
+        resetRuntimeLimitsForTests()
+        try {
+            await expect(
+                startCheck(flow() as any, { questionIds: Array.from({ length: 41 }, () => `chat:${ID_A}`) }, 'http://x')
+            ).rejects.toMatchObject({
+                statusCode: 400,
+                message: 'questionIds must list 1 to 40 ids.'
+            })
+            process.env.CUTTLELY_CHECK_COUNT_MAX = '200'
+            resetRuntimeLimitsForTests()
+            const ids = Array.from({ length: 101 }, (_, index) => `55555555-5555-4555-8555-${String(index).padStart(12, '0')}`)
+            historyHooks.loadUserMessages = async () => ids.map((id, index) => asked(id, `loaf ${index}`))
+            const started = await startCheck(flow() as any, { questionIds: ids.map((id) => `chat:${id}`) }, 'http://x')
+            expect(started.cases).toHaveLength(101)
+            await settle()
+            checks.clear()
+            await expect(
+                startCheck(
+                    flow() as any,
+                    {
+                        questionIds: Array.from(
+                            { length: 201 },
+                            (_, index) => `chat:66666666-6666-4666-8666-${String(index).padStart(12, '0')}`
+                        )
+                    },
+                    'http://x'
+                )
+            ).rejects.toMatchObject({
+                statusCode: 400,
+                message: 'questionIds must list 1 to 200 ids.'
+            })
+        } finally {
+            delete process.env.CUTTLELY_CHECK_COUNT_MAX
+            resetRuntimeLimitsForTests()
+        }
     })
 
     test('an empty id list runs typed questions up to the question cap, and the older list stays at 10', async () => {

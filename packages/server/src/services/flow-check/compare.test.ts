@@ -1,5 +1,6 @@
 // Same or changed, totals, token counts and question picking for the publish check.
 import {
+    compareCountChoices,
     compareCountDefault,
     clampCompareCount,
     draftVerdict,
@@ -153,6 +154,19 @@ test('token totals come from the tracer metrics, and nothing counted is null', (
 
 test('questions: newest first, one per wording, within the limits', () => {
     expect(pickQuestions(['Hi', 'hi ', '', 'x'.repeat(30), 'Where is my order?', 'Third'], 2, 20)).toEqual(['Hi', 'Where is my order?'])
+})
+
+test('picker counts follow the cap, including a cap above or below 100', () => {
+    expect(compareCountChoices(100, 4)).toEqual([4, 10, 25, 50, 100])
+    expect(compareCountChoices(40, 4)).toEqual([4, 10, 25, 40])
+    expect(compareCountChoices(50, 4)).toEqual([4, 10, 25, 50])
+    expect(compareCountChoices(200, 4)).toEqual([4, 10, 25, 50, 100, 200])
+    expect(compareCountChoices(500, 4)).toEqual([4, 10, 25, 50, 100, 500])
+    expect(compareCountChoices(3, 3)).toEqual([3])
+    expect(compareCountChoices(1, 1)).toEqual([1])
+    expect(compareCountChoices(8, 6)).toEqual([4, 6, 8])
+    expect(compareCountChoices(100, 12)).toEqual([4, 10, 12, 25, 50, 100])
+    expect(compareCountChoices()).toEqual([4, 10, 25, 50, 100])
 })
 
 test('a count is clamped into 1..100, and a missing count stays missing', () => {

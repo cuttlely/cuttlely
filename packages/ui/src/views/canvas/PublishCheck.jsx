@@ -45,8 +45,10 @@ import {
     typedToggleLimit,
     GATE_RUN_PERMISSION,
     promoteCheckWords,
-    COMPARE_COUNTS,
     DEFAULT_COMPARE_COUNT,
+    pickerCounts,
+    pickerValue,
+    questionCap,
     POLL_MS,
     RESULT_PAGE_SIZE,
     RUN_ANYWAY_LABEL,
@@ -512,7 +514,9 @@ export const PublishCheckView = ({
         setPreviewShown(RESULT_PAGE_SIZE)
     }, [count])
     const limits = setup?.limits || {}
-    const maxQuestions = limits.maxQuestions || 100
+    const counts = pickerCounts(limits)
+    const shownCount = pickerValue(count, counts, Number(limits.defaultQuestions) || DEFAULT_COMPARE_COUNT)
+    const maxQuestions = questionCap(limits)
     const picked = pickedQuestions(list).length
     const running = check?.status === 'running'
     const risky = setup?.riskySteps || []
@@ -855,7 +859,7 @@ export const PublishCheckView = ({
                                 select
                                 size='small'
                                 label={countLabel}
-                                value={String(COMPARE_COUNTS.includes(count) ? count : DEFAULT_COMPARE_COUNT)}
+                                value={String(shownCount)}
                                 disabled={running || starting || pastCount === 0 || choosing}
                                 onChange={(event) => onCount(Number(event.target.value))}
                                 SelectProps={{ native: true }}
@@ -865,7 +869,7 @@ export const PublishCheckView = ({
                                 }}
                                 sx={{ width: 180 }}
                             >
-                                {COMPARE_COUNTS.map((n) => (
+                                {counts.map((n) => (
                                     <option key={n} value={n}>
                                         {n}
                                     </option>
@@ -1039,6 +1043,7 @@ const PublishCheck = ({ chatflowId, variant = 'publish', api = flowDraftsApi, fl
                 const hasPast = (Number.isFinite(reported) && reported > 0) || past.length > 0
                 // Past questions are chosen by the count. The tick list is only for a flow with none yet.
                 setList(hasPast ? [] : initialPicks(questions, data?.limits?.defaultQuestions || DEFAULT_COMPARE_COUNT))
+                setCount(pickerValue(Number(data?.limits?.defaultQuestions), pickerCounts(data?.limits)))
                 const previous = data?.check
                 if (previous && !(previous.draftChanged && previous.status !== 'running')) {
                     setCheck(previous)
@@ -1102,7 +1107,7 @@ const PublishCheck = ({ chatflowId, variant = 'publish', api = flowDraftsApi, fl
     const onAdd = () => {
         const have = pastCount()
         const used = have > 0 ? Math.min(count, have) : 0
-        const cap = setup?.limits?.maxQuestions || 100
+        const cap = questionCap(setup?.limits)
         const typedPicked = list.filter((q) => q.added && q.picked).length
         const choosing = questionMode === 'choose' && canChooseQuestions
         if (choosing && typedRoom({ cap, selectedCount: selectedQuestions.length, typedPicked }) < 1) {
@@ -1231,10 +1236,10 @@ const PublishCheck = ({ chatflowId, variant = 'publish', api = flowDraftsApi, fl
                         index,
                         questionMode === 'choose' && canChooseQuestions
                             ? typedToggleLimit({
-                                  cap: setup?.limits?.maxQuestions || 100,
+                                  cap: questionCap(setup?.limits),
                                   selectedCount: selectedQuestions.length
                               })
-                            : setup?.limits?.maxQuestions || 10
+                            : questionCap(setup?.limits, 10)
                     )
                 )
             }
@@ -1289,7 +1294,7 @@ const PublishCheck = ({ chatflowId, variant = 'publish', api = flowDraftsApi, fl
                     toggleHistoryPick({
                         item,
                         selected: current,
-                        cap: setup?.limits?.maxQuestions || 100,
+                        cap: questionCap(setup?.limits),
                         typedPicked: list.filter((q) => q.added && q.picked).length
                     })
                 )
@@ -1299,7 +1304,7 @@ const PublishCheck = ({ chatflowId, variant = 'publish', api = flowDraftsApi, fl
                     selectShown({
                         items: historyItems,
                         selected: current,
-                        cap: setup?.limits?.maxQuestions || 100,
+                        cap: questionCap(setup?.limits),
                         typedPicked: list.filter((q) => q.added && q.picked).length
                     })
                 )
