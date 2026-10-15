@@ -62,10 +62,7 @@ const createDatasetFromQuestions = async (req: Request, res: Response, next: Nex
         }
         const workspaceId = req.user?.activeWorkspaceId
         if (!workspaceId) {
-            throw new AppError(
-                StatusCodes.NOT_FOUND,
-                `Error: datasetController.createDatasetFromQuestions - workspace ${workspaceId} not found!`
-            )
+            throw new AppError(StatusCodes.UNAUTHORIZED, 'Unauthorized')
         }
         const body = stripProtectedFields(req.body)
         const apiResponse = await datasetService.createDatasetFromQuestions(

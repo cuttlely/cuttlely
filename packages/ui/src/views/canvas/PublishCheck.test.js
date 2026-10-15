@@ -144,6 +144,7 @@ describe('PublishCheckView', () => {
             selectedQuestions: [{ id: 'chat:a', text: 'Do you have rye loaves today?' }]
         })
         expect(html).toContain('Save as dataset')
+        expect(html).toContain('Real messages can contain personal data. Check the question and the expected answer before saving.')
         expect(html).toContain('Saturday questions')
         expect(openingTag(html, 'save-as-dataset')).not.toContain('disabled')
         const unnamed = render({

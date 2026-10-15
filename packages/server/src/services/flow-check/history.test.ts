@@ -29,6 +29,8 @@ import {
     historyHooks,
     likeContainsPattern,
     listQuestionHistory,
+    loadPickedChatQuestions,
+    questionSourceDate,
     resolveChatQuestionIds,
     type HistoryRow
 } from './history'
@@ -266,14 +268,49 @@ describe('question history', () => {
                 { index: 4, reason: 'not-found' }
             ]
         })
+        const both = '66666666-6666-4666-8666-666666666666'
+        historyHooks.loadUserMessages = async () => [
+            row(both, 'c'.repeat(2001), '2026-10-08T06:00:00.000Z', { fileUploads: '[{"name":"oven-log.png"}]' })
+        ]
+        const one = await resolveChatQuestionIds('flow-1', [`chat:${both}`], []).catch((err) => err)
+        expect(one).toMatchObject({
+            badCount: 1,
+            errors: [{ index: 0, reason: 'files' }]
+        })
         const body = JSON.stringify(error)
         expect(body).not.toContain('not-a-uuid')
         expect(body).not.toContain(fileSecret)
         expect(body).not.toContain(otherSecret)
         expect(body).not.toContain(missing)
         expect(body).not.toContain(foreignId)
+        historyHooks.loadUserMessages = async () => [
+            row(good, 'rye loaf', '2026-10-08T10:00:00.000Z'),
+            row(fileId, fileSecret, '2026-10-08T09:00:00.000Z', { fileUploads: '[{"name":"/tmp/secret-scan.pdf"}]' }),
+            row(longId, long, '2026-10-08T08:00:00.000Z'),
+            row(foreignId, otherSecret, '2026-10-08T07:00:00.000Z', { chatflowid: 'flow-2' })
+        ]
         const kept = await resolveChatQuestionIds('flow-1', [`chat:${good}`], ['typed rye'])
         expect(kept.questions).toEqual(['rye loaf', 'typed rye'])
+    })
+
+    test('a saved pick uses the replay text, and a zone-less time is UTC', async () => {
+        const id = '77777777-7777-4777-8777-777777777777'
+        const secret = `  Please use sk-${'a'.repeat(12)} today  `
+        historyHooks.loadUserMessages = async () => [row(id, secret, '2026-10-08T16:12:03.000Z', { createdDate: '2026-10-08 16:12:03' })]
+        const picked = await loadPickedChatQuestions(FLOW, [`chat:${id}`])
+        const replay = await resolveChatQuestionIds('flow-1', [`chat:${id}`], [])
+        expect(picked[0].text).toBe(replay.questions[0])
+        expect(picked[0].text).toBe('Please use [redacted] today')
+        expect(picked[0].text).not.toContain('sk-')
+        expect(picked[0].createdDate?.toISOString()).toBe('2026-10-08T16:12:03.000Z')
+        expect(questionSourceDate('2026-10-08 16:12:03.500000')?.toISOString()).toBe('2026-10-08T16:12:03.500Z')
+        expect(questionSourceDate('2026-10-08T16:12:03.000Z')?.toISOString()).toBe('2026-10-08T16:12:03.000Z')
+        const fileId = '88888888-8888-4888-8888-888888888888'
+        historyHooks.loadUserMessages = async () => [
+            row(fileId, 'See the scan', '2026-10-08T15:00:00.000Z', { fileUploads: '[{"name":"oven-log.png"}]' })
+        ]
+        const refused = await loadPickedChatQuestions(FLOW, [`chat:${fileId}`]).catch((err) => err)
+        expect(refused).toMatchObject({ badCount: 1, errors: [{ index: 0, reason: 'files' }] })
     })
 
     test('refuses a history cursor from another API key in the same workspace', async () => {

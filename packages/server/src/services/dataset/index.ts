@@ -14,11 +14,13 @@ import { getErrorMessage } from '../../errors/utils'
 import { hasAnyPermission } from '../../identity/rbac'
 import { loadPickedChatQuestions, questionPickErrorBody } from '../flow-check/history'
 import { getRunningExpressApp } from '../../utils/getRunningExpressApp'
+import logger from '../../utils/logger'
 import { runtimeNumber } from '../../settings/runtime'
 
 const CHAT_MESSAGE_SOURCE = 'chat_message'
 const CHAT_QUESTION_SOURCE = 'chat_question'
 const CHAT_RATING_SOURCE = 'chat_rating'
+export const DATASET_NAME_MAX = 200
 const RATING_VALUES = new Set(['THUMBS_UP', 'THUMBS_DOWN'])
 // One call does not copy an unbounded history. Callers can ask for fewer.
 export function getRatingImportCap(): number {
@@ -1140,10 +1142,13 @@ const createDatasetFromQuestions = async (
 ) => {
     try {
         if (typeof workspaceId !== 'string' || workspaceId.length === 0) {
-            throw new AppError(StatusCodes.NOT_FOUND, 'Dataset not found')
+            throw new AppError(StatusCodes.UNAUTHORIZED, 'Unauthorized')
         }
         if (typeof body?.name !== 'string' || body.name.trim().length === 0) {
             throw new AppError(StatusCodes.BAD_REQUEST, 'Dataset name is required')
+        }
+        if (body.name.trim().length > DATASET_NAME_MAX) {
+            throw new AppError(StatusCodes.BAD_REQUEST, `Dataset name can be at most ${DATASET_NAME_MAX} characters.`)
         }
         if (typeof body?.flowId !== 'string' || body.flowId.length === 0) {
             throw new AppError(StatusCodes.BAD_REQUEST, 'flowId is required')
@@ -1194,10 +1199,8 @@ const createDatasetFromQuestions = async (
         })
     } catch (error) {
         if (error instanceof AppError || questionPickErrorBody(error)) throw error
-        throw new AppError(
-            StatusCodes.INTERNAL_SERVER_ERROR,
-            `Error: datasetService.createDatasetFromQuestions - ${getErrorMessage(error)}`
-        )
+        logger.error(`datasetService.createDatasetFromQuestions failed: ${getErrorMessage(error)}`)
+        throw new AppError(StatusCodes.INTERNAL_SERVER_ERROR, 'The dataset could not be saved.')
     }
 }
 

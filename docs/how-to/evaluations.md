@@ -64,11 +64,11 @@ A row with an empty input, or an input longer than 2,000 characters, is skipped 
 
 ### From picked questions
 
-In the Publish dialog, select **Choose questions**, tick the stored questions, type a dataset name, and select **Save as dataset**. The button is shown when the role has `datasets:create`. The route is [`POST /api/v1/datasets/from-questions`](../reference/datasets-api.md).
+In the Publish dialog, select **Choose questions**, tick the stored questions, type a dataset name, and select **Save as dataset**. The button is shown when the role has `datasets:create`. A harness does not offer Choose questions, so it does not offer this button. The route is [`POST /api/v1/datasets/from-questions`](../reference/datasets-api.md). The dialog warns that a real message can contain personal data.
 
-Each row is one ticked question. The expected answer is empty, and the row is marked needs expected answer. Type that answer on the dataset before you use the dataset as a passing test set. A question sent with a file, or one longer than 2,000 characters, cannot be saved. Typed questions in **Add your own question** are not included. They are not stored questions.
+Each row is the question the check would ask, including the same redaction of a secret in the text. The expected answer is empty, and the row is marked needs expected answer. Text, JSON, and numeric evaluators can score that blank answer, and that result can clear the passing test set. A model evaluator scores Error until the expected answer is filled in. Anyone with `datasets:view` can read those saved questions. A question sent with a file, or one longer than 2,000 characters, cannot be saved. Typed questions in **Add your own question** are not included. They are not stored questions. The name can be at most 200 characters.
 
-A hand-picked check never unblocks Publish. Running the questions you ticked compares Live and the draft, and it does not record a pass. Only a dataset can be the passing test set. After the expected answers are filled in, choose **A dataset** and turn on **Passing test set**.
+A hand-picked check never unblocks Publish. Running the questions you ticked compares Live and the draft, and it does not record a pass. Only a dataset can be the passing test set. Choose **A dataset** and turn on **Passing test set**. A blank expected answer does not block that gate for a text, JSON, or numeric evaluator.
 
 ### From a CSV
 

@@ -181,24 +181,29 @@ const QuestionHistoryPicker = ({
                 A hand-picked check does not unblock Publish. Only a dataset can be the passing test set.
             </Typography>
             {canSaveDataset && (
-                <Stack direction='row' spacing={1} alignItems='flex-start' useFlexGap flexWrap='wrap'>
-                    <TextField
-                        size='small'
-                        label='Dataset name'
-                        value={datasetName}
-                        disabled={disabled || savingDataset}
-                        onChange={(event) => onDatasetName(event.target.value)}
-                        inputProps={{ 'aria-label': 'Dataset name', 'data-testid': 'save-dataset-name' }}
-                        sx={{ minWidth: 180, flex: 1 }}
-                    />
-                    <Button
-                        variant='outlined'
-                        onClick={onSaveDataset}
-                        disabled={disabled || savingDataset || selected.length === 0 || !String(datasetName || '').trim()}
-                        data-testid='save-as-dataset'
-                    >
-                        {savingDataset ? 'Saving…' : 'Save as dataset'}
-                    </Button>
+                <Stack spacing={1}>
+                    <Alert severity='warning' data-testid='save-dataset-personal'>
+                        Real messages can contain personal data. Check the question and the expected answer before saving.
+                    </Alert>
+                    <Stack direction='row' spacing={1} alignItems='flex-start' useFlexGap flexWrap='wrap'>
+                        <TextField
+                            size='small'
+                            label='Dataset name'
+                            value={datasetName}
+                            disabled={disabled || savingDataset}
+                            onChange={(event) => onDatasetName(event.target.value)}
+                            inputProps={{ 'aria-label': 'Dataset name', maxLength: 200, 'data-testid': 'save-dataset-name' }}
+                            sx={{ minWidth: 180, flex: 1 }}
+                        />
+                        <Button
+                            variant='outlined'
+                            onClick={onSaveDataset}
+                            disabled={disabled || savingDataset || selected.length === 0 || !String(datasetName || '').trim()}
+                            data-testid='save-as-dataset'
+                        >
+                            {savingDataset ? 'Saving…' : 'Save as dataset'}
+                        </Button>
+                    </Stack>
                 </Stack>
             )}
             {saveDatasetMessage && (
@@ -1047,6 +1052,7 @@ const PublishCheck = ({ chatflowId, variant = 'publish', api = flowDraftsApi, fl
     const [savingDataset, setSavingDataset] = useState(false)
     const [saveDatasetMessage, setSaveDatasetMessage] = useState('')
     const [saveDatasetError, setSaveDatasetError] = useState('')
+    const savingDatasetRef = useRef(false)
     const canRunGate = canUseDatasets && canUseEvaluators
     const canChooseQuestions = typeof api.getCheckHistory === 'function' && canPickQuestionIds(flowType, canvases)
     const timer = useRef(null)
@@ -1368,25 +1374,31 @@ const PublishCheck = ({ chatflowId, variant = 'publish', api = flowDraftsApi, fl
             }}
             onSaveDataset={async () => {
                 const name = datasetName.trim()
-                if (!name || selectedQuestions.length === 0 || savingDataset) return
+                if (!name || selectedQuestions.length === 0 || savingDatasetRef.current) return
+                const questionIds = selectedQuestions.map((item) => item.id)
+                savingDatasetRef.current = true
                 setSavingDataset(true)
                 setSaveDatasetMessage('')
                 setSaveDatasetError('')
                 try {
                     const response = await datasetsApi.createDatasetFromQuestions({
                         flowId: chatflowId,
-                        questionIds: selectedQuestions.map((item) => item.id),
+                        questionIds,
                         name
                     })
-                    const count = Array.isArray(response?.data?.rows) ? response.data.rows.length : selectedQuestions.length
+                    if (!live.current.mounted) return
+                    const count = Array.isArray(response?.data?.rows) ? response.data.rows.length : questionIds.length
+                    setSelectedQuestions([])
+                    setDatasetName('')
                     setSaveDatasetMessage(
                         count === 1
                             ? 'Saved 1 question. The expected answer is empty.'
                             : `Saved ${count} questions. Expected answers are empty.`
                     )
                 } catch (err) {
-                    setSaveDatasetError(apiErrorMessage(err, 'Could not save the dataset.'))
+                    if (live.current.mounted) setSaveDatasetError(apiErrorMessage(err, 'Could not save the dataset.'))
                 } finally {
+                    savingDatasetRef.current = false
                     if (live.current.mounted) setSavingDataset(false)
                 }
             }}
