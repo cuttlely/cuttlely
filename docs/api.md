@@ -16,6 +16,7 @@ All outputs on this page come from real runs against a local Cuttlely server wit
 -   [Errors, rate limits and allowed origins](#errors-rate-limits-and-allowed-origins)
 -   [The example web app](#the-example-web-app)
 -   [When to use the chat widget instead](#when-to-use-the-chat-widget-instead)
+-   [More APIs](#more-apis)
 
 ## Before you start
 
@@ -404,6 +405,20 @@ CUTTLELY_URL=http://localhost:3000 CUTTLELY_FLOW_ID=<flow id> CUTTLELY_API_KEY=<
 ![Rosa's Bakery helper in a browser. The visitor asked "Hi, I am Sam. Is rye bread baked today? It is Saturday." and the answer is "Hi Sam, yes, rye bread is baked today since it is Saturday." The next question asks for their name and whether the bakery is open on Sunday, and the answer is "Your name is Sam, and the bakery is closed on Sunday."](./images/api/api-example-app.png)
 
 The server also refuses empty or very long questions, never forwards `overrideConfig` or other fields from the browser, and turns Cuttlely's errors into a short message (429 stays 429). Its tests run with `node --test examples/web-app/server.test.mjs` and are part of `pnpm verify`.
+
+## More APIs
+
+The routes above are how an app asks a published flow. These management routes are documented on their own pages, including the request, the response, who may call them, and the errors.
+
+-   `GET /api/v1/flow-drafts/:id/check/history` lists stored chat questions so a caller can pick them. [Question history](./reference/drafts-api.md#question-history).
+-   `POST /api/v1/flow-drafts/:id/check` accepts `questionIds` for that pick. [Start a check](./reference/drafts-api.md#start-a-check).
+-   `POST /api/v1/datasets/from-questions` stores the ticked questions as a dataset. Expected answers are empty. [Datasets API](./reference/datasets-api.md).
+-   `GET /api/v1/server-settings/history` pages settings changes. Testing and Limits, including `CUTTLELY_PUBLISH_CHECK`, apply on the next use. [Server settings API](./reference/server-settings-api.md).
+-   `POST /api/v1/auth/local/login`, `POST /api/v1/auth/local/logout`, `POST /api/v1/auth/local/password`, and `POST /api/v1/auth/local/accept` are local password sign-in. [Auth API](./reference/auth-api.md).
+-   `GET /api/v1/auth/options` reports which methods are on, including `status` after AuthKit is linked. [Which methods are on](./reference/auth-api.md#which-methods-are-on).
+-   `POST /api/v1/account/invite` with `link: true`, and `POST /api/v1/users/:id/reset-link`, return a one-time URL. [One-time links](./reference/auth-api.md#one-time-links).
+-   `POST /api/v1/users/:id/disable`, `POST /api/v1/users/:id/enable`, and `GET /api/v1/users/:id/sessions` manage local users. [Local users, roles, and sessions](./reference/local-directory-api.md).
+-   `GET /api/v1/audit` lists sign-in, role, and settings events. [Audit API](./reference/audit-api.md).
 
 ## When to use the chat widget instead
 

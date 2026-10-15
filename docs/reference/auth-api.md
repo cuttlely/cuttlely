@@ -147,7 +147,7 @@ Requires the caller's own local session and `x-request-from: internal`. There is
 | 404    | Local users mode is off                                                                    | `{ "message": "Not Found" }`                                   |
 | 429    | This client or account is locked out from earlier failures                                 | `{ "message": "Too many sign-in attempts. Try again later." }` |
 
-The route is public, like sign-out, so a missing session still reaches this handler and returns 401 `{ "message": "Unauthorized" }`. A wrong current password uses `{ "message": "Invalid email or password." }`. The new password must be at least 8 characters and include a lower-case letter, an upper-case letter, a digit, and a symbol, and it must not be the current password.
+The route is public, like sign-out, so a missing session still reaches this handler and returns 401 `{ "message": "Unauthorized" }`. A call with no session cookie returns that same body. A wrong current password uses `{ "message": "Invalid email or password." }`. The new password must be at least 8 characters and include a lower-case letter, an upper-case letter, a digit, and a symbol, and it must not be the current password.
 
 The current session is replaced. Every other session for that user is deleted. An old cookie from this browser or another one fails on the next request.
 

@@ -128,7 +128,7 @@ A run reads every source, embeds the chunks, and writes them to the store. Save 
 
 A run card appears under **New run**. The sample takes about a second.
 
-![The run card for Run 6f0c34a1: v1 · incremental · attempt 1 · started just now, a green succeeded chip, and a full progress bar at 6.0 KB of 6.0 KB, 100.0%. Embedded 33, Unchanged 0, Deleted 0, Rejected 0, Errors 0. The panel reads v1 · serving v1 · 33 chunks indexed.](../images/etl/etl-run-done.png)
+![The run card for Run 89869204: v1 · incremental · attempt 1 · started just now, a green succeeded chip, and a full progress bar at 6.0 KB of 6.0 KB, 100.0%. Embedded 33, Unchanged 0, Deleted 0, Rejected 0, Errors 0. The panel reads v1 · serving v1 · 33 chunks indexed.](../images/etl/etl-run-done.png)
 
 The panel's first line now reads `v1 · serving v1 · 33 chunks indexed`. **Serving** is the version the ETL Retriever searches.
 
@@ -149,7 +149,7 @@ The panel's first line now reads `v1 · serving v1 · 33 chunks indexed`. **Serv
 
 Below the numbers, each step has a check mark when it is done, then a line of counts. The log at the bottom lists what happened, with times.
 
-![The steps of Run 6f0c34a1: Load 33 documents, 1 of 1 sources; Clean & transform 33 kept, 0 dropped; Split 33 chunks; Embed 33 embedded, 0 unchanged; Store 33 written, 0s writing; Delete removed 0 deleted. The log says Queued, Started, and Succeeded: 33 records read, 33 new. Try retrieval is below the card.](../images/etl/etl-run-steps.png)
+![The steps of Run 89869204: Load 33 documents, 1 of 1 sources; Clean & transform 33 kept, 0 dropped; Split 33 chunks; Embed 33 embedded, 0 unchanged; Store 33 written, 0s writing; Delete removed 0 deleted. The log says Queued, Started, and Succeeded: 33 records read, 33 new. Try retrieval is below the card.](../images/etl/etl-run-steps.png)
 
 While a run is going, **Pause** stops it after the current batch and **Cancel** stops it for good. A paused run shows **Resume**. A run that read to the end but rejected some records, or could not read a file, is `partial`. A file it could not read keeps the chunks from the last run. A `partial` run is served, the same as `succeeded`. If more than 5% of the records are rejected, after at least 100 records, the run fails instead and the served version does not change.
 
@@ -157,7 +157,7 @@ While a run is going, **Pause** stops it after the current batch and **Cancel** 
 
 Select **Start Run** again with nothing changed. The incremental run reads the file, sees it has not changed, and embeds nothing.
 
-![A second run, Run e20d6487, succeeded. Embedded 0, Unchanged 0 with 1 sources skipped, Deleted 0. Load reads 0 documents, 1 of 1 sources, 1 unchanged.](../images/etl/etl-run-incremental.png)
+![A second run, Run e155498f, succeeded. Embedded 0, Unchanged 0 with 1 sources skipped, Deleted 0. Load reads 0 documents, 1 of 1 sources, 1 unchanged.](../images/etl/etl-run-incremental.png)
 
 Add, edit, or remove rows in the CSV and run again. Only the changed rows are embedded, and rows you removed are deleted from the store.
 
@@ -188,7 +188,7 @@ To see a failure, change **Paths** on the Streaming Files node to a file that do
 
 After you publish, a run of that version fails with the same message.
 
-![Failed Run 860badb7 of version 2. The panel still reads serving v1. A red message says File or folder "products-2026.csv" was not found on the server. Retry From Checkpoint and Cancel are below it, and the last log line repeats that message. Try retrieval still searches version 1.](../images/etl/etl-run-failed.png)
+![Failed Run ea9f8d6a of version 2. The panel still reads serving v1. A red message says File or folder "products-2026.csv" was not found on the server. Retry From Checkpoint and Cancel are below it, and the last log line repeats that message. Try retrieval still searches version 1.](../images/etl/etl-run-failed.png)
 
 This run failed before it wrote anything, so the served data is as it was. The panel still reads `serving v1`, and **Try retrieval** still searches version 1. A run can also fail partway, for example when the embeddings provider stops answering. The batches it wrote before it stopped are already in the store, and search can return them. Retry the run, or start a new one, so the store matches a finished run again.
 
@@ -230,7 +230,7 @@ The ETL Retriever serves the version of the last `succeeded` or `partial` run, n
 
 **History** lists every run of the pipeline, newest first. Each row has the run id, the version, the mode, the start time, how long it took, the counts, and the status.
 
-![The History tab, newest first. cfa80862 · v3 · incremental, succeeded, 0 embedded, 0 unchanged, 0 deleted. 860badb7 · v2 · incremental, failed, 0 embedded, 0 unchanged, 0 deleted. e20d6487 · v1 · incremental, succeeded, 0 embedded, 0 unchanged, 0 deleted. 6f0c34a1 · v1 · incremental, succeeded, 33 embedded, 0 unchanged, 0 deleted. The panel reads v3 · serving v3 · 33 chunks indexed.](../images/etl/etl-history.png)
+![The History tab, newest first. c3726035 · v3 · incremental, succeeded, 0 embedded, 0 unchanged, 0 deleted. ea9f8d6a · v2 · incremental, failed, 0 embedded, 0 unchanged, 0 deleted. e155498f · v1 · incremental, succeeded, 0 embedded, 0 unchanged, 0 deleted. 89869204 · v1 · incremental, succeeded, 33 embedded, 0 unchanged, 0 deleted. The panel reads v3 · serving v3 · 33 chunks indexed.](../images/etl/etl-history.png)
 
 Select a row to open that run's card in **Run**. With no runs, the tab says `No runs yet. Start one from the Run tab.`
 
@@ -318,7 +318,7 @@ Search uses the embeddings model and the store of the version it searches, so th
 
 Select the chat button and ask: `Which shelter is built for alpine starts, and what does it weigh and cost?`
 
-![The gear-desk canvas chat. The visible answer starts at name Summit Bivy Shelter, category Tents, then Storm Shell 3L Rain Jacket, Returns and exchanges, and Lifetime warranty.](../images/etl/harness-etl-chat.png)
+![The gear-desk canvas chat. The answer starts with the citation [1] (data/outdoor-catalog.csv), then name Summit Bivy Shelter, category Tents, then Storm Shell 3L Rain Jacket, Returns and exchanges, and Lifetime warranty. Each citation line is fully in the frame.](../images/etl/harness-etl-chat.png)
 
 The Run card says `Direct to catalog`. When a harness has exactly one specialist and that specialist has exactly one tool and nothing else, Harness Prime skips routing and the handoff. The model only fills in the search query, and the search results are the answer. Each result starts with its number and source, then the chunk.
 

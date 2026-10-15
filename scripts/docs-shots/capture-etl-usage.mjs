@@ -756,9 +756,34 @@ async function buildHarness(page, base, cookie, credentialId) {
         null,
         { timeout: 90000 }
     )
+    // A short viewport flips the chat upward and clips the first citation line.
+    await page.setViewportSize({ width: 1680, height: 1400 })
     await page.locator('.cloud').evaluate((el) => {
         el.scrollTop = 0
     })
+    const citationVisible = await page.evaluate(() => {
+        const cloud = document.querySelector('.cloud')
+        if (!cloud) return false
+        cloud.scrollTop = 0
+        const walker = document.createTreeWalker(cloud, NodeFilter.SHOW_TEXT)
+        let node
+        while ((node = walker.nextNode())) {
+            const value = node.textContent || ''
+            if (!value.includes('[1]') && !/outdoor-catalog/i.test(value)) continue
+            const range = document.createRange()
+            range.selectNodeContents(node)
+            const rect = range.getBoundingClientRect()
+            return rect.top >= 4 && rect.bottom <= window.innerHeight - 4 && rect.height > 8
+        }
+        return false
+    })
+    if (!citationVisible) {
+        await page.getByRole('button', { name: 'expand' }).click()
+        await page.locator('.cloud-dialog').waitFor()
+        await page.locator('.cloud-dialog').evaluate((el) => {
+            el.scrollTop = 0
+        })
+    }
     await page.waitForTimeout(300)
     await shot(page, path.join(OUT_ETL, 'harness-etl-chat.png'), { note: await bodyNote(page) })
 }

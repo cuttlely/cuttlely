@@ -650,6 +650,133 @@ async function captureTesting(browser) {
     }
 }
 
+const LOCAL_PEOPLE = [
+    { name: 'Ada Baker', email: 'ada.baker@example.com', role: 'Admin' },
+    { name: 'Bea Chen', email: 'bea.chen@example.com', role: 'Builder' },
+    { name: 'Cam Diaz', email: 'cam.diaz@example.com', role: 'Viewer' }
+]
+
+async function api(page, base, method, url, body) {
+    return page.evaluate(
+        async ({ base, method, url, body }) => {
+            const response = await fetch(`${base}${url}`, {
+                method,
+                credentials: 'include',
+                headers: { 'content-type': 'application/json', 'x-request-from': 'internal' },
+                body: body === undefined ? undefined : JSON.stringify(body)
+            })
+            const text = await response.text()
+            return { status: response.status, text }
+        },
+        { base, method, url, body }
+    )
+}
+
+async function captureLocalUsers(browser) {
+    const dataDir = mkdtempSync(path.join(tmpdir(), 'cuttlely-docs-local-'))
+    const port = await freePort()
+    const server = startServer(dataDir, port, {
+        CUTTLELY_LOCAL_ADMIN: 'true',
+        CUTTLELY_LOCAL_USERS: 'true',
+        LOG_LEVEL: 'error'
+    })
+    try {
+        console.log('local users', server.base)
+        await waitForPing(server)
+        const { context, page } = await newPage(browser, { width: 1440, height: 1100 })
+        try {
+            await register(page, server.base, ROSA)
+            const signedIn = await page.evaluate(() => {
+                const raw = localStorage.getItem('user')
+                return raw ? JSON.parse(raw) : null
+            })
+            const organizationId = signedIn && signedIn.activeOrganizationId
+            if (!organizationId) throw new Error('signed-in user has no organization')
+            const workspaces = await api(page, server.base, 'GET', `/api/v1/workspace?organizationId=${organizationId}`)
+            if (workspaces.status !== 200) throw new Error(`workspaces ${workspaces.status} ${workspaces.text.slice(0, 300)}`)
+            const workspaceList = JSON.parse(workspaces.text)
+            const rows = Array.isArray(workspaceList) ? workspaceList : workspaceList.workspaces || workspaceList.data || []
+            const team = rows.find((item) => item.name === 'Default Workspace') || rows[0]
+            if (!team?.id) throw new Error(`no team in ${workspaces.text.slice(0, 300)}`)
+            const roles = await api(page, server.base, 'GET', `/api/v1/role?organizationId=${organizationId}`)
+            if (roles.status !== 200) throw new Error(`roles ${roles.status} ${roles.text.slice(0, 300)}`)
+            const roleBody = JSON.parse(roles.text)
+            const roleRows = Array.isArray(roleBody) ? roleBody : roleBody.roles || roleBody.data || []
+            let viewerLink = ''
+            for (const person of LOCAL_PEOPLE) {
+                const role = roleRows.find((item) => String(item.name).toLowerCase() === person.role.toLowerCase())
+                if (!role?.id) throw new Error(`missing role ${person.role}`)
+                const created = await api(page, server.base, 'POST', '/api/v1/account/invite', {
+                    user: { name: person.name, email: person.email },
+                    workspace: { id: team.id },
+                    role: { id: role.id },
+                    link: true
+                })
+                if (created.status !== 200) {
+                    const safe = created.text.replace(/#token=[^"\\]+/g, '#token=[redacted]')
+                    throw new Error(`invite ${person.email} ${created.status} ${safe.slice(0, 300)}`)
+                }
+                const body = JSON.parse(created.text)
+                if (typeof body.link !== 'string' || !body.link.includes('#token=')) {
+                    throw new Error(`invite did not return a one-time link for ${person.email}`)
+                }
+                if (person.role === 'Viewer') viewerLink = body.link
+            }
+            const token = decodeURIComponent(new URL(viewerLink).hash.replace(/^#token=/, ''))
+            viewerLink = ''
+            const accepted = await fetch(`${server.base}/api/v1/auth/local/accept`, {
+                method: 'POST',
+                headers: { 'content-type': 'application/json', 'x-request-from': 'internal' },
+                body: JSON.stringify({ token, password: PASSWORD })
+            })
+            if (accepted.status !== 200) throw new Error(`accept failed ${accepted.status}`)
+            const member = await newPage(browser)
+            try {
+                await member.page.goto(`${server.base}/signin`, { waitUntil: 'domcontentloaded' })
+                const form = member.page.locator('#local-users-form')
+                await form.waitFor()
+                await form.locator('input').nth(0).fill('cam.diaz@example.com')
+                await form.locator('input[type="password"]').fill(PASSWORD)
+                await form.getByRole('button', { name: 'Sign in' }).click()
+                await member.page.getByRole('heading', { name: 'Chatflows' }).waitFor({ timeout: 30000 })
+            } finally {
+                await member.context.close()
+            }
+            await page.goto(`${server.base}/users`, { waitUntil: 'domcontentloaded' })
+            await page.getByText('Ada Baker').waitFor()
+            await page.getByText('Owner, Admin, Builder, and Viewer are built-in.').waitFor()
+            await page.locator('tr', { hasText: 'Ada Baker' }).locator('button[aria-label="expand row"]').click()
+            await page.getByRole('heading', { name: 'Assigned Roles' }).waitFor()
+            await page.getByRole('cell', { name: 'Admin' }).waitFor()
+            await shot(page, 'users/users-list.png', { width: 1440, height: 1100 })
+            await page.keyboard.press('Escape')
+
+            await page.locator('tr', { hasText: 'Cam Diaz' }).locator('button[title="Sessions"]').click()
+            await page.getByRole('heading', { name: 'Sessions' }).waitFor()
+            await page.getByText('Open sign-ins for Cam Diaz').waitFor()
+            await page.getByText(/Started /).waitFor()
+            await shot(page, 'users/sessions-list.png', { width: 1440, height: 1100 })
+
+            const saved = await api(page, server.base, 'PUT', '/api/v1/server-settings', {
+                values: { CUTTLELY_AUDIT_RETENTION_DAYS: 120 }
+            })
+            if (saved.status !== 200) throw new Error(`settings ${saved.status} ${saved.text}`)
+            await page.goto(`${server.base}/audit`, { waitUntil: 'domcontentloaded' })
+            await page.getByRole('heading', { name: 'Audit log' }).waitFor()
+            await page.getByLabel('Type').click()
+            await page.getByRole('option', { name: 'Settings changed' }).click()
+            await page.getByRole('columnheader', { name: 'Detail' }).waitFor()
+            await page.getByText('CUTTLELY_AUDIT_RETENTION_DAYS').waitFor()
+            await shot(page, 'audit/audit-log.png', { width: 1440, height: 1100 })
+        } finally {
+            await context.close()
+        }
+    } finally {
+        server.stop()
+        rmSync(dataDir, { recursive: true, force: true })
+    }
+}
+
 async function main() {
     if (!existsSync(path.join(SERVER, 'dist/ui'))) throw new Error('Build first: pnpm build')
     const browser = await launchBrowser()
@@ -658,6 +785,11 @@ async function main() {
             await captureTesting(browser)
             return
         }
+        if (process.env.DOCS_SHOTS === 'local-users') {
+            await captureLocalUsers(browser)
+            return
+        }
+        await captureLocalUsers(browser)
         await captureRosa(browser)
         await captureSetup(browser)
         await captureRoles(browser)

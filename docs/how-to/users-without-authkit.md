@@ -6,6 +6,14 @@ Inviting someone in the app, with no `link` field, still creates an active user 
 
 The owner password form (`CUTTLELY_LOCAL_ADMIN`) is a separate switch. [Sign in](./sign-in.md) covers that one account. This page is the switch for every other user who already has a password.
 
+**Admin** > **Users** lists the people on this server. Owner, Admin, Builder, and Viewer are built-in. Their permission sets are fixed.
+
+![User Management. The note says Owner, Admin, Builder, and Viewer are built-in. Rosa Diaz is Super User, read-only. Ada Baker's Assigned Roles drawer shows Admin on Default Workspace. Cam Diaz and Bea Chen are in the list.](../images/users/users-list.png)
+
+**Sessions** on a row lists that person's open sign-ins. The list shows when the sign-in started and when it goes idle. It does not include cookies or tokens.
+
+![Sessions for Cam Diaz. The note says the list does not include cookies or tokens. One row shows Started Oct 15, 2026 and Idle until the next day, with End Session and End All Sessions.](../images/users/sessions-list.png)
+
 ## Turn it on
 
 Set `CUTTLELY_LOCAL_USERS` to exactly `true` and restart. In **Admin** > **Server Settings** > **Sign-in & identity**, the switch is **Local user passwords**. It is off unless you set it.
