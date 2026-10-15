@@ -206,7 +206,7 @@ describe('runtime limits', () => {
             CUTTLELY_CHECK_COUNT_MAX: { min: 1, max: 500, defaultValue: '100', unit: 'count' },
             CUTTLELY_CHECK_COUNT_DEFAULT: { min: 1, max: 500, defaultValue: '4', unit: 'count' },
             CUTTLELY_CHECK_SCAN_CAP: { min: 500, max: 20000, defaultValue: '2000', unit: 'count' },
-            CUTTLELY_HARNESS_TURN_SCAN_CAP: { min: 500, max: 20000, defaultValue: '2000', unit: 'count' },
+            CUTTLELY_HARNESS_TURN_SCAN_CAP: { min: 500, max: 5000, defaultValue: '2000', unit: 'count' },
             CUTTLELY_RATING_IMPORT_CAP: { min: 50, max: 5000, defaultValue: '500', unit: 'count' },
             CUTTLELY_RATING_SCAN_CAP: { min: 50, max: 20000, defaultValue: '1000', unit: 'count' },
             CUTTLELY_UI_PAGE_LIMIT_MAX: { min: 100, max: 50000, defaultValue: '3000', unit: 'count' }

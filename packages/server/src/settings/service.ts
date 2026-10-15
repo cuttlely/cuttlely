@@ -128,6 +128,22 @@ async function readSaved(deps: ServiceDeps) {
     return { ...readSettingsFile(deps.state.dir, key), key }
 }
 
+function publishedRange(setting: SettingDef, live: Map<string, { value: number }>): { min: number; max: number } {
+    let min = setting.min ?? 0
+    let max = setting.max ?? 0
+    if (setting.key === 'CUTTLELY_CHECK_COUNT_DEFAULT') {
+        const cap = live.get('CUTTLELY_CHECK_COUNT_MAX')
+        if (cap) max = cap.value
+    } else if (setting.key === 'CUTTLELY_RATING_IMPORT_CAP') {
+        const scan = live.get('CUTTLELY_RATING_SCAN_CAP')
+        if (scan) max = Math.min(max, scan.value)
+    } else if (setting.key === 'CUTTLELY_RATING_SCAN_CAP') {
+        const imported = live.get('CUTTLELY_RATING_IMPORT_CAP')
+        if (imported) min = Math.max(min, imported.value)
+    }
+    return { min, max }
+}
+
 function changedKeys(saved: Record<string, string>, atStart: Record<string, string>, unreadable: string[]): string[] {
     const keys = new Set([...Object.keys(saved), ...Object.keys(atStart)])
     return [...keys].filter((key) => (saved[key] ?? '') !== (atStart[key] ?? '') && !unreadable.includes(key)).sort()
@@ -166,8 +182,7 @@ export async function getView(deps: ServiceDeps): Promise<SettingsView> {
                 view.locked = hostKeys.has(setting.key) && !isBlank(env[setting.key])
                 if (picked.source === 'bounded' && picked.boundedBy) view.boundedBy = picked.boundedBy
                 view.changed = false
-                const cap = setting.key === 'CUTTLELY_CHECK_COUNT_DEFAULT' ? live.get('CUTTLELY_CHECK_COUNT_MAX') : undefined
-                view.range = { min: setting.min ?? 0, max: cap ? cap.value : setting.max ?? 0 }
+                view.range = publishedRange(setting, live)
                 view.value = shown
                 view.running = shown
                 view.effective = String(picked.value)

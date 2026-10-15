@@ -369,6 +369,23 @@ describe('runtime limits on the settings API', () => {
         })
         const countDefault = before.body.settings.find((setting: { key: string }) => setting.key === 'CUTTLELY_CHECK_COUNT_DEFAULT')
         expect(countDefault.range).toEqual({ min: 1, max: 100 })
+        const byKey = (body: { settings: Array<{ key: string; range: { min: number; max: number } }> }, key: string) =>
+            body.settings.find((setting) => setting.key === key) as { range: { min: number; max: number } }
+        expect(byKey(before.body, 'CUTTLELY_RATING_IMPORT_CAP').range).toEqual({ min: 50, max: 1000 })
+        expect(byKey(before.body, 'CUTTLELY_RATING_SCAN_CAP').range).toEqual({ min: 500, max: 20000 })
+        env.CUTTLELY_RATING_SCAN_CAP = '800'
+        resetRuntimeLimitsForTests()
+        const tighterScan = await app(OWNER).get('/api/v1/server-settings')
+        expect(byKey(tighterScan.body, 'CUTTLELY_RATING_IMPORT_CAP').range).toEqual({ min: 50, max: 800 })
+        expect(byKey(tighterScan.body, 'CUTTLELY_RATING_SCAN_CAP').range).toEqual({ min: 500, max: 20000 })
+        delete env.CUTTLELY_RATING_SCAN_CAP
+        env.CUTTLELY_RATING_IMPORT_CAP = '900'
+        resetRuntimeLimitsForTests()
+        const higherImport = await app(OWNER).get('/api/v1/server-settings')
+        expect(byKey(higherImport.body, 'CUTTLELY_RATING_SCAN_CAP').range).toEqual({ min: 900, max: 20000 })
+        expect(byKey(higherImport.body, 'CUTTLELY_RATING_IMPORT_CAP').range).toEqual({ min: 50, max: 1000 })
+        delete env.CUTTLELY_RATING_IMPORT_CAP
+        resetRuntimeLimitsForTests()
         env.CUTTLELY_CHECK_COUNT_MAX = '10'
         resetRuntimeLimitsForTests()
         const capped = await app(OWNER).get('/api/v1/server-settings')

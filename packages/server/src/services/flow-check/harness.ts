@@ -31,6 +31,15 @@ function turnScanCap(): number {
     return runtimeNumber('CUTTLELY_HARNESS_TURN_SCAN_CAP')
 }
 
+// packages/harness/session.mjs never returns more than this many user turns.
+const TURN_QUERY_CAP = 5000
+
+function appliedTurnLimit(): number {
+    const requested = turnScanCap()
+    const whole = Number.isFinite(requested) ? Math.floor(requested) : TURN_QUERY_CAP
+    return Math.min(TURN_QUERY_CAP, Math.max(1, whole))
+}
+
 export interface ReplayCall {
     name: string
     flowData: string
@@ -84,9 +93,10 @@ export async function loadHarnessUserTurns(name: string | null | undefined): Pro
     const harnessName = String(name || '').trim()
     if (!harnessName) return { rows: [], truncated: false }
     const list = harnessCheckHooks.listUserTurns || (await sessionUserTurns())
-    const rows = list(harnessName, { limit: turnScanCap() }) || []
+    const applied = appliedTurnLimit()
+    const rows = list(harnessName, { limit: applied }) || []
     const distinct = questionsFromUserTurns(rows, compareCountMax(), MAX_QUESTION_CHARS)
-    return { rows, truncated: rows.length >= turnScanCap() && distinct.length < compareCountMax() }
+    return { rows, truncated: rows.length >= applied && distinct.length < compareCountMax() }
 }
 
 async function sessionUserTurns(): Promise<(name: string, opts?: { limit?: number }) => UserTurn[]> {

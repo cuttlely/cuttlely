@@ -98,7 +98,7 @@ The question count default cannot be above the question cap. The rating scan mus
 | **Question cap**             | `CUTTLELY_CHECK_COUNT_MAX`       | 100           | 1 to 500                                   |
 | **Questions by default**     | `CUTTLELY_CHECK_COUNT_DEFAULT`   | 4             | 1 to the question cap                      |
 | **Messages scanned**         | `CUTTLELY_CHECK_SCAN_CAP`        | 2000          | 500 to 20000                               |
-| **Harness turns scanned**    | `CUTTLELY_HARNESS_TURN_SCAN_CAP` | 2000          | 500 to 20000                               |
+| **Harness turns scanned**    | `CUTTLELY_HARNESS_TURN_SCAN_CAP` | 2000          | 500 to 5000                                |
 | **Rated answers added**      | `CUTTLELY_RATING_IMPORT_CAP`     | 500           | 50 to 5000                                 |
 | **Ratings scanned**          | `CUTTLELY_RATING_SCAN_CAP`       | 1000          | at least the import cap, and at most 20000 |
 | **Page loads a minute**      | `CUTTLELY_UI_PAGE_LIMIT_MAX`     | 3000          | 100 to 50000                               |
