@@ -1947,6 +1947,7 @@ packages/ui/src/views/tools/PasteJSONDialog.jsx
 packages/ui/src/views/tools/ToolDialog.jsx
 packages/ui/src/views/tools/index.jsx
 packages/ui/src/views/users/EditUserDialog.jsx
+packages/ui/src/views/users/UserSessionsDrawer.jsx
 packages/ui/src/views/users/index.jsx
 packages/ui/src/views/variables/AddEditVariableDialog.jsx
 packages/ui/src/views/variables/HowToUseVariablesDialog.jsx

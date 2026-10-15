@@ -21,11 +21,12 @@ export { identityAccountRouter, identityAuthRouter } from './http'
 export {
     identityOrgUserRouter,
     identityRoleRouter,
+    identityRolesRouter,
     identityUserRouter,
+    identityUsersRouter,
     identityWorkspaceRouter,
     identityWorkspaceUserRouter
 } from './directoryRoutes'
-export { identityRolesRouter, identityUsersRouter } from './localDirectoryRoutes'
 export { attachIdentitySession } from './middleware'
 export { requireAnyPermission, requirePermission } from './rbac'
 export {

@@ -17,8 +17,8 @@ const IDENTITY_ROUTER_FILE = {
     identityWorkspaceRouter: 'packages/server/src/identity/directoryRoutes.ts',
     identityWorkspaceUserRouter: 'packages/server/src/identity/directoryRoutes.ts',
     identityUserRouter: 'packages/server/src/identity/directoryRoutes.ts',
-    identityUsersRouter: 'packages/server/src/identity/localDirectoryRoutes.ts',
-    identityRolesRouter: 'packages/server/src/identity/localDirectoryRoutes.ts'
+    identityUsersRouter: 'packages/server/src/identity/directoryRoutes.ts',
+    identityRolesRouter: 'packages/server/src/identity/directoryRoutes.ts'
 }
 
 function keysIn(value) {
