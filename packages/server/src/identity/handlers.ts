@@ -370,7 +370,7 @@ export async function handleLocalLogin(ctx: AuthContext): Promise<HandlerResult>
     const open = await ctx.store.localAccountOpen(user ? user.id : UNKNOWN_LOCAL_ACCOUNT_ID)
     const eligible = Boolean(user && open && user.credential)
     const passwordOk = await verifyPassword(fields.password, hashForLoginCompare(eligible, user ? user.credential : null))
-    if (!eligible || !passwordOk) {
+    if (!user || !eligible || !passwordOk) {
         await ctx.store.deleteLocalSessionsForUser(user && !open ? user.id : UNKNOWN_LOCAL_ACCOUNT_ID)
         await ctx.rateLimit.recordFailure(ctx.ip, fields.email, ctx.now)
         return json(401, { message: INVALID_LOGIN })
