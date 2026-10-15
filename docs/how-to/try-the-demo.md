@@ -24,7 +24,7 @@ A smaller bakery team is on the same card as a [quickstart](#the-bakery-quicksta
 
 4. Select the first question. The run card shows Harness Prime sending the work to `customer` and `operations` at the same time, then to `policy` once operations has finished, with the model, the time and the tokens each step took. Open a row to see the task Harness Prime gave that specialist and the tools it ran.
 
-    ![The run card after the first starter question. Harness Prime sent work to customer, operations, then policy. The policy row is open and shows its task, to decide fault for order LH-20417 and name the remedy steps, and an execute_code done chip. The Decision says the delay is Larkfield Home's fault, with a shipping refund, an Express reship arriving 2026-10-08, a recall of the held parcel, a store credit and a call from the Customer Care Lead.](../images/try-the-demo/customer-care-policy.png)
+    ![The run card after the first starter question. The customer and operations rows are done, and the policy row is open with its task, to decide fault for order LH-20417 and name the remedy steps, and an execute_code done chip. The Decision says the delay is Larkfield Home's fault, with a shipping refund, an Express reship arriving 2026-10-08, a recall of the held parcel, a store credit and a call from the Customer Care Lead.](../images/try-the-demo/customer-care-policy.png)
 
 5. Scroll down for the rest of the answer: the reply to send the customer, the actions for the team, and the evidence from each specialist with the policy sections it rests on.
 
@@ -44,7 +44,7 @@ Harness Prime puts it together: whose fault it was, which remedy applies and why
 
 The second starter is the contrast. Daniel's duvet set was picked up on time and held by a road closure for snow, so it is the carrier's fault. Daniel is a Standard customer, so he gets a carrier trace and a $10 goodwill credit, and a reship only if the carrier has no new scan for 3 business days.
 
-![The second starter's run card with the operations row open: Trace order LH-20398: warehouse scans, carrier scans, and where the parcel is, and an execute_code done chip. The Decision says the delay was the carrier's fault, a road closure for snow, with a trace, a reship only after 3 business days with no new scan, and a goodwill credit because Daniel Reyes is a Standard customer with no other late delivery.](../images/try-the-demo/customer-care-carrier.png)
+![The second starter's run card: Harness Prime sent work to customer, operations, then policy. The operations row is open: Trace order LH-20398: warehouse scans, carrier scans, and where the parcel is, and an execute_code done chip. The Decision says the delay was the carrier's fault, a road closure for snow, with a trace, a reship only after 3 business days with no new scan, and a goodwill credit because Daniel Reyes is a Standard customer with no other late delivery.](../images/try-the-demo/customer-care-carrier.png)
 
 The third starter crosses both systems in the other order: operations lists the held orders, then customer looks up who placed them.
 
@@ -75,7 +75,7 @@ Select **Or start with the bakery quickstart** on the card for a smaller team on
 
 The March croissant starter answers in units. Riverside sold 335 more croissants than Old Town in March 2026: 1346 against 1011.
 
-![The bakery-demo test chat after the March croissant starter. The question is Which shop sold more croissants in March 2026, and by how many? The run card says Harness Prime sent work to analyst, and the analyst row is done. The answer says Riverside sold 335 more croissants than Old Town in March 2026, above a table headed Shop and Units with Riverside 1346 and Old Town 1011.](../images/try-the-demo/demo-chart.png)
+![The bakery-demo test chat after the March croissant starter. The question is Which shop sold more croissants in March 2026, and by how many? The run card says Harness Prime sent work to analyst, and the analyst row is done with 1 tool. The answer says Riverside sold 335 more croissants than Old Town in March 2026, above a table headed Shop and Units with Riverside 1346 and Old Town 1011.](../images/try-the-demo/demo-chart.png)
 
 `POST /api/v1/demo` with `{"credentialId": "<id>"}` makes the customer care team. Add `"demo": "bakery"` for the bakery team.
 

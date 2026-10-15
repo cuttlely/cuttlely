@@ -51,7 +51,7 @@ Give your app a team instead of a single prompt. An agent team is a lead agent w
 
 -   **The Analyst** is a specialist with its own database. It creates tables, adds rows and answers questions about them with the real numbers, and it never reads Cuttlely's own tables. Long results come back in pages. Turn it on with `CUTTLELY_ANALYST=auto`. [Analyst guide](./docs/how-to/analyst.md)
 
-![A harness canvas with its test chat open. The run card says Harness Prime sent work to analyst. The answer is a table of open tasks: draft agenda, open, and send invites, open.](./docs/images/harnesses/canvas-chat-analyst.png)
+![The canvas chat after the database question, in the dark theme. The Run card says Harness Prime sent work to analyst, and the analyst row shows done, OpenAI gpt-5.6-luna, 3 tools. The answer is a table with title and status: draft agenda open, and send invites open.](./docs/images/harnesses/canvas-chat-analyst.png)
 
 ## Test every change before it goes live
 
@@ -138,13 +138,13 @@ Load files, a CSV or a code repository, clean and split them, embed them and sto
 
 A chat model, the agent or chain that answers, memory and tools, on one canvas. Each chatflow gets a prediction API, an embed for your website and a shareable link, and a chatflow with a **Harness** card puts a whole team behind them. [Canvas guide](./docs/how-to/canvas.md)
 
-![A chatflow built with Build with AI. The test chat asks what 18 times 24 is, shows a calculator step, and answers 432.](./docs/images/canvas/build-with-ai-chat.png)
+![The same chatflow after the first save, in the dark theme. The header reads Draft, not live yet. The test chat is open on the right: What is 18 times 24? is answered with a calculator chip and 18 times 24 is 432.](./docs/images/canvas/build-with-ai-chat.png)
 
 #### Agentflows: step-by-step workflows
 
 Workflows that run step by step and can start from a chat message, a form, a webhook or a schedule. Selecting a card opens its settings in a side panel. [Canvas guide](./docs/how-to/canvas.md#workflows)
 
-![The Bakery greeting workflow. Start connects to Reply, and the Reply card's message, Welcome to the bakery! Ask me about today's bread., is open in a side panel.](./docs/images/canvas/canvas-workflow-panel.png)
+![The Bakery greeting workflow in the dark theme. Start connects to Reply. The Reply card is selected, and its Message field, reading Welcome to the bakery! Ask me about today's bread., is in a side panel docked on the right of the canvas.](./docs/images/canvas/canvas-workflow-panel.png)
 
 #### Built in everywhere
 
@@ -188,7 +188,7 @@ You need Docker and one model key. The steps use OpenAI. Any chat model provider
 3. Open the link and create your account. The password needs at least 8 characters, including a lowercase letter, an uppercase letter, a digit and a special character. You are signed in and land on **Chatflows**.
 4. Try the demo. **Chatflows** shows a **Try the demo** card. Select **Add a model key**, choose **OpenAI API**, give it a name, paste the key, and select **Add**. The key is stored encrypted. Then select **Try the demo**: a ready-made customer care team opens with its chat open. Select the first starter question, a complaint about a late espresso machine. The run card shows Harness Prime sending the work to the customer and operations specialists, then to the policy specialist, and the answer gives the decision, the reply to the customer, the actions and the evidence. All the data is made up. [Try the demo](./docs/how-to/try-the-demo.md) shows each step, and the bakery quickstart on the same card.
 
-    ![The customer care team's chat after the first starter question. The run card says Harness Prime sent work to customer, operations, then policy, each done, and the decision says the delay is Larkfield Home's fault, with a shipping refund, an Express reship arriving 2026-10-08, a recall, a store credit and a call from the Customer Care Lead.](./docs/images/try-the-demo/customer-care-run.png)
+    ![The customer care team's chat after the first starter question, scrolled to the end of the answer. The policy row of the run card is open with its task and an execute_code done chip. The Decision says the delay is Larkfield Home's fault, with a shipping refund, an Express reship arriving 2026-10-08, a recall, a store credit and a call from the Customer Care Lead, followed by the reply, the actions and the evidence.](./docs/images/try-the-demo/customer-care-run.png)
 
 5. Build your own team: open **Harness · Agent Team**, select **New agent team**, then **Build with AI** (the sparkle button). Your model and key are already picked under **Chat model that builds**. Pick one of the examples and select **Build**, then open the chat and select a starter question.
 6. Next time, sign in at [http://localhost:43117/signin](http://localhost:43117/signin) with **Sign in**.

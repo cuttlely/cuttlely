@@ -60,13 +60,13 @@ A harness saved before the handle-id repair still has the old edge ids in stored
 
 Each specialist **Chat Model** input can stay empty. The specialist uses Harness Prime's model. An orange triangle on the card is the outdated-node notice when the saved version is behind the current Harness Specialist or Harness Prime. It is not a missing chat model. A harness made from the template today shows no triangle. One saved from an older template or an older Cuttlely shows it until you select **Sync Nodes** and then save. Saving without **Sync Nodes** leaves it.
 
-![The chief-of-staff harness with PostgreSQL MCP settings open. Available Actions has QUERY selected, and the line under it starts with Run one SQL statement in the isolated analyst store (SQLite). Connect Credential reads Auto mode: isolated analyst store, no credential needed.](../images/analyst/postgres-mcp-query.png)
+![The chief-of-staff harness canvas in the dark theme, zoomed in on the PostgreSQL MCP card. Available Actions has QUERY selected with its description below, and Connect Credential reads Auto mode: isolated analyst store, no credential needed.](../images/analyst/postgres-mcp-query.png)
 
 **Try it** is on `/harnesses/chief-of-staff`. The chat on the harness canvas (`/harnesscanvas/<id>`) and **Try it** run the draft when one exists, and Live otherwise. They do not build the canvas as a chatflow. External callers use `POST /api/v1/harnesses/chief-of-staff/runs`, which stays on Live until you publish. The trace on that page shows who ran, the model, and tool names with done, retried, or failed chips. An analyst query chip also shows how many rows that query returned, and a short preview of them. The answer shows the rows and, when the tool stopped at the cap, a page line such as `rows 1-100 of 150 (page 1 of 2, say "show more" for the next page)`. The raw tool text is also in the agent runtime profile database, `state.db`, under that specialist. The panel is described in [Harnesses](./harnesses.md).
 
 This is the canvas chat after the sales prompt from [Prompts](#prompts). The Run card names the analyst, its model, and the tool count. The rows are in the answer.
 
-![Harness canvas for chief-of-staff with the chat panel open. The sales prompt was sent, the Run card says Harness Prime sent work to analyst, the analyst row is done with 6 tools, and the answer starts with Total units by region before the update: west 15, east 20.](../images/analyst/canvas-chat-sales.png)
+![Harness canvas for chief-of-staff in the dark theme, with the chat panel open. The sales prompt was sent, the Run card says Harness Prime sent work to analyst, the analyst row is done with 6 tools, and the answer starts with Total units by region before the update: west 15, east 20.](../images/analyst/canvas-chat-sales.png)
 
 Docker is the same switch in `.env`, then `docker compose up -d`. The workspace file lands at `/var/cuttlely/data/analyst-<tag>.db`, beside `database.sqlite`. `<tag>` is 10 hex characters from the workspace id. See [Docker](./docker.md) and [Workspaces](#workspaces).
 
@@ -82,7 +82,7 @@ SQLite uses the same row cap and the same query timeout as Postgres. Both defaul
 
 An id column has to be `INTEGER PRIMARY KEY`. `SERIAL` is not a SQLite type. A column declared that way comes back null. The analyst tool says which dialect it is on. On SQLite it says to use `INTEGER PRIMARY KEY`.
 
-![analyst-ff33404ebc.db beside database.sqlite. The count of tables named sales or tickets in database.sqlite is 0. sqlite3 analyst-ff33404ebc.db .tables lists demo_orders, sales, tasks, and tickets. sales is 1 west 10, 2 east 20, 3 west 5. tickets is Ticket 1, Ticket 2, and Ticket 3.](../images/analyst/sqlite-analyst-db.png)
+![An analyst database file named analyst- and a short hash, beside database.sqlite. The count of tables named sales or tickets in database.sqlite is 0. The analyst file's .tables lists sales, tasks, and tickets. sales is 1 west 10, 2 east 20, 3 west 5. tickets is Ticket 1, Ticket 2, and Ticket 3.](../images/analyst/sqlite-analyst-db.png)
 
 ## Postgres
 
@@ -94,7 +94,7 @@ The first time the analyst tool starts for a signed-in workspace, Cuttlely creat
 
 The role password is random. It is stored in `analyst-role-<tag>.enc` under `SECRETKEY_PATH`, mode `600`, encrypted with the credential key. The original untagged store uses `analyst-role.enc` instead, and its rows stay in schema `analyst`. When `SECRETKEY_PATH` is unset, that directory is `~/.cuttlely`. Docker and Render set the directory. [Docker](./docker.md). It is not an environment variable and it is not written to the server log. A restart reuses that file. It does not create a second role, and rows already in `analyst_<tag>` stay.
 
-![psql on the cuttlely database. \dn analyst* shows schema analyst_e070b3bf00, owned by the cuttlely login. The role list includes analyst_reader_e070b3bf00, which is not a superuser and cannot create roles, with statement_timeout=15s and search_path=analyst_e070b3bf00.](../images/analyst/postgres-analyst-role.png)
+![psql on the cuttlely database. \dn analyst* shows one schema, analyst_ and a short hash, owned by the cuttlely login. The role list has one matching analyst_reader_ role, which is not a superuser and cannot create roles, with statement_timeout=15s and search_path set to that schema.](../images/analyst/postgres-analyst-role.png)
 
 Ask: `Show the analyst login and search_path.`
 
@@ -151,11 +151,11 @@ A select longer than 100 rows comes back one page at a time. The first answer is
 
 These shots are a 150-row `tickets` table. The first two are the canvas chat. The prompt creates the table and selects every row:
 
-![Canvas chat with the prompt that creates a tickets table, inserts 150 rows, and selects all rows. The Run card says Harness Prime sent work to analyst, the analyst row is done with 4 tools, and the answer lists the rows from id: 1, title: Ticket 1.](../images/analyst/paging-page-1-start.png)
+![Canvas chat with the prompt that creates a tickets table, inserts 150 rows, and selects all rows. The Run card says Harness Prime sent work to analyst, the analyst row is done with 4 tools, and the answer says the table was created with 150 rows and lists them from id: 1, title: Ticket 1.](../images/analyst/paging-page-1-start.png)
 
 The end of the first answer is row 100 and the page line:
 
-![The end of page 1 in the canvas chat: a table of tickets from 87 through 100, then the line rows 1-100 of 150 (page 1 of 2, say "show more" for the next page).](../images/analyst/paging-page-1-line.png)
+![The end of page 1 in the canvas chat: a table of tickets that ends at Ticket 100, then the line rows 1-100 of 150 (page 1 of 2, say "show more" for the next page).](../images/analyst/paging-page-1-line.png)
 
 In that same chat, say `show more`, `next page`, or `page 2`. That fetches the next page of the same select. It does not run a new query, and the model does not see the earlier pages again.
 
@@ -165,7 +165,7 @@ The last page reads `rows 101-150 of 150 (page 2 of 2, last page)`. With 101 row
 
 An answer that fits on one page has no page line and nothing to page. That includes a count or a total, which is one row. Say `show more` in a chat that has no capped result yet, and Harness Prime answers directly without running the analyst: `There's nothing to page yet. Ask your question again and I'll show the first page.`
 
-![A canvas chat. How many rows are in the tickets table is answered with The tickets table contains 3 rows, with no page line. Then show more gets the direct reply There's nothing to page yet. Ask your question again and I'll show the first page.](../images/analyst/paging-nothing-yet.png)
+![A canvas chat. How many rows are in the tickets table is answered with The tickets table contains 150 rows, with no page line. Then show more gets the direct reply There's nothing to page yet. Ask your question again and I'll show the first page.](../images/analyst/paging-nothing-yet.png)
 
 The cursor lasts 15 minutes. It is dropped when Cuttlely restarts. It works only in the chat that ran the query. After 15 minutes, `show more` gets the direct reply `This page cursor expired. Re-run the query.` Send the question again for a new first page. A bad cursor, or one from another chat, also says to re-run the query. That message is an expected result, so it does not pause the analyst tool.
 
@@ -233,7 +233,7 @@ With the default query timeout, 15 seconds is the limit for every analyst statem
 
 In **Try it** on a harness whose analyst uses the workspace analyst file, a recursive count with no end stops at 15 seconds. The answer quotes the timeout sentence. The analyst row in the picture finished in 16 seconds, and the server kept answering the whole time:
 
-![Try it on the chief-of-staff harness. The prompt asks the analyst to run a recursive count with no end. The Run card says Harness Prime sent work to analyst, the analyst row is done after 16 seconds on OpenAI gpt-5.6-luna, and the answer quotes canceling statement due to statement timeout.](../images/analyst/statement-timeout-sqlite.png)
+![Try it on the chief-of-staff harness. The prompt asks the analyst to run a recursive count with no end. The Run card says Harness Prime sent work to analyst, the analyst row is done after 15 seconds on OpenAI gpt-5.6-luna, and the answer quotes canceling statement due to statement timeout.](../images/analyst/statement-timeout-sqlite.png)
 
 ### Temporary tables
 
@@ -247,7 +247,7 @@ In a harness turn, the analyst keeps one connection to its own store from its fi
 
 In **Try it** on a SQLite auto store, one turn creates `tmp_targets`, fills it, and joins it with the regular table `demo_orders`. The three query chips are three separate tool calls on the same connection:
 
-![Try it on the chief-of-staff harness. The prompt creates tmp_targets and joins it to demo_orders. The Run card says Harness Prime sent work to analyst, the analyst row is done with 3 tools, and the answer is apple tart 650 ordered, target 900; lemon cake 650, target 400; rye loaf 650, target 300.](../images/analyst/temp-table-join.png)
+![Try it on the chief-of-staff harness. The Run card says Harness Prime sent work to analyst, the analyst row is done with 3 tools, and the answer is apple tart 650 ordered, target 900; lemon cake 650, target 400; rye loaf 650, target 300. The Runs list below starts with the prompt that creates tmp_targets and joins it to demo_orders.](../images/analyst/temp-table-join.png)
 
 The next turn in the same chat runs `SELECT * FROM tmp_targets;` and gets `no such table: tmp_targets`:
 
@@ -288,7 +288,7 @@ Refresh **Available Actions** on the PostgreSQL MCP node. The list says **No Ava
 
 The fix is a separate database. Set `CUTTLELY_POSTGRES_URL` to it, or select a Postgres URL credential. Do not paste the application database. On Render, the Blueprint does not set that variable. [Analyst database](./render.md#analyst-database). If that host requires TLS, put `sslmode` on the URL yourself. Cuttlely does not add it.
 
-![The PostgreSQL MCP card. Connect Credential says no credential is saved for this node yet. Available Actions is No Available Actions. The note under it reads: Analyst mode needs the application database user to create roles. This database refused that. Set CUTTLELY_POSTGRES_URL to a separate database, or select a Postgres URL credential. The analyst does not use the application login.](../images/analyst/available-actions-create-roles.png)
+![The PostgreSQL MCP card in the dark theme. Connect Credential says no credential is saved for this node yet. Available Actions is No Available Actions. The note under it reads: Analyst mode needs the application database user to create roles. This database refused that. Set CUTTLELY_POSTGRES_URL to a separate database, or select a Postgres URL credential. The analyst does not use the application login.](../images/analyst/available-actions-create-roles.png)
 
 Two other stops use the same fallback, a separate URL, and do not use the application login:
 

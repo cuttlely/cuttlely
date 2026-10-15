@@ -34,7 +34,7 @@ Keep the API key on your server. Never put it in a web page, a mobile app or a p
 2. Give the key a name, such as `Bakery website`, and choose at least one permission. Permissions decide what the key can do on Cuttlely's management API (for example `chatflows:view`). Asking a flow does not need a permission; see the next step.
 3. Copy the key when it is shown. Cuttlely stores only a hash, so it cannot show the key again.
 
-![The API Keys page with one key, Bakery website. The API Key column says Hidden, Permissions is chatflows:view, Usage is 3, and Updated is October 14th, 2026.](./images/api/api-keys-page.png)
+![The API Keys page with one key, Bakery website. The API Key column says Hidden, Permissions is chatflows:view, Usage is 3, and Updated is October 15th, 2026.](./images/api/api-keys-page.png)
 
 Then choose which flows the key can call. On each flow's canvas, open **API Endpoint** (`</>`), and pick the key in the drop-down at the top right.
 

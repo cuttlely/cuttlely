@@ -15,7 +15,7 @@ Everything here is in the repository under `samples/demo/customer-care`, and the
 
 Each specialist is a **Harness Specialist** card with **Code execution** on, so it answers by running Python with `execute_code`. It runs in the agent runtime with its own working directory, `workspaces/customer-care-demo--<name>` under the data directory (`CUTTLELY_DATA_DIR`). Try the demo puts each specialist's files there: every `.sql` file becomes a SQLite database of the same name, and the other files are copied. Each specialist's instructions and tools point only at its own folder, so operations has no customer tiers to go on and customer has no scans: each one reports what its own system shows.
 
-![The run card for Maya's complaint with the policy row open. Harness Prime sent work to customer, operations, then policy. The policy row shows done, OpenAI gpt-4.1-mini, 378 ms, 160 in and 80 out, 1 tool, the task to decide fault for order LH-20417, and an execute_code done chip.](../images/try-the-demo/customer-care-policy.png)
+![The run card after the first starter question. The customer and operations rows are done, and the policy row is open with its task, to decide fault for order LH-20417 and name the remedy steps, and an execute_code done chip. The Decision says the delay is Larkfield Home's fault, with a shipping refund, an Express reship arriving 2026-10-08, a recall of the held parcel, a store credit and a call from the Customer Care Lead.](../images/try-the-demo/customer-care-policy.png)
 
 ## Give each specialist one call that does the job
 
@@ -67,7 +67,7 @@ The percentages, the $75 cap, the $100 cap for a Premier repeat and the goodwill
 
 Harness Prime's instructions ask for four bold parts, **Decision**, **Reply to the customer**, **Actions** and **Evidence**, and say how to use the policy result: every step for every customer, plus the one line for the customer's tier and whether the customer specialist found another late delivery in the 120 days before, with that line's amounts exactly. They also say to use only facts, dates and amounts the specialists gave.
 
-![The end of the answer to Maya: the reply, the Actions checklist with the shipping refund, the Reno reship, the recall, the store credit, the Care Lead call and the operations incident for packing wave W-0929-B, and the Evidence from customer, operations and policy with the policy sections.](../images/try-the-demo/customer-care-answer.png)
+![The end of the answer. The reply to Maya explains that a warehouse error kept the parcel from the carrier, offers an Express reship arriving Thursday, October 8 or a refund, and adds a store credit and a call from the Customer Care Lead. Actions lists the shipping refund, the reship from Reno, the recall from the Columbus warehouse, the store credit, the Care Lead call, and an operations incident for packing wave W-0929-B, which held 5 orders. Evidence has one line each for customer, operations and policy, and the source line reads Source: Service Recovery Policy, sections 1.2, 2.1, 2.3, 2.5, 3.1, 3.2, 3.3, 3.4.](../images/try-the-demo/customer-care-answer.png)
 
 ## Build one on your own data
 
