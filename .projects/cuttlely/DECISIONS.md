@@ -319,3 +319,11 @@ Every authenticated request checks the idle and absolute limits. That includes a
 ## D80. A live session keeps its cookie, and a dead AuthKit session stays dead
 
 When an authenticated request records activity, the local session cookie is sent again with a lifetime that runs until the idle limit or the absolute limit, whichever is sooner. The browser does not drop the cookie one idle period after login while the person is still using Cuttlely. An AuthKit session that has hit idle or absolute is marked expired and is not given a new clock on a later request that still carries the same WorkOS session id. The first requests for one new session id share one row if they arrive together. `pnpm settings unset` reads the settings file only while it holds the settings lock. If discard or retry cannot record history, the settings file is put back. Why: the browser, a retried request, and two saves at once have to agree with the server.
+
+## D81. A shutdown wait of 0 still means do not wait
+
+`CUTTLELY_DRAIN_TIMEOUT_MS` is a whole number from 0 to 300000. The default stays 25000. 0 does not wait: running answers are ended as the shutdown starts. A value under 5000 is kept, including one already set in the environment. A value outside 0 to 300000 is ignored, and the saved value or the default is used. This supersedes the 5000 minimum in D76. Why: a shutdown wait of 0, or any wait under 5 seconds, was already accepted. Treating it as unset made the shutdown wait 25 seconds instead.
+
+## D82. An AuthKit response without a session id still has a clock
+
+When AuthKit authenticates a request and does not send a session id, the idle and absolute limits use this server's own record for that account. The first request starts the clock. A later request with the same missing id does not get a new one. A warning is logged once per account. This supersedes the sentence in D79 that an AuthKit session is remembered only by the WorkOS session id. Why: skipping the check when the id is absent leaves that session outside the idle and absolute limits.

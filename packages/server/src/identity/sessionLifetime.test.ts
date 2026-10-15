@@ -240,6 +240,93 @@ describe('authenticated requests enforce the current lifetime', () => {
         expect(sessions.size).toBe(1)
         expect([...sessions.values()][0].issuedAt?.getTime()).toBe(NOW)
     })
+
+    it('enforces idle and absolute limits when AuthKit omits the session id', async () => {
+        const warnings: string[] = []
+        const original = console.warn
+        console.warn = (...args: unknown[]) => {
+            warnings.push(args.map(String).join(' '))
+        }
+        const sessions = new Map<string, LocalSession>()
+        const store = fakeStore(sessions)
+        store.findUserByExternalId = async () => ({
+            id: 'user-a',
+            email: 'ada@example.com',
+            name: 'Ada',
+            status: 'active',
+            externalId: 'wos-1',
+            credential: null
+        })
+        process.env.CUTTLELY_SESSION_IDLE_MINUTES = '15'
+        process.env.CUTTLELY_SESSION_ABSOLUTE_HOURS = '1'
+        const user = { id: 'wos-1', email: 'ada@example.com', emailVerified: true, name: 'Ada' }
+        const workos = {
+            authorizationUrl: () => '',
+            authenticate: async () => {
+                throw new Error('unused')
+            },
+            authenticateSession: async () => ({ authenticated: true as const, user }),
+            refresh: async () => ({ authenticated: false as const, reason: 'invalid_grant' }),
+            logoutUrl: async () => '',
+            setExternalId: async () => undefined
+        }
+        const call = (now: number) =>
+            establishSession({
+                ...ctx(store, { 'wos-session': 'sealed' }),
+                now,
+                workosConfigured: true,
+                localUsers: false,
+                workos
+            })
+        try {
+            const first = await call(NOW)
+            expect(first.user?.id).toBe('user-a')
+            expect(sessions.size).toBe(1)
+            expect(warnings.some((line) => line.includes('no session id'))).toBe(true)
+            const warned = warnings.length
+            const active = await call(NOW + 10 * 60 * 1000)
+            expect(active.user?.id).toBe('user-a')
+            expect(warnings).toHaveLength(warned)
+            const ended = await call(NOW + 2 * 60 * 60 * 1000)
+            expect(ended.user).toBeNull()
+            expect(ended.clearCookies).toEqual(['wos-session'])
+            expect([...sessions.values()][0].idleExpires.getTime()).toBe(0)
+
+            sessions.clear()
+            const refreshWorkos = {
+                ...workos,
+                authenticateSession: async () => ({ authenticated: false as const, reason: 'invalid_jwt' }),
+                refresh: async () => ({
+                    authenticated: true as const,
+                    sealedSession: 'sealed-again',
+                    user
+                })
+            }
+            const refreshed = await establishSession({
+                ...ctx(store, { 'wos-session': 'sealed' }),
+                now: NOW,
+                workosConfigured: true,
+                localUsers: false,
+                workos: refreshWorkos
+            })
+            expect(refreshed.user?.id).toBe('user-a')
+            expect(sessions.size).toBe(1)
+            const refreshEnded = await handleRefresh({
+                ...ctx(store, { 'wos-session': 'sealed' }),
+                now: NOW + 2 * 60 * 60 * 1000,
+                workosConfigured: true,
+                localUsers: false,
+                workos: refreshWorkos
+            })
+            expect(refreshEnded.type).toBe('json')
+            if (refreshEnded.type !== 'json') return
+            expect(refreshEnded.status).toBe(401)
+            expect(refreshEnded.clearCookies).toEqual(['wos-session'])
+            expect(refreshEnded.body).toEqual({ message: 'Token Expired' })
+        } finally {
+            console.warn = original
+        }
+    })
 })
 
 function ctx(store: IdentityStore, cookies: Record<string, string>): AuthContext {

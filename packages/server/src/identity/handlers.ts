@@ -254,7 +254,7 @@ export async function handleRefresh(ctx: AuthContext): Promise<HandlerResult> {
             if (!row || !isActiveStatus(row.status)) {
                 return json(401, { message: 'Token Expired' }, cleared(ctx, [WOS_SESSION_COOKIE]))
             }
-            if (refreshed.sessionId && (await authKitActivity(ctx, refreshed.sessionId, row.id))) {
+            if (await enforceAuthKit(ctx, refreshed.sessionId, row.id)) {
                 return json(401, { message: 'Token Expired' }, cleared(ctx, [WOS_SESSION_COOKIE]))
             }
             const session = await ctx.store.sessionFor(row.id)
@@ -491,7 +491,7 @@ export async function establishSession(
             if (authenticated.authenticated) {
                 const row = await ctx.store.findUserByExternalId(authenticated.user.id)
                 if (row && isActiveStatus(row.status)) {
-                    if (authenticated.sessionId && (await authKitActivity(ctx, authenticated.sessionId, row.id))) {
+                    if (await enforceAuthKit(ctx, authenticated.sessionId, row.id)) {
                         return { user: null, clearCookies: [WOS_SESSION_COOKIE], secure: ctx.secure }
                     }
                     const user = await ctx.store.sessionFor(row.id)
@@ -504,7 +504,7 @@ export async function establishSession(
             if (!refreshed.authenticated) return { user: null, clearCookies: [WOS_SESSION_COOKIE], secure: ctx.secure }
             const row = await ctx.store.findUserByExternalId(refreshed.user.id)
             if (!row || !isActiveStatus(row.status)) return { user: null, clearCookies: [WOS_SESSION_COOKIE], secure: ctx.secure }
-            if (refreshed.sessionId && (await authKitActivity(ctx, refreshed.sessionId, row.id))) {
+            if (await enforceAuthKit(ctx, refreshed.sessionId, row.id)) {
                 return { user: null, clearCookies: [WOS_SESSION_COOKIE], secure: ctx.secure }
             }
             const user = await ctx.store.sessionFor(row.id)
@@ -569,6 +569,25 @@ function sessionTombstone(row: LocalSession): boolean {
 function duplicateSession(error: unknown): boolean {
     const message = error instanceof Error ? error.message : String(error)
     return /UNIQUE constraint failed|duplicate key|ER_DUP_ENTRY|23505/i.test(message)
+}
+
+const warnedMissingAuthKitSession = new Set<string>()
+
+/**
+ * WorkOS session id when AuthKit sent one. Otherwise this server's own key for that account,
+ * so a response without a session id still has an idle and absolute clock. Logged once per account.
+ */
+function authKitKey(sessionId: string | undefined, userId: string): string {
+    if (sessionId) return sessionId
+    if (!warnedMissingAuthKitSession.has(userId)) {
+        warnedMissingAuthKitSession.add(userId)
+        console.warn("[server]: AuthKit session has no session id, so idle and absolute limits use this server's record for that account")
+    }
+    return `authkit-user:${userId}`
+}
+
+async function enforceAuthKit(ctx: AuthContext, sessionId: string | undefined, userId: string): Promise<'idle' | 'absolute' | null> {
+    return authKitActivity(ctx, authKitKey(sessionId, userId), userId)
 }
 
 /**

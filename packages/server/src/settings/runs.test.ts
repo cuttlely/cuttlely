@@ -1,5 +1,8 @@
+import fs from 'fs'
 import http from 'http'
 import type { AddressInfo } from 'net'
+import os from 'os'
+import path from 'path'
 import express from 'express'
 import request from 'supertest'
 import { watchClientDisconnect } from '../utils/clientAbort'
@@ -200,11 +203,14 @@ describe('shutdown drain', () => {
     })
 
     it('reads the drain time from CUTTLELY_DRAIN_TIMEOUT_MS', () => {
-        expect(drainTimeoutMs({})).toBe(25000)
-        expect(drainTimeoutMs({ CUTTLELY_DRAIN_TIMEOUT_MS: '60000' })).toBe(60000)
-        expect(drainTimeoutMs({ CUTTLELY_DRAIN_TIMEOUT_MS: '0' })).toBe(25000)
-        expect(drainTimeoutMs({ CUTTLELY_DRAIN_TIMEOUT_MS: '' })).toBe(25000)
-        expect(drainTimeoutMs({ CUTTLELY_DRAIN_TIMEOUT_MS: 'soon' })).toBe(25000)
-        expect(drainTimeoutMs({ CUTTLELY_DRAIN_TIMEOUT_MS: '99999999' })).toBe(25000)
+        const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cuttlely-drain-'))
+        const env = (extra: Record<string, string> = {}) => ({ CUTTLELY_DATA_DIR: dir, ...extra })
+        expect(drainTimeoutMs(env())).toBe(25000)
+        expect(drainTimeoutMs(env({ CUTTLELY_DRAIN_TIMEOUT_MS: '60000' }))).toBe(60000)
+        expect(drainTimeoutMs(env({ CUTTLELY_DRAIN_TIMEOUT_MS: '0' }))).toBe(0)
+        expect(drainTimeoutMs(env({ CUTTLELY_DRAIN_TIMEOUT_MS: '1000' }))).toBe(1000)
+        expect(drainTimeoutMs(env({ CUTTLELY_DRAIN_TIMEOUT_MS: '' }))).toBe(25000)
+        expect(drainTimeoutMs(env({ CUTTLELY_DRAIN_TIMEOUT_MS: 'soon' }))).toBe(25000)
+        expect(drainTimeoutMs(env({ CUTTLELY_DRAIN_TIMEOUT_MS: '99999999' }))).toBe(25000)
     })
 })
