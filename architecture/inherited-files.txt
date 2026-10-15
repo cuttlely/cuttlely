@@ -1407,6 +1407,7 @@ packages/server/src/services/schedule/index.ts
 packages/server/src/services/schedule/utils.test.ts
 packages/server/src/services/schedule/utils.ts
 packages/server/src/services/settings/index.ts
+packages/server/src/services/settings/publicPayload.test.ts
 packages/server/src/services/stats/index.test.ts
 packages/server/src/services/stats/index.ts
 packages/server/src/services/text-to-speech/index.ts
