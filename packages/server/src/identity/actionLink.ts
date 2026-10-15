@@ -232,44 +232,72 @@ async function cleanup(query: QueryFn, sql: Sql, now: number): Promise<void> {
     )
 }
 
+async function supersedeOpenLinks(
+    query: QueryFn,
+    sql: Sql,
+    input: { purpose: LinkPurpose; actor: DirectoryActor; userId: string; workspaceId: string; now: number; keepId?: string }
+): Promise<void> {
+    const params: unknown[] = [input.userId, input.purpose, input.workspaceId]
+    let except = ''
+    if (input.keepId) {
+        except = ` AND ${q(sql, 'id')} <> ?`
+        params.push(input.keepId)
+    }
+    const older = await query(
+        `SELECT ${q(sql, 'id')} AS id FROM ${q(sql, 'identity_action_link')}
+         WHERE ${q(sql, 'userId')} = ? AND ${q(sql, 'purpose')} = ? AND ${q(sql, 'workspaceId')} = ? AND ${q(
+            sql,
+            'usedAt'
+        )} IS NULL${except}`,
+        params
+    )
+    if (!older.length) return
+    await query(
+        `UPDATE ${q(sql, 'identity_action_link')} SET ${q(sql, 'usedAt')} = ?, ${q(sql, 'consumeId')} = ?
+         WHERE ${q(sql, 'userId')} = ? AND ${q(sql, 'purpose')} = ? AND ${q(sql, 'workspaceId')} = ? AND ${q(
+            sql,
+            'usedAt'
+        )} IS NULL${except}`,
+        [dbTime(sql, input.now), 'superseded', ...params]
+    )
+    for (let index = 0; index < older.length; index += 1) {
+        await writeAudit(
+            query,
+            sql,
+            {
+                action: 'token_rejected',
+                purpose: input.purpose,
+                organizationId: input.actor.organizationId,
+                workspaceId: input.workspaceId,
+                userId: input.userId,
+                actorId: input.actor.id,
+                result: 'success',
+                reason: 'superseded'
+            },
+            input.now
+        )
+    }
+}
+
 async function issueToken(
     query: QueryFn,
     sql: Sql,
-    input: { purpose: LinkPurpose; actor: DirectoryActor; userId: string; workspaceId: string; now: number; env: NodeJS.ProcessEnv }
+    input: {
+        purpose: LinkPurpose
+        actor: DirectoryActor
+        userId: string
+        workspaceId: string
+        now: number
+        env: NodeJS.ProcessEnv
+        /** Email-only reset keeps older links until the message is sent. */
+        holdPrevious?: boolean
+    }
 ): Promise<{ raw: string; id: string }> {
     const raw = randomToken()
     const id = randomUUID()
     const hash = hashSessionToken(raw)
     await cleanup(query, sql, input.now)
-    const older = await query(
-        `SELECT ${q(sql, 'id')} AS id FROM ${q(sql, 'identity_action_link')}
-         WHERE ${q(sql, 'userId')} = ? AND ${q(sql, 'purpose')} = ? AND ${q(sql, 'workspaceId')} = ? AND ${q(sql, 'usedAt')} IS NULL`,
-        [input.userId, input.purpose, input.workspaceId]
-    )
-    if (older.length) {
-        await query(
-            `UPDATE ${q(sql, 'identity_action_link')} SET ${q(sql, 'usedAt')} = ?, ${q(sql, 'consumeId')} = ?
-             WHERE ${q(sql, 'userId')} = ? AND ${q(sql, 'purpose')} = ? AND ${q(sql, 'workspaceId')} = ? AND ${q(sql, 'usedAt')} IS NULL`,
-            [dbTime(sql, input.now), 'superseded', input.userId, input.purpose, input.workspaceId]
-        )
-        for (let index = 0; index < older.length; index += 1) {
-            await writeAudit(
-                query,
-                sql,
-                {
-                    action: 'token_rejected',
-                    purpose: input.purpose,
-                    organizationId: input.actor.organizationId,
-                    workspaceId: input.workspaceId,
-                    userId: input.userId,
-                    actorId: input.actor.id,
-                    result: 'success',
-                    reason: 'superseded'
-                },
-                input.now
-            )
-        }
-    }
+    if (!input.holdPrevious) await supersedeOpenLinks(query, sql, input)
     await query(
         `INSERT INTO ${q(sql, 'identity_action_link')} (
             ${q(sql, 'id')}, ${q(sql, 'tokenHash')}, ${q(sql, 'purpose')}, ${q(sql, 'organizationId')}, ${q(sql, 'workspaceId')},
@@ -503,7 +531,8 @@ async function resetLocalLinkInner(
             userId: userId.trim(),
             workspaceId,
             now: deps.now(),
-            env: deps.env
+            env: deps.env,
+            holdPrevious: !wantsLink
         })
     })
     const link = oneTimeLink(deps.origin(), issued.raw)
@@ -519,6 +548,14 @@ async function resetLocalLinkInner(
             )
             throw new DirectoryError(502, MAIL_FAILED)
         }
+        await supersedeOpenLinks(sql.query, sql, {
+            purpose: 'reset',
+            actor,
+            userId: userId.trim(),
+            workspaceId,
+            now: deps.now(),
+            keepId: issued.id
+        })
         return { mailed: true }
     }
     let mailed = false
@@ -724,33 +761,36 @@ function json(status: number, body: unknown): HandlerResult {
     return { type: 'json', status, body }
 }
 
+const SMTP_TIMEOUT_MS = 10000
+
 export async function sendSmtp(
     message: OutboundMail,
-    env: NodeJS.ProcessEnv = effectiveAccountEnv(process.env) as NodeJS.ProcessEnv
+    env: NodeJS.ProcessEnv = effectiveAccountEnv(process.env) as NodeJS.ProcessEnv,
+    timeoutMs = SMTP_TIMEOUT_MS
 ): Promise<void> {
     const host = (env.SMTP_HOST || '').trim()
     const from = (env.SENDER_EMAIL || '').trim()
     const port = Number((env.SMTP_PORT || '587').trim())
     if (!host || !from || !Number.isInteger(port) || port < 1 || port > 65535) throw new Error('mail send failed')
     const implicitTls = env.SMTP_SECURE === 'true' || port === 465
-    let socket: Socket = await openSocket(host, port, implicitTls)
+    let socket: Socket = await openSocket(host, port, implicitTls, timeoutMs)
     try {
-        await expectCode(socket, 220)
-        await command(socket, 'EHLO cuttlely', 250)
+        await expectCode(socket, 220, timeoutMs)
+        await command(socket, 'EHLO cuttlely', 250, timeoutMs)
         if (!implicitTls && env.SMTP_STARTTLS === 'true') {
-            await command(socket, 'STARTTLS', 220)
-            socket = await upgrade(socket, host)
-            await command(socket, 'EHLO cuttlely', 250)
+            await command(socket, 'STARTTLS', 220, timeoutMs)
+            socket = await upgrade(socket, host, timeoutMs)
+            await command(socket, 'EHLO cuttlely', 250, timeoutMs)
         }
         const user = (env.SMTP_USER || '').trim()
         if (user) {
-            await command(socket, 'AUTH LOGIN', 334)
-            await command(socket, Buffer.from(user).toString('base64'), 334)
-            await command(socket, Buffer.from(env.SMTP_PASSWORD || '').toString('base64'), 235)
+            await command(socket, 'AUTH LOGIN', 334, timeoutMs)
+            await command(socket, Buffer.from(user).toString('base64'), 334, timeoutMs)
+            await command(socket, Buffer.from(env.SMTP_PASSWORD || '').toString('base64'), 235, timeoutMs)
         }
-        await command(socket, `MAIL FROM:<${from}>`, 250)
-        await command(socket, `RCPT TO:<${message.to}>`, 250)
-        await command(socket, 'DATA', 354)
+        await command(socket, `MAIL FROM:<${from}>`, 250, timeoutMs)
+        await command(socket, `RCPT TO:<${message.to}>`, 250, timeoutMs)
+        await command(socket, 'DATA', 354, timeoutMs)
         const payload = [
             `From: ${from}`,
             `To: ${message.to}`,
@@ -764,74 +804,116 @@ export async function sendSmtp(
             .split('\r\n')
             .map((line) => (line.startsWith('.') ? `.${line}` : line))
             .join('\r\n')
-        await command(socket, `${stuffed}\r\n.`, 250)
-        await command(socket, 'QUIT', 221).catch(() => '')
+        await command(socket, `${stuffed}\r\n.`, 250, timeoutMs)
+        await command(socket, 'QUIT', 221, timeoutMs).catch(() => '')
     } catch {
         throw new Error('mail send failed')
     } finally {
-        socket.destroy()
+        releaseSocket(socket)
     }
 }
 
-function openSocket(host: string, port: number, tls: boolean): Promise<Socket> {
+function releaseSocket(socket: Socket): void {
+    socket.setTimeout(0)
+    socket.removeAllListeners()
+    socket.on('error', () => undefined)
+    socket.destroy()
+}
+
+function openSocket(host: string, port: number, tls: boolean, timeoutMs: number): Promise<Socket> {
     return new Promise((resolve, reject) => {
         const socket = tls ? tlsConnect({ host, port, servername: host }) : netConnect({ host, port })
-        const fail = (error: Error) => {
-            socket.destroy()
-            reject(error)
+        let settled = false
+        const fail = () => {
+            if (settled) return
+            settled = true
+            releaseSocket(socket)
+            reject(new Error('mail send failed'))
         }
-        socket.setTimeout(10000, () => fail(new Error('mail send failed')))
-        socket.once('error', fail)
+        socket.setTimeout(timeoutMs)
+        socket.on('timeout', fail)
+        socket.on('error', fail)
+        socket.on('close', fail)
         socket.once(tls ? 'secureConnect' : 'connect', () => {
-            socket.removeListener('error', fail)
+            if (settled) return
+            settled = true
+            socket.setTimeout(0)
+            socket.removeAllListeners()
             resolve(socket)
         })
     })
 }
 
-function upgrade(socket: Socket, host: string): Promise<Socket> {
+function upgrade(socket: Socket, host: string, timeoutMs: number): Promise<Socket> {
     return new Promise((resolve, reject) => {
         const secure = tlsConnect({ socket, servername: host })
-        const fail = (error: Error) => {
-            secure.destroy()
-            reject(error)
+        let settled = false
+        const fail = () => {
+            if (settled) return
+            settled = true
+            releaseSocket(secure)
+            reject(new Error('mail send failed'))
         }
-        secure.once('error', fail)
+        secure.setTimeout(timeoutMs)
+        secure.on('timeout', fail)
+        secure.on('error', fail)
+        secure.on('close', fail)
         secure.once('secureConnect', () => {
-            secure.removeListener('error', fail)
+            if (settled) return
+            settled = true
+            secure.setTimeout(0)
+            secure.removeAllListeners()
             resolve(secure)
         })
     })
 }
 
-function command(socket: Socket, line: string, code: number): Promise<string> {
+/** One SMTP reply. Error, close, and timeout all reject and destroy the socket. Listeners come off when it settles. */
+function readReply(socket: Socket, code: number, timeoutMs: number, loose: boolean): Promise<string> {
     return new Promise((resolve, reject) => {
-        const onData = (buf: Buffer) => {
-            const text = buf.toString('utf8')
+        let settled = false
+        const finish = (error: Error | null, text = '') => {
+            if (settled) return
+            settled = true
+            socket.setTimeout(0)
             socket.off('data', onData)
-            const match = text.match(/^(\d{3})([\s-])/m)
-            if (!match || Number(match[1]) !== code) {
-                reject(new Error('mail send failed'))
+            socket.off('error', onFail)
+            socket.off('close', onFail)
+            socket.off('timeout', onFail)
+            if (error) {
+                socket.on('error', () => undefined)
+                socket.destroy()
+                reject(error)
                 return
             }
             resolve(text)
         }
+        const onFail = () => finish(new Error('mail send failed'))
+        const onData = (buf: Buffer) => {
+            const text = buf.toString('utf8')
+            if (loose) {
+                if (!text.startsWith(String(code))) onFail()
+                else finish(null, text)
+                return
+            }
+            const match = text.match(/^(\d{3})([\s-])/m)
+            if (!match || Number(match[1]) !== code) onFail()
+            else finish(null, text)
+        }
         socket.on('data', onData)
-        socket.write(`${line}\r\n`)
+        socket.on('error', onFail)
+        socket.on('close', onFail)
+        socket.on('timeout', onFail)
+        socket.setTimeout(timeoutMs)
     })
 }
 
-function expectCode(socket: Socket, code: number): Promise<string> {
-    return new Promise((resolve, reject) => {
-        const onData = (buf: Buffer) => {
-            const text = buf.toString('utf8')
-            socket.off('data', onData)
-            if (!text.startsWith(String(code))) {
-                reject(new Error('mail send failed'))
-                return
-            }
-            resolve(text)
-        }
-        socket.on('data', onData)
-    })
+function command(socket: Socket, line: string, code: number, timeoutMs: number): Promise<string> {
+    const pending = readReply(socket, code, timeoutMs, false)
+    socket.write(`${line}\r\n`)
+    return pending
+}
+
+function expectCode(socket: Socket, code: number, timeoutMs: number): Promise<string> {
+    return readReply(socket, code, timeoutMs, true)
 }

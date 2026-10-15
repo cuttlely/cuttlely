@@ -564,6 +564,94 @@ describe('invite and reset links', () => {
         expect(saved).toMatchObject({ status: 200, body: { message: PASSWORD_SAVED } })
     })
 
+    it('keeps the previous reset link when the email is not sent, and replaces it only after a send', async () => {
+        const { sql, db } = memoryDb()
+        db.exec(`
+            INSERT INTO "user" (id, name, email, status) VALUES ('ada', 'Ada', 'ada@example.com', 'active');
+            INSERT INTO organization_user ("organizationId", "userId", "roleId", status) VALUES ('${ORG}', 'ada', '${ROLE}', 'active');
+            INSERT INTO workspace_user ("workspaceId", "userId", "roleId", status) VALUES ('${TEAM}', 'ada', '${ROLE}', 'active');
+        `)
+        const first = await resetLocalLink(sql, owner, 'ada', { link: true }, deps())
+        await expect(resetLocalLink(sql, owner, 'ada', { link: false }, deps({ mail: true, failMail: true }))).rejects.toMatchObject({
+            status: 502,
+            message: MAIL_FAILED
+        })
+        const rows = db.prepare('SELECT consumeId, usedAt FROM identity_action_link').all() as {
+            consumeId: string | null
+            usedAt: string | null
+        }[]
+        expect(rows).toHaveLength(2)
+        expect(rows.filter((row) => row.consumeId === 'superseded')).toEqual([])
+        expect(rows.filter((row) => row.usedAt === null)).toHaveLength(1)
+        expect(rows.filter((row) => row.consumeId === 'unsent')).toHaveLength(1)
+        const still = await acceptLocalPassword(
+            sql,
+            { body: { token: tokenOf(first.link || ''), password: GOOD }, query: {}, ip: '203.0.113.44', now: NOW },
+            deps()
+        )
+        expect(still).toMatchObject({ status: 200, body: { message: PASSWORD_SAVED } })
+
+        db.exec(`
+            INSERT INTO "user" (id, name, email, status) VALUES ('bea', 'Bea', 'bea@example.com', 'active');
+            INSERT INTO organization_user ("organizationId", "userId", "roleId", status) VALUES ('${ORG}', 'bea', '${ROLE}', 'active');
+            INSERT INTO workspace_user ("workspaceId", "userId", "roleId", status) VALUES ('${TEAM}', 'bea', '${ROLE}', 'active');
+        `)
+        const older = await resetLocalLink(sql, owner, 'bea', { link: true }, deps())
+        const sent: { to: string; subject: string; text: string }[] = []
+        const mailed = await resetLocalLink(sql, owner, 'bea', { link: false }, deps({ mail: true, sent }))
+        expect(mailed).toEqual({ mailed: true })
+        const replaced = await acceptLocalPassword(
+            sql,
+            { body: { token: tokenOf(older.link || ''), password: GOOD }, query: {}, ip: '203.0.113.45', now: NOW },
+            deps()
+        )
+        expect(replaced).toMatchObject({ status: 400, body: { message: LINK_INVALID } })
+        const link = sent[0].text.split('\n').find((line) => line.includes('#token=')) || ''
+        const saved = await acceptLocalPassword(
+            sql,
+            { body: { token: tokenOf(link), password: GOOD }, query: {}, ip: '203.0.113.46', now: NOW },
+            deps()
+        )
+        expect(saved).toMatchObject({ status: 200, body: { message: PASSWORD_SAVED } })
+    })
+
+    it('rejects a dropped SMTP session and a session that never replies', async () => {
+        const crashes: unknown[] = []
+        const onCrash = (error: unknown) => crashes.push(error)
+        process.on('uncaughtException', onCrash)
+        const message = { to: 'ada@example.com', subject: 'Set your Cuttlely password', text: 'Open this one-time link.\n' }
+        const dropped = createServer((socket) => {
+            socket.write('220 ready\r\n')
+            socket.on('data', (buf) => {
+                if (/^EHLO/i.test(buf.toString())) socket.write('250 hello\r\n')
+                else socket.destroy()
+            })
+        })
+        const silent = createServer((socket) => {
+            socket.write('220 ready\r\n')
+        })
+        try {
+            await new Promise<void>((resolve) => dropped.listen(0, '127.0.0.1', () => resolve()))
+            await new Promise<void>((resolve) => silent.listen(0, '127.0.0.1', () => resolve()))
+            const droppedPort = (dropped.address() as { port: number }).port
+            const silentPort = (silent.address() as { port: number }).port
+            const env = (port: number) => ({
+                SMTP_HOST: '127.0.0.1',
+                SMTP_PORT: String(port),
+                SENDER_EMAIL: 'baker@example.com',
+                SMTP_SECURE: 'false'
+            })
+            await expect(sendSmtp(message, env(droppedPort), 300)).rejects.toThrow('mail send failed')
+            await expect(sendSmtp(message, env(silentPort), 200)).rejects.toThrow('mail send failed')
+            await new Promise((resolve) => setImmediate(resolve))
+            expect(crashes).toEqual([])
+        } finally {
+            process.off('uncaughtException', onCrash)
+            dropped.close()
+            silent.close()
+        }
+    })
+
     it('reads an expiry returned as a Date or a number, and refuses an expired one', async () => {
         expect(linkDbTime('sqlite', NOW)).toBe(new Date(NOW).toISOString())
         expect(linkDbTime('postgres', NOW)).toEqual(new Date(NOW))

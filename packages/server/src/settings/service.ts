@@ -319,7 +319,7 @@ export async function saveChanges(deps: ServiceDeps, input: unknown, by: string)
             continue
         }
         if (setting.envOnly) {
-            errors.push({ key, message: `${setting.label} stays in the environment. Server settings only shows whether it is set.` })
+            errors.push({ key, code: 'READ_ONLY', message: 'This setting cannot be changed.' })
             continue
         }
         if (hostKeys.has(key) && !setting.panelFirst) {
