@@ -6,7 +6,7 @@ Owner-only settings for this server. The page is **Admin** > **Server settings**
 
 `PUT /api/v1/server-settings`
 
-The caller must be the organization owner, with a signed-in session. A workspace admin, any other role, and an API key receive 403. A request with no session receives 401. Secrets are accepted on `PUT` and are never returned.
+The caller must be the organization owner, with a signed-in session. A missing session and an API key are 401. A signed-in caller who is not the owner is 403. Secrets are accepted on `PUT` and are never returned.
 
 ## Read
 

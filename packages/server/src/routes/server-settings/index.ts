@@ -1,5 +1,6 @@
-// Server settings API: /api/v1/server-settings. Owner only; an API key never passes (requireOwner, and the path is
-// on the API key deny list). Secret values are accepted but never returned or logged.
+// Server settings API: /api/v1/server-settings. Owner only. The API key deny list answers 401 before this
+// router, and so does a request with no session. A signed-in caller who is not the owner is 403.
+// Secret values are accepted but never returned or logged.
 import express, { NextFunction, Request, Response } from 'express'
 import { requireOwner } from '../../identity/rbac'
 import { startState } from '../../settings/bootstrap'

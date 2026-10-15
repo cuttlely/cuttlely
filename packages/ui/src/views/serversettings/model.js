@@ -115,18 +115,35 @@ export function reviewRows(settings, drafts) {
             const setting = byKey.get(key)
             if (setting.type === 'secret') {
                 const action = value === '' ? 'removed' : setting.secret?.set ? 'replaced' : 'set'
-                return { key, label: setting.label, section: setting.section, secret: action, risk: setting.risk }
+                return {
+                    key,
+                    label: setting.label,
+                    section: setting.section,
+                    secret: action,
+                    risk: setting.risk,
+                    runtime: Boolean(setting.runtime)
+                }
             }
             return {
                 key,
                 label: setting.label,
                 section: setting.section,
                 risk: setting.risk,
+                runtime: Boolean(setting.runtime),
                 from: describeValue(setting, savedValue(setting)),
                 to: describeValue(setting, value)
             }
         })
         .sort((a, b) => a.label.localeCompare(b.label))
+}
+
+/** What the review step says about when these changes take effect. */
+export function reviewApplyNote(rows) {
+    const list = rows ?? []
+    const runtime = list.filter((row) => row.runtime).length
+    if (list.length && runtime === list.length) return 'These limits apply on the next use.'
+    if (runtime) return 'Limits apply now. The rest apply at restart.'
+    return 'Saving keeps them for the next start. The server keeps running with its current settings until it restarts.'
 }
 
 /** Settings that match a search, by label, help, name or option label. */

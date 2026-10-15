@@ -84,7 +84,7 @@ The query timeout stops a statement that runs too long, on the private store and
 
 ## Limits that apply immediately
 
-These limits are read on each use. A saved change applies to the next check, import, or page load. A restart is not required. The host value wins when it is a whole number inside the range. Otherwise the value saved here is used, and otherwise the default. A value outside the range is refused when you save it. A host value that is not a whole number in range is ignored.
+These limits are read on each use. A saved change applies to the next check, import, or page load. A restart is not required. The host value wins when it is a whole number inside the range. Otherwise the value saved here is used, and otherwise the default. A value outside the range is refused when you save it. A host value that is not a whole number in range is ignored. The review step says these limits apply on the next use when every change is one of them. When the review also changes a setting that waits for a restart, it says the limits apply now and the rest apply at restart.
 
 The question count default cannot be above the question cap. The rating scan must be at least the rated-answer import cap. Saving a pair that breaks either rule is refused.
 

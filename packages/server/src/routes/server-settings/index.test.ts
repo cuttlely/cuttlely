@@ -3,6 +3,8 @@ import fs from 'fs'
 import os from 'os'
 import path from 'path'
 import request from 'supertest'
+import { DataSource } from 'typeorm'
+import { apiV1Auth } from '../../identity/apiGate'
 import { setTeamPermissionLookup } from '../../identity/rbac'
 import { isServerSettingsUrl } from '../../settings/redact'
 import { StartState } from '../../settings/apply'
@@ -42,6 +44,28 @@ function app(user: object | null) {
         if (user) (req as Request).user = user as Express.User
         next()
     })
+    server.use('/api/v1/server-settings', router)
+    return request(server)
+}
+
+function gated(
+    overrides: {
+        attachIdentitySession?: (req: Request) => Promise<object | null>
+        validateAPIKey?: () => Promise<{ isValid: boolean; apiKey?: { workspaceId?: string; permissions: string[] } }>
+    } = {}
+) {
+    const server = express()
+    server.use(express.json())
+    server.use(
+        apiV1Auth({
+            whitelistURLs: ['/api/v1/ping'],
+            apiKeyBlacklistURLs: ['/api/v1/server-settings'],
+            licenseRequired: () => false,
+            dataSource: { getRepository: () => ({ findOne: async () => null }) } as unknown as DataSource,
+            validateAPIKey: overrides.validateAPIKey ?? (async () => ({ isValid: false })),
+            attachIdentitySession: overrides.attachIdentitySession ?? (async () => null)
+        })
+    )
     server.use('/api/v1/server-settings', router)
     return request(server)
 }
@@ -109,6 +133,36 @@ describe('who can use server settings', () => {
         ).toBe(403)
         expect((await app(MEMBER).post('/api/v1/server-settings/restart')).status).toBe(403)
         expect((await app(MEMBER).get('/api/v1/server-settings/history')).status).toBe(403)
+        expect(fs.existsSync(path.join(dir, SETTINGS_FILE))).toBe(false)
+    })
+
+    it('returns 401 from the API gate for a missing session and an API key, and 403 for a signed-in non-owner', async () => {
+        const validateAPIKey = jest.fn(async () => ({
+            isValid: true,
+            apiKey: { workspaceId: 'team-a', permissions: ['*'] }
+        }))
+        const missing = await gated().get('/api/v1/server-settings')
+        const keyed = await gated({ validateAPIKey }).get('/api/v1/server-settings').set('Authorization', 'Bearer good-key')
+        const keyedWrite = await gated({ validateAPIKey })
+            .put('/api/v1/server-settings')
+            .set('Authorization', 'Bearer good-key')
+            .send({ values: { CUTTLELY_CHECK_CONCURRENCY: '3' } })
+        expect(missing.status).toBe(401)
+        expect(missing.body).toEqual({ error: 'Unauthorized Access' })
+        expect(keyed.status).toBe(401)
+        expect(keyed.body).toEqual({ error: 'Unauthorized Access' })
+        expect(keyedWrite.status).toBe(401)
+        expect(validateAPIKey).not.toHaveBeenCalled()
+        const member = await gated({ attachIdentitySession: async () => MEMBER }).get('/api/v1/server-settings')
+        const memberWrite = await gated({ attachIdentitySession: async () => MEMBER })
+            .put('/api/v1/server-settings')
+            .set('x-request-from', 'internal')
+            .send({ values: { CUTTLELY_CHECK_CONCURRENCY: '3' } })
+        expect(member.status).toBe(403)
+        expect(member.body).toEqual({ message: 'Forbidden' })
+        expect(memberWrite.status).toBe(403)
+        const owner = await gated({ attachIdentitySession: async () => OWNER }).get('/api/v1/server-settings')
+        expect(owner.status).toBe(200)
         expect(fs.existsSync(path.join(dir, SETTINGS_FILE))).toBe(false)
     })
 

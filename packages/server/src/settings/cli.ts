@@ -1,11 +1,13 @@
 // pnpm settings list | unset NAME | restore
-// The way back in when a saved setting keeps the server from starting or locks you out. Changes apply at the next start.
+// The way back in when a saved setting keeps the server from starting or locks you out.
+// A runtime limit applies on the next use. Every other change applies at the next start.
 // Secret values are never printed.
 import fs from 'fs'
 import path from 'path'
 import { appendHistory, describeChanges } from './history'
 import { SETTINGS, settingFor } from './registry'
 import { hostSetKeys, resolveSettings } from './resolve'
+import { runtimeSnapshot } from './runtime'
 import { ROLLED_BACK_FILE } from './safeboot'
 import { LAST_GOOD_FILE, SETTINGS_FILE, encryptionKeySync, readSettingsFile, settingsDir, writeFileAtomic } from './store'
 
@@ -19,21 +21,40 @@ export interface CliResult {
 const BY = 'command line'
 const NEXT_START = 'It applies the next time Cuttlely starts.'
 
+function appliesLater(name: string): string {
+    if (settingFor(name)?.runtime) return 'It applies the next time that limit is used.'
+    return NEXT_START
+}
+
 function listSettings(env: Env, all: boolean): CliResult {
     const dir = settingsDir(env)
     const read = readSettingsFile(dir, encryptionKeySync(env))
     const rows = resolveSettings({ env, hostKeys: hostSetKeys(env), file: read.values })
+    const live = runtimeSnapshot(env)
     const lines = [`Settings file: ${path.join(dir, SETTINGS_FILE)}${read.exists ? '' : ' (none yet)'}`]
-    const shown = rows.filter((row) => all || row.source !== 'default' || read.unreadable.includes(row.key))
+    const shown = rows.filter((row) => {
+        if (all || read.unreadable.includes(row.key)) return true
+        const resolved = live.get(row.key)
+        // A host or saved value that does not resolve still belongs on the list, with the value in effect.
+        if (resolved) return resolved.source !== 'default' || row.source !== 'default'
+        return row.source !== 'default'
+    })
     if (!shown.length) lines.push('Nothing is set. Every setting uses its default.')
     for (const row of shown) {
         const setting = settingFor(row.key)
-        const secret = setting?.type === 'secret'
+        const resolved = live.get(row.key)
         let value = row.value
-        if (read.unreadable.includes(row.key) && row.source !== 'host') value = '(saved, cannot be read with this key)'
-        else if (secret) value = row.value ? '(set, hidden)' : '(not set)'
-        else if (!value) value = `(default: ${setting?.defaultLabel ?? 'none'})`
-        const source = row.source === 'host' ? 'host, locked' : row.source === 'file' ? 'settings file' : 'default'
+        let source: string
+        if (resolved) {
+            value = String(resolved.value)
+            source = resolved.source
+        } else {
+            const secret = setting?.type === 'secret'
+            if (read.unreadable.includes(row.key) && row.source !== 'host') value = '(saved, cannot be read with this key)'
+            else if (secret) value = row.value ? '(set, hidden)' : '(not set)'
+            else if (!value) value = `(default: ${setting?.defaultLabel ?? 'none'})`
+            source = row.source === 'host' ? 'host, locked' : row.source === 'file' ? 'settings file' : 'default'
+        }
         lines.push(`${row.key.padEnd(38)} ${source.padEnd(14)} ${value}`)
     }
     for (const problem of read.problems) lines.push(`Note: ${problem}`)
@@ -66,7 +87,7 @@ function unsetSetting(env: Env, name: string | undefined): CliResult {
     delete after[name]
     const changes = settingFor(name) ? describeChanges(before, after) : []
     appendHistory(dir, { kind: 'unset', by: BY, changes: changes.length ? changes : [{ key: name }], outcome: 'ok' })
-    return { code: 0, lines: [`Removed ${name} from the settings file. ${NEXT_START}`] }
+    return { code: 0, lines: [`Removed ${name} from the settings file. ${appliesLater(name)}`] }
 }
 
 function restoreLastGood(env: Env): CliResult {
@@ -111,7 +132,7 @@ export function runSettingsCli(args: string[], env: Env = process.env): CliResul
                     '  pnpm settings list [--all]   what is set, and where it comes from (secrets stay hidden)',
                     '  pnpm settings unset NAME     remove one saved setting',
                     '  pnpm settings restore        go back to the last settings that started',
-                    `Known settings: ${SETTINGS.length}. Changes apply at the next start.`
+                    `Known settings: ${SETTINGS.length}. Runtime limits apply on the next use. Every other change applies at the next start.`
                 ]
             }
     }

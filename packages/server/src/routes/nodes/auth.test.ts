@@ -68,6 +68,11 @@ function app(overrides?: {
 }
 
 describe('node list and pack index sign-in', () => {
+    it('keeps server settings off the API key list and off the public list', () => {
+        expect(API_KEY_BLACKLIST_URLS.some((url) => '/api/v1/server-settings'.startsWith(url))).toBe(true)
+        expect(WHITELIST_URLS.some((url) => '/api/v1/server-settings'.startsWith(url))).toBe(false)
+    })
+
     it('returns 401 for both routes when the request has no session and no API key', async () => {
         const client = app()
         const nodes = await client.get('/api/v1/nodes')
