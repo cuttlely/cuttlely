@@ -303,21 +303,10 @@ export class SqlIdentityStore implements IdentityStore {
                  WHERE ou.${quote(d, 'userId')} = ?`,
                 [userId]
             )
-            const org = orgs[0]
-            const owner = text(cell(org || {}, 'roleName')).toLowerCase() === OWNER_ROLE
-            const organizationId = org ? text(cell(org, 'organizationId')) : ''
-            // Re-invited existing users are stored as invited. Open only that row. disable stays disable.
-            if (organizationId && text(cell(org, 'orgStatus')).trim().toLowerCase() === 'invited') {
-                await query(
-                    runner,
-                    `UPDATE ${quote(d, 'organization_user')} SET ${quote(d, 'status')} = ?
-                     WHERE ${quote(d, 'userId')} = ? AND ${quote(d, 'organizationId')} = ? AND LOWER(${quote(d, 'status')}) = 'invited'`,
-                    ['active', userId, organizationId]
-                )
-            }
             const memberships = await query(
                 runner,
                 `SELECT w.${quote(d, 'id')} AS ${quote(d, 'workspaceId')}, w.${quote(d, 'name')} AS ${quote(d, 'workspaceName')},
+                        w.${quote(d, 'organizationId')} AS ${quote(d, 'organizationId')},
                         r.${quote(d, 'name')} AS ${quote(d, 'roleName')}, r.${quote(d, 'permissions')} AS ${quote(d, 'permissions')},
                         wu.${quote(d, 'status')} AS ${quote(d, 'membershipStatus')},
                         wu.${quote(d, 'lastLogin')} AS ${quote(d, 'lastLogin')}
@@ -348,6 +337,23 @@ export class SqlIdentityStore implements IdentityStore {
                 )
             }
             const last = active ? cell(active, 'lastLogin') : null
+            // The first organization row is not the active one. Owner follows the team that this request is in.
+            const activeOrgId = active ? text(cell(active, 'organizationId')) : ''
+            const org = orgs.find((row) => text(cell(row, 'organizationId')) === activeOrgId)
+            let orgStatus = text(cell(org || {}, 'orgStatus'))
+                .trim()
+                .toLowerCase()
+            // Re-invited existing users are stored as invited. Open only the active team's organization. disable stays disable.
+            if (activeOrgId && org && orgStatus === 'invited') {
+                await query(
+                    runner,
+                    `UPDATE ${quote(d, 'organization_user')} SET ${quote(d, 'status')} = ?
+                     WHERE ${quote(d, 'userId')} = ? AND ${quote(d, 'organizationId')} = ? AND LOWER(${quote(d, 'status')}) = 'invited'`,
+                    ['active', userId, activeOrgId]
+                )
+                orgStatus = 'active'
+            }
+            const owner = isActive(user.status) && orgStatus === 'active' && text(cell(org || {}, 'roleName')).toLowerCase() === OWNER_ROLE
             return {
                 id: user.id,
                 email: user.email,
@@ -355,7 +361,7 @@ export class SqlIdentityStore implements IdentityStore {
                 status: user.status,
                 role: owner ? OWNER_ROLE : text(cell(active || {}, 'roleName')),
                 isSSO: false,
-                activeOrganizationId: org ? text(cell(org, 'organizationId')) || null : null,
+                activeOrganizationId: activeOrgId || null,
                 activeOrganizationSubscriptionId: null,
                 activeOrganizationCustomerId: null,
                 activeOrganizationProductId: null,
