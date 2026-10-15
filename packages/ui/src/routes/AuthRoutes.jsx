@@ -12,6 +12,7 @@ const VerifyEmailPage = Loadable(lazy(() => import('@/views/auth/verify-email'))
 const ConfirmEmailChangePage = Loadable(lazy(() => import('@/views/auth/confirm-email-change')))
 const ForgotPasswordPage = Loadable(lazy(() => import('@/views/auth/forgotPassword')))
 const ResetPasswordPage = Loadable(lazy(() => import('@/views/auth/resetPassword')))
+const LocalAcceptPage = Loadable(lazy(() => import('@/views/auth/localAccept')))
 const UnauthorizedPage = Loadable(lazy(() => import('@/views/auth/unauthorized')))
 const RateLimitedPage = Loadable(lazy(() => import('@/views/auth/rateLimited')))
 const OrganizationSetupPage = Loadable(lazy(() => import('@/views/organization/index')))
@@ -50,6 +51,10 @@ const AuthRoutes = {
         {
             path: '/reset-password',
             element: <ResetPasswordPage />
+        },
+        {
+            path: '/local-accept',
+            element: <LocalAcceptPage />
         },
         {
             path: '/unauthorized',

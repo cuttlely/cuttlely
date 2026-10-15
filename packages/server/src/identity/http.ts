@@ -36,7 +36,7 @@ import {
 } from './handlers'
 import { apiKeyPermissionCatalog, rolePermissionCatalog } from './permissionsCatalog'
 import { requireAnyPermission, requirePermission } from './rbac'
-import { registerInvite } from './directoryRoutes'
+import { acceptLocalRoute, registerInvite } from './directoryRoutes'
 import { enabledSignInMethods, signInOptionsBody } from './signInOptions'
 import { buildAuthContext } from './production'
 import { HandlerResult } from './types'
@@ -154,6 +154,10 @@ identityAuthRouter.get('/callback', (req, res, next) => {
     void dispatch(req, res, next, handleCallback)
 })
 identityAuthRouter.post('/login', (req, res, next) => void dispatch(req, res, next, handleLoginPost))
+identityAuthRouter.post('/local/accept', (req, res, next) => {
+    const query = req.query && typeof req.query === 'object' ? (req.query as Record<string, unknown>) : {}
+    void dispatch(req, res, next, (ctx) => acceptLocalRoute(ctx, query))
+})
 identityAuthRouter.post('/refreshToken', (req, res, next) => void dispatch(req, res, next, handleRefresh))
 identityAuthRouter.post('/resolve', (req, res, next) => void dispatch(req, res, next, handleResolve))
 

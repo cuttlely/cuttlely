@@ -104,6 +104,13 @@ describe('logger.ts', () => {
             expect(verify).not.toContain(secret)
         })
 
+        it('does not write a one-time link token from the query or the fragment', () => {
+            const secret = 'exampletokenexampletokenexampletoken12'
+            const logged = redactLoggedUrl(`/api/v1/auth/local/accept?token=${secret}#token=${secret}`)
+            expect(logged).toBe('/api/v1/auth/local/accept?token=[redacted]#token=[redacted]')
+            expect(logged).not.toContain(secret)
+        })
+
         it('logs GET request (requestLogger.http path)', () => {
             const req = { url: '/api/v1/chatflows', method: 'GET', params: {} } as any
             expressRequestLogger(req, {} as any, next)

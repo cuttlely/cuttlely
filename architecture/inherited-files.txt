@@ -1833,6 +1833,7 @@ packages/ui/src/views/assistants/openai/OpenAIAssistantLayout.jsx
 packages/ui/src/views/auth/confirm-email-change.jsx
 packages/ui/src/views/auth/expired.jsx
 packages/ui/src/views/auth/forgotPassword.jsx
+packages/ui/src/views/auth/localAccept.jsx
 packages/ui/src/views/auth/login.jsx
 packages/ui/src/views/auth/loginActivity.jsx
 packages/ui/src/views/auth/rateLimited.jsx

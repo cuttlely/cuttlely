@@ -89,6 +89,7 @@ const SESSION_LOG_FIELDS = new Set([
 export function redactLoggedUrl(url: string): string {
     return url
         .replace(/([?&](?:chatId|sessionId|sessionToken)=)[^&#]*/gi, '$1[redacted]')
+        .replace(/([#?&]token=)[^&#]*/gi, '$1[redacted]')
         .replace(/(\/api\/v1\/(?:chatflows|verify)\/apikey\/)[^/?#]*/gi, '$1[redacted]')
 }
 

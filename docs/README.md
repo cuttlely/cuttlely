@@ -32,14 +32,14 @@ New here? Start with [Your first 10 minutes](../README.md#your-first-10-minutes)
 -   [Build from source and run the dev server](./how-to/from-source.md). Build Cuttlely yourself, run it, change the code with live reload, and run the tests and `pnpm verify`.
 -   [Render](./how-to/render.md). A hosted install with Postgres.
 -   [Server settings](./how-to/server-settings.md). Change how the server runs from **Admin** > **Server Settings**: sign-in and AuthKit, the database, storage, the analyst and more, with a review step, safe boot and History.
--   [Sign in](./how-to/sign-in.md). Turn on the local account, create the first account in a terminal or the browser, and sign in. [Users without AuthKit](./how-to/users-without-authkit.md) is email and password for people who already have a password. [Set up WorkOS AuthKit](./identity/workos-authkit-setup.md) when a team signs in.
+-   [Sign in](./how-to/sign-in.md). Turn on the local account, create the first account in a terminal or the browser, and sign in. [Users without AuthKit](./how-to/users-without-authkit.md) is email and password, including one-time invite and reset links. [Set up WorkOS AuthKit](./identity/workos-authkit-setup.md) when a team signs in.
 -   [Roles and permissions](./how-to/roles-and-permissions.md). Teams, the built-in roles, how to add a role and assign it, and every permission key with the pages and API routes that check it.
 
 ## Reference
 
 -   [History settings](./reference/versioning-settings.md), [History API](./reference/versioning-api.md), [Drafts API](./reference/drafts-api.md) and [Version files](./reference/version-files.md).
 -   [Usage API](./reference/usage-api.md). Daily input and output token totals for a workspace, by flow and model, with an estimated cost. The Usage page shows the same figures.
--   [Auth API](./reference/auth-api.md). Local password sign-in, sign-out, a user's own password change, and which sign-in methods are on.
+-   [Auth API](./reference/auth-api.md). Local password sign-in, sign-out, a user's own password change, one-time invite and reset links, and which sign-in methods are on.
 -   [Override configuration](./reference/override-config.md). What a prediction request may change with `overrideConfig`, and what it never can.
 -   [Upgrading Cuttlely](./upgrading.md). Back up, upgrade, check and roll back, for Docker, Render and source installs.
 -   [Changelog](../CHANGELOG.md) and [Releases and support](./releases.md). What changed in each release, what counts as a breaking change, and which versions get fixes.
