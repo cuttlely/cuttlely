@@ -278,6 +278,48 @@ describe('logger.ts', () => {
             infoSpy.mockRestore()
         })
 
+        it('does not write a local password or the local session cookie on a debug line', () => {
+            process.env.DEBUG = 'true'
+            const infoSpy = jest.spyOn(logger, 'info').mockImplementation(() => logger)
+            const password = 'Sup3r-Secret!'
+            const nextPassword = 'An0ther-Secret!'
+            const cookie = 'local-session-cookie-value'
+            expressRequestLogger(
+                {
+                    url: '/api/v1/auth/local/login',
+                    method: 'POST',
+                    params: {},
+                    body: { email: 'ada@example.com', Email: 'Ada@Localhost', profile: { email: 'nested@localhost' }, password },
+                    query: {},
+                    headers: { cookie: `cuttlely-local-session=${cookie}` }
+                } as any,
+                {} as any,
+                next
+            )
+            expressRequestLogger(
+                {
+                    url: '/api/v1/auth/local/password',
+                    method: 'POST',
+                    params: {},
+                    body: { currentPassword: password, newPassword: nextPassword },
+                    query: {},
+                    headers: { cookie: `other=1; cuttlely-local-session=${cookie}` }
+                } as any,
+                {} as any,
+                next
+            )
+            const logged = JSON.stringify(infoSpy.mock.calls)
+            expect(logged).not.toContain(password)
+            expect(logged).not.toContain(nextPassword)
+            expect(logged).not.toContain(cookie)
+            expect(logged).not.toContain('ada@example.com')
+            expect(logged).not.toContain('Ada@Localhost')
+            expect(logged).not.toContain('nested@localhost')
+            expect(logged).toContain('cuttlely-local-session=[redacted]')
+            expect(logged).toContain('[redacted]')
+            infoSpy.mockRestore()
+        })
+
         it('logs POST request (requestLogger.info + logger.info path)', () => {
             const req = { url: '/api/v1/chatflows', method: 'POST', params: {} } as any
             const infoSpy = jest.spyOn(logger, 'info').mockImplementation(() => {})

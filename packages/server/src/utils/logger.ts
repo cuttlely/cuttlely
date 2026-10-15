@@ -71,8 +71,19 @@ function getSensitiveHeaderFields(): string[] {
         .map((f) => f.trim())
 }
 
-// Always redacted in a debug request body. `token` is the GitHub token sent when connecting version history.
-const SESSION_LOG_FIELDS = new Set(['chatid', 'sessionid', 'sessiontoken', 'token'])
+// Always redacted in a debug request body. The key match is case-insensitive. `token` is the GitHub token sent when connecting version history.
+const SESSION_LOG_FIELDS = new Set([
+    'chatid',
+    'sessionid',
+    'sessiontoken',
+    'token',
+    'password',
+    'currentpassword',
+    'newpassword',
+    'credential',
+    'setupcode',
+    'email'
+])
 const REDACTED_QUERY_NAMES = new Set(['chatid', 'sessionid', 'sessiontoken', 'q', 'cursor'])
 
 function decodeQueryName(raw: string): string {
@@ -167,7 +178,7 @@ function sanitizeObject(obj: any): any {
         const lowerKey = key.toLowerCase()
         if (sensitiveFields.includes(lowerKey) || SESSION_LOG_FIELDS.has(lowerKey)) {
             sanitized[key] = '[redacted]'
-        } else if (lowerKey === 'overrideconfig' && sanitized[key] && typeof sanitized[key] === 'object') {
+        } else if (sanitized[key] && typeof sanitized[key] === 'object') {
             sanitized[key] = sanitizeObject(sanitized[key])
         } else if (typeof sanitized[key] === 'string') {
             sanitized[key] = maskEmailLike(sanitized[key])
@@ -214,7 +225,9 @@ export function expressRequestLogger(req: Request, res: Response, next: NextFunc
             })
             if (sanitizedHeaders['x-cuttlely-session-token']) sanitizedHeaders['x-cuttlely-session-token'] = '[redacted]'
             if (typeof sanitizedHeaders.cookie === 'string') {
-                sanitizedHeaders.cookie = sanitizedHeaders.cookie.replace(/cuttlely_session=[^;]*/gi, 'cuttlely_session=[redacted]')
+                sanitizedHeaders.cookie = sanitizedHeaders.cookie
+                    .replace(/cuttlely_session=[^;]*/gi, 'cuttlely_session=[redacted]')
+                    .replace(/cuttlely-local-session=[^;]*/gi, 'cuttlely-local-session=[redacted]')
             }
 
             // Server settings bodies can hold secrets (database password, API keys). Never log them, even at debug.

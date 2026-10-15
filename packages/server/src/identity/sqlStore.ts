@@ -24,7 +24,7 @@ import {
     OWNER_ROLE,
     PERSONAL_WORKSPACE
 } from './constants'
-import { LoginLimiter } from './rateLimit'
+import { ACCOUNT_LOCK_CAP, LoginLimiter, accountLockKey } from './rateLimit'
 import { IdentityStore } from './store'
 import { CreateOwnerInput, LocalSession, NotEmptyError, SessionUser, UserRow } from './types'
 
@@ -446,6 +446,34 @@ export class SqlIdentityStore implements IdentityStore {
         })
     }
 
+    async deleteLocalSessionsForUser(userId: string): Promise<void> {
+        await this.withRunner(async (runner) => {
+            const d = dialectOf(runner)
+            await query(runner, `DELETE FROM ${quote(d, 'identity_local_session')} WHERE ${quote(d, 'userId')} = ?`, [userId])
+        })
+    }
+
+    async localAccountOpen(userId: string): Promise<boolean> {
+        return this.withRunner(async (runner) => {
+            const d = dialectOf(runner)
+            const users = await query(
+                runner,
+                `SELECT ${quote(d, 'status')} AS ${quote(d, 'status')} FROM ${quote(d, 'user')} WHERE ${quote(d, 'id')} = ?`,
+                [userId]
+            )
+            if (!users.length || text(cell(users[0], 'status')).trim().toLowerCase() !== 'active') return false
+            const disabled = await query(
+                runner,
+                `SELECT COUNT(*) AS ${quote(d, 'count')} FROM ${quote(d, 'organization_user')} WHERE ${quote(
+                    d,
+                    'userId'
+                )} = ? AND LOWER(${quote(d, 'status')}) = 'disable'`,
+                [userId]
+            )
+            return Number(cell(disabled[0] || {}, 'count') || 0) === 0
+        })
+    }
+
     private async withRunner<T>(fn: (runner: QueryRunner) => Promise<T>): Promise<T> {
         const runner = this.dataSource.createQueryRunner()
         await runner.connect()
@@ -600,20 +628,21 @@ function isUniqueViolation(error: unknown): boolean {
     return /UNIQUE constraint failed|duplicate key|ER_DUP_ENTRY|23505/i.test(message)
 }
 
-/** Failed break-glass attempts. Old rows are deleted on each check. */
+/** Failed sign-ins. Old rows are deleted on each check. The email is stored as an HMAC. */
 export class SqlLoginRateLimit implements LoginLimiter {
     constructor(
         private readonly dataSource: DataSource,
         private readonly limit = LOGIN_FAILURE_LIMIT,
-        private readonly windowMs = LOGIN_FAILURE_WINDOW_MS
+        private readonly windowMs = LOGIN_FAILURE_WINDOW_MS,
+        private readonly accountCap = ACCOUNT_LOCK_CAP
     ) {}
 
     async blocked(ip: string, account: string, now: number): Promise<boolean> {
         return this.with(async (runner) => {
             await this.prune(runner, now)
             if ((await this.countScope(runner, 'ip', ip, now)) >= this.limit) return true
-            const email = account.trim().toLowerCase()
-            return email !== '' && (await this.countScope(runner, 'account', email, now)) >= this.limit
+            const key = accountLockKey(account)
+            return key !== '' && (await this.countScope(runner, 'account', key, now)) >= this.limit
         })
     }
 
@@ -621,8 +650,9 @@ export class SqlLoginRateLimit implements LoginLimiter {
         await this.with(async (runner) => {
             await this.prune(runner, now)
             await this.insert(runner, 'ip', ip, now)
-            const email = account.trim().toLowerCase()
-            if (email) await this.insert(runner, 'account', email, now)
+            const key = accountLockKey(account)
+            if (key) await this.insert(runner, 'account', key, now)
+            await this.evictAccounts(runner)
         })
     }
 
@@ -639,6 +669,28 @@ export class SqlLoginRateLimit implements LoginLimiter {
     private async prune(runner: QueryRunner, now: number): Promise<void> {
         const d = dialectOf(runner)
         await query(runner, `DELETE FROM ${quote(d, 'identity_login_failure')} WHERE ${quote(d, 'attemptedAt')} < ?`, [now - this.windowMs])
+        await this.evictAccounts(runner)
+    }
+
+    /** Drop the least recently used email keys when too many distinct addresses have failed. */
+    private async evictAccounts(runner: QueryRunner): Promise<void> {
+        const d = dialectOf(runner)
+        const subjects = await query(
+            runner,
+            `SELECT ${quote(d, 'subject')} AS ${quote(d, 'subject')}, MAX(${quote(d, 'attemptedAt')}) AS ${quote(d, 'latest')} FROM ${quote(
+                d,
+                'identity_login_failure'
+            )} WHERE ${quote(d, 'scope')} = 'account' GROUP BY ${quote(d, 'subject')} ORDER BY ${quote(d, 'latest')} ASC`
+        )
+        const extra = subjects.length - this.accountCap
+        if (extra <= 0) return
+        for (const row of subjects.slice(0, extra)) {
+            await query(
+                runner,
+                `DELETE FROM ${quote(d, 'identity_login_failure')} WHERE ${quote(d, 'scope')} = 'account' AND ${quote(d, 'subject')} = ?`,
+                [text(cell(row, 'subject'))]
+            )
+        }
     }
 
     private async countScope(runner: QueryRunner, scope: string, key: string, now: number): Promise<number> {

@@ -16,7 +16,7 @@
 
 import { Request } from 'express'
 import { getDataSource } from '../DataSource'
-import { cookiePasswordOk, localAdminEnabled, workosConfigured } from './constants'
+import { cookiePasswordOk, localAdminEnabled, localUsersMode, workosConfigured } from './constants'
 import { cookieSecure } from './cookies'
 import { AuthContext } from './handlers'
 import { SqlIdentityStore, SqlLoginRateLimit } from './sqlStore'
@@ -41,6 +41,7 @@ export function buildAuthContext(req: Request): AuthContext {
     return {
         workosConfigured: workosConfigured(),
         localAdmin: localAdminEnabled(),
+        localUsers: localUsersMode(),
         cookiePasswordOk: cookiePasswordOk(process.env.WORKOS_COOKIE_PASSWORD),
         bootstrapEmail: process.env.CUTTLELY_BOOTSTRAP_EMAIL?.trim() || undefined,
         redirectUri,

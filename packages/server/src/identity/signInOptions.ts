@@ -10,13 +10,22 @@
  * Sign-in screen contract for docs/identity/phase0-spec.md section 8.
  */
 
-import { localAdminEnabled, workosConfigured } from './constants'
+import { localAdminEnabled, localUsersMode, workosConfigured } from './constants'
 
 export interface SignInOptions {
     authKit: boolean
     localAdmin: boolean
+    /** True only when CUTTLELY_LOCAL_USERS is exactly true and AuthKit is not configured. */
+    localUsers: boolean
     mail: boolean
 }
+
+export const SIGN_IN_METHOD = {
+    authKit: 'authKit',
+    localAdmin: 'localAdmin',
+    localUsers: 'localUsers',
+    mail: 'mail'
+} as const
 
 /**
  * Password reset stays off until a sender and a reset route exist.
@@ -31,6 +40,18 @@ export function signInOptionsBody(env: NodeJS.ProcessEnv = process.env): SignInO
     return {
         authKit: workosConfigured(env),
         localAdmin: localAdminEnabled(env),
+        localUsers: localUsersMode(env),
         mail: mailConfigured(env)
     }
+}
+
+/** Names of the methods that are on. Methods that are off are omitted. */
+export function enabledSignInMethods(env: NodeJS.ProcessEnv = process.env): { methods: string[] } {
+    const options = signInOptionsBody(env)
+    const methods: string[] = []
+    if (options.authKit) methods.push(SIGN_IN_METHOD.authKit)
+    if (options.localAdmin) methods.push(SIGN_IN_METHOD.localAdmin)
+    if (options.localUsers) methods.push(SIGN_IN_METHOD.localUsers)
+    if (options.mail) methods.push(SIGN_IN_METHOD.mail)
+    return { methods }
 }

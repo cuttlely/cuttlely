@@ -18,7 +18,8 @@ import {
     createRole,
     deleteOrganizationUser,
     listOrganizationUsers,
-    switchWorkspace
+    switchWorkspace,
+    updateOrganizationUser
 } from './directory'
 import { catalogKeys } from './permissionsCatalog'
 import { signInOptionsBody } from './signInOptions'
@@ -58,6 +59,7 @@ function memorySql(): { sql: Sql; db: InstanceType<typeof DatabaseSync> } {
         );
         CREATE TABLE organization_user (
             "organizationId" text, "userId" text, "roleId" text, status text, "createdBy" text, "updatedBy" text,
+            "updatedDate" text,
             primary key ("organizationId", "userId")
         );
         CREATE TABLE workspace_user (
@@ -76,6 +78,9 @@ function memorySql(): { sql: Sql; db: InstanceType<typeof DatabaseSync> } {
             VALUES ('${ORG}', '${OWNER}', 'role-owner', 'active', '${OWNER}', '${OWNER}');
         INSERT INTO workspace_user ("workspaceId", "userId", "roleId", status, "createdBy", "updatedBy")
             VALUES ('${TEAM}', '${OWNER}', '${ROLE}', 'active', '${OWNER}', '${OWNER}');
+        CREATE TABLE identity_local_session (
+            id text primary key, userId text, token text, expiresAt text, absoluteExpiresAt text
+        );
     `)
     const query = async (statement: string, params: unknown[] = []) => {
         const prepared = db.prepare(statement)
@@ -175,6 +180,25 @@ describe('directory users', () => {
         expect(catalogKeys()).toContain('users:manage')
         expect(catalogKeys()).toContain('chatflows:view')
     })
+
+    it('ends local sessions when a user is disabled', async () => {
+        const { sql, db } = memorySql()
+        db.exec(`
+            INSERT INTO "user" (id, name, email, credential, status, "createdBy", "updatedBy")
+                VALUES ('member-1', 'Member', 'member@example.com', 'hash', 'active', '${OWNER}', '${OWNER}');
+            INSERT INTO organization_user ("organizationId", "userId", "roleId", status, "createdBy", "updatedBy")
+                VALUES ('${ORG}', 'member-1', '${ROLE}', 'active', '${OWNER}', '${OWNER}');
+            INSERT INTO identity_local_session (id, userId, token, expiresAt, absoluteExpiresAt)
+                VALUES ('sess-1', 'member-1', 'digest', '2099-01-01', '2099-01-01');
+        `)
+        await updateOrganizationUser(sql, actor, {
+            userId: 'member-1',
+            organizationId: ORG,
+            status: 'inactive'
+        })
+        expect(db.prepare('SELECT id FROM identity_local_session').all()).toEqual([])
+        expect(db.prepare('SELECT status FROM organization_user WHERE "userId" = ?').all('member-1')).toEqual([{ status: 'disable' }])
+    })
 })
 
 describe('sign-in screen contract', () => {
@@ -182,20 +206,32 @@ describe('sign-in screen contract', () => {
         expect(signInOptionsBody({ WORKOS_API_KEY: 'key', WORKOS_CLIENT_ID: 'client' })).toEqual({
             authKit: true,
             localAdmin: false,
+            localUsers: false,
             mail: false
         })
         expect(signInOptionsBody({ WORKOS_API_KEY: 'key', WORKOS_CLIENT_ID: 'client', CUTTLELY_LOCAL_ADMIN: 'true' })).toEqual({
             authKit: true,
             localAdmin: true,
+            localUsers: false,
             mail: false
         })
-        expect(signInOptionsBody({})).toEqual({ authKit: false, localAdmin: false, mail: false })
+        expect(
+            signInOptionsBody({
+                WORKOS_API_KEY: 'key',
+                WORKOS_CLIENT_ID: 'client',
+                CUTTLELY_LOCAL_USERS: 'true'
+            }).localUsers
+        ).toBe(false)
+        expect(signInOptionsBody({ CUTTLELY_LOCAL_USERS: 'true' }).localUsers).toBe(true)
+        expect(signInOptionsBody({ CUTTLELY_LOCAL_USERS: 'TRUE' }).localUsers).toBe(false)
+        expect(signInOptionsBody({})).toEqual({ authKit: false, localAdmin: false, localUsers: false, mail: false })
         expect(signInOptionsBody({ SMTP_HOST: 'smtp.example.com' })).toEqual({
             authKit: false,
             localAdmin: false,
+            localUsers: false,
             mail: false
         })
-        expect(signInOptionsBody({ SMTP_HOST: '   ' })).toEqual({ authKit: false, localAdmin: false, mail: false })
+        expect(signInOptionsBody({ SMTP_HOST: '   ' })).toEqual({ authKit: false, localAdmin: false, localUsers: false, mail: false })
     })
 
     it('puts the WorkOS button on the sign-in page and hides the password form unless local admin is on', () => {

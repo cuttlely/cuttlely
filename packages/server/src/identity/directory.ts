@@ -117,6 +117,10 @@ export function sqlFromDataSource(dataSource: DataSource): Sql {
     }
 }
 
+async function endLocalSessions(query: QueryFn, sql: Sql, userId: string): Promise<void> {
+    await query(`DELETE FROM ${q(sql, 'identity_local_session')} WHERE ${q(sql, 'userId')} = ?`, [userId])
+}
+
 function q(sql: Sql, name: string): string {
     return quote(sql.type, name)
 }
@@ -348,6 +352,7 @@ export async function deleteOrganizationUser(
                  WHERE ${q(sql, 'id')} = ?`,
                 [`deleted.${userId}@users.invalid`, 'deleted', userId]
             )
+            await endLocalSessions(query, sql, userId)
         }
         return { id: userId }
     })
@@ -384,6 +389,7 @@ export async function updateOrganizationUser(sql: Sql, actor: DirectoryActor, bo
                 ['active', userId]
             )
         }
+        if (status === 'disable') await endLocalSessions(query, sql, userId)
         return { id: userId }
     })
 }

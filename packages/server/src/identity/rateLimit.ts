@@ -14,11 +14,15 @@
  * limitations under the License.
  */
 
+import { createHmac } from 'crypto'
 import { LOGIN_FAILURE_LIMIT, LOGIN_FAILURE_WINDOW_MS } from './constants'
+import { authSecret } from './authSecrets'
 
 /**
- * 10 failed break-glass sign-ins per client IP and per account email per 15 minutes.
- * A success does not clear the window. Rows outside the window are dropped.
+ * 10 failed sign-ins per client address and per email per 15 minutes.
+ * A success does not clear the window. The account key is an HMAC of the normalized email
+ * under the server secret, so the address itself is not stored. Rows outside the window are dropped,
+ * and the oldest email keys are dropped when too many distinct addresses have failed.
  */
 export interface LoginLimiter {
     blocked(ip: string, account: string, now: number): Promise<boolean>
@@ -27,27 +31,58 @@ export interface LoginLimiter {
 
 type FailureRow = { scope: 'ip' | 'account'; key: string; at: number }
 
+/** How many distinct email keys to keep. Older ones are dropped first. */
+export const ACCOUNT_LOCK_CAP = 1024
+
+const LOCK_PURPOSE = 'cuttlely-login-failure-v1'
+
+/** HMAC of the normalized email. Empty when there is no address or no server secret. */
+export function accountLockKey(email: string, secret = loginFailureSecret()): string {
+    const normalized = email.trim().toLowerCase()
+    if (!normalized || !secret) return ''
+    return createHmac('sha256', secret).update(`${LOCK_PURPOSE}\0${normalized}`).digest('hex')
+}
+
+function loginFailureSecret(): string {
+    const fromEnv = process.env.TOKEN_HASH_SECRET?.trim()
+    if (fromEnv) return fromEnv
+    try {
+        return authSecret('TOKEN_HASH_SECRET')
+    } catch {
+        return ''
+    }
+}
+
 export class LoginRateLimit implements LoginLimiter {
     private rows: FailureRow[] = []
 
-    constructor(private readonly limit = LOGIN_FAILURE_LIMIT, private readonly windowMs = LOGIN_FAILURE_WINDOW_MS) {}
+    constructor(
+        private readonly limit = LOGIN_FAILURE_LIMIT,
+        private readonly windowMs = LOGIN_FAILURE_WINDOW_MS,
+        private readonly accountCap = ACCOUNT_LOCK_CAP
+    ) {}
 
     async blocked(ip: string, account: string, now: number): Promise<boolean> {
         this.prune(now)
         if (this.count('ip', ip, now) >= this.limit) return true
-        const email = account.trim().toLowerCase()
-        return email !== '' && this.count('account', email, now) >= this.limit
+        const key = accountLockKey(account)
+        return key !== '' && this.count('account', key, now) >= this.limit
     }
 
     async recordFailure(ip: string, account: string, now: number): Promise<void> {
         this.prune(now)
         this.rows.push({ scope: 'ip', key: ip, at: now })
-        const email = account.trim().toLowerCase()
-        if (email) this.rows.push({ scope: 'account', key: email, at: now })
+        const key = accountLockKey(account)
+        if (key) this.rows.push({ scope: 'account', key, at: now })
+        this.evictAccounts()
     }
 
     retained(): number {
         return this.rows.length
+    }
+
+    accountBuckets(): number {
+        return new Set(this.rows.filter((row) => row.scope === 'account').map((row) => row.key)).size
     }
 
     private count(scope: FailureRow['scope'], key: string, now: number): number {
@@ -56,5 +91,19 @@ export class LoginRateLimit implements LoginLimiter {
 
     private prune(now: number): void {
         this.rows = this.rows.filter((row) => now - row.at < this.windowMs)
+    }
+
+    /** Drop the least recently used email keys until the distinct count fits the cap. */
+    private evictAccounts(): void {
+        const latest = new Map<string, number>()
+        for (const row of this.rows) {
+            if (row.scope !== 'account') continue
+            latest.set(row.key, Math.max(latest.get(row.key) || 0, row.at))
+        }
+        const oldest = [...latest.entries()].sort((a, b) => a[1] - b[1]).map(([key]) => key)
+        const extra = oldest.length - this.accountCap
+        if (extra <= 0) return
+        const drop = new Set(oldest.slice(0, extra))
+        this.rows = this.rows.filter((row) => row.scope !== 'account' || !drop.has(row.key))
     }
 }

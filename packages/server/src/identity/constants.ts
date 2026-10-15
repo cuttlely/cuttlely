@@ -25,6 +25,11 @@ export const ABSOLUTE_MS = 7 * 24 * 60 * 60 * 1000
 export const LOGIN_FAILURE_LIMIT = 10
 export const LOGIN_FAILURE_WINDOW_MS = 15 * 60 * 1000
 
+/** RFC 5321 mailbox limit. Longer values are rejected before lookup or scrypt. */
+export const EMAIL_MAX_LENGTH = 254
+/** Rejected before scrypt. Strength rules still cap a new password at 128. */
+export const PASSWORD_MAX_LENGTH = 256
+
 /**
  * @workos-inc/node 11.0.0 seals with a password of at least 32 characters.
  * `openssl rand -base64 32` emits 44 characters and meets that minimum.
@@ -50,6 +55,19 @@ export function workosConfigured(env: NodeJS.ProcessEnv = process.env): boolean 
 
 export function localAdminEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
     return env.CUTTLELY_LOCAL_ADMIN === 'true'
+}
+
+/** The setting itself, before AuthKit is considered. */
+export function localUsersSetting(env: NodeJS.ProcessEnv = process.env): boolean {
+    return env.CUTTLELY_LOCAL_USERS === 'true'
+}
+
+/**
+ * Password sign-in for any active local user.
+ * AuthKit turns this off. The owner break-glass route is separate and stays on its own flag.
+ */
+export function localUsersMode(env: NodeJS.ProcessEnv = process.env): boolean {
+    return localUsersSetting(env) && !workosConfigured(env)
 }
 
 export function cookiePasswordOk(value: string | undefined): value is string {
