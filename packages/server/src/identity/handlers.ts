@@ -27,12 +27,12 @@ import {
 } from './constants'
 import { isActiveStatus, linkFailureMessage, linkWorkosUser } from './link'
 import { hashForLoginCompare, hashPassword, hashSessionToken, passwordErrors, randomToken, tokensEqual, verifyPassword } from './password'
-import { localSessionBlock, localSessionTimes, sessionLimitsMs } from './sessionLifetime'
+import { SEEN_EVERY_MS, localSessionBlock, localSessionTimes, sessionLimitsMs } from './sessionLifetime'
 import { LoginLimiter } from './rateLimit'
 import { isLoopbackAddress } from './sessionGuard'
 import { setupCodeMatches } from './setupCode'
 import { IdentityStore } from './store'
-import { HandlerResult, SessionUser, SetCookie, WorkosPort, WorkosUnavailableError } from './types'
+import { HandlerResult, LocalSession, SessionUser, SetCookie, WorkosPort, WorkosUnavailableError } from './types'
 
 export interface AuthContext {
     workosConfigured: boolean
@@ -252,6 +252,9 @@ export async function handleRefresh(ctx: AuthContext): Promise<HandlerResult> {
             }
             const row = await ctx.store.findUserByExternalId(refreshed.user.id)
             if (!row || !isActiveStatus(row.status)) {
+                return json(401, { message: 'Token Expired' }, cleared(ctx, [WOS_SESSION_COOKIE]))
+            }
+            if (refreshed.sessionId && (await authKitActivity(ctx, refreshed.sessionId, row.id))) {
                 return json(401, { message: 'Token Expired' }, cleared(ctx, [WOS_SESSION_COOKIE]))
             }
             const session = await ctx.store.sessionFor(row.id)
@@ -488,6 +491,9 @@ export async function establishSession(
             if (authenticated.authenticated) {
                 const row = await ctx.store.findUserByExternalId(authenticated.user.id)
                 if (row && isActiveStatus(row.status)) {
+                    if (authenticated.sessionId && (await authKitActivity(ctx, authenticated.sessionId, row.id))) {
+                        return { user: null, clearCookies: [WOS_SESSION_COOKIE], secure: ctx.secure }
+                    }
                     const user = await ctx.store.sessionFor(row.id)
                     return { user }
                 }
@@ -498,6 +504,9 @@ export async function establishSession(
             if (!refreshed.authenticated) return { user: null, clearCookies: [WOS_SESSION_COOKIE], secure: ctx.secure }
             const row = await ctx.store.findUserByExternalId(refreshed.user.id)
             if (!row || !isActiveStatus(row.status)) return { user: null, clearCookies: [WOS_SESSION_COOKIE], secure: ctx.secure }
+            if (refreshed.sessionId && (await authKitActivity(ctx, refreshed.sessionId, row.id))) {
+                return { user: null, clearCookies: [WOS_SESSION_COOKIE], secure: ctx.secure }
+            }
             const user = await ctx.store.sessionFor(row.id)
             return {
                 user,
@@ -527,8 +536,51 @@ export async function establishSession(
             return { user: null, clearCookies: [LOCAL_SESSION_COOKIE], secure: clearSecure(ctx, [LOCAL_SESSION_COOKIE]) }
         }
         if (gate !== 'ok') return { user: null, clearCookies: [LOCAL_SESSION_COOKIE], secure: clearSecure(ctx, [LOCAL_SESSION_COOKIE]) }
+        await noteSessionUse(ctx, row, digest)
         const user = await ctx.store.sessionFor(row.userId)
         return { user, secure: ctx.secure }
     }
     return { user: null }
+}
+
+/** Writes lastSeenAt when the session has been quiet for at least a minute. */
+async function noteSessionUse(ctx: AuthContext, row: LocalSession, token: string): Promise<void> {
+    const times = localSessionTimes(row)
+    if (ctx.now - times.lastSeenAt < SEEN_EVERY_MS) return
+    const limits = sessionLimitsMs()
+    const seen = new Date(ctx.now)
+    const idleExpires = new Date(Math.min(ctx.now + limits.idleMs, times.issuedAt + limits.absoluteMs))
+    await ctx.store.slideLocalSession(token, idleExpires, seen)
+    row.lastSeenAt = seen
+    row.idleExpires = idleExpires
+}
+
+/**
+ * Idle and absolute limits for an AuthKit session. The WorkOS session id is stable across access-token refreshes.
+ * The first request this server sees starts the clock. Activity is stored with the local session rows, keyed by that id.
+ */
+async function authKitActivity(ctx: AuthContext, sessionId: string, userId: string): Promise<'idle' | 'absolute' | null> {
+    const token = hashSessionToken(sessionId)
+    const existing = await ctx.store.findLocalSession(token)
+    if (!existing) {
+        const limits = sessionLimitsMs()
+        const at = new Date(ctx.now)
+        await ctx.store.insertLocalSession({
+            id: randomUUID(),
+            userId,
+            token,
+            idleExpires: new Date(ctx.now + limits.idleMs),
+            absoluteExpires: new Date(ctx.now + limits.absoluteMs),
+            issuedAt: at,
+            lastSeenAt: at
+        })
+        return null
+    }
+    const ended = localSessionBlock(existing, ctx.now)
+    if (ended) {
+        await ctx.store.deleteLocalSession(token)
+        return ended
+    }
+    await noteSessionUse(ctx, existing, token)
+    return null
 }

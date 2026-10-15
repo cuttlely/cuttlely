@@ -96,6 +96,78 @@ describe('authenticated requests enforce the current lifetime', () => {
         if (refreshed.type === 'json') expect(refreshed.status).toBe(401)
         expect(sessions.has(digest)).toBe(false)
     })
+
+    it('advances last activity on use, at most once a minute, so an active session stays inside the idle limit', async () => {
+        const raw = 'cookie-value-made-up'
+        const digest = hashSessionToken(raw)
+        const sessions = new Map<string, LocalSession>()
+        const session = row({
+            token: digest,
+            issuedAt: new Date(NOW),
+            lastSeenAt: new Date(NOW),
+            idleExpires: new Date(NOW + 15 * 60 * 1000)
+        })
+        sessions.set(digest, session)
+        const store = fakeStore(sessions)
+        process.env.CUTTLELY_SESSION_IDLE_MINUTES = '15'
+        const soon = await establishSession({ ...ctx(store, { 'cuttlely-local-session': raw }), now: NOW + 30 * 1000 })
+        expect(soon.user?.id).toBe('user-a')
+        expect(session.lastSeenAt?.getTime()).toBe(NOW)
+        const active = await establishSession({ ...ctx(store, { 'cuttlely-local-session': raw }), now: NOW + 10 * 60 * 1000 })
+        expect(active.user?.id).toBe('user-a')
+        expect(session.lastSeenAt?.getTime()).toBe(NOW + 10 * 60 * 1000)
+        const later = await establishSession({ ...ctx(store, { 'cuttlely-local-session': raw }), now: NOW + 20 * 60 * 1000 })
+        expect(later.user?.id).toBe('user-a')
+        expect(sessions.has(digest)).toBe(true)
+    })
+
+    it('applies idle and absolute limits to an AuthKit session', async () => {
+        const sessions = new Map<string, LocalSession>()
+        const store = fakeStore(sessions)
+        store.findUserByExternalId = async () => ({
+            id: 'user-a',
+            email: 'ada@example.com',
+            name: 'Ada',
+            status: 'active',
+            externalId: 'wos-1',
+            credential: null
+        })
+        process.env.CUTTLELY_SESSION_IDLE_MINUTES = '15'
+        process.env.CUTTLELY_SESSION_ABSOLUTE_HOURS = '1'
+        const workos = {
+            authorizationUrl: () => '',
+            authenticate: async () => {
+                throw new Error('unused')
+            },
+            authenticateSession: async () => ({
+                authenticated: true as const,
+                sessionId: 'session-1',
+                user: { id: 'wos-1', email: 'ada@example.com', emailVerified: true, name: 'Ada' }
+            }),
+            refresh: async () => ({ authenticated: false as const, reason: 'invalid_grant' }),
+            logoutUrl: async () => '',
+            setExternalId: async () => undefined
+        }
+        const call = (now: number) =>
+            establishSession({
+                ...ctx(store, { 'wos-session': 'sealed' }),
+                now,
+                workosConfigured: true,
+                localUsers: false,
+                workos
+            })
+        const first = await call(NOW)
+        expect(first.user?.id).toBe('user-a')
+        expect(sessions.size).toBe(1)
+        const active = await call(NOW + 10 * 60 * 1000)
+        expect(active.user?.id).toBe('user-a')
+        const still = await call(NOW + 20 * 60 * 1000)
+        expect(still.user?.id).toBe('user-a')
+        const ended = await call(NOW + 2 * 60 * 60 * 1000)
+        expect(ended.user).toBeNull()
+        expect(ended.clearCookies).toEqual(['wos-session'])
+        expect(sessions.size).toBe(0)
+    })
 })
 
 function ctx(store: IdentityStore, cookies: Record<string, string>): AuthContext {

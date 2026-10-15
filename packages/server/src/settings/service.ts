@@ -447,8 +447,8 @@ export async function discardChanges(deps: ServiceDeps, by: string, actorId?: st
             if (state.rawAtStart === null || state.rawAtStart === undefined) fs.rmSync(file, { force: true })
             else writeFileAtomic(state.dir, SETTINGS_FILE, state.rawAtStart)
             const changes = describeChanges(before, state.atStart)
-            if (changes.length) appendHistory(state.dir, { kind: 'discard', by, actorId, changes, outcome: 'ok' })
             invalidateRuntimeCache()
+            if (changes.length) appendHistory(state.dir, { kind: 'discard', by, actorId, changes, outcome: 'ok' })
             return getView(deps)
         })
     } catch (error) {
@@ -485,6 +485,7 @@ async function retryRolledBackLocked(deps: ServiceDeps, by: string, actorId?: st
         throw new SettingsError(409, 'FILE_DAMAGED', 'The set-aside settings could not be read, so nothing changed.')
     }
     fs.rmSync(kept, { force: true })
+    invalidateRuntimeCache()
     appendHistory(state.dir, {
         kind: 'restore',
         by,
@@ -493,7 +494,6 @@ async function retryRolledBackLocked(deps: ServiceDeps, by: string, actorId?: st
         note: 'Put back the settings that did not start, to try them again at the next restart.',
         outcome: 'ok'
     })
-    invalidateRuntimeCache()
     return getView(deps)
 }
 

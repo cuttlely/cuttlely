@@ -4,7 +4,7 @@ import os from 'os'
 import path from 'path'
 import { appendHistory, historyKeepLimit, pageHistory, readHistory } from './history'
 import { resetRuntimeLimitsForTests } from './runtime'
-import { HISTORY_FILE, writeSettingsFile } from './store'
+import { HISTORY_FILE, SETTINGS_FILE, writeSettingsFile } from './store'
 
 const SECRET = 'pw-made-up-for-the-bakery-0001'
 
@@ -56,6 +56,34 @@ describe('settings history retention', () => {
             expect(entries[0].changes?.[0].to).toBe('101')
             expect(entries[99].changes?.[0].to).toBe('2')
             expect(fs.readFileSync(path.join(dir, HISTORY_FILE), 'utf8')).not.toContain('"to":"1"')
+        } finally {
+            if (previousDir === undefined) delete process.env.CUTTLELY_DATA_DIR
+            else process.env.CUTTLELY_DATA_DIR = previousDir
+            if (previousKeep === undefined) delete process.env.CUTTLELY_HISTORY_KEEP
+            else process.env.CUTTLELY_HISTORY_KEEP = previousKeep
+            resetRuntimeLimitsForTests()
+        }
+    })
+
+    it('uses a cap saved after an older limit was cached', () => {
+        const data = fs.mkdtempSync(path.join(os.tmpdir(), 'cuttlely-history-stale-'))
+        const previousDir = process.env.CUTTLELY_DATA_DIR
+        const previousKeep = process.env.CUTTLELY_HISTORY_KEEP
+        process.env.CUTTLELY_DATA_DIR = data
+        delete process.env.CUTTLELY_HISTORY_KEEP
+        resetRuntimeLimitsForTests()
+        try {
+            expect(historyKeepLimit()).toBe(1000)
+            const dir = path.join(data, 'settings')
+            fs.mkdirSync(dir, { recursive: true })
+            fs.writeFileSync(
+                path.join(dir, SETTINGS_FILE),
+                JSON.stringify({ version: 1, values: { CUTTLELY_HISTORY_KEEP: '100' } }),
+                'utf8'
+            )
+            for (let i = 1; i <= 101; i++) appendHistory(dir, row(String(i)))
+            expect(readHistory(dir, 200)).toHaveLength(100)
+            expect(readHistory(dir, 200)[0].changes?.[0].to).toBe('101')
         } finally {
             if (previousDir === undefined) delete process.env.CUTTLELY_DATA_DIR
             else process.env.CUTTLELY_DATA_DIR = previousDir

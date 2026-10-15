@@ -91,7 +91,7 @@ These are runtime limits too. The same read order applies: a valid host value, t
 | `CUTTLELY_DRAIN_TIMEOUT_MS`       | 25000   | 5000 to 300000                                       | ms      |
 | `CUTTLELY_HISTORY_KEEP`           | 1000    | 100 to 10000                                         | count   |
 
-A shorter idle or absolute lifetime applies to a local session that is already signed in. Every authenticated request that presents that cookie checks the current limits. The cookie expiry alone does not keep the session. AuthKit session length stays with WorkOS. An API key is not one of these sessions.
+A shorter idle or absolute lifetime applies to a session that is already signed in. Every authenticated request checks the current limits: a local session cookie, and an AuthKit session. The cookie expiry alone does not keep the session. An AuthKit session is remembered by its WorkOS session id, which stays the same when the access token is refreshed. The first request this server sees for that id starts the clock. Later requests record activity at most once a minute, so idle means unused. An API key is not one of these sessions.
 
 The process that saved the value invalidates its cache at once. The HTTP server and a queue worker re-read the settings file at least every 5 seconds. The shutdown wait is read when a shutdown starts.
 

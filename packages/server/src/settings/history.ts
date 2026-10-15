@@ -6,7 +6,7 @@ import fs from 'fs'
 import path from 'path'
 import { withNamedLockSync } from './lock'
 import { settingFor } from './registry'
-import { runtimeNumber } from './runtime'
+import { invalidateRuntimeCache, runtimeNumber } from './runtime'
 import { HISTORY_FILE, writeFileAtomic } from './store'
 
 const SECRET_PARTS = new Set(['SECRET', 'PASSWORD', 'TOKEN', 'CREDENTIAL', 'SECRETKEY'])
@@ -158,14 +158,17 @@ function normalizeKeep(keep: number): number {
 
 /**
  * Adds one row and keeps the newest `keep` rows. `keep` defaults to the runtime limit.
- * The rewrite is one temp file moved into place, while this process holds the history lock.
+ * The limit is read after this process holds the history lock, so a cap saved while this append waited is the one used.
+ * The rewrite is one temp file moved into place.
  */
 export function appendHistory(
     dir: string,
     entry: Omit<HistoryEntry, 'at' | 'seq'> & { at?: string; seq?: number },
-    keep = historyKeepLimit()
+    keep?: number
 ): HistoryEntry {
     return withNamedLockSync(dir, HISTORY_LOCK, () => {
+        if (keep === undefined) invalidateRuntimeCache()
+        const limit = normalizeKeep(keep ?? historyKeepLimit())
         const existing = readRawLines(dir)
             .map(parseStored)
             .filter((row): row is HistoryEntry => row !== null)
@@ -174,7 +177,7 @@ export function appendHistory(
         for (const row of existing) if ((row.seq ?? 0) > max) max = row.seq ?? 0
         const { seq, at, ...rest } = entry
         const full = redact({ ...rest, seq: seq ?? max + 1, at: at ?? new Date().toISOString() })
-        const kept = [...existing, full].slice(-normalizeKeep(keep))
+        const kept = [...existing, full].slice(-limit)
         const text = kept.length ? kept.map((row) => JSON.stringify(row)).join('\n') + '\n' : ''
         writeFileAtomic(dir, HISTORY_FILE, text)
         return full
