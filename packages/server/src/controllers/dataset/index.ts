@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from 'express'
 import { AppError } from '../../errors/appError'
 import datasetService from '../../services/dataset'
+import { questionPickErrorBody } from '../../services/flow-check/history'
 import { StatusCodes } from 'http-status-codes'
 import { getPageAndLimitParams } from '../../utils/pagination'
 import { stripProtectedFields } from '../../utils/stripProtectedFields'
@@ -49,6 +50,33 @@ const createDataset = async (req: Request, res: Response, next: NextFunction) =>
         const apiResponse = await datasetService.createDataset(body, workspaceId)
         return res.json(apiResponse)
     } catch (error) {
+        next(error)
+    }
+}
+
+const createDatasetFromQuestions = async (req: Request, res: Response, next: NextFunction) => {
+    res.setHeader('Cache-Control', 'no-store')
+    try {
+        if (!req.body) {
+            throw new AppError(StatusCodes.PRECONDITION_FAILED, `Error: datasetService.createDatasetFromQuestions - body not provided!`)
+        }
+        const workspaceId = req.user?.activeWorkspaceId
+        if (!workspaceId) {
+            throw new AppError(
+                StatusCodes.NOT_FOUND,
+                `Error: datasetController.createDatasetFromQuestions - workspace ${workspaceId} not found!`
+            )
+        }
+        const body = stripProtectedFields(req.body)
+        const apiResponse = await datasetService.createDatasetFromQuestions(
+            { flowId: body.flowId, questionIds: body.questionIds, name: body.name },
+            workspaceId,
+            req
+        )
+        return res.json(apiResponse)
+    } catch (error) {
+        const picked = questionPickErrorBody(error)
+        if (picked) return res.status(picked.statusCode).json(picked.body)
         next(error)
     }
 }
@@ -234,6 +262,7 @@ export default {
     getAllDatasets,
     getDataset,
     createDataset,
+    createDatasetFromQuestions,
     updateDataset,
     deleteDataset,
     addDatasetRow,

@@ -128,6 +128,32 @@ describe('PublishCheckView', () => {
         expect(html).toContain('data-testid="compare-count"')
         expect(html).toContain('disabled=""')
         expect(html).not.toContain('data-testid="compare-question"')
+        expect(html).toContain('A hand-picked check does not unblock Publish. Only a dataset can be the passing test set.')
+        expect(html).not.toContain('Save as dataset')
+    })
+
+    test('Save as dataset is offered when the role can create a dataset and a question is ticked', () => {
+        const html = render({
+            canChooseQuestions: true,
+            questionMode: 'choose',
+            canSaveDataset: true,
+            datasetName: 'Saturday questions',
+            historyItems: [
+                { id: 'chat:a', text: 'Do you have rye loaves today?', source: 'chat', date: '2026-10-08T16:12:03.000Z', replayable: true }
+            ],
+            selectedQuestions: [{ id: 'chat:a', text: 'Do you have rye loaves today?' }]
+        })
+        expect(html).toContain('Save as dataset')
+        expect(html).toContain('Saturday questions')
+        expect(openingTag(html, 'save-as-dataset')).not.toContain('disabled')
+        const unnamed = render({
+            canChooseQuestions: true,
+            questionMode: 'choose',
+            canSaveDataset: true,
+            datasetName: '  ',
+            selectedQuestions: [{ id: 'chat:a', text: 'Do you have rye loaves today?' }]
+        })
+        expect(openingTag(unnamed, 'save-as-dataset')).toContain('disabled')
     })
 
     test('Choose questions with nothing ticked and nothing typed disables Run check', () => {

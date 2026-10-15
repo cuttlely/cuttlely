@@ -9,6 +9,13 @@ router.get('/', requirePermission('datasets:view'), datasetController.getAllData
 router.get(['/set', '/set/:id'], requirePermission('datasets:view'), datasetController.getDataset)
 // Create new dataset
 router.post(['/set', '/set/:id'], requirePermission('datasets:create'), datasetController.createDataset)
+// Save picked chat questions as a new dataset. The expected answer on each row is empty.
+router.post(
+    '/from-questions',
+    requirePermission('datasets:create'),
+    // chatflows:view, agentflows:view, or assistants:view, matching the flow type.
+    datasetController.createDatasetFromQuestions
+)
 // Update dataset
 router.put(['/set', '/set/:id'], requireAnyPermission('datasets:create,datasets:update'), datasetController.updateDataset)
 // Delete dataset via id

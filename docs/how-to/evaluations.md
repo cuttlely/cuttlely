@@ -18,6 +18,7 @@ The organization owner can do every row. Anyone else needs the key on their role
 | Edit the dataset, edit a row, or reorder rows | `datasets:create` or `datasets:update`. The dataset page shows the edit control for either key.                                                                                                                                          |
 | Delete a dataset or a row                     | `datasets:delete`                                                                                                                                                                                                                        |
 | Save a chat answer as a row                   | **Add to test set** needs `datasets:create`, or `datasets:update` together with `datasets:view`. It also needs the view key for that flow.                                                                                               |
+| Save picked questions as a dataset            | **Save as dataset** in Choose questions needs `datasets:create` and the view key for that flow. `datasets:update` is not enough.                                                                                                         |
 | Add rated answers for a flow                  | **Add rated answers to test set** uses the same permission as **Add to test set**. The existing-dataset list needs `datasets:view` in both dialogs, and without that key the list is hidden.                                             |
 | Open Evaluators                               | `evaluators:view`                                                                                                                                                                                                                        |
 | Add an evaluator                              | `evaluators:create`. That key also updates one.                                                                                                                                                                                          |
@@ -60,6 +61,14 @@ A made-up bakery set looks like this:
 ![Dataset Saturday hours with two rows. The first input is Do you have rye loaves today? and the expected output is Yes, rye is baked every morning. The second is What time do you open on Saturday? with We open at 8 AM on Saturdays.](../images/evaluations/dataset-rows.png)
 
 A row with an empty input, or an input longer than 2,000 characters, is skipped by the Publish check. At most 100 rows are asked. Creating a dataset with no name is 400 `Dataset name is required`.
+
+### From picked questions
+
+In the Publish dialog, select **Choose questions**, tick the stored questions, type a dataset name, and select **Save as dataset**. The button is shown when the role has `datasets:create`. The route is [`POST /api/v1/datasets/from-questions`](../reference/datasets-api.md).
+
+Each row is one ticked question. The expected answer is empty, and the row is marked needs expected answer. Type that answer on the dataset before you use the dataset as a passing test set. A question sent with a file, or one longer than 2,000 characters, cannot be saved. Typed questions in **Add your own question** are not included. They are not stored questions.
+
+A hand-picked check never unblocks Publish. Running the questions you ticked compares Live and the draft, and it does not record a pass. Only a dataset can be the passing test set. After the expected answers are filled in, choose **A dataset** and turn on **Passing test set**.
 
 ### From a CSV
 
