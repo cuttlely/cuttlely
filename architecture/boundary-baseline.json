@@ -2504,6 +2504,10 @@
             "reason": "The executions paging test lives next to the service it checks."
         },
         {
+            "path": "packages/server/src/services/settings/publicPayload.test.ts",
+            "reason": "The public settings payload test stays with the settings service it checks."
+        },
+        {
             "path": "packages/server/src/utils/buildAgentflow.harness-usage.test.ts",
             "reason": "The agentflow harness usage test stays next to the agentflow runner it exercises."
         },
