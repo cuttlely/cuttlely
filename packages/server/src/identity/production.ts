@@ -15,6 +15,7 @@
  */
 
 import { Request } from 'express'
+import { DataSource } from 'typeorm'
 import { getDataSource } from '../DataSource'
 import { cookiePasswordOk, localAdminEnabled, localUsersMode, workosConfigured } from './constants'
 import { cookieSecure } from './cookies'
@@ -24,6 +25,21 @@ import { workosPort } from './workosAdapter'
 
 let store: SqlIdentityStore | undefined
 let limiter: SqlLoginRateLimit | undefined
+
+/**
+ * Runs after migrations, before the server listens.
+ * Returns the number of local sessions deleted when AuthKit has just become configured.
+ * A second start while AuthKit stays on returns null and does not end new sessions.
+ */
+export async function applyAuthKitSwitchOnBoot(dataSource: DataSource): Promise<{ ended: number } | null> {
+    const switchStore = new SqlIdentityStore(dataSource)
+    const before = await switchStore.readAuthKitSwitch()
+    const configured = workosConfigured()
+    // recordOff is this process: the web server. A queue worker does not call this.
+    const after = await switchStore.applyAuthKitSwitch(configured, new Date(), { recordOff: !configured })
+    if (after.configured && !before?.configured) return { ended: after.sessionsEnded }
+    return null
+}
 
 export function identityStore(): SqlIdentityStore {
     if (!store) store = new SqlIdentityStore(getDataSource())

@@ -9,6 +9,7 @@ import { CachePool } from './CachePool'
 import { ChatFlow } from './database/entities/ChatFlow'
 import { getDataSource } from './DataSource'
 import { initAuthSecrets } from './identity/authSecrets'
+import { applyAuthKitSwitchOnBoot } from './identity/production'
 import { localAdminEnabled } from './identity/constants'
 import { ossIdentity, OssIdentity } from './identity/ossPlatform'
 import type { LoggedInUser } from './identity/types'
@@ -108,6 +109,12 @@ export class App {
             setBootStep('Updating the database')
             await this.AppDataSource.runMigrations({ transaction: 'each' })
             logger.info('🔄 [server]: Database migrations completed successfully')
+            const authKitSwitch = await applyAuthKitSwitchOnBoot(this.AppDataSource)
+            if (authKitSwitch) {
+                logger.info(
+                    `🔐 [server]: AuthKit is configured. Ended ${authKitSwitch.ended} local session(s). Password sign-in stays available only for the owner break-glass account.`
+                )
+            }
 
             // Open source identity. SSO providers are not loaded or started.
             this.identityManager = ossIdentity()

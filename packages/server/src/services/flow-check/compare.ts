@@ -332,10 +332,13 @@ export function totalTokens(metrics: unknown[] | undefined): number | null {
     return counted ? total : null
 }
 
-// How many past questions a compare may ask. The dialog offers 4, 10, 25, 50 and 100 until the picker
-// reads the cap. Any whole number from 1 to the cap is accepted; the server clamps it into that range.
-// Omitting the count is a different path: the caller sends the question list, still capped at 10.
+// How many past questions a compare may ask. Any whole number from 1 to the cap is accepted; the server
+// clamps it into that range. Omitting the count is a different path: the caller sends the question list,
+// still capped at 10.
 export const COMPARE_COUNT_MIN = 1
+// The steps the dialog offered when the cap was 100. A live cap that is not one of these is added,
+// and any step above the cap is left out. The default count is included when it is not already a step.
+export const COMPARE_COUNT_STEPS = [4, 10, 25, 50, 100]
 
 export function compareCountMax(): number {
     return runtimeNumber('CUTTLELY_CHECK_COUNT_MAX')
@@ -343,6 +346,20 @@ export function compareCountMax(): number {
 
 export function compareCountDefault(): number {
     return runtimeNumber('CUTTLELY_CHECK_COUNT_DEFAULT')
+}
+
+// The counts the Past questions picker may offer for this cap. `max` and `preferred` default to the
+// live question cap and the live default, so a caller that omits them follows the current settings.
+export function compareCountChoices(max = compareCountMax(), preferred = compareCountDefault()): number[] {
+    const cap = Number.isFinite(max) ? Math.max(COMPARE_COUNT_MIN, Math.round(max)) : compareCountMax()
+    const steps = new Set<number>()
+    for (const step of COMPARE_COUNT_STEPS) {
+        if (step <= cap) steps.add(step)
+    }
+    steps.add(cap)
+    const choice = Math.round(Number(preferred))
+    if (choice >= COMPARE_COUNT_MIN && choice <= cap) steps.add(choice)
+    return [...steps].sort((a, b) => a - b)
 }
 
 export function clampCompareCount(value: number): number {

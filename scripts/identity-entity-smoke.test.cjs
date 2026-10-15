@@ -378,7 +378,8 @@ describe('identity postgres schema', () => {
                     'AddChatMessageFlowCreatedIndex1797000000000',
                     'AddIdentityActionLinks1797000000000',
                     'AddSessionSeen1798000000000',
-                    'AddLocalDirectory1799000000000'
+                    'AddLocalDirectory1799000000000',
+                    'AddAuthKitSwitch1800300000000'
                 ]
             )
             assert.equal((await dataSource.runMigrations()).length, 0)
@@ -485,7 +486,8 @@ describe('identity mariadb schema', () => {
                     'AddChatMessageFlowCreatedIndex1797000000000',
                     'AddIdentityActionLinks1797000000000',
                     'AddSessionSeen1798000000000',
-                    'AddLocalDirectory1799000000000'
+                    'AddLocalDirectory1799000000000',
+                    'AddAuthKitSwitch1800300000000'
                 ]
             )
             assert.equal((await dataSource.runMigrations()).length, 0)
@@ -671,7 +673,8 @@ describe('identity mysql 8 schema', () => {
                     'AddChatMessageFlowCreatedIndex1797000000000',
                     'AddIdentityActionLinks1797000000000',
                     'AddSessionSeen1798000000000',
-                    'AddLocalDirectory1799000000000'
+                    'AddLocalDirectory1799000000000',
+                    'AddAuthKitSwitch1800300000000'
                 ]
             )
             assert.equal((await dataSource.runMigrations()).length, 0)
@@ -724,7 +727,8 @@ describe('identity sqlite upgrade', () => {
                     'AddChatMessageFlowCreatedIndex1797000000000',
                     'AddIdentityActionLinks1797000000000',
                     'AddSessionSeen1798000000000',
-                    'AddLocalDirectory1799000000000'
+                    'AddLocalDirectory1799000000000',
+                    'AddAuthKitSwitch1800300000000'
                 ]
             )
             assert.equal((await dataSource.runMigrations()).length, 0)

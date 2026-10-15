@@ -38,7 +38,7 @@ import {
 import { apiKeyPermissionCatalog, rolePermissionCatalog } from './permissionsCatalog'
 import { requireAnyPermission, requirePermission } from './rbac'
 import { acceptLocalRoute, registerInvite } from './directoryRoutes'
-import { enabledSignInMethods, signInOptionsBody } from './signInOptions'
+import { authOptionsBody, signInOptionsBody } from './signInOptions'
 import { buildAuthContext } from './production'
 import { HandlerResult } from './types'
 
@@ -114,8 +114,15 @@ function localAuthPreconditions(missingHeader: string) {
 identityAuthRouter.get('/signin-options', (_req, res) => {
     res.json(signInOptionsBody())
 })
-identityAuthRouter.get('/options', (_req, res) => {
-    res.json(enabledSignInMethods())
+identityAuthRouter.get('/options', (req, res) => {
+    void (async () => {
+        const ctx = buildAuthContext(req)
+        const state = ctx.store ? await ctx.store.readAuthKitSwitch() : null
+        if (!res.headersSent) res.json(authOptionsBody(process.env, state))
+    })().catch((error: unknown) => {
+        logger.error(`identity request failed: ${error instanceof Error ? error.name : 'error'}`)
+        if (!res.headersSent) res.status(500).json({ message: 'Internal Server Error' })
+    })
 })
 identityAuthRouter.post(
     '/local/login',

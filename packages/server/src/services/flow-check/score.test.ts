@@ -1,5 +1,6 @@
 import fs from 'fs'
 import path from 'path'
+import { resetRuntimeLimitsForTests } from '../../settings/runtime'
 import { askedRowsFromDataset, checkMetrics, gradingModel, llmGradeResult, questionsFromDataset } from './score'
 import { testSetHash } from '../flow-drafts/gate'
 
@@ -45,6 +46,28 @@ test('rows that share a sequence number keep one order for the hash and the cap'
     expect(capped).toHaveLength(100)
     expect(flipped).toEqual(capped)
     expect(testSetHash(capped, evaluators)).toBe(testSetHash(flipped, evaluators))
+})
+
+test('a question cap above or below 100 limits the rows a dataset check asks', () => {
+    const many = Array.from({ length: 250 }, (_, index) => ({ input: `q${index}`, output: `a${index}`, sequenceNo: index }))
+    // Importing the server records the host keys from startup. A cap set after that is ignored
+    // until that record is cleared, which is what a later process start would do.
+    const previousHost = process.env.CUTTLELY_SETTINGS_HOST_KEYS
+    delete process.env.CUTTLELY_SETTINGS_HOST_KEYS
+    process.env.CUTTLELY_CHECK_COUNT_MAX = '40'
+    resetRuntimeLimitsForTests()
+    try {
+        expect(questionsFromDataset(many)).toHaveLength(40)
+        process.env.CUTTLELY_CHECK_COUNT_MAX = '200'
+        resetRuntimeLimitsForTests()
+        expect(questionsFromDataset(many)).toHaveLength(200)
+        expect(questionsFromDataset(many)[199].question).toBe('q199')
+    } finally {
+        delete process.env.CUTTLELY_CHECK_COUNT_MAX
+        if (previousHost === undefined) delete process.env.CUTTLELY_SETTINGS_HOST_KEYS
+        else process.env.CUTTLELY_SETTINGS_HOST_KEYS = previousHost
+        resetRuntimeLimitsForTests()
+    }
 })
 
 test('numeric evaluators see the check token total and the run time', () => {
