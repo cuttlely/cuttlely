@@ -256,6 +256,18 @@ describe('the publish check switch', () => {
             message: 'The publish check is turned off on this server.'
         })
     })
+
+    test('a completed check is left off the setup when the switch is off', async () => {
+        const started = await startCheck(flow() as any, { questions: ['a'] }, 'http://x')
+        await settle()
+        expect((await getCheck(flow(), started.id)).status).toBe('done')
+        process.env.CUTTLELY_PUBLISH_CHECK = 'false'
+        resetRuntimeLimitsForTests()
+        const setup = await getCheckSetup(flow())
+        expect(setup.publishCheck).toBe(false)
+        expect(setup.unavailable?.code).toBe('disabled')
+        expect(setup.check).toBeNull()
+    })
 })
 
 describe('setup', () => {

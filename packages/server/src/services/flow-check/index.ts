@@ -526,8 +526,8 @@ export async function getCheckSetup(
         const record = checks.get(candidate.key)
         return {
             ...checkTurnedOff(),
-            // The off banner stays. A check already running is still returned so it can be stopped.
-            check: record ? await present(flow, record, candidate.canvas, reveal) : null
+            // The off banner stays. Only a check still in progress is returned, so it can be stopped.
+            check: record?.status === 'running' ? await present(flow, record, candidate.canvas, reveal) : null
         }
     }
     purge()
