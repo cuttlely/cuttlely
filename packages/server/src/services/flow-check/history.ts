@@ -12,9 +12,10 @@ class HistoryError extends Error {
     }
 }
 import { compareCountMax, normalizeAnswer } from './compare'
+import { redactSecrets } from './harness'
 import { triggerStart } from './kinds'
 import flowDraftsService from '../flow-drafts'
-import { BadQuestionIdsError, CheckRuleError, type QuestionIdReason } from './question-ids-error'
+import { BadQuestionIdsError, CheckRuleError, questionIdFailureMessage, type QuestionIdReason } from './question-ids-error'
 
 // The same character cap the check uses for a question it will run.
 export const MAX_QUESTION_CHARS = 2000
@@ -495,10 +496,38 @@ function parseId(raw: string): ParsedId | null {
     return { raw, prefix, messageId }
 }
 
+// The text a hand-picked check asks. Secrets are replaced first, then the line is trimmed.
+// A file, an empty line, or more than 2,000 characters is not replayable.
 function replayText(row: HistoryRow): { text: string; replayable: boolean } {
-    const text = String(row.content ?? '').trim()
+    const text = redactSecrets(String(row.content ?? '')).trim()
     const replayable = Boolean(text) && text.length <= MAX_QUESTION_CHARS && !hasFiles(row.fileUploads)
     return { text, replayable }
+}
+
+// A driver datetime with no zone is UTC. "YYYY-MM-DD HH:MM:SS" is not parsed as local time.
+const ZONELESS_DB_TIME = /^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2}):(\d{2})(?:\.(\d{1,6}))?$/
+
+export function questionSourceDate(value: Date | string | null | undefined): Date | null {
+    if (value instanceof Date) return Number.isFinite(value.getTime()) ? value : null
+    if (typeof value !== 'string') return null
+    const text = value.trim()
+    if (!text) return null
+    const zoneLess = ZONELESS_DB_TIME.exec(text)
+    if (zoneLess) {
+        const fraction = (zoneLess[7] || '').slice(0, 3).padEnd(3, '0')
+        const instant = Date.UTC(
+            Number(zoneLess[1]),
+            Number(zoneLess[2]) - 1,
+            Number(zoneLess[3]),
+            Number(zoneLess[4]),
+            Number(zoneLess[5]),
+            Number(zoneLess[6]),
+            Number(fraction)
+        )
+        return Number.isFinite(instant) ? new Date(instant) : null
+    }
+    const parsed = new Date(text)
+    return Number.isFinite(parsed.getTime()) ? parsed : null
 }
 
 async function queryByIds(flowId: string, ids: string[]): Promise<HistoryRow[]> {
@@ -542,12 +571,15 @@ export function dedupeQuestionTexts(texts: string[]): string[] {
     return out
 }
 
-// Ids in request order, then typed questions. A second read drops ids removed since the first read.
-export async function resolveChatQuestionIds(
-    flowId: string,
-    questionIds: unknown,
-    typed: string[]
-): Promise<{ questions: string[]; skipped: { count: number; ids: string[] } }> {
+export interface PickedChatQuestion {
+    id: string
+    messageId: string
+    text: string
+    createdDate: Date | null
+}
+
+// The same id rules as a hand-picked check: shape, cap, uniqueness, this flow, no files, and the length cap.
+async function acceptedChatQuestions(flowId: string, questionIds: unknown): Promise<PickedChatQuestion[]> {
     const ids = parseQuestionIds(questionIds)
     const parsed = ids.map(parseId)
     const errors: { index: number; reason: QuestionIdReason }[] = []
@@ -564,38 +596,92 @@ export async function resolveChatQuestionIds(
         seenIds.add(item.messageId)
         chatIds.push(item)
     })
-    const first = await rowsById(
+    const found = await rowsById(
         flowId,
         chatIds.map((item) => item.messageId)
     )
+    const accepted: PickedChatQuestion[] = []
     chatIds.forEach((item) => {
         const index = parsed.findIndex((candidate) => candidate?.messageId === item.messageId && candidate.prefix === 'chat')
-        const row = first.get(item.messageId)
+        const row = found.get(item.messageId)
         if (!row) {
             errors.push({ index, reason: 'not-found' })
             return
         }
-        const text = String(row.content ?? '').trim()
+        // One reason per question. A file is the reason even when the text is also empty or too long.
         if (hasFiles(row.fileUploads)) {
             errors.push({ index, reason: 'files' })
             return
         }
-        if (!text || text.length > MAX_QUESTION_CHARS) {
+        const replay = replayText(row)
+        if (!replay.replayable) {
             errors.push({ index, reason: 'length' })
+            return
         }
+        accepted.push({
+            id: item.raw,
+            messageId: item.messageId,
+            text: replay.text,
+            createdDate: questionSourceDate(row.createdDate)
+        })
     })
     if (errors.length > 0) throw new BadQuestionIdsError(errors.length, errors)
+    return accepted
+}
+
+// Chat questions a caller can store. A harness, or a form, webhook, or schedule start, is refused the same way as history.
+export async function loadPickedChatQuestions(flow: FlowRef, questionIds: unknown): Promise<PickedChatQuestion[]> {
+    const canvases = await canvasesFor(flow)
+    const prefix = questionIdPrefix(flow.type, canvases)
+    if (prefix === 'exec' || prefix === 'turn') {
+        throw new HistoryError(StatusCodes.CONFLICT, 'Question history for this flow is not available on this route yet.')
+    }
+    if (prefix !== 'chat') {
+        throw new HistoryError(StatusCodes.CONFLICT, 'The check works on chatflows and agentflows.')
+    }
+    return acceptedChatQuestions(flow.id, questionIds)
+}
+
+// JSON for a refused pick. Null when the error belongs to the normal handler.
+export function questionPickErrorBody(error: unknown): { statusCode: number; body: Record<string, unknown> } | null {
+    if (error instanceof BadQuestionIdsError) {
+        return {
+            statusCode: error.statusCode,
+            body: {
+                code: error.code,
+                message: questionIdFailureMessage(error.errors, error.badCount),
+                badCount: error.badCount,
+                errors: error.errors
+            }
+        }
+    }
+    if (error instanceof CheckRuleError) {
+        return { statusCode: error.statusCode, body: { code: error.code, message: error.message } }
+    }
+    if (error instanceof HistoryError) {
+        return { statusCode: error.statusCode, body: { message: error.message } }
+    }
+    return null
+}
+
+// Ids in request order, then typed questions. A second read drops ids removed since the first read.
+export async function resolveChatQuestionIds(
+    flowId: string,
+    questionIds: unknown,
+    typed: string[]
+): Promise<{ questions: string[]; skipped: { count: number; ids: string[] } }> {
+    const accepted = await acceptedChatQuestions(flowId, questionIds)
     const second = await rowsById(
         flowId,
-        chatIds.map((item) => item.messageId)
+        accepted.map((item) => item.messageId)
     )
     const skipped: string[] = []
     const fromIds: string[] = []
-    for (const item of chatIds) {
+    for (const item of accepted) {
         const row = second.get(item.messageId)
         const replay = row ? replayText(row) : null
         if (!row || !replay?.replayable) {
-            skipped.push(item.raw)
+            skipped.push(item.id)
             continue
         }
         fromIds.push(replay.text)

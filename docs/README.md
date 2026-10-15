@@ -44,6 +44,7 @@ New here? Start with [Your first 10 minutes](../README.md#your-first-10-minutes)
 -   [Local users, roles, and sessions](./reference/local-directory-api.md). People, fixed roles, and sign-in sessions when local password sign-in is on.
 -   [Auth API](./reference/auth-api.md). Local password sign-in, sign-out, a user's own password change, one-time invite and reset links, which sign-in methods are on, and the status when AuthKit is turned on.
 -   [Audit API](./reference/audit-api.md). `GET /api/v1/audit` for an owner or `audit:view`, with type, user, and cursor filters. Login activity stays closed.
+-   [Datasets API](./reference/datasets-api.md). Save the questions ticked in Choose questions as a dataset with empty expected answers. A hand-picked check does not unblock Publish.
 -   [Startup options](./reference/startup-options.md). Every option the settings API exposes, with the default, the range, where it can be set, and whether a restart is needed. Secret values are not shown.
 -   [Override configuration](./reference/override-config.md). What a prediction request may change with `overrideConfig`, and what it never can.
 -   [Upgrading Cuttlely](./upgrading.md). Back up, upgrade, check and roll back, for Docker, Render and source installs.

@@ -2,11 +2,20 @@ jest.mock('@/api/flowDrafts', () => ({
     __esModule: true,
     default: { getCheckSetup: jest.fn(), startCheck: jest.fn(), getCheck: jest.fn(), stopCheck: jest.fn() }
 }))
-jest.mock('@/api/dataset', () => ({ __esModule: true, default: { getAllDatasets: jest.fn() } }))
-jest.mock('@/api/evaluators', () => ({ __esModule: true, default: { getAllEvaluators: jest.fn() } }))
-jest.mock('@/hooks/useAuth', () => ({
-    useAuth: () => ({ hasPermission: () => false })
+jest.mock('@/api/dataset', () => ({
+    __esModule: true,
+    default: { getAllDatasets: jest.fn(), createDatasetFromQuestions: jest.fn() }
 }))
+jest.mock('@/api/evaluators', () => ({ __esModule: true, default: { getAllEvaluators: jest.fn() } }))
+jest.mock('@/hooks/useAuth', () => {
+    const state = { hasPermission: () => false }
+    return {
+        useAuth: () => ({ hasPermission: (key) => state.hasPermission(key) }),
+        __setAuth(hasPermission) {
+            state.hasPermission = hasPermission
+        }
+    }
+})
 
 import { createElement } from 'react'
 import TestRenderer from 'react-test-renderer'
@@ -14,6 +23,9 @@ import { ThemeProvider, createTheme } from '@mui/material/styles'
 
 import flowDraftsApi from '@/api/flowDrafts'
 import PublishCheck from './PublishCheck'
+
+const datasetsApi = jest.requireMock('@/api/dataset').default
+const { __setAuth } = jest.requireMock('@/hooks/useAuth')
 
 const agentCanvas = (startInputType) =>
     JSON.stringify({
@@ -319,6 +331,111 @@ describe('PublishCheck choose mode on a chatflow with no past questions', () => 
         expect(options).toEqual([4, 10, 25, 40])
         await click(renderer, 'check-run')
         expect(api.startCheck).toHaveBeenCalledWith('flow-1', { count: 10, includeRiskySteps: false })
+        renderer.unmount()
+    })
+})
+
+describe('PublishCheck save as dataset', () => {
+    const questionId = 'chat:22222222-2222-4222-8222-222222222222'
+    const setupData = {
+        unavailable: null,
+        questions: [{ text: 'Do you have rye loaves today?' }],
+        pastCount: 1,
+        riskySteps: [],
+        limits: { maxQuestions: 100, maxQuestionChars: 2000, defaultQuestions: 4 },
+        check: null
+    }
+
+    afterEach(() => {
+        __setAuth(() => false)
+        datasetsApi.createDatasetFromQuestions.mockReset()
+    })
+
+    const mount = async (api) => {
+        let renderer
+        await TestRenderer.act(async () => {
+            renderer = TestRenderer.create(
+                createElement(
+                    ThemeProvider,
+                    { theme: createTheme() },
+                    createElement(PublishCheck, { chatflowId: 'flow-1', flowType: 'CHATFLOW', api })
+                )
+            )
+        })
+        await TestRenderer.act(async () => {})
+        return renderer
+    }
+
+    test('sends the ticked questions and the dataset name, once', async () => {
+        __setAuth((key) => key === 'datasets:create')
+        let finish
+        datasetsApi.createDatasetFromQuestions.mockImplementation(
+            () =>
+                new Promise((resolve) => {
+                    finish = resolve
+                })
+        )
+        const api = {
+            getCheckSetup: jest.fn().mockResolvedValue({ data: setupData }),
+            getCheckHistory: jest.fn().mockResolvedValue({
+                data: {
+                    items: [
+                        {
+                            id: questionId,
+                            text: 'Do you have rye loaves today?',
+                            source: 'chat',
+                            date: '2026-10-08T16:12:03.000Z',
+                            replayable: true
+                        }
+                    ],
+                    nextCursor: null
+                }
+            }),
+            getCheck: jest.fn(),
+            stopCheck: jest.fn(),
+            startCheck: jest.fn()
+        }
+        const renderer = await mount(api)
+        const click = async (testId) => {
+            const node = renderer.root.findByProps({ 'data-testid': testId })
+            await TestRenderer.act(async () => {
+                node.props.onClick()
+            })
+            await TestRenderer.act(async () => {})
+        }
+        await click('choose-questions')
+        expect(api.getCheckHistory).toHaveBeenCalled()
+        expect(JSON.stringify(renderer.toJSON())).toContain(
+            'Real messages can contain personal data. Check the question and the expected answer before saving.'
+        )
+        const box = renderer.root.findAll(
+            (node) => node.props?.inputProps?.['aria-label'] === 'Do you have rye loaves today?' && node.props.onChange
+        )[0]
+        await TestRenderer.act(async () => {
+            box.props.onChange()
+        })
+        const name = renderer.root.findByProps({ label: 'Dataset name' })
+        await TestRenderer.act(async () => {
+            name.props.onChange({ target: { value: 'Saturday questions' } })
+        })
+        const save = renderer.root.findByProps({ 'data-testid': 'save-as-dataset' })
+        await TestRenderer.act(async () => {
+            save.props.onClick()
+            save.props.onClick()
+        })
+        expect(datasetsApi.createDatasetFromQuestions).toHaveBeenCalledTimes(1)
+        expect(datasetsApi.createDatasetFromQuestions).toHaveBeenCalledWith({
+            flowId: 'flow-1',
+            questionIds: [questionId],
+            name: 'Saturday questions'
+        })
+        await TestRenderer.act(async () => {
+            finish({ data: { rows: [{ input: 'Do you have rye loaves today?', output: '' }] } })
+        })
+        await TestRenderer.act(async () => {})
+        const cleared = renderer.root.findByProps({ label: 'Dataset name' })
+        expect(cleared.props.value).toBe('')
+        expect(JSON.stringify(renderer.toJSON())).toContain('Saved 1 question. The expected answer is empty.')
         renderer.unmount()
     })
 })

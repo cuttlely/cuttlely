@@ -5,6 +5,7 @@ const getAllDatasets = (params) => client.get('/datasets', { params })
 //dataset
 const getDataset = (id, params) => client.get(`/datasets/set/${id}`, { params })
 const createDataset = (body) => client.post(`/datasets/set`, body)
+const createDatasetFromQuestions = (body) => client.post('/datasets/from-questions', body)
 const updateDataset = (id, body) => client.put(`/datasets/set/${id}`, body)
 const deleteDataset = (id) => client.delete(`/datasets/set/${id}`)
 
@@ -22,6 +23,7 @@ export default {
     getAllDatasets,
     getDataset,
     createDataset,
+    createDatasetFromQuestions,
     updateDataset,
     deleteDataset,
     createDatasetRow,
