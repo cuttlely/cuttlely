@@ -16,6 +16,10 @@ Set `DOCS_SHOT_USE_EXTERNAL=1` and `OPENAI_API_KEY` to answer with that key. Wit
 
 `DOCS_SHOTS=canvas,share,api,demo,demo-chart,card` limits the set. `demo-chart` reshoots only the bakery March croissant answer. `all` is the default.
 
+## Theme
+
+A frame whose main subject is the canvas editor is taken in the app's dark theme. A large dialog or the expanded chat over a canvas, a crop of only the chat panel, and every other page stay in the light theme. `capture.mjs` and `reshoot-harnesses-analyst.mjs` each list their dark frames in a `DARK` set. `theme.mjs` switches the theme on the open page through the same store action as the header toggle, so a canvas reached by in-app navigation changes too, and it does not save the choice, so the next page loads light. `DOCS_SHOTS_CANVAS_THEME=light` takes every frame in the light theme.
+
 ## Server settings, sign-in, roles, source install and imports
 
 ```bash
@@ -62,8 +66,8 @@ This reshoots `docs/images/harnesses/` and `docs/images/analyst/`. The harness l
 
 `bakery-mcp.mjs` is the local MCP server for the SQL-refusal picture. It speaks stdio and does not open a database.
 
-The server uses a new data directory under `/tmp/docs-shots`. Sample names are the bakery ones already in the guides. Light theme, violet accent, zoom 100%.
+The server uses a new data directory under `/tmp/docs-shots`. Sample names are the bakery ones already in the guides. Canvas frames are dark and the rest light (see Theme), violet accent, zoom 100%.
 
-Postgres pictures need a local Postgres the current user can reach with `sudo -u postgres psql`. The script creates a throwaway login and database for that run.
+Postgres pictures need a local Postgres the current user can reach with `sudo -u postgres psql`. The script creates a throwaway login and database for that run. A second team's harness gets its own credential through the API, not a copied row.
 
 `DOCS_SHOTS_FROM=<step>` restarts at one step (`empty`, `templates`, `analyst`, `paging`, `trace`, `workspaces`, `postgres`, and the others named in the script).
