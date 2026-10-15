@@ -230,7 +230,8 @@ describe('runtime limits', () => {
             CUTTLELY_SESSION_IDLE_MINUTES: { min: 15, max: 1440, defaultValue: '720', unit: 'minutes' },
             CUTTLELY_SESSION_ABSOLUTE_HOURS: { min: 1, max: 720, defaultValue: '168', unit: 'count' },
             CUTTLELY_DRAIN_TIMEOUT_MS: { min: 0, max: 300000, defaultValue: '25000', unit: 'ms' },
-            CUTTLELY_HISTORY_KEEP: { min: 100, max: 10000, defaultValue: '1000', unit: 'count' }
+            CUTTLELY_HISTORY_KEEP: { min: 100, max: 10000, defaultValue: '1000', unit: 'count' },
+            CUTTLELY_AUDIT_RETENTION_DAYS: { min: 1, max: 3650, defaultValue: '90', unit: 'days' }
         }
         // Invite and mail numbers are runtime settings too, but a saved value wins, so they are not in this reader.
         const runtimeKeys = SETTINGS.filter((setting) => setting.runtime && setting.type === 'number' && !setting.panelFirst)

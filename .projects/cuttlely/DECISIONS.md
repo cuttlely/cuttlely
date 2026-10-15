@@ -327,3 +327,7 @@ When an authenticated request records activity, the local session cookie is sent
 ## D82. An AuthKit response without a session id still has a clock
 
 When AuthKit authenticates a request and does not send a session id, the idle and absolute limits use this server's own record for that account. The first request starts the clock. A later request with the same missing id does not get a new one. A warning is logged once per account. This supersedes the sentence in D79 that an AuthKit session is remembered only by the WorkOS session id. Why: skipping the check when the id is absent leaves that session outside the idle and absolute limits.
+
+## D83. One audit list, with settings history joined in
+
+`GET /api/v1/audit` is the audit list for the organization owner or a role with `audit:view`. An API key cannot call it, and the key dialog does not offer `audit:view`. Sign-in success and failure, lockout, invite, reset, role change, and user disable are rows in `audit_event`. Settings changes are read from `settings/history.jsonl` and shown in the same list. A secret there stays "hidden". Passwords, tokens, secret values, and question text are not written. `CUTTLELY_AUDIT_RETENTION_DAYS` defaults to 90 (1 to 3650) and applies on the next read. It removes old `audit_event` rows. It does not delete settings history, which keeps its own cap. `POST /api/v1/audit/login-activity` stays 404. Why: the settings history already records changes without secret values, and a second copy would drift.

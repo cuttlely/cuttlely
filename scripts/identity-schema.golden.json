@@ -3497,6 +3497,100 @@
                     "origin": "pk"
                 }
             ]
+        },
+        "audit_event": {
+            "columns": [
+                {
+                    "name": "id",
+                    "type": "varchar(255)",
+                    "nullable": false,
+                    "default": null,
+                    "pk": 1
+                },
+                {
+                    "name": "type",
+                    "type": "varchar(32)",
+                    "nullable": false,
+                    "default": null,
+                    "pk": 0
+                },
+                {
+                    "name": "organizationId",
+                    "type": "varchar(255)",
+                    "nullable": false,
+                    "default": null,
+                    "pk": 0
+                },
+                {
+                    "name": "workspaceId",
+                    "type": "varchar(255)",
+                    "nullable": true,
+                    "default": null,
+                    "pk": 0
+                },
+                {
+                    "name": "userId",
+                    "type": "varchar(255)",
+                    "nullable": true,
+                    "default": null,
+                    "pk": 0
+                },
+                {
+                    "name": "actorId",
+                    "type": "varchar(255)",
+                    "nullable": true,
+                    "default": null,
+                    "pk": 0
+                },
+                {
+                    "name": "summary",
+                    "type": "varchar(200)",
+                    "nullable": false,
+                    "default": null,
+                    "pk": 0
+                },
+                {
+                    "name": "detail",
+                    "type": "TEXT",
+                    "nullable": true,
+                    "default": null,
+                    "pk": 0
+                },
+                {
+                    "name": "createdAt",
+                    "type": "bigint",
+                    "nullable": false,
+                    "default": null,
+                    "pk": 0
+                }
+            ],
+            "foreignKeys": [],
+            "indexes": [
+                {
+                    "name": "IDX_audit_event_org",
+                    "unique": false,
+                    "columns": ["organizationId", "createdAt"],
+                    "origin": "c"
+                },
+                {
+                    "name": "IDX_audit_event_user",
+                    "unique": false,
+                    "columns": ["organizationId", "userId", "createdAt"],
+                    "origin": "c"
+                },
+                {
+                    "name": "IDX_audit_event_workspace",
+                    "unique": false,
+                    "columns": ["organizationId", "workspaceId", "createdAt"],
+                    "origin": "c"
+                },
+                {
+                    "name": "sqlite_autoindex_audit_event_1",
+                    "unique": true,
+                    "columns": ["id"],
+                    "origin": "pk"
+                }
+            ]
         }
     },
     "postgres": {
@@ -6640,6 +6734,87 @@
                     "name": "pk_workspace_user",
                     "unique": true,
                     "columns": ["workspaceId", "userId"]
+                }
+            ]
+        },
+        "audit_event": {
+            "columns": [
+                {
+                    "name": "id",
+                    "type": "varchar(255)",
+                    "nullable": false,
+                    "default": null
+                },
+                {
+                    "name": "type",
+                    "type": "varchar(32)",
+                    "nullable": false,
+                    "default": null
+                },
+                {
+                    "name": "organizationId",
+                    "type": "varchar(255)",
+                    "nullable": false,
+                    "default": null
+                },
+                {
+                    "name": "workspaceId",
+                    "type": "varchar(255)",
+                    "nullable": true,
+                    "default": null
+                },
+                {
+                    "name": "userId",
+                    "type": "varchar(255)",
+                    "nullable": true,
+                    "default": null
+                },
+                {
+                    "name": "actorId",
+                    "type": "varchar(255)",
+                    "nullable": true,
+                    "default": null
+                },
+                {
+                    "name": "summary",
+                    "type": "varchar(200)",
+                    "nullable": false,
+                    "default": null
+                },
+                {
+                    "name": "detail",
+                    "type": "text",
+                    "nullable": true,
+                    "default": null
+                },
+                {
+                    "name": "createdAt",
+                    "type": "bigint",
+                    "nullable": false,
+                    "default": null
+                }
+            ],
+            "foreignKeys": [],
+            "indexes": [
+                {
+                    "name": "IDX_audit_event_org",
+                    "unique": false,
+                    "columns": ["organizationId", "createdAt"]
+                },
+                {
+                    "name": "IDX_audit_event_user",
+                    "unique": false,
+                    "columns": ["organizationId", "userId", "createdAt"]
+                },
+                {
+                    "name": "IDX_audit_event_workspace",
+                    "unique": false,
+                    "columns": ["organizationId", "workspaceId", "createdAt"]
+                },
+                {
+                    "name": "audit_event_pkey",
+                    "unique": true,
+                    "columns": ["id"]
                 }
             ]
         }
@@ -10624,13 +10799,112 @@
                     "columns": ["workspaceId", "userId"]
                 }
             ]
+        },
+        "audit_event": {
+            "columns": [
+                {
+                    "name": "id",
+                    "type": "varchar(255)",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_general_ci"
+                },
+                {
+                    "name": "type",
+                    "type": "varchar(32)",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_general_ci"
+                },
+                {
+                    "name": "organizationId",
+                    "type": "varchar(255)",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_general_ci"
+                },
+                {
+                    "name": "workspaceId",
+                    "type": "varchar(255)",
+                    "nullable": true,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_general_ci"
+                },
+                {
+                    "name": "userId",
+                    "type": "varchar(255)",
+                    "nullable": true,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_general_ci"
+                },
+                {
+                    "name": "actorId",
+                    "type": "varchar(255)",
+                    "nullable": true,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_general_ci"
+                },
+                {
+                    "name": "summary",
+                    "type": "varchar(200)",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_general_ci"
+                },
+                {
+                    "name": "detail",
+                    "type": "text",
+                    "nullable": true,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_general_ci"
+                },
+                {
+                    "name": "createdAt",
+                    "type": "bigint(20)",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": null
+                }
+            ],
+            "foreignKeys": [],
+            "indexes": [
+                {
+                    "name": "IDX_audit_event_org",
+                    "unique": false,
+                    "columns": ["organizationId", "createdAt"]
+                },
+                {
+                    "name": "IDX_audit_event_user",
+                    "unique": false,
+                    "columns": ["organizationId", "userId", "createdAt"]
+                },
+                {
+                    "name": "IDX_audit_event_workspace",
+                    "unique": false,
+                    "columns": ["organizationId", "workspaceId", "createdAt"]
+                },
+                {
+                    "name": "PRIMARY",
+                    "unique": true,
+                    "columns": ["id"]
+                }
+            ]
         }
     },
     "roles": {
         "member": "[]",
         "owner": "[\"organization\",\"workspace\"]",
         "personal workspace": "[\"chatflows:view\",\"chatflows:create\",\"chatflows:update\",\"chatflows:duplicate\",\"chatflows:delete\",\"chatflows:export\",\"chatflows:import\",\"chatflows:config\",\"chatflows:domains\",\"agentflows:view\",\"agentflows:create\",\"agentflows:update\",\"agentflows:duplicate\",\"agentflows:delete\",\"agentflows:export\",\"agentflows:import\",\"agentflows:config\",\"agentflows:domains\",\"tools:view\",\"tools:create\",\"tools:update\",\"tools:delete\",\"tools:export\",\"assistants:view\",\"assistants:create\",\"assistants:update\",\"assistants:delete\",\"credentials:view\",\"credentials:create\",\"credentials:update\",\"credentials:delete\",\"credentials:share\",\"variables:view\",\"variables:create\",\"variables:update\",\"variables:delete\",\"apikeys:view\",\"apikeys:create\",\"apikeys:update\",\"apikeys:delete\",\"documentStores:view\",\"documentStores:create\",\"documentStores:update\",\"documentStores:delete\",\"documentStores:add-loader\",\"documentStores:delete-loader\",\"documentStores:preview-process\",\"documentStores:upsert-config\",\"datasets:view\",\"datasets:create\",\"datasets:update\",\"datasets:delete\",\"evaluators:view\",\"evaluators:create\",\"evaluators:update\",\"evaluators:delete\",\"evaluations:view\",\"evaluations:create\",\"evaluations:update\",\"evaluations:delete\",\"evaluations:run\",\"templates:marketplace\",\"templates:custom\",\"templates:custom-delete\",\"templates:toolexport\",\"templates:flowexport\",\"templates:custom-share\",\"workspace:export\",\"workspace:import\",\"executions:view\",\"executions:delete\"]",
-        "admin": "[\"agentflows:config\",\"agentflows:create\",\"agentflows:delete\",\"agentflows:domains\",\"agentflows:duplicate\",\"agentflows:export\",\"agentflows:import\",\"agentflows:update\",\"agentflows:view\",\"apikeys:create\",\"apikeys:delete\",\"apikeys:update\",\"apikeys:view\",\"assistants:create\",\"assistants:delete\",\"assistants:update\",\"assistants:view\",\"chatflows:config\",\"chatflows:create\",\"chatflows:delete\",\"chatflows:domains\",\"chatflows:duplicate\",\"chatflows:export\",\"chatflows:import\",\"chatflows:update\",\"chatflows:view\",\"credentials:create\",\"credentials:delete\",\"credentials:update\",\"credentials:view\",\"datasets:create\",\"datasets:delete\",\"datasets:update\",\"datasets:view\",\"documentStores:add-loader\",\"documentStores:create\",\"documentStores:delete\",\"documentStores:delete-loader\",\"documentStores:preview-process\",\"documentStores:update\",\"documentStores:upsert-config\",\"documentStores:view\",\"evaluations:create\",\"evaluations:delete\",\"evaluations:run\",\"evaluations:update\",\"evaluations:view\",\"evaluators:create\",\"evaluators:delete\",\"evaluators:update\",\"evaluators:view\",\"executions:delete\",\"executions:view\",\"logs:view\",\"roles:manage\",\"templates:custom\",\"templates:custom-delete\",\"templates:flowexport\",\"templates:marketplace\",\"templates:toolexport\",\"tools:create\",\"tools:delete\",\"tools:export\",\"tools:update\",\"tools:view\",\"users:manage\",\"variables:create\",\"variables:delete\",\"variables:update\",\"variables:view\",\"workspace:add-user\",\"workspace:create\",\"workspace:delete\",\"workspace:unlink-user\",\"workspace:update\",\"workspace:view\"]",
+        "admin": "[\"agentflows:config\",\"agentflows:create\",\"agentflows:delete\",\"agentflows:domains\",\"agentflows:duplicate\",\"agentflows:export\",\"agentflows:import\",\"agentflows:update\",\"agentflows:view\",\"apikeys:create\",\"apikeys:delete\",\"apikeys:update\",\"apikeys:view\",\"assistants:create\",\"assistants:delete\",\"assistants:update\",\"assistants:view\",\"audit:view\",\"chatflows:config\",\"chatflows:create\",\"chatflows:delete\",\"chatflows:domains\",\"chatflows:duplicate\",\"chatflows:export\",\"chatflows:import\",\"chatflows:update\",\"chatflows:view\",\"credentials:create\",\"credentials:delete\",\"credentials:update\",\"credentials:view\",\"datasets:create\",\"datasets:delete\",\"datasets:update\",\"datasets:view\",\"documentStores:add-loader\",\"documentStores:create\",\"documentStores:delete\",\"documentStores:delete-loader\",\"documentStores:preview-process\",\"documentStores:update\",\"documentStores:upsert-config\",\"documentStores:view\",\"evaluations:create\",\"evaluations:delete\",\"evaluations:run\",\"evaluations:update\",\"evaluations:view\",\"evaluators:create\",\"evaluators:delete\",\"evaluators:update\",\"evaluators:view\",\"executions:delete\",\"executions:view\",\"logs:view\",\"roles:manage\",\"templates:custom\",\"templates:custom-delete\",\"templates:flowexport\",\"templates:marketplace\",\"templates:toolexport\",\"tools:create\",\"tools:delete\",\"tools:export\",\"tools:update\",\"tools:view\",\"users:manage\",\"variables:create\",\"variables:delete\",\"variables:update\",\"variables:view\",\"workspace:add-user\",\"workspace:create\",\"workspace:delete\",\"workspace:unlink-user\",\"workspace:update\",\"workspace:view\"]",
         "builder": "[\"agentflows:config\",\"agentflows:create\",\"agentflows:delete\",\"agentflows:domains\",\"agentflows:duplicate\",\"agentflows:export\",\"agentflows:import\",\"agentflows:update\",\"agentflows:view\",\"apikeys:create\",\"apikeys:delete\",\"apikeys:update\",\"apikeys:view\",\"assistants:create\",\"assistants:delete\",\"assistants:update\",\"assistants:view\",\"chatflows:config\",\"chatflows:create\",\"chatflows:delete\",\"chatflows:domains\",\"chatflows:duplicate\",\"chatflows:export\",\"chatflows:import\",\"chatflows:update\",\"chatflows:view\",\"credentials:create\",\"credentials:delete\",\"credentials:update\",\"credentials:view\",\"datasets:create\",\"datasets:delete\",\"datasets:update\",\"datasets:view\",\"documentStores:add-loader\",\"documentStores:create\",\"documentStores:delete\",\"documentStores:delete-loader\",\"documentStores:preview-process\",\"documentStores:update\",\"documentStores:upsert-config\",\"documentStores:view\",\"evaluations:create\",\"evaluations:delete\",\"evaluations:run\",\"evaluations:update\",\"evaluations:view\",\"evaluators:create\",\"evaluators:delete\",\"evaluators:update\",\"evaluators:view\",\"executions:delete\",\"executions:view\",\"templates:custom\",\"templates:flowexport\",\"templates:marketplace\",\"templates:toolexport\",\"tools:create\",\"tools:delete\",\"tools:export\",\"tools:update\",\"tools:view\",\"variables:create\",\"variables:delete\",\"variables:update\",\"variables:view\"]",
         "viewer": "[\"agentflows:view\",\"apikeys:view\",\"assistants:view\",\"chatflows:view\",\"credentials:view\",\"datasets:view\",\"documentStores:view\",\"evaluations:view\",\"evaluators:view\",\"executions:view\",\"tools:view\",\"variables:view\",\"workspace:view\"]"
     },
@@ -14612,6 +14886,105 @@
                     "name": "PRIMARY",
                     "unique": true,
                     "columns": ["workspaceId", "userId"]
+                }
+            ]
+        },
+        "audit_event": {
+            "columns": [
+                {
+                    "name": "id",
+                    "type": "varchar(255)",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_0900_ai_ci"
+                },
+                {
+                    "name": "type",
+                    "type": "varchar(32)",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_0900_ai_ci"
+                },
+                {
+                    "name": "organizationId",
+                    "type": "varchar(255)",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_0900_ai_ci"
+                },
+                {
+                    "name": "workspaceId",
+                    "type": "varchar(255)",
+                    "nullable": true,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_0900_ai_ci"
+                },
+                {
+                    "name": "userId",
+                    "type": "varchar(255)",
+                    "nullable": true,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_0900_ai_ci"
+                },
+                {
+                    "name": "actorId",
+                    "type": "varchar(255)",
+                    "nullable": true,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_0900_ai_ci"
+                },
+                {
+                    "name": "summary",
+                    "type": "varchar(200)",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_0900_ai_ci"
+                },
+                {
+                    "name": "detail",
+                    "type": "text",
+                    "nullable": true,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_0900_ai_ci"
+                },
+                {
+                    "name": "createdAt",
+                    "type": "bigint",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": null
+                }
+            ],
+            "foreignKeys": [],
+            "indexes": [
+                {
+                    "name": "IDX_audit_event_org",
+                    "unique": false,
+                    "columns": ["organizationId", "createdAt"]
+                },
+                {
+                    "name": "IDX_audit_event_user",
+                    "unique": false,
+                    "columns": ["organizationId", "userId", "createdAt"]
+                },
+                {
+                    "name": "IDX_audit_event_workspace",
+                    "unique": false,
+                    "columns": ["organizationId", "workspaceId", "createdAt"]
+                },
+                {
+                    "name": "PRIMARY",
+                    "unique": true,
+                    "columns": ["id"]
                 }
             ]
         }

@@ -59,6 +59,7 @@ import { AddChatMessageFlowCreatedIndex1797000000000 } from './1797000000000-Add
 import { AddIdentityActionLinks1797000000000 } from './1797000000000-AddIdentityActionLinks'
 import { AddSessionSeen1798000000000 } from './1798000000000-AddSessionSeen'
 import { AddLocalDirectory1799000000000 } from './1799000000000-AddLocalDirectory'
+import { AddAuditLog1800400000000 } from './1800400000000-AddAuditLog'
 
 import { AddAuthTables1720230151482 } from './1720230151482-AddAuthTables'
 import { AddWorkspace1720230151484 } from './1720230151484-AddWorkspace'
@@ -144,5 +145,6 @@ export const sqliteMigrations = [
     AddChatMessageFlowCreatedIndex1797000000000,
     AddIdentityActionLinks1797000000000,
     AddSessionSeen1798000000000,
-    AddLocalDirectory1799000000000
+    AddLocalDirectory1799000000000,
+    AddAuditLog1800400000000
 ]

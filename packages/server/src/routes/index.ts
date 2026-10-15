@@ -78,7 +78,8 @@ import {
     identityUserRouter,
     identityUsersRouter,
     identityWorkspaceRouter,
-    identityWorkspaceUserRouter
+    identityWorkspaceUserRouter,
+    identityAuditRouter
 } from '../identity'
 import { closedRouter, denyClosedFeature } from '../identity/ossPlatform'
 
@@ -167,7 +168,7 @@ router.use('/roles', identityRolesRouter)
 router.use('/organizationuser', identityOrgUserRouter)
 router.use('/workspace', identityWorkspaceRouter)
 router.use('/workspaceuser', identityWorkspaceUserRouter)
-router.use('/audit', closedRouter())
+router.use('/audit', identityAuditRouter)
 router.use('/organization', closedRouter())
 router.use('/loginmethod', closedRouter())
 router.use('/logs', logRouter)

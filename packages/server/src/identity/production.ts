@@ -18,12 +18,18 @@ import { Request } from 'express'
 import { getDataSource } from '../DataSource'
 import { cookiePasswordOk, localAdminEnabled, localUsersMode, workosConfigured } from './constants'
 import { cookieSecure } from './cookies'
+import { organizationsForUser, recordAudit } from './auditLog'
+import { Sql, sqlFromDataSource } from './directory'
 import { AuthContext } from './handlers'
 import { SqlIdentityStore, SqlLoginRateLimit } from './sqlStore'
 import { workosPort } from './workosAdapter'
 
 let store: SqlIdentityStore | undefined
 let limiter: SqlLoginRateLimit | undefined
+
+export function applicationSql(): Sql {
+    return sqlFromDataSource(getDataSource())
+}
 
 export function identityStore(): SqlIdentityStore {
     if (!store) store = new SqlIdentityStore(getDataSource())
@@ -54,6 +60,33 @@ export function buildAuthContext(req: Request): AuthContext {
         cookies: (req.cookies || {}) as Record<string, string | undefined>,
         store: identityStore(),
         workos: workosPort,
-        rateLimit: loginLimiter()
+        rateLimit: loginLimiter(),
+        noteAudit: noteSignIn
+    }
+}
+
+async function noteSignIn(note: {
+    type: 'sign_in_success' | 'sign_in_failure' | 'lockout'
+    userId: string | null
+    method: 'local' | 'owner' | 'authkit'
+}): Promise<void> {
+    const summary = note.type === 'sign_in_success' ? 'Signed in' : note.type === 'lockout' ? 'Sign-in locked' : 'Sign-in failed'
+    try {
+        const sql = sqlFromDataSource(getDataSource())
+        const orgs = note.userId ? await organizationsForUser(sql, note.userId) : []
+        const places = orgs.length ? orgs : ['']
+        for (const organizationId of places) {
+            await recordAudit(sql, {
+                type: note.type,
+                organizationId,
+                workspaceId: null,
+                userId: note.userId,
+                actorId: note.userId,
+                summary,
+                detail: { method: note.method }
+            })
+        }
+    } catch {
+        console.warn('[server]: audit event was not saved')
     }
 }

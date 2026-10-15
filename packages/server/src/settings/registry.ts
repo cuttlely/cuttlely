@@ -44,7 +44,7 @@ export interface SettingDef {
     /** A select that also accepts a typed value (for example a file path or URL). */
     custom?: { label: string; placeholder: string }
     /** Number fields: the unit shown, and how the raw value maps to it. */
-    unit?: 'seconds' | 'minutes' | 'hours' | 'tokens' | 'bytes' | 'ms-as-seconds' | 'ms' | 'count'
+    unit?: 'seconds' | 'minutes' | 'hours' | 'days' | 'tokens' | 'bytes' | 'ms-as-seconds' | 'ms' | 'count'
     min?: number
     max?: number
     /** Read on each use: host, then the settings file, then the default. No restart. */
@@ -948,6 +948,21 @@ export const SETTINGS: SettingDef[] = [
         max: 10000,
         defaultLabel: '1000',
         defaultValue: '1000',
+        runtime: true,
+        risk: 'low'
+    },
+    {
+        key: 'CUTTLELY_AUDIT_RETENTION_DAYS',
+        section: 'security',
+        group: 'History',
+        label: 'Audit log retention',
+        help: 'How many days of audit events to keep. Older sign-in, invite, reset, role, and disable rows are removed on the next read. Settings changes older than this are left out of the audit list and stay on the settings history page. Applies on the next read. 1 to 3650.',
+        type: 'number',
+        unit: 'days',
+        min: 1,
+        max: 3650,
+        defaultLabel: '90 days',
+        defaultValue: '90',
         runtime: true,
         risk: 'low'
     },

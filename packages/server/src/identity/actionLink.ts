@@ -17,6 +17,7 @@ import { connect as netConnect, Socket } from 'net'
 import { randomUUID } from 'crypto'
 import { connect as tlsConnect } from 'tls'
 import { accountLinkSnapshot, effectiveAccountEnv } from '../settings/accountLinks'
+import { safeRecordAudit } from './auditLog'
 import { DirectoryActor, DirectoryError, QueryFn, Sql, createEmailUser } from './directory'
 import { hashPassword, hashSessionToken, passwordErrors, randomToken } from './password'
 import { LoginRateLimit, LoginLimiter } from './rateLimit'
@@ -391,7 +392,20 @@ export async function inviteAccount(
         if (mode === undefined) return
         raw = (await issueToken(query, sql, { purpose: 'invite', actor, userId, workspaceId, now: deps.now(), env: deps.env })).raw
     })
-    if (mode === undefined) return { id: created.id }
+    const noteInvite = (mailed: boolean) =>
+        safeRecordAudit(sql, {
+            type: 'invite',
+            organizationId: actor.organizationId,
+            workspaceId,
+            userId: created.id,
+            actorId: actor.id,
+            summary: 'Invite issued',
+            detail: { mailed }
+        })
+    if (mode === undefined) {
+        await noteInvite(false)
+        return { id: created.id }
+    }
     const link = oneTimeLink(deps.origin(), raw)
     if (mode === true) {
         let mailed = false
@@ -402,6 +416,7 @@ export async function inviteAccount(
                 mailed = false
             }
         }
+        await noteInvite(mailed)
         return deps.mailReady() ? { id: created.id, link, mailed } : { id: created.id, link }
     }
     try {
@@ -410,6 +425,7 @@ export async function inviteAccount(
         await removeFreshUser(sql, created.id)
         throw new DirectoryError(502, MAIL_FAILED)
     }
+    await noteInvite(true)
     return { id: created.id, mailed: true }
 }
 
@@ -579,6 +595,15 @@ async function resetLocalLinkInner(
             now: deps.now(),
             keepId: issued.id
         })
+        await safeRecordAudit(sql, {
+            type: 'reset',
+            organizationId: actor.organizationId,
+            workspaceId,
+            userId: userId.trim(),
+            actorId: actor.id,
+            summary: 'Password reset link issued',
+            detail: { action: 'issued', mailed: true }
+        })
         return { mailed: true }
     }
     let mailed = false
@@ -589,6 +614,15 @@ async function resetLocalLinkInner(
             mailed = false
         }
     }
+    await safeRecordAudit(sql, {
+        type: 'reset',
+        organizationId: actor.organizationId,
+        workspaceId,
+        userId: userId.trim(),
+        actorId: actor.id,
+        summary: 'Password reset link issued',
+        detail: { action: 'issued', mailed }
+    })
     return deps.mailReady() ? { link, mailed } : { link }
 }
 
@@ -759,6 +793,15 @@ export async function acceptLocalPassword(sql: Sql, input: AcceptInput, deps: Li
         return json(400, { message: LINK_INVALID })
     }
     metrics.accepted += 1
+    await safeRecordAudit(sql, {
+        type: found.purpose === 'invite' ? 'invite' : 'reset',
+        organizationId: found.organizationId,
+        workspaceId: found.workspaceId,
+        userId: found.userId,
+        actorId: found.userId,
+        summary: found.purpose === 'invite' ? 'Invite accepted' : 'Password reset',
+        detail: { action: 'completed' }
+    })
     return json(200, { message: PASSWORD_SAVED })
 }
 

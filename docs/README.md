@@ -34,6 +34,7 @@ New here? Start with [Your first 10 minutes](../README.md#your-first-10-minutes)
 -   [Server settings](./how-to/server-settings.md). Change how the server runs from **Admin** > **Server Settings**: sign-in and AuthKit, the database, storage, the analyst and more, with a review step, safe boot and History. Runtime limits apply on the next use. The routes are the [Server settings API](./reference/server-settings-api.md).
 -   [Sign in](./how-to/sign-in.md). Turn on the local account, create the first account in a terminal or the browser, and sign in. [Users without AuthKit](./how-to/users-without-authkit.md) is email and password, including one-time invite and reset links. [Set up WorkOS AuthKit](./identity/workos-authkit-setup.md) when a team signs in.
 -   [Roles and permissions](./how-to/roles-and-permissions.md). Teams, the built-in roles, how to add a role and assign it, and every permission key with the pages and API routes that check it.
+-   [Audit log](./how-to/audit-log.md). Sign-in, lockout, invite, reset, role change, user disable, and settings changes. Passwords, tokens, secret values, and question text are not stored.
 
 ## Reference
 
@@ -42,6 +43,7 @@ New here? Start with [Your first 10 minutes](../README.md#your-first-10-minutes)
 -   [Usage API](./reference/usage-api.md). Daily input and output token totals for a workspace, by flow and model, with an estimated cost. The Usage page shows the same figures.
 -   [Local users, roles, and sessions](./reference/local-directory-api.md). People, fixed roles, and sign-in sessions when local password sign-in is on.
 -   [Auth API](./reference/auth-api.md). Local password sign-in, sign-out, a user's own password change, one-time invite and reset links, and which sign-in methods are on.
+-   [Audit API](./reference/audit-api.md). `GET /api/v1/audit` for an owner or `audit:view`, with type, user, and cursor filters. Login activity stays closed.
 -   [Override configuration](./reference/override-config.md). What a prediction request may change with `overrideConfig`, and what it never can.
 -   [Upgrading Cuttlely](./upgrading.md). Back up, upgrade, check and roll back, for Docker, Render and source installs.
 -   [Changelog](../CHANGELOG.md) and [Releases and support](./releases.md). What changed in each release, what counts as a breaking change, and which versions get fixes.
