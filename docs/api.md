@@ -402,7 +402,7 @@ CUTTLELY_URL=http://localhost:3000 CUTTLELY_FLOW_ID=<flow id> CUTTLELY_API_KEY=<
 # Bakery helper on http://localhost:8080
 ```
 
-![Rosa's Bakery helper in a browser. The visitor asked "Hi, I am Sam. Is rye bread baked today? It is Saturday." and the answer is "Hi Sam, yes, rye bread is baked today since it is Saturday." The next question asks for their name and whether the bakery is open on Sunday, and the answer is "Your name is Sam, and the bakery is closed on Sunday."](./images/api/api-example-app.png)
+![Rosa's Bakery helper in a browser. The visitor asked "Hi, I am Sam. Is rye bread baked today? It is Saturday." and the answer is "Hi Sam! Yes, we do bake rye bread on Saturdays." The next question asks for their name and whether the bakery is open on Sunday, and the answer starts "Your name is Sam. Yes, we are open on Sundays."](./images/api/api-example-app.png)
 
 The server also refuses empty or very long questions, never forwards `overrideConfig` or other fields from the browser, and turns Cuttlely's errors into a short message (429 stays 429). Its tests run with `node --test examples/web-app/server.test.mjs` and are part of `pnpm verify`.
 

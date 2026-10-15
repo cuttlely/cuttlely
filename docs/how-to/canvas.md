@@ -84,7 +84,7 @@ Describe your assistant in plain words and **Build with AI** puts a chatflow on 
 
 The chatflow lands on the canvas unsaved. The message at the bottom names it, for example `"Math Helper with Calculator" is on the canvas. Save to keep it as a draft.` Nothing is saved yet, so you can look it over, change cards, or close the tab.
 
-![The built chatflow Math Helper with Calculator in compact cards, in the dark theme, not saved yet. The OpenAI card plugs into the Math helper card, and Calculator and Buffer Memory plug in beside it. A green message at the bottom reads "Math Helper with Calculator" is on the canvas. Save to keep it as a draft.](../images/canvas/build-with-ai-built.png)
+![The built chatflow Math Helper with Calculator in compact cards, in the dark theme, not saved yet. The OpenAI, Calculator and Buffer Memory cards plug into the Tool Agent card. A green message at the bottom reads "Math Helper with Calculator" is on the canvas. Save to keep it as a draft.](../images/canvas/build-with-ai-built.png)
 
 6. Select **Save**. The name box starts with the built name; change it if you like. The first save keeps the flow as a **Draft**: Live stays empty, so the API, embeds and shared links serve nothing until you publish. See [Drafts and Publish](./versioning.md#drafts-and-publish).
 7. Open the chat. Three starter questions are waiting, written as things people would ask this assistant. Select one. The test chat runs your draft.
@@ -93,7 +93,7 @@ The chatflow lands on the canvas unsaved. The message at the bottom names it, fo
 
 8. Select **Publish**. **Check recent questions** lists what you asked in the test chat, then the starter questions, marked `(starter question)`, so a brand-new flow has something to check. Live is empty, so each question runs once, on your draft. Select **Run check** to see the answers, then **Publish** to put the flow Live. See [Check recent questions before you publish](./versioning.md#check-recent-questions-before-you-publish).
 
-![The Publish dialog for Math Helper with Calculator. The change list names Added OpenAI, Added Math helper, Added Calculator, Added Buffer Memory and Rewired connections. Check recent questions lists What is 18 times 24? The note reads Live is empty, so each question runs once, on your draft, and the check costs tokens. That is 1 run. Choose Questions sits beside the Requested questions picker. Below Run Check Again the result reads 1 of 1 answered on your draft, with the draft token count and typical time. The draft column reads 18 times 24 is 432.](../images/canvas/build-with-ai-check.png)
+![The Publish dialog for Math Helper with Calculator. The change list names Added OpenAI, Added Calculator, Added Buffer Memory, Added Tool Agent and Rewired connections. Check recent questions lists What is 18 times 24? The note reads Live is empty, so each question runs once, on your draft, and the check costs tokens. That is 1 run. Choose Questions sits beside the Requested questions picker. Below Run Check Again the result reads 1 of 1 answered on your draft, with the draft token count and typical time. The draft column reads 18 times 24 is 432.](../images/canvas/build-with-ai-check.png)
 
 When a tool needs a credential you have not added, the message at the bottom names it, for example `Tavily API needs Tavily API`. Add that credential on the **Credentials** page, pick it on the card, and save. The message stays until you close it.
 

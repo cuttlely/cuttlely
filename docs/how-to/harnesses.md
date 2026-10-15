@@ -201,11 +201,11 @@ The team is saved right away as a new harness, named after its title, and opens 
 
 6. Open the chat. Three starter questions are waiting, written as things you would ask the team. Select one. The run card shows which specialists Harness Prime sent work to. See [Read the run card](#read-the-run-card).
 
-![The canvas chat on Trip-Planning-Harness after a starter question, in the dark theme. The answer is a day-by-day plan for seven days in Italy that ends in Venice, with day 7 for departure and a list of travel tips.](../images/harnesses/build-with-ai-chat.png)
+![The canvas chat on Trip-Planning-Harness after a starter question, in the dark theme. The answer is a day-by-day plan for seven days in Italy through Florence and Venice to Milan on day 7, then an estimated budget in euros for accommodation, meals, transportation and activities.](../images/harnesses/build-with-ai-chat.png)
 
 When a tool needs a credential you have not added, the message at the bottom names it, for example `Tavily API needs Tavily API`. Add that credential on the **Credentials** page, pick it on the card, and save the harness. The message stays until you close it.
 
-![A built News-Team-Harness in the dark theme, with a Tavily API card plugged into the Web Researcher specialist and a News Writer specialist below it. An orange message at the bottom reads Built "News-Team-Harness" as a new harness. Its starter questions wait in the test chat. Add on the Credentials page, then pick on the card: Tavily API needs Tavily API.](../images/harnesses/build-with-ai-missing-credential.png)
+![A built News-Team-Harness in the dark theme, with a Tavily API card plugged into the first specialist, a second specialist below it, and both joined to Harness Prime with the OpenAI card above it. An orange message at the bottom reads Built "News-Team-Harness" as a new harness. Its starter questions wait in the test chat. Add on the Credentials page, then pick on the card: Tavily API needs Tavily API.](../images/harnesses/build-with-ai-missing-credential.png)
 
 Build with AI works the same with classic cards. The team lands with each card at full size.
 
@@ -253,7 +253,7 @@ A chatflow runs a harness with the **Harness** node. A chatflow whose only node 
 
 ![The Add Nodes panel on a new chatflow canvas in the dark theme, with Harness in the search box. One result, Harness: Attach a named harness as a tool.](../images/harnesses/chatflow-add-harness-node.png)
 
-![A chatflow named Chief of staff chat in the dark theme, with one Harness node set to chief-of-staff and Return Direct on. The chat panel shows the Run card for chief-of-staff, Harness Prime sent work to researcher, and the answer.](../images/harnesses/chatflow-harness-chat.png)
+![A chatflow named Chief of staff chat in the dark theme, with one Harness node set to chief-of-staff and Return Direct on. The chat panel shows the Run card for chief-of-staff, Harness Prime sent work to researcher, and an answer that quotes the sample note: the researcher reads it from an in-memory store, and Local Hash Embeddings built the vectors, with no provider key.](../images/harnesses/chatflow-harness-chat.png)
 
 **Return Direct** is on by default and sends the harness reply to the chat as it is. To use the team as one tool of a chatflow agent, connect the **Harness** node to the agent's tools instead. The agent calls it when its system message routes a task to `tool:harness`. Turn **Return Direct** off only when the agent has to rework the reply. Each pass is another model call.
 

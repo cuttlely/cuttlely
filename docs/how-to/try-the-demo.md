@@ -24,11 +24,11 @@ A smaller bakery team is on the same card as a [quickstart](#the-bakery-quicksta
 
 4. Select the first question. The run card shows Harness Prime sending the work to `customer` and `operations` at the same time, then to `policy` once operations has finished, with the model, the time and the tokens each step took. Open a row to see the task Harness Prime gave that specialist and the tools it ran.
 
-    ![The run card after the first starter question. The customer and operations rows are done, and the policy row is open with its task, to decide fault for order LH-20417 and name the remedy steps, and an execute_code done chip. The Decision says the delay is Larkfield Home's fault, with a shipping refund, an Express reship arriving 2026-10-08, a recall of the held parcel, a store credit and a call from the Customer Care Lead.](../images/try-the-demo/customer-care-policy.png)
+    ![The run card after the first starter question. The customer and operations rows are done, and the policy row is open with its task, to determine fault for the LH-20417 delay and find the remedy, credit, refund and escalation steps the policy allows, and an execute_code done chip. The Decision says the delay is Larkfield's fault because of a warehouse scale check failure, with a shipping refund, an express reship arriving by 8 Oct, a recall of the held parcel, a store credit for a Plus customer with a prior late delivery, a call and escalation to the Customer Care Lead, and an operations incident for the packing wave.](../images/try-the-demo/customer-care-policy.png)
 
 5. Scroll down for the rest of the answer: the reply to send the customer, the actions for the team, and the evidence from each specialist with the policy sections it rests on.
 
-    ![The end of the answer. The reply to Maya explains that a warehouse error kept the parcel from the carrier, offers an Express reship arriving Thursday, October 8 or a refund, and adds a store credit and a call from the Customer Care Lead. Actions lists the shipping refund, the reship from Reno, the recall from the Columbus warehouse, the store credit, the Care Lead call, and an operations incident for packing wave W-0929-B, which held 5 orders. Evidence has one line each for customer, operations and policy, and the source line reads Source: Service Recovery Policy, sections 1.2, 2.1, 2.3, 2.5, 3.1, 3.2, 3.3, 3.4.](../images/try-the-demo/customer-care-answer.png)
+    ![The end of the answer. The reply to Maya apologizes for a warehouse issue, refunds her shipping, reships by express delivery to arrive by 8 October, recalls the original parcel, adds a store credit because she is a Plus customer with a recent late delivery, offers a full refund instead if she prefers, and says the Customer Care Lead will reach out. Actions lists the shipping refund, the reship of LH-20417 from the RNO warehouse by Express for 2026-10-08, the recall of the held parcel at the CMH warehouse, the store credit, the Care Lead call, the escalation, and an operations incident for packing wave W-0929-B, which held 5 orders. Evidence has one line each for customer, operations and policy, and the source line reads Source: Service Recovery Policy, sections 1.2, 1.5, 2.1, 2.3, 2.5, 3.1, 3.2, 3.3, 3.4.](../images/try-the-demo/customer-care-answer.png)
 
 On a laptop the answer usually arrives in 15 to 20 seconds. If the agent runtime is still starting, the question waits for it, up to a minute (`CUTTLELY_HERMES_START_WAIT_MS`). The wording changes from run to run, but the facts, the amounts and the policy sections come from the specialists' tools.
 
@@ -44,11 +44,11 @@ Harness Prime puts it together: whose fault it was, which remedy applies and why
 
 The second starter is the contrast. Daniel's duvet set was picked up on time and held by a road closure for snow, so it is the carrier's fault. Daniel is a Standard customer, so he gets a carrier trace and a $10 goodwill credit, and a reship only if the carrier has no new scan for 3 business days.
 
-![The second starter's run card: Harness Prime sent work to customer, operations, then policy. The operations row is open: Trace order LH-20398: warehouse scans, carrier scans, and where the parcel is, and an execute_code done chip. The Decision says the delay was the carrier's fault, a road closure for snow, with a trace, a reship only after 3 business days with no new scan, and a goodwill credit because Daniel Reyes is a Standard customer with no other late delivery.](../images/try-the-demo/customer-care-carrier.png)
+![The second starter's run card: Harness Prime sent work to customer, operations, then policy. The operations row is open with its task, to check the status and tracking of order LH-20398 for Daniel Reyes and find where the duvet set is and why it is late, and an execute_code done chip. The Decision says the delay was the carrier's fault because of a road closure, with a carrier trace, a goodwill credit but no shipping refund because Daniel Reyes is a Standard customer with no other late delivery in 120 days, and a reship only if the carrier declares the parcel lost or there is no scan for 3 business days.](../images/try-the-demo/customer-care-carrier.png)
 
 The third starter crosses both systems in the other order: operations lists the held orders, then customer looks up who placed them.
 
-![The third starter's run card: Harness Prime sent work to operations, then customer. The answer begins Five orders are held in packing wave W-0929-B and names LH-20409, Premier.](../images/try-the-demo/customer-care-held.png)
+![The third starter's run card: Harness Prime sent work to operations, then customer. The answer lists the orders held in the CMH warehouse exception cage E-2 after outbound scale check failures, with each customer's tier, starting with LH-20409, Premier and LH-20411, Standard.](../images/try-the-demo/customer-care-held.png)
 
 ## What the demo makes
 
@@ -75,7 +75,7 @@ Select **Or start with the bakery quickstart** on the card for a smaller team on
 
 The March croissant starter answers in units. Riverside sold 335 more croissants than Old Town in March 2026: 1346 against 1011.
 
-![The bakery-demo test chat after the March croissant starter. The question is Which shop sold more croissants in March 2026, and by how many? The run card says Harness Prime sent work to analyst, and the analyst row is done with 1 tool. The answer says Riverside sold 335 more croissants than Old Town in March 2026, above a table headed Shop and Units with Riverside 1346 and Old Town 1011.](../images/try-the-demo/demo-chart.png)
+![The bakery-demo test chat after the March croissant starter. The question is Which shop sold more croissants in March 2026, and by how many? The run card says Harness Prime sent work to analyst, and the analyst row is done with 1 tool. The answer says Riverside sold more croissants in March 2026 than Old Town by 335 units, 1346 compared to 1011. The answer mentions a bar chart, but no chart image is shown.](../images/try-the-demo/demo-chart.png)
 
 `POST /api/v1/demo` with `{"credentialId": "<id>"}` makes the customer care team. Add `"demo": "bakery"` for the bakery team.
 

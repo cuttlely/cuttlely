@@ -233,7 +233,7 @@ With the default query timeout, 15 seconds is the limit for every analyst statem
 
 In **Try it** on a harness whose analyst uses the workspace analyst file, a recursive count with no end stops at 15 seconds. The answer quotes the timeout sentence. The analyst row in the picture finished in 16 seconds, and the server kept answering the whole time:
 
-![Try it on the chief-of-staff harness. The prompt asks the analyst to run a recursive count with no end. The Run card says Harness Prime sent work to analyst, the analyst row is done after 15 seconds on OpenAI gpt-5.6-luna, and the answer quotes canceling statement due to statement timeout.](../images/analyst/statement-timeout-sqlite.png)
+![Try it on the chief-of-staff harness. The prompt asks the analyst to run a recursive count with no end. The Run card says Harness Prime sent work to analyst, the analyst row is done on OpenAI gpt-5.6-luna with 1 tool, and the answer is The analyst database query failed: canceling statement due to statement timeout.](../images/analyst/statement-timeout-sqlite.png)
 
 ### Temporary tables
 
@@ -251,7 +251,7 @@ In **Try it** on a SQLite auto store, one turn creates `tmp_targets`, fills it, 
 
 The next turn in the same chat runs `SELECT * FROM tmp_targets;` and gets `no such table: tmp_targets`:
 
-![The next run in the same Try it chat. The prompt is SELECT * FROM tmp_targets. The analyst row is done with 1 tool, and the answer says The query failed with no such table: tmp_targets.](../images/analyst/temp-table-next-turn.png)
+![The next run in the same Try it chat. The prompt is SELECT * FROM tmp_targets. The analyst row is done with 1 tool, and the answer is The analyst query failed: no such table: tmp_targets.](../images/analyst/temp-table-next-turn.png)
 
 ## Other SQL tools
 
@@ -262,7 +262,7 @@ Cuttlely can list and limit the tables the analyst reaches only through its own 
 
 The rule goes by names and fields. A server that runs SQL under a name that says neither is not caught, so connect databases through PostgreSQL MCP.
 
-![Try it on bakery-other-sql. The prompt asks how many sourdough orders the bakery had and to use the execute_sql tool. The analyst row is done with no tool chip, and the answer is The execute_sql tool is not available in this session.](../images/analyst/sql-refused.png)
+![Try it on bakery-other-sql. The prompt asks how many sourdough orders the bakery had and to use the execute_sql tool. The analyst row is done with no tool chip, and the answer is The analyst was unable to access the execute_sql tool, so the number of sourdough orders is unavailable.](../images/analyst/sql-refused.png)
 
 ## Which setting wins
 
