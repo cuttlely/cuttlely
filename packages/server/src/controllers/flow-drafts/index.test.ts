@@ -718,6 +718,24 @@ describe('the publish check', () => {
         expect(listQuestionHistory).not.toHaveBeenCalled()
     })
 
+    it('treats a null questionIds list as absent for an update-only key', async () => {
+        granted.add('chatflows:update')
+        const req = checkRequest({ questionIds: null, count: 4 })
+        delete req.user.id
+        const res = accepted()
+        const next = jest.fn()
+        await controller.startCheck(req, res, next)
+        expect(next).not.toHaveBeenCalled()
+        expect(res.status).toHaveBeenCalledWith(202)
+        expect(checkService.startCheck).toHaveBeenCalledWith(
+            expect.objectContaining({ id: FLOW.id }),
+            { questionIds: null, count: 4 },
+            'http://cuttlely.test:3000',
+            undefined,
+            expect.objectContaining({ closed: expect.any(Function) })
+        )
+    })
+
     it('refuses questionIds when the caller can run a check but cannot read messages', async () => {
         for (const userId of ['user-1', undefined]) {
             granted.clear()

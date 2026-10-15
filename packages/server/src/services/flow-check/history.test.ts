@@ -258,8 +258,34 @@ describe('question history', () => {
             await resolveChatQuestionIds('flow-1', [`chat:${v1}`, `chat:${v7}`], []).catch(() => undefined)
             const sent = JSON.stringify(queryCalls)
             expect(sent).toContain(v1)
-            expect(sent).toContain(v7)
+            expect(sent).toContain(v7.toLowerCase())
+            expect(sent).not.toContain(v7)
         }
+    })
+
+    test('resolves an uppercase chat id against the stored lowercase id', async () => {
+        const id = '6ba7b810-9dad-11d1-80b4-00c04fd430c8'
+        historyHooks.loadUserMessages = async () => [row(id, 'version one loaf', '2026-10-08T10:00:00.000Z')]
+        const picked = await resolveChatQuestionIds('flow-1', [`chat:${id.toUpperCase()}`], [])
+        expect(picked.questions).toEqual(['version one loaf'])
+        expect(picked.skipped).toEqual({ count: 0, ids: [] })
+    })
+
+    test('rejects a bracketed search or cursor key left as its own field', async () => {
+        const search = 'rye-loaves-bracket-key'
+        const token = 'cursor-bracket-key-token'
+        await expect(listQuestionHistory(FLOW, { 'q[0]': search }, CALLER)).rejects.toMatchObject({
+            statusCode: 400,
+            message: 'q must be text.'
+        })
+        await expect(listQuestionHistory(FLOW, { 'cursor[0]': token }, CALLER)).rejects.toMatchObject({
+            statusCode: 400,
+            message: 'cursor must be text.'
+        })
+        const searchError = await listQuestionHistory(FLOW, { 'q[0]': search }, CALLER).catch((error) => error)
+        const cursorError = await listQuestionHistory(FLOW, { 'cursor[0]': token }, CALLER).catch((error) => error)
+        expect(JSON.stringify(searchError)).not.toContain(search)
+        expect(JSON.stringify(cursorError)).not.toContain(token)
     })
 
     test('refuses harness and recorded-input history on this route', async () => {

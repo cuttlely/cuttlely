@@ -337,11 +337,29 @@ async function canvasesFor(flow: FlowRef): Promise<Array<string | null | undefin
     return [flow.flowData, state?.draftFlowData || null]
 }
 
+function decodedQueryName(key: string): string {
+    try {
+        return decodeURIComponent(key.replace(/\+/g, ' ')).toLowerCase()
+    } catch {
+        return key.toLowerCase()
+    }
+}
+
+// A parser that leaves q[0] or cursor[0] as its own key would ignore the value and keep it out of q.
+function rejectBracketQueryKeys(query: object): void {
+    for (const key of Object.keys(query)) {
+        const name = decodedQueryName(key)
+        if (name.startsWith('q[')) throw new HistoryError(StatusCodes.BAD_REQUEST, 'q must be text.')
+        if (name.startsWith('cursor[')) throw new HistoryError(StatusCodes.BAD_REQUEST, 'cursor must be text.')
+    }
+}
+
 export async function listQuestionHistory(
     flow: FlowRef,
-    query: { cursor?: unknown; limit?: unknown; q?: unknown; source?: unknown },
+    query: { cursor?: unknown; limit?: unknown; q?: unknown; source?: unknown; [key: string]: unknown },
     caller: string
 ): Promise<HistoryPage> {
+    rejectBracketQueryKeys(query)
     const limit = parseHistoryLimit(query.limit)
     const q = parseHistoryQuery(query.q)
     const source = parseHistorySource(query.source)
@@ -415,7 +433,11 @@ function parseId(raw: string): ParsedId | null {
     if (!match) return null
     const prefix = match[1] as ParsedId['prefix']
     const messageId = match[2]
-    if (prefix === 'chat' && !entityId(messageId)) return null
+    if (prefix === 'chat') {
+        if (!entityId(messageId)) return null
+        const id = messageId.toLowerCase()
+        return { raw: `chat:${id}`, prefix, messageId: id }
+    }
     return { raw, prefix, messageId }
 }
 
@@ -426,12 +448,12 @@ function replayText(row: HistoryRow): { text: string; replayable: boolean } {
 }
 
 async function queryByIds(flowId: string, ids: string[]): Promise<HistoryRow[]> {
-    const safe = ids.filter(entityId)
+    const safe = ids.filter(entityId).map((id) => id.toLowerCase())
     if (!safe.length) return []
     if (historyHooks.loadUserMessages) {
         const wanted = new Set(safe)
         const loaded = await historyHooks.loadUserMessages(flowId)
-        return loaded.filter((row) => wanted.has(row.id))
+        return loaded.filter((row) => wanted.has(String(row.id).toLowerCase()))
     }
     const repo = chatRepository()
     return repo
@@ -448,7 +470,8 @@ async function rowsById(flowId: string, ids: string[]): Promise<Map<string, Hist
     const found = new Map<string, HistoryRow>()
     for (const row of await queryByIds(flowId, ids)) {
         if (!belongsToFlow(row, flowId) || !inCorpus(row)) continue
-        if (!found.has(row.id)) found.set(row.id, row)
+        const key = String(row.id).toLowerCase()
+        if (!found.has(key)) found.set(key, row)
     }
     return found
 }
@@ -474,7 +497,13 @@ export async function resolveChatQuestionIds(
     const ids = parseQuestionIds(questionIds)
     const parsed = ids.map(parseId)
     const badShape = parsed.filter((item) => !item || item.prefix !== 'chat').length
-    const chatIds = parsed.filter((item): item is ParsedId => item !== null && item.prefix === 'chat')
+    const seenIds = new Set<string>()
+    const chatIds: ParsedId[] = []
+    for (const item of parsed) {
+        if (!item || item.prefix !== 'chat' || seenIds.has(item.messageId)) continue
+        seenIds.add(item.messageId)
+        chatIds.push(item)
+    }
     const first = await rowsById(
         flowId,
         chatIds.map((item) => item.messageId)

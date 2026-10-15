@@ -260,7 +260,11 @@ const startCheck = async (req: Request, res: Response, next: NextFunction) => {
         const flow = await flowFor(req, 'update')
         const body = req.body || {}
         // Picking stored questions reads this flow's messages. A key that can run a check but cannot view messages is refused.
-        if (body.questionIds !== undefined && !(await hasAnyPermission(req, permissionFor(flow.type, 'view')))) {
+        if (
+            body.questionIds !== undefined &&
+            body.questionIds !== null &&
+            !(await hasAnyPermission(req, permissionFor(flow.type, 'view')))
+        ) {
             throw new AppError(StatusCodes.FORBIDDEN, "You do not have permission to read this flow's messages.")
         }
         // On top of the flow permission: a dataset needs datasets:view, and evaluators need evaluators:view.

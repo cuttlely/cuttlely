@@ -1752,6 +1752,8 @@ describe('hand-picked questions', () => {
             statusCode: 400,
             message: 'Send questionIds or count, not both.'
         })
+        const plain = await startCheck(flow() as any, { questionIds: null, questions: ['A null list is absent'] }, 'http://x')
+        expect(plain.cases.map((item) => item.question)).toEqual(['A null list is absent'])
         const many = Array.from({ length: 100 }, (_, index) => {
             const id = `33333333-3333-4333-8333-${String(index).padStart(12, '0')}`
             return { id, text: `loaf ${index}` }

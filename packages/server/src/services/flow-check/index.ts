@@ -701,16 +701,17 @@ export async function startCheck(
     const candidate = await candidateFor(flow as DraftFlow, given)
     const draft = candidate.canvas
     const request = body || {}
-    if (request.questionIds !== undefined && request.count !== undefined && request.count !== null) {
+    const questionIds = request.questionIds !== undefined && request.questionIds !== null ? request.questionIds : undefined
+    if (questionIds !== undefined && request.count !== undefined && request.count !== null) {
         throw new AppError(StatusCodes.BAD_REQUEST, 'Send questionIds or count, not both.')
     }
-    if (request.questionIds !== undefined) parseQuestionIds(request.questionIds)
+    if (questionIds !== undefined) parseQuestionIds(questionIds)
     const datasetId = readDatasetId(request)
     const evaluatorIds = readEvaluatorIds(request)
     const parsedThreshold = parseCheckThreshold(request.threshold, Boolean(datasetId))
     if (!parsedThreshold.ok) throw new AppError(StatusCodes.BAD_REQUEST, parsedThreshold.message)
     const threshold = parsedThreshold.threshold
-    if (datasetId && (request.questions !== undefined || request.count !== undefined || request.questionIds !== undefined)) {
+    if (datasetId && (request.questions !== undefined || request.count !== undefined || questionIds !== undefined)) {
         throw new AppError(StatusCodes.BAD_REQUEST, 'Send a datasetId on its own. Do not send questions, count, or questionIds with it.')
     }
     // Resolve the dataset and the evaluators before any other refusal, so a missing one is 404 and starts nothing.
@@ -742,16 +743,12 @@ export async function startCheck(
     if (fromDataset) {
         questions = fromDataset.map((row) => row.question)
         selection = null
-    } else if (request.questionIds !== undefined) {
+    } else if (questionIds !== undefined) {
         const prefix = questionIdPrefix(flow.type, [flow.flowData, draft])
         if (prefix !== 'chat') {
             throw new AppError(StatusCodes.CONFLICT, 'Choosing questions by id is not available for this flow yet.')
         }
-        const picked = await resolveChatQuestionIds(
-            flow.id,
-            request.questionIds,
-            cleanQuestions(request.questions, COMPARE_COUNT_MAX, true)
-        )
+        const picked = await resolveChatQuestionIds(flow.id, questionIds, cleanQuestions(request.questions, COMPARE_COUNT_MAX, true))
         questions = picked.questions
         selection = null
         skipped = picked.skipped
