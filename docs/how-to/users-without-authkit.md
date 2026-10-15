@@ -14,7 +14,7 @@ Leave AuthKit unset. If `WORKOS_API_KEY` and `WORKOS_CLIENT_ID` are both set, th
 
 ## Sign in
 
-Open `/signin`. When this mode is on, the page shows **Email** and **Password** and posts to `POST /api/v1/auth/local/login`.
+Open `/signin`. When this mode is on, the page shows **Email** and **Password** and posts to `POST /api/v1/auth/local/login` with the header `x-request-from: internal`. A request without that header is refused and does not set a cookie.
 
 A wrong email, an unknown email, an invited user with no password, and a disabled user all show `Invalid email or password.` Ten failures in 15 minutes, from one browser address or against one email, show `Too many sign-in attempts. Try again later.` An unknown email locks the same way.
 

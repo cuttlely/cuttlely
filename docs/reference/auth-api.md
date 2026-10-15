@@ -46,7 +46,9 @@ A local session is the user id in `identity_local_session`. It does not make tha
 
 `POST /api/v1/auth/local/login`
 
-Public. Body:
+Public, and it requires the header `x-request-from: internal`, the same check as the owner password sign-in. The sign-in page sends that header. Without it, or with any other value, the response is 401 `{ "message": "Invalid email or password." }` and no cookie is set. Another site cannot sign the browser into an account it chose.
+
+Body:
 
 ```json
 { "email": "ada@example.com", "password": "Sup3r-Secret!" }
@@ -54,13 +56,13 @@ Public. Body:
 
 The email is trimmed and compared in lower case. An email longer than 254 characters, or a password longer than 256, is 400 and is not looked up or hashed. An empty email or password is 400.
 
-| Status | When                                                                       | Body                                                           |
-| ------ | -------------------------------------------------------------------------- | -------------------------------------------------------------- |
-| 200    | Email and password match an active user who has a password                 | The session user. The `cuttlely-local-session` cookie is set   |
-| 400    | Missing fields, or the email or password is over the length cap            | `{ "message": "..." }`                                         |
-| 401    | Unknown email, wrong password, no password stored, or the user is disabled | `{ "message": "Invalid email or password." }`                  |
-| 404    | Local users mode is off                                                    | `{ "message": "Not Found" }`                                   |
-| 429    | Ten failures in 15 minutes for this client or this known account           | `{ "message": "Too many sign-in attempts. Try again later." }` |
+| Status | When                                                                                                           | Body                                                           |
+| ------ | -------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------- |
+| 200    | Email and password match an active user who has a password                                                     | The session user. The `cuttlely-local-session` cookie is set   |
+| 400    | Missing fields, or the email or password is over the length cap                                                | `{ "message": "..." }`                                         |
+| 401    | Missing `x-request-from: internal`, unknown email, wrong password, no password stored, or the user is disabled | `{ "message": "Invalid email or password." }`                  |
+| 404    | Local users mode is off                                                                                        | `{ "message": "Not Found" }`                                   |
+| 429    | Ten failures in 15 minutes for this client or this known account                                               | `{ "message": "Too many sign-in attempts. Try again later." }` |
 
 The 401 body is the same for an unknown email, a wrong password, an invited user with no password, and a disabled user. Each of those runs a password compare. The 429 body is the same no matter which of those states the account is in.
 

@@ -3,7 +3,7 @@ import client from './client'
 // auth
 const resolveLogin = (body) => client.post(`/auth/resolve`, body)
 const login = (body) => client.post(`/auth/login`, body)
-const localLogin = (body) => client.post(`/auth/local/login`, body)
+const localLogin = (body) => client.post(`/auth/local/login`, body, { headers: { 'x-request-from': 'internal' } })
 
 // permissions
 const getAllPermissions = (type) => client.get(`/auth/permissions/${type}`)

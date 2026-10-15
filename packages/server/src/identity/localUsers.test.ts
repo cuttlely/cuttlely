@@ -150,6 +150,10 @@ class MemoryStore implements IdentityStore {
     }
 }
 
+function signed(partial: Partial<AuthContext> = {}): AuthContext {
+    return ctx({ internal: true, ...partial })
+}
+
 function ctx(partial: Partial<AuthContext> = {}): AuthContext {
     return {
         workosConfigured: false,
@@ -264,7 +268,7 @@ describe('local users mode', () => {
             expect(enabledSignInMethods(env)).toEqual({ methods: row.methods })
             const local = json(
                 await handleLocalLogin(
-                    ctx({
+                    signed({
                         store,
                         localUsers: row.local,
                         localAdmin: row.owner,
@@ -291,7 +295,7 @@ describe('local users mode', () => {
 
     it('signs in an active user and does not treat that session as the owner', async () => {
         const { store } = await seed()
-        const ok = json(await handleLocalLogin(ctx({ store, body: { email: '  Ada@Example.com  ', password: OTHER } })))
+        const ok = json(await handleLocalLogin(signed({ store, body: { email: '  Ada@Example.com  ', password: OTHER } })))
         expect(ok.status).toBe(200)
         expect(ok.body.id).toBe('user-a')
         expect(ok.body.role).toBe('member')
@@ -312,13 +316,13 @@ describe('local users mode', () => {
 
     it('sets Secure on the local cookie in production and when the request is https', async () => {
         const { store } = await seed()
-        const https = json(await handleLocalLogin(ctx({ store, secure: true, body: { email: 'ada@example.com', password: OTHER } })))
+        const https = json(await handleLocalLogin(signed({ store, secure: true, body: { email: 'ada@example.com', password: OTHER } })))
         expect(https.cookies?.[0].options.secure).toBe(true)
         const previous = process.env.NODE_ENV
         process.env.NODE_ENV = 'production'
         try {
             const produced = json(
-                await handleLocalLogin(ctx({ store, secure: false, body: { email: 'ada@example.com', password: OTHER } }))
+                await handleLocalLogin(signed({ store, secure: false, body: { email: 'ada@example.com', password: OTHER } }))
             )
             expect(produced.cookies?.[0].options.secure).toBe(true)
             expect(produced.cookies?.[0].options).toMatchObject({ httpOnly: true, sameSite: 'lax', path: '/' })
@@ -336,8 +340,8 @@ describe('local users mode', () => {
 
     it('rotates the cookie on each sign-in and keeps the idle and absolute limits', async () => {
         const { store } = await seed()
-        const first = json(await handleLocalLogin(ctx({ store, body: { email: 'ada@example.com', password: OTHER } })))
-        const second = json(await handleLocalLogin(ctx({ store, body: { email: 'ada@example.com', password: OTHER } })))
+        const first = json(await handleLocalLogin(signed({ store, body: { email: 'ada@example.com', password: OTHER } })))
+        const second = json(await handleLocalLogin(signed({ store, body: { email: 'ada@example.com', password: OTHER } })))
         expect(first.cookies?.[0].value).not.toBe(second.cookies?.[0].value)
         expect(store.local.size).toBe(2)
         const old = await establishSession(ctx({ store, cookies: { 'cuttlely-local-session': first.cookies?.[0].value } }))
@@ -360,7 +364,7 @@ describe('local users mode', () => {
         )
         expect(idle.body).toEqual({ message: 'Token Expired' })
         expect(store.local.has(digest)).toBe(false)
-        const again = json(await handleLocalLogin(ctx({ store, body: { email: 'ada@example.com', password: OTHER } })))
+        const again = json(await handleLocalLogin(signed({ store, body: { email: 'ada@example.com', password: OTHER } })))
         const absoluteDigest = hashSessionToken(again.cookies?.[0].value || '')
         const kept = store.local.get(absoluteDigest)
         if (!kept) throw new Error('missing session')
@@ -377,7 +381,7 @@ describe('local users mode', () => {
         const bodies = []
         for (const email of ['nobody@example.com', 'ada@example.com', 'invited@example.com', 'blank@example.com', 'disabled@example.com']) {
             const password = email === 'ada@example.com' ? 'Wrong-Pass1!' : OTHER
-            const result = json(await handleLocalLogin(ctx({ store, body: { email, password } })))
+            const result = json(await handleLocalLogin(signed({ store, body: { email, password } })))
             expect(result.status).toBe(401)
             bodies.push(result.body)
             expect(JSON.stringify(result.body)).not.toContain(email)
@@ -390,7 +394,7 @@ describe('local users mode', () => {
     it('ends a disabled user session and rejects the old cookie', async () => {
         const { store } = await seed()
         store.disabled.delete('disabled')
-        const ok = json(await handleLocalLogin(ctx({ store, body: { email: 'disabled@example.com', password: OTHER } })))
+        const ok = json(await handleLocalLogin(signed({ store, body: { email: 'disabled@example.com', password: OTHER } })))
         const raw = ok.cookies?.[0].value || ''
         store.disabled.add('disabled')
         const again = await establishSession(ctx({ store, cookies: { 'cuttlely-local-session': raw } }))
@@ -406,7 +410,7 @@ describe('local users mode', () => {
         const { store } = await seed()
         const rateLimit = new LoginRateLimit()
         const attempt = (email: string, password: string, ip = '203.0.113.8') =>
-            handleLocalLogin(ctx({ store, rateLimit, ip, body: { email, password } }))
+            handleLocalLogin(signed({ store, rateLimit, ip, body: { email, password } }))
         for (let i = 0; i < 10; i++) {
             expect(json(await attempt(`missing-${i}@example.com`, 'Wrong-Pass1!')).status).toBe(401)
         }
@@ -420,19 +424,24 @@ describe('local users mode', () => {
             expect(
                 json(
                     await handleLocalLogin(
-                        ctx({ store, rateLimit: account, ip: `203.0.113.${i}`, body: { email: 'Disabled@Example.com', password: OTHER } })
+                        signed({
+                            store,
+                            rateLimit: account,
+                            ip: `203.0.113.${i}`,
+                            body: { email: 'Disabled@Example.com', password: OTHER }
+                        })
                     )
                 ).status
             ).toBe(401)
         }
         const lockedDisabled = json(
             await handleLocalLogin(
-                ctx({ store, rateLimit: account, ip: '198.51.100.9', body: { email: 'disabled@example.com', password: OTHER } })
+                signed({ store, rateLimit: account, ip: '198.51.100.9', body: { email: 'disabled@example.com', password: OTHER } })
             )
         )
         const lockedInvited = json(
             await handleLocalLogin(
-                ctx({
+                signed({
                     store,
                     rateLimit: account,
                     ip: '198.51.100.10',
@@ -446,11 +455,13 @@ describe('local users mode', () => {
         const wrong = new LoginRateLimit()
         for (let i = 0; i < 10; i++) {
             await handleLocalLogin(
-                ctx({ store, rateLimit: wrong, ip: `198.51.100.${i}`, body: { email: 'ada@example.com', password: 'Wrong-Pass1!' } })
+                signed({ store, rateLimit: wrong, ip: `198.51.100.${i}`, body: { email: 'ada@example.com', password: 'Wrong-Pass1!' } })
             )
         }
         const lockedWrong = json(
-            await handleLocalLogin(ctx({ store, rateLimit: wrong, ip: '192.0.2.8', body: { email: 'ada@example.com', password: OTHER } }))
+            await handleLocalLogin(
+                signed({ store, rateLimit: wrong, ip: '192.0.2.8', body: { email: 'ada@example.com', password: OTHER } })
+            )
         )
         expect(lockedWrong.body).toEqual(lockedDisabled.body)
     })
@@ -459,10 +470,10 @@ describe('local users mode', () => {
         const { store } = await seed()
         const rateLimit = new LoginRateLimit()
         const longEmail = json(
-            await handleLocalLogin(ctx({ store, rateLimit, body: { email: `${'a'.repeat(250)}@example.com`, password: OTHER } }))
+            await handleLocalLogin(signed({ store, rateLimit, body: { email: `${'a'.repeat(250)}@example.com`, password: OTHER } }))
         )
         const longPassword = json(
-            await handleLocalLogin(ctx({ store, rateLimit, body: { email: 'ada@example.com', password: 'A'.repeat(257) } }))
+            await handleLocalLogin(signed({ store, rateLimit, body: { email: 'ada@example.com', password: 'A'.repeat(257) } }))
         )
         expect(longEmail.status).toBe(400)
         expect(longPassword.status).toBe(400)
@@ -472,7 +483,7 @@ describe('local users mode', () => {
 
     it('logs out idempotently and refuses a missing or invalid CSRF header', async () => {
         const { store } = await seed()
-        const ok = json(await handleLocalLogin(ctx({ store, body: { email: 'ada@example.com', password: OTHER } })))
+        const ok = json(await handleLocalLogin(signed({ store, body: { email: 'ada@example.com', password: OTHER } })))
         const raw = ok.cookies?.[0].value || ''
         const missing = json(await handleLocalLogout(ctx({ store, cookies: { 'cuttlely-local-session': raw } })))
         expect(missing.status).toBe(401)
@@ -494,8 +505,10 @@ describe('local users mode', () => {
 
     it('changes the current password, rotates this session, and ends the others', async () => {
         const { store } = await seed()
-        const first = json(await handleLocalLogin(ctx({ store, body: { email: 'ada@example.com', password: OTHER } })))
-        const second = json(await handleLocalLogin(ctx({ store, ip: '203.0.113.9', body: { email: 'ada@example.com', password: OTHER } })))
+        const first = json(await handleLocalLogin(signed({ store, body: { email: 'ada@example.com', password: OTHER } })))
+        const second = json(
+            await handleLocalLogin(signed({ store, ip: '203.0.113.9', body: { email: 'ada@example.com', password: OTHER } }))
+        )
         const current = second.cookies?.[0].value || ''
         const other = first.cookies?.[0].value || ''
         const beaBefore = store.users.find((user) => user.id === 'user-b')?.credential
@@ -572,16 +585,16 @@ describe('local users mode', () => {
         const fresh = await establishSession(ctx({ store, cookies: { 'cuttlely-local-session': changed.cookies?.[0].value } }))
         expect(fresh.user?.id).toBe('user-a')
         expect(fresh.user?.isOrganizationAdmin).toBe(false)
-        const signed = json(await handleLocalLogin(ctx({ store, body: { email: 'ada@example.com', password: GOOD } })))
-        expect(signed.status).toBe(200)
-        const previous = json(await handleLocalLogin(ctx({ store, body: { email: 'ada@example.com', password: OTHER } })))
+        const signedIn = json(await handleLocalLogin(signed({ store, body: { email: 'ada@example.com', password: GOOD } })))
+        expect(signedIn.status).toBe(200)
+        const previous = json(await handleLocalLogin(signed({ store, body: { email: 'ada@example.com', password: OTHER } })))
         expect(previous.status).toBe(401)
     })
 
     it('does not let user A use user B session or user B workspace', async () => {
         const { store } = await seed()
-        const ada = json(await handleLocalLogin(ctx({ store, body: { email: 'ada@example.com', password: OTHER } })))
-        const bea = json(await handleLocalLogin(ctx({ store, body: { email: 'bea@example.com', password: OTHER } })))
+        const ada = json(await handleLocalLogin(signed({ store, body: { email: 'ada@example.com', password: OTHER } })))
+        const bea = json(await handleLocalLogin(signed({ store, body: { email: 'bea@example.com', password: OTHER } })))
         const asAda = await establishSession(ctx({ store, cookies: { 'cuttlely-local-session': ada.cookies?.[0].value } }))
         const asBea = await establishSession(ctx({ store, cookies: { 'cuttlely-local-session': bea.cookies?.[0].value } }))
         expect(asAda.user?.id).toBe('user-a')
@@ -682,9 +695,18 @@ describe('local users mode', () => {
         expect(badHeader.body).toEqual({ message: 'Unauthorized' })
     })
 
+    it('refuses local login without the internal header and sets no cookie', async () => {
+        const { store } = await seed()
+        const missing = json(await handleLocalLogin(ctx({ store, internal: false, body: { email: 'ada@example.com', password: OTHER } })))
+        expect(missing.status).toBe(401)
+        expect(missing.body).toEqual(INVALID)
+        expect(missing.cookies).toBeUndefined()
+        expect(store.local.size).toBe(0)
+    })
+
     it('account sign-out deletes a local users session when break-glass is off', async () => {
         const { store } = await seed()
-        const ok = json(await handleLocalLogin(ctx({ store, localAdmin: false, body: { email: 'ada@example.com', password: OTHER } })))
+        const ok = json(await handleLocalLogin(signed({ store, localAdmin: false, body: { email: 'ada@example.com', password: OTHER } })))
         const raw = ok.cookies?.[0].value || ''
         const denied = json(await handleLogout(ctx({ store, localAdmin: false, cookies: { 'cuttlely-local-session': raw } })))
         expect(denied.status).toBe(401)
@@ -719,7 +741,7 @@ describe('local users mode', () => {
         }
         const attempt = async (email: string, password: string) => {
             calls.length = 0
-            const result = json(await handleLocalLogin(ctx({ store, body: { email, password } })))
+            const result = json(await handleLocalLogin(signed({ store, body: { email, password } })))
             return { result, calls: [...calls] }
         }
         const unknown = await attempt('nobody@example.com', OTHER)
@@ -745,7 +767,7 @@ describe('local users mode', () => {
         for (let i = 0; i < 10; i++) {
             const result = json(
                 await handleLocalLogin(
-                    ctx({
+                    signed({
                         store,
                         rateLimit: unknown,
                         ip: `203.0.113.${i}`,
@@ -757,17 +779,19 @@ describe('local users mode', () => {
         }
         const lockedUnknown = json(
             await handleLocalLogin(
-                ctx({ store, rateLimit: unknown, ip: '198.51.100.40', body: { email: 'Nobody@Example.com', password: OTHER } })
+                signed({ store, rateLimit: unknown, ip: '198.51.100.40', body: { email: 'Nobody@Example.com', password: OTHER } })
             )
         )
         const known = new LoginRateLimit()
         for (let i = 0; i < 10; i++) {
             await handleLocalLogin(
-                ctx({ store, rateLimit: known, ip: `198.51.100.${i}`, body: { email: 'ada@example.com', password: 'Wrong-Pass1!' } })
+                signed({ store, rateLimit: known, ip: `198.51.100.${i}`, body: { email: 'ada@example.com', password: 'Wrong-Pass1!' } })
             )
         }
         const lockedKnown = json(
-            await handleLocalLogin(ctx({ store, rateLimit: known, ip: '192.0.2.40', body: { email: 'ada@example.com', password: OTHER } }))
+            await handleLocalLogin(
+                signed({ store, rateLimit: known, ip: '192.0.2.40', body: { email: 'ada@example.com', password: OTHER } })
+            )
         )
         expect(lockedUnknown.status).toBe(429)
         expect(lockedKnown.status).toBe(429)
@@ -786,7 +810,7 @@ describe('local users mode', () => {
 
     it('refuses a break-glass member session when local users mode is off', async () => {
         const { store } = await seed()
-        const ok = json(await handleLocalLogin(ctx({ store, body: { email: 'ada@example.com', password: OTHER } })))
+        const ok = json(await handleLocalLogin(signed({ store, body: { email: 'ada@example.com', password: OTHER } })))
         const raw = ok.cookies?.[0].value || ''
         const closed = await establishSession(
             ctx({ store, localUsers: false, localAdmin: true, cookies: { 'cuttlely-local-session': raw } })

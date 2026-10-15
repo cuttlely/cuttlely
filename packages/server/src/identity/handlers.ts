@@ -361,6 +361,7 @@ export const UNKNOWN_LOCAL_ACCOUNT_ID = '00000000-0000-0000-0000-000000000000'
  */
 export async function handleLocalLogin(ctx: AuthContext): Promise<HandlerResult> {
     if (!ctx.localUsers) return json(404, { message: 'Not Found' })
+    if (!ctx.internal) return json(401, { message: INVALID_LOGIN })
     const fields = loginFields(ctx.body)
     if (!fields.ok) return json(400, { message: fields.message })
     if (await ctx.rateLimit.blocked(ctx.ip, fields.email, ctx.now)) return json(429, { message: TOO_MANY })
