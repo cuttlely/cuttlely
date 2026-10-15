@@ -66,24 +66,26 @@ function listSettings(env: Env, all: boolean): CliResult {
 function unsetSetting(env: Env, name: string | undefined): CliResult {
     if (!name) return { code: 2, lines: ['Name the setting to remove, for example: pnpm settings unset CUTTLELY_LOCAL_ADMIN'] }
     const dir = settingsDir(env)
-    const file = path.join(dir, SETTINGS_FILE)
-    let parsed: { values?: Record<string, unknown> }
-    try {
-        parsed = JSON.parse(fs.readFileSync(file, 'utf8'))
-    } catch (error) {
-        if ((error as NodeJS.ErrnoException).code === 'ENOENT')
-            return { code: 0, lines: [`There is no settings file, so ${name} is not saved there.`] }
-        return {
-            code: 1,
-            lines: ['The settings file could not be read. Run pnpm settings restore, or start with CUTTLELY_IGNORE_ADMIN_SETTINGS=1.']
-        }
-    }
-    const stored = parsed.values
-    if (!stored || !Object.prototype.hasOwnProperty.call(stored, name)) {
-        return { code: 0, lines: [`${name} is not saved in the settings file. Nothing changed.`] }
-    }
     try {
         return withSettingsLockSync(dir, () => {
+            const file = path.join(dir, SETTINGS_FILE)
+            let parsed: { values?: Record<string, unknown> }
+            try {
+                parsed = JSON.parse(fs.readFileSync(file, 'utf8'))
+            } catch (error) {
+                if ((error as NodeJS.ErrnoException).code === 'ENOENT')
+                    return { code: 0, lines: [`There is no settings file, so ${name} is not saved there.`] }
+                return {
+                    code: 1,
+                    lines: [
+                        'The settings file could not be read. Run pnpm settings restore, or start with CUTTLELY_IGNORE_ADMIN_SETTINGS=1.'
+                    ]
+                }
+            }
+            const stored = parsed.values
+            if (!stored || !Object.prototype.hasOwnProperty.call(stored, name)) {
+                return { code: 0, lines: [`${name} is not saved in the settings file. Nothing changed.`] }
+            }
             const before = readSettingsFile(dir, encryptionKeySync(env)).values
             delete stored[name]
             // Edit the stored JSON directly, so secrets this key cannot read are kept as they are.

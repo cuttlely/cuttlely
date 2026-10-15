@@ -286,6 +286,25 @@ describe('discard, history and restart', () => {
         expect(history.body.entries.map((entry: { kind: string }) => entry.kind)).toEqual(['discard', 'save'])
     })
 
+    it('puts the settings file back when discard cannot record history', async () => {
+        writeSettingsFile(dir, { LOG_LEVEL: 'info' }, { key: KEY })
+        state.rawAtStart = null
+        state.atStart = {}
+        const fsRename = (jest.requireActual('fs') as typeof fs).renameSync
+        const rename = jest.spyOn(fs, 'renameSync').mockImplementation((from, to) => {
+            if (String(to).endsWith('history.jsonl')) throw new Error('disk full')
+            return fsRename(from, to)
+        })
+        try {
+            const failed = await app(OWNER).post('/api/v1/server-settings/discard')
+            expect(failed.status).toBe(500)
+            expect(failed.body.code).toBe('HISTORY_FAILED')
+            expect(readSettingsFile(dir, KEY).values).toEqual({ LOG_LEVEL: 'info' })
+        } finally {
+            rename.mockRestore()
+        }
+    })
+
     it('gives manual steps without the start script, and restarts in place with it', async () => {
         const manual = await app(OWNER).post('/api/v1/server-settings/restart')
         expect(manual.status).toBe(202)
@@ -326,6 +345,28 @@ describe('Try it again after safe boot', () => {
         expect(readSettingsFile(dir, KEY).values).toEqual({ CUTTLELY_ANALYST: 'auto', CUTTLELY_VERSIONS: 'off' })
         expect(readHistory(dir)[0]).toMatchObject({ kind: 'restore', by: 'owner@example.com' })
         expect((await app(OWNER).post('/api/v1/server-settings/retry')).status).toBe(404)
+    })
+
+    it('puts the settings file back when retry cannot record history', async () => {
+        writeSettingsFile(dir, { CUTTLELY_ANALYST: 'auto' }, { key: KEY })
+        const current = fs.readFileSync(path.join(dir, SETTINGS_FILE), 'utf8')
+        writeSettingsFile(dir, { CUTTLELY_ANALYST: 'auto', CUTTLELY_VERSIONS: 'off' }, { key: KEY })
+        fs.copyFileSync(path.join(dir, SETTINGS_FILE), path.join(dir, 'server.rolled-back.json'))
+        fs.writeFileSync(path.join(dir, SETTINGS_FILE), current)
+        const fsRename = (jest.requireActual('fs') as typeof fs).renameSync
+        const rename = jest.spyOn(fs, 'renameSync').mockImplementation((from, to) => {
+            if (String(to).endsWith('history.jsonl')) throw new Error('disk full')
+            return fsRename(from, to)
+        })
+        try {
+            const failed = await app(OWNER).post('/api/v1/server-settings/retry')
+            expect(failed.status).toBe(500)
+            expect(failed.body.code).toBe('HISTORY_FAILED')
+            expect(fs.readFileSync(path.join(dir, SETTINGS_FILE), 'utf8')).toBe(current)
+            expect(fs.existsSync(path.join(dir, 'server.rolled-back.json'))).toBe(true)
+        } finally {
+            rename.mockRestore()
+        }
     })
 
     it('changes nothing when the set-aside copy is damaged', async () => {

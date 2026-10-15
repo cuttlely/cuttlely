@@ -536,23 +536,39 @@ export async function establishSession(
             return { user: null, clearCookies: [LOCAL_SESSION_COOKIE], secure: clearSecure(ctx, [LOCAL_SESSION_COOKIE]) }
         }
         if (gate !== 'ok') return { user: null, clearCookies: [LOCAL_SESSION_COOKIE], secure: clearSecure(ctx, [LOCAL_SESSION_COOKIE]) }
-        await noteSessionUse(ctx, row, digest)
+        const maxAge = await noteSessionUse(ctx, row, digest)
         const user = await ctx.store.sessionFor(row.userId)
-        return { user, secure: ctx.secure }
+        const secure = ctx.localUsers ? localSessionSecure(ctx) : ctx.secure
+        return { user, secure, cookies: maxAge === null ? undefined : [localCookie(token, secure, maxAge)] }
     }
     return { user: null }
 }
 
-/** Writes lastSeenAt when the session has been quiet for at least a minute. */
-async function noteSessionUse(ctx: AuthContext, row: LocalSession, token: string): Promise<void> {
+/**
+ * Writes lastSeenAt when the session has been quiet for at least a minute.
+ * Returns the cookie lifetime to send, or null when the browser cookie can stay as it is.
+ */
+async function noteSessionUse(ctx: AuthContext, row: LocalSession, token: string): Promise<number | null> {
     const times = localSessionTimes(row)
-    if (ctx.now - times.lastSeenAt < SEEN_EVERY_MS) return
+    if (ctx.now - times.lastSeenAt < SEEN_EVERY_MS) return null
     const limits = sessionLimitsMs()
     const seen = new Date(ctx.now)
     const idleExpires = new Date(Math.min(ctx.now + limits.idleMs, times.issuedAt + limits.absoluteMs))
     await ctx.store.slideLocalSession(token, idleExpires, seen)
     row.lastSeenAt = seen
     row.idleExpires = idleExpires
+    return Math.max(0, idleExpires.getTime() - ctx.now)
+}
+
+const SESSION_TOMBSTONE = new Date(0)
+
+function sessionTombstone(row: LocalSession): boolean {
+    return row.idleExpires.getTime() === 0 || row.lastSeenAt?.getTime() === 0
+}
+
+function duplicateSession(error: unknown): boolean {
+    const message = error instanceof Error ? error.message : String(error)
+    return /UNIQUE constraint failed|duplicate key|ER_DUP_ENTRY|23505/i.test(message)
 }
 
 /**
@@ -561,24 +577,32 @@ async function noteSessionUse(ctx: AuthContext, row: LocalSession, token: string
  */
 async function authKitActivity(ctx: AuthContext, sessionId: string, userId: string): Promise<'idle' | 'absolute' | null> {
     const token = hashSessionToken(sessionId)
-    const existing = await ctx.store.findLocalSession(token)
+    let existing = await ctx.store.findLocalSession(token)
     if (!existing) {
         const limits = sessionLimitsMs()
         const at = new Date(ctx.now)
-        await ctx.store.insertLocalSession({
-            id: randomUUID(),
-            userId,
-            token,
-            idleExpires: new Date(ctx.now + limits.idleMs),
-            absoluteExpires: new Date(ctx.now + limits.absoluteMs),
-            issuedAt: at,
-            lastSeenAt: at
-        })
-        return null
+        try {
+            await ctx.store.insertLocalSession({
+                id: randomUUID(),
+                userId,
+                token,
+                idleExpires: new Date(ctx.now + limits.idleMs),
+                absoluteExpires: new Date(ctx.now + limits.absoluteMs),
+                issuedAt: at,
+                lastSeenAt: at
+            })
+        } catch (error) {
+            if (!duplicateSession(error)) throw error
+        }
+        existing = await ctx.store.findLocalSession(token)
+        if (!existing) return 'idle'
     }
+    if (sessionTombstone(existing)) return 'idle'
     const ended = localSessionBlock(existing, ctx.now)
     if (ended) {
-        await ctx.store.deleteLocalSession(token)
+        await ctx.store.slideLocalSession(token, SESSION_TOMBSTONE, SESSION_TOMBSTONE)
+        existing.lastSeenAt = SESSION_TOMBSTONE
+        existing.idleExpires = SESSION_TOMBSTONE
         return ended
     }
     await noteSessionUse(ctx, existing, token)

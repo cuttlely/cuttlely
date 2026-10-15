@@ -444,11 +444,18 @@ export async function discardChanges(deps: ServiceDeps, by: string, actorId?: st
             const key = await deps.key()
             const before = readSettingsFile(state.dir, key).values
             const file = path.join(state.dir, SETTINGS_FILE)
+            const previousRaw = fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : null
             if (state.rawAtStart === null || state.rawAtStart === undefined) fs.rmSync(file, { force: true })
             else writeFileAtomic(state.dir, SETTINGS_FILE, state.rawAtStart)
             const changes = describeChanges(before, state.atStart)
             invalidateRuntimeCache()
-            if (changes.length) appendHistory(state.dir, { kind: 'discard', by, actorId, changes, outcome: 'ok' })
+            try {
+                if (changes.length) appendHistory(state.dir, { kind: 'discard', by, actorId, changes, outcome: 'ok' })
+            } catch {
+                restoreSettingsFile(state.dir, previousRaw)
+                invalidateRuntimeCache()
+                throw new SettingsError(500, 'HISTORY_FAILED', 'The change was not kept because the history could not be recorded.')
+            }
             return getView(deps)
         })
     } catch (error) {
@@ -484,16 +491,22 @@ async function retryRolledBackLocked(deps: ServiceDeps, by: string, actorId?: st
         else writeFileAtomic(state.dir, SETTINGS_FILE, current)
         throw new SettingsError(409, 'FILE_DAMAGED', 'The set-aside settings could not be read, so nothing changed.')
     }
-    fs.rmSync(kept, { force: true })
     invalidateRuntimeCache()
-    appendHistory(state.dir, {
-        kind: 'restore',
-        by,
-        actorId,
-        changes: describeChanges(before, after.values),
-        note: 'Put back the settings that did not start, to try them again at the next restart.',
-        outcome: 'ok'
-    })
+    try {
+        appendHistory(state.dir, {
+            kind: 'restore',
+            by,
+            actorId,
+            changes: describeChanges(before, after.values),
+            note: 'Put back the settings that did not start, to try them again at the next restart.',
+            outcome: 'ok'
+        })
+    } catch {
+        restoreSettingsFile(state.dir, current)
+        invalidateRuntimeCache()
+        throw new SettingsError(500, 'HISTORY_FAILED', 'The change was not kept because the history could not be recorded.')
+    }
+    fs.rmSync(kept, { force: true })
     return getView(deps)
 }
 

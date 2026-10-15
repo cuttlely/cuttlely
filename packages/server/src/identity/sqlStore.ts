@@ -398,14 +398,24 @@ export class SqlIdentityStore implements IdentityStore {
         await this.withRunner(async (runner) => {
             const d = dialectOf(runner)
             const seen = row.lastSeenAt || row.issuedAt || new Date()
-            await query(
-                runner,
-                `INSERT INTO ${quote(d, 'identity_local_session')} (${quote(d, 'id')}, ${quote(d, 'userId')}, ${quote(d, 'token')}, ${quote(
-                    d,
-                    'expiresAt'
-                )}, ${quote(d, 'absoluteExpiresAt')}, ${quote(d, 'lastSeenAt')}) VALUES (?, ?, ?, ?, ?, ?)`,
-                [row.id, row.userId, row.token, row.idleExpires, row.absoluteExpires, seen]
-            )
+            const columns = `${quote(d, 'id')}, ${quote(d, 'userId')}, ${quote(d, 'token')}, ${quote(d, 'expiresAt')}, ${quote(
+                d,
+                'absoluteExpiresAt'
+            )}, ${quote(d, 'lastSeenAt')}`
+            const insert =
+                d === 'sqlite'
+                    ? `INSERT OR IGNORE INTO ${quote(d, 'identity_local_session')} (${columns}) VALUES (?, ?, ?, ?, ?, ?)`
+                    : d === 'postgres'
+                    ? `INSERT INTO ${quote(d, 'identity_local_session')} (${columns}) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT (${quote(
+                          d,
+                          'token'
+                      )}) DO NOTHING`
+                    : `INSERT IGNORE INTO ${quote(d, 'identity_local_session')} (${columns}) VALUES (?, ?, ?, ?, ?, ?)`
+            try {
+                await query(runner, insert, [row.id, row.userId, row.token, row.idleExpires, row.absoluteExpires, seen])
+            } catch (error) {
+                if (!isUniqueViolation(error)) throw error
+            }
         })
     }
 

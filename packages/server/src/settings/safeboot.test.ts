@@ -1,3 +1,4 @@
+import { spawn } from 'child_process'
 import fs from 'fs'
 import os from 'os'
 import path from 'path'
@@ -214,6 +215,13 @@ describe('pnpm settings', () => {
         expect(runSettingsCli(['unset'], { CUTTLELY_DATA_DIR: root }).code).toBe(2)
     })
 
+    it('removes two settings that are unset at the same time', async () => {
+        const { data: root, dir } = data()
+        writeSettingsFile(dir, { LOG_LEVEL: 'debug', CUTTLELY_VERSIONS: 'off' }, { key: KEY })
+        await Promise.all([unsetInChild(root, 'LOG_LEVEL'), unsetInChild(root, 'CUTTLELY_VERSIONS')])
+        expect(readSettingsFile(dir, KEY).values).toEqual({})
+    })
+
     it('restores the last settings that started', () => {
         const { data: root, dir } = data()
         const env = { CUTTLELY_DATA_DIR: root, FLOWISE_SECRETKEY_OVERWRITE: KEY }
@@ -287,6 +295,27 @@ describe('pnpm settings', () => {
         expect(restart.lines[0]).toMatch(/next time Cuttlely starts/)
     })
 })
+
+function unsetInChild(dataDir: string, name: string): Promise<void> {
+    const cliFile = path.join(__dirname, 'cli.ts')
+    const code = `
+        require('ts-node').register({ transpileOnly: true, skipProject: true, compilerOptions: { module: 'commonjs', esModuleInterop: true, target: 'ES2022' } })
+        const { runSettingsCli } = require(${JSON.stringify(cliFile)})
+        const result = runSettingsCli(['unset', process.argv[1]], { CUTTLELY_DATA_DIR: process.argv[2] })
+        if (result.code !== 0) throw new Error(result.lines.join('\\n'))
+    `
+    return new Promise((resolve, reject) => {
+        const child = spawn(process.execPath, ['-e', code, name, dataDir], { cwd: path.resolve(__dirname, '../..') })
+        let err = ''
+        child.stderr.on('data', (chunk) => {
+            err += String(chunk)
+        })
+        child.on('exit', (status) => {
+            if (status === 0) resolve()
+            else reject(new Error(err || `unset exited ${status}`))
+        })
+    })
+}
 
 describe('restart in place', () => {
     it('is available only under the start script, and runs the handler once', async () => {

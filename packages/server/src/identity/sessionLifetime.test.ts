@@ -113,9 +113,15 @@ describe('authenticated requests enforce the current lifetime', () => {
         const soon = await establishSession({ ...ctx(store, { 'cuttlely-local-session': raw }), now: NOW + 30 * 1000 })
         expect(soon.user?.id).toBe('user-a')
         expect(session.lastSeenAt?.getTime()).toBe(NOW)
+        expect(soon.cookies).toBeUndefined()
         const active = await establishSession({ ...ctx(store, { 'cuttlely-local-session': raw }), now: NOW + 10 * 60 * 1000 })
         expect(active.user?.id).toBe('user-a')
         expect(session.lastSeenAt?.getTime()).toBe(NOW + 10 * 60 * 1000)
+        expect(active.cookies?.[0]).toMatchObject({
+            name: 'cuttlely-local-session',
+            value: raw,
+            options: { maxAge: 15 * 60 * 1000 }
+        })
         const later = await establishSession({ ...ctx(store, { 'cuttlely-local-session': raw }), now: NOW + 20 * 60 * 1000 })
         expect(later.user?.id).toBe('user-a')
         expect(sessions.has(digest)).toBe(true)
@@ -166,7 +172,73 @@ describe('authenticated requests enforce the current lifetime', () => {
         const ended = await call(NOW + 2 * 60 * 60 * 1000)
         expect(ended.user).toBeNull()
         expect(ended.clearCookies).toEqual(['wos-session'])
-        expect(sessions.size).toBe(0)
+        expect(sessions.size).toBe(1)
+        expect([...sessions.values()][0].idleExpires.getTime()).toBe(0)
+        const retry = await call(NOW + 2 * 60 * 60 * 1000 + 1000)
+        expect(retry.user).toBeNull()
+        const [left, right] = await Promise.all([call(NOW + 3 * 60 * 60 * 1000), call(NOW + 3 * 60 * 60 * 1000)])
+        expect(left.user).toBeNull()
+        expect(right.user).toBeNull()
+        expect(sessions.size).toBe(1)
+        expect([...sessions.values()][0].lastSeenAt?.getTime()).toBe(0)
+    })
+
+    it('keeps one clock when the first requests for one AuthKit session arrive together', async () => {
+        const sessions = new Map<string, LocalSession>()
+        const store = fakeStore(sessions)
+        store.findUserByExternalId = async () => ({
+            id: 'user-a',
+            email: 'ada@example.com',
+            name: 'Ada',
+            status: 'active',
+            externalId: 'wos-1',
+            credential: null
+        })
+        let release: () => void = () => undefined
+        const hold = new Promise<void>((resolve) => {
+            release = resolve
+        })
+        let entered = 0
+        const insert = store.insertLocalSession.bind(store)
+        store.insertLocalSession = async (row) => {
+            entered += 1
+            if (entered === 1) {
+                await hold
+                await insert(row)
+                return
+            }
+            release()
+            await new Promise((resolve) => setTimeout(resolve, 20))
+            if (sessions.has(row.token)) throw new Error('UNIQUE constraint failed: identity_local_session.token')
+            await insert(row)
+        }
+        const workos = {
+            authorizationUrl: () => '',
+            authenticate: async () => {
+                throw new Error('unused')
+            },
+            authenticateSession: async () => ({
+                authenticated: true as const,
+                sessionId: 'session-burst',
+                user: { id: 'wos-1', email: 'ada@example.com', emailVerified: true, name: 'Ada' }
+            }),
+            refresh: async () => ({ authenticated: false as const, reason: 'invalid_grant' }),
+            logoutUrl: async () => '',
+            setExternalId: async () => undefined
+        }
+        const call = () =>
+            establishSession({
+                ...ctx(store, { 'wos-session': 'sealed' }),
+                now: NOW,
+                workosConfigured: true,
+                localUsers: false,
+                workos
+            })
+        const [left, right] = await Promise.all([call(), call()])
+        expect(left.user?.id).toBe('user-a')
+        expect(right.user?.id).toBe('user-a')
+        expect(sessions.size).toBe(1)
+        expect([...sessions.values()][0].issuedAt?.getTime()).toBe(NOW)
     })
 })
 
