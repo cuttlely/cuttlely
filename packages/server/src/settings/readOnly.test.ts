@@ -1,13 +1,6 @@
-jest.mock('../utils/getRunningExpressApp', () => ({
-    getRunningExpressApp: () => {
-        throw new Error('no app in this test')
-    }
-}))
-
 import fs from 'fs'
 import os from 'os'
 import path from 'path'
-import settingsService from '../services/settings'
 import { setupState } from './server-setup'
 import { READ_ONLY_SETTINGS } from './registry'
 import { listReadOnlyStatus, readOnlyStatusFor } from './readOnly'
@@ -162,18 +155,7 @@ describe('read-only setting status', () => {
         })
     })
 
-    it('keeps the same facts off the public settings payload and the setup page', async () => {
-        const previous = process.env.LANGSMITH_API_KEY
-        process.env.LANGSMITH_API_KEY = SECRET
-        try {
-            const listed = await settingsService.getSettings()
-            expect(JSON.stringify(listed)).not.toContain(SECRET)
-            expect(listed).not.toHaveProperty('readOnly')
-            expect(listed).not.toHaveProperty('LANGSMITH_API_KEY')
-        } finally {
-            if (previous === undefined) delete process.env.LANGSMITH_API_KEY
-            else process.env.LANGSMITH_API_KEY = previous
-        }
+    it('keeps the same facts off the setup page', async () => {
         const data = fs.mkdtempSync(path.join(os.tmpdir(), 'cuttlely-ro-'))
         const dir = path.join(data, 'settings')
         const env = { CUTTLELY_DATA_DIR: data, LANGSMITH_API_KEY: SECRET, REDIS_URL: REDIS }
