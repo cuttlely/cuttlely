@@ -58,4 +58,45 @@ describe('SettingField', () => {
         expect(input.disabled).toBe(false)
         expect(input.value).toBe('1')
     })
+
+    it('uses the live range for the number input, so a host cap of 1 sets max to 1', async () => {
+        const container = document.createElement('div')
+        document.body.appendChild(container)
+        root = createRoot(container)
+        const setting = {
+            ...bounded,
+            min: 1,
+            max: 500,
+            range: { min: 1, max: 1 },
+            runtime: true
+        }
+        await act(async () => {
+            root.render(
+                createElement(
+                    ThemeProvider,
+                    { theme: createTheme() },
+                    createElement(SettingField, { setting, drafts: {}, onDraft: () => {} })
+                )
+            )
+        })
+        const input = document.querySelector('[data-testid="setting-CUTTLELY_CHECK_COUNT_DEFAULT"] input')
+        expect(input.max).toBe('1')
+        expect(input.min).toBe('1')
+        await act(async () => {
+            root.render(
+                createElement(
+                    ThemeProvider,
+                    { theme: createTheme() },
+                    createElement(SettingField, {
+                        setting: { ...setting, range: undefined, min: 1, max: 500 },
+                        drafts: {},
+                        onDraft: () => {}
+                    })
+                )
+            )
+        })
+        const fallback = document.querySelector('[data-testid="setting-CUTTLELY_CHECK_COUNT_DEFAULT"] input')
+        expect(fallback.max).toBe('500')
+        expect(fallback.min).toBe('1')
+    })
 })

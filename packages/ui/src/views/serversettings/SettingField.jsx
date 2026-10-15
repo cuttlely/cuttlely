@@ -259,7 +259,11 @@ const NumberControl = ({ setting, value, disabled, onDraft, error }) => {
             onChange={(event) => onDraft(setting.key, fromDisplay(setting, event.target.value))}
             error={Boolean(error)}
             helperText={error}
-            inputProps={{ min: setting.min, max: setting.max, step: setting.runtime ? '1' : 'any' }}
+            inputProps={{
+                min: setting.range?.min ?? setting.min,
+                max: setting.range?.max ?? setting.max,
+                step: setting.runtime ? '1' : 'any'
+            }}
             InputProps={unit ? { endAdornment: <InputAdornment position='end'>{unit}</InputAdornment> } : undefined}
         />
     )
@@ -432,6 +436,7 @@ const settingShape = PropTypes.shape({
     unit: PropTypes.string,
     min: PropTypes.number,
     max: PropTypes.number,
+    range: PropTypes.shape({ min: PropTypes.number, max: PropTypes.number }),
     placeholder: PropTypes.string,
     secret: PropTypes.object
 })
