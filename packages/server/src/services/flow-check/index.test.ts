@@ -119,7 +119,23 @@ jest.mock('../../database/entities/identity', () => ({ Workspace: class Workspac
 jest.mock('@cuttlely/components', () => ({ EvaluationRunner: { metrics: new Map() } }))
 jest.mock('../../utils/logger', () => ({ __esModule: true, default: { error: jest.fn(), debug: jest.fn() } }))
 
-import { checks, getCheck, getCheckSetup, priceHooks, replayHooks, startCheck, stopCheck } from './index'
+import fs from 'fs'
+import os from 'os'
+import path from 'path'
+import { settingFor } from '../../settings/registry'
+import { resetRuntimeLimitsForTests } from '../../settings/runtime'
+import { writeSettingsFile } from '../../settings/store'
+import {
+    checks,
+    DEFAULT_CHECK_CONCURRENCY,
+    getCheck,
+    getCheckSetup,
+    MAX_CHECK_CONCURRENCY,
+    priceHooks,
+    replayHooks,
+    startCheck,
+    stopCheck
+} from './index'
 import { historyHooks } from './history'
 import { BadQuestionIdsError } from './question-ids-error'
 import { NEEDS_EXPECTED_ANSWER, currentTestSetHash, scoreHooks } from './score'
@@ -168,6 +184,7 @@ beforeEach(() => {
     delete process.env.CUTTLELY_CHECK_MAX_TOKENS
     delete process.env.CUTTLELY_CHECK_MAX_SECONDS
     delete process.env.CUTTLELY_CHECK_CONCURRENCY
+    resetRuntimeLimitsForTests()
     states.set('flow-1', { chatflowId: 'flow-1', draftFlowData: DRAFT, publishInstantly: false })
     replayHooks.run = async ({ flowData }) => ({ text: wordOf(flowData), metrics: [JSON.stringify({ totalTokens: 50 })] })
     priceHooks.load = null
@@ -256,12 +273,41 @@ describe('setup', () => {
     })
 
     test('the limits can be changed in the environment, within bounds', async () => {
+        expect(settingFor('CUTTLELY_CHECK_CONCURRENCY')).toMatchObject({
+            defaultValue: String(DEFAULT_CHECK_CONCURRENCY),
+            min: 1,
+            max: MAX_CHECK_CONCURRENCY,
+            runtime: true
+        })
         process.env.CUTTLELY_CHECK_MAX_TOKENS = '5000'
+        process.env.CUTTLELY_CHECK_MAX_SECONDS = '20'
+        process.env.CUTTLELY_CHECK_CONCURRENCY = '3'
+        expect((await getCheckSetup(flow())).limits).toMatchObject({ maxTokens: 5000, maxSeconds: 20, concurrency: 3 })
         process.env.CUTTLELY_CHECK_MAX_SECONDS = '5'
         process.env.CUTTLELY_CHECK_CONCURRENCY = '99'
-        expect((await getCheckSetup(flow())).limits).toMatchObject({ maxTokens: 5000, maxSeconds: 10, concurrency: 8 })
+        expect((await getCheckSetup(flow())).limits).toMatchObject({ maxTokens: 5000, maxSeconds: 180, concurrency: 2 })
         process.env.CUTTLELY_CHECK_CONCURRENCY = '0'
         expect((await getCheckSetup(flow())).limits.concurrency).toBe(2)
+    })
+
+    test('a saved limit applies to the next check without a restart', async () => {
+        const previous = process.env.CUTTLELY_DATA_DIR
+        const data = fs.mkdtempSync(path.join(os.tmpdir(), 'cuttlely-check-limit-'))
+        process.env.CUTTLELY_DATA_DIR = data
+        resetRuntimeLimitsForTests()
+        try {
+            expect((await getCheckSetup(flow())).limits.maxTokens).toBe(100000)
+            writeSettingsFile(
+                path.join(data, 'settings'),
+                { CUTTLELY_CHECK_MAX_TOKENS: '5000' },
+                { key: 'test-key-not-a-real-secret-0123456789abcdef' }
+            )
+            expect((await getCheckSetup(flow())).limits.maxTokens).toBe(5000)
+        } finally {
+            if (previous === undefined) delete process.env.CUTTLELY_DATA_DIR
+            else process.env.CUTTLELY_DATA_DIR = previous
+            resetRuntimeLimitsForTests()
+        }
     })
 })
 
@@ -962,6 +1008,28 @@ describe('count', () => {
         const setup = await getCheckSetup(flow())
         expect(setup.pastCount).toBe(1)
         expect(setup.pastTruncated).toBe(true)
+    })
+
+    test('stops the message scan at the scan cap, including a short last page', async () => {
+        process.env.CUTTLELY_CHECK_SCAN_CAP = '500'
+        resetRuntimeLimitsForTests()
+        const takes: number[] = []
+        const take = queryBuilder.take
+        queryBuilder.take = (n: number) => {
+            takes.push(n)
+            return take(n)
+        }
+        try {
+            for (let i = 0; i < 600; i++) asked('same question', new Date(Date.UTC(2026, 0, 1) + i).toISOString(), `s${i}`)
+            const setup = await getCheckSetup(flow())
+            expect(takes).toEqual([200, 200, 100])
+            expect(setup.pastCount).toBe(1)
+            expect(setup.pastTruncated).toBe(true)
+        } finally {
+            queryBuilder.take = take
+            delete process.env.CUTTLELY_CHECK_SCAN_CAP
+            resetRuntimeLimitsForTests()
+        }
     })
 
     test('runs a few questions at a time, and Stop keeps the ones that finished', async () => {
@@ -1762,6 +1830,16 @@ describe('hand-picked questions', () => {
         await expect(
             startCheck(flow() as any, { questionIds: many.map((item) => `chat:${item.id}`), questions: ['extra rye secret'] }, 'http://x')
         ).rejects.toMatchObject({ statusCode: 400, message: 'The check runs at most 100 questions.' })
+        process.env.CUTTLELY_CHECK_COUNT_MAX = '2'
+        process.env.CUTTLELY_CHECK_COUNT_DEFAULT = '2'
+        resetRuntimeLimitsForTests()
+        const third = '44444444-4444-4444-8444-444444444444'
+        await expect(
+            startCheck(flow() as any, { questionIds: [`chat:${ID_A}`, `chat:${ID_B}`, `chat:${third}`] }, 'http://x')
+        ).rejects.toMatchObject({ statusCode: 400, message: 'questionIds must list 1 to 2 ids.' })
+        delete process.env.CUTTLELY_CHECK_COUNT_MAX
+        delete process.env.CUTTLELY_CHECK_COUNT_DEFAULT
+        resetRuntimeLimitsForTests()
         await expect(
             startCheck(flow({ type: 'HARNESS', name: 'bakery' }) as any, { questionIds: [`turn:${ID_A}`] }, 'http://x')
         ).rejects.toMatchObject({

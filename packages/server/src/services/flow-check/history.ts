@@ -10,7 +10,7 @@ class HistoryError extends Error {
         super(message)
     }
 }
-import { COMPARE_COUNT_MAX, normalizeAnswer } from './compare'
+import { compareCountMax, normalizeAnswer } from './compare'
 import { triggerStart } from './kinds'
 import flowDraftsService from '../flow-drafts'
 import { BadQuestionIdsError } from './question-ids-error'
@@ -411,8 +411,9 @@ function entityId(value: string): boolean {
 
 export function parseQuestionIds(input: unknown): string[] {
     if (!Array.isArray(input)) throw new HistoryError(StatusCodes.BAD_REQUEST, 'questionIds must be a list of ids.')
-    if (input.length < 1 || input.length > COMPARE_COUNT_MAX) {
-        throw new HistoryError(StatusCodes.BAD_REQUEST, 'questionIds must list 1 to 100 ids.')
+    const cap = compareCountMax()
+    if (input.length < 1 || input.length > cap) {
+        throw new HistoryError(StatusCodes.BAD_REQUEST, `questionIds must list 1 to ${cap} ids.`)
     }
     if (input.some((id) => typeof id !== 'string' || !id.trim())) {
         throw new HistoryError(StatusCodes.BAD_REQUEST, 'questionIds must be a list of ids.')
@@ -530,8 +531,9 @@ export async function resolveChatQuestionIds(
         fromIds.push(replay.text)
     }
     const questions = dedupeQuestionTexts([...fromIds, ...typed])
-    if (questions.length > COMPARE_COUNT_MAX) {
-        throw new HistoryError(StatusCodes.BAD_REQUEST, `The check runs at most ${COMPARE_COUNT_MAX} questions.`)
+    const cap = compareCountMax()
+    if (questions.length > cap) {
+        throw new HistoryError(StatusCodes.BAD_REQUEST, `The check runs at most ${cap} questions.`)
     }
     if (!questions.length) {
         throw new HistoryError(StatusCodes.BAD_REQUEST, 'No past questions to compare. Add a question to check.')

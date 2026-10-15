@@ -189,6 +189,13 @@ export function readStoredValues(dir: string, file = SETTINGS_FILE): Record<stri
     }
 }
 
+let notifySettingsWrite: () => void = () => {}
+
+/** Called after server.json is saved. The runtime limit cache drops its copy here. */
+export function onSettingsFileWritten(listener: () => void): void {
+    notifySettingsWrite = listener
+}
+
 export function writeFileAtomic(dir: string, file: string, text: string): void {
     fs.mkdirSync(dir, { recursive: true, mode: 0o700 })
     const target = path.join(dir, file)
@@ -200,6 +207,7 @@ export function writeFileAtomic(dir: string, file: string, text: string): void {
     } catch {
         // some volumes do not keep permissions
     }
+    if (file === SETTINGS_FILE) notifySettingsWrite()
 }
 
 /** Copies the current file to the last-good copy, byte for byte. */

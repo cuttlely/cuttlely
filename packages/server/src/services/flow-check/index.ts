@@ -30,12 +30,13 @@ import { OSS_PRODUCT_ID } from '../../identity/ossPlatform'
 import { getRunningExpressApp } from '../../utils/getRunningExpressApp'
 import { estimateTokenLines, priceBookForWorkspace, usageLinesFromMetrics, usageLinesFromRun } from '../usage'
 import type { PriceBook, UsageLine } from '../usage'
+import { runtimeNumber } from '../../settings/runtime'
 import logger from '../../utils/logger'
 import executionsService from '../executions'
 import flowDraftsService, { canvasHash, DraftFlow } from '../flow-drafts'
 import {
-    COMPARE_COUNT_DEFAULT,
-    COMPARE_COUNT_MAX,
+    compareCountDefault,
+    compareCountMax,
     CheckCase,
     CheckScore,
     CheckSummary,
@@ -75,31 +76,34 @@ export const MAX_QUESTIONS = 10
 export const MAX_QUESTION_CHARS = 2000
 const MAX_ANSWER_CHARS = 4000
 const MAX_RUNNING = 3
-const KEEP_MS = 30 * 60 * 1000
-const RUN_TIMEOUT_MS = 60 * 1000
 // Two questions at a time is four model calls (Live and the draft). Enough to finish a long compare
-// without opening a hundred calls at once. Raised only through the same env pattern as the other caps.
+// without opening a hundred calls at once. The registry stores these same numbers.
 export const DEFAULT_CHECK_CONCURRENCY = 2
-const MAX_CHECK_CONCURRENCY = 8
-// Newest messages, read in pages, until 100 different questions or the history ends.
-// The cap stops a huge chat history from being loaded to answer "how many".
+export const MAX_CHECK_CONCURRENCY = 8
+// Newest messages, read in pages, until the question cap or the history ends.
+// The scan cap stops a huge chat history from being loaded to answer "how many".
 const SCAN_PAGE = 200
-const SCAN_CAP = 2000
 
-function envNumber(name: string, fallback: number, min: number, max: number): number {
-    const value = Number(process.env[name])
-    if (!Number.isFinite(value) || value <= 0) return fallback
-    return Math.min(Math.max(Math.round(value), min), max)
+function keepMs(): number {
+    return runtimeNumber('CUTTLELY_CHECK_KEEP_MINUTES') * 60 * 1000
+}
+
+function runTimeoutMs(): number {
+    return runtimeNumber('CUTTLELY_CHECK_RUN_TIMEOUT_MS')
+}
+
+function scanCap(): number {
+    return runtimeNumber('CUTTLELY_CHECK_SCAN_CAP')
 }
 
 export function checkLimits() {
     return {
-        maxQuestions: COMPARE_COUNT_MAX,
-        defaultQuestions: COMPARE_COUNT_DEFAULT,
+        maxQuestions: compareCountMax(),
+        defaultQuestions: compareCountDefault(),
         maxQuestionChars: MAX_QUESTION_CHARS,
-        maxTokens: envNumber('CUTTLELY_CHECK_MAX_TOKENS', 100000, 1000, 2000000),
-        maxSeconds: envNumber('CUTTLELY_CHECK_MAX_SECONDS', 180, 10, 1800),
-        concurrency: envNumber('CUTTLELY_CHECK_CONCURRENCY', DEFAULT_CHECK_CONCURRENCY, 1, MAX_CHECK_CONCURRENCY)
+        maxTokens: runtimeNumber('CUTTLELY_CHECK_MAX_TOKENS'),
+        maxSeconds: runtimeNumber('CUTTLELY_CHECK_MAX_SECONDS'),
+        concurrency: runtimeNumber('CUTTLELY_CHECK_CONCURRENCY')
     }
 }
 
@@ -263,7 +267,7 @@ export interface ReplayInput {
 
 function purge(now = Date.now()) {
     for (const [key, record] of checks) {
-        if (record.status !== 'running' && record.finishedAt && now - record.finishedAt > KEEP_MS) checks.delete(key)
+        if (record.status !== 'running' && record.finishedAt && now - record.finishedAt > keepMs()) checks.delete(key)
     }
 }
 
@@ -374,7 +378,7 @@ function view(record: CheckRecord, currentDraftHash: string | null, reveal?: Che
 // asked yet. A new flow has few or no recent questions, so its starter questions fill the list.
 async function questionsFor(flow: DraftFlow & { chatbotConfig?: string | null }) {
     const loaded = await loadRecent(flow.id)
-    const recent = questionsFromRows(loaded.rows, COMPARE_COUNT_MAX)
+    const recent = questionsFromRows(loaded.rows, compareCountMax())
     const asked = new Set(recent.map((q) => q.text.toLowerCase()))
     const starters = starterQuestions(flow.chatbotConfig)
         .filter((text) => !asked.has(text.toLowerCase()))
@@ -382,7 +386,7 @@ async function questionsFor(flow: DraftFlow & { chatbotConfig?: string | null })
     return {
         questions: [...recent, ...starters],
         pastCount: recent.length,
-        pastTruncated: loaded.truncated && recent.length < COMPARE_COUNT_MAX
+        pastTruncated: loaded.truncated && recent.length < compareCountMax()
     }
 }
 
@@ -399,7 +403,8 @@ async function loadRecent(flowId: string): Promise<{ rows: RecentRow[]; truncate
     const repo = getRunningExpressApp().AppDataSource.getRepository(ChatMessage)
     const rows: RecentRow[] = []
     let truncated = false
-    for (let skip = 0; skip < SCAN_CAP; skip += SCAN_PAGE) {
+    for (let skip = 0; skip < scanCap(); skip += SCAN_PAGE) {
+        const take = Math.min(SCAN_PAGE, scanCap() - skip)
         const page = await repo
             .createQueryBuilder('m')
             .select(['m.id', 'm.content', 'm.createdDate', 'm.fileUploads'])
@@ -409,12 +414,12 @@ async function loadRecent(flowId: string): Promise<{ rows: RecentRow[]; truncate
             .orderBy('m.createdDate', 'DESC')
             .addOrderBy('m.id', 'DESC')
             .skip(skip)
-            .take(SCAN_PAGE)
+            .take(take)
             .getMany()
         rows.push(...page)
-        const distinct = pickQuestions(usableTexts(rows), COMPARE_COUNT_MAX, MAX_QUESTION_CHARS)
-        if (distinct.length >= COMPARE_COUNT_MAX || page.length < SCAN_PAGE) break
-        if (skip + SCAN_PAGE >= SCAN_CAP) {
+        const distinct = pickQuestions(usableTexts(rows), compareCountMax(), MAX_QUESTION_CHARS)
+        if (distinct.length >= compareCountMax() || page.length < take) break
+        if (skip + take >= scanCap()) {
             truncated = true
             break
         }
@@ -438,7 +443,7 @@ async function loadInputs(
     const seen = new Set<string>()
     let scanned = 0
     let truncated = false
-    for (let page = 1; scanned < SCAN_CAP && found.length < COMPARE_COUNT_MAX; page++) {
+    for (let page = 1; scanned < scanCap() && found.length < compareCountMax(); page++) {
         const { data, total } = await executionsService.getAllExecutions({
             agentflowId: flow.id,
             workspaceId: flow.workspaceId || undefined,
@@ -452,19 +457,19 @@ async function loadInputs(
             if (recorded && !seen.has(recorded.key)) {
                 seen.add(recorded.key)
                 found.push({ ...recorded, date: row.createdDate ? new Date(row.createdDate).toISOString() : '' })
-                if (found.length >= COMPARE_COUNT_MAX) break
+                if (found.length >= compareCountMax()) break
             }
-            if (scanned >= SCAN_CAP) {
+            if (scanned >= scanCap()) {
                 truncated = true
                 break
             }
         }
-        if (found.length >= COMPARE_COUNT_MAX || scanned >= SCAN_CAP) break
+        if (found.length >= compareCountMax() || scanned >= scanCap()) break
         if (page * EXEC_PAGE >= total) break
     }
     const source = sourceOf(kind)
     const questions = applyPreviews(found).map(({ text, date, preview }) => ({ text, date: date || '', preview, source }))
-    return { questions, truncated: truncated && questions.length < COMPARE_COUNT_MAX }
+    return { questions, truncated: truncated && questions.length < compareCountMax() }
 }
 
 function questionsFromRows(rows: RecentRow[], max: number): Array<{ text: string; date: string }> {
@@ -612,10 +617,10 @@ async function questionsToRun(
     if (parsed.count === null) return { questions: cleanQuestions(body?.questions), selection: null }
     const loaded = await loadRecent(flowId)
     const texts = usableTexts(loaded.rows)
-    const available = pickQuestions(texts, COMPARE_COUNT_MAX, MAX_QUESTION_CHARS)
+    const available = pickQuestions(texts, compareCountMax(), MAX_QUESTION_CHARS)
     const past = pickQuestions(texts, parsed.count, MAX_QUESTION_CHARS)
-    const extras = cleanQuestions(body?.questions, COMPARE_COUNT_MAX, true)
-    const questions = pickQuestions([...past, ...extras], COMPARE_COUNT_MAX, MAX_QUESTION_CHARS)
+    const extras = cleanQuestions(body?.questions, compareCountMax(), true)
+    const questions = pickQuestions([...past, ...extras], compareCountMax(), MAX_QUESTION_CHARS)
     if (!questions.length) {
         throw new AppError(StatusCodes.BAD_REQUEST, 'No past questions to compare. Add a question to check.')
     }
@@ -625,7 +630,7 @@ async function questionsToRun(
             requested: parsed.count,
             available: available.length,
             used: past.length,
-            truncated: loaded.truncated && available.length < COMPARE_COUNT_MAX
+            truncated: loaded.truncated && available.length < compareCountMax()
         }
     }
 }
@@ -676,7 +681,7 @@ async function inputsToRun(
             requested: parsed.count,
             available: loaded.questions.length,
             used: inputs.length,
-            truncated: loaded.truncated && loaded.questions.length < COMPARE_COUNT_MAX
+            truncated: loaded.truncated && loaded.questions.length < compareCountMax()
         }
     }
 }
@@ -748,7 +753,7 @@ export async function startCheck(
         if (prefix !== 'chat') {
             throw new AppError(StatusCodes.CONFLICT, 'Choosing questions by id is not available for this flow yet.')
         }
-        const picked = await resolveChatQuestionIds(flow.id, questionIds, cleanQuestions(request.questions, COMPARE_COUNT_MAX, true))
+        const picked = await resolveChatQuestionIds(flow.id, questionIds, cleanQuestions(request.questions, compareCountMax(), true))
         questions = picked.questions
         selection = null
         skipped = picked.skipped
@@ -845,7 +850,7 @@ async function runOne(record: CheckRecord, flow: IChatFlow, flowData: string, qu
     const deadline = record.startedAt + record.limits.maxSeconds * 1000
     const controller = new AbortController()
     record.inflight.add(controller)
-    const timer = setTimeout(() => controller.abort(), Math.max(1, Math.min(RUN_TIMEOUT_MS, deadline - Date.now())))
+    const timer = setTimeout(() => controller.abort(), Math.max(1, Math.min(runTimeoutMs(), deadline - Date.now())))
     timer.unref?.()
     const started = Date.now()
     try {
@@ -900,7 +905,7 @@ async function attachScores(record: CheckRecord, side: SideResult | null, questi
     const deadline = record.startedAt + record.limits.maxSeconds * 1000
     const controller = new AbortController()
     record.inflight.add(controller)
-    const timeoutMs = Math.max(1, Math.min(RUN_TIMEOUT_MS, deadline - Date.now()))
+    const timeoutMs = Math.max(1, Math.min(runTimeoutMs(), deadline - Date.now()))
     const timer = setTimeout(() => controller.abort(), timeoutMs)
     timer.unref?.()
     try {
