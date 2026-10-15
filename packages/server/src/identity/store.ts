@@ -14,6 +14,7 @@
  * limitations under the License.
  */
 
+import { AuthKitSwitchState } from './authKitSwitch'
 import { CreateOwnerInput, LocalSession, SessionUser, UserRow } from './types'
 
 export interface IdentityStore {
@@ -40,4 +41,11 @@ export interface IdentityStore {
      * A missing user, an invited or deleted user, and a disabled membership are false.
      */
     localAccountOpen(userId: string): Promise<boolean>
+    /** Null until the switch row has been written. */
+    readAuthKitSwitch(): Promise<AuthKitSwitchState | null>
+    /**
+     * When AuthKit becomes configured, deletes every local session and records that.
+     * A later call while it stays configured does not delete sessions created after the switch.
+     */
+    applyAuthKitSwitch(configured: boolean, at: Date): Promise<AuthKitSwitchState>
 }

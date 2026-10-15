@@ -11,7 +11,16 @@ An invite with no `link` field still stores the user with no password. `link: tr
 Public. No session and no `x-request-from` header. The body lists only methods that are on:
 
 ```json
-{ "methods": ["localUsers"] }
+{
+    "methods": ["localUsers"],
+    "status": {
+        "authKit": false,
+        "localPasswordSignIn": true,
+        "breakGlassOwner": false,
+        "localSessions": "open",
+        "sessionsEnded": 0
+    }
+}
 ```
 
 | Method       | Present when                                                                                        |
@@ -21,7 +30,19 @@ Public. No session and no `x-request-from` header. The body lists only methods t
 | `localUsers` | `CUTTLELY_LOCAL_USERS` is exactly `true` and AuthKit is not configured                              |
 | `mail`       | Omitted. Admin links can email a URL when SMTP is set. The sign-in page has no Forgot password form |
 
-`GET /api/v1/auth/signin-options` is the same choice as booleans (`authKit`, `localAdmin`, `localUsers`, `mail`) for the sign-in page. A false boolean is still returned there. `/auth/options` leaves the off methods out.
+`status` is the AuthKit switch for this server. It is not per team.
+
+| Field                 | Meaning                                                                                                                                                   |
+| --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `authKit`             | `WORKOS_API_KEY` and `WORKOS_CLIENT_ID` are both set                                                                                                      |
+| `localPasswordSignIn` | `CUTTLELY_LOCAL_USERS` is exactly `true` and AuthKit is not configured                                                                                    |
+| `breakGlassOwner`     | `CUTTLELY_LOCAL_ADMIN` is exactly `true`. The owner password route stays on its own flag                                                                  |
+| `localSessions`       | `open` when AuthKit is off. `ended` after the switch deleted existing local sessions. `pending` when AuthKit is on and that deletion is not recorded yet  |
+| `sessionsEnded`       | How many local sessions were deleted the last time AuthKit became configured. `0` until that happens. Turning AuthKit off does not restore those sessions |
+
+The body has no emails, cookies, or session ids. A missing session is still 200. `POST /api/v1/auth/options` is 404 and does not end sessions.
+
+`GET /api/v1/auth/signin-options` is the same choice as booleans (`authKit`, `localAdmin`, `localUsers`, `mail`) for the sign-in page. A false boolean is still returned there. It does not include `status`. `/auth/options` leaves the off methods out.
 
 ## Flag combinations
 
@@ -39,6 +60,29 @@ Public. No session and no `x-request-from` header. The body lists only methods t
 | on                     | on                     | on      | Owner password            | 404                             | WorkOS, plus the owner password form |
 
 AuthKit turns local users mode off even when `CUTTLELY_LOCAL_USERS` is set. The owner break-glass path still works when `CUTTLELY_LOCAL_ADMIN=true`. A restart applies either flag.
+
+## Turning AuthKit on
+
+Set `WORKOS_API_KEY` and `WORKOS_CLIENT_ID` and restart. On that start, Cuttlely deletes every row in `identity_local_session`, including the owner break-glass session, and records the switch. A later restart while AuthKit stays configured does not delete sessions created after that. Turning AuthKit off does not put the deleted sessions back. The owner signs in again with `POST /api/v1/auth/login` when `CUTTLELY_LOCAL_ADMIN=true`. Everyone else uses AuthKit.
+
+The first verified AuthKit sign-in links an existing user when the mailbox matches exactly. Comparison ignores letter case and spaces around the address. A plus tag, a dot in the name, or a different domain does not match. The stored address is left as it is, and the password hash is left in place so it still works if AuthKit is turned off later. An unverified email is refused and links nobody. Two users with the same mailbox, including in different teams, are refused and neither is linked. A user who is already linked to a different AuthKit id is not rebound.
+
+`GET /api/v1/auth/options` then looks like:
+
+```json
+{
+    "methods": ["authKit", "localAdmin"],
+    "status": {
+        "authKit": true,
+        "localPasswordSignIn": false,
+        "breakGlassOwner": true,
+        "localSessions": "ended",
+        "sessionsEnded": 2
+    }
+}
+```
+
+`localAdmin` is omitted when the owner flag is off. `sessionsEnded` is how many sessions that start deleted. The how-to is [Users without AuthKit](../how-to/users-without-authkit.md#turn-authkit-on).
 
 A local session is the user id in `identity_local_session`. It does not make that user the owner. Every later request checks that user's role. The owner break-glass cookie is the same cookie name, and when local users mode is off only the owner's row is accepted.
 

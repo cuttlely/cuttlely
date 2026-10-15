@@ -451,3 +451,25 @@ export async function removeIdentityActionLinks(runner: QueryRunner): Promise<vo
     await runner.query(`DROP TABLE IF EXISTS ${q(dialect, 'identity_action_audit')}`)
     await runner.query(`DROP TABLE IF EXISTS ${q(dialect, 'identity_action_link')}`)
 }
+
+function authKitSwitchTableSql(dialect: Dialect): string {
+    const time = timeType(dialect)
+    return `CREATE TABLE ${q(dialect, 'identity_authkit_switch')} (
+        ${q(dialect, 'id')} integer NOT NULL PRIMARY KEY,
+        ${q(dialect, 'configured')} integer NOT NULL,
+        ${q(dialect, 'sessionsEnded')} integer NOT NULL,
+        ${q(dialect, 'switchedAt')} ${time} NULL
+    )`
+}
+
+/** One row that records whether AuthKit has been turned on, so local sessions end once per switch. */
+export async function addAuthKitSwitchTable(runner: QueryRunner): Promise<void> {
+    const dialect = dialectOf(runner)
+    if (await tableExists(runner, dialect, 'identity_authkit_switch')) return
+    await runner.query(authKitSwitchTableSql(dialect))
+}
+
+export async function removeAuthKitSwitchTable(runner: QueryRunner): Promise<void> {
+    const dialect = dialectOf(runner)
+    await runner.query(`DROP TABLE IF EXISTS ${q(dialect, 'identity_authkit_switch')}`)
+}
