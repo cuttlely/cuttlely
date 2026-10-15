@@ -862,6 +862,47 @@ describe('local users mode', () => {
         }
     })
 
+    it('does not let header-less sign-in attempts use up the process cap', async () => {
+        const { store } = await seed()
+        mockRouteStore.current = store
+        const http = request(localRouteApp())
+        const saved = {
+            users: process.env.CUTTLELY_LOCAL_USERS,
+            admin: process.env.CUTTLELY_LOCAL_ADMIN,
+            key: process.env.WORKOS_API_KEY,
+            client: process.env.WORKOS_CLIENT_ID
+        }
+        try {
+            process.env.CUTTLELY_LOCAL_USERS = 'true'
+            delete process.env.CUTTLELY_LOCAL_ADMIN
+            delete process.env.WORKOS_API_KEY
+            delete process.env.WORKOS_CLIENT_ID
+            for (let i = 0; i < 15; i++) {
+                const refused = await http.post('/api/v1/auth/local/login').send({ email: 'ada@example.com', password: OTHER })
+                expect(refused.status).toBe(401)
+                expect(refused.body).toEqual(INVALID)
+                expect(refused.headers['set-cookie']).toBeUndefined()
+            }
+            const ok = await http
+                .post('/api/v1/auth/local/login')
+                .set('x-request-from', 'internal')
+                .send({ email: 'ada@example.com', password: OTHER })
+            expect(ok.status).toBe(200)
+            expect(ok.body.id).toBe('user-a')
+            expect(String(ok.headers['set-cookie'])).toContain('cuttlely-local-session=')
+        } finally {
+            mockRouteStore.current = null
+            if (saved.users === undefined) delete process.env.CUTTLELY_LOCAL_USERS
+            else process.env.CUTTLELY_LOCAL_USERS = saved.users
+            if (saved.admin === undefined) delete process.env.CUTTLELY_LOCAL_ADMIN
+            else process.env.CUTTLELY_LOCAL_ADMIN = saved.admin
+            if (saved.key === undefined) delete process.env.WORKOS_API_KEY
+            else process.env.WORKOS_API_KEY = saved.key
+            if (saved.client === undefined) delete process.env.WORKOS_CLIENT_ID
+            else process.env.WORKOS_CLIENT_ID = saved.client
+        }
+    })
+
     it('refuses local login without the internal header and sets no cookie', async () => {
         const { store } = await seed()
         const missing = json(await handleLocalLogin(ctx({ store, internal: false, body: { email: 'ada@example.com', password: OTHER } })))

@@ -524,35 +524,40 @@ describe('identity auth', () => {
     it('rate limits failed break-glass attempts without clearing the window on success', async () => {
         const savedSecret = process.env.TOKEN_HASH_SECRET
         process.env.TOKEN_HASH_SECRET = 'test-login-lock-secret'
-        const store = new MemoryStore()
-        const credential = await hashPassword(GOOD)
-        store.add({ id: 'owner', email: 'owner@example.com', name: 'Owner', status: 'active', externalId: null, credential }, true)
-        const rateLimit = new LoginRateLimit()
-        const attempt = (password: string, ip = '203.0.113.5') =>
-            handleLoginPost(ctx({ localAdmin: true, internal: true, store, rateLimit, ip, body: { email: 'owner@example.com', password } }))
-        for (let i = 0; i < 9; i++) expect(json(await attempt('bad-Bad1!')).status).toBe(401)
-        expect(json(await attempt(GOOD)).status).toBe(200)
-        expect(json(await attempt('bad-Bad1!')).status).toBe(401)
-        expect(json(await attempt(GOOD)).status).toBe(429)
-        expect(json(await attempt('bad-Bad1!', '203.0.113.9')).status).toBe(429)
-        expect(json(await attempt('bad-Bad1!', '203.0.113.10')).status).toBe(429)
-        const other = new LoginRateLimit()
-        expect(
-            json(
-                await handleLoginPost(
-                    ctx({
-                        localAdmin: true,
-                        internal: true,
-                        store,
-                        rateLimit: other,
-                        ip: '198.51.100.8',
-                        body: { email: 'someone-else@example.com', password: 'bad-Bad1!' }
-                    })
+        try {
+            const store = new MemoryStore()
+            const credential = await hashPassword(GOOD)
+            store.add({ id: 'owner', email: 'owner@example.com', name: 'Owner', status: 'active', externalId: null, credential }, true)
+            const rateLimit = new LoginRateLimit()
+            const attempt = (password: string, ip = '203.0.113.5') =>
+                handleLoginPost(
+                    ctx({ localAdmin: true, internal: true, store, rateLimit, ip, body: { email: 'owner@example.com', password } })
                 )
-            ).status
-        ).toBe(401)
-        if (savedSecret === undefined) delete process.env.TOKEN_HASH_SECRET
-        else process.env.TOKEN_HASH_SECRET = savedSecret
+            for (let i = 0; i < 9; i++) expect(json(await attempt('bad-Bad1!')).status).toBe(401)
+            expect(json(await attempt(GOOD)).status).toBe(200)
+            expect(json(await attempt('bad-Bad1!')).status).toBe(401)
+            expect(json(await attempt(GOOD)).status).toBe(429)
+            expect(json(await attempt('bad-Bad1!', '203.0.113.9')).status).toBe(429)
+            expect(json(await attempt('bad-Bad1!', '203.0.113.10')).status).toBe(429)
+            const other = new LoginRateLimit()
+            expect(
+                json(
+                    await handleLoginPost(
+                        ctx({
+                            localAdmin: true,
+                            internal: true,
+                            store,
+                            rateLimit: other,
+                            ip: '198.51.100.8',
+                            body: { email: 'someone-else@example.com', password: 'bad-Bad1!' }
+                        })
+                    )
+                ).status
+            ).toBe(401)
+        } finally {
+            if (savedSecret === undefined) delete process.env.TOKEN_HASH_SECRET
+            else process.env.TOKEN_HASH_SECRET = savedSecret
+        }
     })
 
     it('does not trust X-Forwarded-For unless TRUST_PROXY is set, and drops old failures', async () => {
