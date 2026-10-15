@@ -195,6 +195,8 @@ async function checkReveal(req: Request) {
 function historyCaller(req: Request): string {
     const id = req.user?.id
     if (typeof id === 'string' && id) return `user:${id}`
+    const keyId = req.user?.apiKeyId
+    if (typeof keyId === 'string' && keyId) return `key:${keyId}`
     return 'api'
 }
 

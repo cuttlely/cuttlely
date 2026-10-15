@@ -196,6 +196,19 @@ describe('question history', () => {
         expect(api.items).toEqual([])
     })
 
+    test('refuses a history cursor from another API key in the same workspace', async () => {
+        historyHooks.loadUserMessages = async () => [
+            row('m-a', 'two loaf', '2026-10-08T10:00:00.000Z'),
+            row('m-b', 'one loaf', '2026-10-08T10:00:00.000Z')
+        ]
+        const first = await listQuestionHistory(FLOW, { limit: '1' }, 'key:key-a')
+        expect(first.nextCursor).toEqual(expect.any(String))
+        const other = listQuestionHistory(FLOW, { limit: '1', cursor: first.nextCursor }, 'key:key-b')
+        await expect(other).rejects.toMatchObject({ statusCode: 400 })
+        const same = await listQuestionHistory(FLOW, { limit: '1', cursor: first.nextCursor }, 'key:key-a')
+        expect(same.items.map((item) => item.id)).toEqual(['chat:m-a'])
+    })
+
     test('counts a non-uuid chat id as bad and does not query it', async () => {
         const bad = 'chat:not-a-uuid'
         const good = 'chat:11111111-1111-4111-8111-111111111111'

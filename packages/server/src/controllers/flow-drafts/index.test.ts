@@ -666,6 +666,19 @@ describe('the publish check', () => {
         )
     })
 
+    it('signs question history with the API key id', async () => {
+        granted.add('chatflows:view')
+        for (const keyId of ['key-a', 'key-b']) {
+            const req = checkRequest()
+            delete req.user.id
+            req.user.apiKeyId = keyId
+            req.user.activeWorkspaceId = 'team-a'
+            req.query = { limit: '1' }
+            await controller.getCheckHistory(req, response(), jest.fn())
+            expect(listQuestionHistory).toHaveBeenLastCalledWith(expect.objectContaining({ id: FLOW.id }), { limit: '1' }, `key:${keyId}`)
+        }
+    })
+
     it('lists question history for a viewer and does not store the response', async () => {
         granted.add('chatflows:view')
         const req = checkRequest()
