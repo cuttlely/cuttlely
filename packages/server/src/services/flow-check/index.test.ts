@@ -136,6 +136,8 @@ import {
     startCheck,
     stopCheck
 } from './index'
+import { historyHooks } from './history'
+import { BadQuestionIdsError } from './question-ids-error'
 import { NEEDS_EXPECTED_ANSWER, currentTestSetHash, scoreHooks } from './score'
 import { noteGraderTokens } from '../evaluations/LLMEvaluationRunner'
 
@@ -186,6 +188,7 @@ beforeEach(() => {
     states.set('flow-1', { chatflowId: 'flow-1', draftFlowData: DRAFT, publishInstantly: false })
     replayHooks.run = async ({ flowData }) => ({ text: wordOf(flowData), metrics: [JSON.stringify({ totalTokens: 50 })] })
     priceHooks.load = null
+    historyHooks.loadUserMessages = null
     jest.clearAllMocks()
 })
 
@@ -1336,11 +1339,14 @@ describe('a dataset and evaluators', () => {
         expect(writes.save).not.toHaveBeenCalled()
     })
 
-    test('mixing a dataset with questions or count is 400, and so is a non-chat start', async () => {
-        await expect(startCheck(flow() as any, { datasetId: 'ds-1', questions: ['Hi'] }, 'http://x')).rejects.toMatchObject({
-            statusCode: 400
-        })
-        await expect(startCheck(flow() as any, { datasetId: 'ds-1', count: 4 }, 'http://x')).rejects.toMatchObject({ statusCode: 400 })
+    test('mixing a dataset with questions, count, or questionIds is 400, and so is a non-chat start', async () => {
+        const alone = {
+            statusCode: 400,
+            message: 'Send a datasetId on its own. Do not send questions, count, or questionIds with it.'
+        }
+        await expect(startCheck(flow() as any, { datasetId: 'ds-1', questions: ['Hi'] }, 'http://x')).rejects.toMatchObject(alone)
+        await expect(startCheck(flow() as any, { datasetId: 'ds-1', count: 4 }, 'http://x')).rejects.toMatchObject(alone)
+        await expect(startCheck(flow() as any, { datasetId: 'ds-1', questionIds: ['chat:1'] }, 'http://x')).rejects.toMatchObject(alone)
         datasets.set('empty', { id: 'empty', workspaceId: 'team-a' })
         datasetRows.push({ id: 'long', datasetId: 'empty', input: 'x'.repeat(2001), output: 'no', sequenceNo: 1 })
         await expect(startCheck(flow() as any, { datasetId: 'empty' }, 'http://x')).rejects.toMatchObject({
@@ -1732,4 +1738,112 @@ describe('grading limits', () => {
         expect(done.stopReason).toBe('tokens')
         expect(asked).toEqual(['Q1'])
     }, 90000)
+})
+
+describe('hand-picked questions', () => {
+    const ID_A = '11111111-1111-4111-8111-111111111111'
+    const ID_B = '22222222-2222-4222-8222-222222222222'
+    const asked = (id: string, content: string, extra: Record<string, unknown> = {}) => ({
+        id,
+        content,
+        createdDate: new Date('2026-10-08T10:00:00.000Z'),
+        fileUploads: null,
+        chatType: 'INTERNAL',
+        role: 'userMessage',
+        chatflowid: 'flow-1',
+        ...extra
+    })
+
+    test('runs picked ids in order, then typed questions, and leaves the old shape alone', async () => {
+        historyHooks.loadUserMessages = async () => [asked(ID_B, 'beta loaf'), asked(ID_A, 'alpha loaf')]
+        const ran: string[] = []
+        replayHooks.run = async ({ question, flowData }) => {
+            ran.push(question)
+            return { text: wordOf(flowData), metrics: [JSON.stringify({ totalTokens: 50 })] }
+        }
+        const started = await startCheck(
+            flow() as any,
+            { questionIds: [`chat:${ID_B}`, `chat:${ID_A}`], questions: ['gamma loaf'] },
+            'http://x'
+        )
+        expect(started.cases.map((item) => item.question)).toEqual(['beta loaf', 'alpha loaf', 'gamma loaf'])
+        expect(started.skipped).toEqual({ count: 0, ids: [] })
+        expect(started.selection).toBeNull()
+        await settle()
+        // Two questions run at once, and each question runs on Live and on the draft.
+        // The first time each question is asked is the picked order.
+        expect(ran.filter((question, index) => ran.indexOf(question) === index)).toEqual(['beta loaf', 'alpha loaf', 'gamma loaf'])
+
+        historyHooks.loadUserMessages = null
+        messages.push({ content: 'When is the rye ready?', createdDate: new Date('2026-10-08T10:00:00Z'), fileUploads: null })
+        const listed = await startCheck(flow() as any, { questions: ['When is the rye ready?'] }, 'http://x')
+        await settle()
+        const counted = await startCheck(flow({ id: 'flow-1' }) as any, { count: 1 }, 'http://x')
+        expect(listed.skipped).toBeUndefined()
+        expect(counted.skipped).toBeUndefined()
+        expect(Object.keys(listed)).not.toContain('skipped')
+        expect(listed.cases[0].question).toBe('When is the rye ready?')
+    })
+
+    test('drops an id deleted before the run and reports it without the question', async () => {
+        let reads = 0
+        historyHooks.loadUserMessages = async () => {
+            reads += 1
+            const both = [asked(ID_A, 'alpha loaf'), asked(ID_B, 'beta loaf')]
+            return reads === 1 ? both : [both[0]]
+        }
+        const started = await startCheck(flow() as any, { questionIds: [`chat:${ID_A}`, `chat:${ID_B}`] }, 'http://x')
+        expect(started.cases.map((item) => item.question)).toEqual(['alpha loaf'])
+        expect(started.skipped).toEqual({ count: 1, ids: [`chat:${ID_B}`] })
+        expect(JSON.stringify(started.skipped)).not.toContain('beta loaf')
+    })
+
+    test('refuses file messages, foreign ids, duplicates, both count and ids, and a list past the cap', async () => {
+        const secret = 'file question secret loaf'
+        historyHooks.loadUserMessages = async () => [
+            asked(ID_A, secret, { fileUploads: '[{"name":"/tmp/secret-scan.pdf"}]' }),
+            asked(ID_B, 'foreign loaf', { chatflowid: 'flow-other' })
+        ]
+        const refused = await startCheck(flow() as any, { questionIds: [`chat:${ID_A}`] }, 'http://x').catch((error) => error)
+        expect(refused).toBeInstanceOf(BadQuestionIdsError)
+        expect(refused).toMatchObject({ badCount: 1, message: 'CHECK_BAD_QUESTION_IDS' })
+        expect(`${refused.message} ${JSON.stringify(refused)}`).not.toContain(secret)
+        expect(`${refused.message} ${JSON.stringify(refused)}`).not.toContain('secret-scan')
+        const foreign = await startCheck(flow() as any, { questionIds: [`chat:${ID_B}`] }, 'http://x').catch((error) => error)
+        expect(foreign).toMatchObject({ badCount: 1 })
+        expect(`${foreign.message} ${JSON.stringify(foreign)}`).not.toContain('foreign loaf')
+        await expect(startCheck(flow() as any, { questionIds: [`chat:${ID_A}`, `chat:${ID_A}`] }, 'http://x')).rejects.toMatchObject({
+            statusCode: 400,
+            message: 'questionIds must be unique.'
+        })
+        await expect(startCheck(flow() as any, { questionIds: [`chat:${ID_A}`], count: 4 }, 'http://x')).rejects.toMatchObject({
+            statusCode: 400,
+            message: 'Send questionIds or count, not both.'
+        })
+        const plain = await startCheck(flow() as any, { questionIds: null, questions: ['A null list is absent'] }, 'http://x')
+        expect(plain.cases.map((item) => item.question)).toEqual(['A null list is absent'])
+        const many = Array.from({ length: 100 }, (_, index) => {
+            const id = `33333333-3333-4333-8333-${String(index).padStart(12, '0')}`
+            return { id, text: `loaf ${index}` }
+        })
+        historyHooks.loadUserMessages = async () => many.map((item) => asked(item.id, item.text))
+        await expect(
+            startCheck(flow() as any, { questionIds: many.map((item) => `chat:${item.id}`), questions: ['extra rye secret'] }, 'http://x')
+        ).rejects.toMatchObject({ statusCode: 400, message: 'The check runs at most 100 questions.' })
+        process.env.CUTTLELY_CHECK_COUNT_MAX = '2'
+        process.env.CUTTLELY_CHECK_COUNT_DEFAULT = '2'
+        resetRuntimeLimitsForTests()
+        const third = '44444444-4444-4444-8444-444444444444'
+        await expect(
+            startCheck(flow() as any, { questionIds: [`chat:${ID_A}`, `chat:${ID_B}`, `chat:${third}`] }, 'http://x')
+        ).rejects.toMatchObject({ statusCode: 400, message: 'questionIds must list 1 to 2 ids.' })
+        delete process.env.CUTTLELY_CHECK_COUNT_MAX
+        delete process.env.CUTTLELY_CHECK_COUNT_DEFAULT
+        resetRuntimeLimitsForTests()
+        await expect(
+            startCheck(flow({ type: 'HARNESS', name: 'bakery' }) as any, { questionIds: [`turn:${ID_A}`] }, 'http://x')
+        ).rejects.toMatchObject({
+            statusCode: 409
+        })
+    })
 })

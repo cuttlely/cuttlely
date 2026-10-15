@@ -2,7 +2,7 @@ import { MigrationInterface, QueryRunner } from 'typeorm'
 import { addSessionSeenColumn, dropSessionSeenColumn } from '../../../identity/schemaMigration'
 
 /** Last activity on a local session, so a shorter idle lifetime applies to one that already exists. */
-export class AddSessionSeen1797000000000 implements MigrationInterface {
+export class AddSessionSeen1798000000000 implements MigrationInterface {
     public async up(queryRunner: QueryRunner): Promise<void> {
         await addSessionSeenColumn(queryRunner)
     }
