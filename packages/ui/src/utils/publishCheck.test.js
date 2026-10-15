@@ -39,7 +39,14 @@ import {
     summaryText,
     togglePick,
     usageText,
-    visibleCases
+    visibleCases,
+    chooseRoom,
+    chosenLabel,
+    hiddenChosenCount,
+    historyReasonText,
+    selectShown,
+    toggleHistoryPick,
+    typedRoom
 } from './publishCheck'
 import { formatListDateTime } from '@/utils/formatDate'
 import * as copy from './publishCheck'
@@ -420,5 +427,43 @@ describe('a gate run poll', () => {
         })
         expect(afterClose).toBe(0)
         expect(closed).toEqual({ status: 'running', id: 'c1', limits: { maxSeconds: 1800 } })
+    })
+})
+
+describe('choosing stored questions', () => {
+    const loaf = (id, text, extra = {}) => ({ id, text, replayable: true, ...extra })
+
+    test('select all shown stops at the cap and leaves a file question alone', () => {
+        const items = [
+            loaf('a', 'rye'),
+            loaf('b', 'wheat'),
+            loaf('c', 'scan', { replayable: false, reason: 'files' }),
+            loaf('d', 'sourdough')
+        ]
+        const selected = selectShown({ items, selected: [loaf('a', 'rye')], cap: 2, typedPicked: 0 })
+        expect(selected.map((item) => item.id)).toEqual(['a', 'b'])
+        const full = selectShown({ items, selected, cap: 2, typedPicked: 0 })
+        expect(full).toEqual(selected)
+        expect(chosenLabel(2, 100)).toBe('2 of 100 chosen')
+        expect(historyReasonText('files')).toContain('file')
+        expect(historyReasonText('length')).toContain('2,000')
+    })
+
+    test('typed questions use the same cap, and ten is the ceiling until a stored question is selected', () => {
+        expect(typedRoom({ cap: 100, selectedCount: 0, typedPicked: 10 })).toBe(0)
+        expect(typedRoom({ cap: 100, selectedCount: 1, typedPicked: 10 })).toBe(89)
+        expect(chooseRoom({ cap: 100, selectedCount: 98, typedPicked: 2 })).toBe(0)
+        const kept = toggleHistoryPick({
+            item: loaf('z', 'extra'),
+            selected: [loaf('a', 'rye')],
+            cap: 3,
+            typedPicked: 2
+        })
+        expect(kept).toHaveLength(1)
+        const added = toggleHistoryPick({ item: loaf('z', 'extra'), selected: [], cap: 3, typedPicked: 1 })
+        expect(added.map((item) => item.id)).toEqual(['z'])
+        const removed = toggleHistoryPick({ item: loaf('z', 'extra'), selected: added, cap: 3, typedPicked: 1 })
+        expect(removed).toEqual([])
+        expect(hiddenChosenCount([{ id: 'a' }, { id: 'b' }], [{ id: 'b' }])).toBe(1)
     })
 })

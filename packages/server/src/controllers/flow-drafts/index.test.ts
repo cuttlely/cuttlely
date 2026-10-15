@@ -762,7 +762,7 @@ describe('the publish check', () => {
             jest.fn()
         )
         expect(res.status).toHaveBeenCalledWith(400)
-        expect(res.json).toHaveBeenCalledWith({ code: 'CHECK_BAD_QUESTION_IDS', badCount: 2 })
+        expect(res.json).toHaveBeenCalledWith({ code: 'CHECK_BAD_QUESTION_IDS', badCount: 2, errors: [] })
         expect(JSON.stringify(res.json.mock.calls)).not.toContain(secret)
     })
 })

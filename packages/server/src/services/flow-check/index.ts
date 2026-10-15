@@ -66,6 +66,7 @@ import {
 import { postProcessHash, publishGateApplies, readEvaluatorIdList, sameGateSettings } from '../flow-drafts/gate'
 import { harnessCheckHooks, harnessQuestionsFor, harnessQuestionsToRun, replayHarnessQuestion } from './harness'
 import { bindHistoryRepository, parseQuestionIds, questionIdPrefix, resolveChatQuestionIds } from './history'
+import { CheckRuleError } from './question-ids-error'
 import { CheckEvaluator, loadEvaluators, loadTestSet, readDatasetId, readEvaluatorIds, scoreAnswer } from './score'
 
 // The history reader uses the same database handle this module already uses.
@@ -708,7 +709,7 @@ export async function startCheck(
     const request = body || {}
     const questionIds = request.questionIds !== undefined && request.questionIds !== null ? request.questionIds : undefined
     if (questionIds !== undefined && request.count !== undefined && request.count !== null) {
-        throw new AppError(StatusCodes.BAD_REQUEST, 'Send questionIds or count, not both.')
+        throw new CheckRuleError('CHECK_QUESTION_IDS_EXCLUSIVE', 'Send questionIds or count, not both.')
     }
     if (questionIds !== undefined) parseQuestionIds(questionIds)
     const datasetId = readDatasetId(request)

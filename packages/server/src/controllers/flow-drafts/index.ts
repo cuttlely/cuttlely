@@ -6,7 +6,7 @@ import chatflowsService from '../../services/chatflows'
 import flowDraftsService, { redactDraftStatus } from '../../services/flow-drafts'
 import flowCheckService from '../../services/flow-check'
 import { listQuestionHistory } from '../../services/flow-check/history'
-import { BadQuestionIdsError } from '../../services/flow-check/question-ids-error'
+import { BadQuestionIdsError, CheckRuleError } from '../../services/flow-check/question-ids-error'
 import flowVersionsService from '../../services/flow-versions'
 import { actorFromUser } from '../../services/flow-versions/author'
 import { hasAnyPermission } from '../../identity/rbac'
@@ -207,6 +207,10 @@ const getCheckHistory = async (req: Request, res: Response, next: NextFunction) 
         const flow = await flowFor(req, 'view')
         return res.json(await listQuestionHistory(flow, req.query, historyCaller(req)))
     } catch (error) {
+        if (error instanceof CheckRuleError) {
+            res.setHeader('Cache-Control', 'no-store')
+            return res.status(error.statusCode).json({ code: error.code, message: error.message })
+        }
         next(error)
     }
 }
@@ -331,7 +335,11 @@ const startCheck = async (req: Request, res: Response, next: NextFunction) => {
         detach()
         if (error instanceof BadQuestionIdsError) {
             res.setHeader('Cache-Control', 'no-store')
-            return res.status(StatusCodes.BAD_REQUEST).json({ code: error.code, badCount: error.badCount })
+            return res.status(StatusCodes.BAD_REQUEST).json({ code: error.code, badCount: error.badCount, errors: error.errors })
+        }
+        if (error instanceof CheckRuleError) {
+            res.setHeader('Cache-Control', 'no-store')
+            return res.status(error.statusCode).json({ code: error.code, message: error.message })
         }
         next(error)
     }

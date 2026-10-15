@@ -67,6 +67,51 @@ describe('PublishCheckView', () => {
         expect(html).not.toContain('Questions from')
     })
 
+    test('Choose questions lists stored rows, greys out a file question, and keeps the count picker', () => {
+        const html = render({
+            canChooseQuestions: true,
+            questionMode: 'choose',
+            setup: {
+                unavailable: null,
+                questions: [{ text: 'Do you have rye loaves today?' }],
+                pastCount: 1,
+                riskySteps: [],
+                limits,
+                check: null
+            },
+            historyItems: [
+                { id: 'chat:a', text: 'Do you have rye loaves today?', source: 'chat', date: '2026-10-08T16:12:03.000Z', replayable: true },
+                {
+                    id: 'chat:b',
+                    text: 'See the scan',
+                    source: 'api',
+                    date: '2026-10-08T15:00:00.000Z',
+                    replayable: false,
+                    reason: 'files'
+                }
+            ],
+            historyHasMore: true,
+            selectedQuestions: [{ id: 'chat:a', text: 'Do you have rye loaves today?' }],
+            list: [{ text: 'Is the rye starter ready?', picked: true, added: true }]
+        })
+        expect(html).toContain('Choose questions')
+        expect(html).toContain('aria-pressed="true"')
+        expect(html).toContain('2 of 10 chosen')
+        expect(html).toContain('Do you have rye loaves today?')
+        expect(html).toContain('See the scan')
+        expect(html).toContain('Sent with a file, so it cannot be replayed.')
+        expect(html).toContain('Select all shown')
+        expect(html).toContain('Load more questions')
+        expect(html).toContain('Search questions')
+        expect(html).toContain('Question source')
+        expect(html).toContain('Canvas chat')
+        expect(html).toContain('Replayed input')
+        expect(html).toContain('From date (UTC)')
+        expect(html).toContain('data-testid="compare-count"')
+        expect(html).toContain('disabled=""')
+        expect(html).not.toContain('data-testid="compare-question"')
+    })
+
     test('no history yet asks for a question', () => {
         const html = render({})
         expect(html).toContain('No one has asked this flow anything yet. Add a question to check.')

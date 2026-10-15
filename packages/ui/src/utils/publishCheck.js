@@ -297,6 +297,65 @@ const number = (n) => Number(n || 0).toLocaleString('en-US')
 export const initialPicks = (questions = [], max = 10) =>
     questions.map((q, index) => ({ text: q.text, picked: index < max, added: false, starter: Boolean(q.starter) }))
 
+export const HISTORY_PAGE_SIZE = 50
+// A question list with no stored ids still uses the older request, which accepts at most 10.
+export const TYPED_ONLY_MAX = 10
+
+export const QUESTION_SOURCE_OPTIONS = [
+    { value: '', label: 'All sources' },
+    { value: 'chat', label: 'Canvas chat' },
+    { value: 'api', label: 'API' },
+    { value: 'embed', label: 'Embed' },
+    { value: 'shared', label: 'Shared link' },
+    { value: 'replay', label: 'Replayed input' }
+]
+
+export const historyReasonText = (reason) => {
+    if (reason === 'files') return 'Sent with a file, so it cannot be replayed.'
+    if (reason === 'length') return 'Longer than 2,000 characters, so it cannot be replayed.'
+    return 'This question cannot be replayed.'
+}
+
+export const chosenLabel = (chosen, cap) => `${Number(chosen) || 0} of ${Number(cap) || 0} chosen`
+
+// Room left for another stored question. Typed questions that are ticked use the same cap.
+export const chooseRoom = ({ cap = 100, selectedCount = 0, typedPicked = 0 } = {}) =>
+    Math.max(0, Number(cap) - Number(selectedCount) - Number(typedPicked))
+
+// With no stored question selected, typed questions cannot use the id request, so they stop at 10.
+export const typedRoom = ({ cap = 100, selectedCount = 0, typedPicked = 0 } = {}) => {
+    const ceiling = selectedCount > 0 ? Number(cap) : Math.min(Number(cap), TYPED_ONLY_MAX)
+    return Math.max(0, ceiling - Number(selectedCount) - Number(typedPicked))
+}
+
+export const toggleHistoryPick = ({ item, selected = [], cap = 100, typedPicked = 0 } = {}) => {
+    if (!item?.id || item.replayable === false) return selected
+    const index = selected.findIndex((entry) => entry.id === item.id)
+    if (index >= 0) return selected.filter((entry) => entry.id !== item.id)
+    if (chooseRoom({ cap, selectedCount: selected.length, typedPicked }) < 1) return selected
+    return [...selected, { id: item.id, text: item.text }]
+}
+
+// Select all shown, in list order, and stop when the cap is full. Hidden selections stay.
+export const selectShown = ({ items = [], selected = [], cap = 100, typedPicked = 0 } = {}) => {
+    const next = [...selected]
+    const have = new Set(next.map((entry) => entry.id))
+    let room = chooseRoom({ cap, selectedCount: next.length, typedPicked })
+    for (const item of items) {
+        if (room < 1) break
+        if (!item?.id || item.replayable === false || have.has(item.id)) continue
+        next.push({ id: item.id, text: item.text })
+        have.add(item.id)
+        room -= 1
+    }
+    return next
+}
+
+export const hiddenChosenCount = (selected = [], shown = []) => {
+    const visible = new Set(shown.map((item) => item.id))
+    return selected.filter((entry) => !visible.has(entry.id)).length
+}
+
 export const pickedQuestions = (list = []) => list.filter((q) => q.picked).map((q) => q.text)
 
 export const togglePick = (list, index, max = 10) => {

@@ -17,6 +17,7 @@ import {
 import { useTheme } from '@mui/material/styles'
 
 import flowDraftsApi from '@/api/flowDrafts'
+import QuestionHistoryPicker from '@/views/canvas/QuestionHistoryPicker'
 import datasetsApi from '@/api/dataset'
 import evaluatorsApi from '@/api/evaluators'
 import { useAuth } from '@/hooks/useAuth'
@@ -31,6 +32,11 @@ import {
     CHECK_VARY_NOTE,
     CHECK_ADOPTED_NOTE,
     CHECK_WORDS,
+    HISTORY_PAGE_SIZE,
+    TYPED_ONLY_MAX,
+    selectShown,
+    toggleHistoryPick,
+    typedRoom,
     GATE_RUN_PERMISSION,
     promoteCheckWords,
     COMPARE_COUNTS,
@@ -286,7 +292,23 @@ export const PublishCheckView = ({
     onToggleEvaluator = () => {},
     gateNote = '',
     stopsOnClose = true,
-    canRunGate = true
+    canRunGate = true,
+    questionMode = 'count',
+    onQuestionMode = () => {},
+    canChooseQuestions = false,
+    historyItems = [],
+    historyLoading = false,
+    historyError = '',
+    historyQuery = { q: '', source: '', from: '', to: '' },
+    historyHasMore = false,
+    selectedQuestions = [],
+    onHistorySearch = () => {},
+    onHistorySource = () => {},
+    onHistoryFrom = () => {},
+    onHistoryTo = () => {},
+    onToggleHistory = () => {},
+    onSelectShown = () => {},
+    onLoadHistory = () => {}
 }) => {
     const theme = useTheme()
     const [previewShown, setPreviewShown] = useState(RESULT_PAGE_SIZE)
@@ -316,8 +338,10 @@ export const PublishCheckView = ({
     const past = (setup?.questions || []).filter((q) => !q.starter)
     const pastCount = Number.isFinite(Number(setup?.pastCount)) ? Number(setup.pastCount) : past.length
     const used = pastCount > 0 ? Math.min(count, pastCount) : 0
-    const addedPicked = pastCount > 0 ? list.filter((q) => q.added && q.picked).length : 0
-    const questionCount = pastCount > 0 ? used + addedPicked : picked
+    const fromDataset = source === 'dataset'
+    const choosing = questionMode === 'choose' && canChooseQuestions && !replayInputs && !fromDataset
+    const addedPicked = list.filter((q) => q.added && q.picked).length
+    const questionCount = choosing ? selectedQuestions.length + addedPicked : pastCount > 0 ? used + addedPicked : picked
     const checklist = pastCount > 0 ? list.filter((q) => q.added) : list
     const unit = replayInputs ? 'run' : 'question'
     const cap = capMessage(count, pastCount, Boolean(setup?.pastTruncated), unit)
@@ -330,7 +354,6 @@ export const PublishCheckView = ({
         ? words.introNew
         : words.intro
     if (unavailable?.code === 'off') return null
-    const fromDataset = source === 'dataset'
     const chosenDataset = datasets.find((item) => item.id === datasetId)
     const datasetQuestions = chosenDataset?.rowCount ? Math.min(Number(chosenDataset.rowCount) || 0, maxQuestions) : 0
     const runnable = canRunCheck({
@@ -410,12 +433,32 @@ export const PublishCheckView = ({
                             ))}
                         </TextField>
                     )}
-                    {!fromDataset && cap && (
+                    {!fromDataset && !choosing && cap && (
                         <Typography variant='body2' sx={{ mt: 1 }} data-testid='compare-cap'>
                             {cap}
                         </Typography>
                     )}
-                    {!fromDataset && pastCount > 0 && (
+                    {choosing && (
+                        <QuestionHistoryPicker
+                            items={historyItems}
+                            loading={historyLoading}
+                            error={historyError}
+                            query={historyQuery}
+                            hasMore={historyHasMore}
+                            selected={selectedQuestions}
+                            cap={maxQuestions}
+                            typedPicked={addedPicked}
+                            disabled={running || starting}
+                            onSearch={onHistorySearch}
+                            onSource={onHistorySource}
+                            onFrom={onHistoryFrom}
+                            onTo={onHistoryTo}
+                            onToggle={onToggleHistory}
+                            onSelectShown={onSelectShown}
+                            onLoadMore={onLoadHistory}
+                        />
+                    )}
+                    {!fromDataset && !choosing && pastCount > 0 && (
                         <Stack sx={{ mt: 1 }} aria-label={compareListLabel(replayInputs)}>
                             {past
                                 .slice(0, used)
@@ -573,13 +616,24 @@ export const PublishCheckView = ({
                         </Stack>
                     )}
                     <Stack direction='row' spacing={1} sx={{ mt: 1 }} alignItems='center' flexWrap='wrap' useFlexGap>
+                        {!fromDataset && canChooseQuestions && !replayInputs && (
+                            <Button
+                                variant={choosing ? 'contained' : 'outlined'}
+                                onClick={() => onQuestionMode(choosing ? 'count' : 'choose')}
+                                disabled={running || starting}
+                                aria-pressed={choosing}
+                                data-testid='choose-questions'
+                            >
+                                Choose questions
+                            </Button>
+                        )}
                         {!fromDataset && (
                             <TextField
                                 select
                                 size='small'
                                 label={countLabel}
                                 value={String(COMPARE_COUNTS.includes(count) ? count : DEFAULT_COMPARE_COUNT)}
-                                disabled={running || starting || pastCount === 0}
+                                disabled={running || starting || pastCount === 0 || choosing}
                                 onChange={(event) => onCount(Number(event.target.value))}
                                 SelectProps={{ native: true }}
                                 inputProps={{
@@ -664,7 +718,23 @@ PublishCheckView.propTypes = {
     onToggleEvaluator: PropTypes.func,
     gateNote: PropTypes.string,
     stopsOnClose: PropTypes.bool,
-    canRunGate: PropTypes.bool
+    canRunGate: PropTypes.bool,
+    questionMode: PropTypes.oneOf(['count', 'choose']),
+    onQuestionMode: PropTypes.func,
+    canChooseQuestions: PropTypes.bool,
+    historyItems: PropTypes.array,
+    historyLoading: PropTypes.bool,
+    historyError: PropTypes.string,
+    historyQuery: PropTypes.object,
+    historyHasMore: PropTypes.bool,
+    selectedQuestions: PropTypes.array,
+    onHistorySearch: PropTypes.func,
+    onHistorySource: PropTypes.func,
+    onHistoryFrom: PropTypes.func,
+    onHistoryTo: PropTypes.func,
+    onToggleHistory: PropTypes.func,
+    onSelectShown: PropTypes.func,
+    onLoadHistory: PropTypes.func
 }
 
 // The publish check panel: loads recent questions, runs the check, polls it, and stops it when the dialog closes.
@@ -694,8 +764,19 @@ const PublishCheck = ({ chatflowId, variant = 'publish', api = flowDraftsApi, fl
     const [starting, setStarting] = useState(false)
     const [error, setError] = useState('')
     const [stopsOnClose, setStopsOnClose] = useState(false)
+    const [questionMode, setQuestionMode] = useState('count')
+    const [historyItems, setHistoryItems] = useState([])
+    const [historyLoading, setHistoryLoading] = useState(false)
+    const [historyError, setHistoryError] = useState('')
+    const [searchText, setSearchText] = useState('')
+    const [historyQuery, setHistoryQuery] = useState({ q: '', source: '', from: '', to: '' })
+    const [historyCursor, setHistoryCursor] = useState(null)
+    const [selectedQuestions, setSelectedQuestions] = useState([])
     const canRunGate = canUseDatasets && canUseEvaluators
+    const canChooseQuestions = typeof api.getCheckHistory === 'function'
     const timer = useRef(null)
+    const searchTimer = useRef(null)
+    const historyRequest = useRef(0)
     const live = useRef({ mounted: true, checkId: null, running: false, ownedId: null })
 
     const poll = useCallback(
@@ -799,11 +880,68 @@ const PublishCheck = ({ chatflowId, variant = 'publish', api = flowDraftsApi, fl
         const have = pastCount()
         const used = have > 0 ? Math.min(count, have) : 0
         const cap = setup?.limits?.maxQuestions || 100
-        const result = addQuestion(list, newQuestion, { ...setup?.limits, maxQuestions: Math.max(0, cap - used) })
+        const typedPicked = list.filter((q) => q.added && q.picked).length
+        const choosing = questionMode === 'choose' && canChooseQuestions
+        if (choosing && typedRoom({ cap, selectedCount: selectedQuestions.length, typedPicked }) < 1) {
+            setAddError(
+                selectedQuestions.length === 0
+                    ? `Select a stored question before adding more than ${TYPED_ONLY_MAX} of your own.`
+                    : `Untick a question first. A check asks at most ${cap}.`
+            )
+            return
+        }
+        const maxQuestions = choosing
+            ? typedPicked + typedRoom({ cap, selectedCount: selectedQuestions.length, typedPicked })
+            : Math.max(0, cap - (have > 0 ? used : 0))
+        const result = addQuestion(list, newQuestion, { ...setup?.limits, maxQuestions })
         setList(result.list)
         setAddError(result.error)
         if (result.list !== list) setNewQuestion('')
     }
+
+    const loadHistory = useCallback(
+        async (query, cursor) => {
+            if (!canChooseQuestions) return
+            const requestId = historyRequest.current + 1
+            historyRequest.current = requestId
+            setHistoryLoading(true)
+            setHistoryError('')
+            try {
+                const params = { limit: HISTORY_PAGE_SIZE }
+                if (query.q) params.q = query.q
+                if (query.source) params.source = query.source
+                if (query.from) params.from = query.from
+                if (query.to) params.to = query.to
+                if (cursor) params.cursor = cursor
+                const res = await api.getCheckHistory(chatflowId, params)
+                if (!live.current.mounted || historyRequest.current !== requestId) return
+                const items = res.data?.items || []
+                setHistoryItems((current) => (cursor ? [...current, ...items] : items))
+                setHistoryCursor(res.data?.nextCursor || null)
+            } catch (err) {
+                if (!live.current.mounted || historyRequest.current !== requestId) return
+                if (!cursor) setHistoryItems([])
+                setHistoryCursor(null)
+                setHistoryError(apiErrorMessage(err, 'Questions could not be loaded.'))
+            } finally {
+                if (live.current.mounted && historyRequest.current === requestId) setHistoryLoading(false)
+            }
+        },
+        [api, canChooseQuestions, chatflowId]
+    )
+
+    useEffect(() => {
+        if (questionMode !== 'choose' || !canChooseQuestions) return undefined
+        loadHistory(historyQuery, null)
+        return undefined
+    }, [questionMode, historyQuery, canChooseQuestions, loadHistory])
+
+    useEffect(
+        () => () => {
+            if (searchTimer.current) clearTimeout(searchTimer.current)
+        },
+        []
+    )
 
     const onRun = async () => {
         setStarting(true)
@@ -811,13 +949,21 @@ const PublishCheck = ({ chatflowId, variant = 'publish', api = flowDraftsApi, fl
         try {
             const have = pastCount()
             const added = list.filter((q) => q.added && q.picked).map((q) => q.text)
+            const ownQuestions = have > 0 ? added : pickedQuestions(list)
             const scored = evaluatorIds.length ? { evaluatorIds } : {}
-            const body =
-                source === 'dataset'
-                    ? { datasetId, ...scored, includeRiskySteps: runAnyway }
-                    : have > 0
-                    ? { count, ...(added.length ? { questions: added } : {}), ...scored, includeRiskySteps: runAnyway }
-                    : { questions: pickedQuestions(list), ...scored, includeRiskySteps: runAnyway }
+            const choosing = questionMode === 'choose' && canChooseQuestions && source !== 'dataset'
+            const body = choosing
+                ? {
+                      ...(selectedQuestions.length ? { questionIds: selectedQuestions.map((item) => item.id) } : {}),
+                      ...(ownQuestions.length ? { questions: ownQuestions } : {}),
+                      ...scored,
+                      includeRiskySteps: runAnyway
+                  }
+                : source === 'dataset'
+                ? { datasetId, ...scored, includeRiskySteps: runAnyway }
+                : have > 0
+                ? { count, ...(added.length ? { questions: added } : {}), ...scored, includeRiskySteps: runAnyway }
+                : { questions: pickedQuestions(list), ...scored, includeRiskySteps: runAnyway }
             const res = await api.startCheck(chatflowId, body)
             if (!live.current.mounted) {
                 // This instance started the check. Stop it if the dialog closed before the response.
@@ -887,6 +1033,48 @@ const PublishCheck = ({ chatflowId, variant = 'publish', api = flowDraftsApi, fl
             gateNote={gateNote}
             stopsOnClose={stopsOnClose}
             canRunGate={canRunGate}
+            questionMode={questionMode}
+            onQuestionMode={setQuestionMode}
+            canChooseQuestions={canChooseQuestions}
+            historyItems={historyItems}
+            historyLoading={historyLoading}
+            historyError={historyError}
+            historyQuery={{ ...historyQuery, q: searchText }}
+            historyHasMore={Boolean(historyCursor)}
+            selectedQuestions={selectedQuestions}
+            onHistorySearch={(value) => {
+                setSearchText(value)
+                if (searchTimer.current) clearTimeout(searchTimer.current)
+                searchTimer.current = setTimeout(() => {
+                    setHistoryQuery((current) => ({ ...current, q: value }))
+                }, 300)
+            }}
+            onHistorySource={(value) => setHistoryQuery((current) => ({ ...current, source: value }))}
+            onHistoryFrom={(value) => setHistoryQuery((current) => ({ ...current, from: value }))}
+            onHistoryTo={(value) => setHistoryQuery((current) => ({ ...current, to: value }))}
+            onToggleHistory={(item) =>
+                setSelectedQuestions((current) =>
+                    toggleHistoryPick({
+                        item,
+                        selected: current,
+                        cap: setup?.limits?.maxQuestions || 100,
+                        typedPicked: list.filter((q) => q.added && q.picked).length
+                    })
+                )
+            }
+            onSelectShown={() =>
+                setSelectedQuestions((current) =>
+                    selectShown({
+                        items: historyItems,
+                        selected: current,
+                        cap: setup?.limits?.maxQuestions || 100,
+                        typedPicked: list.filter((q) => q.added && q.picked).length
+                    })
+                )
+            }
+            onLoadHistory={() => {
+                if (historyCursor && !historyLoading) loadHistory(historyQuery, historyCursor)
+            }}
         />
     )
 }
