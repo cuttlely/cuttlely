@@ -1,5 +1,5 @@
 // Change history for server settings: settings/history.jsonl, one JSON object per line.
-// The newest CUTTLELY_SETTINGS_HISTORY_KEEP rows are kept (1000 unless that limit says otherwise).
+// The newest CUTTLELY_HISTORY_KEEP rows are kept (1000 unless that limit says otherwise).
 // Each append rewrites the file under its own lock, so two saves cannot drop a row that is still inside the cap.
 // Secret values never go in. A secret change is recorded as "changed" and nothing else.
 import fs from 'fs'
@@ -25,7 +25,7 @@ export function isSecretSettingKey(key: string): boolean {
 
 export const HISTORY_PAGE_DEFAULT = 50
 export const HISTORY_PAGE_MAX = 100
-export const HISTORY_KEEP_KEY = 'CUTTLELY_SETTINGS_HISTORY_KEEP'
+export const HISTORY_KEEP_KEY = 'CUTTLELY_HISTORY_KEEP'
 export const HISTORY_KEEP_DEFAULT = 1000
 const HISTORY_LOCK = '.history.lock'
 

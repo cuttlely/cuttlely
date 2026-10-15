@@ -33,7 +33,7 @@ A fresh server shows three optional first steps at the top: **Sign-in for your t
 
 Runtime limits apply on the next use. The other settings apply at the next restart, and until then the server keeps running with what it started with. **Discard** puts the saved file back the way it was at start.
 
-Failed sign-ins before lockout, the idle session lifetime, the absolute session lifetime, and the shutdown wait are runtime limits. A shorter session lifetime ends sessions that are already signed in, on the next request. A queue worker picks up a saved value within 5 seconds. If one of these locks people out, set the same variable on the host and start Cuttlely again. The host value overrides the saved one. How many settings changes to keep is a runtime limit too (`CUTTLELY_SETTINGS_HISTORY_KEEP`, 1000, from 100 to 10000). [Server settings API](../reference/server-settings-api.md).
+Failed sign-ins before lockout, the idle session lifetime, the absolute session lifetime, and the shutdown wait are runtime limits. A shorter session lifetime ends sessions that are already signed in, on the next request. A queue worker picks up a saved value within 5 seconds. If one of these locks people out, set the same variable on the host and start Cuttlely again. The host value overrides the saved one. How many settings changes to keep is a runtime limit too (`CUTTLELY_HISTORY_KEEP`, 1000, from 100 to 10000). [Server settings API](../reference/server-settings-api.md).
 
 ## Where a value comes from
 
@@ -186,6 +186,6 @@ From a terminal (in Docker, prefix with `docker compose exec -u node Cuttlely`):
 
 ![All settings. Copy as .env is at the top right. The table starts with Owner password sign-in, Host, On; AuthKit API key, Not set; AuthKit client ID, Default (Not set: AuthKit is off); Callback address, Default (Not set); and Session seal, Not set.](../images/server-settings/server-settings-all-settings.png)
 
-**History** keeps every save, discard, restore, test sign-in, rollback and restart: when, who, and which settings, never a secret value. A secret is recorded only as changed. The same list is `GET /api/v1/server-settings/history`. It is paged, newest first, and only the organization owner can read it. The newest 1000 changes are kept (`CUTTLELY_SETTINGS_HISTORY_KEEP`, 100 to 10000). Older ones are removed when a new change is saved.
+**History** keeps every save, discard, restore, test sign-in, rollback and restart: when, who, and which settings, never a secret value. A secret is recorded only as changed. The same list is `GET /api/v1/server-settings/history`. It is paged, newest first, and only the organization owner can read it. The newest 1000 changes are kept (`CUTTLELY_HISTORY_KEEP`, 100 to 10000). Older ones are removed when a new change is saved.
 
 ![History. Saved 6 changes by rosa.diaz@example.com on Oct 14, 2026, 12:50 PM: MCP sign-in wait default to 20000, Longest MCP tool description default to 512, Longest MCP tool name default to 64, Row cap default to 80, Query timeout default to 20000, and Keep warm every default to 30. The bar says 6 saved changes wait for a restart.](../images/server-settings/server-settings-history.png)

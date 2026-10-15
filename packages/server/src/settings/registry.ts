@@ -798,7 +798,7 @@ export const SETTINGS: SettingDef[] = [
         risk: 'medium'
     },
     {
-        key: 'CUTTLELY_SETTINGS_HISTORY_KEEP',
+        key: 'CUTTLELY_HISTORY_KEEP',
         section: 'security',
         group: 'History',
         label: 'Settings changes to keep',

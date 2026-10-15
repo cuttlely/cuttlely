@@ -41,13 +41,13 @@ describe('settings history retention', () => {
     it('trims to the saved limit when the caller does not pass one', () => {
         const data = fs.mkdtempSync(path.join(os.tmpdir(), 'cuttlely-history-keep-'))
         const previousDir = process.env.CUTTLELY_DATA_DIR
-        const previousKeep = process.env.CUTTLELY_SETTINGS_HISTORY_KEEP
+        const previousKeep = process.env.CUTTLELY_HISTORY_KEEP
         process.env.CUTTLELY_DATA_DIR = data
-        delete process.env.CUTTLELY_SETTINGS_HISTORY_KEEP
+        delete process.env.CUTTLELY_HISTORY_KEEP
         resetRuntimeLimitsForTests()
         try {
             const dir = path.join(data, 'settings')
-            writeSettingsFile(dir, { CUTTLELY_SETTINGS_HISTORY_KEEP: '100' }, { key: 'test-key-not-a-real-secret-0123456789abcdef' })
+            writeSettingsFile(dir, { CUTTLELY_HISTORY_KEEP: '100' }, { key: 'test-key-not-a-real-secret-0123456789abcdef' })
             resetRuntimeLimitsForTests()
             expect(historyKeepLimit()).toBe(100)
             for (let i = 1; i <= 101; i++) appendHistory(dir, row(String(i)))
@@ -59,8 +59,8 @@ describe('settings history retention', () => {
         } finally {
             if (previousDir === undefined) delete process.env.CUTTLELY_DATA_DIR
             else process.env.CUTTLELY_DATA_DIR = previousDir
-            if (previousKeep === undefined) delete process.env.CUTTLELY_SETTINGS_HISTORY_KEEP
-            else process.env.CUTTLELY_SETTINGS_HISTORY_KEEP = previousKeep
+            if (previousKeep === undefined) delete process.env.CUTTLELY_HISTORY_KEEP
+            else process.env.CUTTLELY_HISTORY_KEEP = previousKeep
             resetRuntimeLimitsForTests()
         }
     })

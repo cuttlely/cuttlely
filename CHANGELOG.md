@@ -7,7 +7,7 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 ### Added
 
 -   Local password sign-in for every active user who already has a password, when `CUTTLELY_LOCAL_USERS=true` and AuthKit is not configured. The owner break-glass route is unchanged. Invited users still have no password until a sign-in link exists. [Users without AuthKit](./docs/how-to/users-without-authkit.md), [Auth API](./docs/reference/auth-api.md).
--   Four server limits apply without a restart: `CUTTLELY_LOGIN_FAILURE_LIMIT` (10, from 3 to 50), `CUTTLELY_SESSION_IDLE_MINUTES` (720, from 15 to 1440), `CUTTLELY_SESSION_ABSOLUTE_HOURS` (168, from 1 to 720), and `CUTTLELY_DRAIN_TIMEOUT_MS` (25000, from 5000 to 300000). A shorter session lifetime ends sessions that are already signed in. `GET /api/v1/server-settings/history` pages the change history for the organization owner. A secret is recorded only as changed. The history keeps the newest `CUTTLELY_SETTINGS_HISTORY_KEEP` rows (1000, from 100 to 10000). [Server settings API](./docs/reference/server-settings-api.md).
+-   Four server limits apply without a restart: `CUTTLELY_LOGIN_FAILURE_LIMIT` (10, from 3 to 50), `CUTTLELY_SESSION_IDLE_MINUTES` (720, from 15 to 1440), `CUTTLELY_SESSION_ABSOLUTE_HOURS` (168, from 1 to 720), and `CUTTLELY_DRAIN_TIMEOUT_MS` (25000, from 5000 to 300000). A shorter session lifetime ends sessions that are already signed in. `GET /api/v1/server-settings/history` pages the change history for the organization owner. A secret is recorded only as changed. The history keeps the newest `CUTTLELY_HISTORY_KEEP` rows (1000, from 100 to 10000). [Server settings API](./docs/reference/server-settings-api.md).
 
 ### Changed
 
