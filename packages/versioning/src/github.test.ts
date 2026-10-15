@@ -1030,9 +1030,14 @@ describe('Dev or Prod label', () => {
         expect(gitCalls.filter((call) => call.args[0] === 'fetch').length).toBeGreaterThan(fetches)
         expect((await sync.status()).state).toBe('stopped')
         expect((await sync.status()).message).toContain('has changes that are not on this server')
-        const retried = await sync.tryNow()
+        await sync.tryNow()
+        // A poll can start while status() is still reading, so the returned state can be copying.
+        sync.stop()
+        await sync.idle()
         expect(gitCalls.filter((call) => call.args[0] === 'push').length).toBeGreaterThan(pushes)
-        expect(retried.state).toBe('stopped')
+        const settled = await sync.status()
+        expect(settled.state).toBe('stopped')
+        expect(settled.message).toContain('has changes that are not on this server')
     })
 
     test('a bad environment file stays connected and can be saved again', async () => {
