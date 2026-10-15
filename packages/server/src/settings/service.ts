@@ -35,7 +35,9 @@ export type InstallKind = 'docker' | 'render' | 'source'
 
 export interface SettingView extends Omit<SettingDef, 'defaultValue'> {
     defaultValue?: string
-    source: ResolvedSetting['source'] | 'panel'
+    source: ResolvedSetting['source'] | 'panel' | 'bounded'
+    /** The host key that forced this number. Set only when source is bounded. */
+    boundedBy?: string
     /** Whole-number bounds for a runtime limit. */
     range?: { min: number; max: number }
     locked: boolean
@@ -160,7 +162,9 @@ export async function getView(deps: ServiceDeps): Promise<SettingsView> {
             if (picked) {
                 const shown = picked.source === 'default' ? '' : String(picked.value)
                 view.source = picked.source
+                // Bounded is not a host value of this key, so the host lock applies only when this variable is set.
                 view.locked = hostKeys.has(setting.key) && !isBlank(env[setting.key])
+                if (picked.source === 'bounded' && picked.boundedBy) view.boundedBy = picked.boundedBy
                 view.changed = false
                 const cap = setting.key === 'CUTTLELY_CHECK_COUNT_DEFAULT' ? live.get('CUTTLELY_CHECK_COUNT_MAX') : undefined
                 view.range = { min: setting.min ?? 0, max: cap ? cap.value : setting.max ?? 0 }

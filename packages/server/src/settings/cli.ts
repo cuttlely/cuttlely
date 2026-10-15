@@ -48,6 +48,7 @@ function listSettings(env: Env, all: boolean): CliResult {
         if (resolved) {
             value = String(resolved.value)
             source = resolved.source
+            if (resolved.source === 'bounded' && resolved.boundedBy) value = `${value}  Limited by ${resolved.boundedBy}`
         } else {
             const secret = setting?.type === 'secret'
             if (read.unreadable.includes(row.key) && row.source !== 'host') value = '(saved, cannot be read with this key)'

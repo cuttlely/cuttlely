@@ -5,7 +5,7 @@ import { alpha, useTheme } from '@mui/material/styles'
 import { Box, Button, Chip, InputAdornment, MenuItem, Select, Stack, Switch, TextField, Tooltip, Typography } from '@mui/material'
 import { IconArrowBackUp, IconKey, IconLock, IconPointFilled } from '@tabler/icons-react'
 
-import { UNIT_LABELS, currentValue, describeValue, fromDisplay, toDisplay } from './model'
+import { UNIT_LABELS, currentValue, describeValue, fromDisplay, limitedByLabel, toDisplay } from './model'
 
 const CUSTOM = '__custom__'
 
@@ -42,6 +42,15 @@ const SettingField = ({ setting, drafts, onDraft, error, readOnlyNote }) => {
                     <Typography component='label' htmlFor={`field-${setting.key}`} sx={{ fontWeight: 600, fontSize: '0.95rem' }}>
                         {setting.label}
                     </Typography>
+                    {limitedByLabel(setting) && (
+                        <Chip
+                            size='small'
+                            label={limitedByLabel(setting)}
+                            variant='outlined'
+                            data-testid={`bounded-${setting.key}`}
+                            sx={{ height: 22, fontSize: '0.72rem', borderRadius: 1.5 }}
+                        />
+                    )}
                     {setting.locked && (
                         <Tooltip
                             title={`Set outside Cuttlely${
@@ -409,6 +418,8 @@ const settingShape = PropTypes.shape({
     help: PropTypes.string,
     type: PropTypes.string.isRequired,
     locked: PropTypes.bool,
+    source: PropTypes.string,
+    boundedBy: PropTypes.string,
     hostHint: PropTypes.string,
     changed: PropTypes.bool,
     running: PropTypes.string,

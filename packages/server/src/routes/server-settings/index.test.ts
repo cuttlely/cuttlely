@@ -376,6 +376,25 @@ describe('runtime limits on the settings API', () => {
         expect(cappedDefault.range).toEqual({ min: 1, max: 10 })
         delete env.CUTTLELY_CHECK_COUNT_MAX
         resetRuntimeLimitsForTests()
+        env.CUTTLELY_CHECK_COUNT_MAX = '1'
+        state.hostKeys = ['CUTTLELY_LOCAL_ADMIN', 'LOG_LEVEL', 'CUTTLELY_CHECK_COUNT_MAX']
+        resetRuntimeLimitsForTests()
+        const bounded = await app(OWNER).get('/api/v1/server-settings')
+        const boundedDefault = bounded.body.settings.find((setting: { key: string }) => setting.key === 'CUTTLELY_CHECK_COUNT_DEFAULT')
+        expect(boundedDefault).toMatchObject({
+            source: 'bounded',
+            boundedBy: 'CUTTLELY_CHECK_COUNT_MAX',
+            locked: false,
+            value: '1',
+            effective: '1'
+        })
+        expect(boundedDefault.source).not.toBe('host')
+        const boundedCap = bounded.body.settings.find((setting: { key: string }) => setting.key === 'CUTTLELY_CHECK_COUNT_MAX')
+        expect(boundedCap).toMatchObject({ source: 'host', locked: true, value: '1' })
+        expect(boundedCap.boundedBy).toBeUndefined()
+        delete env.CUTTLELY_CHECK_COUNT_MAX
+        state.hostKeys = ['CUTTLELY_LOCAL_ADMIN', 'LOG_LEVEL']
+        resetRuntimeLimitsForTests()
         const saved = await app(OWNER)
             .put('/api/v1/server-settings')
             .send({ values: { CUTTLELY_CHECK_MAX_TOKENS: 5000 } })

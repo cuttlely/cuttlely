@@ -137,6 +137,12 @@ export function reviewRows(settings, drafts) {
         .sort((a, b) => a.label.localeCompare(b.label))
 }
 
+/** The page label when a host limit forced this number. Empty when the value is not bounded. */
+export function limitedByLabel(setting) {
+    if (setting?.source !== 'bounded' || !setting.boundedBy) return ''
+    return `Limited by ${setting.boundedBy}`
+}
+
 /** What the review step says about when these changes take effect. */
 export function reviewApplyNote(rows) {
     const list = rows ?? []

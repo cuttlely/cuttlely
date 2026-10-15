@@ -7,6 +7,7 @@ import {
     historyLine,
     isShown,
     matchesQuery,
+    limitedByLabel,
     reviewApplyNote,
     reviewRows,
     sectionCounts,
@@ -134,6 +135,9 @@ describe('server settings page logic', () => {
         expect(reviewApplyNote(mixed.filter((row) => row.runtime))).toBe('These limits apply on the next use.')
         expect(reviewApplyNote(mixed)).toBe('Limits apply now. The rest apply at restart.')
         expect(reviewApplyNote(mixed.filter((row) => !row.runtime))).toMatch(/next start/)
+        expect(limitedByLabel({ source: 'bounded', boundedBy: 'CUTTLELY_CHECK_COUNT_MAX' })).toBe('Limited by CUTTLELY_CHECK_COUNT_MAX')
+        expect(limitedByLabel({ source: 'host' })).toBe('')
+        expect(limitedByLabel({ source: 'bounded' })).toBe('')
         expect(JSON.stringify(rows)).not.toContain('sk_test_fake_value')
         expect(reviewRows(settings, { WORKOS_API_KEY: '' })[0].secret).toBe('removed')
     })

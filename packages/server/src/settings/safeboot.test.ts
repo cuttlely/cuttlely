@@ -259,6 +259,21 @@ describe('pnpm settings', () => {
         }
     })
 
+    it('lists a bounded partner as bounded, naming the host limit', () => {
+        resetRuntimeLimitsForTests()
+        const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined)
+        try {
+            const { data: root } = data()
+            const text = runSettingsCli(['list'], { CUTTLELY_DATA_DIR: root, CUTTLELY_CHECK_COUNT_MAX: '1' }).lines.join('\n')
+            expect(text).toMatch(/CUTTLELY_CHECK_COUNT_MAX\s+host\s+1/)
+            expect(text).toMatch(/CUTTLELY_CHECK_COUNT_DEFAULT\s+bounded\s+1\s+Limited by CUTTLELY_CHECK_COUNT_MAX/)
+            expect(text).not.toMatch(/CUTTLELY_CHECK_COUNT_DEFAULT\s+host/)
+        } finally {
+            warn.mockRestore()
+            resetRuntimeLimitsForTests()
+        }
+    })
+
     it('does not wait for the next start when a runtime limit is removed', () => {
         const { data: root, dir } = data()
         writeSettingsFile(dir, { CUTTLELY_CHECK_CONCURRENCY: '4', CUTTLELY_LOCAL_ADMIN: 'false' }, { key: KEY })

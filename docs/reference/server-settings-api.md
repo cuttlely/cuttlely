@@ -12,17 +12,18 @@ The caller must be the organization owner, with a signed-in session. A missing s
 
 `GET` returns every setting the page knows. Each setting includes its key, label, help, type, and where the value comes from.
 
-| Field       | Meaning                                                                                                                                                                   |
-| ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `source`    | `host` when the environment sets it, `file` when Server settings saved it, `default` when neither did. A runtime limit uses `panel` for a value saved in Server settings. |
-| `runtime`   | `true` when the limit is read on each use. Absent on settings that wait for a restart.                                                                                    |
-| `range`     | `{ "min", "max" }` for a runtime limit. Whole numbers, inclusive.                                                                                                         |
-| `unit`      | `tokens`, `seconds`, `minutes`, `ms`, or `count` for these limits.                                                                                                        |
-| `value`     | The saved or host value. Empty when the default applies. Omitted for secrets.                                                                                             |
-| `effective` | The value in use, including the default. Omitted for secrets.                                                                                                             |
-| `locked`    | `true` when the host set the variable, so `PUT` cannot change it.                                                                                                         |
+| Field       | Meaning                                                                                                                                                                                                                                               |
+| ----------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `source`    | `host` when the environment sets it, `file` when Server settings saved it, `default` when neither did. A runtime limit uses `panel` for a value saved in Server settings. `bounded` when a host value on the other side of a pair forced this number. |
+| `boundedBy` | The host key that forced a `bounded` value, for example `CUTTLELY_CHECK_COUNT_MAX`. Absent otherwise. The field stays editable.                                                                                                                       |
+| `runtime`   | `true` when the limit is read on each use. Absent on settings that wait for a restart.                                                                                                                                                                |
+| `range`     | `{ "min", "max" }` for a runtime limit. Whole numbers, inclusive.                                                                                                                                                                                     |
+| `unit`      | `tokens`, `seconds`, `minutes`, `ms`, or `count` for these limits.                                                                                                                                                                                    |
+| `value`     | The saved or host value. Empty when the default applies. Omitted for secrets.                                                                                                                                                                         |
+| `effective` | The value in use, including the default. Omitted for secrets.                                                                                                                                                                                         |
+| `locked`    | `true` when the host set the variable, so `PUT` cannot change it.                                                                                                                                                                                     |
 
-`source`, `runtime`, `range`, and `unit` are response fields. A `PUT` body does not send them.
+`source`, `boundedBy`, `runtime`, `range`, and `unit` are response fields. A `PUT` body does not send them.
 
 ## Write
 
@@ -53,7 +54,7 @@ A refusal is 400:
 }
 ```
 
-`code` is `OUT_OF_RANGE` for a number outside the range, `INVALID` for a value that is not a whole number, and `CROSS_FIELD` for a pair. `min` and `max` are the bounds that apply to that save. `errors` lists the same problem by key. A host value that is not a usable number is ignored on read: the saved value is used when it is in range, and otherwise the default. The read does not fail. An in-range host value on a pair always wins and is not loosened. The other setting falls back through its saved value and then its default. If none fit, that setting is bounded by the host value. A host `CUTTLELY_CHECK_COUNT_MAX` of 1 makes the effective question default 1. A host `CUTTLELY_RATING_SCAN_CAP` of 300 makes the effective import cap 300. When both sides are host values and they conflict, the cap is kept and the other side is bounded by it. The warning names the key only. A settings file that is not valid JSON is ignored the same way, and `GET` still returns 200. `range.max` for `CUTTLELY_CHECK_COUNT_DEFAULT` is the question cap in effect, not the static 500.
+`code` is `OUT_OF_RANGE` for a number outside the range, `INVALID` for a value that is not a whole number, and `CROSS_FIELD` for a pair. `min` and `max` are the bounds that apply to that save. `errors` lists the same problem by key. A host value that is not a usable number is ignored on read: the saved value is used when it is in range, and otherwise the default. The read does not fail. An in-range host value on a pair always wins and is not loosened. The other setting falls back through its saved value and then its default. If none fit, that setting is bounded by the host value. Its `source` is `bounded`, and `boundedBy` names the host key. It is not `host`. `locked` stays false unless that same variable is also set on the host, so the field can still be edited. A host `CUTTLELY_CHECK_COUNT_MAX` of 1 makes the effective question default 1, bounded by `CUTTLELY_CHECK_COUNT_MAX`. A host `CUTTLELY_RATING_SCAN_CAP` of 300 makes the effective import cap 300, bounded by `CUTTLELY_RATING_SCAN_CAP`. When both sides are host values and they conflict, the cap is kept and the other side is bounded by it. The warning names the key only. A settings file that is not valid JSON is ignored the same way, and `GET` still returns 200. `range.max` for `CUTTLELY_CHECK_COUNT_DEFAULT` is the question cap in effect, not the static 500.
 
 ## Runtime limits
 

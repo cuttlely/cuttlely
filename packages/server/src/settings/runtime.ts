@@ -9,11 +9,14 @@ type Env = Record<string, string | undefined>
 
 export const RUNTIME_CACHE_MS = 5000
 
-export type RuntimeSource = 'host' | 'panel' | 'default'
+export type CandidateSource = 'host' | 'panel' | 'default'
+export type RuntimeSource = CandidateSource | 'bounded'
 
 export interface ResolvedRuntime {
     value: number
     source: RuntimeSource
+    /** The host key that forced this number. Set only when source is bounded. */
+    boundedBy?: string
 }
 
 export interface RuntimeProblem {
@@ -31,7 +34,7 @@ const SCAN_CAP = 'CUTTLELY_RATING_SCAN_CAP'
 
 interface Candidate {
     value: number
-    source: RuntimeSource
+    source: CandidateSource
 }
 
 let cache: { at: number; stamp: string; values: Map<string, ResolvedRuntime> } | null = null
@@ -154,9 +157,9 @@ function boundTo(value: number, setting: SettingDef): number {
     return n
 }
 
-// The number is the host limit, not a value saved for this key. Source host so the page shows it.
-function forcedByHost(value: number, setting: SettingDef): Candidate {
-    return { value: boundTo(value, setting), source: 'host' }
+// The number comes from the other key's host value. It is not a host value of this key.
+function boundedByHost(value: number, setting: SettingDef, boundedBy: string): ResolvedRuntime {
+    return { value: boundTo(value, setting), source: 'bounded', boundedBy }
 }
 
 /**
@@ -169,7 +172,7 @@ function pickHostPair(
     otherKey: string,
     limitCands: Candidate[],
     otherCands: Candidate[]
-): { limit: Candidate; other: Candidate } {
+): { limit: ResolvedRuntime; other: ResolvedRuntime } {
     const hostLimit = limitCands.find((candidate) => candidate.source === 'host')
     const hostOther = otherCands.find((candidate) => candidate.source === 'host')
     const limitSetting = setting(limitKey)
@@ -181,7 +184,7 @@ function pickHostPair(
             return { limit: hostLimit, other }
         }
         warnKey(otherKey)
-        return { limit: hostLimit, other: forcedByHost(hostLimit.value, otherSetting) }
+        return { limit: hostLimit, other: boundedByHost(hostLimit.value, otherSetting, limitKey) }
     }
     const other = hostOther as Candidate
     const limit = limitCands.find((candidate) => other.value <= candidate.value)
@@ -190,7 +193,7 @@ function pickHostPair(
         return { limit, other }
     }
     warnKey(limitKey)
-    return { limit: forcedByHost(other.value, limitSetting), other }
+    return { limit: boundedByHost(other.value, limitSetting, otherKey), other }
 }
 
 function pickPair(
@@ -200,7 +203,7 @@ function pickPair(
     indCands: Candidate[],
     ok: (dep: number, ind: number) => boolean,
     limitSide: 'dep' | 'ind'
-): { dep: Candidate; ind: Candidate } {
+): { dep: ResolvedRuntime; ind: ResolvedRuntime } {
     const hostDep = depCands.some((candidate) => candidate.source === 'host')
     const hostInd = indCands.some((candidate) => candidate.source === 'host')
     if (hostDep || hostInd) {
@@ -251,11 +254,11 @@ function compute(env: Env): Map<string, ResolvedRuntime> {
         out.set(setting.key, { value: chosen.value, source: chosen.source })
     }
     const counts = pickPair(COUNT_DEFAULT, COUNT_MAX, cands(COUNT_DEFAULT), cands(COUNT_MAX), (dep, ind) => dep <= ind, 'ind')
-    out.set(COUNT_DEFAULT, { value: counts.dep.value, source: counts.dep.source })
-    out.set(COUNT_MAX, { value: counts.ind.value, source: counts.ind.source })
+    out.set(COUNT_DEFAULT, counts.dep)
+    out.set(COUNT_MAX, counts.ind)
     const ratings = pickPair(SCAN_CAP, IMPORT_CAP, cands(SCAN_CAP), cands(IMPORT_CAP), (dep, ind) => dep >= ind, 'dep')
-    out.set(SCAN_CAP, { value: ratings.dep.value, source: ratings.dep.source })
-    out.set(IMPORT_CAP, { value: ratings.ind.value, source: ratings.ind.source })
+    out.set(SCAN_CAP, ratings.dep)
+    out.set(IMPORT_CAP, ratings.ind)
     return out
 }
 

@@ -88,22 +88,38 @@ describe('runtime limits', () => {
         env.CUTTLELY_CHECK_COUNT_MAX = '1'
         env.CUTTLELY_CHECK_COUNT_DEFAULT = '8'
         expect(runtimeSnapshot(env).get('CUTTLELY_CHECK_COUNT_MAX')).toEqual({ value: 1, source: 'host' })
-        expect(runtimeSnapshot(env).get('CUTTLELY_CHECK_COUNT_DEFAULT')).toEqual({ value: 1, source: 'host' })
+        expect(runtimeSnapshot(env).get('CUTTLELY_CHECK_COUNT_DEFAULT')).toEqual({
+            value: 1,
+            source: 'bounded',
+            boundedBy: 'CUTTLELY_CHECK_COUNT_MAX'
+        })
         resetRuntimeLimitsForTests()
         delete env.CUTTLELY_CHECK_COUNT_MAX
         delete env.CUTTLELY_CHECK_COUNT_DEFAULT
         env.CUTTLELY_RATING_SCAN_CAP = '300'
         expect(runtimeSnapshot(env).get('CUTTLELY_RATING_SCAN_CAP')).toEqual({ value: 300, source: 'host' })
-        expect(runtimeSnapshot(env).get('CUTTLELY_RATING_IMPORT_CAP')).toEqual({ value: 300, source: 'host' })
+        expect(runtimeSnapshot(env).get('CUTTLELY_RATING_IMPORT_CAP')).toEqual({
+            value: 300,
+            source: 'bounded',
+            boundedBy: 'CUTTLELY_RATING_SCAN_CAP'
+        })
         resetRuntimeLimitsForTests()
         env.CUTTLELY_RATING_IMPORT_CAP = '800'
         expect(runtimeSnapshot(env).get('CUTTLELY_RATING_SCAN_CAP')).toEqual({ value: 300, source: 'host' })
-        expect(runtimeSnapshot(env).get('CUTTLELY_RATING_IMPORT_CAP')).toEqual({ value: 300, source: 'host' })
+        expect(runtimeSnapshot(env).get('CUTTLELY_RATING_IMPORT_CAP')).toEqual({
+            value: 300,
+            source: 'bounded',
+            boundedBy: 'CUTTLELY_RATING_SCAN_CAP'
+        })
         resetRuntimeLimitsForTests()
         delete env.CUTTLELY_RATING_SCAN_CAP
         env.CUTTLELY_RATING_IMPORT_CAP = '2000'
         expect(runtimeSnapshot(env).get('CUTTLELY_RATING_IMPORT_CAP')).toEqual({ value: 2000, source: 'host' })
-        expect(runtimeSnapshot(env).get('CUTTLELY_RATING_SCAN_CAP')).toEqual({ value: 2000, source: 'host' })
+        expect(runtimeSnapshot(env).get('CUTTLELY_RATING_SCAN_CAP')).toEqual({
+            value: 2000,
+            source: 'bounded',
+            boundedBy: 'CUTTLELY_RATING_IMPORT_CAP'
+        })
         const warnings = (console.warn as jest.Mock).mock.calls.map((call) => String(call[0])).join('\n')
         expect(warnings).toContain('CUTTLELY_CHECK_COUNT_DEFAULT')
         expect(warnings).toContain('CUTTLELY_RATING_IMPORT_CAP')
@@ -125,7 +141,11 @@ describe('runtime limits', () => {
         resetRuntimeLimitsForTests()
         env.CUTTLELY_CHECK_COUNT_DEFAULT = '400'
         expect(runtimeSnapshot(env).get('CUTTLELY_CHECK_COUNT_DEFAULT')).toEqual({ value: 400, source: 'host' })
-        expect(runtimeSnapshot(env).get('CUTTLELY_CHECK_COUNT_MAX')).toEqual({ value: 400, source: 'host' })
+        expect(runtimeSnapshot(env).get('CUTTLELY_CHECK_COUNT_MAX')).toEqual({
+            value: 400,
+            source: 'bounded',
+            boundedBy: 'CUTTLELY_CHECK_COUNT_DEFAULT'
+        })
         const warnings = (console.warn as jest.Mock).mock.calls.map((call) => String(call[0])).join('\n')
         expect(warnings).toContain('CUTTLELY_CHECK_COUNT_MAX')
         expect(warnings).not.toContain('CUTTLELY_CHECK_COUNT_DEFAULT')
