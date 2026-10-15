@@ -47,7 +47,22 @@ export interface Sql {
     transaction<T>(fn: (query: QueryFn) => Promise<T>): Promise<T>
 }
 
-const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+/** Same shape as a single address with one @ and a dot in the domain. A linear scan, so a long input cannot stall the process. */
+function isEmailAddress(value: string): boolean {
+    if (value.length < 3) return false
+    let at = -1
+    for (let index = 0; index < value.length; index += 1) {
+        const char = value[index]
+        if (char <= ' ' || char === '@') {
+            if (char !== '@' || at !== -1) return false
+            at = index
+        }
+    }
+    if (at <= 0) return false
+    const rest = value.slice(at + 1)
+    const dot = rest.indexOf('.')
+    return dot > 0 && dot < rest.length - 1 && !rest.includes('@')
+}
 const RESERVED_WORKSPACE = new Set([DEFAULT_WORKSPACE, PERSONAL_WORKSPACE])
 
 function dialectOfRunner(runner: { connection: { options: { type?: string } } }): Dialect {
@@ -177,7 +192,7 @@ function inviteBody(body: unknown): InviteBody {
     const workspaceId = text(workspace.id).trim()
     const roleId = text(role.id).trim()
     if (!name || name.length > 100) throw new DirectoryError(400, 'Name is required')
-    if (!EMAIL_PATTERN.test(email)) throw new DirectoryError(400, 'Enter a valid email')
+    if (!isEmailAddress(email)) throw new DirectoryError(400, 'Enter a valid email')
     if (!workspaceId) throw new DirectoryError(400, 'Choose a team')
     if (!roleId) throw new DirectoryError(400, 'Choose a role')
     return { name, email, workspaceId, roleId }

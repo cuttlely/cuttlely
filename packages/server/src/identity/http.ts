@@ -154,9 +154,32 @@ identityAuthRouter.get('/callback', (req, res, next) => {
     void dispatch(req, res, next, handleCallback)
 })
 identityAuthRouter.post('/login', (req, res, next) => void dispatch(req, res, next, handleLoginPost))
-identityAuthRouter.post('/local/accept', (req, res, next) => {
+const acceptLinkLimit = rateLimit({
+    windowMs: LOGIN_FAILURE_WINDOW_MS,
+    max: LOGIN_FAILURE_LIMIT,
+    standardHeaders: false,
+    legacyHeaders: false,
+    skipSuccessfulRequests: true,
+    message: { message: 'Too many attempts. Try again later.' }
+})
+
+identityAuthRouter.post('/local/accept', acceptLinkLimit, (req, res) => {
     const query = req.query && typeof req.query === 'object' ? (req.query as Record<string, unknown>) : {}
-    void dispatch(req, res, next, (ctx) => acceptLocalRoute(ctx, query))
+    void acceptLocalRoute(buildAuthContext(req), query)
+        .then((result) => {
+            if (res.headersSent) return
+            if (result.type !== 'json') {
+                res.status(500).json({ message: 'Internal Server Error' })
+                return
+            }
+            const body = result.body
+            const message = body && typeof body === 'object' && 'message' in body ? (body as { message: unknown }).message : ''
+            res.status(result.status).json({ message: typeof message === 'string' ? message : 'Internal Server Error' })
+        })
+        .catch((error: unknown) => {
+            logger.error(`identity request failed: ${error instanceof Error ? error.name : 'error'}`)
+            if (!res.headersSent) res.status(500).json({ message: 'Internal Server Error' })
+        })
 })
 identityAuthRouter.post('/refreshToken', (req, res, next) => void dispatch(req, res, next, handleRefresh))
 identityAuthRouter.post('/resolve', (req, res, next) => void dispatch(req, res, next, handleResolve))
