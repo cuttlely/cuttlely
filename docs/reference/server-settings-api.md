@@ -8,6 +8,10 @@ Owner-only settings for this server. The page is **Admin** > **Server settings**
 
 The caller must be the organization owner, with a signed-in session. A missing session and an API key are 401. A signed-in caller who is not the owner is 403. Secrets are accepted on `PUT` and are never returned.
 
+These settings are instance-wide. One install has one settings file. A workspace role cannot read or change them, including a workspace admin whose session lists permissions from another workspace. The organization owner is an organization role, so that person can call this API from any workspace they are signed into.
+
+`GET` and `PUT` above are for ordinary settings. Env-only values are a separate list, [Read-only host values](#read-only-host-values). An ordinary setting still includes `value` (or `secret` for a secret). A read-only row does not.
+
 ## Read
 
 `GET` returns every setting the page knows. Each setting includes its key, label, help, type, and where the value comes from.
@@ -74,3 +78,124 @@ A refusal is 400:
 | `CUTTLELY_UI_PAGE_LIMIT_MAX`     | 3000    | 100 to 50000                               | count   |
 
 The question cap default of 100 and the concurrency default of 2 are the same numbers the publish check used before these settings existed. With nothing set, behaviour is unchanged. How to set them in the page: [Limits that apply immediately](../how-to/server-settings.md#limits-that-apply-immediately).
+
+## Read-only host values
+
+Some values must stay in the environment. The API reports whether each one is set. It does not report the value, the length, a hash, a file path, a host name, or a connection string. A client should use `readOnly` and must not assume every setting has `value`.
+
+`GET /api/v1/server-settings/read-only`
+
+```json
+{
+    "scope": "instance",
+    "settings": [{ "key": "PORT", "set": true, "source": "env", "readOnly": true }]
+}
+```
+
+`GET /api/v1/server-settings/read-only/:key` returns that one object. An unknown name, including a name that is an ordinary setting, is 404 `{ "code": "NOT_FOUND", "message": "No read-only setting with that name." }`. The message does not repeat the name from the path.
+
+The same rows are on `GET /api/v1/server-settings` as `readOnly`. They are not mixed into `settings`.
+
+`source` on a read-only row is one of `env`, `file`, `default`, or `unset`. That enum is only for this list. Ordinary settings still use `host`, `file`, `default`, `panel`, and `bounded`.
+
+| `source`  | Meaning                                                                                                               |
+| --------- | --------------------------------------------------------------------------------------------------------------------- |
+| `env`     | The environment holds a value this key accepts. `set` is true.                                                        |
+| `file`    | A sign-in secret was read from its file under a configured `SECRETKEY_PATH`. `set` is true. The path is not returned. |
+| `default` | The variable is blank, and the server has a built-in. `set` is false. The built-in is not returned.                   |
+| `unset`   | Nothing usable is configured. `set` is false.                                                                         |
+
+A blank value, a value that is only spaces, or a value the key does not accept is not `set: true`. Examples: `PORT=0` or `PORT=70000`, `REDIS_URL` that is not a `redis:` or `rediss:` URL, `REDIS_TLS=TRUE`, a `SECRETKEY_PATH` that is not an existing directory, a secret file that is empty or only spaces, and `SECRETKEY_STORAGE_TYPE` other than `aws`. `aws` is the only storage type that counts as set. A blank value leaves the local key file (`source: default`). Any other text is `source: unset`.
+
+Sign-in secrets (`JWT_AUTH_TOKEN_SECRET`, `JWT_REFRESH_TOKEN_SECRET`, `JWT_ISSUER`, `JWT_AUDIENCE`, `EXPRESS_SESSION_SECRET`, `TOKEN_HASH_SECRET`) use `source: file` only when `SECRETKEY_PATH` is an existing directory and that secret's file has a non-empty value. The status call does not create the directory or the file. When `SECRETKEY_PATH` is unset, those keys are `unset` even if a file exists somewhere else.
+
+The list is fixed. The server does not scan the process environment for names that start with a prefix.
+
+| Key                                        | Counts as set when                                       |
+| ------------------------------------------ | -------------------------------------------------------- |
+| `PORT`                                     | An integer from 1 to 65535                               |
+| `HOST`                                     | Non-blank text                                           |
+| `CUTTLELY_DATA_DIR`                        | Non-blank text. Blank uses the built-in data directory   |
+| `MODE`                                     | `queue` or `main`. Blank uses the built-in mode          |
+| `LOG_PATH`                                 | Non-blank text. Blank uses the built-in log directory    |
+| `BLOB_STORAGE_PATH`                        | Non-blank text. Blank uses the built-in storage path     |
+| `SECRETKEY_PATH`                           | An existing directory                                    |
+| `SECRETKEY_STORAGE_TYPE`                   | `aws`                                                    |
+| `SECRETKEY_AWS_ACCESS_KEY`                 | Non-blank text                                           |
+| `SECRETKEY_AWS_SECRET_KEY`                 | Non-blank text                                           |
+| `SECRETKEY_AWS_REGION`                     | Non-blank text                                           |
+| `SECRETKEY_AWS_NAME`                       | Non-blank text                                           |
+| `FLOWISE_SECRETKEY_OVERWRITE`              | Non-blank text                                           |
+| `CUTTLELY_SECRETKEY_OVERWRITE`             | Non-blank text                                           |
+| `JWT_AUTH_TOKEN_SECRET`                    | Environment text, or a non-empty secret file             |
+| `JWT_REFRESH_TOKEN_SECRET`                 | Environment text, or a non-empty secret file             |
+| `JWT_ISSUER`                               | Environment text, or a non-empty secret file             |
+| `JWT_AUDIENCE`                             | Environment text, or a non-empty secret file             |
+| `EXPRESS_SESSION_SECRET`                   | Environment text, or a non-empty secret file             |
+| `TOKEN_HASH_SECRET`                        | Environment text, or a non-empty secret file             |
+| `REDIS_URL`                                | A `redis:` or `rediss:` URL with a host                  |
+| `REDIS_HOST`                               | Non-blank text. Blank uses the built-in host             |
+| `REDIS_PORT`                               | An integer from 1 to 65535. Blank uses the built-in port |
+| `REDIS_USERNAME`                           | Non-blank text                                           |
+| `REDIS_PASSWORD`                           | Non-blank text                                           |
+| `REDIS_TLS`                                | `true` or `false`. Blank uses the built-in               |
+| `REDIS_CERT`                               | Base64 that decodes to bytes                             |
+| `REDIS_KEY`                                | Base64 that decodes to bytes                             |
+| `REDIS_CA`                                 | Base64 that decodes to bytes                             |
+| `CUSTOM_MCP_PROTOCOL`                      | Non-blank text                                           |
+| `CUSTOM_MCP_ALLOWED_COMMANDS`              | Non-blank text                                           |
+| `CUSTOM_MCP_ALLOWED_ENV_VARS`              | Non-blank text                                           |
+| `CUSTOM_MCP_ALLOWED_ABSOLUTE_SCRIPT_PATHS` | Non-blank text                                           |
+| `CUSTOM_MCP_SECURITY_CHECK`                | `true` or `false`                                        |
+| `TOOL_FUNCTION_BUILTIN_DEP`                | Non-blank text                                           |
+| `TOOL_FUNCTION_EXTERNAL_DEP`               | Non-blank text                                           |
+| `ALLOW_BUILTIN_DEP`                        | `true` or `false`                                        |
+| `HTTP_SECURITY_CHECK`                      | `true` or `false`                                        |
+| `PATH_TRAVERSAL_SAFETY`                    | `true` or `false`                                        |
+| `OAUTH2_SECURITY_CHECK`                    | `true` or `false`                                        |
+| `CUTTLELY_ETL_ROOTS`                       | Non-blank text                                           |
+| `PUPPETEER_EXECUTABLE_PATH`                | Non-blank text                                           |
+| `PUPPETEER_EXECUTABLE_FILE_PATH`           | Non-blank text                                           |
+| `PLAYWRIGHT_EXECUTABLE_PATH`               | Non-blank text                                           |
+| `PLAYWRIGHT_EXECUTABLE_FILE_PATH`          | Non-blank text                                           |
+| `SANDBOX_TIMEOUT`                          | Non-blank text                                           |
+| `LANGSMITH_API_KEY`                        | Non-blank text                                           |
+| `LANGSMITH_TRACING`                        | `true` or `false`                                        |
+| `LANGSMITH_TRACING_V2`                     | `true` or `false`                                        |
+
+`LANGSMITH_PROJECT` and `LANGSMITH_ENDPOINT` are ordinary settings, not rows in this list. `LANGCHAIN_API_KEY`, `LANGCHAIN_PROJECT`, `LANGCHAIN_ENDPOINT`, and `LANGCHAIN_TRACING_V2` stay ordinary settings too. The LangSmith API key is `LANGSMITH_API_KEY` above, and the response never includes it.
+
+`GET /api/v1/settings`, the setup link, and a public chat config do not include `readOnly` or any of these values.
+
+### Writes
+
+A read-only key cannot be saved, changed, or removed.
+
+| Method and path                                                    | Result                                                                                                                                                                          |
+| ------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `PUT /api/v1/server-settings` with a read-only key                 | 400. Nothing is written. If every key in `values` is read-only, `code` is `READ_ONLY`. A mix with any other error is `INVALID`, and each read-only row has `code: "READ_ONLY"`. |
+| `PUT`, `PATCH`, or `DELETE /api/v1/server-settings/read-only/:key` | 400 `{ "code": "READ_ONLY", "message": "This setting cannot be changed." }` when the key is in the list. 404 when it is not.                                                    |
+| `PATCH` or `DELETE /api/v1/server-settings/read-only`              | 400 `READ_ONLY`                                                                                                                                                                 |
+| `PATCH` or `DELETE /api/v1/server-settings`                        | 400 `READ_ONLY` when `values` names a read-only key. 405 `METHOD_NOT_ALLOWED` when it does not. Ordinary changes stay on `PUT`.                                                 |
+
+The error body does not include the submitted text. A rejected write is not added to History.
+
+```json
+{
+    "code": "READ_ONLY",
+    "message": "This setting cannot be changed.",
+    "errors": [{ "key": "PORT", "code": "READ_ONLY", "message": "This setting cannot be changed." }]
+}
+```
+
+### Ordinary settings for logs and LangSmith
+
+`LOG_SANITIZE_BODY_FIELDS` and `LOG_SANITIZE_HEADER_FIELDS` are lists of field names. Each name starts with a letter and then uses letters, numbers, hyphens, or underscores, up to 64 characters, and at most 40 names. Names are stored in lower case. A bad list is 400 with `code: "INVALID_NAME"` on that error. The message does not repeat the submitted text.
+
+`LANGSMITH_PROJECT` is a name of up to 128 characters: letters, numbers, spaces, dots, hyphens, or underscores. A bad name is 400 `INVALID_NAME`.
+
+`LANGSMITH_ENDPOINT` is an `http` or `https` address with a host, no user name, no password, no query, and no fragment, up to 200 characters. A bad address is 400 `INVALID_URL`. The message does not repeat the address.
+
+An empty string clears any of these, the same as other ordinary settings. A restart applies them.
+
+Knowing that a secret exists is enough to operate the server. Returning the secret, how long it is, a hash of it, the path it was read from, or the Redis address would tell a stolen owner session more than it needs.
