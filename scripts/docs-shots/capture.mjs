@@ -378,9 +378,7 @@ async function askExpanded(page, question) {
 async function scrollChat(page, text) {
     await page.evaluate((needle) => {
         const root = document.querySelector('.MuiDialog-root') || document.body
-        const scroller = [...root.querySelectorAll('div')].reverse().find((el) => el.scrollHeight > el.clientHeight + 80)
-        if (!scroller) return
-        const target = [...scroller.querySelectorAll('p, span, strong, div, button, li')]
+        const target = [...root.querySelectorAll('p, span, strong, div, button, li')]
             .filter((el) => el.textContent.includes(needle))
             .sort((a, b) => a.textContent.length - b.textContent.length)[0]
         if (target) target.scrollIntoView({ block: 'start' })
