@@ -66,6 +66,8 @@ describe('identity sqlite migrations', () => {
         let columns = names(await runner.query(`PRAGMA table_info("user")`))
         assert.equal(columns.has('externalId'), true)
         assert.equal(tables.has('identity_local_session'), true)
+        const sessionColumns = names(await runner.query(`PRAGMA table_info("identity_local_session")`))
+        assert.equal(sessionColumns.has('lastSeenAt'), true)
         assert.equal(tables.has('identity_bootstrap'), false)
         assert.equal(tables.has('identity_login_failure'), false)
 

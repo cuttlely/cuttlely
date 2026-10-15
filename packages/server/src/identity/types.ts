@@ -77,6 +77,10 @@ export interface LocalSession {
     token: string
     idleExpires: Date
     absoluteExpires: Date
+    /** When the session was created. Older rows derive this from the absolute expiry. */
+    issuedAt?: Date
+    /** Last time the session was issued or refreshed. Older rows derive this from the idle expiry. */
+    lastSeenAt?: Date
 }
 
 export interface CreateOwnerInput {
@@ -100,10 +104,14 @@ export type LinkResult = { ok: true; user: UserRow; bootstrapped: boolean } | { 
 export interface WorkosPort {
     authorizationUrl(redirectUri: string): string
     authenticate(code: string): Promise<{ user: WorkosIdentity; sealedSession: string }>
-    authenticateSession(sealed: string): Promise<{ authenticated: true; user: WorkosIdentity } | { authenticated: false; reason: string }>
+    authenticateSession(
+        sealed: string
+    ): Promise<{ authenticated: true; user: WorkosIdentity; sessionId?: string } | { authenticated: false; reason: string }>
     refresh(
         sealed: string
-    ): Promise<{ authenticated: true; sealedSession: string; user: WorkosIdentity } | { authenticated: false; reason: string }>
+    ): Promise<
+        { authenticated: true; sealedSession: string; user: WorkosIdentity; sessionId?: string } | { authenticated: false; reason: string }
+    >
     logoutUrl(sealed: string, returnTo?: string): Promise<string>
     setExternalId(workosUserId: string, ourUserId: string): Promise<void>
 }

@@ -61,6 +61,7 @@ import { AddDatasetRowSource1795000000000 } from './1795000000000-AddDatasetRowS
 import { AddDatasetRowRating1796000000000 } from './1796000000000-AddDatasetRowRating'
 import { AddChatMessageFlowCreatedIndex1797000000000 } from './1797000000000-AddChatMessageFlowCreatedIndex'
 import { AddIdentityActionLinks1797000000000 } from './1797000000000-AddIdentityActionLinks'
+import { AddSessionSeen1798000000000 } from './1798000000000-AddSessionSeen'
 
 import { AddAuthTables1720230151482 } from './1720230151482-AddAuthTables'
 import { AddWorkspace1725437498242 } from './1725437498242-AddWorkspace'
@@ -148,5 +149,6 @@ export const mariadbMigrations = [
     AddDatasetRowSource1795000000000,
     AddDatasetRowRating1796000000000,
     AddChatMessageFlowCreatedIndex1797000000000,
-    AddIdentityActionLinks1797000000000
+    AddIdentityActionLinks1797000000000,
+    AddSessionSeen1798000000000
 ]

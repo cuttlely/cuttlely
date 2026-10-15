@@ -1,7 +1,7 @@
 import fs from 'fs'
 import os from 'os'
 import path from 'path'
-import { settingFor } from './registry'
+import { SETTINGS, settingFor } from './registry'
 import {
     RUNTIME_CACHE_MS,
     invalidateRuntimeCache,
@@ -48,6 +48,22 @@ describe('runtime limits', () => {
         env.CUTTLELY_CHECK_CONCURRENCY = '6'
         expect(runtimeSnapshot(env).get('CUTTLELY_CHECK_CONCURRENCY')).toEqual({ value: 6, source: 'host' })
         expect(console.warn).not.toHaveBeenCalled()
+    })
+
+    it('lets a saved history cap win over the environment variable', () => {
+        const { data, env } = tempEnv()
+        env.CUTTLELY_HISTORY_KEEP = '2000'
+        expect(runtimeSnapshot(env).get('CUTTLELY_HISTORY_KEEP')).toEqual({ value: 2000, source: 'host' })
+        save(data, { CUTTLELY_HISTORY_KEEP: '250' })
+        resetRuntimeLimitsForTests()
+        expect(runtimeSnapshot(env).get('CUTTLELY_HISTORY_KEEP')).toEqual({ value: 250, source: 'panel' })
+        env.CUTTLELY_HISTORY_KEEP = '50'
+        resetRuntimeLimitsForTests()
+        expect(runtimeNumber('CUTTLELY_HISTORY_KEEP', env)).toBe(250)
+        fs.rmSync(path.join(data, 'settings'), { recursive: true, force: true })
+        resetRuntimeLimitsForTests()
+        expect(runtimeSnapshot(env).get('CUTTLELY_HISTORY_KEEP')).toEqual({ value: 1000, source: 'default' })
+        expect(console.warn).toHaveBeenCalled()
     })
 
     it('ignores a bad host value and uses a valid panel value, then the default', () => {
@@ -209,8 +225,18 @@ describe('runtime limits', () => {
             CUTTLELY_HARNESS_TURN_SCAN_CAP: { min: 500, max: 5000, defaultValue: '2000', unit: 'count' },
             CUTTLELY_RATING_IMPORT_CAP: { min: 50, max: 5000, defaultValue: '500', unit: 'count' },
             CUTTLELY_RATING_SCAN_CAP: { min: 50, max: 20000, defaultValue: '1000', unit: 'count' },
-            CUTTLELY_UI_PAGE_LIMIT_MAX: { min: 100, max: 50000, defaultValue: '3000', unit: 'count' }
+            CUTTLELY_UI_PAGE_LIMIT_MAX: { min: 100, max: 50000, defaultValue: '3000', unit: 'count' },
+            CUTTLELY_LOGIN_FAILURE_LIMIT: { min: 3, max: 50, defaultValue: '10', unit: 'count' },
+            CUTTLELY_SESSION_IDLE_MINUTES: { min: 15, max: 1440, defaultValue: '720', unit: 'minutes' },
+            CUTTLELY_SESSION_ABSOLUTE_HOURS: { min: 1, max: 720, defaultValue: '168', unit: 'count' },
+            CUTTLELY_DRAIN_TIMEOUT_MS: { min: 0, max: 300000, defaultValue: '25000', unit: 'ms' },
+            CUTTLELY_HISTORY_KEEP: { min: 100, max: 10000, defaultValue: '1000', unit: 'count' }
         }
+        // Invite and mail numbers are runtime settings too, but a saved value wins, so they are not in this reader.
+        const runtimeKeys = SETTINGS.filter((setting) => setting.runtime && setting.type === 'number' && !setting.panelFirst)
+            .map((setting) => setting.key)
+            .sort()
+        expect(runtimeKeys).toEqual(Object.keys(expected).sort())
         for (const [key, bounds] of Object.entries(expected)) {
             const setting = settingFor(key)
             expect(setting).toMatchObject({ ...bounds, runtime: true, type: 'number' })
@@ -218,6 +244,18 @@ describe('runtime limits', () => {
             expect(runtimeNumber(key, { CUTTLELY_DATA_DIR: fs.mkdtempSync(path.join(os.tmpdir(), 'cuttlely-runtime-')) })).toBe(
                 Number(bounds.defaultValue)
             )
+        }
+        const panelFirst: Record<string, { min: number; max: number; defaultValue: string }> = {
+            INVITE_TOKEN_EXPIRY_IN_HOURS: { min: 1, max: 168, defaultValue: '72' },
+            PASSWORD_RESET_TOKEN_EXPIRY_IN_MINS: { min: 5, max: 1440, defaultValue: '60' },
+            SMTP_PORT: { min: 1, max: 65535, defaultValue: '587' }
+        }
+        const panelKeys = SETTINGS.filter((setting) => setting.runtime && setting.type === 'number' && setting.panelFirst)
+            .map((setting) => setting.key)
+            .sort()
+        expect(panelKeys).toEqual(Object.keys(panelFirst).sort())
+        for (const [key, bounds] of Object.entries(panelFirst)) {
+            expect(settingFor(key)).toMatchObject({ ...bounds, runtime: true, panelFirst: true, type: 'number' })
         }
     })
 })

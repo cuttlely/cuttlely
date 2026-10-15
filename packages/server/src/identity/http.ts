@@ -19,7 +19,8 @@
 import { NextFunction, Request, Response, Router } from 'express'
 import { rateLimit } from 'express-rate-limit'
 import logger from '../utils/logger'
-import { LOGIN_FAILURE_LIMIT, LOGIN_FAILURE_WINDOW_MS, localUsersMode } from './constants'
+import { LOGIN_FAILURE_WINDOW_MS, localUsersMode } from './constants'
+import { runtimeNumber } from '../settings/runtime'
 import {
     TOO_MANY,
     handleCallback,
@@ -89,7 +90,7 @@ export const identityAuthRouter = Router()
  */
 const localAuthRateLimit = rateLimit({
     windowMs: LOGIN_FAILURE_WINDOW_MS,
-    max: LOGIN_FAILURE_LIMIT,
+    max: () => runtimeNumber('CUTTLELY_LOGIN_FAILURE_LIMIT'),
     standardHeaders: false,
     legacyHeaders: false,
     skipSuccessfulRequests: true,
@@ -156,7 +157,8 @@ identityAuthRouter.get('/callback', (req, res, next) => {
 identityAuthRouter.post('/login', (req, res, next) => void dispatch(req, res, next, handleLoginPost))
 const acceptLinkLimit = rateLimit({
     windowMs: LOGIN_FAILURE_WINDOW_MS,
-    max: LOGIN_FAILURE_LIMIT,
+    // Same live cap as local password sign-in. A saved failure limit applies without a restart.
+    max: () => runtimeNumber('CUTTLELY_LOGIN_FAILURE_LIMIT'),
     standardHeaders: false,
     legacyHeaders: false,
     skipSuccessfulRequests: true,

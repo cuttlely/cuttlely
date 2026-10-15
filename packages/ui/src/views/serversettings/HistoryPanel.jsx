@@ -33,7 +33,7 @@ const HistoryPanel = ({ labels, refreshKey }) => {
     useEffect(() => {
         let live = true
         serverSettingsApi
-            .getHistory(200)
+            .getHistory(100)
             .then((res) => live && setEntries(res.data.entries ?? []))
             .catch(() => live && setFailed(true))
         return () => {

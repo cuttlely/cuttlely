@@ -9,6 +9,13 @@ import { UNIT_LABELS, currentValue, describeValue, fromDisplay, limitedByLabel, 
 
 const CUSTOM = '__custom__'
 
+/** The history cap names its source as panel, env, or default. The API still says host for the environment. */
+function historyKeepSource(source) {
+    if (source === 'panel') return 'panel'
+    if (source === 'host') return 'env'
+    return 'default'
+}
+
 // One setting: label, help, its name, and the control. Locked settings show where the value comes from.
 const SettingField = ({ setting, drafts, onDraft, error, readOnlyNote }) => {
     const theme = useTheme()
@@ -125,6 +132,16 @@ const SettingField = ({ setting, drafts, onDraft, error, readOnlyNote }) => {
                 {!readOnlyNote && !error && (
                     <Typography variant='caption' color='text.secondary' sx={{ display: 'block', mt: 0.75 }}>
                         {setting.type === 'secret' ? null : value === '' ? `Default: ${setting.defaultLabel}` : null}
+                    </Typography>
+                )}
+                {setting.key === 'CUTTLELY_HISTORY_KEEP' && setting.effective && (
+                    <Typography
+                        variant='caption'
+                        color='text.secondary'
+                        data-testid='history-keep-source'
+                        sx={{ display: 'block', mt: 0.75 }}
+                    >
+                        In effect: {setting.effective} ({historyKeepSource(setting.source)})
                     </Typography>
                 )}
             </Box>
@@ -423,6 +440,7 @@ const settingShape = PropTypes.shape({
     type: PropTypes.string.isRequired,
     locked: PropTypes.bool,
     source: PropTypes.string,
+    effective: PropTypes.string,
     boundedBy: PropTypes.string,
     hostHint: PropTypes.string,
     changed: PropTypes.bool,

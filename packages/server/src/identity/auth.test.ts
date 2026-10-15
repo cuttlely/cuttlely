@@ -138,9 +138,11 @@ class MemoryStore implements IdentityStore {
         return this.local.get(token) || null
     }
 
-    async slideLocalSession(token: string, idleExpires: Date): Promise<void> {
+    async slideLocalSession(token: string, idleExpires: Date, lastSeenAt?: Date): Promise<void> {
         const row = this.local.get(token)
-        if (row) row.idleExpires = idleExpires
+        if (!row) return
+        row.idleExpires = idleExpires
+        if (lastSeenAt) row.lastSeenAt = lastSeenAt
     }
 
     async deleteLocalSession(token: string): Promise<void> {
