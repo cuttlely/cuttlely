@@ -19,15 +19,14 @@ const CHAT_MESSAGE_SOURCE = 'chat_message'
 const CHAT_RATING_SOURCE = 'chat_rating'
 const RATING_VALUES = new Set(['THUMBS_UP', 'THUMBS_DOWN'])
 // One call does not copy an unbounded history. Callers can ask for fewer.
-export function ratingImportCap(): number {
+export function getRatingImportCap(): number {
     return runtimeNumber('CUTTLELY_RATING_IMPORT_CAP')
 }
 const RATING_PAGE = 200
 // A window full of stored or question-less ratings must not walk the whole history.
-export function ratingScanCap(): number {
+export function getRatingScanCap(): number {
     return runtimeNumber('CUTTLELY_RATING_SCAN_CAP')
 }
-export { ratingImportCap as RATING_IMPORT_CAP, ratingScanCap as RATING_SCAN_CAP }
 const RATING_PREVIEW_ROWS = 5
 const RATING_PREVIEW_CHARS = 160
 const RATING_DAY_MS = 24 * 60 * 60 * 1000
@@ -81,7 +80,7 @@ function parseRatingCursor(value: unknown): RatingCursor | null {
 
 function parseFeedbackIds(value: unknown): string[] | null {
     if (value === undefined || value === null) return null
-    if (!Array.isArray(value) || value.length > ratingImportCap()) {
+    if (!Array.isArray(value) || value.length > getRatingImportCap()) {
         throw new AppError(StatusCodes.BAD_REQUEST, 'feedbackIds must be a list of ids.')
     }
     const ids: string[] = []
@@ -832,7 +831,7 @@ const addDatasetRowsFromRatings = async (
         }
         const rating = body.rating as ChatMessageRatingType
         const days = body.days
-        const limit = typeof body.limit === 'number' ? Math.min(body.limit, ratingImportCap()) : ratingImportCap()
+        const limit = typeof body.limit === 'number' ? Math.min(body.limit, getRatingImportCap()) : getRatingImportCap()
         const dryRun = body.dryRun === true
         const since = new Date(Date.now() - days * RATING_DAY_MS)
 
@@ -873,8 +872,8 @@ const addDatasetRowsFromRatings = async (
         let lastScanned: ChatMessageFeedback | null = null
         const rawById = new Map<string, string>()
         let pageBefore = before
-        while (!fixedIds && planned.length < limit && scanned < ratingScanCap()) {
-            const take = Math.min(ratingPageForTest ?? RATING_PAGE, ratingScanCap() - scanned)
+        while (!fixedIds && planned.length < limit && scanned < getRatingScanCap()) {
+            const take = Math.min(ratingPageForTest ?? RATING_PAGE, getRatingScanCap() - scanned)
             const loaded = await loadRatingFeedback(feedbackRepo, {
                 flowId: flow.id,
                 rating,
@@ -901,7 +900,7 @@ const addDatasetRowsFromRatings = async (
             const stored = new Set(existing.map((item) => item.sourceMessageId).filter((id): id is string => Boolean(id)))
             let inspected = 0
             for (const feedback of page) {
-                if (planned.length >= limit || scanned >= ratingScanCap()) break
+                if (planned.length >= limit || scanned >= getRatingScanCap()) break
                 scanned += 1
                 inspected += 1
                 lastScanned = feedback
