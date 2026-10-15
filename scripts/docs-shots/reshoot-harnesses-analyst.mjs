@@ -10,6 +10,7 @@ import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { themeFor } from './theme.mjs'
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
 const OUT_H = path.join(ROOT, 'docs/images/harnesses')
@@ -118,6 +119,9 @@ function startServer(extra = {}) {
 
 const adminPath = path.join(TMP, 'admin.json')
 
+// The key the first server started with: OPENAI_API_KEY, or the stand-in key when that is unset.
+let modelKey = ''
+
 function ensureAdmin() {
     if (fs.existsSync(adminPath)) return JSON.parse(fs.readFileSync(adminPath, 'utf8'))
     const password = `Aa1!${crypto.randomBytes(12).toString('hex')}`
@@ -210,8 +214,39 @@ async function note(page, file) {
     assertNoMoney(text, file)
 }
 
+// Frames whose main subject is the canvas editor. A large dialog over a canvas, and crops of only
+// the chat panel, stay light.
+const DARK = new Set([
+    'harnesses/template-chief-of-staff.png',
+    'harnesses/canvas-from-template.png',
+    'harnesses/save-dialog-name.png',
+    'harnesses/save-rejected-grok-credential.png',
+    'harnesses/add-node-openai.png',
+    'harnesses/openai-connected.png',
+    'harnesses/openai-credential-pick.png',
+    'harnesses/postgres-mcp-query.png',
+    'harnesses/canvas-saved.png',
+    'harnesses/sync-nodes.png',
+    'harnesses/canvas-chat-researcher.png',
+    'harnesses/canvas-chat-analyst.png',
+    'harnesses/build-with-ai-built.png',
+    'harnesses/build-with-ai-chat.png',
+    'harnesses/build-with-ai-missing-credential.png',
+    'harnesses/build-with-ai-classic.png',
+    'harnesses/chatflow-add-harness-node.png',
+    'harnesses/chatflow-harness-chat.png',
+    'analyst/postgres-mcp-query.png',
+    'analyst/canvas-chat-sales.png',
+    'analyst/available-actions-create-roles.png'
+])
+
+async function applyTheme(page, file) {
+    await themeFor(page, DARK.has(path.relative(path.join(ROOT, 'docs/images'), file)))
+}
+
 async function shot(page, file, width, height) {
     await page.setViewportSize({ width, height })
+    await applyTheme(page, file)
     await sleep(300)
     await page.screenshot({ path: file })
     await note(page, file)
@@ -219,6 +254,7 @@ async function shot(page, file, width, height) {
 }
 
 async function shotClip(page, file, box) {
+    await applyTheme(page, file)
     await page.screenshot({ path: file, clip: box })
     log(path.basename(file))
 }
@@ -282,7 +318,7 @@ async function stepCredential(page) {
     if (await name.count()) await name.fill('OpenAI main')
     else await dialog.getByRole('textbox').first().fill('OpenAI main')
     await shot(page, path.join(OUT_H, 'credential-openai-form.png'), 1440, 960)
-    const key = process.env.OPENAI_API_KEY
+    const key = modelKey
     await dialog.locator('input[type="password"]').fill(key)
     await dialog.getByRole('button', { name: 'Add', exact: true }).click()
     await page.getByText(/New Credential added/i).waitFor({ timeout: 15000 })
@@ -390,6 +426,7 @@ async function framePostgresCard(page, node, file) {
             end.x >= box.x &&
             end.x + end.width <= box.x + box.width + 4
         if (fits) {
+            await applyTheme(page, file)
             await sleep(500)
             await page.screenshot({ path: file })
             await note(page, file)
@@ -469,11 +506,15 @@ async function askCanvas(page, question, until = 'Finished') {
 }
 
 async function stepChats(page) {
+    await ensureCanvas()
     await askCanvas(page, 'What does the sample note say the researcher reads, and how were its vectors built?')
     await shot(page, path.join(OUT_H, 'canvas-chat-researcher.png'), 1440, 960)
+    // A stream event that lands after Clear Chat empties the list throws in the chat panel.
+    await sleep(2000)
     await page.getByTitle('Clear Chat History').click()
     await page.getByRole('button', { name: 'Clear', exact: true }).click()
     await sleep(600)
+    await page.goto(state.canvas, { waitUntil: 'networkidle' })
     await askCanvas(
         page,
         'Use the analyst database. Create a tasks table with id, title, and status. Insert three tasks: draft agenda (open), book room (done), send invites (open). Show the open tasks.'
@@ -518,6 +559,16 @@ async function stepBuild(page) {
     await page.getByRole('button', { name: 'chat', exact: true }).click()
     await page.getByText(/seven days in Italy/i).click()
     await page.getByText('Finished').waitFor({ timeout: 180000 })
+    // Clicking the starter scrolls an overflow: hidden ancestor, which shifts the whole canvas.
+    await page.evaluate(() => {
+        for (const el of document.querySelectorAll('*')) {
+            if (!el.scrollTop && !el.scrollLeft) continue
+            if (/hidden|clip/.test(getComputedStyle(el).overflow)) {
+                el.scrollTop = 0
+                el.scrollLeft = 0
+            }
+        }
+    })
     await shot(page, path.join(OUT_H, 'build-with-ai-chat.png'), 1440, 960)
     const news = "A news team: a researcher who searches the web with Tavily for today's headlines, and a writer who sums them up."
     dialog = await buildTeam(page, news, 'panel')
@@ -604,7 +655,7 @@ async function terminalShot(browser, file, lines, width, height) {
     const flat = lines.flatMap((line) => String(line).split('\n'))
     const body = flat.map((line) => `<div>${escapeHtml(line) || ' '}</div>`).join('')
     await page.setContent(
-        `<!doctype html><body style="margin:0;background:#fff;color:#222;font:13px/1.35 'DejaVu Sans Mono',monospace;padding:10px 12px">${body}<div>$ <span style="display:inline-block;width:8px;height:13px;background:#222"></span></div></body>`
+        `<!doctype html><body style="margin:0;background:#fff;color:#222;font:13px/1.35 'DejaVu Sans Mono',monospace;padding:10px 12px;white-space:pre">${body}<div>$ <span style="display:inline-block;width:8px;height:13px;background:#222"></span></div></body>`
     )
     await page.screenshot({ path: file })
     await page.close()
@@ -714,6 +765,7 @@ async function stepAnalyst(page) {
     await page.setViewportSize({ width: 1440, height: 918 })
     const chat = page.locator('.cloud-wrapper')
     const chatBox = await chat.boundingBox()
+    await applyTheme(page, path.join(OUT_A, 'paging-page-1-start.png'))
     await page.screenshot({
         path: path.join(OUT_A, 'paging-page-1-start.png'),
         clip: { x: chatBox.x, y: chatBox.y, width: 400, height: 738 }
@@ -728,9 +780,30 @@ async function runTry(page, harness, prompt, until, { fresh = true } = {}) {
     await page.getByRole('heading', { name: 'Try it' }).waitFor()
     const box = page.getByPlaceholder('Ask this harness')
     await box.fill(prompt)
-    const before = await page.getByText('Finished').count()
+    // A run on the same page replaces the previous card, so wait for the Try it panel to change.
+    const panelText = () => {
+        const text = document.body.innerText
+        const start = text.indexOf('Try it')
+        const end = text.indexOf('\nRuns\n', start)
+        return text.slice(start, end > start ? end : undefined)
+    }
+    const before = await page.evaluate(panelText)
     await page.getByRole('button', { name: 'Run', exact: true }).click()
-    await page.waitForFunction((n) => document.body.innerText.split('Finished').length - 1 > n, before, { timeout: 180000 })
+    await page
+        .getByRole('button', { name: 'Running' })
+        .waitFor({ timeout: 5000 })
+        .catch(() => {})
+    await page.waitForFunction(
+        (prev) => {
+            const text = document.body.innerText
+            const start = text.indexOf('Try it')
+            const end = text.indexOf('\nRuns\n', start)
+            const now = text.slice(start, end > start ? end : undefined)
+            return now !== prev && now.includes('Finished')
+        },
+        before,
+        { timeout: 180000 }
+    )
     if (until) await page.getByText(until).last().waitFor({ timeout: 30000 })
     await page.getByRole('button', { name: 'Run', exact: true }).waitFor({ timeout: 30000 })
     await sleep(300)
@@ -761,6 +834,7 @@ async function clipAt(page, file, x, y, width, height) {
     const vp = page.viewportSize()
     const left = Math.max(0, Math.min(x, vp.width - width))
     const top = Math.max(0, Math.min(y, vp.height - height))
+    await applyTheme(page, file)
     await page.screenshot({ path: file, clip: { x: left, y: top, width, height } })
     log(path.basename(file))
 }
@@ -887,6 +961,7 @@ async function stepPaging(page) {
     await scrollTextToTop(page, 'Analyst: run these statements')
     const chat = page.locator('.cloud-wrapper')
     const chatBox = await chat.boundingBox()
+    await applyTheme(page, path.join(OUT_A, 'paging-page-1-start.png'))
     await page.screenshot({
         path: path.join(OUT_A, 'paging-page-1-start.png'),
         clip: { x: chatBox.x, y: chatBox.y, width: 400, height: 738 }
@@ -895,6 +970,7 @@ async function stepPaging(page) {
     await scrollTextToTop(page, 'Ticket 90')
     const page1 = path.join(TMP, 'paging-page-1-element.png')
     const box1 = await page.locator('.cloud-wrapper').boundingBox()
+    await applyTheme(page, path.join(OUT_A, 'paging-page-1-line.png'))
     await page.screenshot({ path: page1, clip: box1 })
     await placePng(page, page1, path.join(OUT_A, 'paging-page-1-line.png'), 1200, 1086)
     await runTry(page, 'chief-of-staff', prompt, /rows 1-100 of 150/)
@@ -1035,23 +1111,6 @@ async function workspaceIdByName(name) {
     return ''
 }
 
-function cloneCredential(workspaceId) {
-    const db = path.join(DATA, 'database.sqlite')
-    const row = execFileSync('sqlite3', ['-separator', '\t', db, `SELECT name, credentialName, encryptedData FROM credential LIMIT 1;`], {
-        encoding: 'utf8'
-    }).trim()
-    const [name, credentialName, encryptedData] = row.split('\t')
-    const id = crypto.randomUUID()
-    execFileSync('sqlite3', [
-        db,
-        `INSERT INTO credential (id, name, credentialName, encryptedData, workspaceId) VALUES ('${id}', '${name.replace(
-            /'/g,
-            "''"
-        )}', '${credentialName.replace(/'/g, "''")}', '${encryptedData.replace(/'/g, "''")}', '${workspaceId}');`
-    ])
-    return id
-}
-
 async function shotNothingYet(page) {
     await ensureCanvas()
     await page.goto(state.canvas, { waitUntil: 'networkidle' })
@@ -1088,6 +1147,7 @@ async function shotNothingYet(page) {
     if (textBox.y < clipY || textBox.y + textBox.height > clipY + 800) {
         throw new Error('the nothing-to-page reply is still cut off')
     }
+    await applyTheme(page, path.join(OUT_A, 'paging-nothing-yet.png'))
     await page.screenshot({
         path: path.join(OUT_A, 'paging-nothing-yet.png'),
         clip: { x: chatBox.x, y: clipY, width: 400, height: 809 }
@@ -1128,16 +1188,20 @@ async function stepWorkspaces(page) {
         const created = await api('POST', '/workspace', { name: 'Demo team B', organizationId: org, description: 'Second bakery team' })
         teamB = created.id
     }
+    const homeCredentials = await api('GET', '/credentials')
+    const homeCredential = (Array.isArray(homeCredentials) ? homeCredentials : homeCredentials?.data || []).find((row) =>
+        savedFlow.includes(row.id)
+    )?.id
+    if (!homeCredential) throw new Error('the saved harness has no credential from the home team')
     await api('POST', `/workspace/switch?id=${encodeURIComponent(teamB)}`)
     const teamList = await flowList()
     const stale = teamList.find((flow) => flow.name === 'bakery-team-b-auto')
     if (stale) await api('DELETE', `/chatflows/${stale.id}`)
-    const homeCredential = execFileSync(
-        'sqlite3',
-        [path.join(DATA, 'database.sqlite'), `SELECT id FROM credential WHERE workspaceId != '${teamB}' LIMIT 1;`],
-        { encoding: 'utf8' }
-    ).trim()
-    const credentialId = cloneCredential(teamB)
+    const { id: credentialId } = await api('POST', '/credentials', {
+        name: 'OpenAI main',
+        credentialName: 'openAIApi',
+        plainDataObj: { openAIApiKey: modelKey }
+    })
     const rebound = savedFlow.replaceAll(homeCredential, credentialId)
     await api('POST', '/chatflows', {
         name: 'bakery-team-b-auto',
@@ -1183,9 +1247,11 @@ async function stepRetakeChats(page) {
         /draft agenda/
     )
     await shot(page, path.join(OUT_H, 'canvas-chat-analyst.png'), 1440, 960)
+    await sleep(2000)
     await page.getByTitle('Clear Chat History').click()
     await page.getByRole('button', { name: 'Clear', exact: true }).click()
     await sleep(400)
+    await page.goto(state.canvas, { waitUntil: 'networkidle' })
     await askCanvas(
         page,
         'Use the analyst database. Create a sales table with id, region, and units. Insert west 10, east 20, and west 5. Show the total units by region. Then add 10 to every west row and show all rows.',
@@ -1363,7 +1429,7 @@ END $$;`
     const banner = execFileSync('psql', ['--version'], { encoding: 'utf8' }).trim()
     const lines = [
         `$ sudo -u postgres psql -d cuttlely`,
-        `psql (${banner.replace(/^psql \(PostgreSQL\) /, '')} (Ubuntu 16.15-0ubuntu0.24.04.1))`,
+        `psql (${banner.replace(/^psql \(PostgreSQL\) /, '')})`,
         'Type "help" for help.',
         '',
         `cuttlely=# \\dn analyst*`
@@ -1371,68 +1437,7 @@ END $$;`
     for (const line of psql.trimEnd().split('\n')) lines.push(line)
     lines.push('cuttlely=#')
     await terminalShot(page.context().browser(), path.join(OUT_A, 'postgres-analyst-role.png'), lines, 1284, 444)
-    await bootPostgres(page, 'pg-closed', 'cuttlely_closed', 'cuttlely_limited', false)
-    const closed = 'http://127.0.0.1:43127'
-    await page.goto(`${closed}/signin`, { waitUntil: 'networkidle' })
-    const form2 = page
-        .locator('form')
-        .filter({ has: page.locator('input[type=password]') })
-        .first()
-    await form2.locator('input').first().fill(admin.email)
-    await form2.locator('input[type=password]').fill(admin.password)
-    await form2.getByRole('button', { name: /Sign in/ }).click()
-    await page.waitForURL((url) => !url.pathname.startsWith('/signin'), { timeout: 20000 })
-    await page.goto(`${closed}/marketplaces`, { waitUntil: 'domcontentloaded' })
-    await page.evaluate(() => {
-        localStorage.setItem('isDarkMode', 'false')
-        localStorage.setItem('cuttlely.canvasLook', 'classic')
-    })
-    await page.goto(`${closed}/marketplaces`, { waitUntil: 'networkidle' })
-    await page.getByRole('button', { name: 'Harness', exact: true }).click()
-    await page.getByText('Chief of Staff Harness').click()
-    await page.getByRole('button', { name: 'Use Template' }).click()
-    await page.waitForURL(/harnesscanvas/)
-    await page.locator('.react-flow__node').first().waitFor({ timeout: 30000 })
-    const mcp = page.getByTestId('rf__node-postgreSQLMCP_0')
-    await mcp.waitFor()
-    const refusal = page.getByText(/Analyst mode needs the application database user to create roles/)
-    for (let i = 0; i < 12; i += 1) {
-        const box = await mcp.boundingBox()
-        const vp = page.viewportSize()
-        if (box && box.y > 80 && box.y < 420 && box.x > 40) break
-        const fromX = 80
-        const fromY = 80
-        const dx = box ? vp.width * 0.62 - (box.x + box.width / 2) : 0
-        const dy = box ? 160 - box.y : 200
-        await page.mouse.move(fromX, fromY)
-        await page.mouse.down()
-        await page.mouse.move(fromX + dx, fromY + dy, { steps: 10 })
-        await page.mouse.up()
-        await sleep(200)
-    }
-    await refusal.waitFor({ timeout: 60000 })
-    let refusalBox = await refusal.boundingBox()
-    if (refusalBox && refusalBox.height < 28) {
-        await page.locator('.react-flow__controls-zoomin').click()
-        await sleep(300)
-        const box = await mcp.boundingBox()
-        const vp = page.viewportSize()
-        if (box) {
-            await page.mouse.move(40, 40)
-            await page.mouse.down()
-            await page.mouse.move(40 + (vp.width * 0.55 - box.x), 40 + (140 - box.y), { steps: 8 })
-            await page.mouse.up()
-            await sleep(200)
-        }
-        refusalBox = await refusal.boundingBox()
-    }
-    if (!refusalBox || refusalBox.height < 12) throw new Error('the create-roles refusal is not legible')
-    const card = await mcp.boundingBox()
-    if (card && refusalBox.y + refusalBox.height > card.y + card.height + 4) {
-        throw new Error('the create-roles refusal is cut off by the node')
-    }
-    await sleep(400)
-    await shot(page, path.join(OUT_A, 'available-actions-create-roles.png'), 1440, 960)
+    await frameCreateRoles(page)
     void savedBase
 }
 
@@ -1576,6 +1581,7 @@ async function frameCreateRoles(page) {
         throw new Error(`the create-roles refusal is still cut off (${settled ? Math.round(settled.height) : 0}px)`)
     }
     await sleep(400)
+    await applyTheme(page, path.join(OUT_A, 'available-actions-create-roles.png'))
     await page.screenshot({ path: path.join(OUT_A, 'available-actions-create-roles.png') })
     log('available-actions-create-roles.png')
 }
@@ -1654,6 +1660,7 @@ async function main() {
         log('local model stand-in is up')
     } else log('using OPENAI_API_KEY from the environment')
     const key = startServer()
+    modelKey = key
     process.env.OPENAI_API_KEY = key
     await waitFor(`${BASE}/api/v1/ping`)
     const readyDeadline = Date.now() + 60000

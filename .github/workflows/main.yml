@@ -87,6 +87,20 @@ jobs:
         runs-on: ubuntu-latest
         env:
             PUPPETEER_SKIP_DOWNLOAD: true
+        # Throwaway database for the live Postgres tests in packages/server/src/identity (sqlStore, auditLog). They
+        # connect to 127.0.0.1:5432 as postgres and skip without PGPASSWORD.
+        services:
+            postgres:
+                image: postgres:16
+                env:
+                    POSTGRES_PASSWORD: postgres
+                ports:
+                    - 5432:5432
+                options: >-
+                    --health-cmd "pg_isready -U postgres"
+                    --health-interval 5s
+                    --health-timeout 3s
+                    --health-retries 10
         steps:
             - uses: actions/checkout@v6
             - uses: pnpm/action-setup@v4
@@ -103,6 +117,16 @@ jobs:
             - run: pnpm harness:check
             - run: pnpm etl:check
             - run: pnpm test:coverage
+              env:
+                  PGPASSWORD: postgres
+            # Fails if the live Postgres session test was skipped instead of run.
+            - name: Live Postgres session test ran
+              working-directory: packages/server
+              env:
+                  PGPASSWORD: postgres
+              run: |
+                  npx jest src/identity/sqlStore.test.ts --json --outputFile="$RUNNER_TEMP/pg-session.json"
+                  node -e "const r=require(process.argv[1]); console.log('passed', r.numPassedTests, 'skipped', r.numPendingTests); if (r.numPendingTests !== 0 || r.numPassedTests < 1) process.exit(1)" "$RUNNER_TEMP/pg-session.json"
             # Report only. These numbers do not fail the job.
             - name: Health report
               if: always()

@@ -8,6 +8,7 @@ import fs from 'node:fs'
 import http from 'node:http'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { themeFor } from './theme.mjs'
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
 const ONLY = new Set(
@@ -318,9 +319,21 @@ async function hideMoney(page) {
     })
 }
 
+// Frames whose main subject is the canvas editor. A large dialog or the expanded chat over a canvas stays light.
+const DARK = new Set([
+    'canvas/canvas-new-look.png',
+    'canvas/canvas-side-panel.png',
+    'canvas/grok-model-dropdown.png',
+    'canvas/canvas-classic.png',
+    'canvas/canvas-workflow-panel.png',
+    'canvas/build-with-ai-built.png',
+    'canvas/build-with-ai-chat.png'
+])
+
 async function shoot(page, file, { width = 1440, height = 960, scheme = 'light', clip } = {}) {
     await page.setViewportSize({ width, height })
     await page.emulateMedia({ colorScheme: scheme })
+    await themeFor(page, DARK.has(file))
     await hideMoney(page)
     await page.waitForTimeout(200)
     await assertNoMoney(page, file)
@@ -365,11 +378,9 @@ async function askExpanded(page, question) {
 async function scrollChat(page, text) {
     await page.evaluate((needle) => {
         const root = document.querySelector('.MuiDialog-root') || document.body
-        const scroller = [...root.querySelectorAll('div')].reverse().find((el) => el.scrollHeight > el.clientHeight + 80)
-        if (!scroller) return
-        const target = [...scroller.querySelectorAll('p, span, strong, div, button, li')].find(
-            (el) => el.childNodes.length < 8 && el.textContent.includes(needle)
-        )
+        const target = [...root.querySelectorAll('p, span, strong, div, button, li')]
+            .filter((el) => el.textContent.includes(needle))
+            .sort((a, b) => a.textContent.length - b.textContent.length)[0]
         if (target) target.scrollIntoView({ block: 'start' })
     }, text)
     await page.waitForTimeout(300)
@@ -603,7 +614,7 @@ async function main() {
             await shoot(page, 'try-the-demo/customer-care-policy.png')
             await scrollChat(page, 'Harness Prime sent work')
             await shoot(page, 'try-the-demo/customer-care-run.png')
-            await scrollChat(page, 'Reply to the customer')
+            await scrollChat(page, 'Source: Service Recovery Policy')
             await shoot(page, 'try-the-demo/customer-care-answer.png')
             await askExpanded(
                 page,

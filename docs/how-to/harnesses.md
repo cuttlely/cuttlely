@@ -12,7 +12,7 @@ The steps below build the **Chief of Staff Harness** template with an OpenAI mod
 
 Select **Harness · Agent Team** in the sidebar. The page lists the saved harnesses in the active team. A harness and its runs belong to that team. Opening a harness from another team looks the same as a missing harness. A saved harness that is not in a team yet cannot be taken over by saving that name, and that save does not keep the canvas. A chat, share link, embed, webhook, or schedule does not run it until the server has assigned its team. A run from another team is refused the same way, including when harness jobs run in this process or in a separate worker, and that refusal does not store the question on the other team's runs. A chatflow that names that harness is not saved. With none saved, it says `No agent teams yet` and offers **Start from template** and **New agent team**.
 
-![The Harness · Agent Team page with no harnesses. A Try the demo card is at the top. Below it, a What are you building? card with the mascot and the headline Your applications deserve agents. offers Agent team, Chat / simple AI app, Workflow / automation, and Knowledge / data pipeline. Below it the empty state reads No agent teams yet and Start one from a template or with Build with AI, then call it from your app, with Start from template and New agent team buttons.](../images/harnesses/agent-team-empty.png)
+![The Harness · Agent Team page with no harnesses. A Try the demo card is at the top with Add a model key, Try the demo, and Or start with the bakery quickstart. Below it, a What are you building? card with the mascot and the headline Your applications deserve agents. offers Agent team, Chat / simple AI app, Workflow / automation, and Knowledge / data pipeline. Below that the empty state reads No agent teams yet and Start one from a template or with Build with AI, then call it from your app, with Start from template and New agent team buttons.](../images/harnesses/agent-team-empty.png)
 
 The **What are you building?** card names the four kinds of canvas, with **Agent team** first. **Agent team** is this page. **Hide** closes the card.
 
@@ -26,13 +26,13 @@ The **What are you building?** card names the four kinds of canvas, with **Agent
 2. Select **Chief of Staff Harness**.
 3. Select **Use Template**.
 
-![Templates with the Harness chip selected. Six cards: Calculator Harness, Chief of Staff Harness, Field Team Harness, Ops Harness, Research Harness, and Upload Harness. Each card is marked Harness · Agent Team and has a one-line description.](../images/harnesses/templates-harness-filter.png)
+![Templates with the Harness chip selected and Type set to Harness. Six cards: Calculator Harness, Chief of Staff Harness, Field Team Harness, Ops Harness, Research Harness, and Upload Harness. Each card is marked Harness · Agent Team and has a one-line description.](../images/harnesses/templates-harness-filter.png)
 
-![The Chief of Staff Harness template preview, a read-only canvas with the Use Template button at the top right.](../images/harnesses/template-chief-of-staff.png)
+![The Chief of Staff Harness template preview in the dark theme, a read-only canvas with the Use Template button at the top right.](../images/harnesses/template-chief-of-staff.png)
 
 The template opens as a new canvas named `untitled-harness`. Nothing is saved yet.
 
-![The untitled-harness canvas from the template. Top row: xAI Grok, Harness Prime, and two Harness Specialist cards. Below: Local Hash Embeddings, In-Memory Vector Store, PostgreSQL MCP, and a Plain Text note.](../images/harnesses/canvas-from-template.png)
+![The untitled-harness canvas from the template in the dark theme. Top row: xAI Grok, Harness Prime, and two Harness Specialist cards. Below: Local Hash Embeddings, In-Memory Vector Store, PostgreSQL MCP, and a Plain Text note.](../images/harnesses/canvas-from-template.png)
 
 What the template contains:
 
@@ -63,7 +63,7 @@ Model keys live under **Credentials**, never on the canvas. Skip this if you alr
 
 The list shows the new credential and the message `New Credential added`. The key is stored encrypted.
 
-![The Credentials page listing OpenAI main, with a green New Credential added message at the bottom.](../images/harnesses/credentials-list.png)
+![The Credentials page listing OpenAI main with its Last Updated and Created dates, and a green New Credential added message at the bottom.](../images/harnesses/credentials-list.png)
 
 ## Connect a chat model to Harness Prime
 
@@ -71,21 +71,21 @@ If you saved a chat model key before opening the template, the template already 
 
 With no key saved yet, the template's xAI Grok node has no credential, so a save is refused with `The xAI Grok chat model on Harness Prime needs a credential. Select one on that node and save the harness.` Replace it with OpenAI. If you have an xAI key, you can instead select an xAI credential on that node and keep it.
 
-![The template canvas with a red message at the bottom: The xAI Grok chat model on Harness Prime needs a credential. Select one on that node and save the harness.](../images/harnesses/save-rejected-grok-credential.png)
+![The template canvas in the dark theme with a red message at the bottom: The xAI Grok chat model on Harness Prime needs a credential. Select one on that node and save the harness.](../images/harnesses/save-rejected-grok-credential.png)
 
 1. Hold the pointer over the **xAI Grok** node and select the trash icon in the small toolbar beside it. The node is removed.
 2. Select **+** (**Add Node**) at the top left. Type `ChatOpenAI` in **Search nodes**.
 3. Drag **OpenAI** from **Chat Models** onto the canvas.
 
-    ![The Add Nodes panel with ChatOpenAI in the search box. Under Chat Models it lists OpenAI, OpenAI Custom Model, and Azure OpenAI.](../images/harnesses/add-node-openai.png)
+    ![The Add Nodes panel on the harness canvas in the dark theme, with ChatOpenAI in the search box. Under Chat Models it lists OpenAI, OpenAI Custom Model, and Azure OpenAI.](../images/harnesses/add-node-openai.png)
 
 4. Drag from the output dot at the bottom right of the OpenAI node to the **Chat Model** dot on Harness Prime. A line joins them.
 
-    ![The OpenAI node at the left, joined by a line to the Chat Model input of Harness Prime.](../images/harnesses/openai-connected.png)
+    ![The harness canvas in the dark theme. The OpenAI node at the left is joined by a line to the Chat Model input of Harness Prime.](../images/harnesses/openai-connected.png)
 
 5. On the OpenAI node, open **Connect Credential** and select your credential. **Model Name** starts at `gpt-4o-mini (latest)`. Choose another model there if you want one.
 
-    ![Connect Credential open on the OpenAI node. The list shows OpenAI main and - Create New -.](../images/harnesses/openai-credential-pick.png)
+    ![Connect Credential open on the OpenAI node, in the dark theme. The list shows OpenAI main and - Create New -.](../images/harnesses/openai-credential-pick.png)
 
 ## Turn on the analyst's database tool
 
@@ -96,7 +96,7 @@ The template stores no action on PostgreSQL MCP. Until you pick one, the analyst
 
 With `CUTTLELY_ANALYST=auto` the description under the field starts with `Run one SQL statement in the isolated analyst store`, and **Connect Credential** reads `Auto mode: isolated analyst store, no credential needed`. Other cases are in [Analyst mode](./analyst.md).
 
-![The PostgreSQL MCP node with QUERY selected under Available Actions. Connect Credential reads Auto mode: isolated analyst store, no credential needed, and the QUERY description is below the field.](../images/harnesses/postgres-mcp-query.png)
+![The PostgreSQL MCP node in the dark theme, with QUERY selected under Available Actions. Connect Credential reads Auto mode: isolated analyst store, no credential needed, and the QUERY description is below the field.](../images/harnesses/postgres-mcp-query.png)
 
 ## Give a specialist playbooks
 
@@ -122,7 +122,7 @@ A playbook can ask for a closing line, such as `Source: sales warehouse`. When t
 
 The name is the harness id. Chatflows and the API call the harness by it. It is a letter, then letters, numbers, `_`, or `-`, up to 64 characters. `chief-of-staff` is valid. `Chief of Staff Harness` is refused with `Harness name "Chief of Staff Harness" is not valid. Use a letter followed by letters, numbers, "_" or "-".` A name that is `try` followed by 8 to 32 hex characters is reserved for a draft try. A name that is `tryx` followed by 16 hex characters is reserved for a fitted specialist profile. Saving or importing either is refused, and the save dialog shows the reserved-name message.
 
-![The Save New Harness dialog with chief-of-staff typed in the name field, and Cancel and Save buttons.](../images/harnesses/save-dialog-name.png)
+![The Save New Harness dialog over the template canvas in the dark theme, with chief-of-staff typed in the name field, and Cancel and Save buttons.](../images/harnesses/save-dialog-name.png)
 
 ## Drafts and Publish
 
@@ -134,11 +134,11 @@ A harness that was saved before drafts is already Live. The next edit on the can
 
 The message `Draft saved` appears for an edit. The first save says `Harness saved`. The header shows the name and `Last edited by` with your display name. The buttons at the top right are now **Version history**, **API Endpoint**, **Save Harness**, and **Settings**, and **Publish** when a draft is waiting.
 
-![The saved chief-of-staff canvas. The header reads Last edited by Rosa Diaz, just now. No card has an orange triangle and there is no Sync Nodes button, because the template nodes are current.](../images/harnesses/canvas-saved.png)
+![The saved chief-of-staff canvas in the dark theme. The header shows Live and Last edited by Rosa Diaz, and a green Harness saved message is at the bottom. No card has an orange triangle and there is no Sync Nodes button, because the template nodes are current.](../images/harnesses/canvas-saved.png)
 
 An orange triangle on a card means that node was saved with an older version of the node than the app has now. A harness made from the template today shows none. One saved from an older template or an older Cuttlely shows them. Select **Sync Nodes**, the orange button next to **+**, then save. The triangles and the button go away, and your settings stay.
 
-![The chief-of-staff canvas after Sync Nodes. The triangles and the Sync Nodes button are gone, and an asterisk before the name shows the change is not saved yet.](../images/harnesses/sync-nodes.png)
+![The chief-of-staff canvas in the dark theme after Sync Nodes. The triangles and the Sync Nodes button are gone, and an asterisk before the name shows the change is not saved yet.](../images/harnesses/sync-nodes.png)
 
 ## Test it in the canvas chat
 
@@ -149,11 +149,11 @@ The chat button at the top right of a saved harness canvas runs the draft when o
 
 The reply starts with a **Run** card, then the answer.
 
-![The canvas chat after a document question. The Run card says Harness Prime sent work to researcher, with Route, Specialists, Handoff, and Profile times. The researcher row shows done, OpenAI gpt-5.6-luna, 1 tool. Below it the answer quotes the sample note and says the vectors were built with Local Hash Embeddings.](../images/harnesses/canvas-chat-researcher.png)
+![The canvas chat after a document question, in the dark theme. The Run card says Harness Prime sent work to researcher, with Route, Specialists, Handoff, and Profile times. The researcher row shows done, OpenAI gpt-5.6-luna, 1 tool. Below it the answer says the researcher reads the sample note from an in-memory store and the vectors were built with Local Hash Embeddings, with no provider key.](../images/harnesses/canvas-chat-researcher.png)
 
 3. Ask a database question, for example: `Use the analyst database. Create a tasks table with id, title, and status. Insert three tasks: draft agenda (open), book room (done), send invites (open). Show the open tasks.`
 
-![The canvas chat after the database question. The Run card says Harness Prime sent work to analyst, and the analyst row shows done, OpenAI gpt-5.6-luna, 3 tools. The answer is a table with title and status: draft agenda open, and send invites open.](../images/harnesses/canvas-chat-analyst.png)
+![The canvas chat after the database question, in the dark theme. The Run card says Harness Prime sent work to analyst, and the analyst row shows done, OpenAI gpt-5.6-luna, 3 tools. The answer is a table with title and status: draft agenda open, and send invites open.](../images/harnesses/canvas-chat-analyst.png)
 
 The model writes its own wording, so your answer will differ. What should match is the route: the document question goes to `researcher` and the database question goes to `analyst`.
 
@@ -193,23 +193,23 @@ Describe the team in plain words and **Build with AI** puts it on a new harness:
 4. Under **Chat model that builds**, Cuttlely starts on a model you have a key for (OpenAI starts on `gpt-4.1-mini`), with your key picked when only one fits. The list shows the models you have keys for; **Show all … models** lists the rest, and **Only models for your keys** returns to that shorter list. **More settings** holds the advanced ones. Your choice is remembered for next time. There is no default key.
 5. Select **Build**.
 
-![The Build with AI dialog on a blank harness canvas. The line under the title reads It builds a first version you can change and saves it as a new harness. Every part is checked before it lands. Under Describe your team are three example chips and a box with a study team description. Below, Chat model that builds is set to OpenAI with the OpenAI main credential and the gpt-4.1-mini model. Cancel and Build are at the bottom right.](../images/harnesses/build-with-ai-dialog.png)
+![The Build with AI dialog on a blank harness canvas. The line under the title reads It builds a first version you can change and saves it as a new harness. Every part is checked before it lands. Under Describe your team are three example chips and a box with a study team description. Below, Chat model that builds is set to OpenAI with the OpenAI main credential, the gpt-4.1-mini model, and Temperature 0.9. Cancel and Build are at the bottom right.](../images/harnesses/build-with-ai-dialog.png)
 
 The team is saved right away as a new harness, named after its title, and opens on its own canvas. A built team never replaces a harness you already have. When you started from a canvas that already has cards, the new harness opens in a new tab.
 
-![A built harness named Trip-Planning-Harness in compact cards. Harness Prime is on the right with the OpenAI card above it. The Itinerary Planner and Budget Specialist cards are joined to its Specialists input, and a Calculator card is joined to the Budget Specialist.](../images/harnesses/build-with-ai-built.png)
+![A built harness named Trip-Planning-Harness in compact cards, in the dark theme. Harness Prime is on the right with the OpenAI card above it. The Itinerary Planner and Budget Specialist cards are joined to its Specialists input, and a Calculator card is joined to the Budget Specialist.](../images/harnesses/build-with-ai-built.png)
 
 6. Open the chat. Three starter questions are waiting, written as things you would ask the team. Select one. The run card shows which specialists Harness Prime sent work to. See [Read the run card](#read-the-run-card).
 
-![The canvas chat on Trip-Planning-Harness after a starter question. The answer is a day-by-day plan for seven days in Italy that ends in Venice, with day 7 for departure and a list of travel tips.](../images/harnesses/build-with-ai-chat.png)
+![The canvas chat on Trip-Planning-Harness after a starter question, in the dark theme. The answer is a day-by-day plan for seven days in Italy through Florence and Venice to Milan on day 7, then an estimated budget in euros for accommodation, meals, transportation and activities.](../images/harnesses/build-with-ai-chat.png)
 
 When a tool needs a credential you have not added, the message at the bottom names it, for example `Tavily API needs Tavily API`. Add that credential on the **Credentials** page, pick it on the card, and save the harness. The message stays until you close it.
 
-![A built News-Team-Harness with a Tavily API card plugged into the Web Researcher specialist and a News Writer specialist beside it. An orange message at the bottom reads Built News-Team-Harness as a new harness. Its starter questions wait in the test chat. Add on the Credentials page, then pick on the card: Tavily API needs Tavily API.](../images/harnesses/build-with-ai-missing-credential.png)
+![A built News-Team-Harness in the dark theme, with a Tavily API card plugged into the first specialist, a second specialist below it, and both joined to Harness Prime with the OpenAI card above it. An orange message at the bottom reads Built "News-Team-Harness" as a new harness. Its starter questions wait in the test chat. Add on the Credentials page, then pick on the card: Tavily API needs Tavily API.](../images/harnesses/build-with-ai-missing-credential.png)
 
 Build with AI works the same with classic cards. The team lands with each card at full size.
 
-![The same study team built with classic cards. Harness Prime, the OpenAI card and two specialists are drawn with every setting on the card.](../images/harnesses/build-with-ai-classic.png)
+![The same study team built with classic cards, in the dark theme, saved as Study-Team-Harness-2. Harness Prime, the OpenAI card and two specialists are drawn with every setting on the card.](../images/harnesses/build-with-ai-classic.png)
 
 Change anything you like afterwards, the same as a harness you built by hand. The first save is Live. Later saves are a draft until you publish, and Publish records that version in [Version history](./versioning.md). Pipelines and chatflows have the same button: see [Build a pipeline with AI](./etl.md#build-a-pipeline-with-ai) and [Build a chatflow with AI](./canvas.md#build-a-chatflow-with-ai). A chatflow built that way uses the **Harness** tool only when you name one of your saved harnesses.
 
@@ -217,7 +217,7 @@ Change anything you like afterwards, the same as a harness you built by hand. Th
 
 Back on **Harness · Agent Team**, the harness has a card with its name, `Updated` time, and number of specialists.
 
-![The Harness · Agent Team page with one card, chief-of-staff, 2 specialists.](../images/harnesses/harness-list.png)
+![The Harness · Agent Team page with one card, chief-of-staff, 2 specialists, under the What are you building? card.](../images/harnesses/harness-list.png)
 
 Select the card. The harness page is `/harnesses/chief-of-staff`. **Open Canvas** at the top right goes back to the canvas.
 
@@ -228,7 +228,7 @@ While it runs, the button reads **Running** and **Stop** cancels the run. The ru
 
 ![Try it while the run is going. The Run button reads Running, a Stop button is next to it, the Run card says Harness Prime sent work to analyst with the analyst running, and the answer box says Waiting for the first token.](../images/harnesses/harness-try-it-running.png)
 
-![Try it after the run. The Run card says Finished 502 ms, the analyst row is done on OpenAI gpt-5.6-luna, and the answer says There are 2 open tasks and lists draft agenda and send invites.](../images/harnesses/harness-try-it-done.png)
+![Try it after the run. The Run card says Finished, the analyst row is done on OpenAI gpt-5.6-luna with 1 tool, and the answer says There are 2 open tasks and lists draft agenda and send invites.](../images/harnesses/harness-try-it-done.png)
 
 **Try it** uses your signed-in session. It runs the draft when the canvas has one, and Live otherwise, including the draft's specialists, tools, and models. `POST /api/v1/harnesses/chief-of-staff/runs` is what an external caller uses, and that route stays on Live until you publish.
 
@@ -238,7 +238,7 @@ While it runs, the button reads **Running** and **Stop** cancels the run. The ru
 
 Select a row to open its run card under the list. Select a specialist row in the card to see its task and tool chips.
 
-![The Runs list with three succeeded runs. The selected run is open below the list. Its analyst row is expanded and shows the task Create a tasks table with id, title, and status, and three chips, each mcp__analyst__query · done, the last with 2 rows. The last line reads Harness Prime combined this result into the answer.](../images/harnesses/harness-run-trace.png)
+![The Runs list with three succeeded runs. The selected run is open below the list. Its analyst row is expanded and shows the task Create a tasks table with id, title, and status, and three chips, each mcp__analyst__query · done, the last with 2 rows. The next line reads Harness Prime combined this result into the answer.](../images/harnesses/harness-run-trace.png)
 
 With no runs yet, the list says `No runs yet. Send a prompt above, or call this harness from a chatflow.` A failed run shows its error code and message in red under the card.
 
@@ -251,9 +251,9 @@ A chatflow runs a harness with the **Harness** node. A chatflow whose only node 
 3. Under **Harness**, select `chief-of-staff`.
 4. Save the chatflow under any name, then open its chat.
 
-![The Add Nodes panel on a new chatflow with Harness in the search box. One result, Harness: Attach a named harness as a tool.](../images/harnesses/chatflow-add-harness-node.png)
+![The Add Nodes panel on a new chatflow canvas in the dark theme, with Harness in the search box. One result, Harness: Attach a named harness as a tool.](../images/harnesses/chatflow-add-harness-node.png)
 
-![A chatflow named Chief of staff chat with one Harness node set to chief-of-staff and Return Direct on. The chat panel shows the Run card for chief-of-staff, Harness Prime sent work to researcher, and the answer.](../images/harnesses/chatflow-harness-chat.png)
+![A chatflow named Chief of staff chat in the dark theme, with one Harness node set to chief-of-staff and Return Direct on. The chat panel shows the Run card for chief-of-staff, Harness Prime sent work to researcher, and an answer that quotes the sample note: the researcher reads it from an in-memory store, and Local Hash Embeddings built the vectors, with no provider key.](../images/harnesses/chatflow-harness-chat.png)
 
 **Return Direct** is on by default and sends the harness reply to the chat as it is. To use the team as one tool of a chatflow agent, connect the **Harness** node to the agent's tools instead. The agent calls it when its system message routes a task to `tool:harness`. Turn **Return Direct** off only when the agent has to rework the reply. Each pass is another model call.
 

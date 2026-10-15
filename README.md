@@ -51,7 +51,7 @@ Give your app a team instead of a single prompt. An agent team is a lead agent w
 
 -   **The Analyst** is a specialist with its own database. It creates tables, adds rows and answers questions about them with the real numbers, and it never reads Cuttlely's own tables. Long results come back in pages. Turn it on with `CUTTLELY_ANALYST=auto`. [Analyst guide](./docs/how-to/analyst.md)
 
-![A harness canvas with its test chat open. The run card says Harness Prime sent work to analyst. The answer is a table of open tasks: draft agenda, open, and send invites, open.](./docs/images/harnesses/canvas-chat-analyst.png)
+![The canvas chat after the database question, in the dark theme. The Run card says Harness Prime sent work to analyst, and the analyst row shows done, OpenAI gpt-5.6-luna, 3 tools. The answer is a table with title and status: draft agenda open, and send invites open.](./docs/images/harnesses/canvas-chat-analyst.png)
 
 ## Test every change before it goes live
 
@@ -138,13 +138,13 @@ Load files, a CSV or a code repository, clean and split them, embed them and sto
 
 A chat model, the agent or chain that answers, memory and tools, on one canvas. Each chatflow gets a prediction API, an embed for your website and a shareable link, and a chatflow with a **Harness** card puts a whole team behind them. [Canvas guide](./docs/how-to/canvas.md)
 
-![A chatflow built with Build with AI. The test chat asks what 18 times 24 is, shows a calculator step, and answers 432.](./docs/images/canvas/build-with-ai-chat.png)
+![The same chatflow after the first save, in the dark theme. The header reads Draft, not live yet. The test chat is open on the right: What is 18 times 24? is answered with a calculator chip and 18 times 24 is 432.](./docs/images/canvas/build-with-ai-chat.png)
 
 #### Agentflows: step-by-step workflows
 
 Workflows that run step by step and can start from a chat message, a form, a webhook or a schedule. Selecting a card opens its settings in a side panel. [Canvas guide](./docs/how-to/canvas.md#workflows)
 
-![The Bakery greeting workflow. Start connects to Reply, and the Reply card's message, Welcome to the bakery! Ask me about today's bread., is open in a side panel.](./docs/images/canvas/canvas-workflow-panel.png)
+![The Bakery greeting workflow in the dark theme. Start connects to Reply. The Reply card is selected, and its Message field, reading Welcome to the bakery! Ask me about today's bread., is in a side panel docked on the right of the canvas.](./docs/images/canvas/canvas-workflow-panel.png)
 
 #### Built in everywhere
 
