@@ -72,7 +72,7 @@ To change the role on a team, open **Teams**, open the team, and pick another ro
 
 ## How a check works
 
-The organization owner passes every check. For everyone else, the active team's role supplies the keys.
+The owner of the active team's organization passes every check. An owner role in another organization does not. For everyone else, the active team's role supplies the keys.
 
 A page opens when the role holds any key in that page's list. A button on the page uses the same rule. An API route written with one key requires that key. A route written with several keys allows the call when the role holds any one of them.
 

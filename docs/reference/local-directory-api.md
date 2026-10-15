@@ -23,7 +23,7 @@ The caller's active team is the workspace on the session. Switch with `POST /api
 | Edit a custom role             | `PATCH /api/v1/roles/:id`                      | `roles:manage`     |
 | Delete a custom role           | `DELETE /api/v1/roles/:id`                     | `roles:manage`     |
 
-The organization owner passes every check. Anyone else needs the key on their role in the active team. A missing session is **401** `{ "message": "Unauthorized" }`. A signed-in caller without the key is **403** `{ "message": "Forbidden" }`.
+The owner of the active team's organization passes every check. An owner role in another organization does not. Anyone else needs the key on their role in the active team. A missing session is **401** `{ "message": "Unauthorized" }`. A signed-in caller without the key is **403** `{ "message": "Forbidden" }`.
 
 An admin cannot grant a permission they do not hold, and cannot assign Owner. That is **403** `{ "message": "You cannot grant a permission you do not have" }` or `{ "message": "Only an owner can assign the owner role" }`.
 

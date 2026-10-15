@@ -159,6 +159,7 @@ describe('permission gate on sqlite', () => {
         await dataSource.initialize()
         await dataSource.query(`CREATE TABLE "user" ("id" varchar(36) PRIMARY KEY, "status" varchar(20))`)
         await dataSource.query(`CREATE TABLE "role" ("id" varchar(36) PRIMARY KEY, "name" varchar(255), "permissions" text)`)
+        await dataSource.query(`CREATE TABLE "workspace" ("id" varchar(36) PRIMARY KEY, "organizationId" varchar(36))`)
         await dataSource.query(
             `CREATE TABLE "organization_user" ("organizationId" varchar(36), "userId" varchar(36), "roleId" varchar(36), "status" varchar(20))`
         )
@@ -169,6 +170,7 @@ describe('permission gate on sqlite', () => {
         await dataSource.query(
             `INSERT INTO "role" ("id", "name", "permissions") VALUES ('role-member', 'member', '["chatflows:view"]'), ('role-owner', 'owner', '[]')`
         )
+        await dataSource.query(`INSERT INTO "workspace" ("id", "organizationId") VALUES ('team-a', 'org')`)
         await dataSource.query(
             `INSERT INTO "organization_user" ("organizationId", "userId", "roleId", "status") VALUES ('org', 'member', 'role-member', 'active')`
         )
@@ -298,7 +300,7 @@ describe('sign-in opens the chosen team', () => {
             )`
         )
         await dataSource.query(`CREATE TABLE "role" ("id" varchar(36) PRIMARY KEY, "name" varchar(255), "permissions" text)`)
-        await dataSource.query(`CREATE TABLE "workspace" ("id" varchar(36) PRIMARY KEY, "name" varchar(255))`)
+        await dataSource.query(`CREATE TABLE "workspace" ("id" varchar(36) PRIMARY KEY, "name" varchar(255), "organizationId" varchar(36))`)
         await dataSource.query(
             `CREATE TABLE "organization_user" ("organizationId" varchar(36), "userId" varchar(36), "roleId" varchar(36), "status" varchar(20))`
         )
@@ -319,7 +321,9 @@ describe('sign-in opens the chosen team', () => {
         await dataSource.query(
             `INSERT INTO "organization_user" ("organizationId", "userId", "roleId", "status") VALUES ('org', 'member', 'role-member', 'active')`
         )
-        await dataSource.query(`INSERT INTO "workspace" ("id", "name") VALUES ('team-a', 'Default Workspace'), ('team-b', 'Other')`)
+        await dataSource.query(
+            `INSERT INTO "workspace" ("id", "name", "organizationId") VALUES ('team-a', 'Default Workspace', 'org'), ('team-b', 'Other', 'org')`
+        )
         await dataSource.query(
             `INSERT INTO "workspace_user" ("workspaceId", "userId", "roleId", "status", "lastLogin")
              VALUES ('team-a', 'member', 'role-member', 'invited', NULL), ('team-b', 'member', 'role-member', 'invited', NULL)`
@@ -408,7 +412,7 @@ describe('sign-in opens an invited organization membership', () => {
             )`
         )
         await dataSource.query(`CREATE TABLE "role" ("id" varchar(36) PRIMARY KEY, "name" varchar(255), "permissions" text)`)
-        await dataSource.query(`CREATE TABLE "workspace" ("id" varchar(36) PRIMARY KEY, "name" varchar(255))`)
+        await dataSource.query(`CREATE TABLE "workspace" ("id" varchar(36) PRIMARY KEY, "name" varchar(255), "organizationId" varchar(36))`)
         await dataSource.query(
             `CREATE TABLE "organization_user" ("organizationId" varchar(36), "userId" varchar(36), "roleId" varchar(36), "status" varchar(20))`
         )
@@ -429,7 +433,7 @@ describe('sign-in opens an invited organization membership', () => {
         await dataSource.query(
             `INSERT INTO "organization_user" ("organizationId", "userId", "roleId", "status") VALUES ('org', 'member', 'role-member', 'invited')`
         )
-        await dataSource.query(`INSERT INTO "workspace" ("id", "name") VALUES ('team-a', 'Default Workspace')`)
+        await dataSource.query(`INSERT INTO "workspace" ("id", "name", "organizationId") VALUES ('team-a', 'Default Workspace', 'org')`)
         await dataSource.query(
             `INSERT INTO "workspace_user" ("workspaceId", "userId", "roleId", "status", "lastLogin")
              VALUES ('team-a', 'member', 'role-member', 'invited', NULL)`

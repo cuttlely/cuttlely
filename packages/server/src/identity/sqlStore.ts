@@ -594,7 +594,8 @@ function teamGrants(status: unknown): boolean {
  * (the user values are `active`, `invited`, `unverified`, `deleted`; the organization
  * values are `active`, `disable`, `invited`).
  * A team row grants only for `active` or `invited`.
- * owner is true only for an active user whose active org membership has the owner role.
+ * owner is true only when the active membership in the active workspace's organization has the owner role.
+ * An owner role in another organization does not count.
  */
 export async function teamAccess(dataSource: DataSource, userId: string, workspaceId: string): Promise<TeamAccess> {
     const d = dialectOfSource(dataSource)
@@ -607,10 +608,13 @@ export async function teamAccess(dataSource: DataSource, userId: string, workspa
                 wu.${quote(d, 'status')} AS ${quote(d, 'teamStatus')},
                 teamRole.${quote(d, 'permissions')} AS ${quote(d, 'permissions')}
          FROM ${quote(d, 'user')} u
-         LEFT JOIN ${quote(d, 'organization_user')} ou ON ou.${quote(d, 'userId')} = u.${quote(d, 'id')}
+         LEFT JOIN ${quote(d, 'workspace')} w ON w.${quote(d, 'id')} = ?
+         LEFT JOIN ${quote(d, 'organization_user')} ou
+           ON ou.${quote(d, 'userId')} = u.${quote(d, 'id')}
+          AND ou.${quote(d, 'organizationId')} = w.${quote(d, 'organizationId')}
          LEFT JOIN ${quote(d, 'role')} orgRole ON orgRole.${quote(d, 'id')} = ou.${quote(d, 'roleId')}
          LEFT JOIN ${quote(d, 'workspace_user')} wu
-           ON wu.${quote(d, 'userId')} = u.${quote(d, 'id')} AND wu.${quote(d, 'workspaceId')} = ?
+           ON wu.${quote(d, 'userId')} = u.${quote(d, 'id')} AND wu.${quote(d, 'workspaceId')} = w.${quote(d, 'id')}
          LEFT JOIN ${quote(d, 'role')} teamRole ON teamRole.${quote(d, 'id')} = wu.${quote(d, 'roleId')}
          WHERE u.${quote(d, 'id')} = ?`,
         [workspaceId, userId]
