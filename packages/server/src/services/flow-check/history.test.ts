@@ -189,11 +189,91 @@ describe('question history', () => {
         expect(onlyApi.items[0].source).toBe('api')
         await expect(listQuestionHistory(FLOW, { source: 'embed' }, CALLER)).rejects.toMatchObject({
             statusCode: 400,
+            code: 'HISTORY_BAD_SOURCE',
             message: 'source must be chat or api.'
         })
-        await expect(listQuestionHistory(FLOW, { source: 'shared' }, CALLER)).rejects.toMatchObject({ statusCode: 400 })
-        await expect(listQuestionHistory(FLOW, { source: 'replay' }, CALLER)).rejects.toMatchObject({ statusCode: 400 })
+        await expect(listQuestionHistory(FLOW, { source: 'shared' }, CALLER)).rejects.toMatchObject({ code: 'HISTORY_BAD_SOURCE' })
+        await expect(listQuestionHistory(FLOW, { source: 'replay' }, CALLER)).rejects.toMatchObject({ code: 'HISTORY_BAD_SOURCE' })
+        await expect(listQuestionHistory(FLOW, { source: 'canvas chat' }, CALLER)).rejects.toMatchObject({
+            statusCode: 400,
+            code: 'HISTORY_BAD_SOURCE',
+            message: 'source must be chat or api.'
+        })
+        await expect(listQuestionHistory(FLOW, { source: 'form' }, CALLER)).rejects.toMatchObject({
+            code: 'HISTORY_BAD_SOURCE'
+        })
         expect(api.items).toEqual([])
+    })
+
+    test('filters by an inclusive UTC date and refuses a time or a reversed range', async () => {
+        historyHooks.loadUserMessages = async () => [
+            row('early', 'early loaf', '2026-10-07T23:59:59.999Z'),
+            row('day', 'day loaf', '2026-10-08T00:00:00.000Z'),
+            row('late', 'late loaf', '2026-10-08T23:59:59.999Z'),
+            row('next', 'next loaf', '2026-10-09T00:00:00.000Z')
+        ]
+        const page = await listQuestionHistory(FLOW, { from: '2026-10-08', to: '2026-10-08', limit: '1' }, CALLER)
+        expect(page.items.map((item) => item.id)).toEqual(['chat:late'])
+        expect(page.nextCursor).toEqual(expect.any(String))
+        const rest = await listQuestionHistory(FLOW, { from: '2026-10-08', to: '2026-10-08', limit: '1', cursor: page.nextCursor }, CALLER)
+        expect(rest.items.map((item) => item.id)).toEqual(['chat:day'])
+        await expect(
+            listQuestionHistory(FLOW, { from: '2026-10-07', to: '2026-10-08', cursor: page.nextCursor }, CALLER)
+        ).rejects.toMatchObject({
+            statusCode: 400
+        })
+        await expect(listQuestionHistory(FLOW, { from: '2026-10-08T00:00:00Z' }, CALLER)).rejects.toMatchObject({
+            code: 'HISTORY_BAD_DATE',
+            message: 'from must be a UTC date (YYYY-MM-DD).'
+        })
+        await expect(listQuestionHistory(FLOW, { from: '2026-02-29' }, CALLER)).rejects.toMatchObject({ code: 'HISTORY_BAD_DATE' })
+        await expect(listQuestionHistory(FLOW, { from: '2026-10-09', to: '2026-10-08' }, CALLER)).rejects.toMatchObject({
+            code: 'HISTORY_BAD_DATE',
+            message: 'from is after to.'
+        })
+        await expect(listQuestionHistory(FLOW, { 'from[0]': '2026-10-08' }, CALLER)).rejects.toMatchObject({ code: 'HISTORY_BAD_DATE' })
+    })
+
+    test('names why each id failed without repeating the id or the question', async () => {
+        const fileSecret = 'file question secret loaf'
+        const otherSecret = 'other workspace loaf'
+        const long = 'b'.repeat(2001)
+        const good = '11111111-1111-4111-8111-111111111111'
+        const missing = '22222222-2222-4222-8222-222222222222'
+        const fileId = '33333333-3333-4333-8333-333333333333'
+        const longId = '44444444-4444-4444-8444-444444444444'
+        const foreignId = '55555555-5555-4555-8555-555555555555'
+        historyHooks.loadUserMessages = async () => [
+            row(good, 'rye loaf', '2026-10-08T10:00:00.000Z'),
+            row(fileId, fileSecret, '2026-10-08T09:00:00.000Z', { fileUploads: '[{"name":"/tmp/secret-scan.pdf"}]' }),
+            row(longId, long, '2026-10-08T08:00:00.000Z'),
+            row(foreignId, otherSecret, '2026-10-08T07:00:00.000Z', { chatflowid: 'flow-2' })
+        ]
+        const error = await resolveChatQuestionIds(
+            'flow-1',
+            ['chat:not-a-uuid', `chat:${missing}`, `chat:${fileId}`, `chat:${longId}`, `chat:${foreignId}`, `chat:${good}`],
+            []
+        ).catch((err) => err)
+        expect(error).toMatchObject({
+            statusCode: 400,
+            code: 'CHECK_BAD_QUESTION_IDS',
+            badCount: 5,
+            errors: [
+                { index: 0, reason: 'invalid' },
+                { index: 1, reason: 'not-found' },
+                { index: 2, reason: 'files' },
+                { index: 3, reason: 'length' },
+                { index: 4, reason: 'not-found' }
+            ]
+        })
+        const body = JSON.stringify(error)
+        expect(body).not.toContain('not-a-uuid')
+        expect(body).not.toContain(fileSecret)
+        expect(body).not.toContain(otherSecret)
+        expect(body).not.toContain(missing)
+        expect(body).not.toContain(foreignId)
+        const kept = await resolveChatQuestionIds('flow-1', [`chat:${good}`], ['typed rye'])
+        expect(kept.questions).toEqual(['rye loaf', 'typed rye'])
     })
 
     test('refuses a history cursor from another API key in the same workspace', async () => {
@@ -325,9 +405,11 @@ describe('question history', () => {
         const mysql = queryCalls.find((call) => call.sql.includes('LIKE'))
         expect(mysql?.sql).toContain("ESCAPE '\\\\'")
         queryCalls.length = 0
-        await listQuestionHistory(FLOW, { source: 'chat' }, CALLER)
+        await listQuestionHistory(FLOW, { source: 'chat', from: '2026-10-01', to: '2026-10-08' }, CALLER)
         expect(queryCalls.some((call) => String(call.sql).includes('1 = 0'))).toBe(false)
-        expect(queryCalls).toContainEqual({ sql: 'm.chatType = :chatType', params: { chatType: 'INTERNAL' } })
+        expect(queryCalls).toContainEqual({ sql: 'm.chatType IN (:...types)', params: { types: ['INTERNAL'] } })
+        expect(queryCalls.some((call) => call.sql === 'm.createdDate >= :fromAt')).toBe(true)
+        expect(queryCalls.some((call) => call.sql === 'm.createdDate <= :toAt')).toBe(true)
         queryCalls.length = 0
         await listQuestionHistory(FLOW, {}, CALLER)
         expect(queryCalls.some((call) => call.sql === 'm.chatType = :chatType')).toBe(false)

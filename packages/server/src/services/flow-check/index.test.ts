@@ -1846,4 +1846,43 @@ describe('hand-picked questions', () => {
             statusCode: 409
         })
     })
+
+    test('an empty id list runs typed questions up to the question cap, and the older list stays at 10', async () => {
+        const typed = Array.from({ length: 11 }, (_, index) => `typed loaf ${index}`)
+        replayHooks.run = async () => ({ text: 'ok', metrics: [] })
+        const started = await startCheck(flow() as any, { questionIds: [], questions: typed }, 'http://x')
+        expect(started.cases.map((item) => item.question)).toEqual(typed)
+        expect(started.skipped).toEqual({ count: 0, ids: [] })
+        await expect(startCheck(flow() as any, { questions: typed }, 'http://x')).rejects.toMatchObject({
+            statusCode: 400,
+            message: 'The check runs at most 10 questions.'
+        })
+        await expect(startCheck(flow() as any, { questionIds: [], count: 4 }, 'http://x')).rejects.toMatchObject({
+            statusCode: 400,
+            code: 'CHECK_QUESTION_IDS_EXCLUSIVE'
+        })
+        await settle()
+        checks.clear()
+        const { harnessCheckHooks, harnessReplayHooks } = await import('./harness')
+        harnessCheckHooks.inWorkspace = async () => true
+        harnessReplayHooks.run = async () => ({ text: 'ok' })
+        try {
+            const harnessTyped = await startCheck(
+                flow({ type: 'HARNESS', name: 'bakery' }) as any,
+                { questionIds: [], questions: ['one loaf'] },
+                'http://x'
+            )
+            expect(harnessTyped.cases.map((item) => item.question)).toEqual(['one loaf'])
+            expect(harnessTyped.skipped).toBeUndefined()
+            await expect(
+                startCheck(flow({ type: 'HARNESS', name: 'bakery' }) as any, { questionIds: [`turn:${ID_A}`] }, 'http://x')
+            ).rejects.toMatchObject({
+                statusCode: 409,
+                message: 'Choosing questions by id is not available for this flow yet.'
+            })
+        } finally {
+            harnessCheckHooks.inWorkspace = null
+            harnessReplayHooks.run = null
+        }
+    })
 })

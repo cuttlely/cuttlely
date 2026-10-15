@@ -47,6 +47,9 @@ export const checkKind = (type, canvases = []) => {
     return null
 }
 
+// Stored question ids exist for a chatflow and a chat-started agentflow. A harness has none.
+export const canPickQuestionIds = (type, canvases = []) => checkKind(type, canvases) === 'questions'
+
 export const checkTitle = (kind) => {
     if (kind === 'runs') return CHECK_RUNS_TITLE
     if (kind === 'questions') return CHECK_TITLE
@@ -296,6 +299,67 @@ const number = (n) => Number(n || 0).toLocaleString('en-US')
 // A new flow nobody has asked anything offers its starter questions instead; they are marked as such.
 export const initialPicks = (questions = [], max = 10) =>
     questions.map((q, index) => ({ text: q.text, picked: index < max, added: false, starter: Boolean(q.starter) }))
+
+export const HISTORY_PAGE_SIZE = 50
+
+export const QUESTION_SOURCE_OPTIONS = [
+    { value: '', label: 'All sources' },
+    { value: 'chat', label: 'Canvas chat' },
+    { value: 'api', label: 'API' }
+]
+
+export const historyReasonText = (reason) => {
+    if (reason === 'files') return 'Sent with a file, so it cannot be replayed.'
+    if (reason === 'length') return 'Longer than 2,000 characters, so it cannot be replayed.'
+    return 'This question cannot be replayed.'
+}
+
+export const chosenLabel = (chosen, cap) => `${Number(chosen) || 0} of ${Number(cap) || 0} chosen`
+
+// Room left for another stored question. Typed questions that are ticked use the same cap.
+export const chooseRoom = ({ cap = 100, selectedCount = 0, typedPicked = 0 } = {}) =>
+    Math.max(0, Number(cap) - Number(selectedCount) - Number(typedPicked))
+
+// Typed questions and stored questions share one cap, including when no stored question is selected.
+export const typedRoom = ({ cap = 100, selectedCount = 0, typedPicked = 0 } = {}) => chooseRoom({ cap, selectedCount, typedPicked })
+
+// How many typed questions may be ticked once stored questions are counted.
+export const typedToggleLimit = ({ cap = 100, selectedCount = 0 } = {}) => Math.max(0, Number(cap) - Number(selectedCount))
+
+// Choose mode always sends questionIds, even when it is empty, so typed questions use the question cap.
+export const chooseRunBody = ({ selected = [], questions = [], extra = {} } = {}) => ({
+    questionIds: selected.map((item) => item.id),
+    ...(questions.length ? { questions } : {}),
+    ...extra
+})
+
+export const toggleHistoryPick = ({ item, selected = [], cap = 100, typedPicked = 0 } = {}) => {
+    if (!item?.id || item.replayable === false) return selected
+    const index = selected.findIndex((entry) => entry.id === item.id)
+    if (index >= 0) return selected.filter((entry) => entry.id !== item.id)
+    if (chooseRoom({ cap, selectedCount: selected.length, typedPicked }) < 1) return selected
+    return [...selected, { id: item.id, text: item.text }]
+}
+
+// Select all shown, in list order, and stop when the cap is full. Hidden selections stay.
+export const selectShown = ({ items = [], selected = [], cap = 100, typedPicked = 0 } = {}) => {
+    const next = [...selected]
+    const have = new Set(next.map((entry) => entry.id))
+    let room = chooseRoom({ cap, selectedCount: next.length, typedPicked })
+    for (const item of items) {
+        if (room < 1) break
+        if (!item?.id || item.replayable === false || have.has(item.id)) continue
+        next.push({ id: item.id, text: item.text })
+        have.add(item.id)
+        room -= 1
+    }
+    return next
+}
+
+export const hiddenChosenCount = (selected = [], shown = []) => {
+    const visible = new Set(shown.map((item) => item.id))
+    return selected.filter((entry) => !visible.has(entry.id)).length
+}
 
 export const pickedQuestions = (list = []) => list.filter((q) => q.picked).map((q) => q.text)
 
