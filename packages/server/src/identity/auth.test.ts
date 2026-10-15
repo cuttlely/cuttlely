@@ -147,6 +147,20 @@ class MemoryStore implements IdentityStore {
         this.local.delete(token)
     }
 
+    async deleteLocalSessionsForUser(userId: string): Promise<void> {
+        for (const [key, row] of this.local) {
+            if (row.userId === userId) this.local.delete(key)
+        }
+    }
+
+    async localAccountOpen(userId: string): Promise<boolean> {
+        const user = this.users.find((row) => row.id === userId)
+        if (!user || user.status.toLowerCase() !== 'active') return false
+        return !this.disabled.has(userId)
+    }
+
+    disabled = new Set<string>()
+
     add(user: UserRow, owner = false): void {
         this.users.push(user)
         if (owner) this.ownerId = user.id
@@ -204,6 +218,7 @@ function ctx(partial: Partial<AuthContext> = {}): AuthContext {
     return {
         workosConfigured: false,
         localAdmin: false,
+        localUsers: false,
         cookiePasswordOk: true,
         redirectUri: 'http://127.0.0.1:43117/api/v1/auth/callback',
         secure: false,
@@ -418,6 +433,59 @@ describe('identity auth', () => {
         if (result.type === 'redirect') expect(result.cookies?.[0].options.secure).toBe(true)
     })
 
+    it('clears the break-glass cookie with the request secure flag in production', async () => {
+        const previous = process.env.NODE_ENV
+        process.env.NODE_ENV = 'production'
+        try {
+            const store = new MemoryStore()
+            const credential = await hashPassword(GOOD)
+            store.add({ id: 'owner', email: 'owner@example.com', name: 'Owner', status: 'active', externalId: null, credential }, true)
+            const ok = json(
+                await handleLoginPost(
+                    ctx({
+                        localAdmin: true,
+                        localUsers: false,
+                        internal: true,
+                        secure: false,
+                        store,
+                        body: { email: 'owner@example.com', password: GOOD }
+                    })
+                )
+            )
+            expect(ok.status).toBe(200)
+            expect(ok.cookies?.[0].options.secure).toBe(false)
+            const token = ok.cookies?.[0].value || ''
+            const out = json(
+                await handleLogout(
+                    ctx({
+                        localAdmin: true,
+                        localUsers: false,
+                        internal: true,
+                        secure: false,
+                        store,
+                        cookies: { 'cuttlely-local-session': token }
+                    })
+                )
+            )
+            expect(out.clearCookies).toContain('cuttlely-local-session')
+            expect(out.secure).toBe(false)
+            const stale = await establishSession(
+                ctx({
+                    localAdmin: true,
+                    localUsers: false,
+                    secure: true,
+                    store,
+                    cookies: { 'cuttlely-local-session': 'missing' }
+                })
+            )
+            expect(stale.clearCookies).toContain('cuttlely-local-session')
+            expect(stale.secure).toBe(true)
+        } finally {
+            if (previous === undefined) delete process.env.NODE_ENV
+            else process.env.NODE_ENV = previous
+        }
+    })
+
     it('break-glass login is not mounted when the flag is off', async () => {
         await expect(handleLoginPost(ctx({ workosConfigured: true, internal: true }))).resolves.toMatchObject({
             type: 'json',
@@ -446,6 +514,7 @@ describe('identity auth', () => {
         expect(ok.cookies?.[0].options).toMatchObject({ httpOnly: true, sameSite: 'lax', path: '/' })
         expect(ok.clearCookies).toContain('wos-session')
         expect(ok.secure).toBe(false)
+        expect(ok.cookies?.[0].options.secure).toBe(false)
         const raw = ok.cookies?.[0].value || ''
         expect(raw).not.toBe(hashSessionToken(raw))
         expect(store.local.get(hashSessionToken(raw))?.token).toBe(hashSessionToken(raw))
@@ -453,33 +522,42 @@ describe('identity auth', () => {
     })
 
     it('rate limits failed break-glass attempts without clearing the window on success', async () => {
-        const store = new MemoryStore()
-        const credential = await hashPassword(GOOD)
-        store.add({ id: 'owner', email: 'owner@example.com', name: 'Owner', status: 'active', externalId: null, credential }, true)
-        const rateLimit = new LoginRateLimit()
-        const attempt = (password: string, ip = '203.0.113.5') =>
-            handleLoginPost(ctx({ localAdmin: true, internal: true, store, rateLimit, ip, body: { email: 'owner@example.com', password } }))
-        for (let i = 0; i < 9; i++) expect(json(await attempt('bad-Bad1!')).status).toBe(401)
-        expect(json(await attempt(GOOD)).status).toBe(200)
-        expect(json(await attempt('bad-Bad1!')).status).toBe(401)
-        expect(json(await attempt(GOOD)).status).toBe(429)
-        expect(json(await attempt('bad-Bad1!', '203.0.113.9')).status).toBe(429)
-        expect(json(await attempt('bad-Bad1!', '203.0.113.10')).status).toBe(429)
-        const other = new LoginRateLimit()
-        expect(
-            json(
-                await handleLoginPost(
-                    ctx({
-                        localAdmin: true,
-                        internal: true,
-                        store,
-                        rateLimit: other,
-                        ip: '198.51.100.8',
-                        body: { email: 'someone-else@example.com', password: 'bad-Bad1!' }
-                    })
+        const savedSecret = process.env.TOKEN_HASH_SECRET
+        process.env.TOKEN_HASH_SECRET = 'test-login-lock-secret'
+        try {
+            const store = new MemoryStore()
+            const credential = await hashPassword(GOOD)
+            store.add({ id: 'owner', email: 'owner@example.com', name: 'Owner', status: 'active', externalId: null, credential }, true)
+            const rateLimit = new LoginRateLimit()
+            const attempt = (password: string, ip = '203.0.113.5') =>
+                handleLoginPost(
+                    ctx({ localAdmin: true, internal: true, store, rateLimit, ip, body: { email: 'owner@example.com', password } })
                 )
-            ).status
-        ).toBe(401)
+            for (let i = 0; i < 9; i++) expect(json(await attempt('bad-Bad1!')).status).toBe(401)
+            expect(json(await attempt(GOOD)).status).toBe(200)
+            expect(json(await attempt('bad-Bad1!')).status).toBe(401)
+            expect(json(await attempt(GOOD)).status).toBe(429)
+            expect(json(await attempt('bad-Bad1!', '203.0.113.9')).status).toBe(429)
+            expect(json(await attempt('bad-Bad1!', '203.0.113.10')).status).toBe(429)
+            const other = new LoginRateLimit()
+            expect(
+                json(
+                    await handleLoginPost(
+                        ctx({
+                            localAdmin: true,
+                            internal: true,
+                            store,
+                            rateLimit: other,
+                            ip: '198.51.100.8',
+                            body: { email: 'someone-else@example.com', password: 'bad-Bad1!' }
+                        })
+                    )
+                ).status
+            ).toBe(401)
+        } finally {
+            if (savedSecret === undefined) delete process.env.TOKEN_HASH_SECRET
+            else process.env.TOKEN_HASH_SECRET = savedSecret
+        }
     })
 
     it('does not trust X-Forwarded-For unless TRUST_PROXY is set, and drops old failures', async () => {

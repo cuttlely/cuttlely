@@ -20,7 +20,20 @@ import { promisify } from 'util'
 const scryptAsync = promisify(scrypt)
 const PREFIX = 'scrypt'
 
-/** Same rules as the UI password schema. Used only for the break-glass account and `pnpm user`. */
+/**
+ * Well-formed scrypt string used when the account cannot be checked.
+ * verifyPassword still runs scrypt, so unknown, empty, disabled, and wrong-password failures take the same work.
+ * 16-byte salt, 32-byte key. Not a password anyone can sign in with.
+ */
+export const DUMMY_PASSWORD_HASH = 'scrypt$AAECAwQFBgcICQoLDA0ODw==$AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA='
+
+/** Real hash only when this account may sign in. Every other case uses the dummy so scrypt still runs. */
+export function hashForLoginCompare(eligible: boolean, credential: string | null): string {
+    if (eligible && credential && credential.startsWith(`${PREFIX}$`)) return credential
+    return DUMMY_PASSWORD_HASH
+}
+
+/** Same rules as the UI password schema. Used for the break-glass account, local user passwords, and `pnpm user`. */
 export function passwordErrors(password: string): string[] {
     const errors: string[] = []
     if (password.length < 8) errors.push('Password must be at least 8 characters')

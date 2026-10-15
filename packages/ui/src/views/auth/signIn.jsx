@@ -41,7 +41,7 @@ const SignInPage = () => {
     }
     const [usernameVal, setUsernameVal] = useState('')
     const [passwordVal, setPasswordVal] = useState('')
-    const [options, setOptions] = useState({ authKit: false, localAdmin: false, mail: false })
+    const [options, setOptions] = useState({ authKit: false, localAdmin: false, localUsers: false, mail: false })
     const isAuthenticated = useSelector((state) => state.auth.isAuthenticated)
     const currentUser = useSelector((state) => state.auth.user)
     const [authError, setAuthError] = useState(undefined)
@@ -50,6 +50,8 @@ const SignInPage = () => {
     const { authRateLimitError, setAuthRateLimitError } = useError()
 
     const loginApi = useApi(authApi.login)
+    const localLoginApi = useApi(authApi.localLogin)
+    const activeLogin = options.localUsers ? localLoginApi : loginApi
     const navigate = useNavigate()
     const location = useLocation()
 
@@ -57,7 +59,7 @@ const SignInPage = () => {
         event.preventDefault()
         setAuthRateLimitError(null)
         setLoading(true)
-        loginApi.request({
+        activeLogin.request({
             email: usernameVal,
             password: passwordVal
         })
@@ -72,11 +74,12 @@ const SignInPage = () => {
                 setOptions({
                     authKit: response.data?.authKit === true,
                     localAdmin: response.data?.localAdmin === true,
+                    localUsers: response.data?.localUsers === true,
                     mail: response.data?.mail === true
                 })
             })
             .catch(() => {
-                if (!cancelled) setOptions({ authKit: false, localAdmin: false, mail: false })
+                if (!cancelled) setOptions({ authKit: false, localAdmin: false, localUsers: false, mail: false })
             })
         return () => {
             cancelled = true
@@ -84,11 +87,12 @@ const SignInPage = () => {
     }, [])
 
     useEffect(() => {
-        if (loginApi.error) {
+        const failed = options.localUsers ? localLoginApi.error : loginApi.error
+        if (failed) {
             setLoading(false)
-            setAuthError(loginApi.error.response?.data?.message || 'Sign-in failed.')
+            setAuthError(failed.response?.data?.message || 'Sign-in failed.')
         }
-    }, [loginApi.error])
+    }, [loginApi.error, localLoginApi.error, options.localUsers])
 
     useEffect(() => {
         setAuthRateLimitError(null)
@@ -107,12 +111,13 @@ const SignInPage = () => {
     }, [location.search])
 
     useEffect(() => {
-        if (loginApi.data) {
+        const signedIn = options.localUsers ? localLoginApi.data : loginApi.data
+        if (signedIn) {
             setLoading(false)
-            store.dispatch(loginSuccess(loginApi.data))
+            store.dispatch(loginSuccess(signedIn))
             navigate(location.state?.path || '/')
         }
-    }, [loginApi.data, location.state, navigate])
+    }, [loginApi.data, localLoginApi.data, options.localUsers, location.state, navigate])
 
     if (isAuthenticated && currentUser) {
         return <Navigate to={location.state?.path || '/'} replace />
@@ -142,7 +147,42 @@ const SignInPage = () => {
                                 Sign in with WorkOS
                             </Button>
                         )}
-                        {options.localAdmin && (
+                        {options.localUsers && (
+                            <form id='local-users-form' onSubmit={doLogin}>
+                                <Stack sx={{ width: '100%', flexDirection: 'column', gap: 2 }}>
+                                    <Box sx={{ p: 0 }}>
+                                        <Typography>
+                                            Email<span style={{ color: 'red' }}>&nbsp;*</span>
+                                        </Typography>
+                                        <Input
+                                            inputParam={usernameInput}
+                                            onChange={(newValue) => setUsernameVal(newValue)}
+                                            value={usernameVal}
+                                            showDialog={false}
+                                        />
+                                    </Box>
+                                    <Box sx={{ p: 0 }}>
+                                        <Typography>
+                                            Password<span style={{ color: 'red' }}>&nbsp;*</span>
+                                        </Typography>
+                                        <Input
+                                            inputParam={passwordInput}
+                                            onChange={(newValue) => setPasswordVal(newValue)}
+                                            value={passwordVal}
+                                        />
+                                    </Box>
+                                    <LoadingButton
+                                        loading={loading}
+                                        variant='contained'
+                                        style={{ borderRadius: 12, height: 40 }}
+                                        type='submit'
+                                    >
+                                        Sign in
+                                    </LoadingButton>
+                                </Stack>
+                            </form>
+                        )}
+                        {options.localAdmin && !options.localUsers && (
                             <form id='break-glass-form' onSubmit={doLogin}>
                                 <Stack sx={{ width: '100%', flexDirection: 'column', gap: 2 }}>
                                     <Box sx={{ p: 0 }}>
@@ -182,7 +222,7 @@ const SignInPage = () => {
                                 </Stack>
                             </form>
                         )}
-                        {!options.authKit && !options.localAdmin && (
+                        {!options.authKit && !options.localAdmin && !options.localUsers && (
                             <Typography variant='body2' sx={{ color: theme.palette.grey[600] }}>
                                 Sign-in is not configured.
                             </Typography>

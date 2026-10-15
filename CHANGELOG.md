@@ -4,6 +4,10 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ## [Unreleased]
 
+### Added
+
+-   Local password sign-in for every active user who already has a password, when `CUTTLELY_LOCAL_USERS=true` and AuthKit is not configured. The owner break-glass route is unchanged. Invited users still have no password until a sign-in link exists. [Users without AuthKit](./docs/how-to/users-without-authkit.md), [Auth API](./docs/reference/auth-api.md).
+
 ### Changed
 
 -   Docs name the Run the test set button and the gate's scope.

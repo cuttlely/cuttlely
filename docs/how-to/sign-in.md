@@ -1,6 +1,6 @@
 # Sign in
 
-A new Cuttlely install has no users. You create one local account, the owner, and sign in with its email and password. That account is the **break-glass** account: it keeps working when nothing else does. When several people need to sign in, add WorkOS and let them sign in with their own identity. See [Sign in with WorkOS](#sign-in-with-workos).
+A new Cuttlely install has no users. You create one local account, the owner, and sign in with its email and password. That account is the **break-glass** account: it keeps working when nothing else does. When several people need to sign in, add WorkOS and let them sign in with their own identity. See [Sign in with WorkOS](#sign-in-with-workos). To let people who already have a password sign in without AuthKit, see [Users without AuthKit](./users-without-authkit.md). That switch is off by default. Invited people still have no password until a sign-in link exists.
 
 Install first: [Docker](./docker.md), [From source](./from-source.md), or [Render](./render.md). Render turns the local password form off and uses WorkOS.
 
