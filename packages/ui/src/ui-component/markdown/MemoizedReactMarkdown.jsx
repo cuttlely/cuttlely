@@ -3,68 +3,8 @@ import PropTypes from 'prop-types'
 import ReactMarkdown from 'react-markdown'
 import './Markdown.css'
 import { CodeBlock } from '../markdown/CodeBlock'
-import remarkGfm from 'remark-gfm'
-import remarkMath from 'remark-math'
 import rehypeMathjax from 'rehype-mathjax'
-
-/**
- * Checks if text likely contains LaTeX math notation
- * @param {string} text - Text to check for LaTeX math
- * @param {Object[]} customPatterns - Additional regex patterns to check
- * @returns {boolean} - Whether LaTeX math is likely present
- */
-const containsLaTeX = (text, customPatterns = []) => {
-    if (!text || typeof text !== 'string') return false
-
-    // Common LaTeX patterns - more permissive to catch edge cases
-    const defaultPatterns = [
-        { regex: /\$\$.+?\$\$/s, name: 'Block math: $$...$$' },
-        { regex: /\\\(.+?\\\)/s, name: 'Inline math: \\(...\\)' },
-        { regex: /\\\[[\s\S]*?\\\]/, name: 'Display math: \\[...\\]' },
-        { regex: /\\begin{(equation|align|gather|math|matrix|bmatrix|pmatrix|vmatrix|cases)}.+?\\end{\1}/s, name: 'Environment math' },
-        { regex: /\$(.*?[\\{}_^].*?)\$/, name: 'Inline math with $' },
-        { regex: /\\frac/, name: 'LaTeX command: \\frac' },
-        { regex: /\\sqrt/, name: 'LaTeX command: \\sqrt' },
-        { regex: /\\pm/, name: 'LaTeX command: \\pm' },
-        { regex: /\\cdot/, name: 'LaTeX command: \\cdot' },
-        { regex: /\\text/, name: 'LaTeX command: \\text' },
-        { regex: /\\sum/, name: 'LaTeX command: \\sum' },
-        { regex: /\\prod/, name: 'LaTeX command: \\prod' },
-        { regex: /\\int/, name: 'LaTeX command: \\int' }
-    ]
-
-    // Combine default and custom patterns
-    const patterns = [...defaultPatterns, ...customPatterns]
-
-    for (const pattern of patterns) {
-        if (pattern.regex.test(text)) {
-            return true
-        }
-    }
-
-    return false
-}
-
-/**
- * Preprocesses text to make LaTeX syntax more compatible with Markdown
- * @param {string} text - Original text with potentially problematic LaTeX syntax
- * @returns {string} - Text with LaTeX syntax adjusted for better compatibility
- */
-const preprocessLatex = (text) => {
-    if (!text || typeof text !== 'string') return text
-
-    // Replace problematic LaTeX patterns with more compatible alternatives
-    const processedText = text
-        // Convert display math with indentation to dollar-dollar format
-        .replace(/(\n\s*)\\\[([\s\S]*?)\\\](\s*\n|$)/g, (match, before, content, after) => {
-            // Preserve indentation but use $$ format which is more reliably handled
-            return `${before}$$${content}$$${after}`
-        })
-        // Convert inline math to dollar format with spaces to avoid conflicts
-        .replace(/\\\(([\s\S]*?)\\\)/g, '$ $1 $')
-
-    return processedText
-}
+import { containsLaTeX, preprocessLatex, remarkPluginsFor } from './math.mjs'
 
 /**
  * Enhanced Markdown component with memoization for better performance
@@ -85,7 +25,7 @@ export const MemoizedReactMarkdown = memo(
         // Configure plugins based on content
         const remarkPlugins = useMemo(() => {
             if (props.remarkPlugins) return props.remarkPlugins
-            return shouldEnableMath ? [remarkGfm, remarkMath] : [remarkGfm]
+            return remarkPluginsFor(shouldEnableMath)
         }, [props.remarkPlugins, shouldEnableMath])
 
         const rehypePlugins = useMemo(() => {
