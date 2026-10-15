@@ -67,6 +67,23 @@ function checkEndpoint(setting: SettingDef, value: string): Checked {
     return { ok: true, value }
 }
 
+/** One address, with no spaces. The same shape the invite route accepts. */
+export function isEmailAddress(value: string): boolean {
+    if (value.length < 3 || value.length > 320) return false
+    let at = -1
+    for (let index = 0; index < value.length; index += 1) {
+        const char = value[index]
+        if (char <= ' ' || char === '@') {
+            if (char !== '@' || at !== -1) return false
+            at = index
+        }
+    }
+    if (at <= 0) return false
+    const rest = value.slice(at + 1)
+    const dot = rest.indexOf('.')
+    return dot > 0 && dot < rest.length - 1
+}
+
 function runtimeInteger(setting: SettingDef, value: string): Checked {
     const min = setting.min
     const max = setting.max
@@ -133,6 +150,7 @@ export function checkValue(setting: SettingDef, input: unknown): Checked {
         case 'secret':
         default:
             if (/[\r\n]/.test(value)) return { ok: false, error: `${setting.label}: use one line.` }
+            if (setting.email && !isEmailAddress(value)) return { ok: false, error: `${setting.label}: enter an email address.` }
             return { ok: true, value }
     }
 }

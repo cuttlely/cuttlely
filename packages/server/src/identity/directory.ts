@@ -33,9 +33,13 @@ export interface DirectoryActor {
     id: string
     organizationId: string
     workspaceId: string | null
+    /** Organization owner. Skips the role-grant subset check. */
+    owner?: boolean
+    /** Present when the route loaded this caller's team grants. Undefined keeps older callers unchanged. */
+    permissions?: string[] | null
 }
 
-type QueryFn = (sql: string, params?: unknown[]) => Promise<Record<string, unknown>[]>
+export type QueryFn = (sql: string, params?: unknown[]) => Promise<Record<string, unknown>[]>
 
 export interface Sql {
     type: Dialect
@@ -43,7 +47,22 @@ export interface Sql {
     transaction<T>(fn: (query: QueryFn) => Promise<T>): Promise<T>
 }
 
-const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+/** Same shape as a single address with one @ and a dot in the domain. A linear scan, so a long input cannot stall the process. */
+function isEmailAddress(value: string): boolean {
+    if (value.length < 3) return false
+    let at = -1
+    for (let index = 0; index < value.length; index += 1) {
+        const char = value[index]
+        if (char <= ' ' || char === '@') {
+            if (char !== '@' || at !== -1) return false
+            at = index
+        }
+    }
+    if (at <= 0) return false
+    const rest = value.slice(at + 1)
+    const dot = rest.indexOf('.')
+    return dot > 0 && dot < rest.length - 1 && !rest.includes('@')
+}
 const RESERVED_WORKSPACE = new Set([DEFAULT_WORKSPACE, PERSONAL_WORKSPACE])
 
 function dialectOfRunner(runner: { connection: { options: { type?: string } } }): Dialect {
@@ -173,7 +192,7 @@ function inviteBody(body: unknown): InviteBody {
     const workspaceId = text(workspace.id).trim()
     const roleId = text(role.id).trim()
     if (!name || name.length > 100) throw new DirectoryError(400, 'Name is required')
-    if (!EMAIL_PATTERN.test(email)) throw new DirectoryError(400, 'Enter a valid email')
+    if (!isEmailAddress(email)) throw new DirectoryError(400, 'Enter a valid email')
     if (!workspaceId) throw new DirectoryError(400, 'Choose a team')
     if (!roleId) throw new DirectoryError(400, 'Choose a role')
     return { name, email, workspaceId, roleId }
@@ -209,14 +228,37 @@ async function workspaceInOrg(query: QueryFn, sql: Sql, workspaceId: string, org
     return row
 }
 
+function rolePermissions(row: Record<string, unknown>): string[] {
+    const value = cell(row, 'permissions')
+    if (Array.isArray(value)) return value.filter((item): item is string => typeof item === 'string')
+    if (typeof value !== 'string' || !value) return []
+    try {
+        const parsed = JSON.parse(value) as unknown
+        return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === 'string') : []
+    } catch {
+        return []
+    }
+}
+
 /** Create an active user with no local password. A repeated email is refused and the stored credential is left alone. */
-export async function createEmailUser(sql: Sql, actor: DirectoryActor, body: unknown): Promise<{ id: string }> {
+export async function createEmailUser(
+    sql: Sql,
+    actor: DirectoryActor,
+    body: unknown,
+    hook?: (query: QueryFn, userId: string) => Promise<void>
+): Promise<{ id: string }> {
     const invite = inviteBody(body)
     return sql.transaction(async (query) => {
         const workspace = await workspaceInOrg(query, sql, invite.workspaceId, actor.organizationId)
         if (text(cell(workspace, 'name')) === PERSONAL_WORKSPACE) throw new DirectoryError(400, 'Choose a team')
         const role = await roleRow(query, sql, invite.roleId)
         if (!role || !assignable(role, actor.organizationId)) throw new DirectoryError(400, 'Choose a role')
+        if (!actor.owner && actor.permissions) {
+            const held = new Set(actor.permissions)
+            if (rolePermissions(role).some((permission) => !held.has(permission))) {
+                throw new DirectoryError(403, 'You cannot grant this role')
+            }
+        }
         const existing = await query(`SELECT ${q(sql, 'id')} AS id FROM ${q(sql, 'user')} WHERE LOWER(${q(sql, 'email')}) = LOWER(?)`, [
             invite.email
         ])
@@ -245,6 +287,7 @@ export async function createEmailUser(sql: Sql, actor: DirectoryActor, body: unk
              VALUES (?, ?, ?, ?, ?, ?)`,
             [invite.workspaceId, userId, text(cell(role, 'id')), 'active', actor.id, actor.id]
         )
+        if (hook) await hook(query, userId)
         return { id: userId }
     })
 }

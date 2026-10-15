@@ -4,7 +4,7 @@ Every option the [Server settings API](./server-settings-api.md) exposes, in one
 
 A secret setting and every host-only key are named here and marked **not shown**. The table does not include the value, a default that would be the value, a length, a hash, a token, a key, or a connection string. The API follows the same rule: a secret is omitted from the response, and a host-only row is `key`, `set`, `source`, and `readOnly`.
 
-**Where it can be set** is the host and then Server settings, except `CUTTLELY_HISTORY_KEEP`, where a saved value wins over the host. Host-only keys can be set only on the host. **Restart** is No for a runtime setting, which applies on the next use. Every other option applies at the next start.
+**Where it can be set** is the host and then Server settings, except `CUTTLELY_HISTORY_KEEP` and the invite and mail settings, where a saved value wins over the host. `SMTP_PASSWORD` and the other host-only keys can be set only on the host. **Restart** is No for a runtime setting, which applies on the next use. Every other option applies at the next start.
 
 The publish check switch is `CUTTLELY_PUBLISH_CHECK`. The default is `true`. Accepted values are exactly `true` and `false`. How a host value wins, and the error codes, are in the [Server settings API](./server-settings-api.md#publish-check-switch).
 
@@ -12,6 +12,15 @@ The publish check switch is `CUTTLELY_PUBLISH_CHECK`. The default is `true`. Acc
 | -------------------------------------------- | ------------------------------------------- | ----------------- | ------------- | ------------------------------ | ------- |
 | `CUTTLELY_LOCAL_ADMIN`                       | On from source and in Docker, off on Render | —                 | —             | Host, then Server settings     | Yes     |
 | `CUTTLELY_LOCAL_USERS`                       | false                                       | —                 | —             | Host, then Server settings     | Yes     |
+| `INVITE_TOKEN_EXPIRY_IN_HOURS`               | 72                                          | 1 to 168          | hours         | Server settings, then the host | No      |
+| `PASSWORD_RESET_TOKEN_EXPIRY_IN_MINS`        | 60                                          | 5 to 1440         | minutes       | Server settings, then the host | No      |
+| `INVITE_DELIVERY`                            | request                                     | —                 | —             | Server settings, then the host | No      |
+| `SMTP_HOST`                                  | Not set                                     | —                 | —             | Server settings, then the host | No      |
+| `SMTP_PORT`                                  | 587                                         | 1 to 65535        | —             | Server settings, then the host | No      |
+| `SMTP_SECURE`                                | false                                       | —                 | boolean       | Server settings, then the host | No      |
+| `SMTP_USER`                                  | Not set                                     | —                 | —             | Server settings, then the host | No      |
+| `SMTP_PASSWORD`                              | not shown                                   | —                 | —             | Host only                      | Yes     |
+| `SENDER_EMAIL`                               | Not set                                     | —                 | —             | Server settings, then the host | No      |
 | `WORKOS_API_KEY`                             | not shown                                   | —                 | —             | Host, then Server settings     | Yes     |
 | `WORKOS_CLIENT_ID`                           | Not set: AuthKit is off                     | —                 | —             | Host, then Server settings     | Yes     |
 | `WORKOS_REDIRECT_URI`                        | Not set                                     | —                 | —             | Host, then Server settings     | Yes     |
@@ -62,7 +71,7 @@ The publish check switch is `CUTTLELY_PUBLISH_CHECK`. The default is `true`. Acc
 | `CUTTLELY_LOGIN_FAILURE_LIMIT`               | 10                                          | 3 to 50           | count         | Host, then Server settings     | No      |
 | `CUTTLELY_SESSION_IDLE_MINUTES`              | 720                                         | 15 to 1440        | minutes       | Host, then Server settings     | No      |
 | `CUTTLELY_SESSION_ABSOLUTE_HOURS`            | 168                                         | 1 to 720          | count         | Host, then Server settings     | No      |
-| `CUTTLELY_DRAIN_TIMEOUT_MS`                  | 25000                                       | 5000 to 300000    | ms            | Host, then Server settings     | No      |
+| `CUTTLELY_DRAIN_TIMEOUT_MS`                  | 25000                                       | 0 to 300000       | ms            | Host, then Server settings     | No      |
 | `CUTTLELY_HISTORY_KEEP`                      | 1000                                        | 100 to 10000      | count         | Server settings, then the host | No      |
 | `CUTTLELY_UI_PAGE_LIMIT_MAX`                 | 3000                                        | 100 to 50000      | count         | Host, then Server settings     | No      |
 | `CORS_ORIGINS`                               | This server only                            | —                 | —             | Host, then Server settings     | Yes     |

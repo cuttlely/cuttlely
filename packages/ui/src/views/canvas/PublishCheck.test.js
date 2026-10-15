@@ -43,6 +43,15 @@ const render = (props) =>
         )
     )
 
+const openingTag = (html, testId) => {
+    const marker = `data-testid="${testId}"`
+    const at = html.indexOf(marker)
+    if (at < 0) return ''
+    const start = html.lastIndexOf('<', at)
+    const end = html.indexOf('>', at)
+    return html.slice(start, end + 1)
+}
+
 const live = { text: 'MANGO', error: null, tokens: 44, ms: 657 }
 const draft = { text: 'PAPAYA', error: null, tokens: 45, ms: 525 }
 
@@ -65,6 +74,118 @@ describe('PublishCheckView', () => {
         expect(html).toContain('Run check')
         expect(html).toContain('Publish works with or without a check.')
         expect(html).not.toContain('Questions from')
+    })
+
+    test('a flow that cannot pick ids does not offer Choose questions', () => {
+        const html = render({ canChooseQuestions: false, questionMode: 'choose' })
+        expect(html).not.toContain('data-testid="choose-questions"')
+        expect(html).toContain('Past questions')
+    })
+
+    test('Choose questions lists stored rows, greys out a file question, and keeps the count picker', () => {
+        const html = render({
+            canChooseQuestions: true,
+            questionMode: 'choose',
+            setup: {
+                unavailable: null,
+                questions: [{ text: 'Do you have rye loaves today?' }],
+                pastCount: 1,
+                riskySteps: [],
+                limits,
+                check: null
+            },
+            historyItems: [
+                { id: 'chat:a', text: 'Do you have rye loaves today?', source: 'chat', date: '2026-10-08T16:12:03.000Z', replayable: true },
+                {
+                    id: 'chat:b',
+                    text: 'See the scan',
+                    source: 'api',
+                    date: '2026-10-08T15:00:00.000Z',
+                    replayable: false,
+                    reason: 'files'
+                }
+            ],
+            historyHasMore: true,
+            selectedQuestions: [{ id: 'chat:a', text: 'Do you have rye loaves today?' }],
+            list: [{ text: 'Is the rye starter ready?', picked: true, added: true }]
+        })
+        expect(html).toContain('Choose questions')
+        expect(html).toContain('aria-pressed="true"')
+        expect(html).toContain('2 of 10 chosen')
+        expect(html).toContain('Do you have rye loaves today?')
+        expect(html).toContain('See the scan')
+        expect(html).toContain('Sent with a file, so it cannot be replayed.')
+        expect(html).toContain('Select all shown')
+        expect(html).toContain('Load more questions')
+        expect(html).toContain('Search questions')
+        expect(html).toContain('Question source')
+        expect(html).toContain('Canvas chat')
+        expect(html).toContain('API')
+        expect(html).not.toContain('Replayed input')
+        expect(html).not.toContain('Shared link')
+        expect(html).not.toContain('Embed')
+        expect(html).toContain('From date (UTC)')
+        expect(html).toContain('data-testid="compare-count"')
+        expect(html).toContain('disabled=""')
+        expect(html).not.toContain('data-testid="compare-question"')
+    })
+
+    test('Choose questions with nothing ticked and nothing typed disables Run check', () => {
+        const pastSetup = {
+            unavailable: null,
+            questions: [{ text: 'Do you have rye loaves today?' }],
+            pastCount: 4,
+            riskySteps: [],
+            limits,
+            check: null
+        }
+        const historyItems = [
+            { id: 'chat:a', text: 'Do you have rye loaves today?', source: 'chat', date: '2026-10-08T16:12:03.000Z', replayable: true }
+        ]
+        const empty = render({
+            canChooseQuestions: true,
+            questionMode: 'choose',
+            setup: pastSetup,
+            historyItems,
+            selectedQuestions: [],
+            list: initialPicks([{ text: 'What are your hours?', starter: true }]),
+            newQuestion: ''
+        })
+        expect(empty).toContain('aria-pressed="true"')
+        expect(empty).toContain('0 of 10 chosen')
+        expect(openingTag(empty, 'check-run')).toContain('disabled')
+        expect(empty).toContain('Run check')
+
+        const counted = render({
+            canChooseQuestions: true,
+            questionMode: 'count',
+            setup: pastSetup,
+            list: [],
+            newQuestion: ''
+        })
+        expect(openingTag(counted, 'check-run')).not.toContain('disabled')
+
+        const ticked = render({
+            canChooseQuestions: true,
+            questionMode: 'choose',
+            setup: pastSetup,
+            historyItems,
+            selectedQuestions: [{ id: 'chat:a', text: 'Do you have rye loaves today?' }],
+            list: [],
+            newQuestion: ''
+        })
+        expect(openingTag(ticked, 'check-run')).not.toContain('disabled')
+
+        const typed = render({
+            canChooseQuestions: true,
+            questionMode: 'choose',
+            setup: pastSetup,
+            historyItems,
+            selectedQuestions: [],
+            list: [{ text: 'Is the rye starter ready?', picked: true, added: true }],
+            newQuestion: ''
+        })
+        expect(openingTag(typed, 'check-run')).not.toContain('disabled')
     })
 
     test('no history yet asks for a question', () => {

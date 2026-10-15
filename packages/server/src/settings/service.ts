@@ -17,6 +17,7 @@ import { SettingsBusyError, withSettingsLock } from './lock'
 import { listReadOnlyStatus } from './readOnly'
 import { KEPT_OUT, SECTIONS, SETTINGS, SettingDef, isKeptOut, isReadOnly, savedValueWins, settingFor } from './registry'
 import { ResolvedSetting, effectiveValue, isBlank, resolveSettings } from './resolve'
+import { accountLinkSnapshot } from './accountLinks'
 import { flagSnapshot, invalidateRuntimeCache, runtimeConflict, runtimeSnapshot } from './runtime'
 import { requestRestart, restartInPlaceAvailable } from './restart'
 import { ROLLED_BACK_FILE } from './safeboot'
@@ -165,9 +166,10 @@ export async function getView(deps: ServiceDeps): Promise<SettingsView> {
     const hostKeys = new Set(state.hostKeys)
     const resolved = resolveSettings({ env, hostKeys, file: read.values })
     const atStartResolved = resolveSettings({ env, hostKeys, file: state.ignored ? {} : state.atStart })
-    const changed = changedKeys(read.values, state.atStart, read.unreadable).filter(
-        (key) => !hostKeys.has(key) && !settingFor(key)?.runtime
-    )
+    const changed = changedKeys(read.values, state.atStart, read.unreadable).filter((key) => {
+        const setting = settingFor(key)
+        return !hostKeys.has(key) && !setting?.runtime && !setting?.panelFirst && !setting?.envOnly
+    })
     const live = runtimeSnapshot(env)
     const flags = flagSnapshot(env)
     const settings: SettingView[] = SETTINGS.map((setting, index) => {
@@ -189,7 +191,34 @@ export async function getView(deps: ServiceDeps): Promise<SettingsView> {
             view.effective = effectiveValue(row)
             view.running = atStartResolved[index].value
         }
-        if (setting.runtime && setting.type === 'switch') {
+        if (setting.envOnly) {
+            const set = !isBlank(env[setting.key])
+            view.source = set ? 'host' : 'default'
+            view.locked = true
+            view.changed = false
+            delete view.value
+            delete view.running
+            delete view.effective
+            delete view.boundedBy
+            delete view.range
+            view.secret = { set, unreadable: false }
+        } else if (setting.panelFirst) {
+            const picked = accountLinkSnapshot(env).get(setting.key)
+            if (picked) {
+                const shown = picked.source === 'default' ? '' : picked.value
+                view.source = picked.source
+                view.locked = false
+                view.changed = false
+                delete view.boundedBy
+                delete view.secret
+                view.value = shown
+                view.running = shown
+                view.effective = picked.value
+                if (setting.type === 'number' && setting.min !== undefined && setting.max !== undefined) {
+                    view.range = { min: setting.min, max: setting.max }
+                }
+            }
+        } else if (setting.runtime && setting.type === 'switch') {
             const picked = flags.get(setting.key)
             if (picked) {
                 const on = setting.on ?? 'true'
@@ -315,8 +344,18 @@ export async function saveChanges(deps: ServiceDeps, input: unknown, by: string,
             errors.push({ key, message: isKeptOut(key) ? `${key} cannot be changed from the browser.` : `${key} is not a setting.` })
             continue
         }
-        if (hostKeys.has(key) && !savedValueWins(key)) {
-            errors.push({ key, code: 'LOCKED', message: `${setting.label} is set by the host, so it is locked here.` })
+        if (setting.envOnly) {
+            errors.push({ key, code: 'READ_ONLY', message: 'This setting cannot be changed.' })
+            continue
+        }
+        if (hostKeys.has(key) && !savedValueWins(key) && !setting.panelFirst) {
+            // The publish check switch is the one host lock that answers 409. Other host locks stay 400.
+            const code = setting.runtime && setting.type === 'switch' ? 'LOCKED' : undefined
+            errors.push({
+                key,
+                ...(code ? { code } : {}),
+                message: `${setting.label} is set by the host, so it is locked here.`
+            })
             continue
         }
         const guided = guidedOnly(setting)
@@ -461,11 +500,18 @@ export async function discardChanges(deps: ServiceDeps, by: string, actorId?: st
             const key = await deps.key()
             const before = readSettingsFile(state.dir, key).values
             const file = path.join(state.dir, SETTINGS_FILE)
+            const previousRaw = fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : null
             if (state.rawAtStart === null || state.rawAtStart === undefined) fs.rmSync(file, { force: true })
             else writeFileAtomic(state.dir, SETTINGS_FILE, state.rawAtStart)
             const changes = describeChanges(before, state.atStart)
-            if (changes.length) appendHistory(state.dir, { kind: 'discard', by, actorId, changes, outcome: 'ok' })
             invalidateRuntimeCache()
+            try {
+                if (changes.length) appendHistory(state.dir, { kind: 'discard', by, actorId, changes, outcome: 'ok' })
+            } catch {
+                restoreSettingsFile(state.dir, previousRaw)
+                invalidateRuntimeCache()
+                throw new SettingsError(500, 'HISTORY_FAILED', 'The change was not kept because the history could not be recorded.')
+            }
             return getView(deps)
         })
     } catch (error) {
@@ -501,16 +547,22 @@ async function retryRolledBackLocked(deps: ServiceDeps, by: string, actorId?: st
         else writeFileAtomic(state.dir, SETTINGS_FILE, current)
         throw new SettingsError(409, 'FILE_DAMAGED', 'The set-aside settings could not be read, so nothing changed.')
     }
-    fs.rmSync(kept, { force: true })
-    appendHistory(state.dir, {
-        kind: 'restore',
-        by,
-        actorId,
-        changes: describeChanges(before, after.values),
-        note: 'Put back the settings that did not start, to try them again at the next restart.',
-        outcome: 'ok'
-    })
     invalidateRuntimeCache()
+    try {
+        appendHistory(state.dir, {
+            kind: 'restore',
+            by,
+            actorId,
+            changes: describeChanges(before, after.values),
+            note: 'Put back the settings that did not start, to try them again at the next restart.',
+            outcome: 'ok'
+        })
+    } catch {
+        restoreSettingsFile(state.dir, current)
+        invalidateRuntimeCache()
+        throw new SettingsError(500, 'HISTORY_FAILED', 'The change was not kept because the history could not be recorded.')
+    }
+    fs.rmSync(kept, { force: true })
     return getView(deps)
 }
 

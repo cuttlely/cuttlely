@@ -88,7 +88,7 @@ export const workosPort: WorkosPort = {
             const session = client().userManagement.loadSealedSession({ sessionData: sealed, cookiePassword: password() })
             const result = await session.authenticate()
             if (!result.authenticated) return { authenticated: false as const, reason: result.reason }
-            return { authenticated: true as const, user: identityOf(result.user) }
+            return { authenticated: true as const, sessionId: result.sessionId, user: identityOf(result.user) }
         } catch (error) {
             rethrow(error)
         }
@@ -101,7 +101,12 @@ export const workosPort: WorkosPort = {
             if (!result.authenticated || !result.sealedSession) {
                 return { authenticated: false as const, reason: result.authenticated ? 'invalid_session_cookie' : result.reason }
             }
-            return { authenticated: true as const, sealedSession: result.sealedSession, user: identityOf(result.user) }
+            return {
+                authenticated: true as const,
+                sealedSession: result.sealedSession,
+                sessionId: result.sessionId,
+                user: identityOf(result.user)
+            }
         } catch (error) {
             rethrow(error)
         }

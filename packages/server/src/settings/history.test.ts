@@ -4,7 +4,7 @@ import os from 'os'
 import path from 'path'
 import { appendHistory, historyKeepLimit, pageHistory, readHistory } from './history'
 import { resetRuntimeLimitsForTests } from './runtime'
-import { HISTORY_FILE, writeSettingsFile } from './store'
+import { HISTORY_FILE, SETTINGS_FILE, writeSettingsFile } from './store'
 
 const SECRET = 'pw-made-up-for-the-bakery-0001'
 
@@ -56,6 +56,34 @@ describe('settings history retention', () => {
             expect(entries[0].changes?.[0].to).toBe('101')
             expect(entries[99].changes?.[0].to).toBe('2')
             expect(fs.readFileSync(path.join(dir, HISTORY_FILE), 'utf8')).not.toContain('"to":"1"')
+        } finally {
+            if (previousDir === undefined) delete process.env.CUTTLELY_DATA_DIR
+            else process.env.CUTTLELY_DATA_DIR = previousDir
+            if (previousKeep === undefined) delete process.env.CUTTLELY_HISTORY_KEEP
+            else process.env.CUTTLELY_HISTORY_KEEP = previousKeep
+            resetRuntimeLimitsForTests()
+        }
+    })
+
+    it('uses a cap saved after an older limit was cached', () => {
+        const data = fs.mkdtempSync(path.join(os.tmpdir(), 'cuttlely-history-stale-'))
+        const previousDir = process.env.CUTTLELY_DATA_DIR
+        const previousKeep = process.env.CUTTLELY_HISTORY_KEEP
+        process.env.CUTTLELY_DATA_DIR = data
+        delete process.env.CUTTLELY_HISTORY_KEEP
+        resetRuntimeLimitsForTests()
+        try {
+            expect(historyKeepLimit()).toBe(1000)
+            const dir = path.join(data, 'settings')
+            fs.mkdirSync(dir, { recursive: true })
+            fs.writeFileSync(
+                path.join(dir, SETTINGS_FILE),
+                JSON.stringify({ version: 1, values: { CUTTLELY_HISTORY_KEEP: '100' } }),
+                'utf8'
+            )
+            for (let i = 1; i <= 101; i++) appendHistory(dir, row(String(i)))
+            expect(readHistory(dir, 200)).toHaveLength(100)
+            expect(readHistory(dir, 200)[0].changes?.[0].to).toBe('101')
         } finally {
             if (previousDir === undefined) delete process.env.CUTTLELY_DATA_DIR
             else process.env.CUTTLELY_DATA_DIR = previousDir
@@ -118,23 +146,29 @@ describe('settings history retention', () => {
 })
 
 function appendInChild(dir: string, marker: string, keep: number): Promise<void> {
-    const historyFile = path.join(__dirname, 'history.ts')
-    const code = `
+    const once = () =>
+        new Promise<void>((resolve, reject) => {
+            const historyFile = path.join(__dirname, 'history.ts')
+            const code = `
         require('ts-node').register({ transpileOnly: true, skipProject: true, compilerOptions: { module: 'commonjs', esModuleInterop: true, target: 'ES2022' } })
         const { appendHistory } = require(${JSON.stringify(historyFile)})
         appendHistory(process.argv[1], { kind: 'save', by: 'child', changes: [{ key: 'LOG_LEVEL', from: '', to: process.argv[2] }] }, Number(process.argv[3]))
     `
-    return new Promise((resolve, reject) => {
-        const child = spawn(process.execPath, ['-e', code, dir, marker, String(keep)], {
-            cwd: path.resolve(__dirname, '../..')
+            const child = spawn(process.execPath, ['-e', code, dir, marker, String(keep)], {
+                cwd: path.resolve(__dirname, '../..')
+            })
+            let err = ''
+            child.stderr.on('data', (chunk) => {
+                err += String(chunk)
+            })
+            child.on('exit', (code) => {
+                if (code === 0) resolve()
+                else reject(new Error(err || `append exited ${code}`))
+            })
         })
-        let err = ''
-        child.stderr.on('data', (chunk) => {
-            err += String(chunk)
-        })
-        child.on('exit', (code) => {
-            if (code === 0) resolve()
-            else reject(new Error(err || `append exited ${code}`))
-        })
+    // A child can die in the runtime while the suite is already busy. One more try is the same append.
+    return once().catch((error: Error) => {
+        if (!/Fatal error|unreachable code/.test(error.message)) throw error
+        return once()
     })
 }

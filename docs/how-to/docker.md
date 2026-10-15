@@ -59,7 +59,7 @@ docker compose exec cuttlely curl -fsS http://127.0.0.1:43117/api/v1/ping
 
 `docker compose up -d` reuses the image you already have. `docker compose down` keeps the volume. `docker compose down -v` deletes it.
 
-**Stopping.** `docker compose stop`, `down` and an upgrade let answers that are running finish first, for up to 25 seconds (set `CUTTLELY_DRAIN_TIMEOUT_MS`, in milliseconds, from 5000 to 300000, under `environment` in the compose file or in Server settings). A value saved in Server settings applies on the next shutdown without a restart. New requests get `503` with `Retry-After` meanwhile. The compose file gives the container 35 seconds to stop; raise `stop_grace_period` with the drain time.
+**Stopping.** `docker compose stop`, `down` and an upgrade let answers that are running finish first, for up to 25 seconds (set `CUTTLELY_DRAIN_TIMEOUT_MS`, in milliseconds, from 0 to 300000, under `environment` in the compose file or in Server settings; 0 does not wait). A value saved in Server settings applies on the next shutdown without a restart. New requests get `503` with `Retry-After` meanwhile. The compose file gives the container 35 seconds to stop; raise `stop_grace_period` with the drain time.
 
 ## Image versions
 

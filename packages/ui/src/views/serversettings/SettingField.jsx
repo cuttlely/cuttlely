@@ -152,6 +152,16 @@ const SettingField = ({ setting, drafts, onDraft, error, readOnlyNote }) => {
                         In effect: {setting.effective} ({historyKeepSource(setting.source)})
                     </Typography>
                 )}
+                {setting.key === 'CUTTLELY_HISTORY_KEEP' && setting.effective && (
+                    <Typography
+                        variant='caption'
+                        color='text.secondary'
+                        data-testid='history-keep-source'
+                        sx={{ display: 'block', mt: 0.75 }}
+                    >
+                        In effect: {setting.effective} ({historyKeepSource(setting.source)})
+                    </Typography>
+                )}
             </Box>
         </Box>
     )

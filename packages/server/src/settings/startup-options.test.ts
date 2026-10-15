@@ -10,7 +10,13 @@ describe('startup options reference', () => {
         const rows = startupOptionRows()
         const keys = rows.map((row) => row.key)
         expect(new Set(keys).size).toBe(keys.length)
-        expect(keys).toEqual([...SETTINGS.map((setting) => setting.key), ...READ_ONLY_SETTINGS.map((setting) => setting.key)])
+        const editable = new Set(SETTINGS.map((setting) => setting.key))
+        expect(keys).toEqual([
+            ...SETTINGS.map((setting) => setting.key),
+            ...READ_ONLY_SETTINGS.map((setting) => setting.key).filter((key) => !editable.has(key))
+        ])
+        expect(rows.find((row) => row.key === 'INVITE_TOKEN_EXPIRY_IN_HOURS')?.where).toBe('Server settings, then the host')
+        expect(rows.find((row) => row.key === 'SMTP_PASSWORD')?.where).toBe('Host only')
         const hidden = new Set([
             ...SETTINGS.filter((setting) => setting.type === 'secret').map((setting) => setting.key),
             ...READ_ONLY_SETTINGS.map((setting) => setting.key)

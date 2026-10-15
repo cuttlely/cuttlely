@@ -19,6 +19,7 @@ import type { DataSource, QueryRunner } from 'typeorm'
 import { DEFAULT_WORKSPACE, LOGIN_FAILURE_WINDOW_MS, OPEN_SOURCE_FEATURES, OWNER_ROLE, PERSONAL_WORKSPACE } from './constants'
 import { ACCOUNT_LOCK_CAP, LoginLimiter, accountLockKey } from './rateLimit'
 import { runtimeNumber } from '../settings/runtime'
+import { utcEpoch } from './dbTime'
 import { addSessionSeenColumn } from './schemaMigration'
 import { IdentityStore } from './store'
 import { CreateOwnerInput, LocalSession, NotEmptyError, SessionUser, UserRow } from './types'
@@ -62,10 +63,7 @@ function nullable(value: unknown): string | null {
 }
 
 function epoch(value: unknown): number {
-    if (value instanceof Date) return value.getTime()
-    if (typeof value === 'number') return value
-    const parsed = Date.parse(String(value))
-    return Number.isNaN(parsed) ? 0 : parsed
+    return utcEpoch(value)
 }
 
 function userFrom(row: Record<string, unknown>): UserRow {
@@ -400,14 +398,24 @@ export class SqlIdentityStore implements IdentityStore {
         await this.withRunner(async (runner) => {
             const d = dialectOf(runner)
             const seen = row.lastSeenAt || row.issuedAt || new Date()
-            await query(
-                runner,
-                `INSERT INTO ${quote(d, 'identity_local_session')} (${quote(d, 'id')}, ${quote(d, 'userId')}, ${quote(d, 'token')}, ${quote(
-                    d,
-                    'expiresAt'
-                )}, ${quote(d, 'absoluteExpiresAt')}, ${quote(d, 'lastSeenAt')}) VALUES (?, ?, ?, ?, ?, ?)`,
-                [row.id, row.userId, row.token, row.idleExpires, row.absoluteExpires, seen]
-            )
+            const columns = `${quote(d, 'id')}, ${quote(d, 'userId')}, ${quote(d, 'token')}, ${quote(d, 'expiresAt')}, ${quote(
+                d,
+                'absoluteExpiresAt'
+            )}, ${quote(d, 'lastSeenAt')}`
+            const insert =
+                d === 'sqlite'
+                    ? `INSERT OR IGNORE INTO ${quote(d, 'identity_local_session')} (${columns}) VALUES (?, ?, ?, ?, ?, ?)`
+                    : d === 'postgres'
+                    ? `INSERT INTO ${quote(d, 'identity_local_session')} (${columns}) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT (${quote(
+                          d,
+                          'token'
+                      )}) DO NOTHING`
+                    : `INSERT IGNORE INTO ${quote(d, 'identity_local_session')} (${columns}) VALUES (?, ?, ?, ?, ?, ?)`
+            try {
+                await query(runner, insert, [row.id, row.userId, row.token, row.idleExpires, row.absoluteExpires, seen])
+            } catch (error) {
+                if (!isUniqueViolation(error)) throw error
+            }
         })
     }
 

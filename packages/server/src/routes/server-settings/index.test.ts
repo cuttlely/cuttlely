@@ -286,6 +286,25 @@ describe('discard, history and restart', () => {
         expect(history.body.entries.map((entry: { kind: string }) => entry.kind)).toEqual(['discard', 'save'])
     })
 
+    it('puts the settings file back when discard cannot record history', async () => {
+        writeSettingsFile(dir, { LOG_LEVEL: 'info' }, { key: KEY })
+        state.rawAtStart = null
+        state.atStart = {}
+        const fsRename = (jest.requireActual('fs') as typeof fs).renameSync
+        const rename = jest.spyOn(fs, 'renameSync').mockImplementation((from, to) => {
+            if (String(to).endsWith('history.jsonl')) throw new Error('disk full')
+            return fsRename(from, to)
+        })
+        try {
+            const failed = await app(OWNER).post('/api/v1/server-settings/discard')
+            expect(failed.status).toBe(500)
+            expect(failed.body.code).toBe('HISTORY_FAILED')
+            expect(readSettingsFile(dir, KEY).values).toEqual({ LOG_LEVEL: 'info' })
+        } finally {
+            rename.mockRestore()
+        }
+    })
+
     it('gives manual steps without the start script, and restarts in place with it', async () => {
         const manual = await app(OWNER).post('/api/v1/server-settings/restart')
         expect(manual.status).toBe(202)
@@ -326,6 +345,28 @@ describe('Try it again after safe boot', () => {
         expect(readSettingsFile(dir, KEY).values).toEqual({ CUTTLELY_ANALYST: 'auto', CUTTLELY_VERSIONS: 'off' })
         expect(readHistory(dir)[0]).toMatchObject({ kind: 'restore', by: 'owner@example.com' })
         expect((await app(OWNER).post('/api/v1/server-settings/retry')).status).toBe(404)
+    })
+
+    it('puts the settings file back when retry cannot record history', async () => {
+        writeSettingsFile(dir, { CUTTLELY_ANALYST: 'auto' }, { key: KEY })
+        const current = fs.readFileSync(path.join(dir, SETTINGS_FILE), 'utf8')
+        writeSettingsFile(dir, { CUTTLELY_ANALYST: 'auto', CUTTLELY_VERSIONS: 'off' }, { key: KEY })
+        fs.copyFileSync(path.join(dir, SETTINGS_FILE), path.join(dir, 'server.rolled-back.json'))
+        fs.writeFileSync(path.join(dir, SETTINGS_FILE), current)
+        const fsRename = (jest.requireActual('fs') as typeof fs).renameSync
+        const rename = jest.spyOn(fs, 'renameSync').mockImplementation((from, to) => {
+            if (String(to).endsWith('history.jsonl')) throw new Error('disk full')
+            return fsRename(from, to)
+        })
+        try {
+            const failed = await app(OWNER).post('/api/v1/server-settings/retry')
+            expect(failed.status).toBe(500)
+            expect(failed.body.code).toBe('HISTORY_FAILED')
+            expect(fs.readFileSync(path.join(dir, SETTINGS_FILE), 'utf8')).toBe(current)
+            expect(fs.existsSync(path.join(dir, 'server.rolled-back.json'))).toBe(true)
+        } finally {
+            rename.mockRestore()
+        }
     })
 
     it('changes nothing when the set-aside copy is damaged', async () => {
@@ -503,8 +544,8 @@ describe('runtime limits and history', () => {
         const res = await app(OWNER)
             .put('/api/v1/server-settings')
             .send({ values: { CUTTLELY_SESSION_IDLE_MINUTES: '60' } })
-        expect(res.status).toBe(409)
-        expect(res.body.code).toBe('LOCKED')
+        expect(res.status).toBe(400)
+        expect(res.body.code).toBe('INVALID')
         expect(res.body.errors[0].message).toMatch(/host/)
         expect(fs.existsSync(path.join(dir, 'history.jsonl'))).toBe(false)
         expect(env.CUTTLELY_SESSION_IDLE_MINUTES).toBe('30')
@@ -855,6 +896,15 @@ describe('read-only env status', () => {
         const saved = await client.put('/api/v1/server-settings').send({ values: { PORT: FAKE_KEY, LANGSMITH_API_KEY: FAKE_KEY } })
         expect(saved.status).toBe(400)
         expect(saved.body.code).toBe('READ_ONLY')
+        const mailbox = 'typed-secret-mailbox'
+        const password = await client.put('/api/v1/server-settings').send({ values: { SMTP_PASSWORD: mailbox } })
+        expect(password.status).toBe(400)
+        expect(password.body).toEqual({
+            code: 'READ_ONLY',
+            message: 'This setting cannot be changed.',
+            errors: [{ key: 'SMTP_PASSWORD', code: 'READ_ONLY', message: 'This setting cannot be changed.' }]
+        })
+        expect(JSON.stringify(password.body)).not.toContain(mailbox)
         expect(saved.body.errors.map((item: { key: string }) => item.key).sort()).toEqual(['LANGSMITH_API_KEY', 'PORT'])
         const mixed = await client.patch('/api/v1/server-settings').send({ values: { REDIS_PASSWORD: FAKE_REDIS } })
         expect(mixed.status).toBe(400)

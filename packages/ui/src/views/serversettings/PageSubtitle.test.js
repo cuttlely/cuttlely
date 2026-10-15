@@ -45,7 +45,7 @@ describe('Server settings subtitle', () => {
             root.render(createElement(ThemeProvider, { theme: createTheme() }, createElement(ServerSettings)))
         })
         expect(document.body.textContent).toContain(
-            'How this server runs. Runtime limits apply on the next use. The other settings wait for a restart.'
+            'How this server runs. Runtime limits and invite settings apply on the next use. The other settings wait for a restart.'
         )
         expect(document.body.textContent).not.toContain('Changes apply when Cuttlely restarts.')
     })

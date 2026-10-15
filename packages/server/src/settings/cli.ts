@@ -5,10 +5,11 @@
 import fs from 'fs'
 import path from 'path'
 import { appendHistory, describeChanges } from './history'
+import { accountLinkSnapshot } from './accountLinks'
 import { SettingsBusyError, withSettingsLockSync } from './lock'
 import { SETTINGS, settingFor } from './registry'
-import { hostSetKeys, resolveSettings } from './resolve'
-import { runtimeSnapshot } from './runtime'
+import { hostSetKeys, isBlank, resolveSettings } from './resolve'
+import { flagSnapshot, runtimeSnapshot } from './runtime'
 import { ROLLED_BACK_FILE } from './safeboot'
 import { LAST_GOOD_FILE, SETTINGS_FILE, encryptionKeySync, readSettingsFile, settingsDir, writeFileAtomic } from './store'
 
@@ -32,10 +33,14 @@ function listSettings(env: Env, all: boolean): CliResult {
     const read = readSettingsFile(dir, encryptionKeySync(env))
     const rows = resolveSettings({ env, hostKeys: hostSetKeys(env), file: read.values })
     const live = runtimeSnapshot(env)
+    const flags = flagSnapshot(env)
+    const account = accountLinkSnapshot(env)
     const lines = [`Settings file: ${path.join(dir, SETTINGS_FILE)}${read.exists ? '' : ' (none yet)'}`]
     const shown = rows.filter((row) => {
         if (all || read.unreadable.includes(row.key)) return true
-        const resolved = live.get(row.key)
+        const setting = settingFor(row.key)
+        if (setting?.envOnly) return !isBlank(env[row.key])
+        const resolved = live.get(row.key) ?? flags.get(row.key) ?? account.get(row.key)
         // A host or saved value that does not resolve still belongs on the list, with the value in effect.
         if (resolved) return resolved.source !== 'default' || row.source !== 'default'
         return row.source !== 'default'
@@ -44,9 +49,21 @@ function listSettings(env: Env, all: boolean): CliResult {
     for (const row of shown) {
         const setting = settingFor(row.key)
         const resolved = live.get(row.key)
+        const flag = flags.get(row.key)
+        const savedFirst = account.get(row.key)
         let value = row.value
         let source: string
-        if (resolved) {
+        if (setting?.envOnly) {
+            const set = !isBlank(env[row.key])
+            value = set ? '(set, hidden)' : '(not set)'
+            source = set ? 'host' : 'default'
+        } else if (setting?.panelFirst && savedFirst) {
+            value = savedFirst.value || `(default: ${setting.defaultLabel})`
+            source = savedFirst.source
+        } else if (flag && setting?.type === 'switch') {
+            value = flag.value ? setting.on ?? 'true' : setting.off ?? 'false'
+            source = flag.source
+        } else if (resolved) {
             value = String(resolved.value)
             source = resolved.source
             if (resolved.source === 'bounded' && resolved.boundedBy) value = `${value}  Limited by ${resolved.boundedBy}`
@@ -66,24 +83,26 @@ function listSettings(env: Env, all: boolean): CliResult {
 function unsetSetting(env: Env, name: string | undefined): CliResult {
     if (!name) return { code: 2, lines: ['Name the setting to remove, for example: pnpm settings unset CUTTLELY_LOCAL_ADMIN'] }
     const dir = settingsDir(env)
-    const file = path.join(dir, SETTINGS_FILE)
-    let parsed: { values?: Record<string, unknown> }
-    try {
-        parsed = JSON.parse(fs.readFileSync(file, 'utf8'))
-    } catch (error) {
-        if ((error as NodeJS.ErrnoException).code === 'ENOENT')
-            return { code: 0, lines: [`There is no settings file, so ${name} is not saved there.`] }
-        return {
-            code: 1,
-            lines: ['The settings file could not be read. Run pnpm settings restore, or start with CUTTLELY_IGNORE_ADMIN_SETTINGS=1.']
-        }
-    }
-    const stored = parsed.values
-    if (!stored || !Object.prototype.hasOwnProperty.call(stored, name)) {
-        return { code: 0, lines: [`${name} is not saved in the settings file. Nothing changed.`] }
-    }
     try {
         return withSettingsLockSync(dir, () => {
+            const file = path.join(dir, SETTINGS_FILE)
+            let parsed: { values?: Record<string, unknown> }
+            try {
+                parsed = JSON.parse(fs.readFileSync(file, 'utf8'))
+            } catch (error) {
+                if ((error as NodeJS.ErrnoException).code === 'ENOENT')
+                    return { code: 0, lines: [`There is no settings file, so ${name} is not saved there.`] }
+                return {
+                    code: 1,
+                    lines: [
+                        'The settings file could not be read. Run pnpm settings restore, or start with CUTTLELY_IGNORE_ADMIN_SETTINGS=1.'
+                    ]
+                }
+            }
+            const stored = parsed.values
+            if (!stored || !Object.prototype.hasOwnProperty.call(stored, name)) {
+                return { code: 0, lines: [`${name} is not saved in the settings file. Nothing changed.`] }
+            }
             const before = readSettingsFile(dir, encryptionKeySync(env)).values
             delete stored[name]
             // Edit the stored JSON directly, so secrets this key cannot read are kept as they are.

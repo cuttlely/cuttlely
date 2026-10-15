@@ -37,7 +37,7 @@ export function isShuttingDown(): boolean {
 
 /**
  * How long a shutdown waits for open requests.
- * CUTTLELY_DRAIN_TIMEOUT_MS, default 25 seconds, kept between 5 seconds and 5 minutes.
+ * CUTTLELY_DRAIN_TIMEOUT_MS, default 25 seconds, from 0 to 5 minutes. 0 does not wait.
  * A saved value applies without a restart. A queue worker sees it within 5 seconds.
  */
 export function drainTimeoutMs(env: Record<string, string | undefined> = process.env): number {

@@ -19,6 +19,9 @@
  */
 
 import { ABSOLUTE_MS, IDLE_MS } from './constants'
+
+/** How often an authenticated request may write lastSeenAt. Idle still means unused. */
+export const SEEN_EVERY_MS = 60 * 1000
 import { runtimeNumber } from '../settings/runtime'
 import { LocalSession } from './types'
 

@@ -27,6 +27,7 @@ export function fromDisplay(setting, shown) {
 export const UNIT_LABELS = {
     seconds: 'seconds',
     minutes: 'minutes',
+    hours: 'hours',
     tokens: 'tokens',
     bytes: 'bytes',
     'ms-as-seconds': 'seconds',

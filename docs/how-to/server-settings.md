@@ -33,7 +33,7 @@ A fresh server shows three optional first steps at the top: **Sign-in for your t
 
 Runtime limits apply on the next use. The other settings apply at the next restart, and until then the server keeps running with what it started with. **Discard** puts the saved file back the way it was at start.
 
-Failed sign-ins before lockout, the idle session lifetime, the absolute session lifetime, and the shutdown wait are runtime limits. A shorter session lifetime ends sessions that are already signed in, on the next request. A queue worker picks up a saved value within 5 seconds. If one of these locks people out, set the same variable on the host and start Cuttlely again. The host value overrides the saved one. How many settings changes to keep is the exception: on **Security & network**, under **History**, **Settings changes to keep** (`CUTTLELY_HISTORY_KEEP`, 1000, from 100 to 10000) is saved on this page, and that saved value wins over the environment variable. The field shows the number in effect and whether it came from the panel, the environment, or the default. A number outside 100 to 10000 is refused. The field stays editable when the environment sets the variable. [Server settings API](../reference/server-settings-api.md).
+Failed sign-ins before lockout, the idle session lifetime, the absolute session lifetime, and the shutdown wait are runtime limits. A shorter session lifetime ends sessions that are already signed in, on the next request, including an AuthKit session. When AuthKit does not send a session id, those limits use this server's record for that account and a warning is logged. The shutdown wait is 0 to 300000 milliseconds. 0 does not wait. An active session records activity at most once a minute, so using Cuttlely keeps the idle clock moving. A queue worker picks up a saved value within 5 seconds. If one of these locks people out, set the same variable on the host and start Cuttlely again. The host value overrides the saved one. How many settings changes to keep is the exception: on **Security & network**, under **History**, **Settings changes to keep** (`CUTTLELY_HISTORY_KEEP`, 1000, from 100 to 10000) is saved on this page, and that saved value wins over the environment variable. The field shows the number in effect and whether it came from the panel, the environment, or the default. A number outside 100 to 10000 is refused. The field stays editable when the environment sets the variable. [Server settings API](../reference/server-settings-api.md).
 
 ## Where a value comes from
 
@@ -43,7 +43,7 @@ Failed sign-ins before lockout, the idle session lifetime, the absolute session 
 | 2     | Server settings, saved in `settings/server.json` in Cuttlely's data folder                                                                                      | Editable                                       |
 | 3     | The built-in default                                                                                                                                            | Editable; the default is named under the field |
 
-A blank value counts as not set. A value set by the host always wins, so the page never overrides it. A runtime limit is the exception when the host value is outside the range or is not a whole number: that value is ignored and is not clamped. The saved value is used when it is in range, and otherwise the default. The field stays **Locked** until the variable is removed from the host.
+A blank value counts as not set. A value set by the host always wins, so the page never overrides it. A runtime limit is the exception when the host value is outside the range or is not a whole number: that value is ignored and is not clamped. The saved value is used when it is in range, and otherwise the default. The field stays **Locked** until the variable is removed from the host. Invite and mail settings are the other exception: a value saved here overrides the host, the field stays editable, and the change applies to the next invite or message. The mail password is not one of those: it stays in the environment, and the page only shows whether it is set.
 
 `CUTTLELY_FILE_SIZE_LIMIT` is the same limit as the existing upload size variable, and `DISABLE_CUTTLELY_TELEMETRY` is the usage-event switch. When both names of one of those settings are set, the `CUTTLELY_` name is used. The encryption key is not on this page. `CUTTLELY_SECRETKEY_OVERWRITE` is that key's compatibility alias. If it and the existing overwrite variable are both set to different values, Cuttlely refuses to start. `METRICS_PREFIX`, under Metrics, is optional. Empty keeps the metric names this server already publishes.
 
@@ -117,6 +117,29 @@ The question count default cannot be above the question cap. The rating scan mus
 | **Page loads a minute**      | `CUTTLELY_UI_PAGE_LIMIT_MAX`     | 3000          | 100 to 50000                               |
 
 The routes are in the [Server settings API](../reference/server-settings-api.md). Publish check behaviour is in [History settings](../reference/versioning-settings.md#publish-check-limits).
+
+## Invite and reset
+
+**Sign-in & identity** sets invite and reset links and the mail used to send them. A saved value overrides the environment. The next invite, reset, or message uses it. A restart is not required. The field stays editable when the environment also sets it.
+
+A lifetime outside the range is refused on this page. An environment value below the minimum is raised to the minimum, and one above the maximum is lowered to the maximum. A blank, zero, negative, or non-integer environment value is ignored. The saved value is used when it is usable, and otherwise the default.
+
+| Setting                  | Variable                              | Default            | Range or values                                  |
+| ------------------------ | ------------------------------------- | ------------------ | ------------------------------------------------ |
+| **Invite link lifetime** | `INVITE_TOKEN_EXPIRY_IN_HOURS`        | 72 hours           | 1 to 168 hours                                   |
+| **Reset link lifetime**  | `PASSWORD_RESET_TOKEN_EXPIRY_IN_MINS` | 60 minutes         | 5 to 1440 minutes                                |
+| **Invite delivery**      | `INVITE_DELIVERY`                     | Follow the request | Follow the request, Copy link, or Email          |
+| **Mail server**          | `SMTP_HOST`                           | Not set            | The SMTP host                                    |
+| **Mail port**            | `SMTP_PORT`                           | 587                | 1 to 65535                                       |
+| **Mail TLS**             | `SMTP_SECURE`                         | Off                | On opens TLS immediately. Port 465 does that too |
+| **Mail user**            | `SMTP_USER`                           | Not set            | The SMTP account name                            |
+| **Sender address**       | `SENDER_EMAIL`                        | Not set            | One email address                                |
+
+**Invite delivery** applies when `POST /api/v1/account/invite` omits `link`. Follow the request keeps the previous response, an id only. Copy link returns the one-time URL. Email sends it and does not return it. A request that sets `link` still wins. Reset links are unchanged: omitting `link` returns the URL.
+
+**Mail password** (`SMTP_PASSWORD`) stays in the environment. The invite field shows **Set** or **Not set** and does not accept a value. The same key is on the read-only status list as `env` when it is set and `unset` when it is not. That row does not include the password. `SMTP_STARTTLS` stays in the environment too. Mail is configured when the mail server and the sender address are both set. The sign-in page still has no Forgot password form.
+
+`pnpm settings list` prints the effective value and whether it came from the panel, the host, or the default. The password is `(set, hidden)` or `(not set)`.
 
 ## Set up AuthKit
 

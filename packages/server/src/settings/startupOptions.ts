@@ -20,6 +20,12 @@ function hidden(setting: SettingDef): boolean {
     return setting.type === 'secret' || isSecretSettingKey(setting.key)
 }
 
+function whereOf(setting: SettingDef): string {
+    if (setting.envOnly) return HOST_ONLY
+    if (setting.panelFirst || setting.key === 'CUTTLELY_HISTORY_KEEP') return 'Server settings, then the host'
+    return HOST_OR_PANEL
+}
+
 function rangeOf(setting: SettingDef): string {
     if (hidden(setting)) return '—'
     if (setting.type === 'number' && setting.min !== undefined && setting.max !== undefined) return `${setting.min} to ${setting.max}`
@@ -46,10 +52,11 @@ export function startupOptionRows(): StartupOptionRow[] {
         default: defaultOf(setting),
         range: rangeOf(setting),
         unit: unitOf(setting),
-        where: setting.key === 'CUTTLELY_HISTORY_KEEP' ? 'Server settings, then the host' : HOST_OR_PANEL,
+        where: whereOf(setting),
         restart: setting.runtime ? ('No' as const) : ('Yes' as const)
     }))
-    const hostOnly = READ_ONLY_SETTINGS.map((setting) => ({
+    const editableKeys = new Set(SETTINGS.map((setting) => setting.key))
+    const hostOnly = READ_ONLY_SETTINGS.filter((setting) => !editableKeys.has(setting.key)).map((setting) => ({
         key: setting.key,
         default: HIDDEN,
         range: '—',
@@ -92,7 +99,7 @@ export function renderStartupOptionsDoc(): string {
         '',
         'A secret setting and every host-only key are named here and marked **not shown**. The table does not include the value, a default that would be the value, a length, a hash, a token, a key, or a connection string. The API follows the same rule: a secret is omitted from the response, and a host-only row is `key`, `set`, `source`, and `readOnly`.',
         '',
-        '**Where it can be set** is the host and then Server settings, except `CUTTLELY_HISTORY_KEEP`, where a saved value wins over the host. Host-only keys can be set only on the host. **Restart** is No for a runtime setting, which applies on the next use. Every other option applies at the next start.',
+        '**Where it can be set** is the host and then Server settings, except `CUTTLELY_HISTORY_KEEP` and the invite and mail settings, where a saved value wins over the host. `SMTP_PASSWORD` and the other host-only keys can be set only on the host. **Restart** is No for a runtime setting, which applies on the next use. Every other option applies at the next start.',
         '',
         'The publish check switch is `CUTTLELY_PUBLISH_CHECK`. The default is `true`. Accepted values are exactly `true` and `false`. How a host value wins, and the error codes, are in the [Server settings API](./server-settings-api.md#publish-check-switch).',
         '',
