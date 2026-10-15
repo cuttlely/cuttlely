@@ -3,6 +3,8 @@
 // A setting marked runtime is read on each use. The others are read at start.
 // A valid host value (Docker .env and compose, Render, the shell, packages/server/.env) wins.
 // A runtime limit with a bad host value uses the saved value, then the default.
+// Invite and mail settings marked panelFirst are the exception: a saved value overrides the host.
+// SMTP_PASSWORD is envOnly: the page shows whether it is set and never stores it.
 // Variables that must never be changed from a browser are on KEPT_OUT, with the reason.
 // READ_ONLY_SETTINGS is the exact env-only list whose status the API may report.
 // docs/how-to/server-settings.md is the guide.
@@ -42,11 +44,17 @@ export interface SettingDef {
     /** A select that also accepts a typed value (for example a file path or URL). */
     custom?: { label: string; placeholder: string }
     /** Number fields: the unit shown, and how the raw value maps to it. */
-    unit?: 'seconds' | 'minutes' | 'tokens' | 'bytes' | 'ms-as-seconds' | 'ms' | 'count'
+    unit?: 'seconds' | 'minutes' | 'hours' | 'tokens' | 'bytes' | 'ms-as-seconds' | 'ms' | 'count'
     min?: number
     max?: number
     /** Read on each use: host, then the settings file, then the default. No restart. */
     runtime?: boolean
+    /** A saved value overrides the host. Read on each use. The field stays editable. */
+    panelFirst?: boolean
+    /** Read from the environment only. The page shows set or not set and cannot save it. */
+    envOnly?: boolean
+    /** Plain text that must be one email address. */
+    email?: boolean
     placeholder?: string
     risk: SettingRisk
     showWhen?: SettingCondition
@@ -148,6 +156,136 @@ export const SETTINGS: SettingDef[] = [
         defaultLabel: 'Off',
         defaultValue: 'false',
         risk: 'high'
+    },
+    {
+        key: 'INVITE_TOKEN_EXPIRY_IN_HOURS',
+        section: 'signin',
+        group: 'Invite and reset',
+        label: 'Invite link lifetime',
+        help: 'How long an invite link stays valid, from 1 to 168 hours. A value saved here overrides the environment and applies to the next invite. A value outside the range is refused here. An environment value outside the range is brought inside it.',
+        type: 'number',
+        unit: 'hours',
+        min: 1,
+        max: 168,
+        defaultLabel: '72 hours',
+        defaultValue: '72',
+        runtime: true,
+        panelFirst: true,
+        risk: 'low'
+    },
+    {
+        key: 'PASSWORD_RESET_TOKEN_EXPIRY_IN_MINS',
+        section: 'signin',
+        group: 'Invite and reset',
+        label: 'Reset link lifetime',
+        help: 'How long a reset link stays valid, from 5 to 1440 minutes. A value saved here overrides the environment and applies to the next reset. A value outside the range is refused here. An environment value outside the range is brought inside it.',
+        type: 'number',
+        unit: 'minutes',
+        min: 5,
+        max: 1440,
+        defaultLabel: '60 minutes',
+        defaultValue: '60',
+        runtime: true,
+        panelFirst: true,
+        risk: 'low'
+    },
+    {
+        key: 'INVITE_DELIVERY',
+        section: 'signin',
+        group: 'Invite and reset',
+        label: 'Invite delivery',
+        help: 'When an invite omits link, Copy link returns the URL and Email sends it. Follow the request keeps an id only. A request that sets link still wins. A value saved here overrides the environment and applies to the next invite.',
+        type: 'select',
+        options: [
+            { value: 'request', label: 'Follow the request' },
+            { value: 'link', label: 'Copy link' },
+            { value: 'email', label: 'Email' }
+        ],
+        defaultLabel: 'Follow the request',
+        defaultValue: 'request',
+        runtime: true,
+        panelFirst: true,
+        risk: 'medium'
+    },
+    {
+        key: 'SMTP_HOST',
+        section: 'signin',
+        group: 'Invite and reset',
+        label: 'Mail server',
+        help: 'The SMTP host used to email an invite or reset link. A value saved here overrides the environment and applies to the next message. The password stays in the environment.',
+        type: 'text',
+        defaultLabel: 'Not set',
+        placeholder: 'smtp.example.com',
+        runtime: true,
+        panelFirst: true,
+        risk: 'medium'
+    },
+    {
+        key: 'SMTP_PORT',
+        section: 'signin',
+        group: 'Invite and reset',
+        label: 'Mail port',
+        help: 'The SMTP port, from 1 to 65535. 587 is the usual port. A value saved here overrides the environment. Port 465 uses TLS from the start.',
+        type: 'number',
+        min: 1,
+        max: 65535,
+        defaultLabel: '587',
+        defaultValue: '587',
+        runtime: true,
+        panelFirst: true,
+        risk: 'low'
+    },
+    {
+        key: 'SMTP_SECURE',
+        section: 'signin',
+        group: 'Invite and reset',
+        label: 'Mail TLS',
+        help: 'On opens TLS immediately. Off uses a plain connection unless the port is 465. A value saved here overrides the environment.',
+        type: 'switch',
+        ...TRUE_FALSE,
+        defaultLabel: 'Off',
+        defaultValue: 'false',
+        runtime: true,
+        panelFirst: true,
+        risk: 'low'
+    },
+    {
+        key: 'SMTP_USER',
+        section: 'signin',
+        group: 'Invite and reset',
+        label: 'Mail user',
+        help: 'The SMTP account name. Leave it empty when the server does not ask for one. A value saved here overrides the environment. The password stays in the environment.',
+        type: 'text',
+        defaultLabel: 'Not set',
+        placeholder: 'mailer',
+        runtime: true,
+        panelFirst: true,
+        risk: 'low'
+    },
+    {
+        key: 'SMTP_PASSWORD',
+        section: 'signin',
+        group: 'Invite and reset',
+        label: 'Mail password',
+        help: 'The SMTP password. Set it in the environment. This page only shows whether it is set.',
+        type: 'secret',
+        defaultLabel: 'Not set',
+        envOnly: true,
+        risk: 'high'
+    },
+    {
+        key: 'SENDER_EMAIL',
+        section: 'signin',
+        group: 'Invite and reset',
+        label: 'Sender address',
+        help: 'The address invite and reset mail is sent from. Mail is configured only when this and the mail server are both set. A value saved here overrides the environment.',
+        type: 'text',
+        email: true,
+        defaultLabel: 'Not set',
+        placeholder: 'baker@example.com',
+        runtime: true,
+        panelFirst: true,
+        risk: 'low'
     },
     {
         key: 'WORKOS_API_KEY',
@@ -1827,7 +1965,8 @@ export const READ_ONLY_SETTINGS: ReadOnlyDef[] = [
     { key: 'SANDBOX_TIMEOUT', readOnly: true, check: 'nonblank', whenUnset: 'unset' },
     { key: 'LANGSMITH_API_KEY', readOnly: true, check: 'nonblank', whenUnset: 'unset' },
     { key: 'LANGSMITH_TRACING', readOnly: true, check: 'bool', whenUnset: 'default' },
-    { key: 'LANGSMITH_TRACING_V2', readOnly: true, check: 'bool', whenUnset: 'default' }
+    { key: 'LANGSMITH_TRACING_V2', readOnly: true, check: 'bool', whenUnset: 'default' },
+    { key: 'SMTP_PASSWORD', readOnly: true, check: 'nonblank', whenUnset: 'unset' }
 ]
 
 const READ_ONLY_BY_KEY = new Map(READ_ONLY_SETTINGS.map((setting) => [setting.key, setting]))

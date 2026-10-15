@@ -2,7 +2,7 @@
 
 Use this when several people sign in with email and password on a server you run, and you are not using WorkOS AuthKit. It is off until you turn it on. The first owner is still created with the setup code. There is no default password.
 
-Until a sign-in link exists, only someone who already has a password can sign in. That is the owner from the setup code, and the break-glass owner. Inviting someone in the app creates an active user with no password. No API sets that password for them. A link that does is not in this version.
+Inviting someone in the app, with no `link` field, still creates an active user with no password. To let that person choose a password, ask for a one-time link. The link is shown once. It is as strong as a password: do not share it, and do not paste it into a chat. If it is lost, issue a new one. The old one stops working.
 
 The owner password form (`CUTTLELY_LOCAL_ADMIN`) is a separate switch. [Sign in](./sign-in.md) covers that one account. This page is the switch for every other user who already has a password.
 
@@ -28,4 +28,14 @@ Sign out with `POST /api/v1/auth/local/logout` and the same header. Calling it t
 
 `GET /api/v1/auth/options` lists the methods that are actually on, for example `{ "methods": ["localUsers"] }`.
 
-The field names, status codes, and cookie flags are in the [Auth API](../reference/auth-api.md).
+## Invite and reset links
+
+A person with `users:manage` can ask `POST /api/v1/account/invite` to return a one-time link by sending `link: true` with the name, email, team, and role. The response includes `link` once. The token sits in the URL fragment (`#token=`), not in the path or the query, so the server log does not receive it. The page at `/local-accept` reads that fragment, clears it from the address bar, and posts the token with the new password to `POST /api/v1/auth/local/accept`.
+
+`POST /api/v1/users/:id/reset-link` does the same for someone who already has an account in the caller's current team. Saving that password ends every local session for that person. Issuing the link does not. The organization owner, an AuthKit-linked account, and a service account cannot be reset this way. A caller who is not the owner cannot reset someone whose role includes a permission the caller does not have, and cannot invite someone into a role they could not grant themselves.
+
+If mail is not configured, `link: false` is refused and nothing is saved. Leave `link` off to keep the previous invite response, `{ "id" }` only, with no email and no token, unless **Invite delivery** in Server settings says otherwise. Copy link returns the URL when `link` is omitted. Email sends it when `link` is omitted. A request that sets `link` still wins. When the mail server and the sender address are both set, `link: false` emails the link and does not return it. If that reset email cannot be sent, the previous reset link for that team stays usable. The new token is marked used and is not a link anyone can open. A password that fails the strength rules is refused before the token is read, and the token stays unused. The sign-in page still has no Forgot password form.
+
+An invite link lasts 72 hours. A reset link lasts 1 hour. **Admin** > **Server settings** > **Sign-in & identity** sets `INVITE_TOKEN_EXPIRY_IN_HOURS` (1 to 168), `PASSWORD_RESET_TOKEN_EXPIRY_IN_MINS` (5 to 1440), invite delivery, and the mail server, port, TLS, user, and sender address. A value saved there overrides the environment and applies to the next invite, reset, or message. A blank, zero, negative, or non-integer value is ignored. A number below the minimum is raised to the minimum, and a number above the maximum is lowered to the maximum. Saving a number outside the range is refused. The mail password stays in the environment. The page shows whether it is set and does not reveal it. A newer link for the same person, purpose, and team replaces the older one. An invite does not cancel a reset, and a reset does not cancel an invite.
+
+The field names and status codes are in the [Auth API](../reference/auth-api.md#one-time-links).

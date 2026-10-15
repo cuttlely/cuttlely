@@ -232,7 +232,8 @@ describe('runtime limits', () => {
             CUTTLELY_DRAIN_TIMEOUT_MS: { min: 5000, max: 300000, defaultValue: '25000', unit: 'ms' },
             CUTTLELY_HISTORY_KEEP: { min: 100, max: 10000, defaultValue: '1000', unit: 'count' }
         }
-        const runtimeKeys = SETTINGS.filter((setting) => setting.runtime && setting.type === 'number')
+        // Invite and mail numbers are runtime settings too, but a saved value wins, so they are not in this reader.
+        const runtimeKeys = SETTINGS.filter((setting) => setting.runtime && setting.type === 'number' && !setting.panelFirst)
             .map((setting) => setting.key)
             .sort()
         expect(runtimeKeys).toEqual(Object.keys(expected).sort())
@@ -243,6 +244,18 @@ describe('runtime limits', () => {
             expect(runtimeNumber(key, { CUTTLELY_DATA_DIR: fs.mkdtempSync(path.join(os.tmpdir(), 'cuttlely-runtime-')) })).toBe(
                 Number(bounds.defaultValue)
             )
+        }
+        const panelFirst: Record<string, { min: number; max: number; defaultValue: string }> = {
+            INVITE_TOKEN_EXPIRY_IN_HOURS: { min: 1, max: 168, defaultValue: '72' },
+            PASSWORD_RESET_TOKEN_EXPIRY_IN_MINS: { min: 5, max: 1440, defaultValue: '60' },
+            SMTP_PORT: { min: 1, max: 65535, defaultValue: '587' }
+        }
+        const panelKeys = SETTINGS.filter((setting) => setting.runtime && setting.type === 'number' && setting.panelFirst)
+            .map((setting) => setting.key)
+            .sort()
+        expect(panelKeys).toEqual(Object.keys(panelFirst).sort())
+        for (const [key, bounds] of Object.entries(panelFirst)) {
+            expect(settingFor(key)).toMatchObject({ ...bounds, runtime: true, panelFirst: true, type: 'number' })
         }
     })
 })

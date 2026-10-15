@@ -45,7 +45,8 @@ let readWarned = false
 let hooked = false
 
 function runtimeSettings(): SettingDef[] {
-    return SETTINGS.filter((setting) => setting.runtime && setting.type === 'number')
+    // panelFirst numbers are invite and mail settings. A saved value overrides the host, so they are resolved apart from these limits.
+    return SETTINGS.filter((setting) => setting.runtime && setting.type === 'number' && !setting.panelFirst)
 }
 
 function warnKey(key: string): void {

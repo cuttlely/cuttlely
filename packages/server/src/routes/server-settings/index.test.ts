@@ -790,6 +790,15 @@ describe('read-only env status', () => {
         const saved = await client.put('/api/v1/server-settings').send({ values: { PORT: FAKE_KEY, LANGSMITH_API_KEY: FAKE_KEY } })
         expect(saved.status).toBe(400)
         expect(saved.body.code).toBe('READ_ONLY')
+        const mailbox = 'typed-secret-mailbox'
+        const password = await client.put('/api/v1/server-settings').send({ values: { SMTP_PASSWORD: mailbox } })
+        expect(password.status).toBe(400)
+        expect(password.body).toEqual({
+            code: 'READ_ONLY',
+            message: 'This setting cannot be changed.',
+            errors: [{ key: 'SMTP_PASSWORD', code: 'READ_ONLY', message: 'This setting cannot be changed.' }]
+        })
+        expect(JSON.stringify(password.body)).not.toContain(mailbox)
         expect(saved.body.errors.map((item: { key: string }) => item.key).sort()).toEqual(['LANGSMITH_API_KEY', 'PORT'])
         const mixed = await client.patch('/api/v1/server-settings').send({ values: { REDIS_PASSWORD: FAKE_REDIS } })
         expect(mixed.status).toBe(400)
