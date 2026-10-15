@@ -520,7 +520,16 @@ export async function getCheckSetup(
     given?: Candidate,
     reveal?: CheckReveal
 ): Promise<CheckSetup> {
-    if (!publishCheckEnabled()) return checkTurnedOff()
+    if (!publishCheckEnabled()) {
+        purge()
+        const candidate = await candidateFor(flow, given)
+        const record = checks.get(candidate.key)
+        return {
+            ...checkTurnedOff(),
+            // The off banner stays. A check already running is still returned so it can be stopped.
+            check: record ? await present(flow, record, candidate.canvas, reveal) : null
+        }
+    }
     purge()
     const candidate = await candidateFor(flow, given)
     const draft = candidate.canvas

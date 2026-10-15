@@ -137,6 +137,51 @@ describe('PublishCheck while getCheckSetup is still pending', () => {
         expect(flowDraftsApi.stopCheck).not.toHaveBeenCalled()
     })
 
+    test('a switch that is off still shows the running check and Stop', async () => {
+        const running = {
+            id: 'check-1',
+            status: 'running',
+            total: 2,
+            completed: 0,
+            cases: [{ question: 'Do you have rye?', live: null, draft: null }]
+        }
+        flowDraftsApi.getCheckSetup.mockResolvedValue({
+            data: {
+                publishCheck: false,
+                unavailable: { code: 'disabled', message: 'The publish check is turned off on this server.' },
+                questions: [],
+                pastCount: 0,
+                riskySteps: [],
+                limits: { maxQuestions: 100, maxSeconds: 180 },
+                check: running
+            }
+        })
+        flowDraftsApi.getCheck.mockResolvedValue({ data: running })
+        flowDraftsApi.stopCheck.mockResolvedValue({ data: { ...running, status: 'stopped' } })
+        let renderer
+        await TestRenderer.act(async () => {
+            renderer = TestRenderer.create(
+                createElement(
+                    ThemeProvider,
+                    { theme: createTheme() },
+                    createElement(PublishCheck, { chatflowId: 'flow-1', flowType: 'CHATFLOW' })
+                )
+            )
+        })
+        await TestRenderer.act(async () => {})
+        const text = JSON.stringify(renderer.toJSON())
+        expect(text).toContain('The publish check is turned off on this server.')
+        expect(text).toContain('Stop')
+        expect(text).toContain('Do you have rye?')
+        expect(text).not.toContain('Run check')
+        const stop = renderer.root.findByProps({ 'data-testid': 'check-stop' })
+        await TestRenderer.act(async () => {
+            stop.props.onClick()
+        })
+        expect(flowDraftsApi.stopCheck).toHaveBeenCalledWith('flow-1', 'check-1')
+        renderer.unmount()
+    })
+
     test('a chat start says questions during the wait', async () => {
         const renderer = await mount('AGENTFLOW', 'chatInput')
         expect(flowDraftsApi.getCheckSetup).toHaveBeenCalledWith('flow-1')

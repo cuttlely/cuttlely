@@ -207,6 +207,7 @@ describe('the publish check switch', () => {
             message: 'The publish check is turned off on this server.'
         })
         expect(setup.questions).toEqual([])
+        expect(setup.check).toBeNull()
         await expect(startCheck(flow(), { count: 1 }, 'http://127.0.0.1')).rejects.toMatchObject({
             statusCode: 409,
             message: 'The publish check is turned off on this server.'
@@ -235,6 +236,14 @@ describe('the publish check switch', () => {
         expect(started.status).toBe('running')
         process.env.CUTTLELY_PUBLISH_CHECK = 'false'
         resetRuntimeLimitsForTests()
+        const setup = await getCheckSetup(flow())
+        expect(setup.publishCheck).toBe(false)
+        expect(setup.unavailable).toEqual({
+            code: 'disabled',
+            message: 'The publish check is turned off on this server.'
+        })
+        expect(setup.questions).toEqual([])
+        expect(setup.check).toMatchObject({ id: started.id, status: 'running' })
         const stopped = await stopCheck(flow(), started.id)
         expect(stopped.id).toBe(started.id)
         await settle()
