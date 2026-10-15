@@ -92,7 +92,14 @@ const QuestionHistoryPicker = ({
     onTo,
     onToggle,
     onSelectShown,
-    onLoadMore
+    onLoadMore,
+    canSaveDataset = false,
+    datasetName = '',
+    onDatasetName = () => {},
+    onSaveDataset = () => {},
+    savingDataset = false,
+    saveDatasetMessage = '',
+    saveDatasetError = ''
 }) => {
     const sentinel = useRef(null)
     const chosen = selected.length + typedPicked
@@ -172,6 +179,45 @@ const QuestionHistoryPicker = ({
             <Button variant='text' onClick={onSelectShown} disabled={!canSelectShown} data-testid='question-history-select-shown'>
                 Select all shown
             </Button>
+            <Typography variant='body2' color='text.secondary' data-testid='question-history-gate'>
+                A hand-picked check does not unblock Publish. Only a dataset can be the passing test set.
+            </Typography>
+            {canSaveDataset && (
+                <Stack spacing={1}>
+                    <Alert severity='warning' data-testid='save-dataset-personal'>
+                        Real messages can contain personal data. Check the question and the expected answer before saving.
+                    </Alert>
+                    <Stack direction='row' spacing={1} alignItems='flex-start' useFlexGap flexWrap='wrap'>
+                        <TextField
+                            size='small'
+                            label='Dataset name'
+                            value={datasetName}
+                            disabled={disabled || savingDataset}
+                            onChange={(event) => onDatasetName(event.target.value)}
+                            inputProps={{ 'aria-label': 'Dataset name', maxLength: 200, 'data-testid': 'save-dataset-name' }}
+                            sx={{ minWidth: 180, flex: 1 }}
+                        />
+                        <Button
+                            variant='outlined'
+                            onClick={onSaveDataset}
+                            disabled={disabled || savingDataset || selected.length === 0 || !String(datasetName || '').trim()}
+                            data-testid='save-as-dataset'
+                        >
+                            {savingDataset ? 'Saving…' : 'Save as dataset'}
+                        </Button>
+                    </Stack>
+                </Stack>
+            )}
+            {saveDatasetMessage && (
+                <Typography variant='body2' color='text.secondary' data-testid='save-dataset-message'>
+                    {saveDatasetMessage}
+                </Typography>
+            )}
+            {saveDatasetError && (
+                <Typography variant='body2' color='error' data-testid='save-dataset-error'>
+                    {saveDatasetError}
+                </Typography>
+            )}
             {hidden > 0 && (
                 <Typography variant='caption' color='text.secondary' data-testid='question-history-hidden'>
                     {hidden === 1 ? '1 chosen question is hidden by this filter.' : `${hidden} chosen questions are hidden by this filter.`}
@@ -262,7 +308,14 @@ QuestionHistoryPicker.propTypes = {
     onTo: PropTypes.func,
     onToggle: PropTypes.func,
     onSelectShown: PropTypes.func,
-    onLoadMore: PropTypes.func
+    onLoadMore: PropTypes.func,
+    canSaveDataset: PropTypes.bool,
+    datasetName: PropTypes.string,
+    onDatasetName: PropTypes.func,
+    onSaveDataset: PropTypes.func,
+    savingDataset: PropTypes.bool,
+    saveDatasetMessage: PropTypes.string,
+    saveDatasetError: PropTypes.string
 }
 
 const Side = ({ title, side, running, empty }) => (
@@ -506,7 +559,14 @@ export const PublishCheckView = ({
     onHistoryTo = () => {},
     onToggleHistory = () => {},
     onSelectShown = () => {},
-    onLoadHistory = () => {}
+    onLoadHistory = () => {},
+    canSaveDataset = false,
+    datasetName = '',
+    onDatasetName = () => {},
+    onSaveDataset = () => {},
+    savingDataset = false,
+    saveDatasetMessage = '',
+    saveDatasetError = ''
 }) => {
     const theme = useTheme()
     const [previewShown, setPreviewShown] = useState(RESULT_PAGE_SIZE)
@@ -679,6 +739,13 @@ export const PublishCheckView = ({
                             onToggle={onToggleHistory}
                             onSelectShown={onSelectShown}
                             onLoadMore={onLoadHistory}
+                            canSaveDataset={canSaveDataset}
+                            datasetName={datasetName}
+                            onDatasetName={onDatasetName}
+                            onSaveDataset={onSaveDataset}
+                            savingDataset={savingDataset}
+                            saveDatasetMessage={saveDatasetMessage}
+                            saveDatasetError={saveDatasetError}
                         />
                     )}
                     {!fromDataset && !choosing && pastCount > 0 && (
@@ -961,7 +1028,14 @@ PublishCheckView.propTypes = {
     onHistoryTo: PropTypes.func,
     onToggleHistory: PropTypes.func,
     onSelectShown: PropTypes.func,
-    onLoadHistory: PropTypes.func
+    onLoadHistory: PropTypes.func,
+    canSaveDataset: PropTypes.bool,
+    datasetName: PropTypes.string,
+    onDatasetName: PropTypes.func,
+    onSaveDataset: PropTypes.func,
+    savingDataset: PropTypes.bool,
+    saveDatasetMessage: PropTypes.string,
+    saveDatasetError: PropTypes.string
 }
 
 // The publish check panel: loads recent questions, runs the check, polls it, and stops it when the dialog closes.
@@ -974,6 +1048,7 @@ const PublishCheck = ({ chatflowId, variant = 'publish', api = flowDraftsApi, fl
     const { hasPermission } = useAuth()
     const canUseDatasets = hasPermission('datasets:view')
     const canUseEvaluators = hasPermission('evaluators:view')
+    const canSaveDataset = hasPermission('datasets:create')
     const [setup, setSetup] = useState(null)
     const [loading, setLoading] = useState(true)
     const [loadError, setLoadError] = useState('')
@@ -999,6 +1074,11 @@ const PublishCheck = ({ chatflowId, variant = 'publish', api = flowDraftsApi, fl
     const [historyQuery, setHistoryQuery] = useState({ q: '', source: '', from: '', to: '' })
     const [historyCursor, setHistoryCursor] = useState(null)
     const [selectedQuestions, setSelectedQuestions] = useState([])
+    const [datasetName, setDatasetName] = useState('')
+    const [savingDataset, setSavingDataset] = useState(false)
+    const [saveDatasetMessage, setSaveDatasetMessage] = useState('')
+    const [saveDatasetError, setSaveDatasetError] = useState('')
+    const savingDatasetRef = useRef(false)
     const canRunGate = canUseDatasets && canUseEvaluators
     const canChooseQuestions = typeof api.getCheckHistory === 'function' && canPickQuestionIds(flowType, canvases)
     const timer = useRef(null)
@@ -1312,6 +1392,46 @@ const PublishCheck = ({ chatflowId, variant = 'publish', api = flowDraftsApi, fl
             onLoadHistory={() => {
                 if (historyCursor && !historyLoading) loadHistory(historyQuery, historyCursor)
             }}
+            canSaveDataset={canSaveDataset}
+            datasetName={datasetName}
+            onDatasetName={(value) => {
+                setDatasetName(value)
+                setSaveDatasetMessage('')
+                setSaveDatasetError('')
+            }}
+            onSaveDataset={async () => {
+                const name = datasetName.trim()
+                if (!name || selectedQuestions.length === 0 || savingDatasetRef.current) return
+                const questionIds = selectedQuestions.map((item) => item.id)
+                savingDatasetRef.current = true
+                setSavingDataset(true)
+                setSaveDatasetMessage('')
+                setSaveDatasetError('')
+                try {
+                    const response = await datasetsApi.createDatasetFromQuestions({
+                        flowId: chatflowId,
+                        questionIds,
+                        name
+                    })
+                    if (!live.current.mounted) return
+                    const count = Array.isArray(response?.data?.rows) ? response.data.rows.length : questionIds.length
+                    setSelectedQuestions([])
+                    setDatasetName('')
+                    setSaveDatasetMessage(
+                        count === 1
+                            ? 'Saved 1 question. The expected answer is empty.'
+                            : `Saved ${count} questions. Expected answers are empty.`
+                    )
+                } catch (err) {
+                    if (live.current.mounted) setSaveDatasetError(apiErrorMessage(err, 'Could not save the dataset.'))
+                } finally {
+                    savingDatasetRef.current = false
+                    if (live.current.mounted) setSavingDataset(false)
+                }
+            }}
+            savingDataset={savingDataset}
+            saveDatasetMessage={saveDatasetMessage}
+            saveDatasetError={saveDatasetError}
         />
     )
 }

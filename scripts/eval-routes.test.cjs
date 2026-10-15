@@ -2053,6 +2053,347 @@ describe('evaluation routes', () => {
         }
     })
 
+    it('saves picked questions as a dataset with empty expected answers, and refuses the wrong permission, team, or cap', async () => {
+        const { dataSource, api, cleanup } = await openSqlite()
+        const flowData = JSON.stringify({ nodes: [{ data: { name: 'chatOpenAI', category: 'Chat Models', label: 'Chat' } }] })
+        const marked = (value) => value === true || value === 1
+        const asGrants = (permissions) => {
+            currentUser = () => ({
+                id: MEMBER,
+                activeWorkspaceId: WORKSPACE,
+                activeOrganizationId: ORG,
+                permissions
+            })
+            setTeamPermissionLookup({
+                async accessFor() {
+                    return { owner: false, permissions }
+                }
+            })
+        }
+        try {
+            asOwner()
+            await dataSource.getRepository(Workspace).save({
+                id: WORKSPACE_B,
+                name: 'Other Team',
+                organizationId: ORG,
+                createdBy: USER,
+                updatedBy: USER
+            })
+            const flow = await dataSource.getRepository(ChatFlow).save({
+                name: 'Bakery desk',
+                flowData,
+                type: 'CHATFLOW',
+                workspaceId: WORKSPACE
+            })
+            const agentFlow = await dataSource.getRepository(ChatFlow).save({
+                name: 'Oven steps',
+                flowData,
+                type: 'AGENTFLOW',
+                workspaceId: WORKSPACE
+            })
+            const harness = await dataSource.getRepository(ChatFlow).save({
+                name: 'Bakery team',
+                flowData,
+                type: 'HARNESS',
+                workspaceId: WORKSPACE
+            })
+            const startFlow = (name, start) =>
+                dataSource.getRepository(ChatFlow).save({
+                    name,
+                    flowData: JSON.stringify({
+                        nodes: [{ data: { name: 'startAgentflow', inputs: { startInputType: start } } }]
+                    }),
+                    type: 'AGENTFLOW',
+                    workspaceId: WORKSPACE
+                })
+            const formFlow = await startFlow('Bakery form', 'formInput')
+            const webhookFlow = await startFlow('Bakery webhook', 'webhookTrigger')
+            const scheduleFlow = await startFlow('Bakery schedule', 'scheduleInput')
+            const assistantFlow = await dataSource.getRepository(ChatFlow).save({
+                name: 'Bakery assistant',
+                flowData,
+                type: 'ASSISTANT',
+                workspaceId: WORKSPACE
+            })
+            const foreignFlow = await dataSource.getRepository(ChatFlow).save({
+                name: 'Other desk',
+                flowData,
+                type: 'CHATFLOW',
+                workspaceId: WORKSPACE_B
+            })
+            const first = await dataSource.getRepository(ChatMessage).save({
+                role: 'userMessage',
+                chatflowid: flow.id,
+                content: '  Please use sk-made-up-0000-bakery today  ',
+                chatType: 'INTERNAL',
+                chatId: 'chat-rye',
+                createdDate: new Date('2026-10-08T16:12:03.000Z')
+            })
+            const second = await dataSource.getRepository(ChatMessage).save({
+                role: 'userMessage',
+                chatflowid: flow.id,
+                content: 'What time do you open on Saturday?',
+                chatType: 'EXTERNAL',
+                chatId: 'chat-hours',
+                createdDate: new Date('2026-10-08T15:00:00.000Z')
+            })
+            const withFile = await dataSource.getRepository(ChatMessage).save({
+                role: 'userMessage',
+                chatflowid: flow.id,
+                content: 'See the scan of the oven log',
+                chatType: 'EXTERNAL',
+                chatId: 'chat-scan',
+                fileUploads: '[{"name":"oven-log.png"}]',
+                createdDate: new Date('2026-10-08T14:00:00.000Z')
+            })
+            const tooLong = await dataSource.getRepository(ChatMessage).save({
+                role: 'userMessage',
+                chatflowid: flow.id,
+                content: 'x'.repeat(2001),
+                chatType: 'INTERNAL',
+                chatId: 'chat-long',
+                createdDate: new Date('2026-10-08T13:00:00.000Z')
+            })
+            const foreignQuestion = await dataSource.getRepository(ChatMessage).save({
+                role: 'userMessage',
+                chatflowid: foreignFlow.id,
+                content: 'A question from the other team',
+                chatType: 'INTERNAL',
+                chatId: 'chat-other',
+                createdDate: new Date('2026-10-08T12:00:00.000Z')
+            })
+            const agentQuestion = await dataSource.getRepository(ChatMessage).save({
+                role: 'userMessage',
+                chatflowid: agentFlow.id,
+                content: 'When does the oven start?',
+                chatType: 'INTERNAL',
+                chatId: 'chat-oven',
+                createdDate: new Date('2026-10-08T11:00:00.000Z')
+            })
+            const countDatasets = () => dataSource.getRepository(Dataset).count({ where: { workspaceId: WORKSPACE } })
+            assert.equal(await countDatasets(), 0)
+
+            asGrants(['chatflows:view'])
+            const noCreate = await api.post('/datasets/from-questions').send({
+                flowId: flow.id,
+                questionIds: [`chat:${first.id}`],
+                name: 'Saturday questions'
+            })
+            assert.equal(noCreate.status, 403, JSON.stringify(noCreate.body))
+            assert.equal(noCreate.body.message, 'Forbidden')
+            assert.equal(await countDatasets(), 0)
+
+            asGrants(['datasets:update', 'chatflows:view'])
+            const updateOnly = await api.post('/datasets/from-questions').send({
+                flowId: flow.id,
+                questionIds: [`chat:${first.id}`],
+                name: 'Saturday questions'
+            })
+            assert.equal(updateOnly.status, 403, JSON.stringify(updateOnly.body))
+            assert.equal(await countDatasets(), 0)
+
+            asGrants(['datasets:create'])
+            const noView = await api.post('/datasets/from-questions').send({
+                flowId: flow.id,
+                questionIds: [`chat:${first.id}`],
+                name: 'Saturday questions'
+            })
+            assert.equal(noView.status, 403, JSON.stringify(noView.body))
+            assert.match(noView.body.message, /view this flow/)
+            assert.equal(await countDatasets(), 0)
+
+            asGrants(['datasets:create', 'agentflows:view'])
+            const wrongType = await api.post('/datasets/from-questions').send({
+                flowId: flow.id,
+                questionIds: [`chat:${first.id}`],
+                name: 'Saturday questions'
+            })
+            assert.equal(wrongType.status, 403, JSON.stringify(wrongType.body))
+            assert.equal(await countDatasets(), 0)
+
+            asGrants(['datasets:create', 'chatflows:view'])
+            const otherTeam = await api.post('/datasets/from-questions').send({
+                flowId: foreignFlow.id,
+                questionIds: [`chat:${foreignQuestion.id}`],
+                name: 'Saturday questions'
+            })
+            assert.equal(otherTeam.status, 404, JSON.stringify(otherTeam.body))
+            assert.match(otherTeam.body.message, /not found/)
+            assert.equal(await countDatasets(), 0)
+
+            const otherQuestion = await api.post('/datasets/from-questions').send({
+                flowId: flow.id,
+                questionIds: [`chat:${foreignQuestion.id}`],
+                name: 'Saturday questions'
+            })
+            assert.equal(otherQuestion.status, 400, JSON.stringify(otherQuestion.body))
+            assert.equal(otherQuestion.body.code, 'CHECK_BAD_QUESTION_IDS')
+            assert.deepEqual(otherQuestion.body.errors, [{ index: 0, reason: 'not-found' }])
+            assert.equal(otherQuestion.headers['cache-control'], 'no-store')
+            assert.equal(await countDatasets(), 0)
+            assert.doesNotMatch(JSON.stringify(otherQuestion.body), /other team/)
+
+            const filed = await api.post('/datasets/from-questions').send({
+                flowId: flow.id,
+                questionIds: [`chat:${withFile.id}`],
+                name: 'Saturday questions'
+            })
+            assert.equal(filed.status, 400, JSON.stringify(filed.body))
+            assert.deepEqual(filed.body.errors, [{ index: 0, reason: 'files' }])
+            assert.equal(await countDatasets(), 0)
+
+            const lengthy = await api.post('/datasets/from-questions').send({
+                flowId: flow.id,
+                questionIds: [`chat:${tooLong.id}`],
+                name: 'Saturday questions'
+            })
+            assert.equal(lengthy.status, 400, JSON.stringify(lengthy.body))
+            assert.deepEqual(lengthy.body.errors, [{ index: 0, reason: 'length' }])
+            assert.equal(await countDatasets(), 0)
+
+            const duplicate = await api.post('/datasets/from-questions').send({
+                flowId: flow.id,
+                questionIds: [`chat:${first.id}`, `chat:${first.id}`],
+                name: 'Saturday questions'
+            })
+            assert.equal(duplicate.status, 400, JSON.stringify(duplicate.body))
+            assert.equal(duplicate.body.code, 'CHECK_QUESTION_IDS_DUPLICATE')
+            assert.equal(await countDatasets(), 0)
+
+            const over = Array.from({ length: 101 }, (_, index) => {
+                const tail = index.toString(16).padStart(12, '0')
+                return `chat:11111111-1111-4111-8111-${tail}`
+            })
+            const capped = await api.post('/datasets/from-questions').send({
+                flowId: flow.id,
+                questionIds: over,
+                name: 'Saturday questions'
+            })
+            assert.equal(capped.status, 400, JSON.stringify(capped.body))
+            assert.equal(capped.body.code, 'CHECK_QUESTION_IDS_RANGE')
+            assert.match(capped.body.message, /1 to 100/)
+            assert.equal(await countDatasets(), 0)
+
+            const unnamed = await api.post('/datasets/from-questions').send({
+                flowId: flow.id,
+                questionIds: [`chat:${first.id}`],
+                name: '   '
+            })
+            assert.equal(unnamed.status, 400, JSON.stringify(unnamed.body))
+            assert.match(unnamed.body.message, /Dataset name is required/)
+            assert.equal(await countDatasets(), 0)
+
+            const harnessRefused = await api.post('/datasets/from-questions').send({
+                flowId: harness.id,
+                questionIds: [`chat:${first.id}`],
+                name: 'Saturday questions'
+            })
+            assert.equal(harnessRefused.status, 409, JSON.stringify(harnessRefused.body))
+            assert.match(harnessRefused.body.message, /not available/)
+            assert.equal(await countDatasets(), 0)
+
+            const tooLongName = await api.post('/datasets/from-questions').send({
+                flowId: flow.id,
+                questionIds: [`chat:${second.id}`],
+                name: 'n'.repeat(201)
+            })
+            assert.equal(tooLongName.status, 400, JSON.stringify(tooLongName.body))
+            assert.match(tooLongName.body.message, /at most 200/)
+            assert.equal(await countDatasets(), 0)
+
+            asGrants(['datasets:create', 'agentflows:view'])
+            for (const refusedFlow of [formFlow, webhookFlow, scheduleFlow]) {
+                const refused = await api.post('/datasets/from-questions').send({
+                    flowId: refusedFlow.id,
+                    questionIds: [`chat:${second.id}`],
+                    name: 'Saturday questions'
+                })
+                assert.equal(refused.status, 409, JSON.stringify(refused.body))
+                assert.match(refused.body.message, /not available/)
+            }
+            asGrants(['datasets:create', 'assistants:view'])
+            const assistantRefused = await api.post('/datasets/from-questions').send({
+                flowId: assistantFlow.id,
+                questionIds: [`chat:${second.id}`],
+                name: 'Saturday questions'
+            })
+            assert.equal(assistantRefused.status, 409, JSON.stringify(assistantRefused.body))
+            assert.match(assistantRefused.body.message, /chatflows and agentflows/)
+            assert.equal(await countDatasets(), 0)
+
+            currentUser = () => ({ id: USER, activeOrganizationId: ORG })
+            setTeamPermissionLookup({
+                async accessFor() {
+                    return { owner: true, permissions: null }
+                }
+            })
+            const noWorkspace = await api.post('/datasets/from-questions').send({
+                flowId: flow.id,
+                questionIds: [`chat:${second.id}`],
+                name: 'Saturday questions'
+            })
+            assert.equal(noWorkspace.status, 401, JSON.stringify(noWorkspace.body))
+            assert.equal(noWorkspace.body.message, 'Unauthorized')
+            assert.doesNotMatch(JSON.stringify(noWorkspace.body), /undefined/)
+            assert.equal(await countDatasets(), 0)
+            asGrants(['datasets:create', 'chatflows:view'])
+
+            const saved = await api.post('/datasets/from-questions').send({
+                flowId: flow.id,
+                questionIds: [`chat:${second.id}`, `chat:${first.id}`],
+                name: '  Saturday questions  '
+            })
+            assert.equal(saved.status, 200, JSON.stringify(saved.body))
+            assert.equal(saved.headers['cache-control'], 'no-store')
+            assert.equal(saved.body.name, 'Saturday questions')
+            assert.equal(saved.body.workspaceId, WORKSPACE)
+            assert.equal(saved.body.rows.length, 2)
+            const { resolveChatQuestionIds } = serverRequire('./src/services/flow-check/history.ts')
+            const replay = await resolveChatQuestionIds(flow.id, [`chat:${second.id}`, `chat:${first.id}`], [])
+            assert.deepEqual(
+                saved.body.rows.map((row) => row.input),
+                replay.questions
+            )
+            assert.equal(saved.body.rows[1].input, 'Please use [redacted] today')
+            assert.doesNotMatch(saved.body.rows[1].input, /sk-/)
+            assert.equal(new Date(saved.body.rows[1].sourceDate).toISOString(), '2026-10-08T16:12:03.000Z')
+            for (const row of saved.body.rows) {
+                assert.equal(row.output, '')
+                assert.equal(marked(row.needsExpectedAnswer), true)
+                assert.equal(row.sourceType, 'chat_question')
+                assert.equal(row.sourceFlowId, flow.id)
+            }
+            assert.equal(saved.body.rows[0].sourceMessageId, second.id)
+            assert.equal(saved.body.rows[1].sourceMessageId, first.id)
+            assert.equal(saved.body.rows[0].sequenceNo, 0)
+            assert.equal(saved.body.rows[1].sequenceNo, 1)
+            const stored = await dataSource.getRepository(DatasetRow).find({
+                where: { datasetId: saved.body.id },
+                order: { sequenceNo: 'ASC' }
+            })
+            assert.deepEqual(
+                stored.map((row) => row.output),
+                ['', '']
+            )
+            assert.equal(await countDatasets(), 1)
+
+            asGrants(['datasets:create', 'agentflows:view'])
+            const agentSaved = await api.post('/datasets/from-questions').send({
+                flowId: agentFlow.id,
+                questionIds: [`chat:${agentQuestion.id}`],
+                name: 'Oven questions'
+            })
+            assert.equal(agentSaved.status, 200, JSON.stringify(agentSaved.body))
+            assert.equal(agentSaved.body.rows[0].input, 'When does the oven start?')
+            assert.equal(agentSaved.body.rows[0].output, '')
+            assert.equal(marked(agentSaved.body.rows[0].needsExpectedAnswer), true)
+            assert.equal(await countDatasets(), 2)
+        } finally {
+            asOwner()
+            await cleanup()
+        }
+    })
+
     it('adds rated answers to a dataset, skips duplicates, and leaves a thumbs-down expected answer empty', async () => {
         const { dataSource, api, cleanup } = await openSqlite()
         const flowData = JSON.stringify({ nodes: [{ data: { name: 'chatOpenAI', category: 'Chat Models', label: 'Chat' } }] })
