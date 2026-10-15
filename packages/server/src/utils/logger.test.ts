@@ -160,7 +160,7 @@ describe('logger.ts', () => {
                     url: '/api/v1/auth/local/login',
                     method: 'POST',
                     params: {},
-                    body: { email: 'ada@example.com', password },
+                    body: { email: 'ada@example.com', Email: 'Ada@Localhost', profile: { email: 'nested@localhost' }, password },
                     query: {},
                     headers: { cookie: `cuttlely-local-session=${cookie}` }
                 } as any,
@@ -183,6 +183,9 @@ describe('logger.ts', () => {
             expect(logged).not.toContain(password)
             expect(logged).not.toContain(nextPassword)
             expect(logged).not.toContain(cookie)
+            expect(logged).not.toContain('ada@example.com')
+            expect(logged).not.toContain('Ada@Localhost')
+            expect(logged).not.toContain('nested@localhost')
             expect(logged).toContain('cuttlely-local-session=[redacted]')
             expect(logged).toContain('[redacted]')
             infoSpy.mockRestore()

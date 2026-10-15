@@ -22,6 +22,7 @@ import { establishSession } from './handlers'
 import { buildAuthContext } from './production'
 import { SessionUser } from './types'
 
+// These routes write the status and the cookie themselves. Attaching a session here would clear or delete it before their mode and CSRF checks.
 const HANDLED_BY_ROUTE = new Set([
     '/api/v1/auth/login',
     '/api/v1/auth/callback',
@@ -29,6 +30,8 @@ const HANDLED_BY_ROUTE = new Set([
     '/api/v1/auth/resolve',
     '/api/v1/auth/options',
     '/api/v1/auth/local/login',
+    '/api/v1/auth/local/logout',
+    '/api/v1/auth/local/password',
     '/api/v1/account/logout',
     '/api/v1/account/register'
 ])

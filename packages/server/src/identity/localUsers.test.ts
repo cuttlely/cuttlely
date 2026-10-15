@@ -16,11 +16,14 @@
 
 import { readFileSync } from 'fs'
 import { join } from 'path'
+import cookieParser from 'cookie-parser'
 import express, { Request } from 'express'
 import request from 'supertest'
 import type { DataSource } from 'typeorm'
 import { ABSOLUTE_MS, IDLE_MS, LOGIN_FAILURE_WINDOW_MS, OPEN_SOURCE_FEATURES, localAdminEnabled, localUsersMode } from './constants'
 import { apiV1Auth } from './apiGate'
+import { identityAuthRouter } from './http'
+import { attachIdentitySession } from './middleware'
 import {
     UNKNOWN_LOCAL_ACCOUNT_ID,
     AuthContext,
@@ -41,12 +44,70 @@ import { IdentityStore } from './store'
 import { SqlLoginRateLimit, teamAccess } from './sqlStore'
 import { HandlerResult, LocalSession, SessionUser, UserRow } from './types'
 
+const mockRouteStore: { current: IdentityStore | null } = { current: null }
+
+jest.mock('./production', () => {
+    const { cookiePasswordOk, localAdminEnabled, localUsersMode, workosConfigured } = jest.requireActual(
+        './constants'
+    ) as typeof import('./constants')
+    const { cookieSecure } = jest.requireActual('./cookies') as typeof import('./cookies')
+    const { LoginRateLimit } = jest.requireActual('./rateLimit') as typeof import('./rateLimit')
+    return {
+        buildAuthContext: (req: Request) => {
+            const redirectUri = process.env.WORKOS_REDIRECT_URI
+            return {
+                workosConfigured: workosConfigured(),
+                localAdmin: localAdminEnabled(),
+                localUsers: localUsersMode(),
+                cookiePasswordOk: cookiePasswordOk(process.env.WORKOS_COOKIE_PASSWORD),
+                redirectUri,
+                secure: cookieSecure(redirectUri, Boolean(req.secure) || req.protocol === 'https'),
+                now: Date.parse('2026-10-14T00:00:00.000Z'),
+                ip: req.ip || '203.0.113.8',
+                internal: req.headers['x-request-from'] === 'internal',
+                body: req.body && typeof req.body === 'object' ? (req.body as Record<string, unknown>) : {},
+                cookies: (req.cookies || {}) as Record<string, string | undefined>,
+                store: mockRouteStore.current,
+                workos: {
+                    authorizationUrl: () => 'https://authkit.example/authorize',
+                    authenticate: async () => {
+                        throw new Error('unused')
+                    },
+                    authenticateSession: async () => ({ authenticated: false, reason: 'invalid_jwt' }),
+                    refresh: async () => ({ authenticated: false, reason: 'invalid_grant' }),
+                    logoutUrl: async () => 'https://authkit.example/logout',
+                    setExternalId: async () => undefined
+                },
+                rateLimit: new LoginRateLimit()
+            }
+        }
+    }
+})
+
 /** The public route list, read as text so this test does not import the inherited constants module. */
 function whitelistUrls(): string[] {
     const text = readFileSync(join(__dirname, '../utils/constants.ts'), 'utf8')
     const start = text.indexOf('export const WHITELIST_URLS')
     const end = text.indexOf('export const API_KEY_BLACKLIST_URLS')
     return [...text.slice(start, end).matchAll(/'([^']+)'/g)].map((match) => match[1])
+}
+
+function localRouteApp() {
+    const server = express()
+    server.use(cookieParser())
+    server.use(express.json())
+    server.use(
+        apiV1Auth({
+            whitelistURLs: whitelistUrls(),
+            apiKeyBlacklistURLs: [],
+            licenseRequired: () => false,
+            dataSource: { getRepository: () => ({ findOne: async () => null }) } as unknown as DataSource,
+            validateAPIKey: async () => ({ isValid: false }),
+            attachIdentitySession
+        })
+    )
+    server.use('/api/v1/auth', identityAuthRouter)
+    return server
 }
 
 jest.setTimeout(120000)
@@ -718,6 +779,87 @@ describe('local users mode', () => {
         expect(badHeader.status).toBe(401)
         expect(noCookie.body).toEqual({ message: 'Unauthorized' })
         expect(badHeader.body).toEqual({ message: 'Unauthorized' })
+    })
+
+    it('answers local logout from the route: 401 without CSRF, 404 when the mode is off, and 200 twice', async () => {
+        const { store } = await seed()
+        mockRouteStore.current = store
+        const http = request(localRouteApp())
+        const saved = {
+            users: process.env.CUTTLELY_LOCAL_USERS,
+            admin: process.env.CUTTLELY_LOCAL_ADMIN,
+            key: process.env.WORKOS_API_KEY,
+            client: process.env.WORKOS_CLIENT_ID
+        }
+        const restoreEnv = () => {
+            if (saved.users === undefined) delete process.env.CUTTLELY_LOCAL_USERS
+            else process.env.CUTTLELY_LOCAL_USERS = saved.users
+            if (saved.admin === undefined) delete process.env.CUTTLELY_LOCAL_ADMIN
+            else process.env.CUTTLELY_LOCAL_ADMIN = saved.admin
+            if (saved.key === undefined) delete process.env.WORKOS_API_KEY
+            else process.env.WORKOS_API_KEY = saved.key
+            if (saved.client === undefined) delete process.env.WORKOS_CLIENT_ID
+            else process.env.WORKOS_CLIENT_ID = saved.client
+        }
+        const keep = async (userId: string, raw: string) => {
+            const digest = hashSessionToken(raw)
+            await store.insertLocalSession({
+                id: raw,
+                userId,
+                token: digest,
+                idleExpires: new Date(NOW + IDLE_MS),
+                absoluteExpires: new Date(NOW + ABSOLUTE_MS)
+            })
+            return digest
+        }
+        try {
+            process.env.CUTTLELY_LOCAL_USERS = 'true'
+            delete process.env.CUTTLELY_LOCAL_ADMIN
+            delete process.env.WORKOS_API_KEY
+            delete process.env.WORKOS_CLIENT_ID
+
+            const disabledDigest = await keep('disabled', 'disabled-raw')
+            const denied = await http.post('/api/v1/auth/local/logout').set('Cookie', 'cuttlely-local-session=disabled-raw')
+            expect(denied.status).toBe(401)
+            expect(denied.body).toEqual({ message: 'Unauthorized' })
+            expect(denied.headers['set-cookie']).toBeUndefined()
+            expect(store.local.has(disabledDigest)).toBe(true)
+
+            const passwordDenied = await http.post('/api/v1/auth/local/password').set('Cookie', 'cuttlely-local-session=disabled-raw')
+            expect(passwordDenied.status).toBe(401)
+            expect(passwordDenied.body).toEqual({ message: 'Unauthorized' })
+            expect(store.local.has(disabledDigest)).toBe(true)
+
+            const activeDigest = await keep('user-a', 'active-raw')
+            const out = await http
+                .post('/api/v1/auth/local/logout')
+                .set('Cookie', 'cuttlely-local-session=active-raw')
+                .set('x-request-from', 'internal')
+            expect(out.status).toBe(200)
+            expect(out.body).toEqual({ message: 'logged_out', redirectTo: '/signin' })
+            expect(store.local.has(activeDigest)).toBe(false)
+            const again = await http.post('/api/v1/auth/local/logout').set('x-request-from', 'internal')
+            expect(again.status).toBe(200)
+            expect(again.body).toEqual(out.body)
+
+            delete process.env.CUTTLELY_LOCAL_USERS
+            process.env.CUTTLELY_LOCAL_ADMIN = 'true'
+            const memberDigest = await keep('user-a', 'member-raw')
+            const missing = await http
+                .post('/api/v1/auth/local/logout')
+                .set('Cookie', 'cuttlely-local-session=member-raw')
+                .set('x-request-from', 'internal')
+            expect(missing.status).toBe(404)
+            expect(missing.body).toEqual({ message: 'Not Found' })
+            expect(missing.headers['set-cookie']).toBeUndefined()
+            expect(store.local.has(memberDigest)).toBe(true)
+            const passwordMissing = await http.post('/api/v1/auth/local/password').set('x-request-from', 'internal')
+            expect(passwordMissing.status).toBe(404)
+            expect(passwordMissing.body).toEqual({ message: 'Not Found' })
+        } finally {
+            mockRouteStore.current = null
+            restoreEnv()
+        }
     })
 
     it('refuses local login without the internal header and sets no cookie', async () => {

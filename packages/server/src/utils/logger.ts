@@ -71,7 +71,7 @@ function getSensitiveHeaderFields(): string[] {
         .map((f) => f.trim())
 }
 
-// Always redacted in a debug request body. `token` is the GitHub token sent when connecting version history.
+// Always redacted in a debug request body. The key match is case-insensitive. `token` is the GitHub token sent when connecting version history.
 const SESSION_LOG_FIELDS = new Set([
     'chatid',
     'sessionid',
@@ -81,7 +81,8 @@ const SESSION_LOG_FIELDS = new Set([
     'currentpassword',
     'newpassword',
     'credential',
-    'setupcode'
+    'setupcode',
+    'email'
 ])
 
 /** Drop client session ids, session tokens, and API keys in the path before a request line is written. */
@@ -100,7 +101,7 @@ function sanitizeObject(obj: any): any {
         const lowerKey = key.toLowerCase()
         if (sensitiveFields.includes(lowerKey) || SESSION_LOG_FIELDS.has(lowerKey)) {
             sanitized[key] = '[redacted]'
-        } else if (lowerKey === 'overrideconfig' && sanitized[key] && typeof sanitized[key] === 'object') {
+        } else if (sanitized[key] && typeof sanitized[key] === 'object') {
             sanitized[key] = sanitizeObject(sanitized[key])
         } else if (typeof sanitized[key] === 'string') {
             if (sanitized[key].includes('@') && sanitized[key].includes('.')) {
