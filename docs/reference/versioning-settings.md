@@ -54,7 +54,7 @@ Where to set it:
 
 ## Publish check limits
 
-The [publish check](./drafts-api.md#publish-check) replays recent questions against Live and the draft before Publish, so it uses the flow's model and costs tokens. The caps are runtime settings: a valid host value wins, then the value saved in Server settings, then the default. They apply on the next check. A restart is not required. The full list, including the question cap and the scan cap, is in [Server settings](../how-to/server-settings.md#limits-that-apply-immediately) and the [Server settings API](./server-settings-api.md).
+The [publish check](./drafts-api.md#publish-check) replays recent questions against Live and the draft before Publish, so it uses the flow's model and costs tokens. `CUTTLELY_PUBLISH_CHECK` turns that check on or off. The default is on, so an install that does not set it behaves as before. The caps are runtime settings: a valid host value wins, then the value saved in Server settings, then the default. They apply on the next check. A restart is not required. The full list, including the question cap and the scan cap, is in [Server settings](../how-to/server-settings.md#limits-that-apply-immediately) and the [Server settings API](./server-settings-api.md).
 
 -   `CUTTLELY_CHECK_MAX_TOKENS`: the most tokens one check may use, counting Live and the draft together. Default 100,000. Whole numbers from 1,000 to 2,000,000.
 -   `CUTTLELY_CHECK_MAX_SECONDS`: the most seconds one check may run. Default 180. Whole numbers from 10 to 1,800.

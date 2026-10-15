@@ -23,6 +23,7 @@ jest.mock('../flow-drafts', () => ({
     default: { getState: async () => ({ draftFlowData: '{"nodes":[{"id":"n"}],"edges":[]}' }) }
 }))
 import { StatusCodes } from 'http-status-codes'
+import { resetRuntimeLimitsForTests } from '../../settings/runtime'
 import {
     bindHistoryRepository,
     HISTORY_SCAN_CAP,
@@ -55,6 +56,8 @@ function row(id: string, content: string, iso: string, extra: Partial<HistoryRow
 }
 
 beforeEach(() => {
+    delete process.env.CUTTLELY_PUBLISH_CHECK
+    resetRuntimeLimitsForTests()
     historyHooks.loadUserMessages = null
     bindHistoryRepository(() => ({
         createQueryBuilder: () => queryBuilder,
@@ -66,6 +69,15 @@ beforeEach(() => {
 })
 
 describe('question history', () => {
+    test('still lists past questions when the publish check is off', async () => {
+        process.env.CUTTLELY_PUBLISH_CHECK = 'false'
+        resetRuntimeLimitsForTests()
+        historyHooks.loadUserMessages = async () => [row('m-a', 'two loaf', '2026-10-08T10:00:00.000Z')]
+        const page = await listQuestionHistory(FLOW, {}, CALLER)
+        expect(page.items.map((item) => item.text)).toEqual(['two loaf'])
+        expect(queryCalls).toEqual([])
+    })
+
     test('pages equal timestamps by id and stays stable', async () => {
         const stored = [row('m-a', 'two loaf', '2026-10-08T10:00:00.000Z'), row('m-b', 'one loaf', '2026-10-08T10:00:00.000Z')]
         historyHooks.loadUserMessages = async () => stored

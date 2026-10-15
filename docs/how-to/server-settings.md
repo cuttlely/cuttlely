@@ -1,6 +1,6 @@
 # Server settings
 
-**Admin** > **Server Settings** is where the owner changes how this server runs: sign-in, the database, the agent runtime, the analyst, models, file storage, security, integrations and advanced options. You change values on the page and review them. Runtime limits apply on the next use. The other settings wait for a restart. Nothing here needs a terminal or a host's environment page.
+**Admin** > **Server Settings** is where the owner changes how this server runs: sign-in, the database, the agent runtime, the analyst, models, file storage, security, integrations, testing and limits, and advanced options. You change values on the page and review them. Runtime limits apply on the next use. The other settings wait for a restart. Nothing here needs a terminal or a host's environment page.
 
 ![Server settings in the light theme. Set up your server shows three tiles, 0 of 3 done: Sign-in for your team, Analyst, and A model key, with Skip for now. Sign-in & identity is selected. The Sign in with WorkOS AuthKit card has Set up AuthKit. Owner password sign-in is On and marked Locked.](../images/server-settings/server-settings-signin.png)
 
@@ -84,14 +84,25 @@ The row cap is the page size. A lower cap puts fewer rows into the specialist's 
 
 The query timeout stops a statement that runs too long, on the private store and on a Postgres URL. A PostgreSQL MCP node can set a lower **Row cap** or a shorter **Query timeout (seconds)** under **Additional Parameters**. Those fields cannot go above the values here. Leave them empty to use these settings. [Analyst mode](./analyst.md#safety).
 
+## Testing and Limits
+
+**Testing and Limits** holds the publish check, its limits, and the rated-answer caps. **Publish check** is on unless you turn it off. The switch is `CUTTLELY_PUBLISH_CHECK`. A number shows its unit and its range. When the host set the variable, the field shows a lock and **Set by the host**, and this page cannot change it. Below those fields, **Set by the host** lists the values that stay on the host. Each row is **Set** or **Not set**. The value is not shown.
+
+The picture is from a local demo install. The account is a made-up owner. It shows no chat text, no token, and no host name.
+
+![Testing and Limits. Publish check is On. Publish check time limit shows Set by the host. The range line is under the field. Host-only rows show Set or Not set, with no values.](../images/server-settings/testing-and-limits.png)
+
+The full list of startup options, with the default, the range, where each one can be set, and whether a restart is needed, is [Startup options](../reference/startup-options.md). Secret values and host-only values are named and marked not shown.
+
 ## Limits that apply immediately
 
-These limits are read on each use. A saved change applies to the next check, import, or page load. A restart is not required. The host value wins when it is a whole number inside the range. A host value outside the range, or that is not a whole number, is ignored. It is not clamped. The saved value is used when it is in range, and otherwise the default. The field stays **Locked** until that variable is removed from the host. A value outside the range is refused when you save it on this page. An in-range host value on a pair is kept and is not loosened so the other side can fit. That other setting falls back through its saved value, then its default. If none of those fit, it is bounded by the host value. A host question cap of 1 makes the question default 1. A host rating scan of 300 makes the rated-answer import cap 300. When both sides are host values and they conflict, the host cap is kept and the other side uses the first saved or default candidate that fits. `bounded` applies only when no candidate fits. The page marks that setting **Limited by** the host variable, for example Limited by `CUTTLELY_CHECK_COUNT_MAX`. It is not Locked unless that same variable is also set on the host, so it can still be edited here. `pnpm settings list` prints source `bounded` and that same line. The review step says these limits apply on the next use when every change is one of them. When the review also changes a setting that waits for a restart, it says the limits apply now and the rest apply at restart.
+These limits are read on each use. A saved change applies to the next check, import, or page load. A restart is not required. The host value wins when it is a whole number inside the range. A host value outside the range, or that is not a whole number, is ignored. It is not clamped. The saved value is used when it is in range, and otherwise the default. The field stays locked until that variable is removed from the host. On **Testing and Limits** the chip says **Set by the host**. Other sections say **Locked**. A value outside the range is refused when you save it on this page. An in-range host value on a pair is kept and is not loosened so the other side can fit. That other setting falls back through its saved value, then its default. If none of those fit, it is bounded by the host value. A host question cap of 1 makes the question default 1. A host rating scan of 300 makes the rated-answer import cap 300. When both sides are host values and they conflict, the host cap is kept and the other side uses the first saved or default candidate that fits. `bounded` applies only when no candidate fits. The page marks that setting **Limited by** the host variable, for example Limited by `CUTTLELY_CHECK_COUNT_MAX`. It is not Locked unless that same variable is also set on the host, so it can still be edited here. `pnpm settings list` prints source `bounded` and that same line. The review step says these limits apply on the next use when every change is one of them. When the review also changes a setting that waits for a restart, it says the limits apply now and the rest apply at restart.
 
 The question count default cannot be above the question cap. The rating scan must be at least the rated-answer import cap. Saving a pair that breaks either rule is refused.
 
 | Setting                      | Variable                         | Default       | Range                                      |
 | ---------------------------- | -------------------------------- | ------------- | ------------------------------------------ |
+| **Publish check**            | `CUTTLELY_PUBLISH_CHECK`         | On            | on or off                                  |
 | **Publish check token cap**  | `CUTTLELY_CHECK_MAX_TOKENS`      | 100000 tokens | 1000 to 2000000 tokens                     |
 | **Publish check time limit** | `CUTTLELY_CHECK_MAX_SECONDS`     | 180 seconds   | 10 to 1800 seconds                         |
 | **Questions at once**        | `CUTTLELY_CHECK_CONCURRENCY`     | 2             | 1 to 8                                     |

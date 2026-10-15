@@ -11,6 +11,7 @@ import flowVersionsService from '../../services/flow-versions'
 import { actorFromUser } from '../../services/flow-versions/author'
 import { hasAnyPermission } from '../../identity/rbac'
 import { putVersionLive } from '../flow-versions'
+import { PUBLISH_CHECK_OFF_MESSAGE, publishCheckEnabled } from '../../settings/runtime'
 
 const SHA = /^[0-9a-f]{7,40}$/
 
@@ -200,6 +201,10 @@ function historyCaller(req: Request): string {
     return 'api'
 }
 
+function assertPublishCheckOn(): void {
+    if (!publishCheckEnabled()) throw new AppError(StatusCodes.CONFLICT, PUBLISH_CHECK_OFF_MESSAGE)
+}
+
 // Past questions a caller can hand to the check. Reading them needs the same view permission as this flow's messages.
 // The body is stored question text, so a 200 is not stored by the browser either.
 const getCheckHistory = async (req: Request, res: Response, next: NextFunction) => {
@@ -263,6 +268,7 @@ const startCheck = async (req: Request, res: Response, next: NextFunction) => {
     let stopped = false
     let detach: () => void = () => undefined
     try {
+        assertPublishCheckOn()
         const flow = await flowFor(req, 'update')
         const body = req.body || {}
         // Picking stored questions reads this flow's messages. A key that can run a check but cannot view messages is refused.

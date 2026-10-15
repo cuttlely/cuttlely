@@ -590,6 +590,28 @@ export const PublishCheckView = ({
                     {unavailable.message}
                 </Typography>
             )}
+            {!loading && !loadError && setup?.publishCheck === false && check && (
+                <>
+                    <Stack direction='row' spacing={1} sx={{ mt: 1 }} alignItems='center' flexWrap='wrap' useFlexGap>
+                        {running && (
+                            <Button variant='outlined' color='inherit' onClick={onStop} data-testid='check-stop'>
+                                Stop
+                            </Button>
+                        )}
+                        {running && (
+                            <Typography variant='caption' color='text.secondary' data-testid='check-optional'>
+                                {stopsOnClose ? words.closeNote : CHECK_ADOPTED_NOTE}
+                            </Typography>
+                        )}
+                    </Stack>
+                    <CheckResults
+                        check={check}
+                        words={words}
+                        replayInputs={Boolean(setup?.replayInputs)}
+                        replaySource={setup?.replaySource}
+                    />
+                </>
+            )}
             {!loading && !loadError && setup && !unavailable && (
                 <>
                     <Typography variant='body2' color='text.secondary' sx={{ mt: 0.5 }} data-testid='check-intro'>
