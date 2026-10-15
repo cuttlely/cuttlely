@@ -27,6 +27,8 @@ The script starts its own servers on empty data directories, in a headless brows
 
 `DOCS_SHOTS=testing` takes only the Testing and Limits picture. The server is started with one in-range publish-check limit set on the host so that field shows as set by the host. Host-only rows show set or not set and never a value.
 
+`DOCS_SHOTS=local-users` takes the Users list, the sessions drawer, and the audit log. It uses local password sign-in, example.com addresses, and a one-time invite link that the script does not print.
+
 Sample files for the import frames are `examples/imports/bakery-helper.json` and `examples/imports/bakery-greeter.json`. That directory is in `.dockerignore` with this one. The image does not read those files.
 
 ## Knowledge pipelines and Usage

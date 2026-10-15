@@ -1313,6 +1313,36 @@ async function stepPostgres(page) {
         .getByText(/No Available Actions|QUERY|isolated analyst store|create roles/)
         .first()
         .waitFor({ timeout: 60000 })
+    // Roles are cluster-wide. Drop readers left by an earlier database so this shot shows this workspace only.
+    execFileSync(
+        'sudo',
+        [
+            '-n',
+            '-u',
+            'postgres',
+            'psql',
+            '-d',
+            'cuttlely',
+            '-v',
+            'ON_ERROR_STOP=1',
+            '-c',
+            `DO $$
+DECLARE r record;
+BEGIN
+  FOR r IN
+    SELECT pr.rolname FROM pg_roles pr
+    WHERE pr.rolname LIKE 'analyst_reader%'
+      AND NOT EXISTS (
+        SELECT 1 FROM pg_namespace n
+        WHERE n.nspname = replace(pr.rolname, 'analyst_reader', 'analyst')
+      )
+  LOOP
+    EXECUTE format('DROP ROLE IF EXISTS %I', r.rolname);
+  END LOOP;
+END $$;`
+        ],
+        { stdio: 'pipe' }
+    )
     const psql = execFileSync(
         'sudo',
         [

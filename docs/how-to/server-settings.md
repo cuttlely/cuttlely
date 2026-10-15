@@ -18,7 +18,7 @@ A fresh server shows three optional first steps at the top: **Sign-in for your t
 
 1. Pick a section on the left, or search. Search matches labels, help text and the variable name.
 
-![Search settings with timeout in the box. Analyst shows Query timeout at 15 seconds, and Advanced shows MCP sign-in wait at 15 seconds.](../images/server-settings/server-settings-search.png)
+    ![Search settings with timeout in the box. Analyst shows Query timeout at 15 seconds. Security and network shows Shutdown wait at 25 seconds. Testing and Limits shows One run timeout at 60000 ms.](../images/server-settings/server-settings-search.png)
 
 2. Change the value. Each setting says in plain words what it does, and shows its variable name in small type for reference.
 3. The bar at the bottom counts your edits. Select **Review and save**.
@@ -218,8 +218,8 @@ From a terminal (in Docker, prefix with `docker compose exec -u node Cuttlely`):
 
 **All settings** lists every setting, where its value comes from and its value (secrets as set or not set), plus the settings that stay out of the browser and why: the encryption key and sign-in secrets, paths and ports, code execution and safety checks, queue workers, start script plumbing, and test-only values. The organization owner can also ask the API whether an env-only value is set. That answer is `set` and `source` only. The value, its length, and any hash stay off the response. [Server settings API](../reference/server-settings-api.md). **Copy as .env** copies the values saved here for a `.env` file or a host's environment page; secrets are left out and listed as comments.
 
-![All settings. Copy as .env is at the top right. The table starts with Owner password sign-in, Host, On; AuthKit API key, Not set; AuthKit client ID, Default (Not set: AuthKit is off); Callback address, Default (Not set); and Session seal, Not set.](../images/server-settings/server-settings-all-settings.png)
+![All settings, with Set up your server above it: Sign-in for your team, Analyst, and A model key, 0 of 3 done. Copy as .env is at the top right. The table starts with Owner password sign-in, Host, On; Local user passwords, Default, Off; Invite link lifetime, Default, 72 hours; Reset link lifetime, Default, 60 minutes; Invite delivery, Default, Follow the request; and Mail server, Default, Not set.](../images/server-settings/server-settings-all-settings.png)
 
 **History** keeps every save, discard, restore, test sign-in, rollback and restart: when, who, and which settings, never a secret value. A secret is recorded only as changed. The same list is `GET /api/v1/server-settings/history`. It is paged, newest first, and only the organization owner can read it. The newest 1000 changes are kept (`CUTTLELY_HISTORY_KEEP`, 100 to 10000). A value saved on this page wins over the environment variable. Older ones are removed when a new change is saved. Those same changes also appear on the [audit log](./audit-log.md). **Audit log retention** (`CUTTLELY_AUDIT_RETENTION_DAYS`, 90, from 1 to 3650) is how many days that log keeps. A valid host value wins over the saved value. It does not delete this history.
 
-![History. Saved 6 changes by rosa.diaz@example.com on Oct 14, 2026, 12:50 PM: MCP sign-in wait default to 20000, Longest MCP tool description default to 512, Longest MCP tool name default to 64, Row cap default to 80, Query timeout default to 20000, and Keep warm every default to 30. The bar says 6 saved changes wait for a restart.](../images/server-settings/server-settings-history.png)
+![History. Saved 6 changes by rosa.diaz@example.com on Oct 15, 2026, 3:08 PM: MCP sign-in wait default to 20000, Longest MCP tool description default to 512, Longest MCP tool name default to 64, Row cap default to 80, Query timeout default to 20000, and Keep warm every default to 30. The bar says 6 saved changes wait for a restart.](../images/server-settings/server-settings-history.png)

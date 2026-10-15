@@ -76,7 +76,7 @@ Test with up to 100 question-and-answer pairs, with more on the roadmap.
 
 The gate covers Publish of the current draft only. Roll back Live, Promote from Dev, and `PUT /api/v1/chatflows/:id` still change Live: [see which](./docs/how-to/versioning.md#require-a-passing-test-set-before-you-publish).
 
-On a chatflow, an agentflow, or a harness, the Publish dialog can replay recent questions (4, 10, 25, 50, or 100; 4 is selected first), once on Live and once on your draft, and show both answers side by side with the tokens and time each one took. An agentflow that starts from a form, a webhook, or a schedule replays that many recorded inputs instead. A pipeline lists what changed and does not run that check. The check never changes Live or your draft and leaves nothing in chat history. A flow with steps that post or write for real is skipped unless you choose to run it anyway. On a chatflow or a chat-started agentflow, under **Questions from**, choose **A dataset**, pick the evaluators, and turn on the passing test set. A harness can score a dataset for that run only, and a form, webhook, or schedule start cannot.
+On a chatflow, an agentflow, or a harness, the Publish dialog can replay recent questions (4, 10, 25, 50, or 100; 4 is selected first), once on Live and once on your draft, and show both answers side by side with the tokens and time each one took. **Choose questions** hand-picks stored questions instead, still up to that admin cap. **Save as dataset** keeps the ticked questions, with blank expected answers to fill in on Datasets. An agentflow that starts from a form, a webhook, or a schedule replays that many recorded inputs instead. A pipeline lists what changed and does not run that check. The check never changes Live or your draft and leaves nothing in chat history. A flow with steps that post or write for real is skipped unless you choose to run it anyway. On a chatflow or a chat-started agentflow, under **Questions from**, choose **A dataset**, pick the evaluators, and turn on the passing test set. A harness can score a dataset for that run only, and a form, webhook, or schedule start cannot. **Admin** > **Server settings** > **Testing and Limits** turns the Publish check on or off. That switch applies on the next check and does not change Publish.
 
 ![The Publish dialog for Bakery helper after a check: 1 of 4 answered differently and 3 of 4 answered the same. What time do you open on Saturday? is marked Changed, with Live: We open at 8 AM on Saturdays and Draft: We open at 7 AM on Saturdays. Do you have gluten-free bread today? is marked Same, and both sides say No, we bake gluten-free bread only on Tuesdays. Estimated cost is no price.](./docs/images/versioning/publish-check-results.png)
 
@@ -132,7 +132,7 @@ Long chats, big tables and long rule books don't have to mean long prompts. Each
 
 Load files, a CSV or a code repository, clean and split them, embed them and store them for search. A run only embeds what changed, can run on a schedule, and local embeddings work with no provider key. Teams and chatflows search the result with the **ETL Retriever**. [ETL guide](./docs/how-to/etl.md)
 
-![Outdoor Catalog after a run. The run card for Run 6f0c34a1 says succeeded, with 33 embedded and 0 errors.](./docs/images/etl/etl-run-done.png)
+![Outdoor Catalog after a run. The run card for Run 89869204 says succeeded, with 33 embedded and 0 errors.](./docs/images/etl/etl-run-done.png)
 
 #### Chatflows: one assistant you can ship
 
@@ -199,7 +199,9 @@ Next: [put a pipeline behind your team](./docs/how-to/etl.md), [give a specialis
 
 -   [Docker](./docs/how-to/docker.md). Install and run Cuttlely in one container on SQLite. `npx cuttlely` starts the same image.
 -   [Build from source and run the dev server](./docs/how-to/from-source.md). Build Cuttlely yourself, run it, and change the code with live reload.
--   [Sign in](./docs/how-to/sign-in.md). Create the first account, and add WorkOS when a team signs in.
+-   [Sign in](./docs/how-to/sign-in.md). Create the first account. A team can sign in with local users (`CUTTLELY_LOCAL_USERS`) and no AuthKit. AuthKit can be turned on later, and a verified email links to an existing local user.
+-   [Users without AuthKit](./docs/how-to/users-without-authkit.md). Local users, invite and reset links, the built-in Owner, Admin, Builder, and Viewer roles, and sessions.
+-   [Audit log](./docs/how-to/audit-log.md). Sign-in, lockout, invite, reset, role change, user disable, and settings changes.
 -   [Harnesses](./docs/how-to/harnesses.md). Build an agent team, try it, and call it from a chatflow.
 -   [Context and tokens](./docs/how-to/context-and-tokens.md). How a team keeps each prompt to the job in front of it, and where a run shows the tokens it used.
 -   [Analyst mode](./docs/how-to/analyst.md). Give a specialist its own database.
@@ -213,7 +215,7 @@ Next: [put a pipeline behind your team](./docs/how-to/etl.md), [give a specialis
 -   [Share and embed a chat](./docs/how-to/share-and-embed.md). A public link or a chat on your website, served by your Cuttlely server.
 -   [Use the API in your own web app](./docs/api.md). Call your flows from your own site or app, with a runnable example.
 -   [Render](./docs/how-to/render.md). A hosted install with Postgres.
--   [Server settings](./docs/how-to/server-settings.md). Change sign-in, the database, storage and more from **Admin**, then restart.
+-   [Server settings](./docs/how-to/server-settings.md). Change sign-in, the database, storage and more from **Admin**. Runtime settings apply without a restart: Testing and Limits, security limits, invite and reset expiry, the SMTP host, port, secure flag, and user, `SENDER_EMAIL`, invite delivery, the settings-history cap, and `CUTTLELY_AUDIT_RETENTION_DAYS`. Env-only values, including secrets, `PORT`, the data folder, and the SMTP password, show only Set or Not set. The list is [Startup options](./docs/reference/startup-options.md).
 
 Full documentation, including running from source and the API reference: [docs/README.md](./docs/README.md).
 

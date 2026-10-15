@@ -260,7 +260,7 @@ In the Publish dialog the verdict is shown, and **Publish** stays disabled, with
 
 Editing the draft, or changing the dataset, the evaluators, or the pass mark, makes an earlier pass out of date. So does editing a row the check asked, adding a row it would ask, changing an evaluator's check, deleting the dataset or an evaluator, or editing the flow's answer post-processing. A failing result, or no result yet, also blocks Publish. Save, discard, and the settings update return that same reason on `publishGate.block`.
 
-These other ways of changing what is Live do not use this rule: `PUT /api/v1/chatflows/:id`, **Roll back Live**, opening a version as a draft, restore straight to Live, and Promote from Dev. The table is in [Require a passing test set before you publish](./versioning.md#require-a-passing-test-set-before-you-publish).
+The gate covers Publish of the current draft only. Roll back, Promote, and `PUT /api/v1/chatflows/:id` can still change Live. Opening a version as a draft, and restore straight to Live, are in the same table: [Require a passing test set before you publish](./versioning.md#require-a-passing-test-set-before-you-publish).
 
 ### A form, webhook, or schedule start
 

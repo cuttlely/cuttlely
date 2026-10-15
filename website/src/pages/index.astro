@@ -546,12 +546,14 @@ const installs = [
             <figure class="cl-shot cl-shot-wide">
                 <ZoomableImage
                     src={serverSettings}
-                    alt="Server settings, All settings. Copy as .env is at the top. Owner password sign-in is Host and On. AuthKit API key and Session seal are Not set. AuthKit client ID is Default, Not set."
+                    alt="Server settings, All settings. Set up your server is above the table. Copy as .env is at the top. Owner password sign-in is Host and On. Local user passwords is Default, Off."
                     widths={[720, 1080, 1440]}
                     sizes="(min-width: 68rem) 1000px, 100vw"
                 />
             </figure>
-            <p class="cl-center">Change sign-in, the database, storage and more from <strong>Admin</strong>. People sign in with a password or WorkOS AuthKit.</p>
+            <p class="cl-center">
+                Change sign-in, the database, storage and more from <strong>Admin</strong>. A team can sign in with local users and no AuthKit, with a password, or with WorkOS AuthKit. The audit log lists sign-in, role, and settings changes. Limits change without a restart.
+            </p>
             <p class="cl-center cl-note">
                 Cuttlely does not report usage, check for updates or load fonts, scripts or images from other sites. <a href="/security/#what-cuttlely-connects-to"
                     >What Cuttlely connects to</a

@@ -102,7 +102,7 @@ The restore is saved as a new version named `Restored: <name of that version> (<
 
 ![The Bakery helper canvas after a restore. The header has no draft label, because this flow has Publish instantly on. A green message at the bottom reads Restored. History has a new version, so you can undo this the same way.](../images/versioning/after-restore.png)
 
-![Version history after the restore. Newest first, the rows fully in view are: Restored: Changed credential, Temperature on ChatOpenAI, marked Current, edited by Rosa Diaz, Restored just now; Changed System Message on Conversation Chain, edited by Rosa Diaz, Saved just now; Changed Temperature on ChatOpenAI, edited by Rosa Diaz, Saved just now; Changed System Message on Conversation Chain, edited by Rosa Diaz, Saved 1 minute ago; Moved nodes, edited by Rosa Diaz, Saved 1 minute ago; and Changed credential, Temperature on ChatOpenAI, edited by Cuttlely (API key or system), Saved 1 minute ago. A green message at the bottom reads Restored. History has a new version, so you can undo this the same way.](../images/versioning/history-after-restore.png)
+![Version history after the restore. Newest first, the rows fully in view are: Restored: Changed credential, Temperature on ChatOpenAI, marked Current, edited by Rosa Diaz; Changed System Message on Conversation Chain, edited by Rosa Diaz; Changed Temperature on ChatOpenAI, edited by Rosa Diaz; Changed System Message on Conversation Chain, edited by Rosa Diaz; Moved nodes, edited by Rosa Diaz; and Changed credential, Temperature on ChatOpenAI, edited by Cuttlely (API key or system). A green message at the bottom reads Restored. History has a new version, so you can undo this the same way.](../images/versioning/history-after-restore.png)
 
 The message after a restore says what happened:
 
@@ -238,7 +238,7 @@ In the Publish dialog, the verdict is shown and **Publish** stays disabled, with
 
 The server stores the last result for the flow: the draft hash, the settings used, the pass rate, the verdict, the time, and a hash of the rows the check asked and of each evaluator's type and settings. The hash includes the full expected answer, including characters past the 4,000 the check shows. It does not store the rows or the answers. The result is still there after a restart. Changing those rows or that evaluator check, or deleting the dataset or an evaluator, makes the pass out of date.
 
-These other ways of changing what is Live do not use this rule:
+The gate covers Publish of the current draft only. Roll back, Promote, and `PUT /api/v1/chatflows/:id` can still change Live. These other ways of changing what is Live do not use this rule:
 
 | Way                                                                                             | With the setting on                                                                                |
 | ----------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |

@@ -94,6 +94,8 @@ A draft holds the canvas only: nodes, connections, prompts and node settings. Th
 
 `PUT /api/v1/flow-drafts/:chatflowId/settings` with `{ "publishInstantly": true }`. With it on, canvas edits go straight to Live, as before drafts. Turning it on while the flow has unpublished changes returns 409; publish or discard them first. That check is made again at the write, so a draft saved in between is still 409 and nothing is written. 400 when the value is not `true` or `false`. Turning it on while the passing test set is on returns 400 `Turn off the passing test set before turning on Publish instantly.` That check is made again at the write, against the row as it is then. Publish instantly is stored only while the passing test set is still off, and the passing test set is stored only while Publish instantly is still off. If the other one was turned on in the meantime, the response is that same 400 and the row is left as it was. One request can turn **Publish instantly** off and the passing test set on, or the reverse. The off is written first.
 
+The gate covers Publish of the current draft only. Roll back, Promote, and `PUT /api/v1/chatflows/:id` can still change Live.
+
 The same route accepts `publishGate`:
 
 ```json

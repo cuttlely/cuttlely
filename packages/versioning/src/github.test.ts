@@ -1016,7 +1016,12 @@ describe('Dev or Prod label', () => {
         execFileSync('git', ['push', '-q', `file://${bare}`, 'HEAD:refs/heads/staging'], { cwd: work, env })
         await save('Two')
         await settle()
-        const stopped = await sync.status()
+        let stopped = await sync.status()
+        // status() can overlap the next poll and report copying. Wait for that copy to finish.
+        for (let attempt = 0; stopped.state === 'copying' && attempt < 20; attempt += 1) {
+            await sync.idle()
+            stopped = await sync.status()
+        }
         expect(stopped.state).toBe('stopped')
         expect(stopped.message).toContain('has changes that are not on this server')
         const pushes = gitCalls.filter((call) => call.args[0] === 'push').length
@@ -1030,9 +1035,16 @@ describe('Dev or Prod label', () => {
         expect(gitCalls.filter((call) => call.args[0] === 'fetch').length).toBeGreaterThan(fetches)
         expect((await sync.status()).state).toBe('stopped')
         expect((await sync.status()).message).toContain('has changes that are not on this server')
-        const retried = await sync.tryNow()
+        let settled = await sync.tryNow()
+        // status() can overlap the next poll and report copying. Wait for that copy to finish.
+        // Do not stop the timer: a tryNow that never leaves copying has to fail this assertion.
+        for (let attempt = 0; settled.state === 'copying' && attempt < 20; attempt += 1) {
+            await sync.idle()
+            settled = await sync.status()
+        }
         expect(gitCalls.filter((call) => call.args[0] === 'push').length).toBeGreaterThan(pushes)
-        expect(retried.state).toBe('stopped')
+        expect(settled.state).toBe('stopped')
+        expect(settled.message).toContain('has changes that are not on this server')
     })
 
     test('a bad environment file stays connected and can be saved again', async () => {

@@ -38,7 +38,7 @@ New here? Start with [Your first 10 minutes](../README.md#your-first-10-minutes)
 
 ## Reference
 
--   [History settings](./reference/versioning-settings.md), [History API](./reference/versioning-api.md), [Drafts API](./reference/drafts-api.md) and [Version files](./reference/version-files.md).
+-   [History settings](./reference/versioning-settings.md), [History API](./reference/versioning-api.md), [Drafts API](./reference/drafts-api.md) ([question history](./reference/drafts-api.md#question-history) and a check started with `questionIds`) and [Version files](./reference/version-files.md).
 -   [Server settings API](./reference/server-settings-api.md). Read and save server settings, including the runtime limits for the publish check, rated answers, and UI page loads, the publish check switch, the limits that apply without a restart, paged change history, invite and reset link expiry, and read-only status for values that stay on the host. [Startup options](./reference/startup-options.md) is the full list.
 -   [Usage API](./reference/usage-api.md). Daily input and output token totals for a workspace, by flow and model, with an estimated cost. The Usage page shows the same figures.
 -   [Local users, roles, and sessions](./reference/local-directory-api.md). People, fixed roles, and sign-in sessions when local password sign-in is on.
