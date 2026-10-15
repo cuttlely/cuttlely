@@ -1669,7 +1669,7 @@
                     "name": "llmEvaluators",
                     "type": "TEXT",
                     "nullable": true,
-                    "default": "NULL",
+                    "default": null,
                     "pk": 0
                 },
                 {
@@ -6691,7 +6691,7 @@
                     "name": "workspaceId",
                     "type": "varchar(36)",
                     "nullable": true,
-                    "default": "NULL",
+                    "default": null,
                     "extra": "",
                     "collation": "utf8mb4_unicode_520_ci"
                 },
@@ -6755,7 +6755,7 @@
                     "name": "iconSrc",
                     "type": "varchar(255)",
                     "nullable": true,
-                    "default": "NULL",
+                    "default": null,
                     "extra": "",
                     "collation": "utf8mb4_unicode_520_ci"
                 },
@@ -6779,7 +6779,7 @@
                     "name": "workspaceId",
                     "type": "varchar(36)",
                     "nullable": true,
-                    "default": "NULL",
+                    "default": null,
                     "extra": "",
                     "collation": "utf8mb4_unicode_520_ci"
                 },
@@ -6787,7 +6787,7 @@
                     "name": "type",
                     "type": "text",
                     "nullable": true,
-                    "default": "NULL",
+                    "default": null,
                     "extra": "",
                     "collation": "utf8mb4_unicode_520_ci"
                 }
@@ -6835,7 +6835,7 @@
                     "name": "flowData",
                     "type": "longtext",
                     "nullable": true,
-                    "default": "NULL",
+                    "default": null,
                     "extra": "",
                     "collation": "utf8mb4_unicode_520_ci"
                 },
@@ -6843,7 +6843,7 @@
                     "name": "deployed",
                     "type": "tinyint(4)",
                     "nullable": true,
-                    "default": "NULL",
+                    "default": null,
                     "extra": "",
                     "collation": null
                 },
@@ -6851,7 +6851,7 @@
                     "name": "isPublic",
                     "type": "tinyint(4)",
                     "nullable": true,
-                    "default": "NULL",
+                    "default": null,
                     "extra": "",
                     "collation": null
                 },
@@ -6859,7 +6859,7 @@
                     "name": "apikeyid",
                     "type": "varchar(255)",
                     "nullable": true,
-                    "default": "NULL",
+                    "default": null,
                     "extra": "",
                     "collation": "utf8mb4_unicode_520_ci"
                 },
@@ -6867,7 +6867,7 @@
                     "name": "chatbotConfig",
                     "type": "text",
                     "nullable": true,
-                    "default": "NULL",
+                    "default": null,
                     "extra": "",
                     "collation": "utf8mb4_unicode_520_ci"
                 },
@@ -6891,7 +6891,7 @@
                     "name": "apiConfig",
                     "type": "text",
                     "nullable": true,
-                    "default": "NULL",
+                    "default": null,
                     "extra": "",
                     "collation": "utf8mb4_unicode_520_ci"
                 },
@@ -6899,7 +6899,7 @@
                     "name": "analytic",
                     "type": "text",
                     "nullable": true,
-                    "default": "NULL",
+                    "default": null,
                     "extra": "",
                     "collation": "utf8mb4_unicode_520_ci"
                 },
@@ -6907,7 +6907,7 @@
                     "name": "category",
                     "type": "text",
                     "nullable": true,
-                    "default": "NULL",
+                    "default": null,
                     "extra": "",
                     "collation": "utf8mb4_unicode_520_ci"
                 },
@@ -6915,7 +6915,7 @@
                     "name": "speechToText",
                     "type": "text",
                     "nullable": true,
-                    "default": "NULL",
+                    "default": null,
                     "extra": "",
                     "collation": "utf8mb4_unicode_520_ci"
                 },
@@ -6931,7 +6931,7 @@
                     "name": "workspaceId",
                     "type": "varchar(36)",
                     "nullable": true,
-                    "default": "NULL",
+                    "default": null,
                     "extra": "",
                     "collation": "utf8mb4_unicode_520_ci"
                 },
@@ -6939,7 +6939,7 @@
                     "name": "followUpPrompts",
                     "type": "text",
                     "nullable": true,
-                    "default": "NULL",
+                    "default": null,
                     "extra": "",
                     "collation": "utf8mb4_unicode_520_ci"
                 },
@@ -6947,7 +6947,7 @@
                     "name": "textToSpeech",
                     "type": "text",
                     "nullable": true,
-                    "default": "NULL",
+                    "default": null,
                     "extra": "",
                     "collation": "utf8mb4_unicode_520_ci"
                 },
@@ -6955,7 +6955,7 @@
                     "name": "mcpServerConfig",
                     "type": "longtext",
                     "nullable": true,
-                    "default": "NULL",
+                    "default": null,
                     "extra": "",
                     "collation": "utf8mb4_unicode_520_ci"
                 },
@@ -6963,7 +6963,7 @@
                     "name": "webhookSecret",
                     "type": "text",
                     "nullable": true,
-                    "default": "NULL",
+                    "default": null,
                     "extra": "",
                     "collation": "utf8mb4_unicode_520_ci"
                 },
@@ -7032,7 +7032,7 @@
                     "name": "content",
                     "type": "longtext",
                     "nullable": true,
-                    "default": "NULL",
+                    "default": null,
                     "extra": "",
                     "collation": "utf8mb4_unicode_520_ci"
                 },
@@ -7040,7 +7040,7 @@
                     "name": "sourceDocuments",
                     "type": "text",
                     "nullable": true,
-                    "default": "NULL",
+                    "default": null,
                     "extra": "",
                     "collation": "utf8mb4_unicode_520_ci"
                 },
@@ -7072,7 +7072,7 @@
                     "name": "memoryType",
                     "type": "varchar(255)",
                     "nullable": true,
-                    "default": "NULL",
+                    "default": null,
                     "extra": "",
                     "collation": "utf8mb4_unicode_520_ci"
                 },
@@ -7080,7 +7080,7 @@
                     "name": "sessionId",
                     "type": "varchar(255)",
                     "nullable": true,
-                    "default": "NULL",
+                    "default": null,
                     "extra": "",
                     "collation": "utf8mb4_unicode_520_ci"
                 },
@@ -7088,7 +7088,7 @@
                     "name": "usedTools",
                     "type": "longtext",
                     "nullable": true,
-                    "default": "NULL",
+                    "default": null,
                     "extra": "",
                     "collation": "utf8mb4_unicode_520_ci"
                 },
@@ -7096,7 +7096,7 @@
                     "name": "fileAnnotations",
                     "type": "text",
                     "nullable": true,
-                    "default": "NULL",
+                    "default": null,
                     "extra": "",
                     "collation": "utf8mb4_unicode_520_ci"
                 },
@@ -7104,7 +7104,7 @@
                     "name": "fileUploads",
                     "type": "text",
                     "nullable": true,
-                    "default": "NULL",
+                    "default": null,
                     "extra": "",
                     "collation": "utf8mb4_unicode_520_ci"
                 },
@@ -7112,7 +7112,7 @@
                     "name": "leadEmail",
                     "type": "text",
                     "nullable": true,
-                    "default": "NULL",
+                    "default": null,
                     "extra": "",
                     "collation": "utf8mb4_unicode_520_ci"
                 },
@@ -7120,7 +7120,7 @@
                     "name": "agentReasoning",
                     "type": "longtext",
                     "nullable": true,
-                    "default": "NULL",
+                    "default": null,
                     "extra": "",
                     "collation": "utf8mb4_unicode_520_ci"
                 },
@@ -7128,7 +7128,7 @@
                     "name": "action",
                     "type": "longtext",
                     "nullable": true,
-                    "default": "NULL",
+                    "default": null,
                     "extra": "",
                     "collation": "utf8mb4_unicode_520_ci"
                 },
@@ -7136,7 +7136,7 @@
                     "name": "artifacts",
                     "type": "longtext",
                     "nullable": true,
-                    "default": "NULL",
+                    "default": null,
                     "extra": "",
                     "collation": "utf8mb4_unicode_520_ci"
                 },
@@ -7144,7 +7144,7 @@
                     "name": "followUpPrompts",
                     "type": "text",
                     "nullable": true,
-                    "default": "NULL",
+                    "default": null,
                     "extra": "",
                     "collation": "utf8mb4_unicode_520_ci"
                 },
@@ -7152,7 +7152,7 @@
                     "name": "executionId",
                     "type": "text",
                     "nullable": true,
-                    "default": "NULL",
+                    "default": null,
                     "extra": "",
                     "collation": "utf8mb4_unicode_520_ci"
                 },
@@ -7160,7 +7160,7 @@
                     "name": "reasonContent",
                     "type": "longtext",
                     "nullable": true,
-                    "default": "NULL",
+                    "default": null,
                     "extra": "",
                     "collation": "utf8mb4_unicode_520_ci"
                 },
@@ -7168,7 +7168,7 @@
                     "name": "harnessPayload",
                     "type": "longtext",
                     "nullable": true,
-                    "default": "NULL",
+                    "default": null,
                     "extra": "",
                     "collation": "utf8mb4_unicode_520_ci"
                 }
@@ -7214,7 +7214,7 @@
                     "name": "content",
                     "type": "text",
                     "nullable": true,
-                    "default": "NULL",
+                    "default": null,
                     "extra": "",
                     "collation": "utf8mb4_unicode_520_ci"
                 },
@@ -7314,7 +7314,7 @@
                     "name": "workspaceId",
                     "type": "varchar(36)",
                     "nullable": true,
-                    "default": "NULL",
+                    "default": null,
                     "extra": "",
                     "collation": "utf8mb4_unicode_520_ci"
                 }
@@ -7370,7 +7370,7 @@
                     "name": "iconSrc",
                     "type": "varchar(255)",
                     "nullable": true,
-                    "default": "NULL",
+                    "default": null,
                     "extra": "",
                     "collation": "utf8mb4_unicode_520_ci"
                 },
@@ -7378,7 +7378,7 @@
                     "name": "color",
                     "type": "varchar(255)",
                     "nullable": true,
-                    "default": "NULL",
+                    "default": null,
                     "extra": "",
                     "collation": "utf8mb4_unicode_520_ci"
                 },
@@ -7394,7 +7394,7 @@
                     "name": "authConfig",
                     "type": "text",
                     "nullable": true,
-                    "default": "NULL",
+                    "default": null,
                     "extra": "",
                     "collation": "utf8mb4_unicode_520_ci"
                 },
@@ -7402,7 +7402,7 @@
                     "name": "tools",
                     "type": "text",
                     "nullable": true,
-                    "default": "NULL",
+                    "default": null,
                     "extra": "",
                     "collation": "utf8mb4_unicode_520_ci"
                 },
@@ -7491,7 +7491,7 @@
                     "name": "description",
                     "type": "varchar(255)",
                     "nullable": true,
-                    "default": "NULL",
+                    "default": null,
                     "extra": "",
                     "collation": "utf8mb4_unicode_520_ci"
                 },
@@ -7499,7 +7499,7 @@
                     "name": "badge",
                     "type": "varchar(255)",
                     "nullable": true,
-                    "default": "NULL",
+                    "default": null,
                     "extra": "",
                     "collation": "utf8mb4_unicode_520_ci"
                 },
@@ -7507,7 +7507,7 @@
                     "name": "framework",
                     "type": "varchar(255)",
                     "nullable": true,
-                    "default": "NULL",
+                    "default": null,
                     "extra": "",
                     "collation": "utf8mb4_unicode_520_ci"
                 },
@@ -7515,7 +7515,7 @@
                     "name": "usecases",
                     "type": "varchar(255)",
                     "nullable": true,
-                    "default": "NULL",
+                    "default": null,
                     "extra": "",
                     "collation": "utf8mb4_unicode_520_ci"
                 },
@@ -7523,7 +7523,7 @@
                     "name": "type",
                     "type": "varchar(30)",
                     "nullable": true,
-                    "default": "NULL",
+                    "default": null,
                     "extra": "",
                     "collation": "utf8mb4_unicode_520_ci"
                 },
@@ -7547,7 +7547,7 @@
                     "name": "workspaceId",
                     "type": "varchar(36)",
                     "nullable": true,
-                    "default": "NULL",
+                    "default": null,
                     "extra": "",
                     "collation": "utf8mb4_unicode_520_ci"
                 }
@@ -7595,7 +7595,7 @@
                     "name": "description",
                     "type": "varchar(255)",
                     "nullable": true,
-                    "default": "NULL",
+                    "default": null,
                     "extra": "",
                     "collation": "utf8mb4_unicode_520_ci"
                 },
@@ -7619,7 +7619,7 @@
                     "name": "workspaceId",
                     "type": "varchar(36)",
                     "nullable": true,
-                    "default": "NULL",
+                    "default": null,
                     "extra": "",
                     "collation": "utf8mb4_unicode_520_ci"
                 }
@@ -7675,7 +7675,7 @@
                     "name": "output",
                     "type": "longtext",
                     "nullable": true,
-                    "default": "NULL",
+                    "default": null,
                     "extra": "",
                     "collation": "utf8mb4_unicode_520_ci"
                 },
@@ -7699,7 +7699,7 @@
                     "name": "sourceType",
                     "type": "varchar(32)",
                     "nullable": true,
-                    "default": "NULL",
+                    "default": null,
                     "extra": "",
                     "collation": "utf8mb4_unicode_520_ci"
                 },
@@ -7707,7 +7707,7 @@
                     "name": "sourceMessageId",
                     "type": "varchar(36)",
                     "nullable": true,
-                    "default": "NULL",
+                    "default": null,
                     "extra": "",
                     "collation": "utf8mb4_unicode_520_ci"
                 },
@@ -7715,7 +7715,7 @@
                     "name": "sourceFlowId",
                     "type": "varchar(36)",
                     "nullable": true,
-                    "default": "NULL",
+                    "default": null,
                     "extra": "",
                     "collation": "utf8mb4_unicode_520_ci"
                 },
@@ -7723,7 +7723,7 @@
                     "name": "sourceDate",
                     "type": "datetime(6)",
                     "nullable": true,
-                    "default": "NULL",
+                    "default": null,
                     "extra": "",
                     "collation": null
                 },
@@ -7731,7 +7731,7 @@
                     "name": "sourceFeedbackId",
                     "type": "varchar(36)",
                     "nullable": true,
-                    "default": "NULL",
+                    "default": null,
                     "extra": "",
                     "collation": "utf8mb4_unicode_520_ci"
                 },
@@ -7739,7 +7739,7 @@
                     "name": "sourceRating",
                     "type": "varchar(16)",
                     "nullable": true,
-                    "default": "NULL",
+                    "default": null,
                     "extra": "",
                     "collation": "utf8mb4_unicode_520_ci"
                 },
@@ -7747,7 +7747,7 @@
                     "name": "sourceFeedbackText",
                     "type": "text",
                     "nullable": true,
-                    "default": "NULL",
+                    "default": null,
                     "extra": "",
                     "collation": "utf8mb4_unicode_520_ci"
                 },
@@ -7755,7 +7755,7 @@
                     "name": "sourceRejectedAnswer",
                     "type": "text",
                     "nullable": true,
-                    "default": "NULL",
+                    "default": null,
                     "extra": "",
                     "collation": "utf8mb4_unicode_520_ci"
                 },
@@ -7852,7 +7852,7 @@
                     "name": "reason",
                     "type": "varchar(64)",
                     "nullable": true,
-                    "default": "NULL",
+                    "default": null,
                     "extra": "",
                     "collation": "utf8mb4_general_ci"
                 },
@@ -7941,7 +7941,7 @@
                     "name": "usedAt",
                     "type": "datetime",
                     "nullable": true,
-                    "default": "NULL",
+                    "default": null,
                     "extra": "",
                     "collation": null
                 },
@@ -7949,7 +7949,7 @@
                     "name": "consumeId",
                     "type": "varchar(255)",
                     "nullable": true,
-                    "default": "NULL",
+                    "default": null,
                     "extra": "",
                     "collation": "utf8mb4_general_ci"
                 },
@@ -8161,7 +8161,7 @@
                     "name": "description",
                     "type": "varchar(255)",
                     "nullable": true,
-                    "default": "NULL",
+                    "default": null,
                     "extra": "",
                     "collation": "utf8mb4_unicode_520_ci"
                 },
@@ -8169,7 +8169,7 @@
                     "name": "loaders",
                     "type": "longtext",
                     "nullable": true,
-                    "default": "NULL",
+                    "default": null,
                     "extra": "",
                     "collation": "utf8mb4_unicode_520_ci"
                 },
@@ -8177,7 +8177,7 @@
                     "name": "whereUsed",
                     "type": "text",
                     "nullable": true,
-                    "default": "NULL",
+                    "default": null,
                     "extra": "",
                     "collation": "utf8mb4_unicode_520_ci"
                 },
@@ -8209,7 +8209,7 @@
                     "name": "vectorStoreConfig",
                     "type": "text",
                     "nullable": true,
-                    "default": "NULL",
+                    "default": null,
                     "extra": "",
                     "collation": "utf8mb4_unicode_520_ci"
                 },
@@ -8217,7 +8217,7 @@
                     "name": "embeddingConfig",
                     "type": "text",
                     "nullable": true,
-                    "default": "NULL",
+                    "default": null,
                     "extra": "",
                     "collation": "utf8mb4_unicode_520_ci"
                 },
@@ -8225,7 +8225,7 @@
                     "name": "recordManagerConfig",
                     "type": "text",
                     "nullable": true,
-                    "default": "NULL",
+                    "default": null,
                     "extra": "",
                     "collation": "utf8mb4_unicode_520_ci"
                 },
@@ -8233,7 +8233,7 @@
                     "name": "workspaceId",
                     "type": "varchar(36)",
                     "nullable": true,
-                    "default": "NULL",
+                    "default": null,
                     "extra": "",
                     "collation": "utf8mb4_unicode_520_ci"
                 }
@@ -8305,7 +8305,7 @@
                     "name": "metadata",
                     "type": "longtext",
                     "nullable": true,
-                    "default": "NULL",
+                    "default": null,
                     "extra": "",
                     "collation": "utf8mb4_unicode_520_ci"
                 }
@@ -8383,7 +8383,7 @@
                     "name": "additionalConfig",
                     "type": "longtext",
                     "nullable": true,
-                    "default": "NULL",
+                    "default": null,
                     "extra": "",
                     "collation": "utf8mb4_unicode_520_ci"
                 },
@@ -8391,7 +8391,7 @@
                     "name": "average_metrics",
                     "type": "longtext",
                     "nullable": true,
-                    "default": "NULL",
+                    "default": null,
                     "extra": "",
                     "collation": "utf8mb4_unicode_520_ci"
                 },
@@ -8423,7 +8423,7 @@
                     "name": "workspaceId",
                     "type": "varchar(36)",
                     "nullable": true,
-                    "default": "NULL",
+                    "default": null,
                     "extra": "",
                     "collation": "utf8mb4_unicode_520_ci"
                 }
@@ -8487,7 +8487,7 @@
                     "name": "evaluators",
                     "type": "longtext",
                     "nullable": true,
-                    "default": "NULL",
+                    "default": null,
                     "extra": "",
                     "collation": "utf8mb4_unicode_520_ci"
                 },
@@ -8495,7 +8495,7 @@
                     "name": "input",
                     "type": "longtext",
                     "nullable": true,
-                    "default": "NULL",
+                    "default": null,
                     "extra": "",
                     "collation": "utf8mb4_unicode_520_ci"
                 },
@@ -8503,7 +8503,7 @@
                     "name": "metrics",
                     "type": "text",
                     "nullable": true,
-                    "default": "NULL",
+                    "default": null,
                     "extra": "",
                     "collation": "utf8mb4_unicode_520_ci"
                 },
@@ -8511,7 +8511,7 @@
                     "name": "llmEvaluators",
                     "type": "text",
                     "nullable": true,
-                    "default": "NULL",
+                    "default": null,
                     "extra": "",
                     "collation": "utf8mb4_unicode_520_ci"
                 },
@@ -8563,7 +8563,7 @@
                     "name": "type",
                     "type": "varchar(25)",
                     "nullable": true,
-                    "default": "NULL",
+                    "default": null,
                     "extra": "",
                     "collation": "utf8mb4_unicode_520_ci"
                 },
@@ -8571,7 +8571,7 @@
                     "name": "config",
                     "type": "longtext",
                     "nullable": true,
-                    "default": "NULL",
+                    "default": null,
                     "extra": "",
                     "collation": "utf8mb4_unicode_520_ci"
                 },
@@ -8595,7 +8595,7 @@
                     "name": "workspaceId",
                     "type": "varchar(36)",
                     "nullable": true,
-                    "default": "NULL",
+                    "default": null,
                     "extra": "",
                     "collation": "utf8mb4_unicode_520_ci"
                 }
@@ -8643,7 +8643,7 @@
                     "name": "action",
                     "type": "text",
                     "nullable": true,
-                    "default": "NULL",
+                    "default": null,
                     "extra": "",
                     "collation": "utf8mb4_unicode_520_ci"
                 },
@@ -8675,7 +8675,7 @@
                     "name": "isPublic",
                     "type": "tinyint(1)",
                     "nullable": true,
-                    "default": "NULL",
+                    "default": null,
                     "extra": "",
                     "collation": null
                 },
@@ -8699,7 +8699,7 @@
                     "name": "stoppedDate",
                     "type": "datetime(6)",
                     "nullable": true,
-                    "default": "NULL",
+                    "default": null,
                     "extra": "",
                     "collation": null
                 },
@@ -8707,7 +8707,7 @@
                     "name": "workspaceId",
                     "type": "varchar(36)",
                     "nullable": true,
-                    "default": "NULL",
+                    "default": null,
                     "extra": "",
                     "collation": "utf8mb4_unicode_520_ci"
                 }
@@ -8763,7 +8763,7 @@
                     "name": "draftFlowData",
                     "type": "longtext",
                     "nullable": true,
-                    "default": "NULL",
+                    "default": null,
                     "extra": "",
                     "collation": "utf8mb4_unicode_520_ci"
                 },
@@ -8771,7 +8771,7 @@
                     "name": "draftBaseHash",
                     "type": "varchar(64)",
                     "nullable": true,
-                    "default": "NULL",
+                    "default": null,
                     "extra": "",
                     "collation": "utf8mb4_unicode_520_ci"
                 },
@@ -8779,7 +8779,7 @@
                     "name": "draftUpdatedDate",
                     "type": "datetime(6)",
                     "nullable": true,
-                    "default": "NULL",
+                    "default": null,
                     "extra": "",
                     "collation": null
                 },
@@ -8787,7 +8787,7 @@
                     "name": "draftUpdatedBy",
                     "type": "varchar(255)",
                     "nullable": true,
-                    "default": "NULL",
+                    "default": null,
                     "extra": "",
                     "collation": "utf8mb4_unicode_520_ci"
                 },
@@ -8803,7 +8803,7 @@
                     "name": "liveSha",
                     "type": "varchar(40)",
                     "nullable": true,
-                    "default": "NULL",
+                    "default": null,
                     "extra": "",
                     "collation": "utf8mb4_unicode_520_ci"
                 },
@@ -8811,7 +8811,7 @@
                     "name": "publishedDate",
                     "type": "datetime(6)",
                     "nullable": true,
-                    "default": "NULL",
+                    "default": null,
                     "extra": "",
                     "collation": null
                 },
@@ -8843,7 +8843,7 @@
                     "name": "publishGateDatasetId",
                     "type": "varchar(255)",
                     "nullable": true,
-                    "default": "NULL",
+                    "default": null,
                     "extra": "",
                     "collation": "utf8mb4_unicode_520_ci"
                 },
@@ -8851,7 +8851,7 @@
                     "name": "publishGateEvaluatorIds",
                     "type": "longtext",
                     "nullable": true,
-                    "default": "NULL",
+                    "default": null,
                     "extra": "",
                     "collation": "utf8mb4_unicode_520_ci"
                 },
@@ -8859,7 +8859,7 @@
                     "name": "publishGateThreshold",
                     "type": "int(11)",
                     "nullable": true,
-                    "default": "NULL",
+                    "default": null,
                     "extra": "",
                     "collation": null
                 },
@@ -8867,7 +8867,7 @@
                     "name": "publishGateResult",
                     "type": "longtext",
                     "nullable": true,
-                    "default": "NULL",
+                    "default": null,
                     "extra": "",
                     "collation": "utf8mb4_unicode_520_ci"
                 }
@@ -8916,7 +8916,7 @@
                     "name": "name",
                     "type": "text",
                     "nullable": true,
-                    "default": "NULL",
+                    "default": null,
                     "extra": "",
                     "collation": "utf8mb4_unicode_520_ci"
                 },
@@ -8924,7 +8924,7 @@
                     "name": "email",
                     "type": "text",
                     "nullable": true,
-                    "default": "NULL",
+                    "default": null,
                     "extra": "",
                     "collation": "utf8mb4_unicode_520_ci"
                 },
@@ -8932,7 +8932,7 @@
                     "name": "phone",
                     "type": "text",
                     "nullable": true,
-                    "default": "NULL",
+                    "default": null,
                     "extra": "",
                     "collation": "utf8mb4_unicode_520_ci"
                 },
@@ -8968,7 +8968,7 @@
                     "name": "username",
                     "type": "varchar(255)",
                     "nullable": true,
-                    "default": "NULL",
+                    "default": null,
                     "extra": "",
                     "collation": "utf8mb4_unicode_520_ci"
                 },
@@ -9000,7 +9000,7 @@
                     "name": "login_mode",
                     "type": "varchar(25)",
                     "nullable": true,
-                    "default": "NULL",
+                    "default": null,
                     "extra": "",
                     "collation": "utf8mb4_unicode_520_ci"
                 }
@@ -9028,7 +9028,7 @@
                     "name": "organizationId",
                     "type": "varchar(36)",
                     "nullable": true,
-                    "default": "NULL",
+                    "default": null,
                     "extra": "",
                     "collation": "utf8mb4_unicode_520_ci"
                 },
@@ -9076,7 +9076,7 @@
                     "name": "createdBy",
                     "type": "varchar(36)",
                     "nullable": true,
-                    "default": "NULL",
+                    "default": null,
                     "extra": "",
                     "collation": "utf8mb4_unicode_520_ci"
                 },
@@ -9084,7 +9084,7 @@
                     "name": "updatedBy",
                     "type": "varchar(36)",
                     "nullable": true,
-                    "default": "NULL",
+                    "default": null,
                     "extra": "",
                     "collation": "utf8mb4_unicode_520_ci"
                 }
@@ -9247,7 +9247,7 @@
                     "name": "customerId",
                     "type": "varchar(100)",
                     "nullable": true,
-                    "default": "NULL",
+                    "default": null,
                     "extra": "",
                     "collation": "utf8mb4_unicode_520_ci"
                 },
@@ -9255,7 +9255,7 @@
                     "name": "subscriptionId",
                     "type": "varchar(100)",
                     "nullable": true,
-                    "default": "NULL",
+                    "default": null,
                     "extra": "",
                     "collation": "utf8mb4_unicode_520_ci"
                 },
@@ -9465,7 +9465,7 @@
                     "name": "organizationId",
                     "type": "varchar(36)",
                     "nullable": true,
-                    "default": "NULL",
+                    "default": null,
                     "extra": "",
                     "collation": "utf8mb4_unicode_520_ci"
                 },
@@ -9481,7 +9481,7 @@
                     "name": "description",
                     "type": "text",
                     "nullable": true,
-                    "default": "NULL",
+                    "default": null,
                     "extra": "",
                     "collation": "utf8mb4_unicode_520_ci"
                 },
@@ -9513,7 +9513,7 @@
                     "name": "createdBy",
                     "type": "varchar(36)",
                     "nullable": true,
-                    "default": "NULL",
+                    "default": null,
                     "extra": "",
                     "collation": "utf8mb4_unicode_520_ci"
                 },
@@ -9521,7 +9521,7 @@
                     "name": "updatedBy",
                     "type": "varchar(36)",
                     "nullable": true,
-                    "default": "NULL",
+                    "default": null,
                     "extra": "",
                     "collation": "utf8mb4_unicode_520_ci"
                 }
@@ -9599,7 +9599,7 @@
                     "name": "nodeId",
                     "type": "text",
                     "nullable": true,
-                    "default": "NULL",
+                    "default": null,
                     "extra": "",
                     "collation": "utf8mb4_unicode_520_ci"
                 },
@@ -9639,7 +9639,7 @@
                     "name": "defaultInput",
                     "type": "text",
                     "nullable": true,
-                    "default": "NULL",
+                    "default": null,
                     "extra": "",
                     "collation": "utf8mb4_unicode_520_ci"
                 },
@@ -9647,7 +9647,7 @@
                     "name": "defaultForm",
                     "type": "text",
                     "nullable": true,
-                    "default": "NULL",
+                    "default": null,
                     "extra": "",
                     "collation": "utf8mb4_unicode_520_ci"
                 },
@@ -9655,7 +9655,7 @@
                     "name": "lastRunAt",
                     "type": "datetime(6)",
                     "nullable": true,
-                    "default": "NULL",
+                    "default": null,
                     "extra": "",
                     "collation": null
                 },
@@ -9663,7 +9663,7 @@
                     "name": "nextRunAt",
                     "type": "datetime(6)",
                     "nullable": true,
-                    "default": "NULL",
+                    "default": null,
                     "extra": "",
                     "collation": null
                 },
@@ -9671,7 +9671,7 @@
                     "name": "endDate",
                     "type": "datetime(6)",
                     "nullable": true,
-                    "default": "NULL",
+                    "default": null,
                     "extra": "",
                     "collation": null
                 },
@@ -9752,7 +9752,7 @@
                     "name": "executionId",
                     "type": "varchar(255)",
                     "nullable": true,
-                    "default": "NULL",
+                    "default": null,
                     "extra": "",
                     "collation": "utf8mb4_unicode_520_ci"
                 },
@@ -9768,7 +9768,7 @@
                     "name": "error",
                     "type": "text",
                     "nullable": true,
-                    "default": "NULL",
+                    "default": null,
                     "extra": "",
                     "collation": "utf8mb4_unicode_520_ci"
                 },
@@ -9776,7 +9776,7 @@
                     "name": "elapsedTimeMs",
                     "type": "int(11)",
                     "nullable": true,
-                    "default": "NULL",
+                    "default": null,
                     "extra": "",
                     "collation": null
                 },
@@ -9940,7 +9940,7 @@
                     "name": "iconSrc",
                     "type": "varchar(255)",
                     "nullable": true,
-                    "default": "NULL",
+                    "default": null,
                     "extra": "",
                     "collation": "utf8mb4_unicode_520_ci"
                 },
@@ -9948,7 +9948,7 @@
                     "name": "schema",
                     "type": "text",
                     "nullable": true,
-                    "default": "NULL",
+                    "default": null,
                     "extra": "",
                     "collation": "utf8mb4_unicode_520_ci"
                 },
@@ -9956,7 +9956,7 @@
                     "name": "func",
                     "type": "text",
                     "nullable": true,
-                    "default": "NULL",
+                    "default": null,
                     "extra": "",
                     "collation": "utf8mb4_unicode_520_ci"
                 },
@@ -9980,7 +9980,7 @@
                     "name": "workspaceId",
                     "type": "varchar(36)",
                     "nullable": true,
-                    "default": "NULL",
+                    "default": null,
                     "extra": "",
                     "collation": "utf8mb4_unicode_520_ci"
                 }
@@ -10036,7 +10036,7 @@
                     "name": "flowData",
                     "type": "longtext",
                     "nullable": true,
-                    "default": "NULL",
+                    "default": null,
                     "extra": "",
                     "collation": "utf8mb4_unicode_520_ci"
                 },
@@ -10093,7 +10093,7 @@
                     "name": "credential",
                     "type": "text",
                     "nullable": true,
-                    "default": "NULL",
+                    "default": null,
                     "extra": "",
                     "collation": "utf8mb4_unicode_520_ci"
                 },
@@ -10101,7 +10101,7 @@
                     "name": "tempToken",
                     "type": "text",
                     "nullable": true,
-                    "default": "NULL",
+                    "default": null,
                     "extra": "",
                     "collation": "utf8mb4_unicode_520_ci"
                 },
@@ -10109,7 +10109,7 @@
                     "name": "tokenExpiry",
                     "type": "timestamp",
                     "nullable": true,
-                    "default": "NULL",
+                    "default": null,
                     "extra": "",
                     "collation": null
                 },
@@ -10157,7 +10157,7 @@
                     "name": "ssoProvider",
                     "type": "varchar(100)",
                     "nullable": true,
-                    "default": "NULL",
+                    "default": null,
                     "extra": "",
                     "collation": "utf8mb4_unicode_520_ci"
                 },
@@ -10165,7 +10165,7 @@
                     "name": "ssoSubjectId",
                     "type": "varchar(255)",
                     "nullable": true,
-                    "default": "NULL",
+                    "default": null,
                     "extra": "",
                     "collation": "utf8mb4_unicode_520_ci"
                 },
@@ -10173,7 +10173,7 @@
                     "name": "externalId",
                     "type": "varchar(255)",
                     "nullable": true,
-                    "default": "NULL",
+                    "default": null,
                     "extra": "",
                     "collation": "utf8mb4_unicode_520_ci"
                 },
@@ -10258,7 +10258,7 @@
                     "name": "type",
                     "type": "varchar(255)",
                     "nullable": true,
-                    "default": "NULL",
+                    "default": null,
                     "extra": "",
                     "collation": "utf8mb4_unicode_520_ci"
                 },
@@ -10282,7 +10282,7 @@
                     "name": "workspaceId",
                     "type": "varchar(36)",
                     "nullable": true,
-                    "default": "NULL",
+                    "default": null,
                     "extra": "",
                     "collation": "utf8mb4_unicode_520_ci"
                 }
@@ -10322,7 +10322,7 @@
                     "name": "name",
                     "type": "varchar(100)",
                     "nullable": true,
-                    "default": "NULL",
+                    "default": null,
                     "extra": "",
                     "collation": "utf8mb4_unicode_520_ci"
                 },
@@ -10330,7 +10330,7 @@
                     "name": "description",
                     "type": "text",
                     "nullable": true,
-                    "default": "NULL",
+                    "default": null,
                     "extra": "",
                     "collation": "utf8mb4_unicode_520_ci"
                 },
@@ -10528,7 +10528,7 @@
                     "name": "lastLogin",
                     "type": "timestamp",
                     "nullable": true,
-                    "default": "NULL",
+                    "default": null,
                     "extra": "",
                     "collation": null
                 },

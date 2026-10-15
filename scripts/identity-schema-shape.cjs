@@ -5,11 +5,37 @@ const FK_RE =
 function normDefault(value) {
     if (value === null || value === undefined || value === '') return null
     const text = String(value)
+    // MariaDB 10.11 reports an absent default as the word NULL. A quoted
+    // default ('NONE', '[]') or a number is a real default and stays as written.
+    if (text === 'NULL' || text === 'null') return null
     if (text.includes('randomblob')) return 'uuid()'
     return text
         .replace(/::character varying/g, '')
         .replace(/::text/g, '')
         .replace(/::jsonb/g, '')
+}
+
+// MySQL 5.7 prints int(11), bigint(20), tinyint(4). MySQL 8.0.19 and later
+// print int, bigint, tinyint. The width is display-only. tinyint(1) stays:
+// that width is how a boolean is stored.
+function stripIntegerDisplayWidth(type) {
+    return type
+        .replace(/^int\(\d+\)$/, 'int')
+        .replace(/^bigint\(\d+\)$/, 'bigint')
+        .replace(/^smallint\(\d+\)$/, 'smallint')
+        .replace(/^mediumint\(\d+\)$/, 'mediumint')
+        .replace(/^tinyint\((?!1\))\d+\)$/, 'tinyint')
+}
+
+function stripMysqlIntegerWidths(shape) {
+    const copy = JSON.parse(JSON.stringify(shape))
+    for (const table of Object.values(copy)) {
+        if (!table || !Array.isArray(table.columns)) continue
+        for (const column of table.columns) {
+            if (typeof column.type === 'string') column.type = stripIntegerDisplayWidth(column.type)
+        }
+    }
+    return copy
 }
 
 function parseSqliteForeignKeys(sql) {
@@ -201,8 +227,15 @@ function assemble(columns, fks, indexes, typeOf) {
 
 function diffShape(actual, expected, label, defaults = {}) {
     const pair = alignDefaultCollations(actual, expected, defaults.actualDefault, defaults.expectedDefault)
-    actual = pair.actual
-    expected = pair.expected
+    // Only the mysql migration set. MariaDB's own golden still records display
+    // widths, and folding them here would hide a width change on that dialect.
+    if (label === 'mysql') {
+        actual = stripMysqlIntegerWidths(pair.actual)
+        expected = stripMysqlIntegerWidths(pair.expected)
+    } else {
+        actual = pair.actual
+        expected = pair.expected
+    }
     const errors = []
     const actualNames = Object.keys(actual).sort()
     const expectedNames = Object.keys(expected).sort()
@@ -222,7 +255,9 @@ function diffShape(actual, expected, label, defaults = {}) {
 // utf8mb4_bin, and it prints integer display widths and timestamp defaults
 // differently from MySQL 8. Call this only when comparing the mysql migration
 // set on MariaDB to the MySQL 8 golden. diffShape itself does not call it, so
-// a JSON column that becomes LONGTEXT on MySQL 8 still fails.
+// a JSON column that becomes LONGTEXT on MySQL 8 still fails. diffShape does
+// strip integer display widths for the mysql label, so int(11) and int match
+// across MySQL 5.7 and 8. tinyint(1) is left as written.
 function normalizeMysqlDisplay(shape) {
     const copy = JSON.parse(JSON.stringify(shape))
     for (const table of Object.values(copy)) {
@@ -233,10 +268,7 @@ function normalizeMysqlDisplay(shape) {
                     column.type = 'longtext'
                     column.collation = null
                 }
-                column.type = column.type
-                    .replace(/^int\(\d+\)$/, 'int')
-                    .replace(/^bigint\(\d+\)$/, 'bigint')
-                    .replace(/^tinyint\((?!1\))\d+\)$/, 'tinyint')
+                column.type = stripIntegerDisplayWidth(column.type)
             }
             if (column.default === 'NULL' || column.default === 'null') column.default = null
             if (typeof column.default === 'string') {
@@ -285,4 +317,4 @@ function alignDefaultCollations(actual, expected, actualDefault, expectedDefault
     return { actual: left, expected: right }
 }
 
-module.exports = { captureSqlite, capturePostgres, captureMysql, diffShape, normalizeMysqlDisplay }
+module.exports = { captureSqlite, capturePostgres, captureMysql, diffShape, normalizeMysqlDisplay, normDefault }
