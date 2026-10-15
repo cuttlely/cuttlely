@@ -19,6 +19,7 @@ import type { DataSource, QueryRunner } from 'typeorm'
 import { DEFAULT_WORKSPACE, LOGIN_FAILURE_WINDOW_MS, OPEN_SOURCE_FEATURES, OWNER_ROLE, PERSONAL_WORKSPACE } from './constants'
 import { ACCOUNT_LOCK_CAP, LoginLimiter, accountLockKey } from './rateLimit'
 import { runtimeNumber } from '../settings/runtime'
+import { AuthKitSwitchApply, AuthKitSwitchState, nextAuthKitSwitch } from './authKitSwitch'
 import { utcEpoch } from './dbTime'
 import { addSessionSeenColumn } from './schemaMigration'
 import { IdentityStore } from './store'
@@ -64,6 +65,28 @@ function nullable(value: unknown): string | null {
 
 function epoch(value: unknown): number {
     return utcEpoch(value)
+}
+
+function switchStateFrom(row: Record<string, unknown>): AuthKitSwitchState {
+    const when = cell(row, 'switchedAt')
+    const empty = when === null || when === undefined || when === ''
+    return {
+        configured: Number(cell(row, 'configured')) === 1,
+        sessionsEnded: Number(cell(row, 'sessionsEnded') || 0),
+        switchedAt: empty ? null : new Date(utcEpoch(when)).toISOString()
+    }
+}
+
+async function readSwitchRow(runner: QueryRunner): Promise<AuthKitSwitchState | null> {
+    const d = dialectOf(runner)
+    const rows = await query(
+        runner,
+        `SELECT ${quote(d, 'configured')} AS ${quote(d, 'configured')}, ${quote(d, 'sessionsEnded')} AS ${quote(
+            d,
+            'sessionsEnded'
+        )}, ${quote(d, 'switchedAt')} AS ${quote(d, 'switchedAt')} FROM ${quote(d, 'identity_authkit_switch')} WHERE ${quote(d, 'id')} = 1`
+    )
+    return rows[0] ? switchStateFrom(rows[0]) : null
 }
 
 function userFrom(row: Record<string, unknown>): UserRow {
@@ -123,7 +146,7 @@ export class SqlIdentityStore implements IdentityStore {
             const d = dialectOf(runner)
             const rows = await query(
                 runner,
-                `SELECT ${selectUser(d)} FROM ${quote(d, 'user')} WHERE LOWER(${quote(d, 'email')}) = LOWER(?)`,
+                `SELECT ${selectUser(d)} FROM ${quote(d, 'user')} WHERE LOWER(TRIM(${quote(d, 'email')})) = LOWER(TRIM(?))`,
                 [email]
             )
             return rows.map(userFrom)
@@ -503,6 +526,56 @@ export class SqlIdentityStore implements IdentityStore {
         await this.withRunner(async (runner) => {
             const d = dialectOf(runner)
             await query(runner, `DELETE FROM ${quote(d, 'identity_local_session')} WHERE ${quote(d, 'userId')} = ?`, [userId])
+        })
+    }
+
+    async readAuthKitSwitch(): Promise<AuthKitSwitchState | null> {
+        return this.withRunner(async (runner) => readSwitchRow(runner))
+    }
+
+    async applyAuthKitSwitch(configured: boolean, at: Date, options: AuthKitSwitchApply = {}): Promise<AuthKitSwitchState> {
+        return this.transaction(async (runner) => {
+            const d = dialectOf(runner)
+            const table = quote(d, 'identity_authkit_switch')
+            const id = quote(d, 'id')
+            const insert =
+                d === 'sqlite'
+                    ? `INSERT OR IGNORE INTO ${table} (${id}, ${quote(d, 'configured')}, ${quote(d, 'sessionsEnded')}, ${quote(
+                          d,
+                          'switchedAt'
+                      )}) VALUES (1, 0, 0, NULL)`
+                    : d === 'postgres'
+                    ? `INSERT INTO ${table} (${id}, ${quote(d, 'configured')}, ${quote(d, 'sessionsEnded')}, ${quote(
+                          d,
+                          'switchedAt'
+                      )}) VALUES (1, 0, 0, NULL) ON CONFLICT (${id}) DO NOTHING`
+                    : `INSERT IGNORE INTO ${table} (${id}, ${quote(d, 'configured')}, ${quote(d, 'sessionsEnded')}, ${quote(
+                          d,
+                          'switchedAt'
+                      )}) VALUES (1, 0, 0, NULL)`
+            await query(runner, insert)
+            const locked = d === 'sqlite' ? '' : ' FOR UPDATE'
+            const rows = await query(
+                runner,
+                `SELECT ${quote(d, 'configured')} AS ${quote(d, 'configured')}, ${quote(d, 'sessionsEnded')} AS ${quote(
+                    d,
+                    'sessionsEnded'
+                )}, ${quote(d, 'switchedAt')} AS ${quote(d, 'switchedAt')} FROM ${table} WHERE ${id} = 1${locked}`
+            )
+            const previous = rows[0] ? switchStateFrom(rows[0]) : null
+            const counted = await query(runner, `SELECT COUNT(*) AS ${quote(d, 'count')} FROM ${quote(d, 'identity_local_session')}`)
+            const live = Number(cell(counted[0] || {}, 'count') || 0)
+            const next = nextAuthKitSwitch(previous, configured, at, live, options)
+            if (next.endSessions) await query(runner, `DELETE FROM ${quote(d, 'identity_local_session')}`)
+            await query(
+                runner,
+                `UPDATE ${table} SET ${quote(d, 'configured')} = ?, ${quote(d, 'sessionsEnded')} = ?, ${quote(
+                    d,
+                    'switchedAt'
+                )} = ? WHERE ${id} = 1`,
+                [next.state.configured ? 1 : 0, next.state.sessionsEnded, next.state.switchedAt ? new Date(next.state.switchedAt) : null]
+            )
+            return next.state
         })
     }
 

@@ -1211,6 +1211,40 @@
                 }
             ]
         },
+        "identity_authkit_switch": {
+            "columns": [
+                {
+                    "name": "id",
+                    "type": "INTEGER",
+                    "nullable": false,
+                    "default": null,
+                    "pk": 1
+                },
+                {
+                    "name": "configured",
+                    "type": "INTEGER",
+                    "nullable": false,
+                    "default": null,
+                    "pk": 0
+                },
+                {
+                    "name": "sessionsEnded",
+                    "type": "INTEGER",
+                    "nullable": false,
+                    "default": null,
+                    "pk": 0
+                },
+                {
+                    "name": "switchedAt",
+                    "type": "datetime",
+                    "nullable": true,
+                    "default": null,
+                    "pk": 0
+                }
+            ],
+            "foreignKeys": [],
+            "indexes": []
+        },
         "identity_bootstrap": {
             "columns": [
                 {
@@ -4592,6 +4626,42 @@
                 },
                 {
                     "name": "identity_action_link_pkey",
+                    "unique": true,
+                    "columns": ["id"]
+                }
+            ]
+        },
+        "identity_authkit_switch": {
+            "columns": [
+                {
+                    "name": "id",
+                    "type": "integer",
+                    "nullable": false,
+                    "default": null
+                },
+                {
+                    "name": "configured",
+                    "type": "integer",
+                    "nullable": false,
+                    "default": null
+                },
+                {
+                    "name": "sessionsEnded",
+                    "type": "integer",
+                    "nullable": false,
+                    "default": null
+                },
+                {
+                    "name": "switchedAt",
+                    "type": "timestamp",
+                    "nullable": true,
+                    "default": null
+                }
+            ],
+            "foreignKeys": [],
+            "indexes": [
+                {
+                    "name": "identity_authkit_switch_pkey",
                     "unique": true,
                     "columns": ["id"]
                 }
@@ -7987,6 +8057,50 @@
                     "unique": true,
                     "columns": ["tokenHash"]
                 },
+                {
+                    "name": "PRIMARY",
+                    "unique": true,
+                    "columns": ["id"]
+                }
+            ]
+        },
+        "identity_authkit_switch": {
+            "columns": [
+                {
+                    "name": "id",
+                    "type": "int(11)",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": null
+                },
+                {
+                    "name": "configured",
+                    "type": "int(11)",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": null
+                },
+                {
+                    "name": "sessionsEnded",
+                    "type": "int(11)",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": null
+                },
+                {
+                    "name": "switchedAt",
+                    "type": "datetime",
+                    "nullable": true,
+                    "default": null,
+                    "extra": "",
+                    "collation": null
+                }
+            ],
+            "foreignKeys": [],
+            "indexes": [
                 {
                     "name": "PRIMARY",
                     "unique": true,
@@ -11977,6 +12091,50 @@
                     "unique": true,
                     "columns": ["tokenHash"]
                 },
+                {
+                    "name": "PRIMARY",
+                    "unique": true,
+                    "columns": ["id"]
+                }
+            ]
+        },
+        "identity_authkit_switch": {
+            "columns": [
+                {
+                    "name": "id",
+                    "type": "int",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": null
+                },
+                {
+                    "name": "configured",
+                    "type": "int",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": null
+                },
+                {
+                    "name": "sessionsEnded",
+                    "type": "int",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": null
+                },
+                {
+                    "name": "switchedAt",
+                    "type": "datetime",
+                    "nullable": true,
+                    "default": null,
+                    "extra": "",
+                    "collation": null
+                }
+            ],
+            "foreignKeys": [],
+            "indexes": [
                 {
                     "name": "PRIMARY",
                     "unique": true,

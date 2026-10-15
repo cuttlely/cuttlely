@@ -145,6 +145,91 @@ describe('identity sqlite migrations', () => {
         const stillUsers = await dataSource.query(`SELECT "email" AS email FROM "user"`)
         assert.equal(stillUsers.length, 1)
     })
+
+    it('links one verified mailbox and ends local sessions once when AuthKit is turned on', async () => {
+        await migration.addAuthKitSwitchTable(runner)
+        await migration.addAuthKitSwitchTable(runner)
+        const columns = names(await runner.query(`PRAGMA table_info("user")`))
+        if (!columns.has('updatedDate')) await runner.query(`ALTER TABLE "user" ADD COLUMN "updatedDate" datetime`)
+        const { linkWorkosUser } = serverRequire('./src/identity/link.ts')
+        const store = new SqlIdentityStore(dataSource)
+        await dataSource.query(
+            `INSERT INTO "user" ("id", "name", "email", "status") VALUES ('ada-a', 'Ada A', 'Ada@Example.com', 'active'), ('ada-b', 'Ada B', 'ada@example.com', 'active')`
+        )
+        const duplicate = await linkWorkosUser(store, {
+            id: 'wos-ada',
+            email: '  ADA@example.com ',
+            emailVerified: true,
+            name: 'Ada'
+        })
+        assert.equal(duplicate.ok, false)
+        assert.equal(duplicate.reason, 'ambiguous')
+        const unverified = await linkWorkosUser(store, {
+            id: 'wos-no',
+            email: 'ada@example.com',
+            emailVerified: false,
+            name: 'Ada'
+        })
+        assert.equal(unverified.ok, false)
+        assert.equal(unverified.reason, 'unverified')
+        const untouched = await dataSource.query(
+            `SELECT "externalId" AS externalId FROM "user" WHERE "id" IN ('ada-a', 'ada-b') ORDER BY "id"`
+        )
+        assert.deepEqual(
+            untouched.map((row) => row.externalId),
+            [null, null]
+        )
+        await dataSource.query(`DELETE FROM "user" WHERE "id" = 'ada-b'`)
+        const linked = await linkWorkosUser(store, {
+            id: 'wos-ada',
+            email: 'ada@example.com',
+            emailVerified: true,
+            name: 'Ada'
+        })
+        assert.equal(linked.ok, true)
+        const near = await linkWorkosUser(store, {
+            id: 'wos-plus',
+            email: 'ada+notes@example.com',
+            emailVerified: true,
+            name: 'Ada'
+        })
+        assert.equal(near.ok, false)
+        assert.equal(near.reason, 'unknown')
+
+        await dataSource.query(
+            `INSERT INTO "identity_local_session" ("id", "userId", "token", "expiresAt", "absoluteExpiresAt") VALUES ('s-owner', 'ada-a', 'tok-owner', '2026-10-16 00:00:00', '2026-10-20 00:00:00'), ('s-ada', 'ada-a', 'tok-ada', '2026-10-16 00:00:00', '2026-10-20 00:00:00')`
+        )
+        const at = new Date('2026-10-15T12:00:00.000Z')
+        const ended = await store.applyAuthKitSwitch(true, at)
+        assert.equal(ended.configured, true)
+        assert.equal(ended.sessionsEnded, 2)
+        assert.equal(ended.switchedAt, at.toISOString())
+        assert.equal((await dataSource.query(`SELECT "id" AS id FROM "identity_local_session"`)).length, 0)
+        await dataSource.query(
+            `INSERT INTO "identity_local_session" ("id", "userId", "token", "expiresAt", "absoluteExpiresAt") VALUES ('s-next', 'ada-a', 'tok-next', '2026-10-16 00:00:00', '2026-10-20 00:00:00')`
+        )
+        const again = await store.applyAuthKitSwitch(true, new Date('2026-10-16T00:00:00.000Z'))
+        assert.equal(again.sessionsEnded, 2)
+        assert.equal((await dataSource.query(`SELECT "id" AS id FROM "identity_local_session"`)).length, 1)
+        const ignored = await store.applyAuthKitSwitch(false, new Date('2026-10-16T12:00:00.000Z'))
+        assert.equal(ignored.configured, true)
+        assert.equal((await dataSource.query(`SELECT "id" AS id FROM "identity_local_session"`)).length, 1)
+        const stillOn = await store.applyAuthKitSwitch(true, new Date('2026-10-16T18:00:00.000Z'))
+        assert.equal(stillOn.sessionsEnded, 2)
+        assert.equal((await dataSource.query(`SELECT "id" AS id FROM "identity_local_session"`)).length, 1)
+        const off = await store.applyAuthKitSwitch(false, new Date('2026-10-17T00:00:00.000Z'), { recordOff: true })
+        assert.equal(off.configured, false)
+        assert.equal((await dataSource.query(`SELECT "id" AS id FROM "identity_local_session"`)).length, 1)
+        await store.applyAuthKitSwitch(true, new Date('2026-10-18T00:00:00.000Z'))
+        assert.equal((await dataSource.query(`SELECT "id" AS id FROM "identity_local_session"`)).length, 0)
+
+        await migration.removeAuthKitSwitchTable(runner)
+        let tables = names(await runner.query(`SELECT name FROM sqlite_master WHERE type = 'table'`))
+        assert.equal(tables.has('identity_authkit_switch'), false)
+        await migration.addAuthKitSwitchTable(runner)
+        tables = names(await runner.query(`SELECT name FROM sqlite_master WHERE type = 'table'`))
+        assert.equal(tables.has('identity_authkit_switch'), true)
+    })
 })
 
 describe('permission gate on sqlite', () => {

@@ -299,7 +299,7 @@ Never leave `CUTTLELY_LOCAL_ADMIN=true` on a public deploy. It puts a password f
 
 ## 11. What this install does
 
--   `/signin` shows **Sign in with WorkOS** when `GET /api/v1/auth/signin-options` reports AuthKit. The button goes to `GET /api/v1/auth/login`. Share that login URL. Cuttlely does not send an invite. AuthKit turns off `POST /api/v1/auth/local/login` even when `CUTTLELY_LOCAL_USERS=true`. The owner password form still follows `CUTTLELY_LOCAL_ADMIN`. See [Users without AuthKit](../how-to/users-without-authkit.md).
+-   `/signin` shows **Sign in with WorkOS** when `GET /api/v1/auth/signin-options` reports AuthKit. The button goes to `GET /api/v1/auth/login`. Share that login URL. Cuttlely does not send an invite. AuthKit turns off `POST /api/v1/auth/local/login` even when `CUTTLELY_LOCAL_USERS=true`. The owner password form still follows `CUTTLELY_LOCAL_ADMIN`. The first start with AuthKit configured ends existing local sessions and links a verified AuthKit email only when it matches one existing mailbox. See [Turn AuthKit on](../how-to/users-without-authkit.md#turn-authkit-on).
 -   The password button is **Sign in with password** when WorkOS is on, and **Sign in** when it is the only way in. It appears only when `CUTTLELY_LOCAL_ADMIN=true`.
 -   Add User takes a name and an email. It does not ask for a password.
 -   With AuthKit unset and the local-admin flag off, sign-in answers 404.

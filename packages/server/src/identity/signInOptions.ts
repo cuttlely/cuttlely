@@ -10,6 +10,7 @@
  * Sign-in screen contract for docs/identity/phase0-spec.md section 8.
  */
 
+import { AuthKitSwitchState } from './authKitSwitch'
 import { localAdminEnabled, localUsersMode, workosConfigured } from './constants'
 
 export interface SignInOptions {
@@ -55,4 +56,42 @@ export function enabledSignInMethods(env: NodeJS.ProcessEnv = process.env): { me
     if (options.localUsers) methods.push(SIGN_IN_METHOD.localUsers)
     if (options.mail) methods.push(SIGN_IN_METHOD.mail)
     return { methods }
+}
+
+export type LocalSessionSwitchStatus = 'open' | 'ended' | 'pending'
+
+export interface AuthOptionsStatus {
+    authKit: boolean
+    /** True only while local password sign-in for any user is on. AuthKit turns it off. */
+    localPasswordSignIn: boolean
+    /** The owner break-glass route. Independent of local password sign-in. */
+    breakGlassOwner: boolean
+    /**
+     * `ended` after AuthKit has been turned on and the existing local sessions were deleted.
+     * `pending` when AuthKit is configured and that deletion has not been recorded yet.
+     * `open` when AuthKit is off. Deleted sessions are not restored.
+     */
+    localSessions: LocalSessionSwitchStatus
+    /** How many local sessions were deleted the last time AuthKit became configured. */
+    sessionsEnded: number
+}
+
+/** Public body for GET /api/v1/auth/options. `state` is the recorded switch, or null before it has run. */
+export function authOptionsBody(
+    env: NodeJS.ProcessEnv = process.env,
+    state: AuthKitSwitchState | null = null
+): { methods: string[]; status: AuthOptionsStatus } {
+    const options = signInOptionsBody(env)
+    let localSessions: LocalSessionSwitchStatus = 'open'
+    if (options.authKit) localSessions = state?.configured ? 'ended' : 'pending'
+    return {
+        methods: enabledSignInMethods(env).methods,
+        status: {
+            authKit: options.authKit,
+            localPasswordSignIn: options.localUsers,
+            breakGlassOwner: options.localAdmin,
+            localSessions,
+            sessionsEnded: state?.sessionsEnded ?? 0
+        }
+    }
 }

@@ -404,6 +404,8 @@ function fakeStore(sessions: Map<string, LocalSession>): IdentityStore {
             sessions.delete(token)
         },
         deleteLocalSessionsForUser: async () => undefined,
-        localAccountOpen: async () => true
+        localAccountOpen: async () => true,
+        readAuthKitSwitch: async () => null,
+        applyAuthKitSwitch: async () => ({ configured: false, sessionsEnded: 0, switchedAt: null })
     }
 }

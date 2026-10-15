@@ -46,6 +46,14 @@ async function acceptLinkedUser(store: IdentityStore, row: UserRow, externalId: 
     return { ok: true, user: { ...current, externalId, status: 'active' }, bootstrapped: false }
 }
 
+/**
+ * Mailbox comparison for linking. Surrounding spaces and letter case are ignored.
+ * A plus tag, a dot, or a different domain is a different mailbox.
+ */
+export function mailboxKey(email: string): string {
+    return email.trim().toLowerCase()
+}
+
 export function displayName(identity: WorkosIdentity): string {
     const named = (identity.name || '').trim()
     if (named) return named.slice(0, 100)
@@ -63,22 +71,24 @@ export async function linkWorkosUser(
     options: { bootstrapEmail?: string } = {}
 ): Promise<LinkResult> {
     if (identity.emailVerified !== true) return { ok: false, reason: 'unverified' }
+    const wanted = mailboxKey(identity.email)
+    if (!wanted) return { ok: false, reason: 'unknown' }
 
     const byExternal = await store.findUserByExternalId(identity.id)
     if (byExternal) return acceptLinkedUser(store, byExternal, identity.id)
 
-    const byEmail = await store.findUsersByEmail(identity.email)
-    const unbound = byEmail.filter((row) => !row.externalId)
-    if (unbound.length === 1) return acceptLinkedUser(store, unbound[0], identity.id)
-
-    if (byEmail.some((row) => row.externalId && row.externalId !== identity.id)) {
-        return { ok: false, reason: 'rebind' }
+    const byEmail = (await store.findUsersByEmail(wanted)).filter((row) => mailboxKey(row.email) === wanted)
+    if (byEmail.length > 1) return { ok: false, reason: 'ambiguous' }
+    if (byEmail.length === 1) {
+        const row = byEmail[0]
+        if (row.externalId && row.externalId !== identity.id) return { ok: false, reason: 'rebind' }
+        return acceptLinkedUser(store, row, identity.id)
     }
 
     if ((await store.countUsers()) === 0) {
         const allow = options.bootstrapEmail?.trim()
         if (!allow) return { ok: false, reason: 'bootstrap-unset' }
-        if (identity.email.toLowerCase() !== allow.toLowerCase()) return { ok: false, reason: 'bootstrap-denied' }
+        if (mailboxKey(identity.email) !== mailboxKey(allow)) return { ok: false, reason: 'bootstrap-denied' }
         try {
             const user = await store.createOwner({
                 email: identity.email,
@@ -93,7 +103,6 @@ export async function linkWorkosUser(
         }
     }
 
-    if (unbound.length > 1) return { ok: false, reason: 'ambiguous' }
     return { ok: false, reason: 'unknown' }
 }
 
