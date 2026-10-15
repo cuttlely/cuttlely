@@ -6,6 +6,7 @@
 // Invite and mail settings marked panelFirst are the exception: a saved value overrides the host.
 // SMTP_PASSWORD is envOnly: the page shows whether it is set and never stores it.
 // Variables that must never be changed from a browser are on KEPT_OUT, with the reason.
+// READ_ONLY_SETTINGS is the exact env-only list whose status the API may report.
 // docs/how-to/server-settings.md is the guide.
 
 export type SettingType = 'switch' | 'select' | 'text' | 'secret' | 'number' | 'list'
@@ -1294,6 +1295,28 @@ export const SETTINGS: SettingDef[] = [
         showWhen: { key: 'LANGCHAIN_TRACING_V2', equals: ['true'] }
     },
     {
+        key: 'LANGSMITH_PROJECT',
+        section: 'integrations',
+        group: 'LangSmith tracing',
+        label: 'LangSmith project name',
+        help: 'The project name sent with traces. A restart applies it. The API key stays on the host.',
+        type: 'text',
+        defaultLabel: 'Not set',
+        placeholder: 'customer-care',
+        risk: 'low'
+    },
+    {
+        key: 'LANGSMITH_ENDPOINT',
+        section: 'integrations',
+        group: 'LangSmith tracing',
+        label: 'LangSmith endpoint',
+        help: 'An http or https address for a self-hosted project. No user name or password in the address. A restart applies it.',
+        type: 'text',
+        defaultLabel: 'Not set',
+        placeholder: 'https://langsmith.example.com',
+        risk: 'low'
+    },
+    {
         key: 'ENABLE_METRICS',
         section: 'integrations',
         group: 'Metrics',
@@ -1451,6 +1474,28 @@ export const SETTINGS: SettingDef[] = [
         ...TRUE_FALSE,
         defaultLabel: 'Off',
         defaultValue: 'false',
+        risk: 'low'
+    },
+    {
+        key: 'LOG_SANITIZE_BODY_FIELDS',
+        section: 'advanced',
+        group: 'Logging',
+        label: 'Request fields to hide in logs',
+        help: 'Field names, separated by commas, that debug request logs replace. A restart applies the list.',
+        type: 'list',
+        defaultLabel: 'None',
+        placeholder: 'password, token',
+        risk: 'low'
+    },
+    {
+        key: 'LOG_SANITIZE_HEADER_FIELDS',
+        section: 'advanced',
+        group: 'Logging',
+        label: 'Request headers to hide in logs',
+        help: 'Header names, separated by commas, that debug request logs replace. A restart applies the list.',
+        type: 'list',
+        defaultLabel: 'None',
+        placeholder: 'authorization',
         risk: 'low'
     },
     {
@@ -1767,13 +1812,96 @@ export const KEPT_OUT: KeptOutGroup[] = [
             'METRICS_INCLUDE_NODE_METRICS',
             'METRICS_OPEN_TELEMETRY_PROTOCOL',
             'METRICS_OPEN_TELEMETRY_DEBUG',
-            'LOG_SANITIZE_BODY_FIELDS',
-            'LOG_SANITIZE_HEADER_FIELDS',
             'NUMBER_OF_PROXIES'
         ],
         why: 'Not for running servers, or tuned only by maintainers.'
+    },
+    {
+        group: 'LangSmith host secrets',
+        keys: ['LANGSMITH_API_KEY', 'LANGSMITH_TRACING', 'LANGSMITH_TRACING_V2'],
+        why: 'The API key and the tracing switches stay on the host. Project name and endpoint are ordinary settings.'
     }
 ]
+
+/** How a read-only environment value counts as configured. Invalid or blank never counts. */
+export type ReadOnlyCheck = 'nonblank' | 'port' | 'directory' | 'redis-url' | 'base64' | 'bool' | 'mode' | 'storage-type' | 'secret-file'
+
+export interface ReadOnlyDef {
+    key: string
+    readOnly: true
+    check: ReadOnlyCheck
+    /** When the variable is missing or blank. `default` means a built-in applies and is not returned. */
+    whenUnset: 'default' | 'unset'
+    /** File name under a valid SECRETKEY_PATH, used only when the environment value is blank. */
+    secretFile?: string
+}
+
+/**
+ * Env-only values. The list is exact: nothing here is a prefix, and process env is not scanned.
+ * The status API returns key, set, source, and readOnly. It does not return a value, length, or hash.
+ */
+export const READ_ONLY_SETTINGS: ReadOnlyDef[] = [
+    { key: 'PORT', readOnly: true, check: 'port', whenUnset: 'unset' },
+    { key: 'HOST', readOnly: true, check: 'nonblank', whenUnset: 'unset' },
+    { key: 'CUTTLELY_DATA_DIR', readOnly: true, check: 'nonblank', whenUnset: 'default' },
+    { key: 'MODE', readOnly: true, check: 'mode', whenUnset: 'default' },
+    { key: 'LOG_PATH', readOnly: true, check: 'nonblank', whenUnset: 'default' },
+    { key: 'BLOB_STORAGE_PATH', readOnly: true, check: 'nonblank', whenUnset: 'default' },
+    { key: 'SECRETKEY_PATH', readOnly: true, check: 'directory', whenUnset: 'unset' },
+    { key: 'SECRETKEY_STORAGE_TYPE', readOnly: true, check: 'storage-type', whenUnset: 'default' },
+    { key: 'SECRETKEY_AWS_ACCESS_KEY', readOnly: true, check: 'nonblank', whenUnset: 'unset' },
+    { key: 'SECRETKEY_AWS_SECRET_KEY', readOnly: true, check: 'nonblank', whenUnset: 'unset' },
+    { key: 'SECRETKEY_AWS_REGION', readOnly: true, check: 'nonblank', whenUnset: 'unset' },
+    { key: 'SECRETKEY_AWS_NAME', readOnly: true, check: 'nonblank', whenUnset: 'unset' },
+    { key: 'FLOWISE_SECRETKEY_OVERWRITE', readOnly: true, check: 'nonblank', whenUnset: 'unset' },
+    { key: 'CUTTLELY_SECRETKEY_OVERWRITE', readOnly: true, check: 'nonblank', whenUnset: 'unset' },
+    { key: 'JWT_AUTH_TOKEN_SECRET', readOnly: true, check: 'secret-file', whenUnset: 'unset', secretFile: 'jwt-auth-token.secret' },
+    { key: 'JWT_REFRESH_TOKEN_SECRET', readOnly: true, check: 'secret-file', whenUnset: 'unset', secretFile: 'jwt-refresh-token.secret' },
+    { key: 'JWT_ISSUER', readOnly: true, check: 'secret-file', whenUnset: 'unset', secretFile: 'jwt-issuer' },
+    { key: 'JWT_AUDIENCE', readOnly: true, check: 'secret-file', whenUnset: 'unset', secretFile: 'jwt-audience' },
+    { key: 'EXPRESS_SESSION_SECRET', readOnly: true, check: 'secret-file', whenUnset: 'unset', secretFile: 'express-session.secret' },
+    { key: 'TOKEN_HASH_SECRET', readOnly: true, check: 'secret-file', whenUnset: 'unset', secretFile: 'token-hash.secret' },
+    { key: 'REDIS_URL', readOnly: true, check: 'redis-url', whenUnset: 'unset' },
+    { key: 'REDIS_HOST', readOnly: true, check: 'nonblank', whenUnset: 'default' },
+    { key: 'REDIS_PORT', readOnly: true, check: 'port', whenUnset: 'default' },
+    { key: 'REDIS_USERNAME', readOnly: true, check: 'nonblank', whenUnset: 'unset' },
+    { key: 'REDIS_PASSWORD', readOnly: true, check: 'nonblank', whenUnset: 'unset' },
+    { key: 'REDIS_TLS', readOnly: true, check: 'bool', whenUnset: 'default' },
+    { key: 'REDIS_CERT', readOnly: true, check: 'base64', whenUnset: 'unset' },
+    { key: 'REDIS_KEY', readOnly: true, check: 'base64', whenUnset: 'unset' },
+    { key: 'REDIS_CA', readOnly: true, check: 'base64', whenUnset: 'unset' },
+    { key: 'CUSTOM_MCP_PROTOCOL', readOnly: true, check: 'nonblank', whenUnset: 'unset' },
+    { key: 'CUSTOM_MCP_ALLOWED_COMMANDS', readOnly: true, check: 'nonblank', whenUnset: 'unset' },
+    { key: 'CUSTOM_MCP_ALLOWED_ENV_VARS', readOnly: true, check: 'nonblank', whenUnset: 'unset' },
+    { key: 'CUSTOM_MCP_ALLOWED_ABSOLUTE_SCRIPT_PATHS', readOnly: true, check: 'nonblank', whenUnset: 'unset' },
+    { key: 'CUSTOM_MCP_SECURITY_CHECK', readOnly: true, check: 'bool', whenUnset: 'default' },
+    { key: 'TOOL_FUNCTION_BUILTIN_DEP', readOnly: true, check: 'nonblank', whenUnset: 'unset' },
+    { key: 'TOOL_FUNCTION_EXTERNAL_DEP', readOnly: true, check: 'nonblank', whenUnset: 'unset' },
+    { key: 'ALLOW_BUILTIN_DEP', readOnly: true, check: 'bool', whenUnset: 'default' },
+    { key: 'HTTP_SECURITY_CHECK', readOnly: true, check: 'bool', whenUnset: 'default' },
+    { key: 'PATH_TRAVERSAL_SAFETY', readOnly: true, check: 'bool', whenUnset: 'default' },
+    { key: 'OAUTH2_SECURITY_CHECK', readOnly: true, check: 'bool', whenUnset: 'default' },
+    { key: 'CUTTLELY_ETL_ROOTS', readOnly: true, check: 'nonblank', whenUnset: 'unset' },
+    { key: 'PUPPETEER_EXECUTABLE_PATH', readOnly: true, check: 'nonblank', whenUnset: 'unset' },
+    { key: 'PUPPETEER_EXECUTABLE_FILE_PATH', readOnly: true, check: 'nonblank', whenUnset: 'unset' },
+    { key: 'PLAYWRIGHT_EXECUTABLE_PATH', readOnly: true, check: 'nonblank', whenUnset: 'unset' },
+    { key: 'PLAYWRIGHT_EXECUTABLE_FILE_PATH', readOnly: true, check: 'nonblank', whenUnset: 'unset' },
+    { key: 'SANDBOX_TIMEOUT', readOnly: true, check: 'nonblank', whenUnset: 'unset' },
+    { key: 'LANGSMITH_API_KEY', readOnly: true, check: 'nonblank', whenUnset: 'unset' },
+    { key: 'LANGSMITH_TRACING', readOnly: true, check: 'bool', whenUnset: 'default' },
+    { key: 'LANGSMITH_TRACING_V2', readOnly: true, check: 'bool', whenUnset: 'default' },
+    { key: 'SMTP_PASSWORD', readOnly: true, check: 'nonblank', whenUnset: 'unset' }
+]
+
+const READ_ONLY_BY_KEY = new Map(READ_ONLY_SETTINGS.map((setting) => [setting.key, setting]))
+
+export function readOnlyDef(key: string): ReadOnlyDef | undefined {
+    return READ_ONLY_BY_KEY.get(key)
+}
+
+export function isReadOnly(key: string): boolean {
+    return READ_ONLY_BY_KEY.has(key)
+}
 
 const BY_KEY = new Map(SETTINGS.map((setting) => [setting.key, setting]))
 

@@ -13,7 +13,8 @@ import {
 } from './database-summary'
 import { AUTHKIT_KEYS, authKitComplete, authKitEnvironment, authKitTested, readAuthKitProof } from './authkit-proof'
 import { HistoryEntry, appendHistory, describeChanges, readHistory } from './history'
-import { KEPT_OUT, SECTIONS, SETTINGS, SettingDef, isKeptOut, settingFor } from './registry'
+import { listReadOnlyStatus } from './readOnly'
+import { KEPT_OUT, SECTIONS, SETTINGS, SettingDef, isKeptOut, isReadOnly, settingFor } from './registry'
 import { ResolvedSetting, effectiveValue, isBlank, resolveSettings } from './resolve'
 import { accountLinkSnapshot } from './accountLinks'
 import { runtimeConflict, runtimeSnapshot } from './runtime'
@@ -70,6 +71,8 @@ export interface SettingsView {
     authKit: { complete: boolean; environment: 'staging' | 'production' | 'unknown'; tested: boolean; testedAt?: string; locked: boolean }
     /** The database now, after a restart, and the previous one kept by Switch database. */
     database: { running: DatabaseSummary; saved: DatabaseSummary; previous: DatabaseSummary | null; locked: boolean }
+    /** Instance-wide host values. Each row is key, set, source, and readOnly. No value is included. */
+    readOnly: ReturnType<typeof listReadOnlyStatus>
 }
 
 export class SettingsError extends Error {
@@ -81,7 +84,7 @@ export class SettingsError extends Error {
         public status: number,
         public code: string,
         message: string,
-        public errors: { key: string; message: string }[] = [],
+        public errors: { key: string; message: string; code?: string }[] = [],
         detail?: { key?: string; reason?: string; min?: number; max?: number }
     ) {
         super(message)
@@ -247,7 +250,8 @@ export async function getView(deps: ServiceDeps): Promise<SettingsView> {
             saved: describeDatabase(effectiveOf(env, hostKeys, read.values)),
             previous: previousDatabaseSummary(state.dir, read.key, env, hostKeys),
             locked: DATABASE_KEYS.some((name) => hostKeys.has(name))
-        }
+        },
+        readOnly: listReadOnlyStatus(env)
     }
 }
 
@@ -305,6 +309,10 @@ export async function saveChanges(deps: ServiceDeps, input: unknown, by: string)
     const errors: { key: string; message: string; code?: string; min?: number; max?: number }[] = []
     const normalized: Record<string, string> = {}
     for (const [key, raw] of Object.entries(changes as Record<string, unknown>)) {
+        if (isReadOnly(key)) {
+            errors.push({ key, code: 'READ_ONLY', message: 'This setting cannot be changed.' })
+            continue
+        }
         const setting = settingFor(key)
         if (!setting) {
             errors.push({ key, message: isKeptOut(key) ? `${key} cannot be changed from the browser.` : `${key} is not a setting.` })
@@ -342,14 +350,18 @@ export async function saveChanges(deps: ServiceDeps, input: unknown, by: string)
 }
 
 function refuse(errors: { key: string; message: string; code?: string; min?: number; max?: number }[]): never {
-    const runtime = errors.filter((error) => error.code)
+    const published = errors.map(({ key, message, code }) => (code ? { key, message, code } : { key, message }))
+    if (errors.length > 0 && errors.every((error) => error.code === 'READ_ONLY')) {
+        throw new SettingsError(400, 'READ_ONLY', 'This setting cannot be changed.', published)
+    }
+    const runtime = errors.filter((error) => error.code && error.code !== 'READ_ONLY')
     const only = runtime.length > 0 && runtime.length === errors.length
     const first = runtime[0]
     throw new SettingsError(
         400,
         only && first?.code ? first.code : 'INVALID',
         only && first ? first.message : 'Some settings could not be saved.',
-        errors.map(({ key, message }) => ({ key, message })),
+        published,
         only && first ? { key: first.key, reason: first.message, min: first.min, max: first.max } : undefined
     )
 }
@@ -362,6 +374,9 @@ export async function writeValues(
     kind: HistoryEntry['kind'],
     note?: string
 ): Promise<SettingsView> {
+    if (Object.keys(normalized).some((name) => isReadOnly(name))) {
+        throw new SettingsError(400, 'READ_ONLY', 'This setting cannot be changed.')
+    }
     const { state } = deps
     const key = await deps.key()
     const read = readSettingsFile(state.dir, key)

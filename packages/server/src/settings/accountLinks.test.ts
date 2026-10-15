@@ -147,18 +147,32 @@ describe('invite and reset settings', () => {
         expect(hiddenPassword.locked).toBe(true)
         expect(hiddenPassword.value).toBeUndefined()
         expect(hiddenPassword.effective).toBeUndefined()
+        expect(hidden.readOnly.find((item) => item.key === 'SMTP_PASSWORD')).toEqual({
+            key: 'SMTP_PASSWORD',
+            set: false,
+            source: 'unset',
+            readOnly: true
+        })
         expect(JSON.stringify(hidden)).not.toContain(FILE_PASSWORD)
         env.SMTP_PASSWORD = ENV_PASSWORD
         const shown = await getView(deps(env, dir, ['SMTP_PASSWORD']))
         expect(row(shown, 'SMTP_PASSWORD')).toMatchObject({ source: 'host', locked: true, secret: { set: true, unreadable: false } })
+        expect(shown.readOnly.find((item) => item.key === 'SMTP_PASSWORD')).toEqual({
+            key: 'SMTP_PASSWORD',
+            set: true,
+            source: 'env',
+            readOnly: true
+        })
         expect(JSON.stringify(shown)).not.toContain(ENV_PASSWORD)
         expect(JSON.stringify(shown)).not.toContain(FILE_PASSWORD)
+        expect(JSON.stringify(shown.readOnly)).not.toContain(ENV_PASSWORD)
         env.CUTTLELY_LOCAL_ADMIN = 'true'
         await expect(
             saveChanges(deps(env, dir), { values: { SMTP_PASSWORD: 'typed-secret-mailbox' } }, 'owner@example.com')
         ).rejects.toMatchObject({
             status: 400,
-            errors: [{ key: 'SMTP_PASSWORD', message: expect.stringMatching(/environment/) }]
+            code: 'READ_ONLY',
+            errors: [{ key: 'SMTP_PASSWORD', code: 'READ_ONLY', message: 'This setting cannot be changed.' }]
         })
         expect(JSON.stringify(await getView(deps(env, dir)))).not.toContain('typed-secret-mailbox')
         const mail = effectiveAccountEnv(env)

@@ -7,6 +7,65 @@ import { parseRuntimeInteger } from './runtime'
 export type Checked = { ok: true; value: string } | { ok: false; error: string; code?: string; min?: number; max?: number }
 
 const MAX_TEXT = 4000
+const FIELD_NAME = /^[A-Za-z][A-Za-z0-9_-]{0,63}$/
+const PROJECT_NAME = /^[A-Za-z0-9][A-Za-z0-9 ._-]{0,127}$/
+const MAX_LOG_FIELDS = 40
+
+function checkKnown(setting: SettingDef, value: string): Checked | null {
+    if (setting.key === 'LOG_SANITIZE_BODY_FIELDS' || setting.key === 'LOG_SANITIZE_HEADER_FIELDS') return checkLogFields(setting, value)
+    if (setting.key === 'LANGSMITH_PROJECT') return checkProjectName(setting, value)
+    if (setting.key === 'LANGSMITH_ENDPOINT') return checkEndpoint(setting, value)
+    return null
+}
+
+/** Field names only. The submitted text is not copied into the error. */
+function checkLogFields(setting: SettingDef, value: string): Checked {
+    const items = value
+        .split(/[,\n]/)
+        .map((item) => item.trim().toLowerCase())
+        .filter(Boolean)
+    if (items.length > MAX_LOG_FIELDS || items.some((item) => !FIELD_NAME.test(item))) {
+        return {
+            ok: false,
+            code: 'INVALID_NAME',
+            error: `${setting.label}: use up to ${MAX_LOG_FIELDS} field names, separated by commas.`
+        }
+    }
+    return { ok: true, value: [...new Set(items)].join(',') }
+}
+
+function checkProjectName(setting: SettingDef, value: string): Checked {
+    if (!PROJECT_NAME.test(value)) {
+        return { ok: false, code: 'INVALID_NAME', error: `${setting.label}: use a name of up to 128 characters.` }
+    }
+    return { ok: true, value }
+}
+
+function checkEndpoint(setting: SettingDef, value: string): Checked {
+    const refused = {
+        ok: false as const,
+        code: 'INVALID_URL',
+        error: `${setting.label}: enter an http or https address with no user name or password.`
+    }
+    if (value.length > 200 || /[\s]/.test(value)) return refused
+    let url: URL
+    try {
+        url = new URL(value)
+    } catch {
+        return refused
+    }
+    if (
+        (url.protocol !== 'https:' && url.protocol !== 'http:') ||
+        !url.hostname ||
+        url.username ||
+        url.password ||
+        url.search ||
+        url.hash
+    ) {
+        return refused
+    }
+    return { ok: true, value }
+}
 
 /** One address, with no spaces. The same shape the invite route accepts. */
 export function isEmailAddress(value: string): boolean {
@@ -52,6 +111,8 @@ export function checkValue(setting: SettingDef, input: unknown): Checked {
     if (input.includes('\0')) return { ok: false, error: `${setting.label}: the value has a character that cannot be used.` }
     const value = input.trim()
     if (value === '') return { ok: true, value: '' }
+    const specific = checkKnown(setting, value)
+    if (specific) return specific
     if (value.length > MAX_TEXT) return { ok: false, error: `${setting.label}: the value is too long.` }
     switch (setting.type) {
         case 'switch': {

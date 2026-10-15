@@ -69,6 +69,37 @@ describe('checking values from the page', () => {
         expect(checkValue(def('WORKOS_API_KEY'), 'a\u0000b').ok).toBe(false)
     })
 
+    it('checks log field names and LangSmith project and endpoint without repeating the text', () => {
+        const pasted = 'https://user:fake-token-b3@example.invalid/hook?token=fake-token-b3'
+        const fields = checkValue(def('LOG_SANITIZE_BODY_FIELDS'), ' Password, token, password ')
+        expect(fields).toEqual({ ok: true, value: 'password,token' })
+        const badFields = checkValue(def('LOG_SANITIZE_HEADER_FIELDS'), pasted)
+        expect(badFields.ok).toBe(false)
+        if (!badFields.ok) {
+            expect(badFields.code).toBe('INVALID_NAME')
+            expect(badFields.error).not.toContain('fake-token-b3')
+        }
+        expect(checkValue(def('LANGSMITH_PROJECT'), 'customer care')).toEqual({ ok: true, value: 'customer care' })
+        const badProject = checkValue(def('LANGSMITH_PROJECT'), pasted)
+        expect(badProject.ok).toBe(false)
+        if (!badProject.ok) {
+            expect(badProject.code).toBe('INVALID_NAME')
+            expect(badProject.error).not.toContain('fake-token-b3')
+        }
+        expect(checkValue(def('LANGSMITH_ENDPOINT'), 'https://langsmith.example.com/api')).toEqual({
+            ok: true,
+            value: 'https://langsmith.example.com/api'
+        })
+        const badEndpoint = checkValue(def('LANGSMITH_ENDPOINT'), pasted)
+        expect(badEndpoint.ok).toBe(false)
+        if (!badEndpoint.ok) {
+            expect(badEndpoint.code).toBe('INVALID_URL')
+            expect(badEndpoint.error).not.toContain('fake-token-b3')
+            expect(badEndpoint.error).not.toContain('example.invalid')
+        }
+        expect(checkValue(def('LANGSMITH_ENDPOINT'), '').ok).toBe(true)
+    })
+
     it('treats blank and null as remove', () => {
         expect(checkValue(def('LOG_LEVEL'), '  ')).toEqual({ ok: true, value: '' })
         expect(checkValue(def('LOG_LEVEL'), null)).toEqual({ ok: true, value: '' })

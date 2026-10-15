@@ -124,7 +124,7 @@ A lifetime outside the range is refused on this page. An environment value below
 
 **Invite delivery** applies when `POST /api/v1/account/invite` omits `link`. Follow the request keeps the previous response, an id only. Copy link returns the one-time URL. Email sends it and does not return it. A request that sets `link` still wins. Reset links are unchanged: omitting `link` returns the URL.
 
-**Mail password** (`SMTP_PASSWORD`) stays in the environment. The page shows **Set** or **Not set** and does not accept a value. `SMTP_STARTTLS` stays in the environment too. Mail is configured when the mail server and the sender address are both set. The sign-in page still has no Forgot password form.
+**Mail password** (`SMTP_PASSWORD`) stays in the environment. The invite field shows **Set** or **Not set** and does not accept a value. The same key is on the read-only status list as `env` when it is set and `unset` when it is not. That row does not include the password. `SMTP_STARTTLS` stays in the environment too. Mail is configured when the mail server and the sender address are both set. The sign-in page still has no Forgot password form.
 
 `pnpm settings list` prints the effective value and whether it came from the panel, the host, or the default. The password is `(set, hidden)` or `(not set)`.
 
@@ -203,7 +203,7 @@ From a terminal (in Docker, prefix with `docker compose exec -u node Cuttlely`):
 
 ## All settings and History
 
-**All settings** lists every setting, where its value comes from and its value (secrets as set or not set), plus the settings that stay out of the browser and why: the encryption key and sign-in secrets, paths and ports, code execution and safety checks, queue workers, start script plumbing, and test-only values. **Copy as .env** copies the values saved here for a `.env` file or a host's environment page; secrets are left out and listed as comments.
+**All settings** lists every setting, where its value comes from and its value (secrets as set or not set), plus the settings that stay out of the browser and why: the encryption key and sign-in secrets, paths and ports, code execution and safety checks, queue workers, start script plumbing, and test-only values. The organization owner can also ask the API whether an env-only value is set. That answer is `set` and `source` only. The value, its length, and any hash stay off the response. [Server settings API](../reference/server-settings-api.md). **Copy as .env** copies the values saved here for a `.env` file or a host's environment page; secrets are left out and listed as comments.
 
 ![All settings. Copy as .env is at the top right. The table starts with Owner password sign-in, Host, On; AuthKit API key, Not set; AuthKit client ID, Default (Not set: AuthKit is off); Callback address, Default (Not set); and Session seal, Not set.](../images/server-settings/server-settings-all-settings.png)
 

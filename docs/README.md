@@ -38,7 +38,7 @@ New here? Start with [Your first 10 minutes](../README.md#your-first-10-minutes)
 ## Reference
 
 -   [History settings](./reference/versioning-settings.md), [History API](./reference/versioning-api.md), [Drafts API](./reference/drafts-api.md) and [Version files](./reference/version-files.md).
--   [Server settings API](./reference/server-settings-api.md). Read and save server settings, including the runtime limits for the publish check, rated answers, and UI page loads.
+-   [Server settings API](./reference/server-settings-api.md). Read and save server settings, including the runtime limits for the publish check, rated answers, and UI page loads, and read-only status for values that stay on the host.
 -   [Usage API](./reference/usage-api.md). Daily input and output token totals for a workspace, by flow and model, with an estimated cost. The Usage page shows the same figures.
 -   [Auth API](./reference/auth-api.md). Local password sign-in, sign-out, a user's own password change, one-time invite and reset links, and which sign-in methods are on.
 -   [Override configuration](./reference/override-config.md). What a prediction request may change with `overrideConfig`, and what it never can.
