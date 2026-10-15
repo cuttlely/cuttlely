@@ -31,7 +31,7 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ### Fixed
 
--   Dollar amounts in chat replies show as text. A reply with two amounts, such as `a store credit of $10 ... shipping ($5.99)`, no longer loses the text between them. In the app's chat a single `$` is never math. Math is `$$...$$` (inline or on its own lines), `\(...\)` or `\[...\]`. The embed widget and the shared chat page show math as its source text.
+-   Dollar amounts in chat replies show as text. A reply with two amounts, such as `a store credit of $10 ... shipping ($5.99)`, no longer loses the text between them. In the app's chat a single `$` is never math. Math is `$$...$$` (inline or on its own lines), `\(...\)` or `\[...\]`. The embed widget and the shared chat page do not render math: `$$...$$` shows as written, and `\(...\)` and `\[...\]` lose their backslashes.
 
 ### Upgrade notes / breaking changes
 
