@@ -75,7 +75,7 @@ Select **Or start with the bakery quickstart** on the card for a smaller team on
 
 The March croissant starter answers in units. Riverside sold 335 more croissants than Old Town in March 2026: 1346 against 1011.
 
-![The bakery-demo test chat after the March croissant starter. The question is Which shop sold more croissants in March 2026, and by how many? The run card says Harness Prime sent work to analyst, and the analyst row is done with 1 tool. The answer says Riverside sold more croissants in March 2026 than Old Town by 335 units, 1346 compared to 1011. The answer mentions a bar chart, but no chart image is shown.](../images/try-the-demo/demo-chart.png)
+![The bakery-demo test chat after the March croissant starter. The question is Which shop sold more croissants in March 2026, and by how many? The run card says Harness Prime sent work to analyst, and the analyst row is done with 1 tool. The answer says Riverside sold 335 more croissants than Old Town in March 2026, above a table headed Shop and Units with Riverside 1346 and Old Town 1011.](../images/try-the-demo/demo-chart.png)
 
 `POST /api/v1/demo` with `{"credentialId": "<id>"}` makes the customer care team. Add `"demo": "bakery"` for the bakery team.
 
