@@ -23,7 +23,15 @@ jest.mock('../flow-drafts', () => ({
     default: { getState: async () => ({ draftFlowData: '{"nodes":[{"id":"n"}],"edges":[]}' }) }
 }))
 import { StatusCodes } from 'http-status-codes'
-import { bindHistoryRepository, HISTORY_SCAN_CAP, historyHooks, likeContainsPattern, listQuestionHistory, type HistoryRow } from './history'
+import {
+    bindHistoryRepository,
+    HISTORY_SCAN_CAP,
+    historyHooks,
+    likeContainsPattern,
+    listQuestionHistory,
+    resolveChatQuestionIds,
+    type HistoryRow
+} from './history'
 
 const FLOW = {
     id: 'flow-1',
@@ -186,6 +194,38 @@ describe('question history', () => {
         await expect(listQuestionHistory(FLOW, { source: 'shared' }, CALLER)).rejects.toMatchObject({ statusCode: 400 })
         await expect(listQuestionHistory(FLOW, { source: 'replay' }, CALLER)).rejects.toMatchObject({ statusCode: 400 })
         expect(api.items).toEqual([])
+    })
+
+    test('counts a non-uuid chat id as bad and does not query it', async () => {
+        const bad = 'chat:not-a-uuid'
+        const good = 'chat:11111111-1111-4111-8111-111111111111'
+        const read = queryBuilder.getMany
+        queryBuilder.getMany = async () => {
+            // Postgres rejects a non-uuid in the id list and the driver error repeats the value.
+            if (driver.type === 'postgres' && JSON.stringify(queryCalls).includes('not-a-uuid')) {
+                throw new Error('invalid input syntax for type uuid: "not-a-uuid"')
+            }
+            return []
+        }
+        try {
+            for (const type of ['sqlite', 'postgres']) {
+                driver.type = type
+                queryCalls.length = 0
+                const error = await resolveChatQuestionIds('flow-1', [bad], []).catch((err) => err)
+                expect(error).toMatchObject({ statusCode: 400, badCount: 1, message: 'CHECK_BAD_QUESTION_IDS' })
+                expect(JSON.stringify(error)).not.toContain('not-a-uuid')
+                expect(JSON.stringify(queryCalls)).not.toContain('not-a-uuid')
+                expect(queryCalls.some((call) => String(call.sql).includes(' IN '))).toBe(false)
+                queryCalls.length = 0
+                const mixed = await resolveChatQuestionIds('flow-1', [bad, good], []).catch((err) => err)
+                expect(mixed).toMatchObject({ badCount: 2, message: 'CHECK_BAD_QUESTION_IDS' })
+                const sent = JSON.stringify(queryCalls)
+                expect(sent).not.toContain('not-a-uuid')
+                expect(sent).toContain('11111111-1111-4111-8111-111111111111')
+            }
+        } finally {
+            queryBuilder.getMany = read
+        }
     })
 
     test('refuses harness and recorded-input history on this route', async () => {

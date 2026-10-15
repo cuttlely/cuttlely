@@ -383,6 +383,13 @@ export async function listQuestionHistory(
 }
 
 const ID_SHAPE = /^(chat|exec|turn):(\S+)$/
+// Chat message ids are uuid primary keys. A non-uuid in `IN (...)` makes Postgres reject the
+// statement, and the driver error includes the value.
+const ENTITY_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+
+function entityId(value: string): boolean {
+    return ENTITY_ID.test(value)
+}
 
 export function parseQuestionIds(input: unknown): string[] {
     if (!Array.isArray(input)) throw new HistoryError(StatusCodes.BAD_REQUEST, 'questionIds must be a list of ids.')
@@ -407,7 +414,9 @@ function parseId(raw: string): ParsedId | null {
     const match = ID_SHAPE.exec(raw)
     if (!match) return null
     const prefix = match[1] as ParsedId['prefix']
-    return { raw, prefix, messageId: match[2] }
+    const messageId = match[2]
+    if (prefix === 'chat' && !entityId(messageId)) return null
+    return { raw, prefix, messageId }
 }
 
 function replayText(row: HistoryRow): { text: string; replayable: boolean } {
@@ -417,9 +426,10 @@ function replayText(row: HistoryRow): { text: string; replayable: boolean } {
 }
 
 async function queryByIds(flowId: string, ids: string[]): Promise<HistoryRow[]> {
-    if (!ids.length) return []
+    const safe = ids.filter(entityId)
+    if (!safe.length) return []
     if (historyHooks.loadUserMessages) {
-        const wanted = new Set(ids)
+        const wanted = new Set(safe)
         const loaded = await historyHooks.loadUserMessages(flowId)
         return loaded.filter((row) => wanted.has(row.id))
     }
@@ -430,7 +440,7 @@ async function queryByIds(flowId: string, ids: string[]): Promise<HistoryRow[]> 
         .where('m.chatflowid = :flowId', { flowId })
         .andWhere('m.role = :role', { role: USER_ROLE })
         .andWhere('m.chatType IN (:...types)', { types: CHAT_TYPES })
-        .andWhere('m.id IN (:...ids)', { ids })
+        .andWhere('m.id IN (:...ids)', { ids: safe })
         .getMany()
 }
 

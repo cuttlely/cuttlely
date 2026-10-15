@@ -172,6 +172,42 @@ describe('logger.ts', () => {
             infoSpy.mockRestore()
         })
 
+        it('redacts bracketed search and cursor keys in the debug query record', () => {
+            process.env.DEBUG = 'true'
+            const search = 'do-you-have-rye-loaves'
+            const token = 'signed-page-cursor-token'
+            const infoSpy = jest.spyOn(logger, 'info').mockImplementation(() => logger)
+            const req = {
+                url: '/api/v1/flow-drafts/flow-1/check/history?limit=50',
+                method: 'POST',
+                params: {},
+                body: {},
+                query: {
+                    limit: '50',
+                    'q[]': search,
+                    'q[0]': search,
+                    'cursor[]': token,
+                    'cursor[0]': token,
+                    '%71': search,
+                    'q%5B0%5D': search
+                },
+                headers: {}
+            } as any
+            expressRequestLogger(req, {} as any, next)
+            const logged = JSON.stringify(infoSpy.mock.calls)
+            expect(logged).not.toContain(search)
+            expect(logged).not.toContain(token)
+            const query = (infoSpy.mock.calls[0][1] as { request: { query: Record<string, string> } }).request.query
+            expect(query.limit).toBe('50')
+            expect(query['q[]']).toBe('[redacted]')
+            expect(query['q[0]']).toBe('[redacted]')
+            expect(query['cursor[]']).toBe('[redacted]')
+            expect(query['cursor[0]']).toBe('[redacted]')
+            expect(query['%71']).toBe('[redacted]')
+            expect(query['q%5B0%5D']).toBe('[redacted]')
+            infoSpy.mockRestore()
+        })
+
         it('does not write a search or cursor under a bracketed or encoded name', () => {
             const search = 'do-you-have-rye-loaves'
             const token = 'signed-page-cursor-token'

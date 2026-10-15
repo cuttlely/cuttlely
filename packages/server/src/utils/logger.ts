@@ -73,9 +73,6 @@ function getSensitiveHeaderFields(): string[] {
 
 // Always redacted in a debug request body. `token` is the GitHub token sent when connecting version history.
 const SESSION_LOG_FIELDS = new Set(['chatid', 'sessionid', 'sessiontoken', 'token'])
-// Same names redactLoggedUrl drops from the request line. A debug record copies req.query beside that line.
-const QUERY_LOG_FIELDS = new Set(['q', 'cursor'])
-
 const REDACTED_QUERY_NAMES = new Set(['chatid', 'sessionid', 'sessiontoken', 'q', 'cursor'])
 
 function decodeQueryName(raw: string): string {
@@ -184,7 +181,7 @@ function redactLoggedQuery(query: any): any {
     const sanitized = sanitizeObject(query)
     if (!sanitized || typeof sanitized !== 'object' || Array.isArray(sanitized)) return sanitized
     for (const key of Object.keys(sanitized)) {
-        if (QUERY_LOG_FIELDS.has(key.toLowerCase())) sanitized[key] = '[redacted]'
+        if (isRedactedQueryName(key)) sanitized[key] = '[redacted]'
     }
     return sanitized
 }
