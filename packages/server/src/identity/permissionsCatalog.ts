@@ -12,7 +12,7 @@
  * already sends. Share, export, import, and SSO are left out.
  * Datasets, evaluators, and evaluations stay, matching the routes (D55).
  * Server logs are `logs:view` on a role and are not offered on an API key (D56).
- * The audit log is `audit:view` on a role and is not offered on an API key (D83).
+ * The audit log is `audit:view` on a role and is not offered on an API key (D84).
  */
 
 import { PERSONAL_WORKSPACE_PERMISSIONS } from '../database/identitySchema'

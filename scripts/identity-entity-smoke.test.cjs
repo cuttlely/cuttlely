@@ -379,6 +379,7 @@ describe('identity postgres schema', () => {
                     'AddIdentityActionLinks1797000000000',
                     'AddSessionSeen1798000000000',
                     'AddLocalDirectory1799000000000',
+                    'AddAuthKitSwitch1800300000000',
                     'AddAuditLog1800400000000'
                 ]
             )
@@ -487,6 +488,7 @@ describe('identity mariadb schema', () => {
                     'AddIdentityActionLinks1797000000000',
                     'AddSessionSeen1798000000000',
                     'AddLocalDirectory1799000000000',
+                    'AddAuthKitSwitch1800300000000',
                     'AddAuditLog1800400000000'
                 ]
             )
@@ -674,6 +676,7 @@ describe('identity mysql 8 schema', () => {
                     'AddIdentityActionLinks1797000000000',
                     'AddSessionSeen1798000000000',
                     'AddLocalDirectory1799000000000',
+                    'AddAuthKitSwitch1800300000000',
                     'AddAuditLog1800400000000'
                 ]
             )
@@ -728,6 +731,7 @@ describe('identity sqlite upgrade', () => {
                     'AddIdentityActionLinks1797000000000',
                     'AddSessionSeen1798000000000',
                     'AddLocalDirectory1799000000000',
+                    'AddAuthKitSwitch1800300000000',
                     'AddAuditLog1800400000000'
                 ]
             )

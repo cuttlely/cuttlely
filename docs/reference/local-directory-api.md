@@ -52,7 +52,7 @@ Demoting, disabling, or deleting that person, including when they do it to thems
 
 ## AuthKit and local password sign-in
 
-`/api/v1/users` and `/api/v1/roles` stay limited to local users mode. The older invite, organization user, role, and team routes stay available when AuthKit is on, because those screens are how an AuthKit install adds people. The last-owner guard, the permission-version bump, and the active-team checks on those older routes run in both modes. Bumping the version and deleting local session rows is safe when AuthKit is on: an AuthKit session reads permissions from the database on each request, and a local cookie, if one exists, cannot keep the previous permissions. Invite still creates a user with no password.
+`/api/v1/users` and `/api/v1/roles` stay limited to local users mode. Turning AuthKit on deletes every local session at that start, which is the same rows these session routes list, and these routes then answer 404. The older invite, organization user, role, and team routes stay available when AuthKit is on, because those screens are how an AuthKit install adds people. The last-owner guard, the permission-version bump, and the active-team checks on those older routes run in both modes. Bumping the version and deleting local session rows is safe when AuthKit is on: an AuthKit session reads permissions from the database on each request, and a local cookie, if one exists, cannot keep the previous permissions. Invite still creates a user with no password.
 
 ## List people
 

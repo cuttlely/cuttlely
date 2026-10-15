@@ -42,7 +42,7 @@ New here? Start with [Your first 10 minutes](../README.md#your-first-10-minutes)
 -   [Server settings API](./reference/server-settings-api.md). Read and save server settings, including the runtime limits for the publish check, rated answers, and UI page loads, the limits that apply without a restart, paged change history, invite and reset link expiry, and read-only status for values that stay on the host.
 -   [Usage API](./reference/usage-api.md). Daily input and output token totals for a workspace, by flow and model, with an estimated cost. The Usage page shows the same figures.
 -   [Local users, roles, and sessions](./reference/local-directory-api.md). People, fixed roles, and sign-in sessions when local password sign-in is on.
--   [Auth API](./reference/auth-api.md). Local password sign-in, sign-out, a user's own password change, one-time invite and reset links, and which sign-in methods are on.
+-   [Auth API](./reference/auth-api.md). Local password sign-in, sign-out, a user's own password change, one-time invite and reset links, which sign-in methods are on, and the status when AuthKit is turned on.
 -   [Audit API](./reference/audit-api.md). `GET /api/v1/audit` for an owner or `audit:view`, with type, user, and cursor filters. Login activity stays closed.
 -   [Override configuration](./reference/override-config.md). What a prediction request may change with `overrideConfig`, and what it never can.
 -   [Upgrading Cuttlely](./upgrading.md). Back up, upgrade, check and roll back, for Docker, Render and source installs.

@@ -61,6 +61,7 @@ import { AddChatMessageFlowCreatedIndex1797000000000 } from './1797000000000-Add
 import { AddIdentityActionLinks1797000000000 } from './1797000000000-AddIdentityActionLinks'
 import { AddSessionSeen1798000000000 } from './1798000000000-AddSessionSeen'
 import { AddLocalDirectory1799000000000 } from './1799000000000-AddLocalDirectory'
+import { AddAuthKitSwitch1800300000000 } from './1800300000000-AddAuthKitSwitch'
 import { AddAuditLog1800400000000 } from './1800400000000-AddAuditLog'
 
 import { AddAuthTables1720230151482 } from './1720230151482-AddAuthTables'
@@ -150,5 +151,6 @@ export const postgresMigrations = [
     AddIdentityActionLinks1797000000000,
     AddSessionSeen1798000000000,
     AddLocalDirectory1799000000000,
+    AddAuthKitSwitch1800300000000,
     AddAuditLog1800400000000
 ]
