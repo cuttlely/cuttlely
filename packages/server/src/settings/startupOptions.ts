@@ -46,7 +46,7 @@ export function startupOptionRows(): StartupOptionRow[] {
         default: defaultOf(setting),
         range: rangeOf(setting),
         unit: unitOf(setting),
-        where: HOST_OR_PANEL,
+        where: setting.key === 'CUTTLELY_HISTORY_KEEP' ? 'Server settings, then the host' : HOST_OR_PANEL,
         restart: setting.runtime ? ('No' as const) : ('Yes' as const)
     }))
     const hostOnly = READ_ONLY_SETTINGS.map((setting) => ({
@@ -91,7 +91,7 @@ export function renderStartupOptionsDoc(): string {
         '',
         'A secret setting and every host-only key are named here and marked **not shown**. The table does not include the value, a default that would be the value, a length, a hash, a token, a key, or a connection string. The API follows the same rule: a secret is omitted from the response, and a host-only row is `key`, `set`, `source`, and `readOnly`.',
         '',
-        '**Where it can be set** is either the host and then Server settings, or the host only. **Restart** is No for a runtime setting, which applies on the next use. Every other option applies at the next start.',
+        '**Where it can be set** is the host and then Server settings, except `CUTTLELY_HISTORY_KEEP`, where a saved value wins over the host. Host-only keys can be set only on the host. **Restart** is No for a runtime setting, which applies on the next use. Every other option applies at the next start.',
         '',
         'The publish check switch is `CUTTLELY_PUBLISH_CHECK`. The default is `true`. Accepted values are exactly `true` and `false`. How a host value wins, and the error codes, are in the [Server settings API](./server-settings-api.md#publish-check-switch).',
         '',

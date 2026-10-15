@@ -122,13 +122,13 @@ When the host has set the variable, `PUT` is 409 and the file is unchanged:
 }
 ```
 
-The same 409 `LOCKED` applies to any setting the host set, including a numeric limit. The settings list and the host-only list are small and fixed. They are not paged.
+The same 409 `LOCKED` applies to any setting the host set, including a numeric limit. `CUTTLELY_HISTORY_KEEP` is the exception: a saved value wins, and the field stays editable. The settings list and the host-only list are small and fixed. They are not paged.
 
 While the switch is off, `POST`, `GET`, and `DELETE` of `/api/v1/flow-drafts/:id/check` return 409 with the message `The publish check is turned off on this server.` So does `GET /api/v1/flow-drafts/:id/check/history`. No question is replayed. `GET /api/v1/flow-drafts/:id/check` (the setup, with no check id) returns 200 with `publishCheck: false` and `unavailable.code` `disabled`, and an empty question list. Publish itself still succeeds. A passing test set that was already stored can still publish. A new check cannot be started until the switch is on again. With the variable unset, the check behaves as it did before this setting existed.
 
 ## Security limits
 
-These are runtime limits too. The same read order applies: a valid host value, then the saved value, then the default. A host value outside the range is ignored. A save outside the range is refused. Idle time cannot be longer than the absolute lifetime (`CUTTLELY_SESSION_IDLE_MINUTES` must be at most `CUTTLELY_SESSION_ABSOLUTE_HOURS` times 60). That refusal is `CROSS_FIELD`.
+These are runtime limits too. The same read order applies: a valid host value, then the saved value, then the default. `CUTTLELY_HISTORY_KEEP` is the exception: a value saved on the page wins over the environment variable. A host value outside the range is ignored. A save outside the range is refused. Idle time cannot be longer than the absolute lifetime (`CUTTLELY_SESSION_IDLE_MINUTES` must be at most `CUTTLELY_SESSION_ABSOLUTE_HOURS` times 60). That refusal is `CROSS_FIELD`.
 
 | Variable                          | Default | Range                                                | Unit    |
 | --------------------------------- | ------- | ---------------------------------------------------- | ------- |
@@ -154,7 +154,7 @@ Newest first. Each row has when (`at`), who (`actorId` is the user id when a per
 
 `by` stays the existing label: an email for a person, `command line`, or `safe boot`. The response does not add a display name. A save sets `event` to `server_setting.updated`.
 
-`CUTTLELY_HISTORY_KEEP` is how many of these rows to keep. The default is 1000, and a saved value must be a whole number from 100 to 10000. The same rules as the other runtime limits apply: a valid host value, then the saved value, then 1000. A value outside that range is refused. On each new row the file is rewritten to the newest rows only, under a lock, as one temporary file moved into place. A row that is still inside that cap is not dropped when two saves append at the same time. A cursor that pointed at a row now past the cap reads the older rows that are still kept, or an empty page when none remain.
+`CUTTLELY_HISTORY_KEEP` is how many of these rows to keep. It is a setting on Admin > Server settings, under Security & network, in the History group (Settings changes to keep). It is not an environment-only row. The default is 1000. A saved value must be a whole number from 100 to 10000, and a save outside that range is refused. A value saved on the page wins over `CUTTLELY_HISTORY_KEEP` in the environment. With nothing saved, a valid environment value is used, then 1000. A host value outside 100 to 10000 is ignored. The field stays editable when the environment sets it. `effective` is the number in effect. `source` is `panel` when the page saved it, `host` when only the environment sets it, or `default`. The page says panel, env, or default for those three. On each new row the file is rewritten to the newest rows only, under a lock, as one temporary file moved into place. A row that is still inside that cap is not dropped when two saves append at the same time. A cursor that pointed at a row now past the cap reads the older rows that are still kept, or an empty page when none remain.
 
 | Query    | Meaning                                                                                                                               |
 | -------- | ------------------------------------------------------------------------------------------------------------------------------------- |

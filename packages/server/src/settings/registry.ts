@@ -819,7 +819,7 @@ export const SETTINGS: SettingDef[] = [
         section: 'security',
         group: 'History',
         label: 'Settings changes to keep',
-        help: 'How many settings changes to keep. The newest stay, and older ones are removed on the next change. Applies on the next change. 100 to 10000.',
+        help: 'How many settings changes to keep. The newest stay. A value saved here wins over the environment variable. Applies on the next change. 100 to 10000.',
         type: 'number',
         unit: 'count',
         min: 100,
@@ -1873,6 +1873,11 @@ const BY_KEY = new Map(SETTINGS.map((setting) => [setting.key, setting]))
 
 export function settingFor(key: string): SettingDef | undefined {
     return BY_KEY.get(key)
+}
+
+/** A saved panel value wins over the environment variable, and the field stays editable. */
+export function savedValueWins(key: string): boolean {
+    return key === 'CUTTLELY_HISTORY_KEEP'
 }
 
 export function isKeptOut(key: string): boolean {

@@ -621,6 +621,48 @@ describe('runtime limits on the settings API', () => {
         expect(fs.existsSync(path.join(dir, SETTINGS_FILE))).toBe(false)
     })
 
+    it('lets a saved history cap override the environment variable and stays editable', async () => {
+        const previousDir = process.env.CUTTLELY_DATA_DIR
+        const previousKeep = process.env.CUTTLELY_HISTORY_KEEP
+        process.env.CUTTLELY_DATA_DIR = env.CUTTLELY_DATA_DIR
+        delete process.env.CUTTLELY_HISTORY_KEEP
+        state.hostKeys.push('CUTTLELY_HISTORY_KEEP')
+        env.CUTTLELY_HISTORY_KEEP = '2000'
+        resetRuntimeLimitsForTests()
+        try {
+            const before = await app(OWNER).get('/api/v1/server-settings')
+            const open = before.body.settings.find((setting: { key: string }) => setting.key === 'CUTTLELY_HISTORY_KEEP')
+            expect(open).toMatchObject({
+                section: 'security',
+                group: 'History',
+                label: 'Settings changes to keep',
+                source: 'host',
+                effective: '2000',
+                locked: false,
+                runtime: true
+            })
+            const low = await app(OWNER)
+                .put('/api/v1/server-settings')
+                .send({ values: { CUTTLELY_HISTORY_KEEP: '99' } })
+            expect(low.status).toBe(400)
+            expect(low.body).toMatchObject({ code: 'OUT_OF_RANGE', min: 100, max: 10000 })
+            const saved = await app(OWNER)
+                .put('/api/v1/server-settings')
+                .send({ values: { CUTTLELY_HISTORY_KEEP: '250' } })
+            expect(saved.status).toBe(200)
+            const row = saved.body.settings.find((setting: { key: string }) => setting.key === 'CUTTLELY_HISTORY_KEEP')
+            expect(row).toMatchObject({ source: 'panel', value: '250', effective: '250', locked: false })
+            resetRuntimeLimitsForTests()
+            expect(runtimeNumber('CUTTLELY_HISTORY_KEEP', env)).toBe(250)
+        } finally {
+            if (previousDir === undefined) delete process.env.CUTTLELY_DATA_DIR
+            else process.env.CUTTLELY_DATA_DIR = previousDir
+            if (previousKeep === undefined) delete process.env.CUTTLELY_HISTORY_KEEP
+            else process.env.CUTTLELY_HISTORY_KEEP = previousKeep
+            resetRuntimeLimitsForTests()
+        }
+    })
+
     it('refuses a history cap outside 100 to 10000 and applies one inside that range', async () => {
         const previousDir = process.env.CUTTLELY_DATA_DIR
         const previousKeep = process.env.CUTTLELY_HISTORY_KEEP

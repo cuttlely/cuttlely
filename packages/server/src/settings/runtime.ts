@@ -1,7 +1,7 @@
 // Runtime product limits. Read on each use: a valid host value, then the settings file, then the default.
 // Out of range on save is refused. A bad host value is logged by key and ignored. The read path does not throw.
 // On a pair, an in-range host value is kept. The other setting falls back, then is bounded by that host value.
-import { SETTINGS, SettingDef, settingFor } from './registry'
+import { SETTINGS, SettingDef, savedValueWins, settingFor } from './registry'
 import { hostSetKeys } from './resolve'
 import { encryptionKeySync, onSettingsFileWritten, readSettingsFile, settingsDir } from './store'
 
@@ -156,22 +156,31 @@ function panelFile(env: Env): Record<string, string> {
     }
 }
 
-function candidates(setting: SettingDef, env: Env, hostKeys: Set<string>, file: Record<string, string>): Candidate[] {
-    const out: Candidate[] = []
-    if (hostKeys.has(setting.key)) {
-        const raw = present(env[setting.key])
-        if (raw !== null) {
-            const n = parseRuntimeInteger(raw)
-            if (n !== null && inStaticRange(setting, n)) out.push({ value: n, source: 'host' })
-            else warnKey(setting.key)
-        }
-    }
+function hostCandidate(setting: SettingDef, env: Env, hostKeys: Set<string>): Candidate | null {
+    if (!hostKeys.has(setting.key)) return null
+    const raw = present(env[setting.key])
+    if (raw === null) return null
+    const n = parseRuntimeInteger(raw)
+    if (n !== null && inStaticRange(setting, n)) return { value: n, source: 'host' }
+    warnKey(setting.key)
+    return null
+}
+
+function panelCandidate(setting: SettingDef, file: Record<string, string>): Candidate | null {
     const saved = present(file[setting.key])
-    if (saved !== null) {
-        const n = parseRuntimeInteger(saved)
-        if (n !== null && inStaticRange(setting, n)) out.push({ value: n, source: 'panel' })
-        else warnKey(setting.key)
-    }
+    if (saved === null) return null
+    const n = parseRuntimeInteger(saved)
+    if (n !== null && inStaticRange(setting, n)) return { value: n, source: 'panel' }
+    warnKey(setting.key)
+    return null
+}
+
+function candidates(setting: SettingDef, env: Env, hostKeys: Set<string>, file: Record<string, string>): Candidate[] {
+    const host = hostCandidate(setting, env, hostKeys)
+    const panel = panelCandidate(setting, file)
+    // History keep is edited on the page. A saved value wins over the environment variable.
+    const ordered = savedValueWins(setting.key) ? [panel, host] : [host, panel]
+    const out = ordered.filter((row): row is Candidate => row !== null)
     out.push({ value: defaultOf(setting), source: 'default' })
     return out
 }
@@ -433,19 +442,7 @@ export function runtimeNumber(key: string, env: Env = process.env): number {
 }
 
 function strictValue(setting: SettingDef, env: Env, hostKeys: Set<string>, file: Record<string, string>): number {
-    if (hostKeys.has(setting.key)) {
-        const raw = present(env[setting.key])
-        if (raw !== null) {
-            const n = parseRuntimeInteger(raw)
-            if (n !== null && inStaticRange(setting, n)) return n
-        }
-    }
-    const saved = present(file[setting.key])
-    if (saved !== null) {
-        const n = parseRuntimeInteger(saved)
-        if (n !== null && inStaticRange(setting, n)) return n
-    }
-    return defaultOf(setting)
+    return candidates(setting, env, hostKeys, file)[0].value
 }
 
 function setting(key: string): SettingDef {

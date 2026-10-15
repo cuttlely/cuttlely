@@ -24,6 +24,7 @@ describe('startup options reference', () => {
             expect(row.default.toLowerCase()).not.toContain('password')
             expect(`${row.default} ${row.range} ${row.unit}`).not.toMatch(/sk[-_]|bearer|postgres:\/\//i)
         }
+        expect(rows.find((row) => row.key === 'CUTTLELY_HISTORY_KEEP')?.where).toBe('Server settings, then the host')
         const publish = rows.find((row) => row.key === 'CUTTLELY_PUBLISH_CHECK')
         expect(publish).toEqual({
             key: 'CUTTLELY_PUBLISH_CHECK',
