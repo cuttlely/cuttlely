@@ -16,6 +16,7 @@
 import { connect as netConnect, Socket } from 'net'
 import { randomUUID } from 'crypto'
 import { connect as tlsConnect } from 'tls'
+import { accountLinkSnapshot, effectiveAccountEnv } from '../settings/accountLinks'
 import { DirectoryActor, DirectoryError, QueryFn, Sql, createEmailUser } from './directory'
 import { hashPassword, hashSessionToken, passwordErrors, randomToken } from './password'
 import { LoginRateLimit, LoginLimiter } from './rateLimit'
@@ -72,28 +73,35 @@ export function actionLinkMetrics(): { issued: number; accepted: number; expired
     return { ...metrics }
 }
 
-export function smtpReady(env: NodeJS.ProcessEnv = process.env): boolean {
+export function smtpReady(env: NodeJS.ProcessEnv = effectiveAccountEnv(process.env) as NodeJS.ProcessEnv): boolean {
     return Boolean((env.SMTP_HOST || '').trim() && (env.SENDER_EMAIL || '').trim())
 }
 
 function defaultDeps(): LinkDeps {
+    const env = effectiveAccountEnv(process.env) as NodeJS.ProcessEnv
     return {
         now: () => Date.now(),
-        env: process.env,
+        env,
         origin: () => publicOrigin(process.env.PORT || '3000'),
-        mailReady: () => smtpReady(process.env),
-        send: (message) => sendSmtp(message, process.env),
+        mailReady: () => smtpReady(env),
+        send: (message) => sendSmtp(message, env),
         rateLimit: acceptLimiter
     }
 }
 
-/** Hours for an invite, minutes for a reset. Blank, zero, negative, and non-integers use the default. Values past the cap are clamped. */
+/** Hours for an invite, minutes for a reset. A saved panel value overrides the environment. Blank, zero, negative, and non-integers use the next value. Values past the cap are clamped. */
 export function actionTtlMs(purpose: LinkPurpose, env: NodeJS.ProcessEnv = process.env): number {
+    const snap = accountLinkSnapshot(env)
     if (purpose === 'invite') {
-        const hours = boundedInt(env.INVITE_TOKEN_EXPIRY_IN_HOURS, INVITE_DEFAULT_HOURS, INVITE_MIN_HOURS, INVITE_MAX_HOURS)
+        const hours = boundedInt(snap.get('INVITE_TOKEN_EXPIRY_IN_HOURS')?.value, INVITE_DEFAULT_HOURS, INVITE_MIN_HOURS, INVITE_MAX_HOURS)
         return hours * 60 * 60 * 1000
     }
-    const minutes = boundedInt(env.PASSWORD_RESET_TOKEN_EXPIRY_IN_MINS, RESET_DEFAULT_MINUTES, RESET_MIN_MINUTES, RESET_MAX_MINUTES)
+    const minutes = boundedInt(
+        snap.get('PASSWORD_RESET_TOKEN_EXPIRY_IN_MINS')?.value,
+        RESET_DEFAULT_MINUTES,
+        RESET_MIN_MINUTES,
+        RESET_MAX_MINUTES
+    )
     return minutes * 60 * 1000
 }
 
@@ -113,6 +121,16 @@ export function linkMode(body: unknown): true | false | undefined {
     if (record.link === true) return true
     if (record.link === false) return false
     throw new DirectoryError(400, 'link must be true or false')
+}
+
+/** An explicit link field wins. Otherwise the invite delivery setting fills in. Reset links are unchanged. */
+function inviteMode(body: unknown, env: NodeJS.ProcessEnv): true | false | undefined {
+    const explicit = linkMode(body)
+    if (explicit !== undefined) return explicit
+    const delivery = (env.INVITE_DELIVERY || accountLinkSnapshot(env).get('INVITE_DELIVERY')?.value || '').trim()
+    if (delivery === 'link') return true
+    if (delivery === 'email') return false
+    return undefined
 }
 
 /** Fragment only. The browser posts the token. The server path and query do not carry it. */
@@ -287,7 +305,7 @@ export async function inviteAccount(
     body: unknown,
     deps: LinkDeps = defaultDeps()
 ): Promise<{ id: string; link?: string; mailed?: boolean }> {
-    const mode = linkMode(body)
+    const mode = inviteMode(body, deps.env)
     if (mode !== undefined && !canIssueLinks(actor)) throw new DirectoryError(403, 'Forbidden')
     if (mode === false && !deps.mailReady()) throw new DirectoryError(400, MAIL_REQUIRED)
     let raw = ''
@@ -677,7 +695,10 @@ function json(status: number, body: unknown): HandlerResult {
     return { type: 'json', status, body }
 }
 
-export async function sendSmtp(message: OutboundMail, env: NodeJS.ProcessEnv = process.env): Promise<void> {
+export async function sendSmtp(
+    message: OutboundMail,
+    env: NodeJS.ProcessEnv = effectiveAccountEnv(process.env) as NodeJS.ProcessEnv
+): Promise<void> {
     const host = (env.SMTP_HOST || '').trim()
     const from = (env.SENDER_EMAIL || '').trim()
     const port = Number((env.SMTP_PORT || '587').trim())

@@ -15,11 +15,14 @@ jest.mock('../DataSource', () => ({
 }))
 
 import { createHash } from 'crypto'
+import { mkdtempSync, readFileSync } from 'fs'
 import { createServer } from 'net'
-import { readFileSync } from 'fs'
+import { tmpdir } from 'os'
 import { join } from 'path'
 import express from 'express'
 import request from 'supertest'
+import { resetAccountLinksForTests } from '../settings/accountLinks'
+import { writeSettingsFile } from '../settings/store'
 import {
     LINK_INVALID,
     MAIL_FAILED,
@@ -269,6 +272,7 @@ describe('invite and reset links', () => {
     })
 
     it('uses the configured lifetime and falls back when the setting is unusable', () => {
+        const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined)
         expect(actionTtlMs('invite', {})).toBe(72 * 60 * 60 * 1000)
         expect(actionTtlMs('invite', { INVITE_TOKEN_EXPIRY_IN_HOURS: '2' })).toBe(2 * 60 * 60 * 1000)
         expect(actionTtlMs('invite', { INVITE_TOKEN_EXPIRY_IN_HOURS: '0' })).toBe(72 * 60 * 60 * 1000)
@@ -279,6 +283,44 @@ describe('invite and reset links', () => {
         expect(actionTtlMs('reset', { PASSWORD_RESET_TOKEN_EXPIRY_IN_MINS: '10' })).toBe(10 * 60 * 1000)
         expect(actionTtlMs('reset', { PASSWORD_RESET_TOKEN_EXPIRY_IN_MINS: '1' })).toBe(5 * 60 * 1000)
         expect(actionTtlMs('reset', { PASSWORD_RESET_TOKEN_EXPIRY_IN_MINS: '0' })).toBe(60 * 60 * 1000)
+        const warnings = warn.mock.calls.map((call) => String(call[0])).join('\n')
+        expect(warnings).toContain('INVITE_TOKEN_EXPIRY_IN_HOURS')
+        expect(warnings).not.toContain('nope')
+        expect(warnings).not.toContain('9999')
+        warn.mockRestore()
+    })
+
+    it('follows invite delivery when the request omits link, and an explicit link still wins', async () => {
+        const { sql } = memoryDb()
+        const omitted = await inviteAccount(sql, owner, inviteBody('omit@example.com'), deps())
+        expect(omitted).toEqual({ id: expect.any(String) })
+        expect(omitted.link).toBeUndefined()
+        const copied = await inviteAccount(sql, owner, inviteBody('copy@example.com'), deps({ env: { INVITE_DELIVERY: 'link' } }))
+        expect(copied.link).toContain('#token=')
+        await expect(
+            inviteAccount(sql, owner, inviteBody('mail@example.com'), deps({ env: { INVITE_DELIVERY: 'email' } }))
+        ).rejects.toMatchObject({ status: 400 })
+        const sent: { to: string; subject: string; text: string }[] = []
+        const explicit = await inviteAccount(
+            sql,
+            owner,
+            { ...inviteBody('explicit@example.com'), link: false },
+            deps({ env: { INVITE_DELIVERY: 'link' }, mail: true, sent })
+        )
+        expect(explicit.link).toBeUndefined()
+        expect(explicit.mailed).toBe(true)
+        expect(sent).toHaveLength(1)
+    })
+
+    it('uses a saved lifetime ahead of the environment', () => {
+        const data = mkdtempSync(join(tmpdir(), 'cuttlely-link-settings-'))
+        writeSettingsFile(
+            join(data, 'settings'),
+            { INVITE_TOKEN_EXPIRY_IN_HOURS: '24' },
+            { key: 'test-key-not-a-real-secret-0123456789abcdef' }
+        )
+        resetAccountLinksForTests()
+        expect(actionTtlMs('invite', { CUTTLELY_DATA_DIR: data, INVITE_TOKEN_EXPIRY_IN_HOURS: '10' })).toBe(24 * 60 * 60 * 1000)
     })
 
     it('stores the configured expiry', async () => {

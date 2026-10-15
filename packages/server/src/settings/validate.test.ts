@@ -21,6 +21,20 @@ describe('checking values from the page', () => {
         expect(checkValue(def('MODEL_LIST_CONFIG_JSON'), '/srv/models.json')).toEqual({ ok: true, value: '/srv/models.json' })
     })
 
+    it('checks invite and mail values the page can save', () => {
+        expect(checkValue(def('INVITE_TOKEN_EXPIRY_IN_HOURS'), '24')).toEqual({ ok: true, value: '24' })
+        expect(checkValue(def('INVITE_TOKEN_EXPIRY_IN_HOURS'), '200')).toMatchObject({ ok: false, code: 'OUT_OF_RANGE', min: 1, max: 168 })
+        expect(checkValue(def('PASSWORD_RESET_TOKEN_EXPIRY_IN_MINS'), '1')).toMatchObject({ ok: false, code: 'OUT_OF_RANGE' })
+        expect(checkValue(def('SMTP_PORT'), '587')).toEqual({ ok: true, value: '587' })
+        expect(checkValue(def('SMTP_PORT'), '70000')).toMatchObject({ ok: false, code: 'OUT_OF_RANGE' })
+        expect(checkValue(def('SENDER_EMAIL'), 'baker@example.com')).toEqual({ ok: true, value: 'baker@example.com' })
+        expect(checkValue(def('SENDER_EMAIL'), 'not-an-email').ok).toBe(false)
+        expect(checkValue(def('INVITE_DELIVERY'), 'link')).toEqual({ ok: true, value: 'link' })
+        expect(checkValue(def('INVITE_DELIVERY'), 'sms').ok).toBe(false)
+        expect(def('SMTP_PASSWORD').envOnly).toBe(true)
+        expect(def('INVITE_TOKEN_EXPIRY_IN_HOURS').panelFirst).toBe(true)
+    })
+
     it('checks numbers against the range the page shows', () => {
         expect(checkValue(def('DATABASE_PORT'), '5432').ok).toBe(true)
         expect(checkValue(def('DATABASE_PORT'), 70000).ok).toBe(false)

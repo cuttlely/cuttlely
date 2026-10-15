@@ -21,7 +21,7 @@ The caller must be the organization owner, with a signed-in session. A missing s
 | `unit`      | `tokens`, `seconds`, `minutes`, `ms`, or `count` for these limits.                                                                                                                                                                                    |
 | `value`     | The saved or host value. Empty when the default applies. Omitted for secrets.                                                                                                                                                                         |
 | `effective` | The value in use, including the default. Omitted for secrets.                                                                                                                                                                                         |
-| `locked`    | `true` when the host set the variable, so `PUT` cannot change it.                                                                                                                                                                                     |
+| `locked`    | `true` when the host set the variable, so `PUT` cannot change it. Invite and mail settings stay editable: a saved value overrides the host. `SMTP_PASSWORD` is always locked.                                                                         |
 
 `source`, `boundedBy`, `runtime`, `range`, and `unit` are response fields. A `PUT` body does not send them.
 
@@ -74,3 +74,26 @@ A refusal is 400:
 | `CUTTLELY_UI_PAGE_LIMIT_MAX`     | 3000    | 100 to 50000                               | count   |
 
 The question cap default of 100 and the concurrency default of 2 are the same numbers the publish check used before these settings existed. With nothing set, behaviour is unchanged. How to set them in the page: [Limits that apply immediately](../how-to/server-settings.md#limits-that-apply-immediately).
+
+## Invite and reset
+
+These settings are read on each use. A saved value overrides the environment. `source` is `panel` when Server settings saved it, `host` when the environment supplies the value in use, and `default` otherwise. `effective` is the value in use. `range` is present for the two lifetimes and the mail port. `locked` is false, so `PUT` can change them while the environment also sets them. A restart is not required.
+
+A lifetime or port must be a whole number inside its range. A value outside the range is rejected. Nothing saved here is clamped. An environment value below the minimum is raised to the minimum, and one above the maximum is lowered to the maximum. A blank, zero, negative, or non-integer environment value is ignored. The read does not fail. The warning names the key only.
+
+| Variable                              | Default   | Range or values               |
+| ------------------------------------- | --------- | ----------------------------- |
+| `INVITE_TOKEN_EXPIRY_IN_HOURS`        | 72        | 1 to 168 hours                |
+| `PASSWORD_RESET_TOKEN_EXPIRY_IN_MINS` | 60        | 5 to 1440 minutes             |
+| `INVITE_DELIVERY`                     | `request` | `request`, `link`, or `email` |
+| `SMTP_HOST`                           | empty     | one line                      |
+| `SMTP_PORT`                           | 587       | 1 to 65535                    |
+| `SMTP_SECURE`                         | `false`   | `true` or `false`             |
+| `SMTP_USER`                           | empty     | one line                      |
+| `SENDER_EMAIL`                        | empty     | one email address             |
+
+`INVITE_DELIVERY` is `request` (follow the request), `link` (copy link), or `email`. It applies when an invite omits `link`. An invite that sets `link` still wins. With nothing saved and nothing in the environment, an omitted `link` still returns `{ "id" }` only.
+
+`SMTP_PASSWORD` is env-only. `GET` returns `secret.set` and omits `value` and `effective`. `PUT` is rejected. A password stored in the settings file is ignored. `pnpm settings list` prints `(set, hidden)` or `(not set)`. `SMTP_STARTTLS` is not a panel setting. It stays in the environment.
+
+How to set them in the page: [Invite and reset](../how-to/server-settings.md#invite-and-reset).

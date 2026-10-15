@@ -83,7 +83,9 @@ export function fileValuesToApply(
     const out: Record<string, string> = {}
     const defaults = scriptDefaultKeys(env)
     for (const [key, value] of Object.entries(file)) {
-        if (!settingFor(key) || hostKeys.has(key) || isBlank(value)) continue
+        const setting = settingFor(key)
+        // Invite and mail settings are read on each use. Copying them onto the process would hide the host value.
+        if (!setting || setting.panelFirst || setting.envOnly || hostKeys.has(key) || isBlank(value)) continue
         // A host-set partner of this alias wins, the same way a host-set key wins.
         if (partnerIsSet(env, key, defaults)) continue
         out[key] = String(value)

@@ -15,6 +15,7 @@ import { AUTHKIT_KEYS, authKitComplete, authKitEnvironment, authKitTested, readA
 import { HistoryEntry, appendHistory, describeChanges, readHistory } from './history'
 import { KEPT_OUT, SECTIONS, SETTINGS, SettingDef, isKeptOut, settingFor } from './registry'
 import { ResolvedSetting, effectiveValue, isBlank, resolveSettings } from './resolve'
+import { accountLinkSnapshot } from './accountLinks'
 import { runtimeConflict, runtimeSnapshot } from './runtime'
 import { requestRestart, restartInPlaceAvailable } from './restart'
 import { ROLLED_BACK_FILE } from './safeboot'
@@ -155,9 +156,10 @@ export async function getView(deps: ServiceDeps): Promise<SettingsView> {
     const hostKeys = new Set(state.hostKeys)
     const resolved = resolveSettings({ env, hostKeys, file: read.values })
     const atStartResolved = resolveSettings({ env, hostKeys, file: state.ignored ? {} : state.atStart })
-    const changed = changedKeys(read.values, state.atStart, read.unreadable).filter(
-        (key) => !hostKeys.has(key) && !settingFor(key)?.runtime
-    )
+    const changed = changedKeys(read.values, state.atStart, read.unreadable).filter((key) => {
+        const setting = settingFor(key)
+        return !hostKeys.has(key) && !setting?.runtime && !setting?.panelFirst && !setting?.envOnly
+    })
     const live = runtimeSnapshot(env)
     const settings: SettingView[] = SETTINGS.map((setting, index) => {
         const row = resolved[index]
@@ -173,7 +175,34 @@ export async function getView(deps: ServiceDeps): Promise<SettingsView> {
             view.running = atStartResolved[index].value
             view.effective = effectiveValue(row)
         }
-        if (setting.runtime) {
+        if (setting.envOnly) {
+            const set = !isBlank(env[setting.key])
+            view.source = set ? 'host' : 'default'
+            view.locked = true
+            view.changed = false
+            delete view.value
+            delete view.running
+            delete view.effective
+            delete view.boundedBy
+            delete view.range
+            view.secret = { set, unreadable: false }
+        } else if (setting.panelFirst) {
+            const picked = accountLinkSnapshot(env).get(setting.key)
+            if (picked) {
+                const shown = picked.source === 'default' ? '' : picked.value
+                view.source = picked.source
+                view.locked = false
+                view.changed = false
+                delete view.boundedBy
+                delete view.secret
+                view.value = shown
+                view.running = shown
+                view.effective = picked.value
+                if (setting.type === 'number' && setting.min !== undefined && setting.max !== undefined) {
+                    view.range = { min: setting.min, max: setting.max }
+                }
+            }
+        } else if (setting.runtime) {
             const picked = live.get(setting.key)
             if (picked) {
                 const shown = picked.source === 'default' ? '' : String(picked.value)
@@ -281,7 +310,11 @@ export async function saveChanges(deps: ServiceDeps, input: unknown, by: string)
             errors.push({ key, message: isKeptOut(key) ? `${key} cannot be changed from the browser.` : `${key} is not a setting.` })
             continue
         }
-        if (hostKeys.has(key)) {
+        if (setting.envOnly) {
+            errors.push({ key, message: `${setting.label} stays in the environment. Server settings only shows whether it is set.` })
+            continue
+        }
+        if (hostKeys.has(key) && !setting.panelFirst) {
             errors.push({ key, message: `${setting.label} is set by the host, so it is locked here.` })
             continue
         }

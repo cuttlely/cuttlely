@@ -4,14 +4,8 @@ import { KEPT_OUT, SECTIONS, SETTINGS, isKeptOut, settingFor } from './registry'
 
 const ROOT = path.resolve(__dirname, '..', '..', '..', '..')
 
-// Kept out of the example files. SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASSWORD, SMTP_SECURE, and SENDER_EMAIL are read when an invite or reset link is emailed. The other names are not read.
+// Kept out of the example files. These names are not read.
 const UNREAD = new Set([
-    'SMTP_HOST',
-    'SMTP_PORT',
-    'SMTP_USER',
-    'SMTP_PASSWORD',
-    'SMTP_SECURE',
-    'SENDER_EMAIL',
     'ALLOW_UNAUTHORIZED_CERTS',
     'JWT_TOKEN_EXPIRY_IN_MINUTES',
     'JWT_REFRESH_TOKEN_EXPIRY_IN_MINUTES',

@@ -119,7 +119,7 @@ Requires `users:manage` or `workspace:add-user` for the previous behavior. Retur
 
 | `link`  | Mail configured | Status | Body                                                                                                                              |
 | ------- | --------------- | ------ | --------------------------------------------------------------------------------------------------------------------------------- |
-| omitted | either          | 200    | `{ "id" }` only. No token and no email. Same as before.                                                                           |
+| omitted | either          | 200    | `{ "id" }` only, when invite delivery is follow the request (the default). No token and no email.                                 |
 | `true`  | no              | 200    | `{ "id", "link" }`. `link` is `https://host/local-accept#token=...`                                                               |
 | `true`  | yes             | 200    | `{ "id", "link", "mailed" }`. `mailed` is true when the email went out                                                            |
 | `false` | yes             | 200    | `{ "id", "mailed": true }`. The URL is only in the email                                                                          |
@@ -127,6 +127,8 @@ Requires `users:manage` or `workspace:add-user` for the previous behavior. Retur
 | other   | either          | 400    | `{ "message": "link must be true or false" }`                                                                                     |
 
 A caller cannot grant a role that contains a permission they do not hold, unless they are the organization owner. The owner role cannot be granted. A password field on the user is ignored.
+
+Invite delivery (`INVITE_DELIVERY`, in Server settings or the environment) applies only when `link` is omitted. `link` returns the URL, as `link: true` does. `email` sends it, as `link: false` does, and fails the same way when mail is not configured. `request`, and an unset value, keep the `{ "id" }` response. A request that sets `link` still wins. A saved Server settings value overrides the environment. Reset links do not use this setting.
 
 `POST /api/v1/users/:id/reset-link`
 
@@ -156,7 +158,7 @@ Public. No session. Send `{ "token", "password" }` in the JSON body. A `token` q
 
 Two accepts of the same token cannot both succeed. The used mark and the password write are one transaction. A reset, and only a reset, deletes every `identity_local_session` row for that user in that same transaction. An old cookie then fails. An invite does not delete sessions.
 
-Invite links last 72 hours unless `INVITE_TOKEN_EXPIRY_IN_HOURS` is set (1 to 168). Reset links last 60 minutes unless `PASSWORD_RESET_TOKEN_EXPIRY_IN_MINS` is set (5 to 1440). Zero, negative, and non-integers use the default. Larger numbers are clamped.
+Invite links last 72 hours (`INVITE_TOKEN_EXPIRY_IN_HOURS`, 1 to 168). Reset links last 60 minutes (`PASSWORD_RESET_TOKEN_EXPIRY_IN_MINS`, 5 to 1440). A value saved in Server settings overrides the environment. Blank, zero, negative, and non-integers are ignored. A number below the minimum is raised to the minimum, and a number above the maximum is lowered to the maximum. Mail uses `SMTP_HOST`, `SMTP_PORT` (587), `SMTP_SECURE`, `SMTP_USER`, and `SENDER_EMAIL` the same way. `SMTP_PASSWORD` stays in the environment and is not returned by Server settings. See [Server settings API](server-settings-api.md#invite-and-reset).
 
 Audit rows in `identity_action_audit` record link issued, token consumed, token rejected (expired, reused, superseded, or ineligible), password set, and sessions revoked. They store ids and a short reason. They do not store the token, the URL, or the email.
 
