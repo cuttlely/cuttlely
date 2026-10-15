@@ -1,10 +1,13 @@
-// Change history for server settings: settings/history.jsonl, one JSON object per line, append-only.
-// Retention is unbounded: the file grows with each change. Nothing here compacts it.
+// Change history for server settings: settings/history.jsonl, one JSON object per line.
+// The newest CUTTLELY_SETTINGS_HISTORY_KEEP rows are kept (1000 unless that limit says otherwise).
+// Each append rewrites the file under its own lock, so two saves cannot drop a row that is still inside the cap.
 // Secret values never go in. A secret change is recorded as "changed" and nothing else.
 import fs from 'fs'
 import path from 'path'
+import { withNamedLockSync } from './lock'
 import { settingFor } from './registry'
-import { HISTORY_FILE } from './store'
+import { runtimeNumber } from './runtime'
+import { HISTORY_FILE, writeFileAtomic } from './store'
 
 const SECRET_PARTS = new Set(['SECRET', 'PASSWORD', 'TOKEN', 'CREDENTIAL', 'SECRETKEY'])
 
@@ -22,6 +25,9 @@ export function isSecretSettingKey(key: string): boolean {
 
 export const HISTORY_PAGE_DEFAULT = 50
 export const HISTORY_PAGE_MAX = 100
+export const HISTORY_KEEP_KEY = 'CUTTLELY_SETTINGS_HISTORY_KEEP'
+export const HISTORY_KEEP_DEFAULT = 1000
+const HISTORY_LOCK = '.history.lock'
 
 export type HistoryKind = 'save' | 'discard' | 'restore' | 'rollback' | 'unset' | 'restart' | 'start' | 'test'
 
@@ -119,19 +125,60 @@ function assignSequence(entries: HistoryEntry[]): HistoryEntry[] {
     return entries
 }
 
-function nextSequence(dir: string): number {
-    const entries = readLines(dir)
-    let max = 0
-    for (const entry of entries) if ((entry.seq ?? 0) > max) max = entry.seq ?? 0
-    return max + 1
+/** How many history rows to keep. A valid host value, then the saved value, then 1000. */
+export function historyKeepLimit(env: Record<string, string | undefined> = process.env): number {
+    return runtimeNumber(HISTORY_KEEP_KEY, env)
 }
 
-export function appendHistory(dir: string, entry: Omit<HistoryEntry, 'at' | 'seq'> & { at?: string; seq?: number }): HistoryEntry {
-    const { seq, at, ...rest } = entry
-    const full = redact({ ...rest, seq: seq ?? nextSequence(dir), at: at ?? new Date().toISOString() })
-    fs.mkdirSync(dir, { recursive: true, mode: 0o700 })
-    fs.appendFileSync(path.join(dir, HISTORY_FILE), JSON.stringify(full) + '\n', { mode: 0o600 })
-    return full
+function readRawLines(dir: string): string[] {
+    try {
+        return fs
+            .readFileSync(path.join(dir, HISTORY_FILE), 'utf8')
+            .split('\n')
+            .filter((line) => line.trim())
+    } catch {
+        return []
+    }
+}
+
+function parseStored(line: string): HistoryEntry | null {
+    try {
+        const parsed = JSON.parse(line) as HistoryEntry
+        if (parsed && typeof parsed.at === 'string' && typeof parsed.kind === 'string') return parsed
+    } catch {
+        // A damaged line is left out of the rewrite. It was already skipped on read.
+    }
+    return null
+}
+
+function normalizeKeep(keep: number): number {
+    if (!Number.isInteger(keep) || keep < 1 || keep > Number.MAX_SAFE_INTEGER) return HISTORY_KEEP_DEFAULT
+    return keep
+}
+
+/**
+ * Adds one row and keeps the newest `keep` rows. `keep` defaults to the runtime limit.
+ * The rewrite is one temp file moved into place, while this process holds the history lock.
+ */
+export function appendHistory(
+    dir: string,
+    entry: Omit<HistoryEntry, 'at' | 'seq'> & { at?: string; seq?: number },
+    keep = historyKeepLimit()
+): HistoryEntry {
+    return withNamedLockSync(dir, HISTORY_LOCK, () => {
+        const existing = readRawLines(dir)
+            .map(parseStored)
+            .filter((row): row is HistoryEntry => row !== null)
+        assignSequence(existing)
+        let max = 0
+        for (const row of existing) if ((row.seq ?? 0) > max) max = row.seq ?? 0
+        const { seq, at, ...rest } = entry
+        const full = redact({ ...rest, seq: seq ?? max + 1, at: at ?? new Date().toISOString() })
+        const kept = [...existing, full].slice(-normalizeKeep(keep))
+        const text = kept.length ? kept.map((row) => JSON.stringify(row)).join('\n') + '\n' : ''
+        writeFileAtomic(dir, HISTORY_FILE, text)
+        return full
+    })
 }
 
 /** Newest first. Lines that are not valid JSON are skipped. */

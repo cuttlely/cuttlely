@@ -77,7 +77,7 @@ The question cap default of 100 and the concurrency default of 2 are the same nu
 
 ## Security limits
 
-These four are runtime limits too. The same read order applies: a valid host value, then the saved value, then the default. A host value outside the range is ignored. A save outside the range is refused. Idle time cannot be longer than the absolute lifetime (`CUTTLELY_SESSION_IDLE_MINUTES` must be at most `CUTTLELY_SESSION_ABSOLUTE_HOURS` times 60). That refusal is `CROSS_FIELD`.
+These are runtime limits too. The same read order applies: a valid host value, then the saved value, then the default. A host value outside the range is ignored. A save outside the range is refused. Idle time cannot be longer than the absolute lifetime (`CUTTLELY_SESSION_IDLE_MINUTES` must be at most `CUTTLELY_SESSION_ABSOLUTE_HOURS` times 60). That refusal is `CROSS_FIELD`.
 
 | Variable                          | Default | Range                                                | Unit    |
 | --------------------------------- | ------- | ---------------------------------------------------- | ------- |
@@ -85,6 +85,7 @@ These four are runtime limits too. The same read order applies: a valid host val
 | `CUTTLELY_SESSION_IDLE_MINUTES`   | 720     | 15 to 1440, and no longer than the absolute lifetime | minutes |
 | `CUTTLELY_SESSION_ABSOLUTE_HOURS` | 168     | 1 to 720, and long enough to cover the idle time     | count   |
 | `CUTTLELY_DRAIN_TIMEOUT_MS`       | 25000   | 5000 to 300000                                       | ms      |
+| `CUTTLELY_SETTINGS_HISTORY_KEEP`  | 1000    | 100 to 10000                                         | count   |
 
 A shorter idle or absolute lifetime applies to a local session that is already signed in. Every authenticated request that presents that cookie checks the current limits. The cookie expiry alone does not keep the session. AuthKit session length stays with WorkOS. An API key is not one of these sessions.
 
@@ -102,7 +103,7 @@ Newest first. Each row has when (`at`), who (`actorId` is the user id when a per
 
 `by` stays the existing label: an email for a person, `command line`, or `safe boot`. The response does not add a display name. A save sets `event` to `server_setting.updated`.
 
-The file is append-only and is not compacted.
+`CUTTLELY_SETTINGS_HISTORY_KEEP` is how many of these rows to keep. The default is 1000, and a saved value must be a whole number from 100 to 10000. The same rules as the other runtime limits apply: a valid host value, then the saved value, then 1000. A value outside that range is refused. On each new row the file is rewritten to the newest rows only, under a lock, as one temporary file moved into place. A row that is still inside that cap is not dropped when two saves append at the same time. A cursor that pointed at a row now past the cap reads the older rows that are still kept, or an empty page when none remain.
 
 | Query    | Meaning                                                                                                                               |
 | -------- | ------------------------------------------------------------------------------------------------------------------------------------- |

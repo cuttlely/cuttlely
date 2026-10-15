@@ -3,7 +3,7 @@
 import fs from 'fs'
 import path from 'path'
 
-const LOCK_FILE = '.settings.lock'
+const SETTINGS_LOCK = '.settings.lock'
 const STALE_MS = 15000
 const WAIT_MS = 5000
 
@@ -14,13 +14,13 @@ export class SettingsBusyError extends Error {
     }
 }
 
-function lockPath(dir: string): string {
-    return path.join(dir, LOCK_FILE)
+function lockPath(dir: string, name: string): string {
+    return path.join(dir, name)
 }
 
-function take(dir: string): boolean {
+function take(dir: string, name: string): boolean {
     fs.mkdirSync(dir, { recursive: true, mode: 0o700 })
-    const file = lockPath(dir)
+    const file = lockPath(dir, name)
     try {
         const fd = fs.openSync(file, 'wx', 0o600)
         fs.closeSync(fd)
@@ -30,7 +30,7 @@ function take(dir: string): boolean {
         try {
             if (Date.now() - fs.statSync(file).mtimeMs > STALE_MS) {
                 fs.rmSync(file, { force: true })
-                return take(dir)
+                return take(dir, name)
             }
         } catch {
             // The other process released it. Try once more on the next loop.
@@ -39,9 +39,9 @@ function take(dir: string): boolean {
     }
 }
 
-function release(dir: string): void {
+function release(dir: string, name: string): void {
     try {
-        fs.rmSync(lockPath(dir), { force: true })
+        fs.rmSync(lockPath(dir, name), { force: true })
     } catch {
         // Already gone.
     }
@@ -56,38 +56,47 @@ function pauseSync(ms: number): void {
     Atomics.wait(buffer, 0, 0, ms)
 }
 
-async function acquire(dir: string): Promise<void> {
+async function acquire(dir: string, name: string): Promise<void> {
     const started = Date.now()
     for (;;) {
-        if (take(dir)) return
+        if (take(dir, name)) return
         if (Date.now() - started > WAIT_MS) throw new SettingsBusyError()
         await pause(20)
     }
 }
 
-function acquireSync(dir: string): void {
+function acquireSync(dir: string, name: string): void {
     const started = Date.now()
     for (;;) {
-        if (take(dir)) return
+        if (take(dir, name)) return
         if (Date.now() - started > WAIT_MS) throw new SettingsBusyError()
         pauseSync(20)
     }
 }
 
-export async function withSettingsLock<T>(dir: string, work: () => Promise<T>): Promise<T> {
-    await acquire(dir)
+/** A named lock in the settings folder. Callers that take two locks take the settings lock first. */
+export async function withNamedLock<T>(dir: string, name: string, work: () => Promise<T>): Promise<T> {
+    await acquire(dir, name)
     try {
         return await work()
     } finally {
-        release(dir)
+        release(dir, name)
     }
 }
 
-export function withSettingsLockSync<T>(dir: string, work: () => T): T {
-    acquireSync(dir)
+export function withNamedLockSync<T>(dir: string, name: string, work: () => T): T {
+    acquireSync(dir, name)
     try {
         return work()
     } finally {
-        release(dir)
+        release(dir, name)
     }
+}
+
+export async function withSettingsLock<T>(dir: string, work: () => Promise<T>): Promise<T> {
+    return withNamedLock(dir, SETTINGS_LOCK, work)
+}
+
+export function withSettingsLockSync<T>(dir: string, work: () => T): T {
+    return withNamedLockSync(dir, SETTINGS_LOCK, work)
 }

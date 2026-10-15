@@ -798,6 +798,21 @@ export const SETTINGS: SettingDef[] = [
         risk: 'medium'
     },
     {
+        key: 'CUTTLELY_SETTINGS_HISTORY_KEEP',
+        section: 'security',
+        group: 'History',
+        label: 'Settings changes to keep',
+        help: 'How many settings changes to keep. The newest stay, and older ones are removed on the next change. Applies on the next change. 100 to 10000.',
+        type: 'number',
+        unit: 'count',
+        min: 100,
+        max: 10000,
+        defaultLabel: '1000',
+        defaultValue: '1000',
+        runtime: true,
+        risk: 'low'
+    },
+    {
         key: 'CUTTLELY_UI_PAGE_LIMIT_MAX',
         section: 'security',
         group: 'Pages',

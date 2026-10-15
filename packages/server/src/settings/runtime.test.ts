@@ -1,7 +1,7 @@
 import fs from 'fs'
 import os from 'os'
 import path from 'path'
-import { settingFor } from './registry'
+import { SETTINGS, settingFor } from './registry'
 import {
     RUNTIME_CACHE_MS,
     invalidateRuntimeCache,
@@ -209,8 +209,17 @@ describe('runtime limits', () => {
             CUTTLELY_HARNESS_TURN_SCAN_CAP: { min: 500, max: 5000, defaultValue: '2000', unit: 'count' },
             CUTTLELY_RATING_IMPORT_CAP: { min: 50, max: 5000, defaultValue: '500', unit: 'count' },
             CUTTLELY_RATING_SCAN_CAP: { min: 50, max: 20000, defaultValue: '1000', unit: 'count' },
-            CUTTLELY_UI_PAGE_LIMIT_MAX: { min: 100, max: 50000, defaultValue: '3000', unit: 'count' }
+            CUTTLELY_UI_PAGE_LIMIT_MAX: { min: 100, max: 50000, defaultValue: '3000', unit: 'count' },
+            CUTTLELY_LOGIN_FAILURE_LIMIT: { min: 3, max: 50, defaultValue: '10', unit: 'count' },
+            CUTTLELY_SESSION_IDLE_MINUTES: { min: 15, max: 1440, defaultValue: '720', unit: 'minutes' },
+            CUTTLELY_SESSION_ABSOLUTE_HOURS: { min: 1, max: 720, defaultValue: '168', unit: 'count' },
+            CUTTLELY_DRAIN_TIMEOUT_MS: { min: 5000, max: 300000, defaultValue: '25000', unit: 'ms' },
+            CUTTLELY_SETTINGS_HISTORY_KEEP: { min: 100, max: 10000, defaultValue: '1000', unit: 'count' }
         }
+        const runtimeKeys = SETTINGS.filter((setting) => setting.runtime && setting.type === 'number')
+            .map((setting) => setting.key)
+            .sort()
+        expect(runtimeKeys).toEqual(Object.keys(expected).sort())
         for (const [key, bounds] of Object.entries(expected)) {
             const setting = settingFor(key)
             expect(setting).toMatchObject({ ...bounds, runtime: true, type: 'number' })

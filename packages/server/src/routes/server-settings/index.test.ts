@@ -399,8 +399,10 @@ describe('runtime limits and history', () => {
         expect(JSON.stringify(invalid.body)).not.toContain(leaked)
         expect(fs.existsSync(path.join(dir, SETTINGS_FILE))).toBe(false)
 
-        const append = jest.spyOn(fs, 'appendFileSync').mockImplementation(() => {
-            throw new Error('disk full')
+        const fsRename = (jest.requireActual('fs') as typeof fs).renameSync
+        const rename = jest.spyOn(fs, 'renameSync').mockImplementation((from, to) => {
+            if (String(to).endsWith('history.jsonl')) throw new Error('disk full')
+            return fsRename(from, to)
         })
         try {
             const failed = await app(OWNER)
@@ -410,8 +412,9 @@ describe('runtime limits and history', () => {
             expect(failed.body.code).toBe('HISTORY_FAILED')
             expect(JSON.stringify(failed.body)).not.toContain(leaked)
             expect(fs.existsSync(path.join(dir, SETTINGS_FILE))).toBe(false)
+            expect(fs.existsSync(path.join(dir, 'history.jsonl'))).toBe(false)
         } finally {
-            append.mockRestore()
+            rename.mockRestore()
         }
     })
 
@@ -594,6 +597,40 @@ describe('runtime limits on the settings API', () => {
             max: 100
         })
         expect(fs.existsSync(path.join(dir, SETTINGS_FILE))).toBe(false)
+    })
+
+    it('refuses a history cap outside 100 to 10000 and applies one inside that range', async () => {
+        const previousDir = process.env.CUTTLELY_DATA_DIR
+        const previousKeep = process.env.CUTTLELY_SETTINGS_HISTORY_KEEP
+        process.env.CUTTLELY_DATA_DIR = env.CUTTLELY_DATA_DIR
+        delete process.env.CUTTLELY_SETTINGS_HISTORY_KEEP
+        resetRuntimeLimitsForTests()
+        try {
+            const low = await app(OWNER)
+                .put('/api/v1/server-settings')
+                .send({ values: { CUTTLELY_SETTINGS_HISTORY_KEEP: '99' } })
+            expect(low.status).toBe(400)
+            expect(low.body).toMatchObject({ code: 'OUT_OF_RANGE', key: 'CUTTLELY_SETTINGS_HISTORY_KEEP', min: 100, max: 10000 })
+            const high = await app(OWNER)
+                .put('/api/v1/server-settings')
+                .send({ values: { CUTTLELY_SETTINGS_HISTORY_KEEP: '10001' } })
+            expect(high.status).toBe(400)
+            expect(high.body.code).toBe('OUT_OF_RANGE')
+            const saved = await app(OWNER)
+                .put('/api/v1/server-settings')
+                .send({ values: { CUTTLELY_SETTINGS_HISTORY_KEEP: '100' } })
+            expect(saved.status).toBe(200)
+            const row = saved.body.settings.find((setting: { key: string }) => setting.key === 'CUTTLELY_SETTINGS_HISTORY_KEEP')
+            expect(row).toMatchObject({ runtime: true, value: '100', effective: '100', changed: false, range: { min: 100, max: 10000 } })
+            resetRuntimeLimitsForTests()
+            expect(runtimeNumber('CUTTLELY_SETTINGS_HISTORY_KEEP', env)).toBe(100)
+        } finally {
+            if (previousDir === undefined) delete process.env.CUTTLELY_DATA_DIR
+            else process.env.CUTTLELY_DATA_DIR = previousDir
+            if (previousKeep === undefined) delete process.env.CUTTLELY_SETTINGS_HISTORY_KEEP
+            else process.env.CUTTLELY_SETTINGS_HISTORY_KEEP = previousKeep
+            resetRuntimeLimitsForTests()
+        }
     })
 
     it('answers 200 when the settings file is corrupt', async () => {
