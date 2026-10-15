@@ -30,14 +30,18 @@ interface ApiKeyActor {
  * @throws AppError if validation fails
  */
 function validatePermissions(user: ApiKeyActor, requestedPermissions: string[], operation: string) {
-    // API keys should not have workspace, admin, or server-log permissions.
+    // API keys should not have workspace, admin, server-log, or audit permissions.
     // This applies to ALL users, including admins (platform constraint).
     const hasRestrictedPermissions = requestedPermissions.some(
-        (permission: string) => permission.startsWith('workspace:') || permission.startsWith('admin:') || permission.startsWith('logs:')
+        (permission: string) =>
+            permission.startsWith('workspace:') ||
+            permission.startsWith('admin:') ||
+            permission.startsWith('logs:') ||
+            permission.startsWith('audit:')
     )
 
     if (hasRestrictedPermissions) {
-        throw new AppError(StatusCodes.BAD_REQUEST, `Cannot ${operation} API key with workspace, admin, or server log permissions`)
+        throw new AppError(StatusCodes.BAD_REQUEST, `Cannot ${operation} API key with workspace, admin, server log, or audit permissions`)
     }
 
     // For Cloud platform, check feature-gated permissions

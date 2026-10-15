@@ -52,12 +52,42 @@ export interface AuthContext {
     store: IdentityStore
     workos: WorkosPort
     rateLimit: LoginLimiter
+    /** Optional. Production writes a redacted audit row. Tests leave it unset. */
+    noteAudit?: (note: {
+        type: 'sign_in_success' | 'sign_in_failure' | 'lockout'
+        userId: string | null
+        method: 'local' | 'owner' | 'authkit'
+    }) => Promise<void>
 }
 
 const INVALID_LOGIN = 'Invalid email or password.'
 export const SETUP_LINK_NEEDED =
     'Open the setup link from the server log to create the first account. With Docker, run: docker compose logs cuttlely'
 export const TOO_MANY = 'Too many sign-in attempts. Try again later.'
+
+async function accountId(ctx: AuthContext, email: string): Promise<string | null> {
+    if (!ctx.noteAudit || !email) return null
+    try {
+        const matches = await ctx.store.findUsersByEmail(email)
+        return matches.length === 1 ? matches[0].id : null
+    } catch {
+        return null
+    }
+}
+
+async function noteSignIn(
+    ctx: AuthContext,
+    type: 'sign_in_success' | 'sign_in_failure' | 'lockout',
+    userId: string | null,
+    method: 'local' | 'owner' | 'authkit'
+): Promise<void> {
+    if (!ctx.noteAudit) return
+    try {
+        await ctx.noteAudit({ type, userId, method })
+    } catch {
+        // The sign-in result does not depend on the audit row.
+    }
+}
 
 function textUnavailable(): HandlerResult {
     return { type: 'text', status: 503, body: unavailablePage() }
@@ -185,6 +215,7 @@ export async function handleCallback(ctx: AuthContext): Promise<HandlerResult> {
             return bootstrapPage(linked.reason)
         }
         if (!linked.ok) {
+            await noteSignIn(ctx, 'sign_in_failure', null, 'authkit')
             return { type: 'redirect', status: 302, url: signinErrorUrl(linkFailureMessage(linked.reason)) }
         }
         try {
@@ -193,7 +224,11 @@ export async function handleCallback(ctx: AuthContext): Promise<HandlerResult> {
             // Optional. Sign-in still succeeds when WorkOS rejects the external id write.
         }
         const session = await sessionAfterLogin(ctx.store, linked.user.id, ctx.now)
-        if (!session) return { type: 'redirect', status: 302, url: signinErrorUrl('No account exists for this email.') }
+        if (!session) {
+            await noteSignIn(ctx, 'sign_in_failure', linked.user.id, 'authkit')
+            return { type: 'redirect', status: 302, url: signinErrorUrl('No account exists for this email.') }
+        }
+        await noteSignIn(ctx, 'sign_in_success', linked.user.id, 'authkit')
         return {
             type: 'redirect',
             status: 302,
@@ -203,6 +238,7 @@ export async function handleCallback(ctx: AuthContext): Promise<HandlerResult> {
         }
     } catch (error) {
         if (error instanceof WorkosUnavailableError) return textUnavailable()
+        await noteSignIn(ctx, 'sign_in_failure', null, 'authkit')
         return { type: 'redirect', status: 302, url: signinErrorUrl('Sign-in could not be completed.') }
     }
 }
@@ -212,10 +248,16 @@ export async function handleLoginPost(ctx: AuthContext): Promise<HandlerResult> 
     if (!ctx.internal) return json(401, { message: 'Unauthorized' })
     const email = typeof ctx.body.email === 'string' ? ctx.body.email.trim() : ''
     const password = typeof ctx.body.password === 'string' ? ctx.body.password : ''
-    if (await ctx.rateLimit.blocked(ctx.ip, email, ctx.now)) return json(429, { message: TOO_MANY })
+    if (await ctx.rateLimit.blocked(ctx.ip, email, ctx.now)) {
+        await noteSignIn(ctx, 'lockout', await accountId(ctx, email), 'owner')
+        return json(429, { message: TOO_MANY })
+    }
 
     const fail = async (): Promise<HandlerResult> => {
         await ctx.rateLimit.recordFailure(ctx.ip, email, ctx.now)
+        const userId = await accountId(ctx, email)
+        await noteSignIn(ctx, 'sign_in_failure', userId, 'owner')
+        if (await ctx.rateLimit.blocked(ctx.ip, email, ctx.now)) await noteSignIn(ctx, 'lockout', userId, 'owner')
         return json(401, { message: INVALID_LOGIN })
     }
     if (!email || !password) return fail()
@@ -237,7 +279,11 @@ export async function handleLoginPost(ctx: AuthContext): Promise<HandlerResult> 
         lastSeenAt: at
     })
     const session = await sessionAfterLogin(ctx.store, owner.id, ctx.now)
-    if (!session) return json(401, { message: INVALID_LOGIN })
+    if (!session) {
+        await noteSignIn(ctx, 'sign_in_failure', owner.id, 'owner')
+        return json(401, { message: INVALID_LOGIN })
+    }
+    await noteSignIn(ctx, 'sign_in_success', owner.id, 'owner')
     return json(200, session, {
         cookies: [localCookie(token, ctx.secure, sessionLimitsMs().idleMs)],
         ...cleared(ctx, [WOS_SESSION_COOKIE])
@@ -395,7 +441,10 @@ export async function handleLocalLogin(ctx: AuthContext): Promise<HandlerResult>
     if (!ctx.internal) return json(401, { message: INVALID_LOGIN })
     const fields = loginFields(ctx.body)
     if (!fields.ok) return json(400, { message: fields.message })
-    if (await ctx.rateLimit.blocked(ctx.ip, fields.email, ctx.now)) return json(429, { message: TOO_MANY })
+    if (await ctx.rateLimit.blocked(ctx.ip, fields.email, ctx.now)) {
+        await noteSignIn(ctx, 'lockout', await accountId(ctx, fields.email), 'local')
+        return json(429, { message: TOO_MANY })
+    }
 
     const matches = await ctx.store.findUsersByEmail(fields.email)
     const user = matches.length === 1 ? matches[0] : null
@@ -405,11 +454,18 @@ export async function handleLocalLogin(ctx: AuthContext): Promise<HandlerResult>
     if (!user || !eligible || !passwordOk) {
         await ctx.store.deleteLocalSessionsForUser(user && !open ? user.id : UNKNOWN_LOCAL_ACCOUNT_ID)
         await ctx.rateLimit.recordFailure(ctx.ip, fields.email, ctx.now)
+        const userId = user && matches.length === 1 ? user.id : null
+        await noteSignIn(ctx, 'sign_in_failure', userId, 'local')
+        if (await ctx.rateLimit.blocked(ctx.ip, fields.email, ctx.now)) await noteSignIn(ctx, 'lockout', userId, 'local')
         return json(401, { message: INVALID_LOGIN })
     }
 
     const issued = await issueLocalSession(ctx, user.id)
-    if (!issued) return json(401, { message: INVALID_LOGIN })
+    if (!issued) {
+        await noteSignIn(ctx, 'sign_in_failure', user.id, 'local')
+        return json(401, { message: INVALID_LOGIN })
+    }
+    await noteSignIn(ctx, 'sign_in_success', user.id, 'local')
     return json(200, issued.session, {
         cookies: [localCookie(issued.token, localSessionSecure(ctx), sessionLimitsMs().idleMs)],
         ...cleared(ctx, [WOS_SESSION_COOKIE])
@@ -462,11 +518,15 @@ export async function handleLocalPassword(ctx: AuthContext): Promise<HandlerResu
     if (nextRaw === currentRaw) return json(400, { message: 'New password must be different.' })
 
     const account = await accountForSession(ctx, row.userId)
-    if (await ctx.rateLimit.blocked(ctx.ip, account.email, ctx.now)) return json(429, { message: TOO_MANY })
+    if (await ctx.rateLimit.blocked(ctx.ip, account.email, ctx.now)) {
+        await noteSignIn(ctx, 'lockout', row.userId, 'local')
+        return json(429, { message: TOO_MANY })
+    }
     const eligible = Boolean(account.credential)
     const currentOk = await verifyPassword(currentRaw, hashForLoginCompare(eligible, account.credential))
     if (!eligible || !currentOk) {
         await ctx.rateLimit.recordFailure(ctx.ip, account.email, ctx.now)
+        if (await ctx.rateLimit.blocked(ctx.ip, account.email, ctx.now)) await noteSignIn(ctx, 'lockout', row.userId, 'local')
         return json(401, { message: INVALID_LOGIN })
     }
 

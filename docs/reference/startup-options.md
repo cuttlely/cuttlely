@@ -73,6 +73,7 @@ The publish check switch is `CUTTLELY_PUBLISH_CHECK`. The default is `true`. Acc
 | `CUTTLELY_SESSION_ABSOLUTE_HOURS`            | 168                                         | 1 to 720          | count         | Host, then Server settings     | No      |
 | `CUTTLELY_DRAIN_TIMEOUT_MS`                  | 25000                                       | 0 to 300000       | ms            | Host, then Server settings     | No      |
 | `CUTTLELY_HISTORY_KEEP`                      | 1000                                        | 100 to 10000      | count         | Server settings, then the host | No      |
+| `CUTTLELY_AUDIT_RETENTION_DAYS`              | 90                                          | 1 to 3650         | days          | Host, then Server settings     | No      |
 | `CUTTLELY_UI_PAGE_LIMIT_MAX`                 | 3000                                        | 100 to 50000      | count         | Host, then Server settings     | No      |
 | `CORS_ORIGINS`                               | This server only                            | —                 | —             | Host, then Server settings     | Yes     |
 | `CORS_ALLOW_CREDENTIALS`                     | false                                       | —                 | —             | Host, then Server settings     | Yes     |

@@ -16,6 +16,7 @@ import { builtInPermissionJson, builtInPermissionKeys, builtInRoleName, isReserv
 import { DEFAULT_WORKSPACE, OWNER_ROLE, PERSONAL_WORKSPACE } from './constants'
 import { likeEscapeClause } from './likeEscape'
 import { isCatalogPermission } from './permissionsCatalog'
+import { safeRecordAudit } from './auditLog'
 import { IdentityStore } from './store'
 import { SessionUser } from './types'
 
@@ -756,7 +757,8 @@ export async function updateWorkspaceUserRole(sql: Sql, actor: DirectoryActor, b
     const workspaceId = text(record.workspaceId).trim()
     const roleId = text(record.roleId).trim()
     if (!userId || !workspaceId || !roleId) throw new DirectoryError(400, 'User, team, and role are required')
-    return sql.transaction(async (query) => {
+    let fromRoleId = ''
+    const result = await sql.transaction(async (query) => {
         await assertSameWorkspace(query, sql, actor, workspaceId)
         const grant = await actorGrant(query, sql, actor)
         const role = await roleRow(query, sql, roleId)
@@ -773,6 +775,7 @@ export async function updateWorkspaceUserRole(sql: Sql, actor: DirectoryActor, b
             [workspaceId, userId]
         )
         if (!current.length) throw new DirectoryError(404, 'Workspace user not found')
+        fromRoleId = text(cell(current[0] || {}, 'roleId'))
         await lockOrgOwners(query, sql, actor.organizationId, userId)
         const wasOwner = await ownerUser(query, sql, actor.organizationId, userId)
         const willBeOwner = roleName === OWNER_ROLE
@@ -816,6 +819,18 @@ export async function updateWorkspaceUserRole(sql: Sql, actor: DirectoryActor, b
         }
         return { id: userId }
     })
+    if (fromRoleId && fromRoleId !== roleId) {
+        await safeRecordAudit(sql, {
+            type: 'role_change',
+            organizationId: actor.organizationId,
+            workspaceId,
+            userId,
+            actorId: actor.id,
+            summary: 'Role changed',
+            detail: { fromRoleId, toRoleId: roleId }
+        })
+    }
+    return result
 }
 
 export interface WorkspaceJson {
@@ -1305,6 +1320,15 @@ export async function setUserDisabled(
         userId,
         organizationId: actor.organizationId,
         status: disabled ? 'disable' : 'active'
+    })
+    await safeRecordAudit(sql, {
+        type: 'user_disable',
+        organizationId: actor.organizationId,
+        workspaceId: null,
+        userId,
+        actorId: actor.id,
+        summary: disabled ? 'User disabled' : 'User enabled',
+        detail: { disabled }
     })
     return { id: userId, disabled }
 }

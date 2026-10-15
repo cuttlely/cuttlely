@@ -452,6 +452,66 @@ export async function removeIdentityActionLinks(runner: QueryRunner): Promise<vo
     await runner.query(`DROP TABLE IF EXISTS ${q(dialect, 'identity_action_link')}`)
 }
 
+function auditEventSql(dialect: Dialect): string {
+    const indexes =
+        dialect === 'mysql' || dialect === 'mariadb'
+            ? `,
+            KEY ${q(dialect, 'IDX_audit_event_org')} (${q(dialect, 'organizationId')}, ${q(dialect, 'createdAt')}),
+            KEY ${q(dialect, 'IDX_audit_event_user')} (${q(dialect, 'organizationId')}, ${q(dialect, 'userId')}, ${q(
+                  dialect,
+                  'createdAt'
+              )}),
+            KEY ${q(dialect, 'IDX_audit_event_workspace')} (${q(dialect, 'organizationId')}, ${q(dialect, 'workspaceId')}, ${q(
+                  dialect,
+                  'createdAt'
+              )})`
+            : ''
+    return `CREATE TABLE ${q(dialect, 'audit_event')} (
+        ${q(dialect, 'id')} varchar(255) NOT NULL PRIMARY KEY,
+        ${q(dialect, 'type')} varchar(32) NOT NULL,
+        ${q(dialect, 'organizationId')} varchar(255) NOT NULL,
+        ${q(dialect, 'workspaceId')} varchar(255) NULL,
+        ${q(dialect, 'userId')} varchar(255) NULL,
+        ${q(dialect, 'actorId')} varchar(255) NULL,
+        ${q(dialect, 'summary')} varchar(200) NOT NULL,
+        ${q(dialect, 'detail')} text NULL,
+        ${q(dialect, 'createdAt')} bigint NOT NULL${indexes}
+    )`
+}
+
+/** Sign-in, invite, reset, role, and disable rows. Settings changes stay in the history file. */
+export async function addAuditLog(runner: QueryRunner): Promise<void> {
+    const dialect = dialectOf(runner)
+    if (await tableExists(runner, dialect, 'audit_event')) return
+    await runner.query(auditEventSql(dialect))
+    if (dialect === 'sqlite' || dialect === 'postgres') {
+        const table = q(dialect, 'audit_event')
+        await runner.query(
+            `CREATE INDEX IF NOT EXISTS ${q(dialect, 'IDX_audit_event_org')} ON ${table} (${q(dialect, 'organizationId')}, ${q(
+                dialect,
+                'createdAt'
+            )})`
+        )
+        await runner.query(
+            `CREATE INDEX IF NOT EXISTS ${q(dialect, 'IDX_audit_event_user')} ON ${table} (${q(dialect, 'organizationId')}, ${q(
+                dialect,
+                'userId'
+            )}, ${q(dialect, 'createdAt')})`
+        )
+        await runner.query(
+            `CREATE INDEX IF NOT EXISTS ${q(dialect, 'IDX_audit_event_workspace')} ON ${table} (${q(dialect, 'organizationId')}, ${q(
+                dialect,
+                'workspaceId'
+            )}, ${q(dialect, 'createdAt')})`
+        )
+    }
+}
+
+export async function removeAuditLog(runner: QueryRunner): Promise<void> {
+    const dialect = dialectOf(runner)
+    await runner.query(`DROP TABLE IF EXISTS ${q(dialect, 'audit_event')}`)
+}
+
 function authKitSwitchTableSql(dialect: Dialect): string {
     const time = timeType(dialect)
     return `CREATE TABLE ${q(dialect, 'identity_authkit_switch')} (

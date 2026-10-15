@@ -99,6 +99,15 @@ describe('identity sqlite migrations', () => {
         assert.equal(tables.has('identity_bootstrap'), true)
         assert.equal(tables.has('identity_login_failure'), true)
         await migration.addIdentityLoginGuards(runner)
+
+        await migration.addAuditLog(runner)
+        tables = names(await runner.query(`SELECT name FROM sqlite_master WHERE type = 'table'`))
+        assert.equal(tables.has('audit_event'), true)
+        await migration.addAuditLog(runner)
+        await migration.removeAuditLog(runner)
+        tables = names(await runner.query(`SELECT name FROM sqlite_master WHERE type = 'table'`))
+        assert.equal(tables.has('audit_event'), false)
+        await migration.addAuditLog(runner)
     })
 
     it('deletes a stale bootstrap row when the user table is empty', async () => {

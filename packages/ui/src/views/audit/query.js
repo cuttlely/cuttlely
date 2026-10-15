@@ -1,0 +1,19 @@
+export const AUDIT_TYPES = [
+    { value: '', label: 'All types' },
+    { value: 'sign_in_success', label: 'Sign-in succeeded' },
+    { value: 'sign_in_failure', label: 'Sign-in failed' },
+    { value: 'lockout', label: 'Sign-in locked' },
+    { value: 'invite', label: 'Invite' },
+    { value: 'reset', label: 'Password reset' },
+    { value: 'role_change', label: 'Role changed' },
+    { value: 'user_disable', label: 'User disabled or enabled' },
+    { value: 'setting_change', label: 'Settings changed' }
+]
+
+export function auditParams({ type, user, cursor } = {}) {
+    const params = {}
+    if (type) params.type = type
+    if (user && String(user).trim()) params.user = String(user).trim()
+    if (cursor) params.cursor = cursor
+    return params
+}

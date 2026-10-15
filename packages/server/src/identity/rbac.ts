@@ -76,7 +76,7 @@ async function decideOwner(req: Request): Promise<200 | 401 | 403> {
     const userId = typeof user.id === 'string' && user.id ? user.id : null
     if (!userId) return 403
     const workspaceId = typeof user.activeWorkspaceId === 'string' ? user.activeWorkspaceId : ''
-    const access = await loadTeamAccess(userId, workspaceId)
+    const access = await resolveTeamAccess(userId, workspaceId)
     return access.owner ? 200 : 403
 }
 
@@ -107,7 +107,7 @@ async function decide(req: Request, required: string[], mode: 'all' | 'any'): Pr
     const userId = typeof user.id === 'string' && user.id ? user.id : null
     if (userId) {
         const workspaceId = typeof user.activeWorkspaceId === 'string' ? user.activeWorkspaceId : ''
-        const access = await loadTeamAccess(userId, workspaceId)
+        const access = await resolveTeamAccess(userId, workspaceId)
         if (access.owner) return 200
         if (!workspaceId || access.permissions === null || !holds(access.permissions, required, mode)) return 403
         return 200
@@ -115,7 +115,7 @@ async function decide(req: Request, required: string[], mode: 'all' | 'any'): Pr
     return holds(listed(user.permissions), required, mode) ? 200 : 403
 }
 
-async function loadTeamAccess(userId: string, workspaceId: string): Promise<TeamAccess> {
+export async function resolveTeamAccess(userId: string, workspaceId: string): Promise<TeamAccess> {
     if (installed) return installed.accessFor(userId, workspaceId)
     const { getDataSource } = await import('../DataSource')
     return teamAccess(getDataSource(), userId, workspaceId)

@@ -184,6 +184,11 @@ export function appendHistory(
     })
 }
 
+/** Every stored row, oldest first. Lines that are not valid JSON are skipped. */
+export function loadHistory(dir: string): HistoryEntry[] {
+    return readLines(dir)
+}
+
 /** Newest first. Lines that are not valid JSON are skipped. */
 export function readHistory(dir: string, limit = 200): HistoryEntry[] {
     return readLines(dir)

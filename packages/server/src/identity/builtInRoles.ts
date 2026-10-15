@@ -49,8 +49,8 @@ const BUILD_ACTIONS = new Set([
     'delete'
 ])
 
-/** Builder does not administer people, roles, teams, or server logs. */
-const BUILD_EXCLUDED = new Set(['users', 'roles', 'workspace', 'logs'])
+/** Builder does not administer people, roles, teams, server logs, or the audit log. */
+const BUILD_EXCLUDED = new Set(['users', 'roles', 'workspace', 'logs', 'audit'])
 
 export interface SeededBuiltInRole {
     id: string
@@ -104,7 +104,9 @@ export function builtInPermissionKeys(name: string): string[] | null {
     if (!kind) return null
     const catalog = catalogKeys()
     if (kind === 'owner' || kind === 'admin') return sorted(catalog)
-    if (kind === 'viewer') return sorted(catalog.filter((key) => key.endsWith(':view') && !key.startsWith('logs:')))
+    if (kind === 'viewer') {
+        return sorted(catalog.filter((key) => key.endsWith(':view') && !key.startsWith('logs:') && !key.startsWith('audit:')))
+    }
     return sorted(
         catalog.filter((key) => {
             const [prefix, action] = key.split(':')

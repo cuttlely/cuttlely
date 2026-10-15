@@ -17,6 +17,7 @@
 /** Spec this module implements. */
 export const IDENTITY_SPEC_VERSION = '1.2'
 
+export { identityAuditRouter } from './auditRoutes'
 export { identityAccountRouter, identityAuthRouter } from './http'
 export {
     identityOrgUserRouter,
