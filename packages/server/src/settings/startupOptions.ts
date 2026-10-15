@@ -61,7 +61,8 @@ export function startupOptionRows(): StartupOptionRow[] {
 }
 
 function cell(value: string): string {
-    return value.replace(/\|/g, '\\|')
+    // Backslash first, then the table separator, so a later pass cannot re-open an escape.
+    return value.replace(/\\/g, '\\\\').replace(/\|/g, '\\|')
 }
 
 function markdownTable(header: string[], body: string[][]): string {
