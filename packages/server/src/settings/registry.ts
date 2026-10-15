@@ -112,7 +112,8 @@ export const SECTIONS: SectionDef[] = [
         id: 'security',
         label: 'Security & network',
         summary: 'Which sites may call or frame Cuttlely, proxies, and which building blocks are allowed.',
-        afterRestart: 'Browsers and building blocks follow these rules.'
+        afterRestart:
+            'Browsers and building blocks follow these rules. Sign-in limits, session lifetimes and the shutdown wait apply without a restart.'
     },
     {
         id: 'integrations',
@@ -875,6 +876,81 @@ export const SETTINGS: SettingDef[] = [
     },
 
     // Security & network
+    {
+        key: 'CUTTLELY_LOGIN_FAILURE_LIMIT',
+        section: 'security',
+        group: 'Sign-in limits',
+        label: 'Failed sign-ins before lockout',
+        help: 'How many failed sign-ins from one client address or one email are allowed in 15 minutes. Applies on the next sign-in. If this locks people out, set this variable on the host and start Cuttlely again: the host value overrides the saved one.',
+        type: 'number',
+        unit: 'count',
+        min: 3,
+        max: 50,
+        defaultLabel: '10 failures',
+        defaultValue: '10',
+        runtime: true,
+        risk: 'high'
+    },
+    {
+        key: 'CUTTLELY_SESSION_IDLE_MINUTES',
+        section: 'security',
+        group: 'Sessions',
+        label: 'Idle session lifetime',
+        help: 'Minutes a session can sit unused before it ends. This covers a local session and an AuthKit session. Activity is recorded at most once a minute. A shorter value ends sessions that are already signed in, on the next request. Idle time cannot be longer than the absolute lifetime. If this locks people out, set this variable on the host and start Cuttlely again.',
+        type: 'number',
+        unit: 'minutes',
+        min: 15,
+        max: 1440,
+        defaultLabel: '12 hours',
+        defaultValue: '720',
+        runtime: true,
+        risk: 'high'
+    },
+    {
+        key: 'CUTTLELY_SESSION_ABSOLUTE_HOURS',
+        section: 'security',
+        group: 'Sessions',
+        label: 'Absolute session lifetime',
+        help: 'Hours a session can last, even if it stays in use. This covers a local session and an AuthKit session. A shorter value ends sessions that are already older than the new lifetime, on the next request. If this locks people out, set this variable on the host and start Cuttlely again.',
+        type: 'number',
+        unit: 'count',
+        min: 1,
+        max: 720,
+        defaultLabel: '7 days',
+        defaultValue: '168',
+        runtime: true,
+        risk: 'high'
+    },
+    {
+        key: 'CUTTLELY_DRAIN_TIMEOUT_MS',
+        section: 'security',
+        group: 'Shutdown',
+        label: 'Shutdown wait',
+        help: 'Milliseconds a shutdown waits for answers that are already running. 0 does not wait. 0 to 300000. The next shutdown uses the saved value. A queue worker picks it up within 5 seconds. If a shutdown cuts answers off too soon, set this variable on the host and start Cuttlely again.',
+        type: 'number',
+        unit: 'ms',
+        min: 0,
+        max: 300000,
+        defaultLabel: '25 seconds',
+        defaultValue: '25000',
+        runtime: true,
+        risk: 'medium'
+    },
+    {
+        key: 'CUTTLELY_HISTORY_KEEP',
+        section: 'security',
+        group: 'History',
+        label: 'Settings changes to keep',
+        help: 'How many settings changes to keep. The newest stay. A value saved here wins over the environment variable. Applies on the next change. 100 to 10000.',
+        type: 'number',
+        unit: 'count',
+        min: 100,
+        max: 10000,
+        defaultLabel: '1000',
+        defaultValue: '1000',
+        runtime: true,
+        risk: 'low'
+    },
     {
         key: 'CUTTLELY_UI_PAGE_LIMIT_MAX',
         section: 'security',
@@ -1907,6 +1983,11 @@ const BY_KEY = new Map(SETTINGS.map((setting) => [setting.key, setting]))
 
 export function settingFor(key: string): SettingDef | undefined {
     return BY_KEY.get(key)
+}
+
+/** A saved panel value wins over the environment variable, and the field stays editable. */
+export function savedValueWins(key: string): boolean {
+    return key === 'CUTTLELY_HISTORY_KEEP'
 }
 
 export function isKeptOut(key: string): boolean {

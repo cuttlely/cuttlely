@@ -148,3 +148,105 @@ describe('PublishCheck while getCheckSetup is still pending', () => {
         renderer.unmount()
     })
 })
+
+describe('PublishCheck choose mode on a chatflow with no past questions', () => {
+    const starters = [
+        { text: 'What time do you open?', starter: true, date: '' },
+        { text: 'Any rye left?', starter: true, date: '' }
+    ]
+    const setupData = {
+        unavailable: null,
+        questions: starters,
+        pastCount: 0,
+        riskySteps: [],
+        limits: { maxQuestions: 100, maxQuestionChars: 2000, defaultQuestions: 4 },
+        check: null
+    }
+
+    const mount = async (api) => {
+        let renderer
+        await TestRenderer.act(async () => {
+            renderer = TestRenderer.create(
+                createElement(
+                    ThemeProvider,
+                    { theme: createTheme() },
+                    createElement(PublishCheck, { chatflowId: 'flow-1', flowType: 'CHATFLOW', api })
+                )
+            )
+        })
+        await TestRenderer.act(async () => {})
+        return renderer
+    }
+
+    const shown = (renderer) => JSON.stringify(renderer.toJSON())
+
+    const click = async (renderer, testId) => {
+        const node = renderer.root.findByProps({ 'data-testid': testId })
+        await TestRenderer.act(async () => {
+            node.props.onClick()
+        })
+        await TestRenderer.act(async () => {})
+    }
+
+    test('shows and sends only a typed question, and the counter matches', async () => {
+        const api = {
+            getCheckSetup: jest.fn().mockResolvedValue({ data: setupData }),
+            startCheck: jest.fn().mockResolvedValue({ data: { id: 'check-1', status: 'done' } }),
+            getCheck: jest.fn(),
+            stopCheck: jest.fn(),
+            getCheckHistory: jest.fn().mockResolvedValue({ data: { items: [], nextCursor: null } })
+        }
+        const renderer = await mount(api)
+        expect(shown(renderer)).toContain('(starter question)')
+        expect(shown(renderer)).toContain('What time do you open?')
+        expect(shown(renderer)).toContain('Any rye left?')
+
+        await click(renderer, 'choose-questions')
+        expect(shown(renderer)).toContain('0 of 100 chosen')
+        expect(shown(renderer)).not.toContain('What time do you open?')
+        expect(shown(renderer)).not.toContain('Any rye left?')
+        expect(shown(renderer)).not.toContain('(starter question)')
+
+        const field = renderer.root.findByProps({ placeholder: 'Add your own question' })
+        await TestRenderer.act(async () => {
+            field.props.onChange({ target: { value: 'typed loaf beside starters' } })
+        })
+        const add = renderer.root.findAll((node) => node.props?.children === 'Add' && typeof node.props.onClick === 'function')[0]
+        await TestRenderer.act(async () => {
+            add.props.onClick()
+        })
+
+        expect(shown(renderer)).toContain('1 of 100 chosen')
+        expect(shown(renderer)).toContain('typed loaf beside starters')
+        expect(shown(renderer)).toContain('(added)')
+        expect(shown(renderer)).not.toContain('What time do you open?')
+        expect(shown(renderer)).not.toContain('Any rye left?')
+
+        await click(renderer, 'check-run')
+        expect(api.startCheck).toHaveBeenCalledWith('flow-1', {
+            questionIds: [],
+            questions: ['typed loaf beside starters'],
+            includeRiskySteps: false
+        })
+        renderer.unmount()
+    })
+
+    test('count mode on that flow still shows and sends the starter questions', async () => {
+        const api = {
+            getCheckSetup: jest.fn().mockResolvedValue({ data: setupData }),
+            startCheck: jest.fn().mockResolvedValue({ data: { id: 'check-1', status: 'done' } }),
+            getCheck: jest.fn(),
+            stopCheck: jest.fn(),
+            getCheckHistory: jest.fn()
+        }
+        const renderer = await mount(api)
+        expect(shown(renderer)).toContain('(starter question)')
+        await click(renderer, 'check-run')
+        expect(api.startCheck).toHaveBeenCalledWith('flow-1', {
+            questions: ['What time do you open?', 'Any rye left?'],
+            includeRiskySteps: false
+        })
+        expect(api.getCheckHistory).not.toHaveBeenCalled()
+        renderer.unmount()
+    })
+})

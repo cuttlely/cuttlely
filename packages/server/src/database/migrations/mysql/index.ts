@@ -62,7 +62,8 @@ import { AddDatasetRowSource1795000000000 } from './1795000000000-AddDatasetRowS
 import { AddDatasetRowRating1796000000000 } from './1796000000000-AddDatasetRowRating'
 import { AddChatMessageFlowCreatedIndex1797000000000 } from './1797000000000-AddChatMessageFlowCreatedIndex'
 import { AddIdentityActionLinks1797000000000 } from './1797000000000-AddIdentityActionLinks'
-import { AddLocalDirectory1798000000000 } from './1798000000000-AddLocalDirectory'
+import { AddSessionSeen1798000000000 } from './1798000000000-AddSessionSeen'
+import { AddLocalDirectory1799000000000 } from './1799000000000-AddLocalDirectory'
 
 import { AddAuthTables1720230151482 } from './1720230151482-AddAuthTables'
 import { AddWorkspace1720230151484 } from './1720230151484-AddWorkspace'
@@ -152,5 +153,6 @@ export const mysqlMigrations = [
     AddDatasetRowRating1796000000000,
     AddChatMessageFlowCreatedIndex1797000000000,
     AddIdentityActionLinks1797000000000,
-    AddLocalDirectory1798000000000
+    AddSessionSeen1798000000000,
+    AddLocalDirectory1799000000000
 ]

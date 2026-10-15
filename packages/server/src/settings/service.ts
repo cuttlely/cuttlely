@@ -12,12 +12,13 @@ import {
     DATABASE_KEYS
 } from './database-summary'
 import { AUTHKIT_KEYS, authKitComplete, authKitEnvironment, authKitTested, readAuthKitProof } from './authkit-proof'
-import { HistoryEntry, appendHistory, describeChanges, readHistory } from './history'
+import { HistoryEntry, HistoryPage, appendHistory, decodeHistoryCursor, describeChanges, pageHistory, readHistory } from './history'
+import { SettingsBusyError, withSettingsLock } from './lock'
 import { listReadOnlyStatus } from './readOnly'
-import { KEPT_OUT, SECTIONS, SETTINGS, SettingDef, isKeptOut, isReadOnly, settingFor } from './registry'
+import { KEPT_OUT, SECTIONS, SETTINGS, SettingDef, isKeptOut, isReadOnly, savedValueWins, settingFor } from './registry'
 import { ResolvedSetting, effectiveValue, isBlank, resolveSettings } from './resolve'
 import { accountLinkSnapshot } from './accountLinks'
-import { runtimeConflict, runtimeSnapshot } from './runtime'
+import { invalidateRuntimeCache, runtimeConflict, runtimeSnapshot } from './runtime'
 import { requestRestart, restartInPlaceAvailable } from './restart'
 import { ROLLED_BACK_FILE } from './safeboot'
 import { drainRuns, runsInProgress, waitLimitMs } from './runs'
@@ -144,6 +145,12 @@ function publishedRange(setting: SettingDef, live: Map<string, { value: number }
     } else if (setting.key === 'CUTTLELY_RATING_SCAN_CAP') {
         const imported = live.get('CUTTLELY_RATING_IMPORT_CAP')
         if (imported) min = Math.max(min, imported.value)
+    } else if (setting.key === 'CUTTLELY_SESSION_IDLE_MINUTES') {
+        const absolute = live.get('CUTTLELY_SESSION_ABSOLUTE_HOURS')
+        if (absolute) max = Math.min(max, absolute.value * 60)
+    } else if (setting.key === 'CUTTLELY_SESSION_ABSOLUTE_HOURS') {
+        const idle = live.get('CUTTLELY_SESSION_IDLE_MINUTES')
+        if (idle) min = Math.max(min, Math.ceil(idle.value / 60))
     }
     return { min, max }
 }
@@ -167,7 +174,12 @@ export async function getView(deps: ServiceDeps): Promise<SettingsView> {
     const settings: SettingView[] = SETTINGS.map((setting, index) => {
         const row = resolved[index]
         const locked = row.source === 'host'
-        const view: SettingView = { ...setting, source: row.source, locked, changed: changed.includes(setting.key) }
+        const view: SettingView = {
+            ...setting,
+            source: row.source,
+            locked,
+            changed: setting.runtime ? false : changed.includes(setting.key)
+        }
         if (setting.type === 'secret') {
             view.secret = {
                 set: row.value !== '' || (read.unreadable.includes(setting.key) && !locked),
@@ -175,8 +187,8 @@ export async function getView(deps: ServiceDeps): Promise<SettingsView> {
             }
         } else {
             view.value = row.value
-            view.running = atStartResolved[index].value
             view.effective = effectiveValue(row)
+            view.running = atStartResolved[index].value
         }
         if (setting.envOnly) {
             const set = !isBlank(env[setting.key])
@@ -211,7 +223,7 @@ export async function getView(deps: ServiceDeps): Promise<SettingsView> {
                 const shown = picked.source === 'default' ? '' : String(picked.value)
                 view.source = picked.source
                 // Bounded is not a host value of this key, so the host lock applies only when this variable is set.
-                view.locked = hostKeys.has(setting.key) && !isBlank(env[setting.key])
+                view.locked = hostKeys.has(setting.key) && !isBlank(env[setting.key]) && !savedValueWins(setting.key)
                 if (picked.source === 'bounded' && picked.boundedBy) view.boundedBy = picked.boundedBy
                 view.changed = false
                 view.range = publishedRange(setting, live)
@@ -300,7 +312,7 @@ export function guidedOnly(setting: SettingDef): string | null {
     return null
 }
 
-export async function saveChanges(deps: ServiceDeps, input: unknown, by: string): Promise<SettingsView> {
+export async function saveChanges(deps: ServiceDeps, input: unknown, by: string, actorId?: string): Promise<SettingsView> {
     const changes = input && typeof input === 'object' ? (input as { values?: unknown }).values : undefined
     if (!changes || typeof changes !== 'object' || Array.isArray(changes)) {
         throw new SettingsError(400, 'BAD_REQUEST', 'Send the changed settings as values.')
@@ -322,7 +334,7 @@ export async function saveChanges(deps: ServiceDeps, input: unknown, by: string)
             errors.push({ key, code: 'READ_ONLY', message: 'This setting cannot be changed.' })
             continue
         }
-        if (hostKeys.has(key) && !setting.panelFirst) {
+        if (hostKeys.has(key) && !savedValueWins(key) && !setting.panelFirst) {
             errors.push({ key, message: `${setting.label} is set by the host, so it is locked here.` })
             continue
         }
@@ -346,7 +358,7 @@ export async function saveChanges(deps: ServiceDeps, input: unknown, by: string)
     if (conflict) {
         throw new SettingsError(400, conflict.code, conflict.reason, [{ key: conflict.key, message: conflict.reason }], conflict)
     }
-    return writeValues(deps, normalized, by, 'save')
+    return writeValues(deps, normalized, by, 'save', undefined, actorId)
 }
 
 function refuse(errors: { key: string; message: string; code?: string; min?: number; max?: number }[]): never {
@@ -372,7 +384,24 @@ export async function writeValues(
     normalized: Record<string, string>,
     by: string,
     kind: HistoryEntry['kind'],
-    note?: string
+    note?: string,
+    actorId?: string
+): Promise<SettingsView> {
+    try {
+        return await withSettingsLock(deps.state.dir, () => writeValuesLocked(deps, normalized, by, kind, note, actorId))
+    } catch (error) {
+        if (error instanceof SettingsBusyError) throw new SettingsError(503, 'BUSY', error.message)
+        throw error
+    }
+}
+
+async function writeValuesLocked(
+    deps: ServiceDeps,
+    normalized: Record<string, string>,
+    by: string,
+    kind: HistoryEntry['kind'],
+    note?: string,
+    actorId?: string
 ): Promise<SettingsView> {
     if (Object.keys(normalized).some((name) => isReadOnly(name))) {
         throw new SettingsError(400, 'READ_ONLY', 'This setting cannot be changed.')
@@ -383,22 +412,20 @@ export async function writeValues(
     if (read.exists && read.problems.some((problem) => /not valid JSON|version|no values/.test(problem))) {
         throw new SettingsError(409, 'FILE_DAMAGED', 'The settings file could not be read. Run pnpm settings restore on the server first.')
     }
+    const hostKeys = new Set(state.hostKeys)
     const next: Record<string, string> = { ...read.values }
     for (const [name, value] of Object.entries(normalized)) {
         if (value === '') delete next[name]
         else next[name] = value
     }
-    if (!hasWayIn(deps.env, new Set(state.hostKeys), next)) {
+    if (!hasWayIn(deps.env, hostKeys, next)) {
         throw new SettingsError(
             409,
             'NO_WAY_IN',
             'This would leave no way to sign in. Keep the password sign-in on, or finish setting up AuthKit first.'
         )
     }
-    if (
-        needsAuthKitTest(deps.env, new Set(state.hostKeys), read.values, next) &&
-        !authKitTested(state.dir, effectiveMap(deps.env, new Set(state.hostKeys), next), key)
-    ) {
+    if (needsAuthKitTest(deps.env, hostKeys, read.values, next) && !authKitTested(state.dir, effectiveMap(deps.env, hostKeys, next), key)) {
         throw new SettingsError(
             409,
             'AUTHKIT_NOT_TESTED',
@@ -413,27 +440,74 @@ export async function writeValues(
     for (const name of read.unreadable) if (name in normalized) before[name] = '(unreadable)'
     const changes = describeChanges(before, next)
     if (changes.length) {
+        const file = path.join(state.dir, SETTINGS_FILE)
+        const previousRaw = fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : null
         writeSettingsFile(state.dir, next, { key, by, preserve })
-        appendHistory(state.dir, { kind, by, changes, note, outcome: 'ok' })
+        invalidateRuntimeCache()
+        try {
+            appendHistory(state.dir, {
+                kind,
+                by,
+                actorId,
+                event: kind === 'save' ? 'server_setting.updated' : undefined,
+                changes,
+                note,
+                outcome: 'ok'
+            })
+        } catch {
+            restoreSettingsFile(state.dir, previousRaw)
+            invalidateRuntimeCache()
+            throw new SettingsError(500, 'HISTORY_FAILED', 'The change was not kept because the history could not be recorded.')
+        }
     }
     return getView(deps)
 }
 
+function restoreSettingsFile(dir: string, previousRaw: string | null): void {
+    const file = path.join(dir, SETTINGS_FILE)
+    if (previousRaw === null) fs.rmSync(file, { force: true })
+    else writeFileAtomic(dir, SETTINGS_FILE, previousRaw)
+}
+
 /** Puts the file back the way it was when the server started. */
-export async function discardChanges(deps: ServiceDeps, by: string): Promise<SettingsView> {
-    const { state } = deps
-    const key = await deps.key()
-    const before = readSettingsFile(state.dir, key).values
-    const file = path.join(state.dir, SETTINGS_FILE)
-    if (state.rawAtStart === null || state.rawAtStart === undefined) fs.rmSync(file, { force: true })
-    else writeFileAtomic(state.dir, SETTINGS_FILE, state.rawAtStart)
-    const changes = describeChanges(before, state.atStart)
-    if (changes.length) appendHistory(state.dir, { kind: 'discard', by, changes, outcome: 'ok' })
-    return getView(deps)
+export async function discardChanges(deps: ServiceDeps, by: string, actorId?: string): Promise<SettingsView> {
+    try {
+        return await withSettingsLock(deps.state.dir, async () => {
+            const { state } = deps
+            const key = await deps.key()
+            const before = readSettingsFile(state.dir, key).values
+            const file = path.join(state.dir, SETTINGS_FILE)
+            const previousRaw = fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : null
+            if (state.rawAtStart === null || state.rawAtStart === undefined) fs.rmSync(file, { force: true })
+            else writeFileAtomic(state.dir, SETTINGS_FILE, state.rawAtStart)
+            const changes = describeChanges(before, state.atStart)
+            invalidateRuntimeCache()
+            try {
+                if (changes.length) appendHistory(state.dir, { kind: 'discard', by, actorId, changes, outcome: 'ok' })
+            } catch {
+                restoreSettingsFile(state.dir, previousRaw)
+                invalidateRuntimeCache()
+                throw new SettingsError(500, 'HISTORY_FAILED', 'The change was not kept because the history could not be recorded.')
+            }
+            return getView(deps)
+        })
+    } catch (error) {
+        if (error instanceof SettingsBusyError) throw new SettingsError(503, 'BUSY', error.message)
+        throw error
+    }
 }
 
 /** Try it again: puts back the settings safe boot set aside, to apply at the next restart. */
-export async function retryRolledBack(deps: ServiceDeps, by: string): Promise<SettingsView> {
+export async function retryRolledBack(deps: ServiceDeps, by: string, actorId?: string): Promise<SettingsView> {
+    try {
+        return await withSettingsLock(deps.state.dir, () => retryRolledBackLocked(deps, by, actorId))
+    } catch (error) {
+        if (error instanceof SettingsBusyError) throw new SettingsError(503, 'BUSY', error.message)
+        throw error
+    }
+}
+
+async function retryRolledBackLocked(deps: ServiceDeps, by: string, actorId?: string): Promise<SettingsView> {
     const { state } = deps
     const kept = path.join(state.dir, ROLLED_BACK_FILE)
     if (!fs.existsSync(kept)) throw new SettingsError(404, 'NOTHING_TO_RETRY', 'There are no set-aside settings to try again.')
@@ -450,19 +524,55 @@ export async function retryRolledBack(deps: ServiceDeps, by: string): Promise<Se
         else writeFileAtomic(state.dir, SETTINGS_FILE, current)
         throw new SettingsError(409, 'FILE_DAMAGED', 'The set-aside settings could not be read, so nothing changed.')
     }
+    invalidateRuntimeCache()
+    try {
+        appendHistory(state.dir, {
+            kind: 'restore',
+            by,
+            actorId,
+            changes: describeChanges(before, after.values),
+            note: 'Put back the settings that did not start, to try them again at the next restart.',
+            outcome: 'ok'
+        })
+    } catch {
+        restoreSettingsFile(state.dir, current)
+        invalidateRuntimeCache()
+        throw new SettingsError(500, 'HISTORY_FAILED', 'The change was not kept because the history could not be recorded.')
+    }
     fs.rmSync(kept, { force: true })
-    appendHistory(state.dir, {
-        kind: 'restore',
-        by,
-        changes: describeChanges(before, after.values),
-        note: 'Put back the settings that did not start, to try them again at the next restart.',
-        outcome: 'ok'
-    })
     return getView(deps)
 }
 
 export function listHistory(deps: ServiceDeps, limit: number): HistoryEntry[] {
     return readHistory(deps.state.dir, Math.max(1, Math.min(500, Number.isFinite(limit) ? limit : 100)))
+}
+
+function oneQuery(value: unknown, name: string): string | undefined {
+    if (value === undefined) return undefined
+    if (typeof value === 'string') return value
+    throw new SettingsError(400, 'INVALID', `${name} must be a single value.`)
+}
+
+/** Newest first. Owner only. Default 50, at most 100. A limit above 100 is capped. */
+export function historyPage(deps: ServiceDeps, limitRaw: unknown, cursorRaw: unknown): HistoryPage {
+    const limitText = oneQuery(limitRaw, 'limit')
+    const cursorText = oneQuery(cursorRaw, 'cursor')
+    let limit = 50
+    if (limitText !== undefined && limitText !== '') {
+        if (!/^\d+$/.test(limitText)) throw new SettingsError(400, 'INVALID', 'limit must be a whole number from 1 to 100.')
+        const parsed = Number(limitText)
+        if (parsed < 1) throw new SettingsError(400, 'INVALID', 'limit must be a whole number from 1 to 100.')
+        limit = Math.min(parsed, 100)
+    }
+    let cursor: number | null = null
+    if (cursorText) {
+        try {
+            cursor = decodeHistoryCursor(cursorText)
+        } catch {
+            throw new SettingsError(400, 'INVALID_CURSOR', 'The cursor is not valid.')
+        }
+    }
+    return pageHistory(deps.state.dir, { limit, cursor })
 }
 
 export interface RestartAnswer {
@@ -477,7 +587,11 @@ export interface RestartAnswer {
  * Restarts in place when the start script can, else answers with the steps. wait: let runs in progress finish first,
  * up to the turn time limit; new runs are turned away meanwhile.
  */
-export async function restartNow(deps: ServiceDeps, by: string, options: { wait?: boolean } = {}): Promise<RestartAnswer> {
+export async function restartNow(
+    deps: ServiceDeps,
+    by: string,
+    options: { wait?: boolean; actorId?: string } = {}
+): Promise<RestartAnswer> {
     const view = await getView(deps)
     if (!view.restart.inPlace) return { restarting: false, steps: view.restart.steps }
     const waitingFor = options.wait ? runsInProgress() : 0
@@ -486,6 +600,7 @@ export async function restartNow(deps: ServiceDeps, by: string, options: { wait?
     appendHistory(deps.state.dir, {
         kind: 'restart',
         by,
+        actorId: options.actorId,
         note:
             (changed ? `Restarted to apply ${changed} change(s).` : 'Restarted.') +
             (waitingFor ? ` Let ${waitingFor} run(s) in progress finish first (up to ${Math.round(limit / 1000)} s).` : ''),

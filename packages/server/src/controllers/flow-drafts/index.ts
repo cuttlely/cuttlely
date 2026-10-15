@@ -6,7 +6,7 @@ import chatflowsService from '../../services/chatflows'
 import flowDraftsService, { redactDraftStatus } from '../../services/flow-drafts'
 import flowCheckService from '../../services/flow-check'
 import { listQuestionHistory } from '../../services/flow-check/history'
-import { BadQuestionIdsError } from '../../services/flow-check/question-ids-error'
+import { BadQuestionIdsError, CheckRuleError, questionIdFailureMessage } from '../../services/flow-check/question-ids-error'
 import flowVersionsService from '../../services/flow-versions'
 import { actorFromUser } from '../../services/flow-versions/author'
 import { hasAnyPermission } from '../../identity/rbac'
@@ -201,12 +201,18 @@ function historyCaller(req: Request): string {
 }
 
 // Past questions a caller can hand to the check. Reading them needs the same view permission as this flow's messages.
+// The body is stored question text, so a 200 is not stored by the browser either.
 const getCheckHistory = async (req: Request, res: Response, next: NextFunction) => {
-    res.setHeader('Cache-Control', 'no-store')
     try {
         const flow = await flowFor(req, 'view')
-        return res.json(await listQuestionHistory(flow, req.query, historyCaller(req)))
+        const history = await listQuestionHistory(flow, req.query, historyCaller(req))
+        res.setHeader('Cache-Control', 'no-store')
+        return res.status(StatusCodes.OK).json(history)
     } catch (error) {
+        res.setHeader('Cache-Control', 'no-store')
+        if (error instanceof CheckRuleError) {
+            return res.status(error.statusCode).json({ code: error.code, message: error.message })
+        }
         next(error)
     }
 }
@@ -331,7 +337,16 @@ const startCheck = async (req: Request, res: Response, next: NextFunction) => {
         detach()
         if (error instanceof BadQuestionIdsError) {
             res.setHeader('Cache-Control', 'no-store')
-            return res.status(StatusCodes.BAD_REQUEST).json({ code: error.code, badCount: error.badCount })
+            return res.status(StatusCodes.BAD_REQUEST).json({
+                code: error.code,
+                message: questionIdFailureMessage(error.errors, error.badCount),
+                badCount: error.badCount,
+                errors: error.errors
+            })
+        }
+        if (error instanceof CheckRuleError) {
+            res.setHeader('Cache-Control', 'no-store')
+            return res.status(error.statusCode).json({ code: error.code, message: error.message })
         }
         next(error)
     }

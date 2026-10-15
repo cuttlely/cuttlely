@@ -15,7 +15,8 @@
  */
 
 import { createHmac } from 'crypto'
-import { LOGIN_FAILURE_LIMIT, LOGIN_FAILURE_WINDOW_MS } from './constants'
+import { LOGIN_FAILURE_WINDOW_MS } from './constants'
+import { runtimeNumber } from '../settings/runtime'
 import { authSecret } from './authSecrets'
 
 /**
@@ -57,16 +58,20 @@ export class LoginRateLimit implements LoginLimiter {
     private rows: FailureRow[] = []
 
     constructor(
-        private readonly limit = LOGIN_FAILURE_LIMIT,
+        private readonly limit: number | (() => number) = () => runtimeNumber('CUTTLELY_LOGIN_FAILURE_LIMIT'),
         private readonly windowMs = LOGIN_FAILURE_WINDOW_MS,
         private readonly accountCap = ACCOUNT_LOCK_CAP
     ) {}
 
+    private cap(): number {
+        return typeof this.limit === 'function' ? this.limit() : this.limit
+    }
+
     async blocked(ip: string, account: string, now: number): Promise<boolean> {
         this.prune(now)
-        if (this.count('ip', ip, now) >= this.limit) return true
+        if (this.count('ip', ip, now) >= this.cap()) return true
         const key = accountLockKey(account)
-        return key !== '' && this.count('account', key, now) >= this.limit
+        return key !== '' && this.count('account', key, now) >= this.cap()
     }
 
     async recordFailure(ip: string, account: string, now: number): Promise<void> {

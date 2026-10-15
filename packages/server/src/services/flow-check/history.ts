@@ -14,7 +14,7 @@ class HistoryError extends Error {
 import { compareCountMax, normalizeAnswer } from './compare'
 import { triggerStart } from './kinds'
 import flowDraftsService from '../flow-drafts'
-import { BadQuestionIdsError } from './question-ids-error'
+import { BadQuestionIdsError, CheckRuleError, type QuestionIdReason } from './question-ids-error'
 
 // The same character cap the check uses for a question it will run.
 export const MAX_QUESTION_CHARS = 2000
@@ -27,9 +27,16 @@ export const HISTORY_SCAN_CAP = 2000
 export const HISTORY_SOURCES = ['chat', 'api'] as const
 export type HistorySource = (typeof HISTORY_SOURCES)[number]
 
-const CHAT_INTERNAL = 'INTERNAL'
-const CHAT_EXTERNAL = 'EXTERNAL'
-const CHAT_TYPES = [CHAT_EXTERNAL, CHAT_INTERNAL]
+// Canvas chat is INTERNAL. An API prediction, an embed, and a shared link are EXTERNAL.
+const SOURCE_CHAT_TYPE: Record<HistorySource, string> = {
+    chat: 'INTERNAL',
+    api: 'EXTERNAL'
+}
+const CHAT_TYPE_SOURCE: Record<string, HistorySource> = {
+    INTERNAL: 'chat',
+    EXTERNAL: 'api'
+}
+const CHAT_TYPES = Object.keys(CHAT_TYPE_SOURCE)
 const USER_ROLE = 'userMessage'
 
 export interface HistoryRow {
@@ -62,6 +69,8 @@ interface CursorBinding {
     flowId: string
     qHash: string
     source: string
+    from: string
+    to: string
 }
 
 interface CursorPosition extends CursorBinding {
@@ -154,17 +163,43 @@ export function parseHistorySource(input: unknown): HistorySource | null {
     if (input === undefined || input === null || input === '') return null
     const text = oneQueryValue(input)
     if (!text || !HISTORY_SOURCES.includes(text as HistorySource)) {
-        throw new HistoryError(StatusCodes.BAD_REQUEST, 'source must be chat or api.')
+        throw new CheckRuleError('HISTORY_BAD_SOURCE', 'source must be chat or api.')
     }
     return text as HistorySource
 }
 
+const UTC_DAY = /^(\d{4})-(\d{2})-(\d{2})$/
+
+// A calendar date in UTC. Anything with a time or a zone is refused, so the bound is not guessed.
+export function parseHistoryDay(input: unknown, name: 'from' | 'to'): string {
+    if (input === undefined || input === null || input === '') return ''
+    if (typeof input !== 'string' || Array.isArray(input)) {
+        throw new CheckRuleError('HISTORY_BAD_DATE', `${name} must be a UTC date (YYYY-MM-DD).`)
+    }
+    const match = UTC_DAY.exec(input)
+    if (!match) throw new CheckRuleError('HISTORY_BAD_DATE', `${name} must be a UTC date (YYYY-MM-DD).`)
+    const year = Number(match[1])
+    const month = Number(match[2])
+    const day = Number(match[3])
+    const utc = new Date(Date.UTC(year, month - 1, day))
+    if (utc.getUTCFullYear() !== year || utc.getUTCMonth() !== month - 1 || utc.getUTCDate() !== day) {
+        throw new CheckRuleError('HISTORY_BAD_DATE', `${name} must be a UTC date (YYYY-MM-DD).`)
+    }
+    return input
+}
+
+export function historyDayBounds(from: string, to: string): { start: number | null; end: number | null } {
+    if (from && to && from > to) throw new CheckRuleError('HISTORY_BAD_DATE', 'from is after to.')
+    const start = from ? Date.parse(`${from}T00:00:00.000Z`) : null
+    const end = to ? Date.parse(`${to}T23:59:59.999Z`) : null
+    return { start, end }
+}
+
 // Canvas chat is INTERNAL and is reported as chat.
-// Any prediction, including an embed or a shared link, is EXTERNAL and is reported as api.
+// An API prediction, an embed, and a shared link are EXTERNAL and are reported as api.
 export function messageSource(chatType: string | null | undefined): HistorySource | null {
-    if (chatType === CHAT_INTERNAL) return 'chat'
-    if (chatType === CHAT_EXTERNAL) return 'api'
-    return null
+    if (!chatType) return null
+    return CHAT_TYPE_SOURCE[chatType] || null
 }
 
 export function questionIdPrefix(
@@ -190,7 +225,7 @@ function hasFiles(fileUploads: string | null | undefined): boolean {
 function inCorpus(row: HistoryRow): boolean {
     if (row.role && row.role !== USER_ROLE) return false
     if (!row.role) return false
-    return row.chatType === CHAT_INTERNAL || row.chatType === CHAT_EXTERNAL
+    return Boolean(messageSource(row.chatType))
 }
 
 function belongsToFlow(row: HistoryRow, flowId: string): boolean {
@@ -220,9 +255,23 @@ interface DistinctRow {
     source: HistorySource
 }
 
-function distinctRows(rows: HistoryRow[], source: HistorySource | null, q: string, flowId: string): DistinctRow[] {
+function inDates(row: HistoryRow, start: number | null, end: number | null): boolean {
+    const time = timeOf(row.createdDate)
+    if (start !== null && time < start) return false
+    if (end !== null && time > end) return false
+    return true
+}
+
+function distinctRows(
+    rows: HistoryRow[],
+    source: HistorySource | null,
+    q: string,
+    flowId: string,
+    start: number | null,
+    end: number | null
+): DistinctRow[] {
     const eligible = sortNewest(rows).filter((row) => {
-        if (!belongsToFlow(row, flowId) || !inCorpus(row) || !matchesQuery(row, q)) return false
+        if (!belongsToFlow(row, flowId) || !inCorpus(row) || !matchesQuery(row, q) || !inDates(row, start, end)) return false
         const listed = messageSource(row.chatType)
         return Boolean(listed) && (!source || listed === source)
     })
@@ -291,6 +340,8 @@ function readCursor(token: string, binding: CursorBinding): CursorPosition {
         typeof parsed.qHash !== 'string' ||
         parsed.qHash !== binding.qHash ||
         parsed.source !== binding.source ||
+        parsed.from !== binding.from ||
+        parsed.to !== binding.to ||
         typeof parsed.createdDate !== 'string' ||
         typeof parsed.id !== 'string'
     ) {
@@ -306,7 +357,7 @@ function olderThan(entry: DistinctRow, cursor: CursorPosition): boolean {
     return entry.row.id < cursor.id
 }
 
-async function queryScan(flowId: string, q: string, source: HistorySource | null): Promise<HistoryRow[]> {
+async function queryScan(flowId: string, q: string, source: HistorySource | null, from: string, to: string): Promise<HistoryRow[]> {
     const repo = chatRepository()
     const driver = String(repo.manager?.connection?.options?.type || 'sqlite')
     const qb = repo
@@ -314,17 +365,17 @@ async function queryScan(flowId: string, q: string, source: HistorySource | null
         .select(['m.id', 'm.content', 'm.createdDate', 'm.fileUploads', 'm.chatType', 'm.role', 'm.chatflowid'])
         .where('m.chatflowid = :flowId', { flowId })
         .andWhere('m.role = :role', { role: USER_ROLE })
-        .andWhere('m.chatType IN (:...types)', { types: CHAT_TYPES })
-    if (source === 'chat') qb.andWhere('m.chatType = :chatType', { chatType: CHAT_INTERNAL })
-    else if (source === 'api') qb.andWhere('m.chatType = :chatType', { chatType: CHAT_EXTERNAL })
+        .andWhere('m.chatType IN (:...types)', { types: source ? [SOURCE_CHAT_TYPE[source]] : CHAT_TYPES })
+    if (from) qb.andWhere('m.createdDate >= :fromAt', { fromAt: new Date(`${from}T00:00:00.000Z`) })
+    if (to) qb.andWhere('m.createdDate <= :toAt', { toAt: new Date(`${to}T23:59:59.999Z`) })
     if (q) qb.andWhere(`LOWER(m.content) LIKE :needle ${likeEscapeClause(driver)}`, { needle: likeContainsPattern(q) })
     qb.orderBy('m.createdDate', 'DESC').addOrderBy('m.id', 'DESC').take(HISTORY_SCAN_CAP)
     return qb.getMany()
 }
 
-async function scanRows(flowId: string, q: string, source: HistorySource | null): Promise<HistoryRow[]> {
+async function scanRows(flowId: string, q: string, source: HistorySource | null, from: string, to: string): Promise<HistoryRow[]> {
     if (historyHooks.loadUserMessages) return historyHooks.loadUserMessages(flowId)
-    return queryScan(flowId, q, source)
+    return queryScan(flowId, q, source, from, to)
 }
 
 async function canvasesFor(flow: FlowRef): Promise<Array<string | null | undefined>> {
@@ -346,6 +397,8 @@ function rejectBracketQueryKeys(query: object): void {
         const name = decodedQueryName(key)
         if (name.startsWith('q[')) throw new HistoryError(StatusCodes.BAD_REQUEST, 'q must be text.')
         if (name.startsWith('cursor[')) throw new HistoryError(StatusCodes.BAD_REQUEST, 'cursor must be text.')
+        if (name.startsWith('from[')) throw new CheckRuleError('HISTORY_BAD_DATE', 'from must be a UTC date (YYYY-MM-DD).')
+        if (name.startsWith('to[')) throw new CheckRuleError('HISTORY_BAD_DATE', 'to must be a UTC date (YYYY-MM-DD).')
     }
 }
 
@@ -358,6 +411,9 @@ export async function listQuestionHistory(
     const limit = parseHistoryLimit(query.limit)
     const q = parseHistoryQuery(query.q)
     const source = parseHistorySource(query.source)
+    const from = parseHistoryDay(query.from, 'from')
+    const to = parseHistoryDay(query.to, 'to')
+    const bounds = historyDayBounds(from, to)
     const canvases = await canvasesFor(flow)
     const prefix = questionIdPrefix(flow.type, canvases)
     if (prefix === 'exec' || prefix === 'turn') {
@@ -371,7 +427,9 @@ export async function listQuestionHistory(
         workspaceId: String(flow.workspaceId || ''),
         flowId: flow.id,
         qHash: hashQuery(q),
-        source: source || ''
+        source: source || '',
+        from,
+        to
     }
     let cursor: CursorPosition | null = null
     if (query.cursor !== undefined && query.cursor !== null && query.cursor !== '') {
@@ -379,8 +437,8 @@ export async function listQuestionHistory(
         if (!token) throw new HistoryError(StatusCodes.BAD_REQUEST, 'That page cursor does not match this request.')
         cursor = readCursor(token, binding)
     }
-    const rows = await scanRows(flow.id, q, source)
-    const distinct = distinctRows(rows, source, q, flow.id)
+    const rows = await scanRows(flow.id, q, source, from, to)
+    const distinct = distinctRows(rows, source, q, flow.id, bounds.start, bounds.end)
     const page = cursor ? distinct.filter((entry) => olderThan(entry, cursor)) : distinct
     const items = page.slice(0, limit).map(toItem)
     const more = page.length > limit
@@ -405,16 +463,16 @@ function entityId(value: string): boolean {
 }
 
 export function parseQuestionIds(input: unknown): string[] {
-    if (!Array.isArray(input)) throw new HistoryError(StatusCodes.BAD_REQUEST, 'questionIds must be a list of ids.')
+    if (!Array.isArray(input)) throw new CheckRuleError('CHECK_QUESTION_IDS_SHAPE', 'questionIds must be a list of ids.')
     const cap = compareCountMax()
     if (input.length < 1 || input.length > cap) {
-        throw new HistoryError(StatusCodes.BAD_REQUEST, `questionIds must list 1 to ${cap} ids.`)
+        throw new CheckRuleError('CHECK_QUESTION_IDS_RANGE', `questionIds must list 1 to ${cap} ids.`)
     }
     if (input.some((id) => typeof id !== 'string' || !id.trim())) {
-        throw new HistoryError(StatusCodes.BAD_REQUEST, 'questionIds must be a list of ids.')
+        throw new CheckRuleError('CHECK_QUESTION_IDS_SHAPE', 'questionIds must be a list of ids.')
     }
     const ids = input.map((id) => (id as string).trim())
-    if (new Set(ids).size !== ids.length) throw new HistoryError(StatusCodes.BAD_REQUEST, 'questionIds must be unique.')
+    if (new Set(ids).size !== ids.length) throw new CheckRuleError('CHECK_QUESTION_IDS_DUPLICATE', 'questionIds must be unique.')
     return ids
 }
 
@@ -492,24 +550,41 @@ export async function resolveChatQuestionIds(
 ): Promise<{ questions: string[]; skipped: { count: number; ids: string[] } }> {
     const ids = parseQuestionIds(questionIds)
     const parsed = ids.map(parseId)
-    const badShape = parsed.filter((item) => !item || item.prefix !== 'chat').length
+    const errors: { index: number; reason: QuestionIdReason }[] = []
     const seenIds = new Set<string>()
     const chatIds: ParsedId[] = []
-    for (const item of parsed) {
-        if (!item || item.prefix !== 'chat' || seenIds.has(item.messageId)) continue
+    parsed.forEach((item, index) => {
+        if (!item || item.prefix !== 'chat') {
+            errors.push({ index, reason: 'invalid' })
+            return
+        }
+        if (seenIds.has(item.messageId)) {
+            throw new CheckRuleError('CHECK_QUESTION_IDS_DUPLICATE', 'questionIds must be unique.')
+        }
         seenIds.add(item.messageId)
         chatIds.push(item)
-    }
+    })
     const first = await rowsById(
         flowId,
         chatIds.map((item) => item.messageId)
     )
-    let bad = badShape
-    for (const item of chatIds) {
+    chatIds.forEach((item) => {
+        const index = parsed.findIndex((candidate) => candidate?.messageId === item.messageId && candidate.prefix === 'chat')
         const row = first.get(item.messageId)
-        if (!row || !replayText(row).replayable) bad += 1
-    }
-    if (bad > 0) throw new BadQuestionIdsError(bad)
+        if (!row) {
+            errors.push({ index, reason: 'not-found' })
+            return
+        }
+        const text = String(row.content ?? '').trim()
+        if (hasFiles(row.fileUploads)) {
+            errors.push({ index, reason: 'files' })
+            return
+        }
+        if (!text || text.length > MAX_QUESTION_CHARS) {
+            errors.push({ index, reason: 'length' })
+        }
+    })
+    if (errors.length > 0) throw new BadQuestionIdsError(errors.length, errors)
     const second = await rowsById(
         flowId,
         chatIds.map((item) => item.messageId)
@@ -528,7 +603,7 @@ export async function resolveChatQuestionIds(
     const questions = dedupeQuestionTexts([...fromIds, ...typed])
     const cap = compareCountMax()
     if (questions.length > cap) {
-        throw new HistoryError(StatusCodes.BAD_REQUEST, `The check runs at most ${cap} questions.`)
+        throw new CheckRuleError('CHECK_QUESTION_CAP', `The check runs at most ${cap} questions.`)
     }
     if (!questions.length) {
         throw new HistoryError(StatusCodes.BAD_REQUEST, 'No past questions to compare. Add a question to check.')

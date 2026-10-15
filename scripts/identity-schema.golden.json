@@ -1269,6 +1269,13 @@
                     "pk": 0
                 },
                 {
+                    "name": "lastSeenAt",
+                    "type": "datetime",
+                    "nullable": true,
+                    "default": null,
+                    "pk": 0
+                },
+                {
                     "name": "permissionVersion",
                     "type": "INTEGER",
                     "nullable": false,
@@ -4645,6 +4652,12 @@
                     "type": "timestamp",
                     "nullable": false,
                     "default": "CURRENT_TIMESTAMP"
+                },
+                {
+                    "name": "lastSeenAt",
+                    "type": "timestamp",
+                    "nullable": true,
+                    "default": null
                 },
                 {
                     "name": "permissionVersion",
@@ -8048,6 +8061,14 @@
                     "type": "datetime",
                     "nullable": false,
                     "default": "current_timestamp()",
+                    "extra": "",
+                    "collation": null
+                },
+                {
+                    "name": "lastSeenAt",
+                    "type": "datetime",
+                    "nullable": true,
+                    "default": null,
                     "extra": "",
                     "collation": null
                 },
@@ -12031,6 +12052,14 @@
                     "nullable": false,
                     "default": "CURRENT_TIMESTAMP",
                     "extra": "DEFAULT_GENERATED",
+                    "collation": null
+                },
+                {
+                    "name": "lastSeenAt",
+                    "type": "datetime",
+                    "nullable": true,
+                    "default": null,
+                    "extra": "",
                     "collation": null
                 },
                 {

@@ -17,6 +17,8 @@ const rollback = (chatflowId, sha) => client.post(`${path(chatflowId)}/rollback`
 
 const getCheckSetup = (chatflowId) => client.get(`${path(chatflowId)}/check`)
 
+const getCheckHistory = (chatflowId, params) => client.get(`${path(chatflowId)}/check/history`, { params })
+
 const startCheck = (chatflowId, questionsOrBody, includeRiskySteps = false) => {
     const body =
         questionsOrBody && typeof questionsOrBody === 'object' && !Array.isArray(questionsOrBody)
@@ -37,6 +39,7 @@ export default {
     publish,
     rollback,
     getCheckSetup,
+    getCheckHistory,
     startCheck,
     getCheck,
     stopCheck

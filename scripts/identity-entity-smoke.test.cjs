@@ -340,7 +340,8 @@ describe('identity postgres schema', () => {
                     'AddDatasetRowRating1796000000000',
                     'AddChatMessageFlowCreatedIndex1797000000000',
                     'AddIdentityActionLinks1797000000000',
-                    'AddLocalDirectory1798000000000'
+                    'AddSessionSeen1798000000000',
+                    'AddLocalDirectory1799000000000'
                 ]
             )
             assert.equal((await dataSource.runMigrations()).length, 0)
@@ -446,7 +447,8 @@ describe('identity mariadb schema', () => {
                     'AddDatasetRowRating1796000000000',
                     'AddChatMessageFlowCreatedIndex1797000000000',
                     'AddIdentityActionLinks1797000000000',
-                    'AddLocalDirectory1798000000000'
+                    'AddSessionSeen1798000000000',
+                    'AddLocalDirectory1799000000000'
                 ]
             )
             assert.equal((await dataSource.runMigrations()).length, 0)
@@ -631,7 +633,8 @@ describe('identity mysql 8 schema', () => {
                     'AddDatasetRowRating1796000000000',
                     'AddChatMessageFlowCreatedIndex1797000000000',
                     'AddIdentityActionLinks1797000000000',
-                    'AddLocalDirectory1798000000000'
+                    'AddSessionSeen1798000000000',
+                    'AddLocalDirectory1799000000000'
                 ]
             )
             assert.equal((await dataSource.runMigrations()).length, 0)
@@ -683,7 +686,8 @@ describe('identity sqlite upgrade', () => {
                     'AddDatasetRowRating1796000000000',
                     'AddChatMessageFlowCreatedIndex1797000000000',
                     'AddIdentityActionLinks1797000000000',
-                    'AddLocalDirectory1798000000000'
+                    'AddSessionSeen1798000000000',
+                    'AddLocalDirectory1799000000000'
                 ]
             )
             assert.equal((await dataSource.runMigrations()).length, 0)

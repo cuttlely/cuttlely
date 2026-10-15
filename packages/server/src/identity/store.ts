@@ -31,7 +31,7 @@ export interface IdentityStore {
     touchLastLogin(userId: string, workspaceId: string | null, at: Date): Promise<void>
     insertLocalSession(row: LocalSession): Promise<void>
     findLocalSession(token: string): Promise<LocalSession | null>
-    slideLocalSession(token: string, idleExpires: Date): Promise<void>
+    slideLocalSession(token: string, idleExpires: Date, lastSeenAt?: Date): Promise<void>
     deleteLocalSession(token: string): Promise<void>
     /** Removes every local session for this user. Holds across restarts because the rows are in the database. */
     deleteLocalSessionsForUser(userId: string): Promise<void>

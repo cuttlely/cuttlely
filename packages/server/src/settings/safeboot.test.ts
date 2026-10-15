@@ -1,3 +1,4 @@
+import { spawn } from 'child_process'
 import fs from 'fs'
 import os from 'os'
 import path from 'path'
@@ -24,8 +25,8 @@ describe('history', () => {
             { LOG_LEVEL: 'debug', CUTTLELY_POSTGRES_URL: SECRET, DATABASE_PASSWORD: 'pw-made-up' }
         )
         expect(changes).toEqual([
-            { key: 'CUTTLELY_POSTGRES_URL', secret: 'replaced' },
-            { key: 'DATABASE_PASSWORD', secret: 'set' },
+            { key: 'CUTTLELY_POSTGRES_URL', secret: 'changed' },
+            { key: 'DATABASE_PASSWORD', secret: 'changed' },
             { key: 'LOG_LEVEL', from: 'info', to: 'debug' }
         ])
         const { dir } = data()
@@ -69,7 +70,7 @@ describe('safe boot', () => {
         const [entry] = readHistory(dir)
         expect(entry.kind).toBe('rollback')
         expect(entry.changes).toEqual([
-            { key: 'CUTTLELY_POSTGRES_URL', secret: 'removed' },
+            { key: 'CUTTLELY_POSTGRES_URL', secret: 'changed' },
             { key: 'LOG_LEVEL', from: 'debug', to: 'info' }
         ])
         expect(readBootState(dir).pending).toBe(1)
@@ -214,6 +215,13 @@ describe('pnpm settings', () => {
         expect(runSettingsCli(['unset'], { CUTTLELY_DATA_DIR: root }).code).toBe(2)
     })
 
+    it('removes two settings that are unset at the same time', async () => {
+        const { data: root, dir } = data()
+        writeSettingsFile(dir, { LOG_LEVEL: 'debug', CUTTLELY_VERSIONS: 'off' }, { key: KEY })
+        await Promise.all([unsetInChild(root, 'LOG_LEVEL'), unsetInChild(root, 'CUTTLELY_VERSIONS')])
+        expect(readSettingsFile(dir, KEY).values).toEqual({})
+    })
+
     it('restores the last settings that started', () => {
         const { data: root, dir } = data()
         const env = { CUTTLELY_DATA_DIR: root, FLOWISE_SECRETKEY_OVERWRITE: KEY }
@@ -287,6 +295,27 @@ describe('pnpm settings', () => {
         expect(restart.lines[0]).toMatch(/next time Cuttlely starts/)
     })
 })
+
+function unsetInChild(dataDir: string, name: string): Promise<void> {
+    const cliFile = path.join(__dirname, 'cli.ts')
+    const code = `
+        require('ts-node').register({ transpileOnly: true, skipProject: true, compilerOptions: { module: 'commonjs', esModuleInterop: true, target: 'ES2022' } })
+        const { runSettingsCli } = require(${JSON.stringify(cliFile)})
+        const result = runSettingsCli(['unset', process.argv[1]], { CUTTLELY_DATA_DIR: process.argv[2] })
+        if (result.code !== 0) throw new Error(result.lines.join('\\n'))
+    `
+    return new Promise((resolve, reject) => {
+        const child = spawn(process.execPath, ['-e', code, name, dataDir], { cwd: path.resolve(__dirname, '../..') })
+        let err = ''
+        child.stderr.on('data', (chunk) => {
+            err += String(chunk)
+        })
+        child.on('exit', (status) => {
+            if (status === 0) resolve()
+            else reject(new Error(err || `unset exited ${status}`))
+        })
+    })
+}
 
 describe('restart in place', () => {
     it('is available only under the start script, and runs the handler once', async () => {

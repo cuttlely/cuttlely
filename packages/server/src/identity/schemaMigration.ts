@@ -138,6 +138,44 @@ export async function addIdentitySignIn(runner: QueryRunner): Promise<void> {
             )
         }
     }
+    await addSessionSeenColumn(runner)
+}
+
+/** Last activity for a local session, so a shorter idle lifetime can be applied to a session that already exists. */
+export async function addSessionSeenColumn(runner: QueryRunner): Promise<void> {
+    const dialect = dialectOf(runner)
+    if (!(await sessionsExist(runner, dialect))) return
+    if (await sessionHasColumn(runner, dialect, 'lastSeenAt')) return
+    const time = dialect === 'postgres' ? 'TIMESTAMP' : 'datetime'
+    await runner.query(`ALTER TABLE ${q(dialect, 'identity_local_session')} ADD COLUMN ${q(dialect, 'lastSeenAt')} ${time}`)
+}
+
+async function sessionHasColumn(runner: QueryRunner, dialect: Dialect, column: string): Promise<boolean> {
+    if (dialect === 'sqlite') {
+        const list = await rows(runner, `PRAGMA table_info(${q(dialect, 'identity_local_session')})`)
+        return hasName(list, column)
+    }
+    if (dialect === 'postgres') {
+        const list = await rows(
+            runner,
+            `SELECT column_name AS name FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = 'identity_local_session' AND column_name = ?`,
+            [column]
+        )
+        return list.length > 0
+    }
+    const list = await rows(
+        runner,
+        `SELECT COLUMN_NAME AS name FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'identity_local_session' AND COLUMN_NAME = ?`,
+        [column]
+    )
+    return list.length > 0
+}
+
+export async function dropSessionSeenColumn(runner: QueryRunner): Promise<void> {
+    const dialect = dialectOf(runner)
+    if (!(await sessionsExist(runner, dialect))) return
+    if (!(await sessionHasColumn(runner, dialect, 'lastSeenAt'))) return
+    await runner.query(`ALTER TABLE ${q(dialect, 'identity_local_session')} DROP COLUMN ${q(dialect, 'lastSeenAt')}`)
 }
 
 export async function addIdentityLoginGuards(runner: QueryRunner): Promise<void> {

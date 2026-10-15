@@ -10,7 +10,7 @@
 import { MigrationInterface, QueryRunner } from 'typeorm'
 import { addLocalDirectory, removeLocalDirectory } from '../../../identity/schemaMigration'
 
-export class AddLocalDirectory1798000000000 implements MigrationInterface {
+export class AddLocalDirectory1799000000000 implements MigrationInterface {
     public async up(queryRunner: QueryRunner): Promise<void> {
         await addLocalDirectory(queryRunner)
     }

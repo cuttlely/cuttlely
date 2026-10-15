@@ -79,6 +79,45 @@ A refusal is 400:
 
 The question cap default of 100 and the concurrency default of 2 are the same numbers the publish check used before these settings existed. With nothing set, behaviour is unchanged. How to set them in the page: [Limits that apply immediately](../how-to/server-settings.md#limits-that-apply-immediately).
 
+## Security limits
+
+These are runtime limits too. The same read order applies: a valid host value, then the saved value, then the default. `CUTTLELY_HISTORY_KEEP` is the exception: a value saved on the page wins over the environment variable. A host value outside the range is ignored. A save outside the range is refused. Idle time cannot be longer than the absolute lifetime (`CUTTLELY_SESSION_IDLE_MINUTES` must be at most `CUTTLELY_SESSION_ABSOLUTE_HOURS` times 60). That refusal is `CROSS_FIELD`.
+
+| Variable                          | Default | Range                                                | Unit    |
+| --------------------------------- | ------- | ---------------------------------------------------- | ------- |
+| `CUTTLELY_LOGIN_FAILURE_LIMIT`    | 10      | 3 to 50                                              | count   |
+| `CUTTLELY_SESSION_IDLE_MINUTES`   | 720     | 15 to 1440, and no longer than the absolute lifetime | minutes |
+| `CUTTLELY_SESSION_ABSOLUTE_HOURS` | 168     | 1 to 720, and long enough to cover the idle time     | count   |
+| `CUTTLELY_DRAIN_TIMEOUT_MS`       | 25000   | 0 to 300000. 0 does not wait                         | ms      |
+| `CUTTLELY_HISTORY_KEEP`           | 1000    | 100 to 10000                                         | count   |
+
+A shorter idle or absolute lifetime applies to a session that is already signed in. Every authenticated request checks the current limits: a local session cookie, and an AuthKit session. The cookie expiry alone does not keep the session. An AuthKit session is remembered by its WorkOS session id, which stays the same when the access token is refreshed. The first request this server sees for that id starts the clock. When AuthKit does not send a session id, the same limits use this server's record for that account, and a warning is logged. Later requests record activity at most once a minute, so idle means unused. An API key is not one of these sessions.
+
+The process that saved the value invalidates its cache at once. The HTTP server and a queue worker re-read the settings file at least every 5 seconds. The shutdown wait is read when a shutdown starts.
+
+If one of these locks people out, set the same variable on the host to a value inside the range and start Cuttlely again. The host value overrides the saved one, and the API cannot change it while the host value is set. `pnpm settings unset NAME` removes the saved value. `CUTTLELY_IGNORE_ADMIN_SETTINGS=1` starts without the settings file.
+
+## History
+
+`GET /api/v1/server-settings/history?cursor=&limit=`
+
+Organization owner only. The same 401 and 403 rules as the other settings routes apply. A workspace admin, a member, and a user in another workspace are 403.
+
+Newest first. Each row has when (`at`), who (`actorId` is the user id when a person did it, and `by` is the label the admin page already shows), the key, and the old and new value. A secret is `{ "key": "NAME", "secret": "changed" }`. The old and new values are not stored on a first save, a replacement, a removal, a failed save (nothing is written), or a rollback.
+
+`by` stays the existing label: an email for a person, `command line`, or `safe boot`. The response does not add a display name. A save sets `event` to `server_setting.updated`.
+
+`CUTTLELY_HISTORY_KEEP` is how many of these rows to keep. It is a setting on Admin > Server settings, under Security & network, in the History group (Settings changes to keep). It is not an environment-only row. The default is 1000. A saved value must be a whole number from 100 to 10000, and a save outside that range is refused. A value saved on the page wins over `CUTTLELY_HISTORY_KEEP` in the environment. With nothing saved, a valid environment value is used, then 1000. A host value outside 100 to 10000 is ignored. The field stays editable when the environment sets it. `effective` is the number in effect. `source` is `panel` when the page saved it, `host` when only the environment sets it, or `default`. The page says panel, env, or default for those three. On each new row the file is rewritten to the newest rows only, under a lock, as one temporary file moved into place. A row that is still inside that cap is not dropped when two saves append at the same time. A cursor that pointed at a row now past the cap reads the older rows that are still kept, or an empty page when none remain.
+
+| Query    | Meaning                                                                                                                               |
+| -------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| `limit`  | Page size. Default 50. A number above 100 is treated as 100. `0` or a value that is not a whole number is 400 `INVALID`.              |
+| `cursor` | Opaque value from `nextCursor`. Rows strictly older than that row. Omit it for the first page. Anything else is 400 `INVALID_CURSOR`. |
+
+A rejected save, including a host-locked name, does not append a history row. Saving and appending the history row is one step. If the history row cannot be written, the settings file is put back and the response is 500 `{ "code": "HISTORY_FAILED" }`. The body does not include the value. Two saves in one process run one after the other, so the later row's old value is the earlier row's new value.
+
+`nextCursor` is null on the last page.
+
 ## Invite and reset
 
 These settings are read on each use. A saved value overrides the environment. `source` is `panel` when Server settings saved it, `host` when the environment supplies the value in use, and `default` otherwise. `effective` is the value in use. `range` is present for the two lifetimes and the mail port. `locked` is false, so `PUT` can change them while the environment also sets them. A restart is not required.

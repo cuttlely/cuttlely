@@ -1,7 +1,7 @@
 // Runtime product limits. Read on each use: a valid host value, then the settings file, then the default.
 // Out of range on save is refused. A bad host value is logged by key and ignored. The read path does not throw.
 // On a pair, an in-range host value is kept. The other setting falls back, then is bounded by that host value.
-import { SETTINGS, SettingDef, settingFor } from './registry'
+import { SETTINGS, SettingDef, savedValueWins, settingFor } from './registry'
 import { hostSetKeys } from './resolve'
 import { encryptionKeySync, onSettingsFileWritten, readSettingsFile, settingsDir } from './store'
 
@@ -31,6 +31,8 @@ const COUNT_MAX = 'CUTTLELY_CHECK_COUNT_MAX'
 const COUNT_DEFAULT = 'CUTTLELY_CHECK_COUNT_DEFAULT'
 const IMPORT_CAP = 'CUTTLELY_RATING_IMPORT_CAP'
 const SCAN_CAP = 'CUTTLELY_RATING_SCAN_CAP'
+const SESSION_IDLE = 'CUTTLELY_SESSION_IDLE_MINUTES'
+const SESSION_ABSOLUTE = 'CUTTLELY_SESSION_ABSOLUTE_HOURS'
 
 interface Candidate {
     value: number
@@ -131,22 +133,31 @@ function panelFile(env: Env): Record<string, string> {
     }
 }
 
-function candidates(setting: SettingDef, env: Env, hostKeys: Set<string>, file: Record<string, string>): Candidate[] {
-    const out: Candidate[] = []
-    if (hostKeys.has(setting.key)) {
-        const raw = present(env[setting.key])
-        if (raw !== null) {
-            const n = parseRuntimeInteger(raw)
-            if (n !== null && inStaticRange(setting, n)) out.push({ value: n, source: 'host' })
-            else warnKey(setting.key)
-        }
-    }
+function hostCandidate(setting: SettingDef, env: Env, hostKeys: Set<string>): Candidate | null {
+    if (!hostKeys.has(setting.key)) return null
+    const raw = present(env[setting.key])
+    if (raw === null) return null
+    const n = parseRuntimeInteger(raw)
+    if (n !== null && inStaticRange(setting, n)) return { value: n, source: 'host' }
+    warnKey(setting.key)
+    return null
+}
+
+function panelCandidate(setting: SettingDef, file: Record<string, string>): Candidate | null {
     const saved = present(file[setting.key])
-    if (saved !== null) {
-        const n = parseRuntimeInteger(saved)
-        if (n !== null && inStaticRange(setting, n)) out.push({ value: n, source: 'panel' })
-        else warnKey(setting.key)
-    }
+    if (saved === null) return null
+    const n = parseRuntimeInteger(saved)
+    if (n !== null && inStaticRange(setting, n)) return { value: n, source: 'panel' }
+    warnKey(setting.key)
+    return null
+}
+
+function candidates(setting: SettingDef, env: Env, hostKeys: Set<string>, file: Record<string, string>): Candidate[] {
+    const host = hostCandidate(setting, env, hostKeys)
+    const panel = panelCandidate(setting, file)
+    // History keep is edited on the page. A saved value wins over the environment variable.
+    const ordered = savedValueWins(setting.key) ? [panel, host] : [host, panel]
+    const out = ordered.filter((row): row is Candidate => row !== null)
     out.push({ value: defaultOf(setting), source: 'default' })
     return out
 }
@@ -248,7 +259,7 @@ function compute(env: Env): Map<string, ResolvedRuntime> {
     const byKey = new Map(runtimeSettings().map((setting) => [setting.key, setting]))
     const cands = (key: string) => candidates(byKey.get(key) as SettingDef, env, hostKeys, file)
     const out = new Map<string, ResolvedRuntime>()
-    const paired = new Set([COUNT_MAX, COUNT_DEFAULT, IMPORT_CAP, SCAN_CAP])
+    const paired = new Set([COUNT_MAX, COUNT_DEFAULT, IMPORT_CAP, SCAN_CAP, SESSION_IDLE, SESSION_ABSOLUTE])
     for (const setting of runtimeSettings()) {
         if (paired.has(setting.key)) continue
         const chosen = cands(setting.key)[0]
@@ -260,7 +271,51 @@ function compute(env: Env): Map<string, ResolvedRuntime> {
     const ratings = pickPair(SCAN_CAP, IMPORT_CAP, cands(SCAN_CAP), cands(IMPORT_CAP), (dep, ind) => dep >= ind, 'dep')
     out.set(SCAN_CAP, ratings.dep)
     out.set(IMPORT_CAP, ratings.ind)
+    const sessions = pickSession(cands(SESSION_IDLE), cands(SESSION_ABSOLUTE))
+    out.set(SESSION_IDLE, sessions.idle)
+    out.set(SESSION_ABSOLUTE, sessions.absolute)
     return out
+}
+
+function idleFits(idleMinutes: number, absoluteHours: number): boolean {
+    return idleMinutes <= absoluteHours * 60
+}
+
+/** Idle minutes must fit inside the absolute lifetime. A host value on one side bounds the other. */
+function pickSession(idleCands: Candidate[], absoluteCands: Candidate[]): { idle: ResolvedRuntime; absolute: ResolvedRuntime } {
+    const hostIdle = idleCands.find((candidate) => candidate.source === 'host')
+    const hostAbsolute = absoluteCands.find((candidate) => candidate.source === 'host')
+    if (hostIdle && hostAbsolute) {
+        if (idleFits(hostIdle.value, hostAbsolute.value)) return { idle: hostIdle, absolute: hostAbsolute }
+        warnKey(SESSION_IDLE)
+        return { idle: boundedByHost(hostAbsolute.value * 60, setting(SESSION_IDLE), SESSION_ABSOLUTE), absolute: hostAbsolute }
+    }
+    if (hostAbsolute) {
+        const idle = idleCands.find((candidate) => idleFits(candidate.value, hostAbsolute.value))
+        if (idle) {
+            if (idle !== idleCands[0]) warnKey(SESSION_IDLE)
+            return { idle, absolute: hostAbsolute }
+        }
+        warnKey(SESSION_IDLE)
+        return { idle: boundedByHost(hostAbsolute.value * 60, setting(SESSION_IDLE), SESSION_ABSOLUTE), absolute: hostAbsolute }
+    }
+    if (hostIdle) {
+        const absolute = absoluteCands.find((candidate) => idleFits(hostIdle.value, candidate.value))
+        if (absolute) {
+            if (absolute !== absoluteCands[0]) warnKey(SESSION_ABSOLUTE)
+            return { idle: hostIdle, absolute }
+        }
+        warnKey(SESSION_ABSOLUTE)
+        return { idle: hostIdle, absolute: boundedByHost(Math.ceil(hostIdle.value / 60), setting(SESSION_ABSOLUTE), SESSION_IDLE) }
+    }
+    for (const idle of idleCands) {
+        const absolute = absoluteCands.find((candidate) => idleFits(idle.value, candidate.value))
+        if (!absolute) continue
+        if (idle !== idleCands[0]) warnKey(SESSION_IDLE)
+        if (absolute !== absoluteCands[0]) warnKey(SESSION_ABSOLUTE)
+        return { idle, absolute }
+    }
+    return { idle: idleCands[idleCands.length - 1], absolute: absoluteCands[absoluteCands.length - 1] }
 }
 
 export function runtimeSnapshot(env: Env = process.env): Map<string, ResolvedRuntime> {
@@ -288,19 +343,7 @@ export function runtimeNumber(key: string, env: Env = process.env): number {
 }
 
 function strictValue(setting: SettingDef, env: Env, hostKeys: Set<string>, file: Record<string, string>): number {
-    if (hostKeys.has(setting.key)) {
-        const raw = present(env[setting.key])
-        if (raw !== null) {
-            const n = parseRuntimeInteger(raw)
-            if (n !== null && inStaticRange(setting, n)) return n
-        }
-    }
-    const saved = present(file[setting.key])
-    if (saved !== null) {
-        const n = parseRuntimeInteger(saved)
-        if (n !== null && inStaticRange(setting, n)) return n
-    }
-    return defaultOf(setting)
+    return candidates(setting, env, hostKeys, file)[0].value
 }
 
 function setting(key: string): SettingDef {
@@ -362,6 +405,29 @@ export function runtimeConflict(
                 reason: 'The import cap cannot be above the rating scan cap.',
                 min: setting(IMPORT_CAP).min ?? 1,
                 max: scan
+            }
+        }
+    }
+    if (touched.has(SESSION_IDLE) || touched.has(SESSION_ABSOLUTE)) {
+        const idle = strictValue(setting(SESSION_IDLE), env, hostKeys, file)
+        const absolute = strictValue(setting(SESSION_ABSOLUTE), env, hostKeys, file)
+        if (!idleFits(idle, absolute)) {
+            const key = touched.has(SESSION_IDLE) ? SESSION_IDLE : SESSION_ABSOLUTE
+            if (key === SESSION_IDLE) {
+                return {
+                    code: 'CROSS_FIELD',
+                    key,
+                    reason: 'Idle time cannot be longer than the absolute session lifetime.',
+                    min: setting(SESSION_IDLE).min ?? 15,
+                    max: Math.min(setting(SESSION_IDLE).max ?? absolute * 60, absolute * 60)
+                }
+            }
+            return {
+                code: 'CROSS_FIELD',
+                key,
+                reason: 'The absolute session lifetime must cover the idle time.',
+                min: Math.max(setting(SESSION_ABSOLUTE).min ?? 1, Math.ceil(idle / 60)),
+                max: setting(SESSION_ABSOLUTE).max ?? 720
             }
         }
     }

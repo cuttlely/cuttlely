@@ -38,11 +38,11 @@ describe('stop signals', () => {
 
     it('forces the exit 5 seconds after the drain time', async () => {
         const previous = process.env.CUTTLELY_DRAIN_TIMEOUT_MS
-        process.env.CUTTLELY_DRAIN_TIMEOUT_MS = '1000'
+        process.env.CUTTLELY_DRAIN_TIMEOUT_MS = '5000'
         try {
             const { self, onTerminate } = command()
             void onTerminate()
-            jest.advanceTimersByTime(5999)
+            jest.advanceTimersByTime(9999)
             expect(self.failExit).not.toHaveBeenCalled()
             jest.advanceTimersByTime(1)
             expect(self.failExit).toHaveBeenCalledTimes(1)

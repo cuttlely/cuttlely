@@ -16,15 +16,11 @@
 
 import { randomUUID } from 'crypto'
 import type { DataSource, QueryRunner } from 'typeorm'
-import {
-    DEFAULT_WORKSPACE,
-    LOGIN_FAILURE_LIMIT,
-    LOGIN_FAILURE_WINDOW_MS,
-    OPEN_SOURCE_FEATURES,
-    OWNER_ROLE,
-    PERSONAL_WORKSPACE
-} from './constants'
+import { DEFAULT_WORKSPACE, LOGIN_FAILURE_WINDOW_MS, OPEN_SOURCE_FEATURES, OWNER_ROLE, PERSONAL_WORKSPACE } from './constants'
 import { ACCOUNT_LOCK_CAP, LoginLimiter, accountLockKey } from './rateLimit'
+import { runtimeNumber } from '../settings/runtime'
+import { utcEpoch } from './dbTime'
+import { addSessionSeenColumn } from './schemaMigration'
 import { IdentityStore } from './store'
 import { CreateOwnerInput, LocalSession, NotEmptyError, SessionUser, UserRow } from './types'
 
@@ -67,10 +63,7 @@ function nullable(value: unknown): string | null {
 }
 
 function epoch(value: unknown): number {
-    if (value instanceof Date) return value.getTime()
-    if (typeof value === 'number') return value
-    const parsed = Date.parse(String(value))
-    return Number.isNaN(parsed) ? 0 : parsed
+    return utcEpoch(value)
 }
 
 function userFrom(row: Record<string, unknown>): UserRow {
@@ -394,23 +387,50 @@ export class SqlIdentityStore implements IdentityStore {
         })
     }
 
+    private seenColumn: Promise<void> | null = null
+
+    private ensureSeenColumn(): Promise<void> {
+        if (!this.seenColumn) {
+            this.seenColumn = this.withRunner((runner) => addSessionSeenColumn(runner)).catch((error) => {
+                this.seenColumn = null
+                throw error
+            })
+        }
+        return this.seenColumn
+    }
+
     async insertLocalSession(row: LocalSession): Promise<void> {
+        await this.ensureSeenColumn()
         await this.withRunner(async (runner) => {
             const d = dialectOf(runner)
-            await query(
-                runner,
-                `INSERT INTO ${quote(d, 'identity_local_session')} (${quote(d, 'id')}, ${quote(d, 'userId')}, ${quote(d, 'token')}, ${quote(
-                    d,
-                    'expiresAt'
-                )}, ${quote(d, 'absoluteExpiresAt')}, ${quote(d, 'permissionVersion')})
-                 SELECT ?, ?, ?, ?, ?, COALESCE(u.${quote(d, 'permissionVersion')}, 0)
-                 FROM ${quote(d, 'user')} u WHERE u.${quote(d, 'id')} = ?`,
-                [row.id, row.userId, row.token, row.idleExpires, row.absoluteExpires, row.userId]
-            )
+            const seen = row.lastSeenAt || row.issuedAt || new Date()
+            const columns = `${quote(d, 'id')}, ${quote(d, 'userId')}, ${quote(d, 'token')}, ${quote(d, 'expiresAt')}, ${quote(
+                d,
+                'absoluteExpiresAt'
+            )}, ${quote(d, 'lastSeenAt')}, ${quote(d, 'permissionVersion')}`
+            const select = `SELECT ?, ?, ?, ?, ?, ?, COALESCE(u.${quote(d, 'permissionVersion')}, 0) FROM ${quote(
+                d,
+                'user'
+            )} u WHERE u.${quote(d, 'id')} = ?`
+            const insert =
+                d === 'sqlite'
+                    ? `INSERT OR IGNORE INTO ${quote(d, 'identity_local_session')} (${columns}) ${select}`
+                    : d === 'postgres'
+                    ? `INSERT INTO ${quote(d, 'identity_local_session')} (${columns}) ${select} ON CONFLICT (${quote(
+                          d,
+                          'token'
+                      )}) DO NOTHING`
+                    : `INSERT IGNORE INTO ${quote(d, 'identity_local_session')} (${columns}) ${select}`
+            try {
+                await query(runner, insert, [row.id, row.userId, row.token, row.idleExpires, row.absoluteExpires, seen, row.userId])
+            } catch (error) {
+                if (!isUniqueViolation(error)) throw error
+            }
         })
     }
 
     async findLocalSession(token: string): Promise<LocalSession | null> {
+        await this.ensureSeenColumn()
         return this.withRunner(async (runner) => {
             const d = dialectOf(runner)
             const rows = await query(
@@ -421,7 +441,10 @@ export class SqlIdentityStore implements IdentityStore {
                 )} AS ${quote(d, 'token')}, s.${quote(d, 'expiresAt')} AS ${quote(d, 'expiresAt')}, s.${quote(
                     d,
                     'absoluteExpiresAt'
-                )} AS ${quote(d, 'absoluteExpiresAt')}, s.${quote(d, 'permissionVersion')} AS ${quote(d, 'permissionVersion')},
+                )} AS ${quote(d, 'absoluteExpiresAt')}, s.${quote(d, 'createdDate')} AS ${quote(d, 'createdDate')}, s.${quote(
+                    d,
+                    'lastSeenAt'
+                )} AS ${quote(d, 'lastSeenAt')}, s.${quote(d, 'permissionVersion')} AS ${quote(d, 'permissionVersion')},
                 u.${quote(d, 'permissionVersion')} AS ${quote(d, 'currentPermissionVersion')}
                 FROM ${quote(d, 'identity_local_session')} s
                 INNER JOIN ${quote(d, 'user')} u ON u.${quote(d, 'id')} = s.${quote(d, 'userId')}
@@ -430,21 +453,37 @@ export class SqlIdentityStore implements IdentityStore {
             )
             const row = rows[0]
             if (!row) return null
+            const created = epoch(cell(row, 'createdDate'))
+            const seen = epoch(cell(row, 'lastSeenAt'))
             return {
                 id: text(cell(row, 'id')),
                 userId: text(cell(row, 'userId')),
                 token: text(cell(row, 'token')),
                 idleExpires: new Date(epoch(cell(row, 'expiresAt'))),
                 absoluteExpires: new Date(epoch(cell(row, 'absoluteExpiresAt'))),
+                issuedAt: created > 0 ? new Date(created) : undefined,
+                lastSeenAt: seen > 0 ? new Date(seen) : undefined,
                 permissionVersion: Number(cell(row, 'permissionVersion') || 0),
                 currentPermissionVersion: Number(cell(row, 'currentPermissionVersion') || 0)
             }
         })
     }
 
-    async slideLocalSession(token: string, idleExpires: Date): Promise<void> {
+    async slideLocalSession(token: string, idleExpires: Date, lastSeenAt?: Date): Promise<void> {
+        await this.ensureSeenColumn()
         await this.withRunner(async (runner) => {
             const d = dialectOf(runner)
+            if (lastSeenAt) {
+                await query(
+                    runner,
+                    `UPDATE ${quote(d, 'identity_local_session')} SET ${quote(d, 'expiresAt')} = ?, ${quote(
+                        d,
+                        'lastSeenAt'
+                    )} = ? WHERE ${quote(d, 'token')} = ?`,
+                    [idleExpires, lastSeenAt, token]
+                )
+                return
+            }
             await query(
                 runner,
                 `UPDATE ${quote(d, 'identity_local_session')} SET ${quote(d, 'expiresAt')} = ? WHERE ${quote(d, 'token')} = ?`,
@@ -650,17 +689,21 @@ function isUniqueViolation(error: unknown): boolean {
 export class SqlLoginRateLimit implements LoginLimiter {
     constructor(
         private readonly dataSource: DataSource,
-        private readonly limit = LOGIN_FAILURE_LIMIT,
+        private readonly limit: number | (() => number) = () => runtimeNumber('CUTTLELY_LOGIN_FAILURE_LIMIT'),
         private readonly windowMs = LOGIN_FAILURE_WINDOW_MS,
         private readonly accountCap = ACCOUNT_LOCK_CAP
     ) {}
 
+    private cap(): number {
+        return typeof this.limit === 'function' ? this.limit() : this.limit
+    }
+
     async blocked(ip: string, account: string, now: number): Promise<boolean> {
         return this.with(async (runner) => {
             await this.prune(runner, now)
-            if ((await this.countScope(runner, 'ip', ip, now)) >= this.limit) return true
+            if ((await this.countScope(runner, 'ip', ip, now)) >= this.cap()) return true
             const key = accountLockKey(account)
-            return key !== '' && (await this.countScope(runner, 'account', key, now)) >= this.limit
+            return key !== '' && (await this.countScope(runner, 'account', key, now)) >= this.cap()
         })
     }
 
