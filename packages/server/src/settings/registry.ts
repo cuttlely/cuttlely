@@ -1,6 +1,8 @@
 // Server settings registry: every setting the Server settings page knows, in one list.
-// Each entry is an environment variable the server, the start script or the agent runtime reads at start.
-// Values the host sets (Docker .env and compose, Render, the shell, packages/server/.env) always win.
+// Each entry is an environment variable the server, the start script or the agent runtime reads.
+// A setting marked runtime is read on each use. The others are read at start.
+// A valid host value (Docker .env and compose, Render, the shell, packages/server/.env) wins.
+// A runtime limit with a bad host value uses the saved value, then the default.
 // Variables that must never be changed from a browser are on KEPT_OUT, with the reason.
 // docs/how-to/server-settings.md is the guide.
 
@@ -39,9 +41,11 @@ export interface SettingDef {
     /** A select that also accepts a typed value (for example a file path or URL). */
     custom?: { label: string; placeholder: string }
     /** Number fields: the unit shown, and how the raw value maps to it. */
-    unit?: 'seconds' | 'minutes' | 'tokens' | 'bytes' | 'ms-as-seconds'
+    unit?: 'seconds' | 'minutes' | 'tokens' | 'bytes' | 'ms-as-seconds' | 'ms' | 'count'
     min?: number
     max?: number
+    /** Read on each use: host, then the settings file, then the default. No restart. */
+    runtime?: boolean
     placeholder?: string
     risk: SettingRisk
     showWhen?: SettingCondition
@@ -733,6 +737,21 @@ export const SETTINGS: SettingDef[] = [
 
     // Security & network
     {
+        key: 'CUTTLELY_UI_PAGE_LIMIT_MAX',
+        section: 'security',
+        group: 'Pages',
+        label: 'Page loads a minute',
+        help: 'How many UI page loads one client may make in a minute. Hashed files are not counted. Applies on the next load. 100 to 50000.',
+        type: 'number',
+        unit: 'count',
+        min: 100,
+        max: 50000,
+        defaultLabel: '3000',
+        defaultValue: '3000',
+        runtime: true,
+        risk: 'low'
+    },
+    {
         key: 'CORS_ORIGINS',
         section: 'security',
         group: 'Browsers',
@@ -903,6 +922,171 @@ export const SETTINGS: SettingDef[] = [
         defaultLabel: 'On',
         defaultValue: 'on',
         risk: 'medium'
+    },
+    {
+        key: 'CUTTLELY_CHECK_MAX_TOKENS',
+        section: 'integrations',
+        group: 'Publish check',
+        label: 'Publish check token cap',
+        help: 'The most tokens one publish check may use, Live and the draft together. Applies on the next check. 1000 to 2000000.',
+        type: 'number',
+        unit: 'tokens',
+        min: 1000,
+        max: 2000000,
+        defaultLabel: '100000 tokens',
+        defaultValue: '100000',
+        runtime: true,
+        risk: 'low'
+    },
+    {
+        key: 'CUTTLELY_CHECK_MAX_SECONDS',
+        section: 'integrations',
+        group: 'Publish check',
+        label: 'Publish check time limit',
+        help: 'The most seconds one publish check may run. Applies on the next check. 10 to 1800.',
+        type: 'number',
+        unit: 'seconds',
+        min: 10,
+        max: 1800,
+        defaultLabel: '180 seconds',
+        defaultValue: '180',
+        runtime: true,
+        risk: 'low'
+    },
+    {
+        key: 'CUTTLELY_CHECK_CONCURRENCY',
+        section: 'integrations',
+        group: 'Publish check',
+        label: 'Questions at once',
+        help: 'How many questions one publish check runs at the same time. Live and the draft for one question still run one after the other. 1 to 8.',
+        type: 'number',
+        unit: 'count',
+        min: 1,
+        max: 8,
+        defaultLabel: '2',
+        defaultValue: '2',
+        runtime: true,
+        risk: 'low'
+    },
+    {
+        key: 'CUTTLELY_CHECK_RUN_TIMEOUT_MS',
+        section: 'integrations',
+        group: 'Publish check',
+        label: 'One run timeout',
+        help: 'How long one question run in a publish check may take before it stops, in milliseconds. 10000 to 600000.',
+        type: 'number',
+        unit: 'ms',
+        min: 10000,
+        max: 600000,
+        defaultLabel: '60000 ms',
+        defaultValue: '60000',
+        runtime: true,
+        risk: 'low'
+    },
+    {
+        key: 'CUTTLELY_CHECK_KEEP_MINUTES',
+        section: 'integrations',
+        group: 'Publish check',
+        label: 'Keep a finished check',
+        help: 'How long a finished publish check stays available to read, in minutes. 5 to 1440.',
+        type: 'number',
+        unit: 'minutes',
+        min: 5,
+        max: 1440,
+        defaultLabel: '30 minutes',
+        defaultValue: '30',
+        runtime: true,
+        risk: 'low'
+    },
+    {
+        key: 'CUTTLELY_CHECK_COUNT_MAX',
+        section: 'integrations',
+        group: 'Publish check',
+        label: 'Question cap',
+        help: 'The most past questions one publish check may ask. 1 to 500. The default count cannot be above this.',
+        type: 'number',
+        unit: 'count',
+        min: 1,
+        max: 500,
+        defaultLabel: '100',
+        defaultValue: '100',
+        runtime: true,
+        risk: 'low'
+    },
+    {
+        key: 'CUTTLELY_CHECK_COUNT_DEFAULT',
+        section: 'integrations',
+        group: 'Publish check',
+        label: 'Questions by default',
+        help: 'How many past questions a check asks when the caller does not choose. 1 to the question cap.',
+        type: 'number',
+        unit: 'count',
+        min: 1,
+        max: 500,
+        defaultLabel: '4',
+        defaultValue: '4',
+        runtime: true,
+        risk: 'low'
+    },
+    {
+        key: 'CUTTLELY_CHECK_SCAN_CAP',
+        section: 'integrations',
+        group: 'Publish check',
+        label: 'Messages scanned',
+        help: 'How many stored messages a publish check reads while it looks for distinct questions. 500 to 20000.',
+        type: 'number',
+        unit: 'count',
+        min: 500,
+        max: 20000,
+        defaultLabel: '2000',
+        defaultValue: '2000',
+        runtime: true,
+        risk: 'low'
+    },
+    {
+        key: 'CUTTLELY_HARNESS_TURN_SCAN_CAP',
+        section: 'integrations',
+        group: 'Publish check',
+        label: 'Harness turns scanned',
+        help: 'How many saved harness turns a publish check reads while it looks for distinct questions. 500 to 5000.',
+        type: 'number',
+        unit: 'count',
+        min: 500,
+        max: 5000,
+        defaultLabel: '2000',
+        defaultValue: '2000',
+        runtime: true,
+        risk: 'low'
+    },
+    {
+        key: 'CUTTLELY_RATING_IMPORT_CAP',
+        section: 'integrations',
+        group: 'Test sets',
+        label: 'Rated answers added',
+        help: 'The most rated answers one add to a test set may write. 50 to 5000. The rating scan must be at least this.',
+        type: 'number',
+        unit: 'count',
+        min: 50,
+        max: 5000,
+        defaultLabel: '500',
+        defaultValue: '500',
+        runtime: true,
+        risk: 'low'
+    },
+    {
+        key: 'CUTTLELY_RATING_SCAN_CAP',
+        section: 'integrations',
+        group: 'Test sets',
+        label: 'Ratings scanned',
+        help: 'How many ratings one add may read while it fills the import cap. At least the import cap, and at most 20000.',
+        type: 'number',
+        unit: 'count',
+        min: 50,
+        max: 20000,
+        defaultLabel: '1000',
+        defaultValue: '1000',
+        runtime: true,
+        risk: 'low'
     },
     {
         key: 'POSTHOG_PUBLIC_API_KEY',

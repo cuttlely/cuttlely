@@ -1,5 +1,6 @@
-// Same or changed, and the totals the Publish dialog shows. Pure functions, no I/O.
+// Same or changed, and the totals the Publish dialog shows.
 import { addModelCost, costView, emptyCost } from '../usage/cost'
+import { runtimeNumber } from '../../settings/runtime'
 import type { TokenRates } from '../usage/cost'
 
 export type PriceStatus = 'known' | 'partial' | 'no price'
@@ -331,27 +332,33 @@ export function totalTokens(metrics: unknown[] | undefined): number | null {
     return counted ? total : null
 }
 
-// How many past questions a compare may ask. The dialog offers 4, 10, 25, 50 and 100.
-// Any whole number from 1 to 100 is accepted; the server clamps it into that range.
+// How many past questions a compare may ask. The dialog offers 4, 10, 25, 50 and 100 until the picker
+// reads the cap. Any whole number from 1 to the cap is accepted; the server clamps it into that range.
 // Omitting the count is a different path: the caller sends the question list, still capped at 10.
 export const COMPARE_COUNT_MIN = 1
-export const COMPARE_COUNT_MAX = 100
-export const COMPARE_COUNT_DEFAULT = 4
+
+export function compareCountMax(): number {
+    return runtimeNumber('CUTTLELY_CHECK_COUNT_MAX')
+}
+
+export function compareCountDefault(): number {
+    return runtimeNumber('CUTTLELY_CHECK_COUNT_DEFAULT')
+}
 
 export function clampCompareCount(value: number): number {
-    if (!Number.isFinite(value)) return COMPARE_COUNT_DEFAULT
+    if (!Number.isFinite(value)) return compareCountDefault()
     const rounded = Math.round(value)
     if (rounded < COMPARE_COUNT_MIN) return COMPARE_COUNT_MIN
-    if (rounded > COMPARE_COUNT_MAX) return COMPARE_COUNT_MAX
+    if (rounded > compareCountMax()) return compareCountMax()
     return rounded
 }
 
 // `undefined` and `null` mean the caller did not send a count, so the check keeps the question list.
-// Anything that is not a whole number is refused. A whole number outside 1..100 is clamped.
+// Anything that is not a whole number is refused. A whole number outside the cap is clamped.
 export function parseCompareCount(input: unknown): { ok: true; count: number | null } | { ok: false; message: string } {
     if (input === undefined || input === null) return { ok: true, count: null }
     if (typeof input !== 'number' || !Number.isInteger(input)) {
-        return { ok: false, message: 'count must be a whole number from 1 to 100.' }
+        return { ok: false, message: `count must be a whole number from 1 to ${compareCountMax()}.` }
     }
     return { ok: true, count: clampCompareCount(input) }
 }

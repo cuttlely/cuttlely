@@ -1,6 +1,6 @@
 # Evaluations
 
-Test with up to 100 question-and-answer pairs, with more on the roadmap. This is the path from a saved test set to a Publish that waits for it. You create a dataset, add the checks that score an answer, run those examples against a chatflow or an agentflow, then use the same dataset in the Publish dialog and, if you want, refuse Publish until that check passes. To start from a rated answer in the message viewer, follow [Turn real answers into tests](./tests-from-answers.md).
+Test with up to the question cap (`CUTTLELY_CHECK_COUNT_MAX`, 100 question-and-answer pairs by default), with more on the roadmap. This is the path from a saved test set to a Publish that waits for it. You create a dataset, add the checks that score an answer, run those examples against a chatflow or an agentflow, then use the same dataset in the Publish dialog and, if you want, refuse Publish until that check passes. To start from a rated answer in the message viewer, follow [Turn real answers into tests](./tests-from-answers.md).
 
 Open **Datasets**, **Evaluators**, and **Evaluations** from the sidebar. Publishing a flow and running an evaluation are separate. The evaluation pages do not start the check in the Publish dialog. A saved dataset can, and the evaluators you tick there score both answers.
 
