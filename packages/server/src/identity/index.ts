@@ -22,6 +22,7 @@ export {
     identityOrgUserRouter,
     identityRoleRouter,
     identityUserRouter,
+    identityUsersRouter,
     identityWorkspaceRouter,
     identityWorkspaceUserRouter
 } from './directoryRoutes'

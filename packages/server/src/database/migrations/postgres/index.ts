@@ -58,6 +58,7 @@ import { AddModelPriceOverride1793000000000 } from './1793000000000-AddModelPric
 import { AddDatasetRowSource1795000000000 } from './1795000000000-AddDatasetRowSource'
 import { AddDatasetRowRating1796000000000 } from './1796000000000-AddDatasetRowRating'
 import { AddChatMessageFlowCreatedIndex1797000000000 } from './1797000000000-AddChatMessageFlowCreatedIndex'
+import { AddIdentityActionLinks1797000000000 } from './1797000000000-AddIdentityActionLinks'
 
 import { AddAuthTables1720230151482 } from './1720230151482-AddAuthTables'
 import { AddWorkspace1720230151484 } from './1720230151484-AddWorkspace'
@@ -142,5 +143,6 @@ export const postgresMigrations = [
     AddModelPriceOverride1793000000000,
     AddDatasetRowSource1795000000000,
     AddDatasetRowRating1796000000000,
-    AddChatMessageFlowCreatedIndex1797000000000
+    AddChatMessageFlowCreatedIndex1797000000000,
+    AddIdentityActionLinks1797000000000
 ]

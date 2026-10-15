@@ -16,7 +16,6 @@ import { requireAnyPermission, requirePermission } from './rbac'
 import {
     DirectoryActor,
     DirectoryError,
-    createEmailUser,
     createRole,
     createWorkspace,
     deleteOrganizationUser,
@@ -37,11 +36,19 @@ import {
 } from './directory'
 import { identityStore } from './production'
 import { teamAccess } from './sqlStore'
+import { acceptLocalPassword, inviteAccount, resetLocalLink } from './actionLink'
+import { HandlerResult } from './types'
 
 function one(value: unknown): string {
     if (typeof value === 'string') return value
     if (Array.isArray(value) && typeof value[0] === 'string') return value[0]
     return ''
+}
+
+async function actorWithAccess(req: Request): Promise<DirectoryActor> {
+    const actor = actorFrom(req)
+    const access = await teamAccess(getDataSource(), actor.id, actor.workspaceId || '')
+    return { ...actor, owner: access.owner, permissions: access.permissions || [] }
 }
 
 function actorFrom(req: Request): DirectoryActor {
@@ -196,10 +203,26 @@ identityRoleRouter.delete(
 )
 identityRoleRouter.use(notFound)
 
+export const identityUsersRouter = Router()
+identityUsersRouter.post(
+    '/:id/reset-link',
+    requirePermission('users:manage'),
+    send(async (req) => resetLocalLink(sql(), await actorWithAccess(req), one(req.params.id), req.body))
+)
+identityUsersRouter.use(notFound)
+
+/** Unauthenticated. The token is read from the JSON body. A query value is ignored. */
+export function acceptLocalRoute(
+    ctx: { body: Record<string, unknown>; ip: string; now: number },
+    query: Record<string, unknown>
+): Promise<HandlerResult> {
+    return acceptLocalPassword(sql(), { body: ctx.body, query, ip: ctx.ip, now: ctx.now })
+}
+
 export function registerInvite(router: Router): void {
     router.post(
         '/invite',
         manageUsers,
-        send((req) => createEmailUser(sql(), actorFrom(req), req.body))
+        send(async (req) => inviteAccount(sql(), await actorWithAccess(req), req.body))
     )
 }

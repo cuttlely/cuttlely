@@ -84,7 +84,7 @@ const SESSION_LOG_FIELDS = new Set([
     'setupcode',
     'email'
 ])
-const REDACTED_QUERY_NAMES = new Set(['chatid', 'sessionid', 'sessiontoken', 'q', 'cursor'])
+const REDACTED_QUERY_NAMES = new Set(['chatid', 'sessionid', 'sessiontoken', 'token', 'q', 'cursor'])
 
 function decodeQueryName(raw: string): string {
     try {
@@ -115,10 +115,14 @@ function redactQueryString(query: string): string {
         .join('&')
 }
 
+function redactFragment(hash: string): string {
+    return hash.replace(/(token=)[^&#]*/gi, '$1[redacted]')
+}
+
 /** Drop client session ids, session tokens, searches, page cursors, and API keys before a request line is written. */
 export function redactLoggedUrl(url: string): string {
     const hashAt = url.indexOf('#')
-    const hash = hashAt === -1 ? '' : url.slice(hashAt)
+    const hash = hashAt === -1 ? '' : redactFragment(url.slice(hashAt))
     const beforeHash = hashAt === -1 ? url : url.slice(0, hashAt)
     const queryAt = beforeHash.indexOf('?')
     const path = queryAt === -1 ? beforeHash : beforeHash.slice(0, queryAt)

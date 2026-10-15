@@ -44,6 +44,9 @@ describe('server settings resolver', () => {
         expect(fileValuesToApply(env, { CUTTLELY_ANALYST: '', LOG_LEVEL: 'warn', PORT: '1', FLOWISE_SECRETKEY_OVERWRITE: 'x' })).toEqual({
             LOG_LEVEL: 'warn'
         })
+        expect(fileValuesToApply({ SMTP_HOST: 'host.example.com' }, { SMTP_HOST: 'panel.example.com', SMTP_PASSWORD: 'secret' })).toEqual(
+            {}
+        )
     })
 
     it('reports the default as the effective value', () => {

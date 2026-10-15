@@ -75,6 +75,7 @@ import {
     identityOrgUserRouter,
     identityRoleRouter,
     identityUserRouter,
+    identityUsersRouter,
     identityWorkspaceRouter,
     identityWorkspaceUserRouter
 } from '../identity'
@@ -159,6 +160,7 @@ router.use('/mcp', mcpEndpointRouter)
 router.use('/auth', identityAuthRouter)
 router.use('/account', identityAccountRouter)
 router.use('/user', identityUserRouter)
+router.use('/users', identityUsersRouter)
 router.use('/role', identityRoleRouter)
 router.use('/organizationuser', identityOrgUserRouter)
 router.use('/workspace', identityWorkspaceRouter)

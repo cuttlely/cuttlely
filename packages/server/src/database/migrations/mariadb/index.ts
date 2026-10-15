@@ -60,6 +60,7 @@ import { BinCollationOnTokenUsageDayModel1794000000000 } from './1794000000000-B
 import { AddDatasetRowSource1795000000000 } from './1795000000000-AddDatasetRowSource'
 import { AddDatasetRowRating1796000000000 } from './1796000000000-AddDatasetRowRating'
 import { AddChatMessageFlowCreatedIndex1797000000000 } from './1797000000000-AddChatMessageFlowCreatedIndex'
+import { AddIdentityActionLinks1797000000000 } from './1797000000000-AddIdentityActionLinks'
 
 import { AddAuthTables1720230151482 } from './1720230151482-AddAuthTables'
 import { AddWorkspace1725437498242 } from './1725437498242-AddWorkspace'
@@ -146,5 +147,6 @@ export const mariadbMigrations = [
     BinCollationOnTokenUsageDayModel1794000000000,
     AddDatasetRowSource1795000000000,
     AddDatasetRowRating1796000000000,
-    AddChatMessageFlowCreatedIndex1797000000000
+    AddChatMessageFlowCreatedIndex1797000000000,
+    AddIdentityActionLinks1797000000000
 ]

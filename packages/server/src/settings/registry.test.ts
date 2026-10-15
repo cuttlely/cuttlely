@@ -4,20 +4,12 @@ import { KEPT_OUT, READ_ONLY_SETTINGS, SECTIONS, SETTINGS, isKeptOut, isReadOnly
 
 const ROOT = path.resolve(__dirname, '..', '..', '..', '..')
 
-// Never read by the server. They must not come back into the example files.
+// Kept out of the example files. These names are not read.
 const UNREAD = new Set([
-    'SMTP_HOST',
-    'SMTP_PORT',
-    'SMTP_USER',
-    'SMTP_PASSWORD',
-    'SMTP_SECURE',
-    'SENDER_EMAIL',
     'ALLOW_UNAUTHORIZED_CERTS',
     'JWT_TOKEN_EXPIRY_IN_MINUTES',
     'JWT_REFRESH_TOKEN_EXPIRY_IN_MINUTES',
     'PASSWORD_SALT_HASH_ROUNDS',
-    'PASSWORD_RESET_TOKEN_EXPIRY_IN_MINS',
-    'INVITE_TOKEN_EXPIRY_IN_HOURS',
     'SECURE_COOKIES',
     'EXPIRE_AUTH_TOKENS_ON_RESTART',
     'WORKSPACE_INVITE_TEMPLATE_PATH',
@@ -78,9 +70,15 @@ describe('server settings registry', () => {
         expect(keys.some((key) => key.includes('*'))).toBe(false)
         for (const setting of READ_ONLY_SETTINGS) {
             expect(setting.readOnly).toBe(true)
-            expect(settingFor(setting.key)).toBeUndefined()
-            expect(isKeptOut(setting.key)).toBe(true)
             expect(isReadOnly(setting.key)).toBe(true)
+            // The mail password is shown on the invite settings as set or not set, and it is also in this list.
+            if (setting.key === 'SMTP_PASSWORD') {
+                expect(settingFor(setting.key)).toMatchObject({ envOnly: true, type: 'secret' })
+                expect(isKeptOut(setting.key)).toBe(false)
+            } else {
+                expect(settingFor(setting.key)).toBeUndefined()
+                expect(isKeptOut(setting.key)).toBe(true)
+            }
         }
         expect(isReadOnly('LANGSMITH_PROJECT')).toBe(false)
         expect(isReadOnly('LANGSMITH_ENDPOINT')).toBe(false)
