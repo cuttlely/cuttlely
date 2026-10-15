@@ -374,7 +374,9 @@ describe('runtime limits and history', () => {
             .send({ values: { CUTTLELY_LOGIN_FAILURE_LIMIT: '2' } })
         expect(range.status).toBe(400)
         expect(range.body.code).toBe('OUT_OF_RANGE')
-        expect(range.body.errors).toEqual([{ key: 'CUTTLELY_LOGIN_FAILURE_LIMIT', message: expect.stringMatching(/from 3 to 50/) }])
+        expect(range.body.errors).toEqual([
+            { key: 'CUTTLELY_LOGIN_FAILURE_LIMIT', code: 'OUT_OF_RANGE', message: expect.stringMatching(/from 3 to 50/) }
+        ])
         const typed = await app(OWNER)
             .put('/api/v1/server-settings')
             .send({ values: { CUTTLELY_DRAIN_TIMEOUT_MS: 'soon' } })
@@ -640,5 +642,100 @@ describe('runtime limits on the settings API', () => {
         expect(res.status).toBe(200)
         const tokens = res.body.settings.find((setting: { key: string }) => setting.key === 'CUTTLELY_CHECK_MAX_TOKENS')
         expect(tokens).toMatchObject({ source: 'default', effective: '100000' })
+    })
+})
+
+const FAKE_KEY = 'fake-langsmith-key-b3'
+const FAKE_REDIS = 'redis://fake-user:fake-pass-b3@example.invalid:6399/0'
+
+describe('read-only env status', () => {
+    it('is owner-only and hidden from another workspace, a member, an API key, and a signed-out caller', async () => {
+        env.LANGSMITH_API_KEY = FAKE_KEY
+        env.REDIS_URL = FAKE_REDIS
+        const listed = await app(OWNER).get('/api/v1/server-settings/read-only')
+        expect(listed.status).toBe(200)
+        expect(listed.body.scope).toBe('instance')
+        expect(listed.headers['cache-control']).toBe('no-store')
+        expect(JSON.stringify(listed.body)).not.toContain(FAKE_KEY)
+        expect(JSON.stringify(listed.body)).not.toContain('fake-pass-b3')
+        expect(JSON.stringify(listed.body)).not.toContain('example.invalid')
+        const one = await app(OWNER).get('/api/v1/server-settings/read-only/LANGSMITH_API_KEY')
+        expect(one.body).toEqual({ key: 'LANGSMITH_API_KEY', set: true, source: 'env', readOnly: true })
+        expect(Object.keys(one.body).sort()).toEqual(['key', 'readOnly', 'set', 'source'])
+        const level = (await app(OWNER).get('/api/v1/server-settings')).body.settings.find(
+            (setting: { key: string }) => setting.key === 'LOG_LEVEL'
+        )
+        expect(level).toHaveProperty('value', 'warn')
+        expect((await app(OWNER).get('/api/v1/server-settings/read-only/LOG_LEVEL')).status).toBe(404)
+        expect((await app(MEMBER).get('/api/v1/server-settings/read-only')).status).toBe(403)
+        expect((await app(WORKSPACE_ADMIN).get('/api/v1/server-settings/read-only')).status).toBe(403)
+        expect((await app(WORKSPACE_ADMIN).put('/api/v1/server-settings/read-only/REDIS_URL').send({ value: FAKE_REDIS })).status).toBe(403)
+        expect((await app(MEMBER).get('/api/v1/server-settings/read-only/REDIS_URL')).status).toBe(403)
+        expect((await app(API_KEY).get('/api/v1/server-settings/read-only')).status).toBe(403)
+        expect((await app(null).get('/api/v1/server-settings/read-only')).status).toBe(401)
+        setTeamPermissionLookup({
+            accessFor: async (userId, workspaceId) => {
+                if (userId === 'owner-1' && workspaceId === 'team-a') return { owner: true, permissions: null }
+                return { owner: false, permissions: ['chatflows:view'] }
+            }
+        })
+        const wrongWorkspace = { ...OWNER, activeWorkspaceId: 'team-b', permissions: ['*'] }
+        const denied = await app(wrongWorkspace).get('/api/v1/server-settings/read-only')
+        expect(denied.status).toBe(403)
+        expect(JSON.stringify(denied.body)).not.toContain(FAKE_KEY)
+        expect((await app(OWNER).get('/api/v1/server-settings/read-only')).status).toBe(200)
+    })
+
+    it('rejects PUT, PATCH, and DELETE and does not echo the submitted text', async () => {
+        const client = app(OWNER)
+        const put = await client.put('/api/v1/server-settings/read-only/LANGSMITH_API_KEY').send({ value: FAKE_KEY })
+        expect(put.status).toBe(400)
+        expect(put.body).toMatchObject({
+            code: 'READ_ONLY',
+            message: 'This setting cannot be changed.',
+            errors: [{ key: 'LANGSMITH_API_KEY', code: 'READ_ONLY', message: 'This setting cannot be changed.' }]
+        })
+        const patch = await client.patch('/api/v1/server-settings/read-only/REDIS_URL').send({ value: FAKE_REDIS })
+        expect(patch.status).toBe(400)
+        expect(patch.body.code).toBe('READ_ONLY')
+        const deleted = await client.delete('/api/v1/server-settings/read-only/TOKEN_HASH_SECRET').send({ value: FAKE_KEY })
+        expect(deleted.status).toBe(400)
+        expect(deleted.body.code).toBe('READ_ONLY')
+        const collection = await client.patch('/api/v1/server-settings/read-only').send({ value: FAKE_KEY })
+        expect(collection.status).toBe(400)
+        expect(collection.body.code).toBe('READ_ONLY')
+        const saved = await client.put('/api/v1/server-settings').send({ values: { PORT: FAKE_KEY, LANGSMITH_API_KEY: FAKE_KEY } })
+        expect(saved.status).toBe(400)
+        expect(saved.body.code).toBe('READ_ONLY')
+        expect(saved.body.errors.map((item: { key: string }) => item.key).sort()).toEqual(['LANGSMITH_API_KEY', 'PORT'])
+        const mixed = await client.patch('/api/v1/server-settings').send({ values: { REDIS_PASSWORD: FAKE_REDIS } })
+        expect(mixed.status).toBe(400)
+        expect(mixed.body.code).toBe('READ_ONLY')
+        const ordinary = await client.patch('/api/v1/server-settings').send({ values: { LOG_LEVEL: 'debug' } })
+        expect(ordinary.status).toBe(405)
+        expect(ordinary.body.code).toBe('METHOD_NOT_ALLOWED')
+        const unknown = await client.delete('/api/v1/server-settings/read-only/LOG_LEVEL').send({ value: FAKE_KEY })
+        expect(unknown.status).toBe(404)
+        expect(unknown.body.code).toBe('NOT_FOUND')
+        const pasted = `https://user:${FAKE_KEY}@example.invalid/hook?token=${FAKE_KEY}`
+        const invalid = await client.put('/api/v1/server-settings').send({
+            values: {
+                LANGSMITH_ENDPOINT: pasted,
+                LANGSMITH_PROJECT: pasted,
+                LOG_SANITIZE_BODY_FIELDS: pasted
+            }
+        })
+        expect(invalid.status).toBe(400)
+        expect(invalid.body.errors.map((item: { key: string; code: string }) => [item.key, item.code]).sort()).toEqual([
+            ['LANGSMITH_ENDPOINT', 'INVALID_URL'],
+            ['LANGSMITH_PROJECT', 'INVALID_NAME'],
+            ['LOG_SANITIZE_BODY_FIELDS', 'INVALID_NAME']
+        ])
+        const bodies = JSON.stringify([put.body, patch.body, deleted.body, saved.body, invalid.body])
+        expect(bodies).not.toContain(FAKE_KEY)
+        expect(bodies).not.toContain('fake-pass-b3')
+        expect(bodies).not.toContain('example.invalid')
+        expect(fs.existsSync(path.join(dir, SETTINGS_FILE))).toBe(false)
+        expect(fs.existsSync(path.join(dir, 'history.jsonl'))).toBe(false)
     })
 })

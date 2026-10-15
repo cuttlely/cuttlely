@@ -182,7 +182,7 @@ From a terminal (in Docker, prefix with `docker compose exec -u node Cuttlely`):
 
 ## All settings and History
 
-**All settings** lists every setting, where its value comes from and its value (secrets as set or not set), plus the settings that stay out of the browser and why: the encryption key and sign-in secrets, paths and ports, code execution and safety checks, queue workers, start script plumbing, and test-only values. **Copy as .env** copies the values saved here for a `.env` file or a host's environment page; secrets are left out and listed as comments.
+**All settings** lists every setting, where its value comes from and its value (secrets as set or not set), plus the settings that stay out of the browser and why: the encryption key and sign-in secrets, paths and ports, code execution and safety checks, queue workers, start script plumbing, and test-only values. The organization owner can also ask the API whether an env-only value is set. That answer is `set` and `source` only. The value, its length, and any hash stay off the response. [Server settings API](../reference/server-settings-api.md). **Copy as .env** copies the values saved here for a `.env` file or a host's environment page; secrets are left out and listed as comments.
 
 ![All settings. Copy as .env is at the top right. The table starts with Owner password sign-in, Host, On; AuthKit API key, Not set; AuthKit client ID, Default (Not set: AuthKit is off); Callback address, Default (Not set); and Session seal, Not set.](../images/server-settings/server-settings-all-settings.png)
 

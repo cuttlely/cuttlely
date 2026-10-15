@@ -337,6 +337,30 @@ describe('logger.ts', () => {
             infoSpy.mockRestore()
         })
 
+        it('does not log a rejected server-settings body', () => {
+            process.env.DEBUG = 'true'
+            const secret = 'fake-langsmith-key-b3'
+            const redis = 'redis://fake-user:fake-pass-b3@example.invalid:6399/0'
+            const infoSpy = jest.spyOn(logger, 'info').mockImplementation(() => {})
+            const auditSpy = jest.spyOn(auditLogger, 'info').mockImplementation(() => {})
+            const req = {
+                url: '/api/v1/server-settings/read-only/LANGSMITH_API_KEY',
+                method: 'PUT',
+                params: { key: 'LANGSMITH_API_KEY' },
+                body: { value: secret, redis },
+                query: {},
+                headers: {}
+            } as any
+            expressRequestLogger(req, {} as any, next)
+            const logged = JSON.stringify(infoSpy.mock.calls) + JSON.stringify(auditSpy.mock.calls)
+            expect(logged).toContain('[redacted]')
+            expect(logged).not.toContain(secret)
+            expect(logged).not.toContain('fake-pass-b3')
+            expect(logged).not.toContain('example.invalid')
+            infoSpy.mockRestore()
+            auditSpy.mockRestore()
+        })
+
         it('logs DELETE request', () => {
             const req = { url: '/api/v1/chatflows/1', method: 'DELETE', params: {} } as any
             const infoSpy = jest.spyOn(logger, 'info').mockImplementation(() => {})

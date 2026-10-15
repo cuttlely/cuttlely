@@ -17,6 +17,8 @@ import {
 } from '../../settings/authkit'
 import { TestDrivers, TestInputError, defaultDrivers, testConnection } from '../../settings/connection'
 import { checkDatabase, restorePreviousDatabase, switchDatabase } from '../../settings/database'
+import { listReadOnlyStatus, readOnlyStatusFor } from '../../settings/readOnly'
+import { isReadOnly } from '../../settings/registry'
 import {
     ServiceDeps,
     SettingsError,
@@ -111,11 +113,58 @@ function handle(work: (req: Request) => Promise<unknown> | unknown, status = 200
     }
 }
 
+/** Rejects a write to an env-only setting. The body is not copied into the error or a log line. */
+function rejectReadOnlyWrite(req: Request): never {
+    const key = typeof req.params?.key === 'string' ? req.params.key : ''
+    const routePath = (req.route as { path?: string } | undefined)?.path ?? ''
+    if (routePath === '/read-only') {
+        throw new SettingsError(400, 'READ_ONLY', 'This setting cannot be changed.')
+    }
+    if (key) {
+        if (!isReadOnly(key)) throw new SettingsError(404, 'NOT_FOUND', 'No read-only setting with that name.')
+        throw new SettingsError(400, 'READ_ONLY', 'This setting cannot be changed.', [
+            { key, code: 'READ_ONLY', message: 'This setting cannot be changed.' }
+        ])
+    }
+    const values = req.body && typeof req.body === 'object' ? (req.body as { values?: unknown }).values : undefined
+    if (values && typeof values === 'object' && !Array.isArray(values)) {
+        const keys = Object.keys(values as Record<string, unknown>).filter((name) => isReadOnly(name))
+        if (keys.length) {
+            throw new SettingsError(
+                400,
+                'READ_ONLY',
+                'This setting cannot be changed.',
+                keys.map((name) => ({ key: name, code: 'READ_ONLY', message: 'This setting cannot be changed.' }))
+            )
+        }
+    }
+    throw new SettingsError(405, 'METHOD_NOT_ALLOWED', 'Use PUT /api/v1/server-settings to change a setting.')
+}
+
 router.use(requireOwner())
 router.get(
     '/',
     handle(() => getView(depsFactory()))
 )
+router.get(
+    '/read-only',
+    handle(() => ({ scope: 'instance', settings: listReadOnlyStatus(depsFactory().env) }))
+)
+router.get(
+    '/read-only/:key',
+    handle((req) => {
+        const status = readOnlyStatusFor(depsFactory().env, req.params.key)
+        if (!status) throw new SettingsError(404, 'NOT_FOUND', 'No read-only setting with that name.')
+        return status
+    })
+)
+router.put('/read-only/:key', handle(rejectReadOnlyWrite))
+router.patch('/read-only', handle(rejectReadOnlyWrite))
+router.patch('/read-only/:key', handle(rejectReadOnlyWrite))
+router.delete('/read-only', handle(rejectReadOnlyWrite))
+router.delete('/read-only/:key', handle(rejectReadOnlyWrite))
+router.patch('/', handle(rejectReadOnlyWrite))
+router.delete('/', handle(rejectReadOnlyWrite))
 router.put(
     '/',
     handle((req) => {
