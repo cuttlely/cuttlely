@@ -209,7 +209,6 @@ function assertPublishCheckOn(): void {
 // The body is stored question text, so a 200 is not stored by the browser either.
 const getCheckHistory = async (req: Request, res: Response, next: NextFunction) => {
     try {
-        assertPublishCheckOn()
         const flow = await flowFor(req, 'view')
         const history = await listQuestionHistory(flow, req.query, historyCaller(req))
         res.setHeader('Cache-Control', 'no-store')
@@ -361,7 +360,6 @@ const startCheck = async (req: Request, res: Response, next: NextFunction) => {
 
 const getCheck = async (req: Request, res: Response, next: NextFunction) => {
     try {
-        assertPublishCheckOn()
         const flow = await flowFor(req, 'view')
         return res.json(await flowCheckService.getCheck(flow, req.params.checkId, undefined, await checkReveal(req)))
     } catch (error) {
@@ -371,7 +369,6 @@ const getCheck = async (req: Request, res: Response, next: NextFunction) => {
 
 const stopCheck = async (req: Request, res: Response, next: NextFunction) => {
     try {
-        assertPublishCheckOn()
         const flow = await flowFor(req, 'update')
         return res.json(await flowCheckService.stopCheck(flow, req.params.checkId, undefined, await checkReveal(req)))
     } catch (error) {

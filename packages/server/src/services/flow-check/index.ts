@@ -596,7 +596,6 @@ async function inputsFor(flow: DraftFlow, kind: TriggerStart) {
 }
 
 export async function getCheck(flow: DraftFlow, checkId: string, given?: Candidate, reveal?: CheckReveal): Promise<CheckView> {
-    assertPublishCheckOn()
     const candidate = await candidateFor(flow, given)
     const record = checks.get(candidate.key)
     if (!record || record.id !== checkId) throw new AppError(StatusCodes.NOT_FOUND, 'That check was not found. Run it again.')
@@ -605,7 +604,6 @@ export async function getCheck(flow: DraftFlow, checkId: string, given?: Candida
 }
 
 export async function stopCheck(flow: DraftFlow, checkId: string, given?: Candidate, reveal?: CheckReveal): Promise<CheckView> {
-    assertPublishCheckOn()
     const candidate = await candidateFor(flow, given)
     const record = checks.get(candidate.key)
     if (!record || record.id !== checkId) throw new AppError(StatusCodes.NOT_FOUND, 'That check was not found. Run it again.')

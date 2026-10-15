@@ -465,31 +465,33 @@ describe('the publish check', () => {
         expect(res.json).toHaveBeenCalledWith({ unavailable: null, questions: [] })
     })
 
-    it('refuses a check, a read, a stop, and the question list when the publish check is off', async () => {
+    it('refuses a new check when the publish check is off, and still lists, reads, and stops one', async () => {
         process.env.CUTTLELY_PUBLISH_CHECK = 'false'
         resetRuntimeLimitsForTests()
         granted.add('chatflows:view')
         granted.add('chatflows:update')
+        checkService.getCheck.mockResolvedValueOnce({ id: 'c1', status: 'running' })
         try {
-            const next = jest.fn()
-            await controller.getCheckHistory(checkRequest(), response(), next)
-            expect(next.mock.calls[0][0]).toMatchObject({
+            const history = response()
+            await controller.getCheckHistory(checkRequest(), history, jest.fn())
+            expect(listQuestionHistory).toHaveBeenCalled()
+            expect(history.json).toHaveBeenCalled()
+            const startNext = jest.fn()
+            await controller.startCheck(checkRequest({ questionIds: ['chat:1'] }), accepted(), startNext)
+            expect(startNext.mock.calls[0][0]).toMatchObject({
                 statusCode: 409,
                 message: 'The publish check is turned off on this server.'
             })
-            expect(listQuestionHistory).not.toHaveBeenCalled()
-            const startNext = jest.fn()
-            await controller.startCheck(checkRequest({ count: 1 }), accepted(), startNext)
-            expect(startNext.mock.calls[0][0]).toMatchObject({ statusCode: 409 })
             expect(checkService.startCheck).not.toHaveBeenCalled()
-            const readNext = jest.fn()
-            await controller.getCheck(checkRequest({}, { checkId: 'c1' }), response(), readNext)
-            expect(readNext.mock.calls[0][0]).toMatchObject({ statusCode: 409 })
-            expect(checkService.getCheck).not.toHaveBeenCalled()
-            const stopNext = jest.fn()
-            await controller.stopCheck(checkRequest({}, { checkId: 'c1' }), response(), stopNext)
-            expect(stopNext.mock.calls[0][0]).toMatchObject({ statusCode: 409 })
-            expect(checkService.stopCheck).not.toHaveBeenCalled()
+            const read = response()
+            await controller.getCheck(checkRequest({}, { checkId: 'c1' }), read, jest.fn())
+            expect(checkService.getCheck).toHaveBeenCalled()
+            expect(read.status).not.toHaveBeenCalled()
+            expect(read.json).toHaveBeenCalledWith({ id: 'c1', status: 'running' })
+            const stop = response()
+            await controller.stopCheck(checkRequest({}, { checkId: 'c1' }), stop, jest.fn())
+            expect(checkService.stopCheck).toHaveBeenCalled()
+            expect(stop.json).toHaveBeenCalledWith({ id: 'c1', status: 'stopped' })
         } finally {
             delete process.env.CUTTLELY_PUBLISH_CHECK
             resetRuntimeLimitsForTests()

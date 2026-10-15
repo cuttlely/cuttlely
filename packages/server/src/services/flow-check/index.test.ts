@@ -211,8 +211,8 @@ describe('the publish check switch', () => {
             statusCode: 409,
             message: 'The publish check is turned off on this server.'
         })
-        await expect(getCheck(flow(), 'missing')).rejects.toMatchObject({ statusCode: 409 })
-        await expect(stopCheck(flow(), 'missing')).rejects.toMatchObject({ statusCode: 409 })
+        await expect(getCheck(flow(), 'missing')).rejects.toMatchObject({ statusCode: 404 })
+        await expect(stopCheck(flow(), 'missing')).rejects.toMatchObject({ statusCode: 404 })
         expect(ran).not.toHaveBeenCalled()
         expect(checks.size).toBe(0)
         delete process.env.CUTTLELY_PUBLISH_CHECK
@@ -221,6 +221,31 @@ describe('the publish check switch', () => {
         expect(back.publishCheck).toBeUndefined()
         expect(back.unavailable).toBeNull()
         expect(back.questions).toEqual([{ text: 'What is the code word?', date: '2026-10-08T10:00:00.000Z' }])
+    })
+
+    test('turning it off while a check is running still stops that check and returns its status', async () => {
+        let release: () => void = () => {}
+        replayHooks.run = ({ signal }) =>
+            new Promise((resolve, reject) => {
+                release = () => resolve({ text: 'late' })
+                signal.signal.addEventListener('abort', () => reject(new Error('aborted')))
+            })
+        const started = await startCheck(flow() as any, { questions: ['a'] }, 'http://x')
+        await new Promise((r) => setTimeout(r, 10))
+        expect(started.status).toBe('running')
+        process.env.CUTTLELY_PUBLISH_CHECK = 'false'
+        resetRuntimeLimitsForTests()
+        const stopped = await stopCheck(flow(), started.id)
+        expect(stopped.id).toBe(started.id)
+        await settle()
+        release()
+        const read = await getCheck(flow(), started.id)
+        expect(read.status).toBe('stopped')
+        expect(read.stopReason).toBe('stopped')
+        await expect(startCheck(flow() as any, { questions: ['b'] }, 'http://x')).rejects.toMatchObject({
+            statusCode: 409,
+            message: 'The publish check is turned off on this server.'
+        })
     })
 })
 
