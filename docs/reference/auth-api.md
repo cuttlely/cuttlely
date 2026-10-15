@@ -149,12 +149,14 @@ Requires `users:manage`. `:id` must be a user in the caller's current team. Anot
 
 Public. No session. Send `{ "token", "password" }` in the JSON body. A `token` query parameter is ignored. The route is rate limited: 10 failures from one client address in 15 minutes, then 429 `{ "message": "Too many attempts. Try again later." }`.
 
-| Status | When                                                                                                                         | Body                                                   |
-| ------ | ---------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------ |
-| 200    | The token matches an unused, unexpired invite or reset for an eligible local user, and the password meets the strength rules | `{ "message": "Password saved." }`                     |
-| 400    | The token is missing, unknown, expired, already used, for another team, or the user is not eligible                          | `{ "message": "This link is not valid." }`             |
-| 400    | The token is valid and the password fails a strength rule                                                                    | `{ "message": "<the rule>" }` The token stays unused   |
-| 429    | Too many failures from this client address                                                                                   | `{ "message": "Too many attempts. Try again later." }` |
+| Status | When                                                                                                                         | Body                                                                 |
+| ------ | ---------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------- |
+| 200    | The token matches an unused, unexpired invite or reset for an eligible local user, and the password meets the strength rules | `{ "message": "Password saved." }`                                   |
+| 400    | The token is missing, unknown, expired, already used, for another team, or the user is not eligible                          | `{ "message": "This link is not valid." }`                           |
+| 400    | The password fails a strength rule                                                                                           | `{ "message": "<the rule>" }` The token is not read and stays unused |
+| 429    | Too many failures from this client address                                                                                   | `{ "message": "Too many attempts. Try again later." }`               |
+
+A missing or unknown token sent with a password that fails those rules gets the same rule. The response does not show that a token is live.
 
 Two accepts of the same token cannot both succeed. The used mark and the password write are one transaction. A reset, and only a reset, deletes every `identity_local_session` row for that user in that same transaction. An old cookie then fails. An invite does not delete sessions.
 

@@ -172,8 +172,33 @@ function canIssueLinks(actor: DirectoryActor): boolean {
     return Boolean(actor.permissions?.includes('users:manage'))
 }
 
-function stamp(ms: number): string {
+/** Milliseconds from a driver value. Postgres and MySQL return Date; sqlite may return text or a number. */
+export function linkClock(value: unknown): number {
+    if (value instanceof Date) return value.getTime()
+    if (typeof value === 'number') return Number.isFinite(value) ? value : 0
+    const parsed = Date.parse(String(value))
+    return Number.isNaN(parsed) ? 0 : parsed
+}
+
+/**
+ * A datetime the driver can store. Postgres takes a Date. MySQL and MariaDB reject an ISO
+ * string that ends in Z when the session is strict, so they get UTC `YYYY-MM-DD HH:MM:SS`.
+ * SQLite keeps the ISO text the tests and the text column already use.
+ */
+export function linkDbTime(dialect: Sql['type'], ms: number): Date | string {
+    if (dialect === 'postgres') return new Date(ms)
+    if (dialect === 'mysql' || dialect === 'mariadb') {
+        const date = new Date(ms)
+        const pad = (value: number) => String(value).padStart(2, '0')
+        return `${date.getUTCFullYear()}-${pad(date.getUTCMonth() + 1)}-${pad(date.getUTCDate())} ${pad(date.getUTCHours())}:${pad(
+            date.getUTCMinutes()
+        )}:${pad(date.getUTCSeconds())}`
+    }
     return new Date(ms).toISOString()
+}
+
+function dbTime(sql: Sql, ms: number): Date | string {
+    return linkDbTime(sql.type, ms)
 }
 
 async function writeAudit(query: QueryFn, sql: Sql, row: AuditRow, at: number): Promise<void> {
@@ -192,7 +217,7 @@ async function writeAudit(query: QueryFn, sql: Sql, row: AuditRow, at: number): 
             row.actorId,
             row.result,
             row.reason,
-            stamp(at)
+            dbTime(sql, at)
         ]
     )
 }
@@ -203,7 +228,7 @@ async function cleanup(query: QueryFn, sql: Sql, now: number): Promise<void> {
             sql,
             'usedAt'
         )} < ?)`,
-        [stamp(now), stamp(now - RETAIN_USED_MS)]
+        [dbTime(sql, now), dbTime(sql, now - RETAIN_USED_MS)]
     )
 }
 
@@ -211,8 +236,9 @@ async function issueToken(
     query: QueryFn,
     sql: Sql,
     input: { purpose: LinkPurpose; actor: DirectoryActor; userId: string; workspaceId: string; now: number; env: NodeJS.ProcessEnv }
-): Promise<string> {
+): Promise<{ raw: string; id: string }> {
     const raw = randomToken()
+    const id = randomUUID()
     const hash = hashSessionToken(raw)
     await cleanup(query, sql, input.now)
     const older = await query(
@@ -224,7 +250,7 @@ async function issueToken(
         await query(
             `UPDATE ${q(sql, 'identity_action_link')} SET ${q(sql, 'usedAt')} = ?, ${q(sql, 'consumeId')} = ?
              WHERE ${q(sql, 'userId')} = ? AND ${q(sql, 'purpose')} = ? AND ${q(sql, 'workspaceId')} = ? AND ${q(sql, 'usedAt')} IS NULL`,
-            [stamp(input.now), 'superseded', input.userId, input.purpose, input.workspaceId]
+            [dbTime(sql, input.now), 'superseded', input.userId, input.purpose, input.workspaceId]
         )
         for (let index = 0; index < older.length; index += 1) {
             await writeAudit(
@@ -253,15 +279,15 @@ async function issueToken(
         )}
         ) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?)`,
         [
-            randomUUID(),
+            id,
             hash,
             input.purpose,
             input.actor.organizationId,
             input.workspaceId,
             input.userId,
-            stamp(input.now + actionTtlMs(input.purpose, input.env)),
+            dbTime(sql, input.now + actionTtlMs(input.purpose, input.env)),
             input.actor.id,
-            stamp(input.now)
+            dbTime(sql, input.now)
         ]
     )
     await writeAudit(
@@ -280,7 +306,7 @@ async function issueToken(
         input.now
     )
     metrics.issued += 1
-    return raw
+    return { raw, id }
 }
 
 async function removeFreshUser(sql: Sql, userId: string): Promise<void> {
@@ -312,7 +338,7 @@ export async function inviteAccount(
     const workspaceId = workspaceOf(body)
     const created = await createEmailUser(sql, actor, body, async (query, userId) => {
         if (mode === undefined) return
-        raw = await issueToken(query, sql, { purpose: 'invite', actor, userId, workspaceId, now: deps.now(), env: deps.env })
+        raw = (await issueToken(query, sql, { purpose: 'invite', actor, userId, workspaceId, now: deps.now(), env: deps.env })).raw
     })
     if (mode === undefined) return { id: created.id }
     const link = oneTimeLink(deps.origin(), raw)
@@ -465,21 +491,22 @@ async function resetLocalLinkInner(
     const target = await loadTarget(sql.query, sql, actor.organizationId, actor.workspaceId, userId.trim())
     const blocked = target ? resetBlock(actor, target) : 'missing'
     if (blocked) throw resetError(blocked)
-    let raw = ''
+    let issued = { raw: '', id: '' }
+    const workspaceId = actor.workspaceId || ''
     await sql.transaction(async (query) => {
-        const again = await loadTarget(query, sql, actor.organizationId, actor.workspaceId || '', userId.trim())
+        const again = await loadTarget(query, sql, actor.organizationId, workspaceId, userId.trim())
         const still = again ? resetBlock(actor, again) : 'missing'
         if (still) throw resetError(still)
-        raw = await issueToken(query, sql, {
+        issued = await issueToken(query, sql, {
             purpose: 'reset',
             actor,
             userId: userId.trim(),
-            workspaceId: actor.workspaceId || '',
+            workspaceId,
             now: deps.now(),
             env: deps.env
         })
     })
-    const link = oneTimeLink(deps.origin(), raw)
+    const link = oneTimeLink(deps.origin(), issued.raw)
     const address = await userEmail(sql, userId.trim())
     if (!wantsLink) {
         try {
@@ -487,8 +514,8 @@ async function resetLocalLinkInner(
         } catch {
             await sql.query(
                 `UPDATE ${q(sql, 'identity_action_link')} SET ${q(sql, 'usedAt')} = ?, ${q(sql, 'consumeId')} = ?
-                 WHERE ${q(sql, 'userId')} = ? AND ${q(sql, 'purpose')} = ? AND ${q(sql, 'usedAt')} IS NULL`,
-                [stamp(deps.now()), 'unsent', userId.trim(), 'reset']
+                 WHERE ${q(sql, 'id')} = ? AND ${q(sql, 'workspaceId')} = ? AND ${q(sql, 'usedAt')} IS NULL`,
+                [dbTime(sql, deps.now()), 'unsent', issued.id, workspaceId]
             )
             throw new DirectoryError(502, MAIL_FAILED)
         }
@@ -516,7 +543,8 @@ interface StoredLink {
     organizationId: string
     workspaceId: string
     userId: string
-    expiresAt: string
+    /** Milliseconds. 0 when the driver value cannot be read. */
+    expiresAt: number
     usedAt: string
 }
 
@@ -536,7 +564,7 @@ async function findLink(query: QueryFn, sql: Sql, hash: string): Promise<StoredL
         organizationId: text(cell(row, 'organizationId')),
         workspaceId: text(cell(row, 'workspaceId')),
         userId: text(cell(row, 'userId')),
-        expiresAt: text(cell(row, 'expiresAt')),
+        expiresAt: linkClock(cell(row, 'expiresAt')),
         usedAt: text(cell(row, 'usedAt'))
     }
 }
@@ -553,10 +581,13 @@ export async function acceptLocalPassword(sql: Sql, input: AcceptInput, deps: Li
     if (await deps.rateLimit.blocked(input.ip, '', input.now)) return json(429, { message: TOO_MANY_LINKS })
     const token = typeof input.body.token === 'string' ? input.body.token : ''
     const password = typeof input.body.password === 'string' ? input.body.password : ''
-    if (!token || !password) {
+    if (!token) {
         await deps.rateLimit.recordFailure(input.ip, '', input.now)
         return json(400, { message: LINK_INVALID })
     }
+    // Strength is checked before the token is read, so a weak password does not show that the token is live.
+    const problems = passwordErrors(password)
+    if (problems.length) return json(400, { message: problems[0] })
     const hash = hashSessionToken(token)
     const found = await findLink(sql.query, sql, hash)
     if (!found || (found.purpose !== 'invite' && found.purpose !== 'reset')) {
@@ -569,7 +600,7 @@ export async function acceptLocalPassword(sql: Sql, input: AcceptInput, deps: Li
         await rejectAudit(sql, found, 'reused', input.now)
         return json(400, { message: LINK_INVALID })
     }
-    if (found.expiresAt <= stamp(input.now)) {
+    if (!found.expiresAt || found.expiresAt <= input.now) {
         metrics.expired += 1
         await deps.rateLimit.recordFailure(input.ip, '', input.now)
         await rejectAudit(sql, found, 'expired', input.now)
@@ -582,8 +613,6 @@ export async function acceptLocalPassword(sql: Sql, input: AcceptInput, deps: Li
         await rejectAudit(sql, found, blocked, input.now)
         return json(400, { message: LINK_INVALID })
     }
-    const problems = passwordErrors(password)
-    if (problems.length) return json(400, { message: problems[0] })
     const credential = await hashPassword(password)
     const consumeId = randomUUID()
     let won = false
@@ -592,7 +621,7 @@ export async function acceptLocalPassword(sql: Sql, input: AcceptInput, deps: Li
             await query(
                 `UPDATE ${q(sql, 'identity_action_link')} SET ${q(sql, 'usedAt')} = ?, ${q(sql, 'consumeId')} = ?
                  WHERE ${q(sql, 'tokenHash')} = ? AND ${q(sql, 'usedAt')} IS NULL AND ${q(sql, 'expiresAt')} > ?`,
-                [stamp(input.now), consumeId, hash, stamp(input.now)]
+                [dbTime(sql, input.now), consumeId, hash, dbTime(sql, input.now)]
             )
             const marked = await query(
                 `SELECT ${q(sql, 'userId')} AS userId, ${q(sql, 'purpose')} AS purpose, ${q(sql, 'organizationId')} AS organizationId,
@@ -609,7 +638,7 @@ export async function acceptLocalPassword(sql: Sql, input: AcceptInput, deps: Li
             if (blockReason(again)) throw new Error('ineligible')
             await query(
                 `UPDATE ${q(sql, 'user')} SET ${q(sql, 'credential')} = ?, ${q(sql, 'updatedDate')} = ? WHERE ${q(sql, 'id')} = ?`,
-                [credential, stamp(input.now), userId]
+                [credential, dbTime(sql, input.now), userId]
             )
             await writeAudit(
                 query,

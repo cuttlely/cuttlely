@@ -33,6 +33,8 @@ import {
     acceptLocalPassword,
     actionLinkMetrics,
     actionTtlMs,
+    linkClock,
+    linkDbTime,
     inviteAccount,
     resetLocalLink,
     sendSmtp,
@@ -146,6 +148,37 @@ function inviteBody(email = 'ada@example.com', roleId = ROLE) {
         workspace: { id: TEAM },
         role: { id: roleId }
     }
+}
+
+function clockRows(rows: Record<string, unknown>[], asNumber: boolean): Record<string, unknown>[] {
+    return rows.map((row) => {
+        const next = { ...row }
+        for (const key of Object.keys(next)) {
+            if (typeof next[key] !== 'string' || !/(At|Date)$/.test(key)) continue
+            const parsed = Date.parse(String(next[key]))
+            if (Number.isNaN(parsed)) continue
+            next[key] = asNumber ? parsed : new Date(parsed)
+        }
+        return next
+    })
+}
+
+/** Select results look like Postgres or MySQL: datetime columns come back as Date, or as epoch milliseconds. */
+function dateReturning(sql: Sql, asNumber = false): Sql {
+    const present = async (statement: string, params: unknown[] = []) => {
+        const rows = await sql.query(statement, params)
+        if (!/^\s*select/i.test(statement)) return rows
+        return clockRows(rows, asNumber)
+    }
+    return {
+        ...sql,
+        query: present,
+        transaction: (fn) => sql.transaction(async (_query) => fn(async (statement, params = []) => present(statement, params)))
+    }
+}
+
+function numberReturning(sql: Sql): Sql {
+    return dateReturning(sql, true)
 }
 
 function deps(
@@ -368,7 +401,16 @@ describe('invite and reset links', () => {
             deps()
         )
         expect(weak).toMatchObject({ status: 400 })
-        expect((weak.type === 'json' && weak.body && (weak.body as { message: string }).message) || '').not.toBe(LINK_INVALID)
+        const weakMessage = (weak.type === 'json' && weak.body && (weak.body as { message: string }).message) || ''
+        expect(weakMessage).not.toBe(LINK_INVALID)
+        const unknown = await acceptLocalPassword(
+            sql,
+            { body: { token: 'missing-token-value', password: 'short' }, query: {}, ip: '203.0.113.90', now: NOW },
+            deps()
+        )
+        const unknownMessage = (unknown.type === 'json' && unknown.body && (unknown.body as { message: string }).message) || ''
+        expect(unknownMessage).toBe(weakMessage)
+        expect(db.prepare('SELECT usedAt FROM identity_action_link').all()).toEqual([{ usedAt: null }])
         expect(db.prepare('SELECT usedAt FROM identity_action_link').all()).toEqual([{ usedAt: null }])
         const ok = await acceptLocalPassword(
             sql,
@@ -489,6 +531,76 @@ describe('invite and reset links', () => {
             status: 502,
             message: MAIL_FAILED
         })
+    })
+
+    it('marks only the reset token whose email failed', async () => {
+        const { sql, db } = memoryDb()
+        db.exec(`
+            INSERT INTO "user" (id, name, email, status) VALUES ('ada', 'Ada', 'ada@example.com', 'active');
+            INSERT INTO organization_user ("organizationId", "userId", "roleId", status) VALUES ('${ORG}', 'ada', '${ROLE}', 'active');
+            INSERT INTO workspace_user ("workspaceId", "userId", "roleId", status) VALUES ('${TEAM}', 'ada', '${ROLE}', 'active');
+            INSERT INTO workspace_user ("workspaceId", "userId", "roleId", status) VALUES ('team-2', 'ada', '${ROLE}', 'active');
+        `)
+        const kept = await resetLocalLink(sql, owner, 'ada', { link: true }, deps())
+        const otherTeam: DirectoryActor = { ...owner, workspaceId: 'team-2' }
+        await expect(resetLocalLink(sql, otherTeam, 'ada', { link: false }, deps({ mail: true, failMail: true }))).rejects.toMatchObject({
+            status: 502,
+            message: MAIL_FAILED
+        })
+        const rows = db.prepare('SELECT workspaceId, usedAt, consumeId FROM identity_action_link').all() as {
+            workspaceId: string
+            usedAt: string | null
+            consumeId: string | null
+        }[]
+        expect(rows).toHaveLength(2)
+        expect(rows.find((row) => row.workspaceId === TEAM)).toMatchObject({ usedAt: null, consumeId: null })
+        expect(rows.find((row) => row.workspaceId === 'team-2')).toMatchObject({ consumeId: 'unsent' })
+        expect(rows.find((row) => row.workspaceId === 'team-2')?.usedAt).toBeTruthy()
+        const saved = await acceptLocalPassword(
+            sql,
+            { body: { token: tokenOf(kept.link || ''), password: GOOD }, query: {}, ip: '203.0.113.40', now: NOW },
+            deps()
+        )
+        expect(saved).toMatchObject({ status: 200, body: { message: PASSWORD_SAVED } })
+    })
+
+    it('reads an expiry returned as a Date or a number, and refuses an expired one', async () => {
+        expect(linkDbTime('sqlite', NOW)).toBe(new Date(NOW).toISOString())
+        expect(linkDbTime('postgres', NOW)).toEqual(new Date(NOW))
+        expect(linkDbTime('mysql', NOW)).toBe('2026-10-15 00:00:00')
+        expect(linkDbTime('mariadb', NOW)).toBe('2026-10-15 00:00:00')
+        expect(String(linkDbTime('mysql', NOW))).not.toMatch(/[TZ]/)
+        expect(linkClock(new Date(NOW))).toBe(NOW)
+        expect(linkClock(NOW)).toBe(NOW)
+        expect(linkClock(new Date(NOW).toISOString())).toBe(NOW)
+        expect(linkClock('not-a-time')).toBe(0)
+
+        const { sql, db } = memoryDb()
+        const created = await inviteAccount(sql, owner, { ...inviteBody(), link: true }, deps())
+        const raw = tokenOf(created.link || '')
+        const dated = dateReturning(sql)
+        const expired = await acceptLocalPassword(
+            dated,
+            { body: { token: raw, password: GOOD }, query: {}, ip: '203.0.113.41', now: NOW + 72 * 60 * 60 * 1000 },
+            deps()
+        )
+        expect(expired).toMatchObject({ status: 400, body: { message: LINK_INVALID } })
+        expect(db.prepare('SELECT usedAt FROM identity_action_link').all()).toEqual([{ usedAt: null }])
+
+        const numbered = numberReturning(sql)
+        const stillExpired = await acceptLocalPassword(
+            numbered,
+            { body: { token: raw, password: GOOD }, query: {}, ip: '203.0.113.42', now: NOW + 72 * 60 * 60 * 1000 },
+            deps()
+        )
+        expect(stillExpired).toMatchObject({ status: 400, body: { message: LINK_INVALID } })
+        const fresh = await inviteAccount(sql, owner, { ...inviteBody('dated@example.com'), link: true }, deps())
+        const saved = await acceptLocalPassword(
+            dateReturning(sql),
+            { body: { token: tokenOf(fresh.link || ''), password: GOOD }, query: {}, ip: '203.0.113.43', now: NOW },
+            deps()
+        )
+        expect(saved).toMatchObject({ status: 200, body: { message: PASSWORD_SAVED } })
     })
 
     it('ends every local session only after a reset password is saved', async () => {
