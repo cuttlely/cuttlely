@@ -538,7 +538,8 @@ export const PublishCheckView = ({
     const choosing = questionMode === 'choose' && canChooseQuestions && !replayInputs && !fromDataset
     const addedPicked = list.filter((q) => q.added && q.picked).length
     const questionCount = choosing ? selectedQuestions.length + addedPicked : pastCount > 0 ? used + addedPicked : picked
-    const checklist = pastCount > 0 ? list.filter((q) => q.added) : list
+    // A new flow's tick list is the starter questions, for the count picker. Choose mode shows only questions typed in.
+    const checklist = choosing || pastCount > 0 ? list.filter((q) => q.added) : list
     const unit = replayInputs ? 'run' : 'question'
     const cap = capMessage(count, pastCount, Boolean(setup?.pastTruncated), unit)
     const countLabel = countPickerLabel({ replayInputs, requested: count, available: pastCount })
@@ -1145,9 +1146,10 @@ const PublishCheck = ({ chatflowId, variant = 'publish', api = flowDraftsApi, fl
         try {
             const have = pastCount()
             const added = list.filter((q) => q.added && q.picked).map((q) => q.text)
-            const ownQuestions = have > 0 ? added : pickedQuestions(list)
-            const scored = evaluatorIds.length ? { evaluatorIds } : {}
             const choosing = questionMode === 'choose' && canChooseQuestions && source !== 'dataset'
+            // Choose mode sends the typed questions. The starter ticks stay on the count picker.
+            const ownQuestions = choosing || have > 0 ? added : pickedQuestions(list)
+            const scored = evaluatorIds.length ? { evaluatorIds } : {}
             const body = choosing
                 ? chooseRunBody({
                       selected: selectedQuestions,
