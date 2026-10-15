@@ -12,7 +12,7 @@
 
 import { Request, RequestHandler, Response, Router } from 'express'
 import { settingsDir } from '../settings/store'
-import { AuditQueryError, AUDIT_PAGE_DEFAULT, AUDIT_PAGE_MAX, pageAudit } from './auditLog'
+import { AuditQueryError, AUDIT_PAGE_DEFAULT, AUDIT_PAGE_MAX, callerIsServerOwner, pageAudit } from './auditLog'
 import { Sql } from './directory'
 import { applicationSql } from './production'
 import { requirePermission, resolveTeamAccess } from './rbac'
@@ -63,23 +63,25 @@ function limitOf(value: unknown): number {
 
 identityAuditRouter.get('/', requireAuditViewer(), (req: Request, res: Response) => {
     void (async () => {
-        const user = req.user as { id?: unknown; activeOrganizationId?: unknown; activeWorkspaceId?: unknown }
-        const userId = typeof user.id === 'string' ? user.id : ''
-        const organizationId = typeof user.activeOrganizationId === 'string' ? user.activeOrganizationId : ''
-        const workspaceId = typeof user.activeWorkspaceId === 'string' ? user.activeWorkspaceId : ''
-        if (!userId || !organizationId) {
-            res.status(401).json({ message: 'Unauthorized' })
-            return
-        }
-        const access = await resolveTeamAccess(userId, workspaceId)
-        if (!access.owner && !workspaceId) {
-            res.status(403).json({ message: 'Forbidden' })
-            return
-        }
         try {
+            const user = req.user as { id?: unknown; activeOrganizationId?: unknown; activeWorkspaceId?: unknown }
+            const userId = typeof user.id === 'string' ? user.id : ''
+            const organizationId = typeof user.activeOrganizationId === 'string' ? user.activeOrganizationId : ''
+            const workspaceId = typeof user.activeWorkspaceId === 'string' ? user.activeWorkspaceId : ''
+            if (!userId || !organizationId) {
+                res.status(401).json({ message: 'Unauthorized' })
+                return
+            }
+            const access = await resolveTeamAccess(userId, workspaceId)
+            if (!access.owner && !workspaceId) {
+                res.status(403).json({ message: 'Forbidden' })
+                return
+            }
+            const sql = readerSql()
+            const serverOwner = access.owner ? await callerIsServerOwner(sql, userId) : false
             const page = await pageAudit(
-                readerSql(),
-                { organizationId, workspaceId: workspaceId || null, owner: access.owner },
+                sql,
+                { organizationId, workspaceId: workspaceId || null, owner: access.owner, serverOwner },
                 {
                     type: one(req.query.type),
                     user: one(req.query.user),
@@ -91,6 +93,7 @@ identityAuditRouter.get('/', requireAuditViewer(), (req: Request, res: Response)
             res.set('Cache-Control', 'no-store')
             res.status(200).json(page)
         } catch (error) {
+            if (res.headersSent) return
             if (error instanceof AuditQueryError) {
                 res.status(error.status).json({ message: error.message, code: error.code })
                 return

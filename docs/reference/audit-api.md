@@ -10,20 +10,22 @@ One list of sign-in, lockout, invite, reset, role change, user disable, and sett
 
 The organization owner of the active team, or a role with `audit:view` on that team. A missing session is **401** `{ "message": "Unauthorized" }`. A signed-in caller without the key is **403** `{ "message": "Forbidden" }`. An API key has no user id, so it is **403** even when the key list contains `audit:view`. Creating or updating an API key with `audit:view` is **400**.
 
-A caller who is not the owner sees events for the active team, and sign-in rows for people in that team. Events for another team, and events for another organization, are left out. The owner sees events for every team in the organization. Unknown sign-in failures, which match no user, are visible to an owner and not to a role that only has `audit:view`.
+A caller who is not the owner sees events for the active team, and sign-in rows for people in that team. Events for another team, and events for another organization, are left out. The owner sees events for every team in the organization.
 
-Settings changes are included for anyone who can read the list. They are the settings history rows. They have no user id, so a `user` filter leaves them out.
+Settings changes are the settings history rows. They are included only for the organization owner. A role with `audit:view` does not receive `setting_change` rows. They have no user id, so a `user` filter leaves them out.
+
+A sign-in or lockout that matches no account is stored without an address, a user agent, or the identifier that was attempted. That row is returned only to the server owner (the earliest active organization owner). An organization owner of another organization does not receive it.
 
 The response sends `Cache-Control: no-store`.
 
 ## Query
 
-| Query    | Meaning                                                                                                |
-| -------- | ------------------------------------------------------------------------------------------------------ |
-| `cursor` | Opaque. Asks for rows strictly older than the last row of the previous page. A bad cursor is **400**.  |
-| `type`   | One of the types below. Omit it for every type. Anything else is **400** `{ "code": "INVALID_TYPE" }`. |
-| `user`   | User id. At most 255 characters. A longer value is **400** `{ "code": "INVALID_USER" }`.               |
-| `limit`  | Page size. Default 50. Maximum 100. `0` or a non-number is **400** `{ "code": "INVALID_LIMIT" }`.      |
+| Query    | Meaning                                                                                                                                                        |
+| -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `cursor` | Opaque. One key for the merged list: time, then source, then id. Asks for rows strictly older than the last row of the previous page. A bad cursor is **400**. |
+| `type`   | One of the types below. Omit it for every type. Anything else is **400** `{ "code": "INVALID_TYPE" }`.                                                         |
+| `user`   | User id. At most 255 characters. A longer value is **400** `{ "code": "INVALID_USER" }`.                                                                       |
+| `limit`  | Page size. Default 50. Maximum 100. `0` or a non-number is **400** `{ "code": "INVALID_LIMIT" }`.                                                              |
 
 Types: `sign_in_success`, `sign_in_failure`, `lockout`, `invite`, `reset`, `role_change`, `user_disable`, `setting_change`.
 

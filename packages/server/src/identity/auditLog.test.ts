@@ -20,7 +20,7 @@ import { join } from 'path'
 import express, { Request } from 'express'
 import request from 'supertest'
 import { appendHistory } from '../settings/history'
-import { redactAudit, recordAudit, pageAudit, AuditQueryError } from './auditLog'
+import { redactAudit, recordAudit, pageAudit, organizationsForUser, AuditQueryError } from './auditLog'
 import { identityAuditRouter, setAuditReaderForTests } from './auditRoutes'
 import { Sql } from './directory'
 import { setTeamPermissionLookup } from './rbac'
@@ -94,6 +94,9 @@ describe('audit redaction', () => {
                 token: TOKEN,
                 secret: SECRET,
                 question: QUESTION,
+                ip: '203.0.113.5',
+                userAgent: 'SpyBrowser',
+                email: 'nobody@example.com',
                 nested: { apiKey: SECRET, questionText: QUESTION, method: 'local' }
             }
         })
@@ -102,6 +105,9 @@ describe('audit redaction', () => {
         expect(encoded).not.toContain(TOKEN)
         expect(encoded).not.toContain(SECRET)
         expect(encoded).not.toContain(QUESTION)
+        expect(encoded).not.toContain('203.0.113.5')
+        expect(encoded).not.toContain('SpyBrowser')
+        expect(encoded).not.toContain('nobody@example.com')
         expect(redacted.summary).toBe('Sign-in failed')
         expect(redacted.detail).toEqual({ method: 'local', nested: { method: 'local' } })
     })
@@ -321,9 +327,15 @@ describe('audit list', () => {
             },
             10
         )
-        const page = await pageAudit(
+        const hidden = await pageAudit(
             sql,
             { organizationId: ORG, workspaceId: TEAM_A, owner: false },
+            { type: 'setting_change', limit: 10, historyDir: dir, now: NOW, retentionDays: 90 }
+        )
+        expect(hidden.events).toEqual([])
+        const page = await pageAudit(
+            sql,
+            { organizationId: ORG, workspaceId: TEAM_A, owner: true },
             { type: 'setting_change', limit: 10, historyDir: dir, now: NOW, retentionDays: 90 }
         )
         const encoded = JSON.stringify(page)
@@ -378,6 +390,136 @@ describe('audit list', () => {
         )
         expect(next.events.map((event) => event.at)).toEqual(['2026-10-01T00:00:00.000Z'])
     })
+
+    it('hides a sign-in that matched no account from every organization except the server owner', async () => {
+        const { sql } = memorySql()
+        const dir = mkdtempSync(join(tmpdir(), 'cuttlely-audit-'))
+        await recordAudit(
+            sql,
+            {
+                type: 'sign_in_failure',
+                organizationId: '',
+                workspaceId: null,
+                userId: null,
+                actorId: null,
+                summary: 'Sign-in failed for nobody@example.com',
+                detail: { method: 'local', ip: '203.0.113.9', userAgent: 'SpyBrowser', email: 'nobody@example.com' },
+                at: NOW
+            },
+            NOW
+        )
+        const scope = { workspaceId: TEAM_A, owner: true as const, historyDir: dir, now: NOW, retentionDays: 90, limit: 10 }
+        const orgOwner = await pageAudit(sql, { organizationId: ORG, workspaceId: TEAM_A, owner: true }, scope)
+        const otherOwner = await pageAudit(sql, { organizationId: OTHER_ORG, workspaceId: 'team-z', owner: true }, scope)
+        const serverOwner = await pageAudit(sql, { organizationId: ORG, workspaceId: TEAM_A, owner: true, serverOwner: true }, scope)
+        expect(orgOwner.events).toEqual([])
+        expect(otherOwner.events).toEqual([])
+        expect(serverOwner.events).toHaveLength(1)
+        const encoded = JSON.stringify(serverOwner.events[0])
+        expect(encoded).not.toContain('203.0.113.9')
+        expect(encoded).not.toContain('SpyBrowser')
+        expect(encoded).not.toContain('nobody@example.com')
+        expect(serverOwner.events[0].userId).toBeNull()
+    })
+
+    it('pages database and settings rows that share a timestamp without a duplicate or a skip', async () => {
+        const { sql } = memorySql()
+        const dir = mkdtempSync(join(tmpdir(), 'cuttlely-audit-'))
+        const at = NOW
+        const stamp = new Date(at).toISOString()
+        await sql.query(
+            `INSERT INTO audit_event (id, type, organizationId, workspaceId, userId, actorId, summary, detail, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?)`,
+            ['db-a', 'invite', ORG, TEAM_A, MEMBER, OWNER, 'Invite issued', at]
+        )
+        await sql.query(
+            `INSERT INTO audit_event (id, type, organizationId, workspaceId, userId, actorId, summary, detail, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?)`,
+            ['db-b', 'invite', ORG, TEAM_A, MEMBER, OWNER, 'Invite issued', at]
+        )
+        appendHistory(dir, { kind: 'save', actorId: OWNER, at: stamp, changes: [{ key: 'LOG_LEVEL', from: 'a', to: 'b' }] }, 10)
+        appendHistory(dir, { kind: 'save', actorId: OWNER, at: stamp, changes: [{ key: 'LOG_LEVEL', from: 'b', to: 'c' }] }, 10)
+        const seen: string[] = []
+        let cursor: string | null = null
+        for (let page = 0; page < 6; page += 1) {
+            const result = await pageAudit(
+                sql,
+                { organizationId: ORG, workspaceId: TEAM_A, owner: true },
+                { limit: 1, cursor, historyDir: dir, now: NOW, retentionDays: 90 }
+            )
+            if (!result.events.length) break
+            seen.push(result.events[0].id)
+            cursor = result.nextCursor
+            if (!cursor) break
+        }
+        expect(seen).toEqual(['db-b', 'db-a', 'history:2', 'history:1'])
+        expect(new Set(seen).size).toBe(seen.length)
+    })
+
+    it('quotes camelCase aliases so a driver that folds them still returns the row', async () => {
+        const dir = mkdtempSync(join(tmpdir(), 'cuttlely-audit-'))
+        const seen: string[] = []
+        const folding: Sql = {
+            type: 'postgres',
+            async query(text) {
+                seen.push(text)
+                if (/^\s*delete/i.test(text)) return []
+                if (!/from\s+"audit_event"/i.test(text)) return []
+                const row: Record<string, unknown> = {}
+                const data: Record<string, unknown> = {
+                    id: 'row-1',
+                    type: 'sign_in_success',
+                    userId: 'user-9',
+                    actorId: 'user-9',
+                    workspaceId: null,
+                    summary: 'Signed in',
+                    detail: null,
+                    createdAt: NOW
+                }
+                for (const match of text.matchAll(/\bAS\s+("[^"]+"|[A-Za-z_][A-Za-z0-9_]*)/g)) {
+                    const token = match[1]
+                    if (token.startsWith('"')) {
+                        const name = token.slice(1, -1)
+                        row[name] = data[name]
+                    } else {
+                        row[token.toLowerCase()] = data[token]
+                    }
+                }
+                return [row]
+            },
+            async transaction(fn) {
+                return fn((text, params) => folding.query(text, params))
+            }
+        }
+        const page = await pageAudit(
+            folding,
+            { organizationId: ORG, workspaceId: TEAM_A, owner: true },
+            { limit: 5, historyDir: dir, now: NOW, retentionDays: 90 }
+        )
+        expect(
+            seen.some((text) => text.includes('AS "createdAt"') && text.includes('AS "userId"') && text.includes('AS "workspaceId"'))
+        ).toBe(true)
+        expect(page.events).toEqual([
+            expect.objectContaining({ id: 'row-1', type: 'sign_in_success', userId: 'user-9', at: new Date(NOW).toISOString() })
+        ])
+
+        const orgSql: Sql = {
+            type: 'postgres',
+            async query(text) {
+                seen.push(text)
+                const row: Record<string, unknown> = {}
+                for (const match of text.matchAll(/\bAS\s+("[^"]+"|[A-Za-z_][A-Za-z0-9_]*)/g)) {
+                    const token = match[1]
+                    if (token.startsWith('"')) row[token.slice(1, -1)] = ORG
+                    else row[token.toLowerCase()] = ORG
+                }
+                return [row]
+            },
+            async transaction(fn) {
+                return fn((text, params) => orgSql.query(text, params))
+            }
+        }
+        await expect(organizationsForUser(orgSql, 'user-9')).resolves.toEqual([ORG])
+        expect(seen.some((text) => text.includes('AS "organizationId"'))).toBe(true)
+    })
 })
 
 describe('GET /api/v1/audit', () => {
@@ -424,6 +566,21 @@ describe('GET /api/v1/audit', () => {
             },
             NOW
         )
+        await recordAudit(
+            sql,
+            {
+                type: 'sign_in_failure',
+                organizationId: '',
+                workspaceId: null,
+                userId: null,
+                actorId: null,
+                summary: 'Sign-in failed',
+                detail: { method: 'local', ip: '203.0.113.8', email: 'nobody@example.com' },
+                at: NOW - 2
+            },
+            NOW
+        )
+        appendHistory(dir, { kind: 'save', actorId: OWNER, changes: [{ key: 'LOG_LEVEL', from: 'info', to: 'debug' }] }, 10)
     })
 
     afterAll(() => {
@@ -458,15 +615,20 @@ describe('GET /api/v1/audit', () => {
         expect(JSON.stringify(allowed.body)).not.toContain(TOKEN)
         expect(JSON.stringify(allowed.body)).not.toContain(QUESTION)
         expect(allowed.body.events.some((event: { type: string }) => event.type === 'invite')).toBe(true)
+        expect(allowed.body.events.some((event: { type: string }) => event.type === 'setting_change')).toBe(true)
         expect(allowed.body.events.some((event: { workspaceId: string }) => event.workspaceId === TEAM_B)).toBe(true)
+        expect(JSON.stringify(allowed.body)).not.toContain('203.0.113.8')
+        expect(JSON.stringify(allowed.body)).not.toContain('nobody@example.com')
         const team = await request(app(auditor)).get('/api/v1/audit')
         expect(team.status).toBe(200)
         expect(team.body.events.some((event: { workspaceId: string }) => event.workspaceId === TEAM_B)).toBe(false)
         expect(team.body.events.some((event: { type: string }) => event.type === 'invite')).toBe(true)
+        expect(team.body.events.some((event: { type: string }) => event.type === 'setting_change')).toBe(false)
         const other = { id: 'other-owner', activeOrganizationId: OTHER_ORG, activeWorkspaceId: 'team-z' }
         const foreign = await request(app(other)).get('/api/v1/audit')
         expect(foreign.status).toBe(200)
-        expect(foreign.body.events).toEqual([])
+        expect(foreign.body.events.every((event: { type: string }) => event.type === 'setting_change')).toBe(true)
+        expect(foreign.body.events.some((event: { type: string }) => event.type === 'invite' || event.type === 'role_change')).toBe(false)
     })
 
     it('rejects a bad cursor, a bad type, and a bad limit', async () => {
@@ -479,4 +641,94 @@ describe('GET /api/v1/audit', () => {
         expect(filtered.body.events).toHaveLength(1)
         expect(filtered.body.events[0].type).toBe('invite')
     })
+
+    it('returns an error when the permission lookup fails', async () => {
+        let calls = 0
+        setTeamPermissionLookup({
+            accessFor: async () => {
+                calls += 1
+                if (calls > 1) throw new Error('database down')
+                return { owner: true, permissions: null }
+            }
+        })
+        const owner = { id: OWNER, activeOrganizationId: ORG, activeWorkspaceId: TEAM_A }
+        const response = await request(app(owner)).get('/api/v1/audit')
+        expect(response.status).toBe(500)
+        expect(response.body).toEqual({ message: 'The audit log could not be read' })
+    })
+})
+
+const livePg = process.env.PGPASSWORD || process.env.CUTTLELY_TEST_PG_PASSWORD ? it : it.skip
+
+livePg('reads a stored audit row through postgres with quoted aliases', async () => {
+    const pg = require('pg') as {
+        Client: new (config: Record<string, unknown>) => {
+            connect(): Promise<void>
+            query(text: string, params?: unknown[]): Promise<{ rows: Record<string, unknown>[] }>
+            end(): Promise<void>
+        }
+    }
+    const password = process.env.PGPASSWORD || process.env.CUTTLELY_TEST_PG_PASSWORD
+    const client = new pg.Client({ host: '127.0.0.1', user: 'postgres', password, database: 'postgres' })
+    await client.connect()
+    const name = `cuttlely_audit_${process.pid}`
+    await client.query(`DROP DATABASE IF EXISTS ${name}`)
+    await client.query(`CREATE DATABASE ${name}`)
+    await client.end()
+    const db = new pg.Client({ host: '127.0.0.1', user: 'postgres', password, database: name })
+    await db.connect()
+    try {
+        await db.query(`CREATE TABLE audit_event (
+            id varchar(255) PRIMARY KEY,
+            type varchar(32) NOT NULL,
+            "organizationId" varchar(255) NOT NULL,
+            "workspaceId" varchar(255) NULL,
+            "userId" varchar(255) NULL,
+            "actorId" varchar(255) NULL,
+            summary varchar(200) NOT NULL,
+            detail text NULL,
+            "createdAt" bigint NOT NULL
+        )`)
+        await db.query(`CREATE TABLE workspace_user ("workspaceId" varchar(255), "userId" varchar(255))`)
+        const sql: Sql = {
+            type: 'postgres',
+            async query(text, params = []) {
+                let index = 0
+                const rewritten = text.replace(/\?/g, () => `$${++index}`)
+                const result = await db.query(rewritten, params)
+                return result.rows
+            },
+            async transaction(fn) {
+                return fn((text, params) => sql.query(text, params))
+            }
+        }
+        await recordAudit(
+            sql,
+            {
+                type: 'sign_in_success',
+                organizationId: ORG,
+                workspaceId: null,
+                userId: 'user-9',
+                actorId: 'user-9',
+                summary: 'Signed in',
+                detail: { method: 'local' },
+                at: NOW
+            },
+            NOW
+        )
+        const page = await pageAudit(
+            sql,
+            { organizationId: ORG, workspaceId: TEAM_A, owner: true },
+            { limit: 5, historyDir: mkdtempSync(join(tmpdir(), 'cuttlely-audit-pg-')), now: NOW, retentionDays: 90 }
+        )
+        expect(page.events).toEqual([
+            expect.objectContaining({ type: 'sign_in_success', userId: 'user-9', at: new Date(NOW).toISOString() })
+        ])
+    } finally {
+        await db.end()
+        const drop = new pg.Client({ host: '127.0.0.1', user: 'postgres', password, database: 'postgres' })
+        await drop.connect()
+        await drop.query(`DROP DATABASE IF EXISTS ${name}`)
+        await drop.end()
+    }
 })

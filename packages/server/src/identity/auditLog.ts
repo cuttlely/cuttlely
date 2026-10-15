@@ -38,7 +38,8 @@ const DAY_MS = 24 * 60 * 60 * 1000
 const SUMMARY_MAX = 200
 const DETAIL_MAX = 8000
 
-const FORBIDDEN_KEY = /password|token|secret|question|authorization|cookie|credential|api[-_]?key|setupcode|bearer/i
+const FORBIDDEN_KEY =
+    /password|token|secret|question|authorization|cookie|credential|api[-_]?key|setupcode|bearer|user-?agent|identifier|email|(^|[_.-])ip($|[_.-])/i
 
 export class AuditQueryError extends Error {
     readonly status = 400
@@ -82,7 +83,10 @@ export interface AuditPage {
 export interface AuditScope {
     organizationId: string
     workspaceId: string | null
+    /** Owner of the active team's organization. */
     owner: boolean
+    /** The earliest active organization owner. Sees sign-ins that matched no account. */
+    serverOwner?: boolean
 }
 
 export interface AuditQuery {
@@ -95,8 +99,11 @@ export interface AuditQuery {
     retentionDays?: number
 }
 
+type AuditSource = 'db' | 'history'
+
 interface Cursor {
     at: string
+    source: AuditSource
     id: string
 }
 
@@ -206,14 +213,21 @@ function settingChange(entry: HistoryEntry): AuditEvent | null {
     }
 }
 
-function olderThan(event: { at: string; id: string }, cursor: Cursor | null): boolean {
+/** Database rows sort ahead of settings-history rows when the time matches. */
+function sourceRank(source: AuditSource): number {
+    return source === 'db' ? 1 : 0
+}
+
+function olderThan(atMs: number, source: AuditSource, id: string, cursor: Cursor | null): boolean {
     if (!cursor) return true
-    if (event.at !== cursor.at) return event.at < cursor.at
-    return event.id < cursor.id
+    const cursorMs = Date.parse(cursor.at)
+    if (atMs !== cursorMs) return atMs < cursorMs
+    if (source !== cursor.source) return sourceRank(source) < sourceRank(cursor.source)
+    return id < cursor.id
 }
 
 export function encodeAuditCursor(cursor: Cursor): string {
-    return Buffer.from(JSON.stringify({ at: cursor.at, id: cursor.id }), 'utf8').toString('base64url')
+    return Buffer.from(JSON.stringify({ at: cursor.at, source: cursor.source, id: cursor.id }), 'utf8').toString('base64url')
 }
 
 export function decodeAuditCursor(token: string): Cursor {
@@ -228,10 +242,13 @@ export function decodeAuditCursor(token: string): Cursor {
     if (!parsed || typeof parsed !== 'object') throw new AuditQueryError('INVALID_CURSOR', 'Cursor is not valid')
     const at = (parsed as { at?: unknown }).at
     const id = (parsed as { id?: unknown }).id
+    const source = (parsed as { source?: unknown }).source
     if (typeof at !== 'string' || !at || typeof id !== 'string' || !id || at.length > 40 || id.length > 80) {
         throw new AuditQueryError('INVALID_CURSOR', 'Cursor is not valid')
     }
-    return { at, id }
+    if (source !== 'db' && source !== 'history') throw new AuditQueryError('INVALID_CURSOR', 'Cursor is not valid')
+    if (!Number.isFinite(Date.parse(at))) throw new AuditQueryError('INVALID_CURSOR', 'Cursor is not valid')
+    return { at, source, id }
 }
 
 export function retentionDays(env: Record<string, string | undefined> = process.env): number {
@@ -279,7 +296,7 @@ export async function safeRecordAudit(sql: Sql, event: AuditWrite, now = Date.no
 
 export async function organizationsForUser(sql: Sql, userId: string): Promise<string[]> {
     const rows = await sql.query(
-        `SELECT ${q(sql.type, 'organizationId')} AS organizationId FROM ${q(sql.type, 'organization_user')} WHERE ${q(
+        `SELECT ${q(sql.type, 'organizationId')} AS ${q(sql.type, 'organizationId')} FROM ${q(sql.type, 'organization_user')} WHERE ${q(
             sql.type,
             'userId'
         )} = ?`,
@@ -287,17 +304,37 @@ export async function organizationsForUser(sql: Sql, userId: string): Promise<st
     )
     const ids = new Set<string>()
     for (const row of rows) {
-        const value = row.organizationId ?? row.ORGANIZATIONID
+        const value = cell(row, 'organizationId')
         if (typeof value === 'string' && value) ids.add(value)
     }
     return [...ids]
 }
 
+/**
+ * The earliest active organization owner. Unknown-account sign-ins are shown only to this person.
+ * A missing table or a failed read returns false, so those rows stay hidden.
+ */
+export async function callerIsServerOwner(sql: Sql, userId: string): Promise<boolean> {
+    try {
+        const rows = await sql.query(
+            `SELECT u.${q(sql.type, 'id')} AS ${q(sql.type, 'id')}
+             FROM ${q(sql.type, 'user')} u
+             INNER JOIN ${q(sql.type, 'organization_user')} ou ON ou.${q(sql.type, 'userId')} = u.${q(sql.type, 'id')}
+             INNER JOIN ${q(sql.type, 'role')} r ON r.${q(sql.type, 'id')} = ou.${q(sql.type, 'roleId')}
+             WHERE LOWER(r.${q(sql.type, 'name')}) = 'owner' AND LOWER(u.${q(sql.type, 'status')}) = 'active'
+             ORDER BY u.${q(sql.type, 'createdDate')} ASC
+             LIMIT 1`
+        )
+        return cell(rows[0] || {}, 'id') === userId
+    } catch {
+        return false
+    }
+}
+
 function cell(row: Record<string, unknown>, name: string): unknown {
     if (name in row) return row[name]
-    const upper = name.toUpperCase()
-    if (upper in row) return row[upper]
-    return undefined
+    const found = Object.keys(row).find((key) => key.toLowerCase() === name.toLowerCase())
+    return found ? row[found] : undefined
 }
 
 function textOrNull(value: unknown): string | null {
@@ -344,10 +381,25 @@ function historyEvents(dir: string, now: number, days: number): AuditEvent[] {
     return events
 }
 
+interface OrderedEvent {
+    event: AuditEvent
+    atMs: number
+    source: AuditSource
+}
+
+function byMergedOrder(a: OrderedEvent, b: OrderedEvent): number {
+    if (a.atMs !== b.atMs) return a.atMs < b.atMs ? 1 : -1
+    if (a.source !== b.source) return sourceRank(a.source) < sourceRank(b.source) ? 1 : -1
+    if (a.event.id !== b.event.id) return a.event.id < b.event.id ? 1 : -1
+    return 0
+}
+
 /**
- * Newest first. The cursor asks for rows strictly older than that time and id.
+ * Newest first. One cursor, applied after the two sources are ordered together
+ * by time, then source (database before settings history), then id.
  * A non-owner sees events for the active team, and sign-in rows for people in that team.
- * Settings changes are the history file, included for anyone who can read this list.
+ * Settings changes are included only for the organization owner.
+ * A sign-in that matched no account is included only for the server owner, and it has no address or identifier.
  */
 export async function pageAudit(sql: Sql, scope: AuditScope, query: AuditQuery): Promise<AuditPage> {
     const type = (query.type || '').trim()
@@ -362,12 +414,14 @@ export async function pageAudit(sql: Sql, scope: AuditScope, query: AuditQuery):
 
     const where: string[] = []
     const params: unknown[] = []
-    if (scope.owner) {
+    if (scope.owner && scope.serverOwner) {
         where.push(`(${q(sql.type, 'organizationId')} = ? OR ${q(sql.type, 'organizationId')} = '')`)
         params.push(scope.organizationId)
     } else {
         where.push(`${q(sql.type, 'organizationId')} = ?`)
         params.push(scope.organizationId)
+    }
+    if (!scope.owner) {
         where.push(
             `(${q(sql.type, 'workspaceId')} = ? OR (${q(sql.type, 'workspaceId')} IS NULL AND ${q(sql.type, 'userId')} IN (SELECT ${q(
                 sql.type,
@@ -386,46 +440,45 @@ export async function pageAudit(sql: Sql, scope: AuditScope, query: AuditQuery):
     }
     if (cursor) {
         const at = Date.parse(cursor.at)
-        if (!Number.isFinite(at)) throw new AuditQueryError('INVALID_CURSOR', 'Cursor is not valid')
-        where.push(`(${q(sql.type, 'createdAt')} < ? OR (${q(sql.type, 'createdAt')} = ? AND ${q(sql.type, 'id')} < ?))`)
-        params.push(at, at, cursor.id)
+        if (cursor.source === 'history') {
+            where.push(`${q(sql.type, 'createdAt')} < ?`)
+            params.push(at)
+        } else {
+            where.push(`(${q(sql.type, 'createdAt')} < ? OR (${q(sql.type, 'createdAt')} = ? AND ${q(sql.type, 'id')} < ?))`)
+            params.push(at, at, cursor.id)
+        }
     }
     const limit = query.limit
+    const quoted = (name: string) => `${q(sql.type, name)} AS ${q(sql.type, name)}`
     const rows = await sql.query(
-        `SELECT ${q(sql.type, 'id')} AS id, ${q(sql.type, 'type')} AS type, ${q(sql.type, 'userId')} AS userId,
-                ${q(sql.type, 'actorId')} AS actorId, ${q(sql.type, 'workspaceId')} AS workspaceId,
-                ${q(sql.type, 'summary')} AS summary, ${q(sql.type, 'detail')} AS detail, ${q(sql.type, 'createdAt')} AS createdAt
+        `SELECT ${quoted('id')}, ${quoted('type')}, ${quoted('userId')},
+                ${quoted('actorId')}, ${quoted('workspaceId')},
+                ${quoted('summary')}, ${quoted('detail')}, ${quoted('createdAt')}
          FROM ${table}
          WHERE ${where.join(' AND ')}
          ORDER BY ${q(sql.type, 'createdAt')} DESC, ${q(sql.type, 'id')} DESC
          LIMIT ?`,
         [...params, limit + 1]
     )
-    const fromTable = rows.map(mapRow).filter((row): row is AuditEvent => row !== null && Boolean(row.id))
-    const wantHistory = !type || type === 'setting_change'
-    const wantUser = !user
-    const fromHistory =
-        wantHistory && wantUser
-            ? historyEvents(query.historyDir, now, days)
-                  .filter((event) => olderThan(event, cursor))
-                  .sort((a, b) => {
-                      if (a.at !== b.at) return a.at < b.at ? 1 : -1
-                      if (a.id !== b.id) return a.id < b.id ? 1 : -1
-                      return 0
-                  })
-                  .slice(0, limit + 1)
-            : []
-    const merged = [...fromTable, ...fromHistory].sort((a, b) => {
-        if (a.at !== b.at) return a.at < b.at ? 1 : -1
-        if (a.id !== b.id) return a.id < b.id ? 1 : -1
-        return 0
-    })
+    const fromTable: OrderedEvent[] = rows
+        .map(mapRow)
+        .filter((row): row is AuditEvent => row !== null && Boolean(row.id))
+        .map((event) => ({ event, atMs: Date.parse(event.at), source: 'db' as const }))
+    const includeHistory = Boolean(scope.owner) && (!type || type === 'setting_change') && !user
+    const fromHistory: OrderedEvent[] = includeHistory
+        ? historyEvents(query.historyDir, now, days)
+              .map((event) => ({ event, atMs: Date.parse(event.at), source: 'history' as const }))
+              .filter((item) => olderThan(item.atMs, item.source, item.event.id, cursor))
+              .sort(byMergedOrder)
+              .slice(0, limit + 1)
+        : []
+    const merged = [...fromTable, ...fromHistory].sort(byMergedOrder)
     const page = merged.slice(0, limit)
     const last = page[page.length - 1]
     const more = merged.length > limit && last
     return {
-        events: page,
-        nextCursor: more ? encodeAuditCursor({ at: last.at, id: last.id }) : null,
+        events: page.map((item) => item.event),
+        nextCursor: more ? encodeAuditCursor({ at: last.event.at, source: last.source, id: last.event.id }) : null,
         limit
     }
 }
