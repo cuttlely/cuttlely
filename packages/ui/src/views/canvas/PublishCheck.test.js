@@ -360,7 +360,7 @@ describe('PublishCheckView', () => {
                 questions: [{ text: '{"question":"daily"}', preview: '"daily"', date: recorded, source: 'schedule' }],
                 pastCount: 1,
                 riskySteps: [],
-                limits,
+                limits: { ...limits, maxQuestions: 100 },
                 check: null
             },
             list: []
@@ -572,7 +572,7 @@ describe('PublishCheckView', () => {
                 pastCount: 37,
                 pastTruncated: false,
                 riskySteps: [],
-                limits,
+                limits: { ...limits, maxQuestions: 100 },
                 check: null
             },
             list: []

@@ -2,15 +2,27 @@
 // against Live and the draft, side by side. The check is optional and never blocks Publish.
 import { formatListDateTime } from '@/utils/formatDate'
 
-// Used when setup has not sent counts. The server sends the live list in limits.counts.
+// The steps offered when the cap is 100. A different cap keeps the steps that fit and adds the cap.
 export const COMPARE_COUNTS = [4, 10, 25, 50, 100]
 export const DEFAULT_COMPARE_COUNT = 4
 
-// The Past questions choices. A non-empty counts list from setup wins. Otherwise the usual five.
+const wholeCount = (value, fallback) => {
+    const n = Number(value)
+    if (!Number.isFinite(n)) return fallback
+    return Math.max(1, Math.round(n))
+}
+
+// The Past questions choices. A non-empty counts list from setup wins. Otherwise the same rule as the
+// server: the steps that fit the question cap, the cap itself, and the default count when it fits.
 export const pickerCounts = (limits = {}) => {
     const sent = Array.isArray(limits?.counts) ? limits.counts.filter((n) => Number.isInteger(n) && n >= 1) : []
-    if (!sent.length) return COMPARE_COUNTS.slice()
-    return [...new Set(sent)].sort((a, b) => a - b)
+    if (sent.length) return [...new Set(sent)].sort((a, b) => a - b)
+    const cap = wholeCount(limits?.maxQuestions, 100)
+    const preferred = wholeCount(limits?.defaultQuestions, DEFAULT_COMPARE_COUNT)
+    const steps = new Set(COMPARE_COUNTS.filter((step) => step <= cap))
+    steps.add(cap)
+    if (preferred <= cap) steps.add(preferred)
+    return [...steps].sort((a, b) => a - b)
 }
 
 // A count the list does not offer falls back to the default, then to the first choice.
