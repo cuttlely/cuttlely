@@ -25,6 +25,13 @@ const bounded = {
     locked: false
 }
 
+function expectOneHistoryKeep(text) {
+    const nodes = document.querySelectorAll('[data-testid="history-keep-source"]')
+    expect(nodes).toHaveLength(1)
+    expect(nodes[0].textContent).toBe(text)
+    expect(document.body.textContent.match(/In effect/g)).toEqual(['In effect'])
+}
+
 describe('SettingField', () => {
     let root
 
@@ -90,7 +97,7 @@ describe('SettingField', () => {
                 )
             )
         })
-        expect(document.body.textContent).toContain('In effect: 250 (panel)')
+        expectOneHistoryKeep('In effect: 250 (panel)')
         expect(document.querySelector('[data-testid="setting-CUTTLELY_HISTORY_KEEP"] input').disabled).toBe(false)
         setting.source = 'host'
         setting.effective = '2000'
@@ -104,7 +111,7 @@ describe('SettingField', () => {
                 )
             )
         })
-        expect(document.body.textContent).toContain('In effect: 2000 (env)')
+        expectOneHistoryKeep('In effect: 2000 (env)')
         setting.source = 'default'
         setting.effective = '1000'
         setting.value = ''
@@ -117,7 +124,7 @@ describe('SettingField', () => {
                 )
             )
         })
-        expect(document.body.textContent).toContain('In effect: 1000 (default)')
+        expectOneHistoryKeep('In effect: 1000 (default)')
     })
 
     it('uses the live range for the number input, so a host cap of 1 sets max to 1', async () => {
