@@ -53,8 +53,9 @@ export function requireAnyPermission(...permissions: string[]): RequestHandler {
 }
 
 /**
- * Server-wide settings, such as copying version history to GitHub: only the organization owner
- * (Super User). A role grant is not enough, and an API key never passes.
+ * Server-wide settings, such as copying version history to GitHub: only the owner of the active
+ * team's organization (Super User). An owner role in another organization does not pass. A role
+ * grant is not enough, and an API key never passes.
  */
 export function requireOwner(): RequestHandler {
     return (req, res, next) => {

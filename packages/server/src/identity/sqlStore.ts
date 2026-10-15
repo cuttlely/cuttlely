@@ -296,21 +296,10 @@ export class SqlIdentityStore implements IdentityStore {
                  WHERE ou.${quote(d, 'userId')} = ?`,
                 [userId]
             )
-            const org = orgs[0]
-            const owner = text(cell(org || {}, 'roleName')).toLowerCase() === OWNER_ROLE
-            const organizationId = org ? text(cell(org, 'organizationId')) : ''
-            // Re-invited existing users are stored as invited. Open only that row. disable stays disable.
-            if (organizationId && text(cell(org, 'orgStatus')).trim().toLowerCase() === 'invited') {
-                await query(
-                    runner,
-                    `UPDATE ${quote(d, 'organization_user')} SET ${quote(d, 'status')} = ?
-                     WHERE ${quote(d, 'userId')} = ? AND ${quote(d, 'organizationId')} = ? AND LOWER(${quote(d, 'status')}) = 'invited'`,
-                    ['active', userId, organizationId]
-                )
-            }
             const memberships = await query(
                 runner,
                 `SELECT w.${quote(d, 'id')} AS ${quote(d, 'workspaceId')}, w.${quote(d, 'name')} AS ${quote(d, 'workspaceName')},
+                        w.${quote(d, 'organizationId')} AS ${quote(d, 'organizationId')},
                         r.${quote(d, 'name')} AS ${quote(d, 'roleName')}, r.${quote(d, 'permissions')} AS ${quote(d, 'permissions')},
                         wu.${quote(d, 'status')} AS ${quote(d, 'membershipStatus')},
                         wu.${quote(d, 'lastLogin')} AS ${quote(d, 'lastLogin')}
@@ -341,6 +330,23 @@ export class SqlIdentityStore implements IdentityStore {
                 )
             }
             const last = active ? cell(active, 'lastLogin') : null
+            // The first organization row is not the active one. Owner follows the team that this request is in.
+            const activeOrgId = active ? text(cell(active, 'organizationId')) : ''
+            const org = orgs.find((row) => text(cell(row, 'organizationId')) === activeOrgId)
+            let orgStatus = text(cell(org || {}, 'orgStatus'))
+                .trim()
+                .toLowerCase()
+            // Re-invited existing users are stored as invited. Open only the active team's organization. disable stays disable.
+            if (activeOrgId && org && orgStatus === 'invited') {
+                await query(
+                    runner,
+                    `UPDATE ${quote(d, 'organization_user')} SET ${quote(d, 'status')} = ?
+                     WHERE ${quote(d, 'userId')} = ? AND ${quote(d, 'organizationId')} = ? AND LOWER(${quote(d, 'status')}) = 'invited'`,
+                    ['active', userId, activeOrgId]
+                )
+                orgStatus = 'active'
+            }
+            const owner = isActive(user.status) && orgStatus === 'active' && text(cell(org || {}, 'roleName')).toLowerCase() === OWNER_ROLE
             return {
                 id: user.id,
                 email: user.email,
@@ -348,7 +354,7 @@ export class SqlIdentityStore implements IdentityStore {
                 status: user.status,
                 role: owner ? OWNER_ROLE : text(cell(active || {}, 'roleName')),
                 isSSO: false,
-                activeOrganizationId: org ? text(cell(org, 'organizationId')) || null : null,
+                activeOrganizationId: activeOrgId || null,
                 activeOrganizationSubscriptionId: null,
                 activeOrganizationCustomerId: null,
                 activeOrganizationProductId: null,
@@ -401,18 +407,22 @@ export class SqlIdentityStore implements IdentityStore {
             const columns = `${quote(d, 'id')}, ${quote(d, 'userId')}, ${quote(d, 'token')}, ${quote(d, 'expiresAt')}, ${quote(
                 d,
                 'absoluteExpiresAt'
-            )}, ${quote(d, 'lastSeenAt')}`
+            )}, ${quote(d, 'lastSeenAt')}, ${quote(d, 'permissionVersion')}`
+            const select = `SELECT ?, ?, ?, ?, ?, ?, COALESCE(u.${quote(d, 'permissionVersion')}, 0) FROM ${quote(
+                d,
+                'user'
+            )} u WHERE u.${quote(d, 'id')} = ?`
             const insert =
                 d === 'sqlite'
-                    ? `INSERT OR IGNORE INTO ${quote(d, 'identity_local_session')} (${columns}) VALUES (?, ?, ?, ?, ?, ?)`
+                    ? `INSERT OR IGNORE INTO ${quote(d, 'identity_local_session')} (${columns}) ${select}`
                     : d === 'postgres'
-                    ? `INSERT INTO ${quote(d, 'identity_local_session')} (${columns}) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT (${quote(
+                    ? `INSERT INTO ${quote(d, 'identity_local_session')} (${columns}) ${select} ON CONFLICT (${quote(
                           d,
                           'token'
                       )}) DO NOTHING`
-                    : `INSERT IGNORE INTO ${quote(d, 'identity_local_session')} (${columns}) VALUES (?, ?, ?, ?, ?, ?)`
+                    : `INSERT IGNORE INTO ${quote(d, 'identity_local_session')} (${columns}) ${select}`
             try {
-                await query(runner, insert, [row.id, row.userId, row.token, row.idleExpires, row.absoluteExpires, seen])
+                await query(runner, insert, [row.id, row.userId, row.token, row.idleExpires, row.absoluteExpires, seen, row.userId])
             } catch (error) {
                 if (!isUniqueViolation(error)) throw error
             }
@@ -425,16 +435,20 @@ export class SqlIdentityStore implements IdentityStore {
             const d = dialectOf(runner)
             const rows = await query(
                 runner,
-                `SELECT ${quote(d, 'id')} AS ${quote(d, 'id')}, ${quote(d, 'userId')} AS ${quote(d, 'userId')}, ${quote(
+                `SELECT s.${quote(d, 'id')} AS ${quote(d, 'id')}, s.${quote(d, 'userId')} AS ${quote(d, 'userId')}, s.${quote(
                     d,
                     'token'
-                )} AS ${quote(d, 'token')}, ${quote(d, 'expiresAt')} AS ${quote(d, 'expiresAt')}, ${quote(
+                )} AS ${quote(d, 'token')}, s.${quote(d, 'expiresAt')} AS ${quote(d, 'expiresAt')}, s.${quote(
                     d,
                     'absoluteExpiresAt'
-                )} AS ${quote(d, 'absoluteExpiresAt')}, ${quote(d, 'createdDate')} AS ${quote(d, 'createdDate')}, ${quote(
+                )} AS ${quote(d, 'absoluteExpiresAt')}, s.${quote(d, 'createdDate')} AS ${quote(d, 'createdDate')}, s.${quote(
                     d,
                     'lastSeenAt'
-                )} AS ${quote(d, 'lastSeenAt')} FROM ${quote(d, 'identity_local_session')} WHERE ${quote(d, 'token')} = ?`,
+                )} AS ${quote(d, 'lastSeenAt')}, s.${quote(d, 'permissionVersion')} AS ${quote(d, 'permissionVersion')},
+                u.${quote(d, 'permissionVersion')} AS ${quote(d, 'currentPermissionVersion')}
+                FROM ${quote(d, 'identity_local_session')} s
+                INNER JOIN ${quote(d, 'user')} u ON u.${quote(d, 'id')} = s.${quote(d, 'userId')}
+                WHERE s.${quote(d, 'token')} = ?`,
                 [token]
             )
             const row = rows[0]
@@ -448,7 +462,9 @@ export class SqlIdentityStore implements IdentityStore {
                 idleExpires: new Date(epoch(cell(row, 'expiresAt'))),
                 absoluteExpires: new Date(epoch(cell(row, 'absoluteExpiresAt'))),
                 issuedAt: created > 0 ? new Date(created) : undefined,
-                lastSeenAt: seen > 0 ? new Date(seen) : undefined
+                lastSeenAt: seen > 0 ? new Date(seen) : undefined,
+                permissionVersion: Number(cell(row, 'permissionVersion') || 0),
+                currentPermissionVersion: Number(cell(row, 'currentPermissionVersion') || 0)
             }
         })
     }
@@ -623,7 +639,8 @@ function teamGrants(status: unknown): boolean {
  * (the user values are `active`, `invited`, `unverified`, `deleted`; the organization
  * values are `active`, `disable`, `invited`).
  * A team row grants only for `active` or `invited`.
- * owner is true only for an active user whose active org membership has the owner role.
+ * owner is true only when the active membership in the active workspace's organization has the owner role.
+ * An owner role in another organization does not count.
  */
 export async function teamAccess(dataSource: DataSource, userId: string, workspaceId: string): Promise<TeamAccess> {
     const d = dialectOfSource(dataSource)
@@ -636,10 +653,13 @@ export async function teamAccess(dataSource: DataSource, userId: string, workspa
                 wu.${quote(d, 'status')} AS ${quote(d, 'teamStatus')},
                 teamRole.${quote(d, 'permissions')} AS ${quote(d, 'permissions')}
          FROM ${quote(d, 'user')} u
-         LEFT JOIN ${quote(d, 'organization_user')} ou ON ou.${quote(d, 'userId')} = u.${quote(d, 'id')}
+         LEFT JOIN ${quote(d, 'workspace')} w ON w.${quote(d, 'id')} = ?
+         LEFT JOIN ${quote(d, 'organization_user')} ou
+           ON ou.${quote(d, 'userId')} = u.${quote(d, 'id')}
+          AND ou.${quote(d, 'organizationId')} = w.${quote(d, 'organizationId')}
          LEFT JOIN ${quote(d, 'role')} orgRole ON orgRole.${quote(d, 'id')} = ou.${quote(d, 'roleId')}
          LEFT JOIN ${quote(d, 'workspace_user')} wu
-           ON wu.${quote(d, 'userId')} = u.${quote(d, 'id')} AND wu.${quote(d, 'workspaceId')} = ?
+           ON wu.${quote(d, 'userId')} = u.${quote(d, 'id')} AND wu.${quote(d, 'workspaceId')} = w.${quote(d, 'id')}
          LEFT JOIN ${quote(d, 'role')} teamRole ON teamRole.${quote(d, 'id')} = wu.${quote(d, 'roleId')}
          WHERE u.${quote(d, 'id')} = ?`,
         [workspaceId, userId]

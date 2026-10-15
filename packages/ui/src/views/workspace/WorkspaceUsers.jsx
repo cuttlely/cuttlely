@@ -185,25 +185,6 @@ const WorkspaceDetails = () => {
             cancelButtonName: 'Cancel'
         }
 
-        const orgOwner = workspaceUsers.find(
-            (user) => usersSelected.some((selected) => selected.userId === user.id) && user.isOrgOwner === true
-        )
-        if (orgOwner) {
-            enqueueSnackbar({
-                message: `Organization owner cannot be removed from workspace.`,
-                options: {
-                    key: new Date().getTime() + Math.random(),
-                    variant: 'error',
-                    action: (key) => (
-                        <Button style={{ color: 'white' }} onClick={() => closeSnackbar(key)}>
-                            <IconX />
-                        </Button>
-                    )
-                }
-            })
-            return
-        }
-
         const isConfirmed = await confirm(confirmPayload)
 
         if (isConfirmed) {

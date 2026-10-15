@@ -298,11 +298,8 @@ describe('invite and reset links', () => {
             deps()
         )
         expect(granted.link).toContain('#token=')
-        await expect(
-            inviteAccount(sql, owner, { ...inviteBody('own@example.com'), role: { id: 'role-owner' } }, deps())
-        ).rejects.toMatchObject({
-            status: 400
-        })
+        const owned = await inviteAccount(sql, owner, { ...inviteBody('own@example.com'), role: { id: 'role-owner' } }, deps())
+        expect(owned.id).toEqual(expect.any(String))
     })
 
     it('uses the configured lifetime and falls back when the setting is unusable', () => {

@@ -81,6 +81,10 @@ export interface LocalSession {
     issuedAt?: Date
     /** Last time the session was issued or refreshed. Older rows derive this from the idle expiry. */
     lastSeenAt?: Date
+    /** Version copied from the user when the session was issued. */
+    permissionVersion?: number
+    /** Version on the user row when the session was read. */
+    currentPermissionVersion?: number
 }
 
 export interface CreateOwnerInput {

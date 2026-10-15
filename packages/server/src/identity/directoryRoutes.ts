@@ -12,21 +12,29 @@
 
 import { NextFunction, Request, Response, Router } from 'express'
 import { getDataSource } from '../DataSource'
+import { localUsersMode } from './constants'
 import { requireAnyPermission, requirePermission } from './rbac'
 import {
     DirectoryActor,
     DirectoryError,
+    Page,
     createRole,
     createWorkspace,
     deleteOrganizationUser,
     deleteRole,
     deleteWorkspace,
     deleteWorkspaceUser,
+    endUserSession,
+    endUserSessions,
     getWorkspace,
+    listLocalUsers,
     listOrganizationUsers,
     listRoles,
+    listUserSessions,
     listWorkspaceMemberships,
     listWorkspaces,
+    pageFrom,
+    setUserDisabled,
     sqlFromDataSource,
     switchWorkspace,
     updateOrganizationUser,
@@ -65,7 +73,10 @@ function actorFrom(req: Request): DirectoryActor {
 
 function send(run: (req: Request) => Promise<unknown>) {
     return (req: Request, res: Response, next: NextFunction) => {
-        void run(req)
+        // pageFrom and disabledFlag throw before they return a promise. Start the chain
+        // so that rejection uses error.status instead of the process error handler.
+        void Promise.resolve()
+            .then(() => run(req))
             .then((body) => {
                 if (!res.headersSent) res.status(200).json(body)
             })
@@ -203,13 +214,123 @@ identityRoleRouter.delete(
 )
 identityRoleRouter.use(notFound)
 
+function localOnly(_req: Request, res: Response, next: NextFunction) {
+    if (!localUsersMode()) {
+        res.status(404).json({ message: 'Not Found' })
+        return
+    }
+    next()
+}
+
+function disabledFlag(body: unknown): boolean {
+    const record = body && typeof body === 'object' ? (body as Record<string, unknown>) : {}
+    if (typeof record.disabled !== 'boolean') throw new DirectoryError(400, 'disabled must be true or false')
+    return record.disabled
+}
+
+function rolePage(query: Request['query']): Page {
+    return pageFrom({ limit: query.limit, offset: query.offset, q: query.q, sort: 'name' })
+}
+
 export const identityUsersRouter = Router()
 identityUsersRouter.post(
     '/:id/reset-link',
     requirePermission('users:manage'),
     send(async (req) => resetLocalLink(sql(), await actorWithAccess(req), one(req.params.id), req.body))
 )
+identityUsersRouter.use(localOnly)
+identityUsersRouter.get(
+    '/',
+    requirePermission('users:manage'),
+    send((req) => listLocalUsers(sql(), actorFrom(req), pageFrom(req.query as Record<string, unknown>)))
+)
+identityUsersRouter.patch(
+    '/:id',
+    requirePermission('users:manage'),
+    send((req) => setUserDisabled(sql(), actorFrom(req), one(req.params.id), disabledFlag(req.body)))
+)
+identityUsersRouter.post(
+    '/:id/disable',
+    requirePermission('users:manage'),
+    send((req) => setUserDisabled(sql(), actorFrom(req), one(req.params.id), true))
+)
+identityUsersRouter.post(
+    '/:id/enable',
+    requirePermission('users:manage'),
+    send((req) => setUserDisabled(sql(), actorFrom(req), one(req.params.id), false))
+)
+identityUsersRouter.put(
+    '/:id/role',
+    requirePermission('workspace:update'),
+    send((req) => {
+        const record = req.body && typeof req.body === 'object' ? (req.body as Record<string, unknown>) : {}
+        return updateWorkspaceUserRole(sql(), actorFrom(req), {
+            userId: one(req.params.id),
+            workspaceId: one(record.workspaceId),
+            roleId: one(record.roleId)
+        })
+    })
+)
+identityUsersRouter.get(
+    '/:id/sessions',
+    requirePermission('users:manage'),
+    send((req) => listUserSessions(sql(), actorFrom(req), one(req.params.id), pageFrom(req.query as Record<string, unknown>)))
+)
+identityUsersRouter.delete(
+    '/:id/sessions/:sessionId',
+    requirePermission('users:manage'),
+    send((req) => endUserSession(sql(), actorFrom(req), one(req.params.id), one(req.params.sessionId)))
+)
+identityUsersRouter.delete(
+    '/:id/sessions',
+    requirePermission('users:manage'),
+    send((req) => endUserSessions(sql(), actorFrom(req), one(req.params.id)))
+)
 identityUsersRouter.use(notFound)
+
+export const identityRolesRouter = Router()
+identityRolesRouter.use(localOnly)
+identityRolesRouter.get(
+    '/',
+    requirePermission('roles:manage'),
+    send(async (req) => {
+        const actor = actorFrom(req)
+        const page = rolePage(req.query)
+        const roles = await listRoles(sql(), actor, actor.organizationId)
+        const q = page.q
+        const filtered = roles
+            .filter((role) => !q || role.name.toLowerCase().includes(q) || role.description.toLowerCase().includes(q))
+            .sort((left, right) => left.name.localeCompare(right.name))
+        return {
+            roles: filtered.slice(page.offset, page.offset + page.limit).map((role) => ({
+                id: role.id,
+                name: role.name,
+                description: role.description,
+                permissions: JSON.parse(role.permissions) as string[],
+                builtIn: role.readOnly === true,
+                userCount: role.userCount
+            })),
+            limit: page.limit,
+            offset: page.offset,
+            total: filtered.length
+        }
+    })
+)
+identityRolesRouter.post(
+    '/',
+    requirePermission('roles:manage'),
+    send((req) => createRole(sql(), actorFrom(req), req.body))
+)
+identityRolesRouter.patch(
+    '/:id',
+    requirePermission('roles:manage'),
+    send((req) => updateRole(sql(), actorFrom(req), { ...(req.body as object), id: one(req.params.id) }))
+)
+identityRolesRouter.delete(
+    '/:id',
+    requirePermission('roles:manage'),
+    send((req) => deleteRole(sql(), actorFrom(req), one(req.params.id), actorFrom(req).organizationId))
+)
 
 /** Unauthenticated. The token is read from the JSON body. A query value is ignored. */
 export function acceptLocalRoute(

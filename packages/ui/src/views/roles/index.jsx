@@ -50,7 +50,7 @@ import { IconEdit, IconPlus, IconEye, IconEyeOff, IconX, IconTrash } from '@tabl
 import roles_emptySVG from '@/assets/images/roles_empty.svg'
 
 import { useError } from '@/store/context/ErrorContext'
-import { isBuiltInOwnerRole, roleLabel } from '@/utils/roleLabel'
+import { isFixedRole, roleLabel } from '@/utils/roleLabel'
 
 const StyledTableCell = styled(TableCell)(({ theme }) => ({
     borderColor: theme.palette.grey[900] + 25,
@@ -256,9 +256,9 @@ function ShowRoleRow(props) {
             <StyledTableRow hover key={props.key} sx={{ '&:last-child td, &:last-child th': { border: 0 } }}>
                 <StyledTableCell>
                     {roleLabel(props.role)}
-                    {isBuiltInOwnerRole(props.role) && (
+                    {isFixedRole(props.role) && (
                         <Typography variant='caption' display='block' color='text.secondary'>
-                            Built-in. Read-only.
+                            Built-in. This permission set is fixed.
                         </Typography>
                     )}
                 </StyledTableCell>
@@ -309,7 +309,7 @@ function ShowRoleRow(props) {
                     )}
                 </StyledTableCell>
                 <StyledTableCell>
-                    {isBuiltInOwnerRole(props.role) ? (
+                    {isFixedRole(props.role) ? (
                         <Typography variant='body2' color='text.secondary'>
                             Read-only
                         </Typography>

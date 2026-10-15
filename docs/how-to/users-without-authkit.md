@@ -38,4 +38,6 @@ If mail is not configured, `link: false` is refused and nothing is saved. Leave 
 
 An invite link lasts 72 hours. A reset link lasts 1 hour. **Admin** > **Server settings** > **Sign-in & identity** sets `INVITE_TOKEN_EXPIRY_IN_HOURS` (1 to 168), `PASSWORD_RESET_TOKEN_EXPIRY_IN_MINS` (5 to 1440), invite delivery, and the mail server, port, TLS, user, and sender address. A value saved there overrides the environment and applies to the next invite, reset, or message. A blank, zero, negative, or non-integer value is ignored. A number below the minimum is raised to the minimum, and a number above the maximum is lowered to the maximum. Saving a number outside the range is refused. The mail password stays in the environment. The page shows whether it is set and does not reveal it. A newer link for the same person, purpose, and team replaces the older one. An invite does not cancel a reset, and a reset does not cancel an invite.
 
-The field names and status codes are in the [Auth API](../reference/auth-api.md#one-time-links).
+The field names, status codes, and cookie flags are in the [Auth API](../reference/auth-api.md). One-time links are in [that same reference](../reference/auth-api.md#one-time-links).
+
+People, fixed roles, and open sessions for this mode are in [Local users, roles, and sessions](../reference/local-directory-api.md). Those routes answer 404 when this mode is off, including when AuthKit is configured.
