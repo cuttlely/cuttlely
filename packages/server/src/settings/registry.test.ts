@@ -1,6 +1,6 @@
 import fs from 'fs'
 import path from 'path'
-import { KEPT_OUT, SECTIONS, SETTINGS, isKeptOut, settingFor } from './registry'
+import { KEPT_OUT, READ_ONLY_SETTINGS, SECTIONS, SETTINGS, isKeptOut, isReadOnly, settingFor } from './registry'
 
 const ROOT = path.resolve(__dirname, '..', '..', '..', '..')
 
@@ -70,6 +70,27 @@ describe('server settings registry', () => {
     it('never lists a setting as both editable and kept out', () => {
         for (const setting of SETTINGS) expect(isKeptOut(setting.key)).toBe(false)
         for (const group of KEPT_OUT) expect(group.why.length).toBeGreaterThan(10)
+    })
+
+    it('lists env-only values as read-only entries and keeps them out of the panel', () => {
+        const keys = READ_ONLY_SETTINGS.map((setting) => setting.key)
+        expect(new Set(keys).size).toBe(keys.length)
+        expect(keys.some((key) => key.includes('*'))).toBe(false)
+        for (const setting of READ_ONLY_SETTINGS) {
+            expect(setting.readOnly).toBe(true)
+            expect(settingFor(setting.key)).toBeUndefined()
+            expect(isKeptOut(setting.key)).toBe(true)
+            expect(isReadOnly(setting.key)).toBe(true)
+        }
+        expect(isReadOnly('LANGSMITH_PROJECT')).toBe(false)
+        expect(isReadOnly('LANGSMITH_ENDPOINT')).toBe(false)
+        expect(isKeptOut('LANGSMITH_PROJECT')).toBe(false)
+        expect(settingFor('LANGSMITH_PROJECT')?.type).toBe('text')
+        expect(settingFor('LANGSMITH_ENDPOINT')?.type).toBe('text')
+        expect(settingFor('LOG_SANITIZE_BODY_FIELDS')?.type).toBe('list')
+        expect(settingFor('LOG_SANITIZE_HEADER_FIELDS')?.type).toBe('list')
+        expect(isKeptOut('LOG_SANITIZE_BODY_FIELDS')).toBe(false)
+        expect(isReadOnly('LANGSMITH_SOMETHING_ELSE')).toBe(false)
     })
 
     it('keeps encryption keys, paths and code-execution switches out of the panel', () => {
