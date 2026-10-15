@@ -751,8 +751,9 @@ export async function startCheck(
     if (fromDataset) {
         questions = fromDataset.map((row) => row.question)
         selection = null
-    } else if (questionIds !== undefined) {
+    } else if (questionIds !== undefined && !(typedOnly && questionIdPrefix(flow.type, [flow.flowData, draft]) !== 'chat')) {
         const prefix = questionIdPrefix(flow.type, [flow.flowData, draft])
+        // A non-empty list on a harness or a recorded-input start cannot be resolved. An empty list is not a pick.
         if (prefix !== 'chat') {
             throw new AppError(StatusCodes.CONFLICT, 'Choosing questions by id is not available for this flow yet.')
         }

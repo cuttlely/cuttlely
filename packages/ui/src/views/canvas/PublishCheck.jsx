@@ -22,6 +22,7 @@ import evaluatorsApi from '@/api/evaluators'
 import { useAuth } from '@/hooks/useAuth'
 import { apiErrorMessage, datasetGateBlock } from '@/utils/flowDrafts'
 import {
+    canPickQuestionIds,
     checkKind,
     checkTitle,
     compareListLabel,
@@ -972,7 +973,7 @@ const PublishCheck = ({ chatflowId, variant = 'publish', api = flowDraftsApi, fl
     const [historyCursor, setHistoryCursor] = useState(null)
     const [selectedQuestions, setSelectedQuestions] = useState([])
     const canRunGate = canUseDatasets && canUseEvaluators
-    const canChooseQuestions = typeof api.getCheckHistory === 'function'
+    const canChooseQuestions = typeof api.getCheckHistory === 'function' && canPickQuestionIds(flowType, canvases)
     const timer = useRef(null)
     const searchTimer = useRef(null)
     const historyRequest = useRef(0)

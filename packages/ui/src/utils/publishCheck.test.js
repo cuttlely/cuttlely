@@ -4,6 +4,7 @@ import {
     CHECK_RUNS_TITLE,
     LOADING_UNKNOWN,
     canvasStartType,
+    canPickQuestionIds,
     checkKind,
     checkTitle,
     countPickerLabel,
@@ -429,6 +430,22 @@ describe('a gate run poll', () => {
         })
         expect(afterClose).toBe(0)
         expect(closed).toEqual({ status: 'running', id: 'c1', limits: { maxSeconds: 1800 } })
+    })
+})
+
+describe('who can choose stored questions', () => {
+    const chatStart = JSON.stringify({
+        nodes: [{ data: { name: 'startAgentflow', inputs: { startInputType: 'chatInput' } } }]
+    })
+    const formStart = JSON.stringify({
+        nodes: [{ data: { name: 'startAgentflow', inputs: { startInputType: 'formInput' } } }]
+    })
+
+    test('a harness and a recorded-input start cannot pick ids', () => {
+        expect(canPickQuestionIds('CHATFLOW', [])).toBe(true)
+        expect(canPickQuestionIds('AGENTFLOW', [chatStart, chatStart])).toBe(true)
+        expect(canPickQuestionIds('HARNESS', [])).toBe(false)
+        expect(canPickQuestionIds('AGENTFLOW', [formStart, formStart])).toBe(false)
     })
 })
 

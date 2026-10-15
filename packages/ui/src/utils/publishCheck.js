@@ -47,6 +47,9 @@ export const checkKind = (type, canvases = []) => {
     return null
 }
 
+// Stored question ids exist for a chatflow and a chat-started agentflow. A harness has none.
+export const canPickQuestionIds = (type, canvases = []) => checkKind(type, canvases) === 'questions'
+
 export const checkTitle = (kind) => {
     if (kind === 'runs') return CHECK_RUNS_TITLE
     if (kind === 'questions') return CHECK_TITLE

@@ -67,6 +67,12 @@ describe('PublishCheckView', () => {
         expect(html).not.toContain('Questions from')
     })
 
+    test('a flow that cannot pick ids does not offer Choose questions', () => {
+        const html = render({ canChooseQuestions: false, questionMode: 'choose' })
+        expect(html).not.toContain('data-testid="choose-questions"')
+        expect(html).toContain('Past questions')
+    })
+
     test('Choose questions lists stored rows, greys out a file question, and keeps the count picker', () => {
         const html = render({
             canChooseQuestions: true,

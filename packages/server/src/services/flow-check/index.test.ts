@@ -1861,8 +1861,28 @@ describe('hand-picked questions', () => {
             statusCode: 400,
             code: 'CHECK_QUESTION_IDS_EXCLUSIVE'
         })
-        await expect(
-            startCheck(flow({ type: 'HARNESS', name: 'bakery' }) as any, { questionIds: [], questions: ['one loaf'] }, 'http://x')
-        ).rejects.toMatchObject({ statusCode: 409 })
+        await settle()
+        checks.clear()
+        const { harnessCheckHooks, harnessReplayHooks } = await import('./harness')
+        harnessCheckHooks.inWorkspace = async () => true
+        harnessReplayHooks.run = async () => ({ text: 'ok' })
+        try {
+            const harnessTyped = await startCheck(
+                flow({ type: 'HARNESS', name: 'bakery' }) as any,
+                { questionIds: [], questions: ['one loaf'] },
+                'http://x'
+            )
+            expect(harnessTyped.cases.map((item) => item.question)).toEqual(['one loaf'])
+            expect(harnessTyped.skipped).toBeUndefined()
+            await expect(
+                startCheck(flow({ type: 'HARNESS', name: 'bakery' }) as any, { questionIds: [`turn:${ID_A}`] }, 'http://x')
+            ).rejects.toMatchObject({
+                statusCode: 409,
+                message: 'Choosing questions by id is not available for this flow yet.'
+            })
+        } finally {
+            harnessCheckHooks.inWorkspace = null
+            harnessReplayHooks.run = null
+        }
     })
 })
