@@ -141,6 +141,37 @@ describe('logger.ts', () => {
             infoSpy.mockRestore()
         })
 
+        it('masks an email-like query value and finishes a long repeated string', () => {
+            process.env.DEBUG = 'true'
+            const repeated = 'a'.repeat(20000)
+            const infoSpy = jest.spyOn(logger, 'info').mockImplementation(() => logger)
+            const started = Date.now()
+            const req = {
+                url: '/api/v1/chatflows',
+                method: 'POST',
+                params: {},
+                body: {},
+                query: {
+                    note: `${repeated}@${repeated}.com`,
+                    local: `${'a'.repeat(200)}@${'b'.repeat(200)}.com`,
+                    remark: 'see jane@bakery.example today',
+                    pair: 'a@b.co and c@d.co'
+                },
+                headers: {}
+            } as any
+            expressRequestLogger(req, {} as any, next)
+            expect(Date.now() - started).toBeLessThan(1000)
+            const query = (infoSpy.mock.calls[0][1] as { request: { query: Record<string, string> } }).request.query
+            expect(query.note).toBe('**********')
+            expect(query.local).toBe('**********')
+            expect(query.remark).toBe('see ********** today')
+            expect(query.pair).toBe('********** and **********')
+            const logged = JSON.stringify(infoSpy.mock.calls)
+            expect(logged).not.toContain(repeated.slice(0, 40))
+            expect(logged).not.toContain('jane@bakery.example')
+            infoSpy.mockRestore()
+        })
+
         it('does not write a history page cursor on the request line', () => {
             const token = 'signed-page-cursor-token'
             const logged = redactLoggedUrl(`/api/v1/flow-drafts/flow-1/check/history?cursor=${token}&limit=1`)

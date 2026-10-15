@@ -85,6 +85,48 @@ export function redactLoggedUrl(url: string): string {
         .replace(/(\/api\/v1\/(?:chatflows|verify)\/apikey\/)[^/?#]*/gi, '$1[redacted]')
 }
 
+// A debug query value is untrusted. Two open-ended groups in a regex are polynomial on a long
+// repeated string, so email-like text is masked with one left-to-right pass, and a longer value
+// is replaced whole.
+const EMAIL_LOG_MASK = '**********'
+const EMAIL_LOG_LIMIT = 512
+
+function isEmailAtom(ch: string): boolean {
+    if (ch === '@') return false
+    const code = ch.charCodeAt(0)
+    if (code === 9 || code === 10 || code === 11 || code === 12 || code === 13 || code === 32) return false
+    if (code === 0x00a0 || code === 0x1680 || code === 0x2028 || code === 0x2029 || code === 0x202f || code === 0x205f) return false
+    if (code === 0x3000 || code === 0xfeff) return false
+    if (code >= 0x2000 && code <= 0x200a) return false
+    return true
+}
+
+function maskEmailLike(value: string): string {
+    if (!value.includes('@') || !value.includes('.')) return value
+    if (value.length > EMAIL_LOG_LIMIT) return EMAIL_LOG_MASK
+    let out = ''
+    let i = 0
+    while (i < value.length) {
+        const at = value.indexOf('@', i)
+        if (at === -1) {
+            out += value.slice(i)
+            break
+        }
+        let local = at
+        while (local > i && isEmailAtom(value.charAt(local - 1))) local -= 1
+        let domain = at + 1
+        while (domain < value.length && isEmailAtom(value.charAt(domain))) domain += 1
+        if (local < at && domain > at + 1) {
+            out += value.slice(i, local) + EMAIL_LOG_MASK
+            i = domain
+        } else {
+            out += value.slice(i, at + 1)
+            i = at + 1
+        }
+    }
+    return out
+}
+
 function sanitizeObject(obj: any): any {
     if (!obj || typeof obj !== 'object') return obj
 
@@ -97,9 +139,7 @@ function sanitizeObject(obj: any): any {
         } else if (lowerKey === 'overrideconfig' && sanitized[key] && typeof sanitized[key] === 'object') {
             sanitized[key] = sanitizeObject(sanitized[key])
         } else if (typeof sanitized[key] === 'string') {
-            if (sanitized[key].includes('@') && sanitized[key].includes('.')) {
-                sanitized[key] = sanitized[key].replace(/([^@\s]+)@([^@\s]+)/g, '**********')
-            }
+            sanitized[key] = maskEmailLike(sanitized[key])
         }
     })
 
