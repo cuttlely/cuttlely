@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-import { AuthKitSwitchState } from './authKitSwitch'
+import { AuthKitSwitchApply, AuthKitSwitchState } from './authKitSwitch'
 import { CreateOwnerInput, LocalSession, SessionUser, UserRow } from './types'
 
 export interface IdentityStore {
@@ -46,6 +46,7 @@ export interface IdentityStore {
     /**
      * When AuthKit becomes configured, deletes every local session and records that.
      * A later call while it stays configured does not delete sessions created after the switch.
+     * `recordOff` is only for the web server. Without it, seeing AuthKit unconfigured leaves a recorded-on switch as it is.
      */
-    applyAuthKitSwitch(configured: boolean, at: Date): Promise<AuthKitSwitchState>
+    applyAuthKitSwitch(configured: boolean, at: Date, options?: AuthKitSwitchApply): Promise<AuthKitSwitchState>
 }

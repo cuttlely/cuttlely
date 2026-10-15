@@ -34,7 +34,9 @@ let limiter: SqlLoginRateLimit | undefined
 export async function applyAuthKitSwitchOnBoot(dataSource: DataSource): Promise<{ ended: number } | null> {
     const switchStore = new SqlIdentityStore(dataSource)
     const before = await switchStore.readAuthKitSwitch()
-    const after = await switchStore.applyAuthKitSwitch(workosConfigured(), new Date())
+    const configured = workosConfigured()
+    // recordOff is this process: the web server. A queue worker does not call this.
+    const after = await switchStore.applyAuthKitSwitch(configured, new Date(), { recordOff: !configured })
     if (after.configured && !before?.configured) return { ended: after.sessionsEnded }
     return null
 }

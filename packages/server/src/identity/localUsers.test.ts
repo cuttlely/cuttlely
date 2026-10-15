@@ -39,7 +39,7 @@ import { hashPassword, hashSessionToken } from './password'
 import { LoginRateLimit, accountLockKey } from './rateLimit'
 import { addIdentityLoginGuards } from './schemaMigration'
 import { requireOwner, requirePermission, setTeamPermissionLookup } from './rbac'
-import { AuthKitSwitchState, switchedSessions } from './authKitSwitch'
+import { AuthKitSwitchApply, AuthKitSwitchState, switchedSessions } from './authKitSwitch'
 import { enabledSignInMethods } from './signInOptions'
 import { IdentityStore } from './store'
 import { SqlLoginRateLimit, teamAccess } from './sqlStore'
@@ -194,8 +194,8 @@ class MemoryStore implements IdentityStore {
         return this.switchState
     }
 
-    async applyAuthKitSwitch(configured: boolean, at: Date): Promise<AuthKitSwitchState> {
-        this.switchState = switchedSessions(this.switchState, configured, at, this.local)
+    async applyAuthKitSwitch(configured: boolean, at: Date, options?: AuthKitSwitchApply): Promise<AuthKitSwitchState> {
+        this.switchState = switchedSessions(this.switchState, configured, at, this.local, options)
         return this.switchState
     }
 
@@ -1204,7 +1204,7 @@ describe('local users mode', () => {
             expect(pending.body.status.sessionsEnded).toBe(0)
 
             await store.applyAuthKitSwitch(true, at)
-            await store.applyAuthKitSwitch(false, new Date('2026-10-17T00:00:00.000Z'))
+            await store.applyAuthKitSwitch(false, new Date('2026-10-17T00:00:00.000Z'), { recordOff: true })
             delete process.env.WORKOS_API_KEY
             delete process.env.WORKOS_CLIENT_ID
             const open = await http.get('/api/v1/auth/options')
@@ -1232,5 +1232,35 @@ describe('local users mode', () => {
             mockRouteStore.current = null
             restoreEnv()
         }
+    })
+
+    it('does not end sessions again when a process sees AuthKit off after the web server recorded it on', async () => {
+        const { store } = await seed()
+        const session = (id: string, userId: string) =>
+            store.insertLocalSession({
+                id,
+                userId,
+                token: `${id}-token`,
+                idleExpires: new Date(NOW + IDLE_MS),
+                absoluteExpires: new Date(NOW + ABSOLUTE_MS)
+            })
+        await session('owner-before', 'owner')
+        await session('ada-before', 'user-a')
+        await store.applyAuthKitSwitch(true, new Date('2026-10-15T12:00:00.000Z'))
+        expect(store.local.size).toBe(0)
+        await session('owner-after', 'owner')
+
+        const seenOff = await store.applyAuthKitSwitch(false, new Date('2026-10-16T00:00:00.000Z'))
+        expect(seenOff.configured).toBe(true)
+        expect(store.local.size).toBe(1)
+        const stillOn = await store.applyAuthKitSwitch(true, new Date('2026-10-16T01:00:00.000Z'))
+        expect(stillOn.sessionsEnded).toBe(2)
+        expect(store.local.has('owner-after-token')).toBe(true)
+
+        const turnedOff = await store.applyAuthKitSwitch(false, new Date('2026-10-17T00:00:00.000Z'), { recordOff: true })
+        expect(turnedOff.configured).toBe(false)
+        expect(store.local.size).toBe(1)
+        await store.applyAuthKitSwitch(true, new Date('2026-10-18T00:00:00.000Z'))
+        expect(store.local.size).toBe(0)
     })
 })

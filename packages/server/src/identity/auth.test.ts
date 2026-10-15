@@ -29,7 +29,7 @@ import { hashPassword, hashSessionToken, passwordErrors } from './password'
 import { cookieMutationAllowed } from './sessionGuard'
 import { announceFirstRunSetup, firstRunSetupLink, resetFirstRunSetupCode } from './setupCode'
 import { resolveTrustProxy } from '../utils/trustProxy'
-import { AuthKitSwitchState, switchedSessions } from './authKitSwitch'
+import { AuthKitSwitchApply, AuthKitSwitchState, switchedSessions } from './authKitSwitch'
 import { IdentityStore } from './store'
 import { addIdentityLoginGuards, addIdentitySignIn, removeIdentityLoginGuards } from './schemaMigration'
 import { CreateOwnerInput, HandlerResult, LocalSession, NotEmptyError, SessionUser, UserRow, WorkosPort } from './types'
@@ -168,8 +168,8 @@ class MemoryStore implements IdentityStore {
         return this.switchState
     }
 
-    async applyAuthKitSwitch(configured: boolean, at: Date): Promise<AuthKitSwitchState> {
-        this.switchState = switchedSessions(this.switchState, configured, at, this.local)
+    async applyAuthKitSwitch(configured: boolean, at: Date, options?: AuthKitSwitchApply): Promise<AuthKitSwitchState> {
+        this.switchState = switchedSessions(this.switchState, configured, at, this.local, options)
         return this.switchState
     }
 

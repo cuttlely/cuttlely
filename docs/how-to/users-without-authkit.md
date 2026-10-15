@@ -32,7 +32,7 @@ Sign out with `POST /api/v1/auth/local/logout` and the same header. Calling it t
 
 Set `WORKOS_API_KEY` and `WORKOS_CLIENT_ID`, then restart. Local password sign-in turns off. The owner break-glass form stays on only when `CUTTLELY_LOCAL_ADMIN` is exactly `true`.
 
-On that start, every existing local session ends, including the owner's. People sign in again. The owner uses the break-glass password. Everyone else uses AuthKit. A later restart does not end the sessions created after the switch. Turning AuthKit off does not bring the ended sessions back.
+On that start, every existing local session ends, including the owner's. People sign in again. The owner uses the break-glass password. Everyone else uses AuthKit. A later restart of the web server does not end the sessions created after the switch. Only that web server records AuthKit as turned off. A queue worker that does not have the AuthKit environment does not change that record, so it cannot make the next web start end sessions again. Turning AuthKit off on the web server does not bring the ended sessions back.
 
 AuthKit links an existing user when the email AuthKit sends is verified and matches that user's mailbox exactly. Letter case and spaces around the address are ignored. `Ada@Example.com` matches `ada@example.com`. `ada+notes@example.com` does not match `ada@example.com`, and neither does a different domain. An unverified email is refused. If two users have that mailbox, including in two teams, neither is linked and the sign-in stops. The password already stored is kept.
 

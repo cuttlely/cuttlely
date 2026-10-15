@@ -19,7 +19,7 @@ import type { DataSource, QueryRunner } from 'typeorm'
 import { DEFAULT_WORKSPACE, LOGIN_FAILURE_WINDOW_MS, OPEN_SOURCE_FEATURES, OWNER_ROLE, PERSONAL_WORKSPACE } from './constants'
 import { ACCOUNT_LOCK_CAP, LoginLimiter, accountLockKey } from './rateLimit'
 import { runtimeNumber } from '../settings/runtime'
-import { AuthKitSwitchState, nextAuthKitSwitch } from './authKitSwitch'
+import { AuthKitSwitchApply, AuthKitSwitchState, nextAuthKitSwitch } from './authKitSwitch'
 import { utcEpoch } from './dbTime'
 import { addSessionSeenColumn } from './schemaMigration'
 import { IdentityStore } from './store'
@@ -533,7 +533,7 @@ export class SqlIdentityStore implements IdentityStore {
         return this.withRunner(async (runner) => readSwitchRow(runner))
     }
 
-    async applyAuthKitSwitch(configured: boolean, at: Date): Promise<AuthKitSwitchState> {
+    async applyAuthKitSwitch(configured: boolean, at: Date, options: AuthKitSwitchApply = {}): Promise<AuthKitSwitchState> {
         return this.transaction(async (runner) => {
             const d = dialectOf(runner)
             const table = quote(d, 'identity_authkit_switch')
@@ -565,7 +565,7 @@ export class SqlIdentityStore implements IdentityStore {
             const previous = rows[0] ? switchStateFrom(rows[0]) : null
             const counted = await query(runner, `SELECT COUNT(*) AS ${quote(d, 'count')} FROM ${quote(d, 'identity_local_session')}`)
             const live = Number(cell(counted[0] || {}, 'count') || 0)
-            const next = nextAuthKitSwitch(previous, configured, at, live)
+            const next = nextAuthKitSwitch(previous, configured, at, live, options)
             if (next.endSessions) await query(runner, `DELETE FROM ${quote(d, 'identity_local_session')}`)
             await query(
                 runner,

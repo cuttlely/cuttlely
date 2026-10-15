@@ -18,7 +18,7 @@
  */
 
 export interface AuthKitSwitchState {
-    /** True while AuthKit is the mode this server last applied. */
+    /** True while AuthKit is the mode the web server last applied. */
     configured: boolean
     /** Local sessions deleted the last time AuthKit became configured. */
     sessionsEnded: number
@@ -26,15 +26,26 @@ export interface AuthKitSwitchState {
     switchedAt: string | null
 }
 
+export interface AuthKitSwitchApply {
+    /**
+     * Set only by the web server when its own environment has AuthKit off.
+     * A process that merely does not see the AuthKit variables must leave a recorded-on switch alone,
+     * or the next web start treats AuthKit as newly on and deletes local sessions again.
+     */
+    recordOff?: boolean
+}
+
 /**
  * `endSessions` is true only on the transition from off to on.
- * Turning AuthKit off keeps the count and does not restore the deleted rows.
+ * `recordOff` is the web server recording that AuthKit was turned off. Without it, an unconfigured
+ * observation does not change a switch that is already on, and does not restore deleted rows.
  */
 export function nextAuthKitSwitch(
     previous: AuthKitSwitchState | null,
     configured: boolean,
     at: Date,
-    liveSessions: number
+    liveSessions: number,
+    options: AuthKitSwitchApply = {}
 ): { endSessions: boolean; state: AuthKitSwitchState } {
     if (configured && previous?.configured !== true) {
         return {
@@ -47,6 +58,7 @@ export function nextAuthKitSwitch(
         }
     }
     if (!configured && previous?.configured === true) {
+        if (!options.recordOff) return { endSessions: false, state: previous }
         return {
             endSessions: false,
             state: {
@@ -67,9 +79,10 @@ export function switchedSessions<T>(
     previous: AuthKitSwitchState | null,
     configured: boolean,
     at: Date,
-    sessions: Map<string, T>
+    sessions: Map<string, T>,
+    options: AuthKitSwitchApply = {}
 ): AuthKitSwitchState {
-    const next = nextAuthKitSwitch(previous, configured, at, sessions.size)
+    const next = nextAuthKitSwitch(previous, configured, at, sessions.size, options)
     if (next.endSessions) sessions.clear()
     return next.state
 }

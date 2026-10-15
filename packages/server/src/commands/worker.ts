@@ -11,7 +11,6 @@ import { QueueEvents, QueueEventsListener } from 'bullmq'
 import { AbortControllerPool } from '../AbortControllerPool'
 import { UsageCacheManager } from '../UsageCacheManager'
 import { ossIdentity } from '../identity/ossPlatform'
-import { applyAuthKitSwitchOnBoot } from '../identity/production'
 import { registerCuttlelyTraces, shutdownCuttlelyTraces } from '../metrics/tracing'
 
 interface CustomListener extends QueueEventsListener {
@@ -75,12 +74,6 @@ export default class Worker extends BaseCommand {
         const appDataSource = getDataSource()
         await appDataSource.initialize()
         await appDataSource.runMigrations({ transaction: 'each' })
-        const authKitSwitch = await applyAuthKitSwitchOnBoot(appDataSource)
-        if (authKitSwitch) {
-            logger.info(
-                `🔐 [server]: AuthKit is configured. Ended ${authKitSwitch.ended} local session(s). Password sign-in stays available only for the owner break-glass account.`
-            )
-        }
 
         // Initialize abortcontroller pool
         const abortControllerPool = new AbortControllerPool()
