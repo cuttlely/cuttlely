@@ -1030,12 +1030,14 @@ describe('Dev or Prod label', () => {
         expect(gitCalls.filter((call) => call.args[0] === 'fetch').length).toBeGreaterThan(fetches)
         expect((await sync.status()).state).toBe('stopped')
         expect((await sync.status()).message).toContain('has changes that are not on this server')
-        await sync.tryNow()
-        // A poll can start while status() is still reading, so the returned state can be copying.
-        sync.stop()
-        await sync.idle()
+        let settled = await sync.tryNow()
+        // status() can overlap the next poll and report copying. Wait for that copy to finish.
+        // Do not stop the timer: a tryNow that never leaves copying has to fail this assertion.
+        for (let attempt = 0; settled.state === 'copying' && attempt < 20; attempt += 1) {
+            await sync.idle()
+            settled = await sync.status()
+        }
         expect(gitCalls.filter((call) => call.args[0] === 'push').length).toBeGreaterThan(pushes)
-        const settled = await sync.status()
         expect(settled.state).toBe('stopped')
         expect(settled.message).toContain('has changes that are not on this server')
     })
