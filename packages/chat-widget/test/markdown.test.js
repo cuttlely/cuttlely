@@ -102,4 +102,16 @@ describe('renderMarkdown formatting', () => {
         const html = renderMarkdown('![chart](/api/v1/get-upload-file?x=1)', { base: 'https://d.example' })
         assert.match(html, /<img src="https:\/\/d\.example\/api\/v1\/get-upload-file\?x=1" alt="chart" loading="lazy">/)
     })
+
+    it('keeps dollar amounts as text', () => {
+        assert.equal(
+            renderMarkdown('Offer a store credit of $10 as a goodwill gesture and refund shipping ($5.99).'),
+            '<p>Offer a store credit of $10 as a goodwill gesture and refund shipping ($5.99).</p>'
+        )
+        assert.equal(renderMarkdown('The order was $1,200 and the refund is $300.'), '<p>The order was $1,200 and the refund is $300.</p>')
+    })
+
+    it('shows math source as text', () => {
+        assert.equal(renderMarkdown('The area is $$\\pi r^2$$ for a $10 rug.'), '<p>The area is $$\\pi r^2$$ for a $10 rug.</p>')
+    })
 })
