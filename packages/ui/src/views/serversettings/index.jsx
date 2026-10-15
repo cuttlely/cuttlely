@@ -1,5 +1,6 @@
 // Admin, Server settings: how this server runs, for the organization owner.
-// Everything applies when Cuttlely restarts. Values set where Cuttlely is installed show as Locked.
+// Runtime limits apply on the next use. The other settings apply when Cuttlely restarts.
+// Values set where Cuttlely is installed show as Locked.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import PropTypes from 'prop-types'
 import { useDispatch, useSelector } from 'react-redux'
@@ -166,9 +167,15 @@ const ServerSettings = () => {
             setFieldErrors({})
             setReviewOpen(false)
             setHistoryKey((n) => n + 1)
-            const keys = Object.keys(clean)
-            const runtimeOnly = keys.length > 0 && keys.every((key) => settings.find((setting) => setting.key === key)?.runtime)
-            notify(runtimeOnly ? 'Saved. These limits apply now.' : 'Saved. Restart Cuttlely to apply.')
+            const savedKeys = Object.keys(clean)
+            const runtimeSaved = savedKeys.filter((key) => settings.find((setting) => setting.key === key)?.runtime).length
+            const notice =
+                runtimeSaved === savedKeys.length && savedKeys.length
+                    ? 'Saved. These limits apply now.'
+                    : runtimeSaved
+                    ? 'Saved. Limits apply now. Restart Cuttlely to apply the rest.'
+                    : 'Saved. Restart Cuttlely to apply.'
+            notify(notice)
         } catch (error) {
             const errors = errorsByKey(error)
             setFieldErrors(errors)
@@ -484,7 +491,7 @@ const ServerSettings = () => {
                         Server settings
                     </Typography>
                     <Typography sx={{ mt: 1, color: 'text.secondary', fontWeight: 500 }}>
-                        How this server runs. Changes apply when Cuttlely restarts.
+                        How this server runs. Runtime limits apply on the next use. The other settings wait for a restart.
                     </Typography>
                 </Box>
                 <OutlinedInput

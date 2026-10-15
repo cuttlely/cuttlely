@@ -16,7 +16,7 @@
 
 import { createHmac } from 'crypto'
 import { LOGIN_FAILURE_WINDOW_MS } from './constants'
-import { loginFailureLimit } from '../settings/runtime'
+import { runtimeNumber } from '../settings/runtime'
 import { authSecret } from './authSecrets'
 
 /**
@@ -58,7 +58,7 @@ export class LoginRateLimit implements LoginLimiter {
     private rows: FailureRow[] = []
 
     constructor(
-        private readonly limit: number | (() => number) = () => loginFailureLimit(),
+        private readonly limit: number | (() => number) = () => runtimeNumber('CUTTLELY_LOGIN_FAILURE_LIMIT'),
         private readonly windowMs = LOGIN_FAILURE_WINDOW_MS,
         private readonly accountCap = ACCOUNT_LOCK_CAP
     ) {}

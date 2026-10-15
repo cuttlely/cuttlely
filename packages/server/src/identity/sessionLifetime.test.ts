@@ -14,7 +14,7 @@ import { hashSessionToken } from './password'
 import { localSessionBlock } from './sessionLifetime'
 import { IdentityStore } from './store'
 import { LocalSession, SessionUser } from './types'
-import { unbindRuntimeSource } from '../settings/runtime'
+import { resetRuntimeLimitsForTests } from '../settings/runtime'
 
 const NOW = 1_700_000_000_000
 
@@ -30,7 +30,7 @@ function row(partial: Partial<LocalSession> = {}): LocalSession {
 }
 
 afterEach(() => {
-    unbindRuntimeSource()
+    resetRuntimeLimitsForTests()
     delete process.env.CUTTLELY_SESSION_IDLE_MINUTES
     delete process.env.CUTTLELY_SESSION_ABSOLUTE_HOURS
 })

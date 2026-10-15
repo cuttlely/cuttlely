@@ -2,15 +2,35 @@
 // Numbers are stored as the raw value the server reads. For 'ms-as-seconds' the raw value is milliseconds and
 // min and max are in seconds, the unit the page shows.
 import { SettingDef } from './registry'
+import { parseRuntimeInteger } from './runtime'
 
-export type Checked = { ok: true; value: string } | { ok: false; error: string }
+export type Checked = { ok: true; value: string } | { ok: false; error: string; code?: string; min?: number; max?: number }
 
 const MAX_TEXT = 4000
+
+function runtimeInteger(setting: SettingDef, value: string): Checked {
+    const min = setting.min
+    const max = setting.max
+    const n = parseRuntimeInteger(value)
+    if (n === null) {
+        return { ok: false, error: `${setting.label}: enter a whole number from ${min} to ${max}.`, code: 'INVALID', min, max }
+    }
+    if ((min !== undefined && n < min) || (max !== undefined && n > max)) {
+        return { ok: false, error: `${setting.label}: the value must be from ${min} to ${max}.`, code: 'OUT_OF_RANGE', min, max }
+    }
+    return { ok: true, value: String(n) }
+}
 
 export function checkValue(setting: SettingDef, input: unknown): Checked {
     if (input === null || input === undefined) return { ok: true, value: '' }
     if (typeof input === 'boolean' && setting.type === 'switch') input = input ? setting.on ?? 'true' : setting.off ?? 'false'
-    if (typeof input === 'number' && Number.isFinite(input)) input = String(input)
+    if (typeof input === 'number') {
+        if (!Number.isFinite(input)) {
+            if (setting.runtime) return runtimeInteger(setting, '')
+            return { ok: false, error: `${setting.label}: enter a number.` }
+        }
+        input = String(input)
+    }
     if (typeof input !== 'string') return { ok: false, error: `${setting.label}: enter text.` }
     if (input.includes('\0')) return { ok: false, error: `${setting.label}: the value has a character that cannot be used.` }
     const value = input.trim()
@@ -29,16 +49,15 @@ export function checkValue(setting: SettingDef, input: unknown): Checked {
             return { ok: false, error: `${setting.label}: choose one of the options.` }
         }
         case 'number': {
-            if (setting.integer) {
-                if (!/^\d+$/.test(value)) return { ok: false, error: `${setting.label}: enter a whole number.` }
-            } else if (!/^-?\d+(\.\d+)?$/.test(value)) return { ok: false, error: `${setting.label}: enter a number.` }
+            if (setting.runtime) return runtimeInteger(setting, value)
+            if (!/^-?\d+(\.\d+)?$/.test(value)) return { ok: false, error: `${setting.label}: enter a number.` }
             const raw = Number(value)
             const shown = setting.unit === 'ms-as-seconds' ? raw / 1000 : raw
             if (setting.min !== undefined && shown < setting.min)
                 return { ok: false, error: `${setting.label}: the smallest value is ${setting.min}.` }
             if (setting.max !== undefined && shown > setting.max)
                 return { ok: false, error: `${setting.label}: the largest value is ${setting.max}.` }
-            return { ok: true, value: setting.integer ? String(raw) : value }
+            return { ok: true, value }
         }
         case 'list': {
             const items = value

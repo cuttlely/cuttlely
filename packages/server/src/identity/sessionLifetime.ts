@@ -19,13 +19,13 @@
  */
 
 import { ABSOLUTE_MS, IDLE_MS } from './constants'
-import { sessionAbsoluteHours, sessionIdleMinutes } from '../settings/runtime'
+import { runtimeNumber } from '../settings/runtime'
 import { LocalSession } from './types'
 
-export function sessionLimitsMs(env: NodeJS.ProcessEnv = process.env, now = Date.now()): { idleMs: number; absoluteMs: number } {
+export function sessionLimitsMs(env: NodeJS.ProcessEnv = process.env): { idleMs: number; absoluteMs: number } {
     return {
-        idleMs: sessionIdleMinutes(env, now) * 60 * 1000,
-        absoluteMs: sessionAbsoluteHours(env, now) * 60 * 60 * 1000
+        idleMs: runtimeNumber('CUTTLELY_SESSION_IDLE_MINUTES', env) * 60 * 1000,
+        absoluteMs: runtimeNumber('CUTTLELY_SESSION_ABSOLUTE_HOURS', env) * 60 * 60 * 1000
     }
 }
 

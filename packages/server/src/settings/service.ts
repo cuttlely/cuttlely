@@ -1,5 +1,6 @@
 // What the Server settings page reads and writes. Owner only (routes/server-settings). Secret values never leave
-// the server: a secret is shown as set or not set. Every change applies at the next start.
+// the server: a secret is shown as set or not set. A runtime limit applies on the next use. Every other change
+// applies at the next start.
 import fs from 'fs'
 import path from 'path'
 import { StartState } from './apply'
@@ -13,9 +14,9 @@ import {
 import { AUTHKIT_KEYS, authKitComplete, authKitEnvironment, authKitTested, readAuthKitProof } from './authkit-proof'
 import { HistoryEntry, HistoryPage, appendHistory, decodeHistoryCursor, describeChanges, pageHistory, readHistory } from './history'
 import { SettingsBusyError, withSettingsLock } from './lock'
-import { clampLimit, isRuntimeKey, limitSpec, publishRuntime, sessionLifetimeConflict } from './runtime'
 import { KEPT_OUT, SECTIONS, SETTINGS, SettingDef, isKeptOut, settingFor } from './registry'
-import { ResolvedSetting, effectiveValue, resolveSettings } from './resolve'
+import { ResolvedSetting, effectiveValue, isBlank, resolveSettings } from './resolve'
+import { invalidateRuntimeCache, runtimeConflict, runtimeSnapshot } from './runtime'
 import { requestRestart, restartInPlaceAvailable } from './restart'
 import { ROLLED_BACK_FILE } from './safeboot'
 import { drainRuns, runsInProgress, waitLimitMs } from './runs'
@@ -35,7 +36,11 @@ export type InstallKind = 'docker' | 'render' | 'source'
 
 export interface SettingView extends Omit<SettingDef, 'defaultValue'> {
     defaultValue?: string
-    source: ResolvedSetting['source']
+    source: ResolvedSetting['source'] | 'panel' | 'bounded'
+    /** The host key that forced this number. Set only when source is bounded. */
+    boundedBy?: string
+    /** Whole-number bounds for a runtime limit. */
+    range?: { min: number; max: number }
     locked: boolean
     /** Plain settings: the saved or host value ('' when the default applies). Never present for secrets. */
     value?: string
@@ -68,8 +73,22 @@ export interface SettingsView {
 }
 
 export class SettingsError extends Error {
-    constructor(public status: number, public code: string, message: string, public errors: { key: string; message: string }[] = []) {
+    key?: string
+    reason?: string
+    min?: number
+    max?: number
+    constructor(
+        public status: number,
+        public code: string,
+        message: string,
+        public errors: { key: string; message: string }[] = [],
+        detail?: { key?: string; reason?: string; min?: number; max?: number }
+    ) {
         super(message)
+        this.key = detail?.key
+        this.reason = detail?.reason
+        this.min = detail?.min
+        this.max = detail?.max
     }
 }
 
@@ -110,6 +129,28 @@ async function readSaved(deps: ServiceDeps) {
     return { ...readSettingsFile(deps.state.dir, key), key }
 }
 
+function publishedRange(setting: SettingDef, live: Map<string, { value: number }>): { min: number; max: number } {
+    let min = setting.min ?? 0
+    let max = setting.max ?? 0
+    if (setting.key === 'CUTTLELY_CHECK_COUNT_DEFAULT') {
+        const cap = live.get('CUTTLELY_CHECK_COUNT_MAX')
+        if (cap) max = cap.value
+    } else if (setting.key === 'CUTTLELY_RATING_IMPORT_CAP') {
+        const scan = live.get('CUTTLELY_RATING_SCAN_CAP')
+        if (scan) max = Math.min(max, scan.value)
+    } else if (setting.key === 'CUTTLELY_RATING_SCAN_CAP') {
+        const imported = live.get('CUTTLELY_RATING_IMPORT_CAP')
+        if (imported) min = Math.max(min, imported.value)
+    } else if (setting.key === 'CUTTLELY_SESSION_IDLE_MINUTES') {
+        const absolute = live.get('CUTTLELY_SESSION_ABSOLUTE_HOURS')
+        if (absolute) max = Math.min(max, absolute.value * 60)
+    } else if (setting.key === 'CUTTLELY_SESSION_ABSOLUTE_HOURS') {
+        const idle = live.get('CUTTLELY_SESSION_IDLE_MINUTES')
+        if (idle) min = Math.max(min, Math.ceil(idle.value / 60))
+    }
+    return { min, max }
+}
+
 function changedKeys(saved: Record<string, string>, atStart: Record<string, string>, unreadable: string[]): string[] {
     const keys = new Set([...Object.keys(saved), ...Object.keys(atStart)])
     return [...keys].filter((key) => (saved[key] ?? '') !== (atStart[key] ?? '') && !unreadable.includes(key)).sort()
@@ -121,7 +162,10 @@ export async function getView(deps: ServiceDeps): Promise<SettingsView> {
     const hostKeys = new Set(state.hostKeys)
     const resolved = resolveSettings({ env, hostKeys, file: read.values })
     const atStartResolved = resolveSettings({ env, hostKeys, file: state.ignored ? {} : state.atStart })
-    const changed = changedKeys(read.values, state.atStart, read.unreadable).filter((key) => !hostKeys.has(key) && !isRuntimeKey(key))
+    const changed = changedKeys(read.values, state.atStart, read.unreadable).filter(
+        (key) => !hostKeys.has(key) && !settingFor(key)?.runtime
+    )
+    const live = runtimeSnapshot(env)
     const settings: SettingView[] = SETTINGS.map((setting, index) => {
         const row = resolved[index]
         const locked = row.source === 'host'
@@ -139,8 +183,22 @@ export async function getView(deps: ServiceDeps): Promise<SettingsView> {
         } else {
             view.value = row.value
             view.effective = effectiveValue(row)
-            const spec = setting.runtime ? limitSpec(setting.key) : undefined
-            view.running = spec ? String(clampLimit(spec, view.effective || undefined)) : atStartResolved[index].value
+            view.running = atStartResolved[index].value
+        }
+        if (setting.runtime) {
+            const picked = live.get(setting.key)
+            if (picked) {
+                const shown = picked.source === 'default' ? '' : String(picked.value)
+                view.source = picked.source
+                // Bounded is not a host value of this key, so the host lock applies only when this variable is set.
+                view.locked = hostKeys.has(setting.key) && !isBlank(env[setting.key])
+                if (picked.source === 'bounded' && picked.boundedBy) view.boundedBy = picked.boundedBy
+                view.changed = false
+                view.range = publishedRange(setting, live)
+                view.value = shown
+                view.running = shown
+                view.effective = String(picked.value)
+            }
         }
         return view
     })
@@ -227,7 +285,7 @@ export async function saveChanges(deps: ServiceDeps, input: unknown, by: string,
         throw new SettingsError(400, 'BAD_REQUEST', 'Send the changed settings as values.')
     }
     const hostKeys = new Set(deps.state.hostKeys)
-    const errors: { key: string; message: string }[] = []
+    const errors: { key: string; message: string; code?: string; min?: number; max?: number }[] = []
     const normalized: Record<string, string> = {}
     for (const [key, raw] of Object.entries(changes as Record<string, unknown>)) {
         const setting = settingFor(key)
@@ -245,11 +303,34 @@ export async function saveChanges(deps: ServiceDeps, input: unknown, by: string,
             continue
         }
         const checked = checkValue(setting, raw)
-        if (!checked.ok) errors.push({ key, message: checked.error })
+        if (!checked.ok) errors.push({ key, message: checked.error, code: checked.code, min: checked.min, max: checked.max })
         else normalized[key] = checked.value
     }
-    if (errors.length) throw new SettingsError(400, 'INVALID', 'Some settings could not be saved.', errors)
+    if (errors.length) throw refuse(errors)
+    const read = await readSaved(deps)
+    const merged: Record<string, string> = { ...read.values }
+    for (const [name, value] of Object.entries(normalized)) {
+        if (value === '') delete merged[name]
+        else merged[name] = value
+    }
+    const conflict = runtimeConflict(deps.env, hostKeys, merged, new Set(Object.keys(normalized)))
+    if (conflict) {
+        throw new SettingsError(400, conflict.code, conflict.reason, [{ key: conflict.key, message: conflict.reason }], conflict)
+    }
     return writeValues(deps, normalized, by, 'save', undefined, actorId)
+}
+
+function refuse(errors: { key: string; message: string; code?: string; min?: number; max?: number }[]): never {
+    const runtime = errors.filter((error) => error.code)
+    const only = runtime.length > 0 && runtime.length === errors.length
+    const first = runtime[0]
+    throw new SettingsError(
+        400,
+        only && first?.code ? first.code : 'INVALID',
+        only && first ? first.message : 'Some settings could not be saved.',
+        errors.map(({ key, message }) => ({ key, message })),
+        only && first ? { key: first.key, reason: first.message, min: first.min, max: first.max } : undefined
+    )
 }
 
 /** Writes changes to the file (blank removes), keeps secrets nobody touched, records history. */
@@ -284,8 +365,6 @@ async function writeValuesLocked(
         throw new SettingsError(409, 'FILE_DAMAGED', 'The settings file could not be read. Run pnpm settings restore on the server first.')
     }
     const hostKeys = new Set(state.hostKeys)
-    const lifetime = sessionLifetimeConflict(deps.env, hostKeys, read.values, normalized)
-    if (lifetime) throw new SettingsError(400, 'INVALID', 'Some settings could not be saved.', [lifetime])
     const next: Record<string, string> = { ...read.values }
     for (const [name, value] of Object.entries(normalized)) {
         if (value === '') delete next[name]
@@ -316,7 +395,7 @@ async function writeValuesLocked(
         const file = path.join(state.dir, SETTINGS_FILE)
         const previousRaw = fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : null
         writeSettingsFile(state.dir, next, { key, by, preserve })
-        publishRuntime(deps.env, hostKeys, next, state.dir)
+        invalidateRuntimeCache()
         try {
             appendHistory(state.dir, {
                 kind,
@@ -329,7 +408,7 @@ async function writeValuesLocked(
             })
         } catch {
             restoreSettingsFile(state.dir, previousRaw)
-            publishRuntime(deps.env, hostKeys, previousRaw === null ? {} : readSettingsFile(state.dir, key).values, state.dir)
+            invalidateRuntimeCache()
             throw new SettingsError(500, 'HISTORY_FAILED', 'The change was not kept because the history could not be recorded.')
         }
     }
@@ -354,7 +433,7 @@ export async function discardChanges(deps: ServiceDeps, by: string, actorId?: st
             else writeFileAtomic(state.dir, SETTINGS_FILE, state.rawAtStart)
             const changes = describeChanges(before, state.atStart)
             if (changes.length) appendHistory(state.dir, { kind: 'discard', by, actorId, changes, outcome: 'ok' })
-            publishRuntime(deps.env, new Set(state.hostKeys), state.atStart, state.dir)
+            invalidateRuntimeCache()
             return getView(deps)
         })
     } catch (error) {
@@ -399,7 +478,7 @@ async function retryRolledBackLocked(deps: ServiceDeps, by: string, actorId?: st
         note: 'Put back the settings that did not start, to try them again at the next restart.',
         outcome: 'ok'
     })
-    publishRuntime(deps.env, new Set(state.hostKeys), after.values, state.dir)
+    invalidateRuntimeCache()
     return getView(deps)
 }
 

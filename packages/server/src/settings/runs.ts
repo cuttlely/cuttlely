@@ -4,7 +4,7 @@
 // on every deploy) does the same for every request: see shutdownDrain.
 import type { Server } from 'http'
 import { NextFunction, Request, Response } from 'express'
-import { drainTimeoutLimit } from './runtime'
+import { runtimeNumber } from './runtime'
 
 const RUN_PATHS = [/^\/api\/v1\/prediction(\/|$)/, /^\/api\/v1\/internal-prediction(\/|$)/, /^\/api\/v1\/harnesses\/[^/]+\/runs\/?$/]
 export const DEFAULT_WAIT_MS = 45000
@@ -41,7 +41,7 @@ export function isShuttingDown(): boolean {
  * A saved value applies without a restart. A queue worker sees it within 5 seconds.
  */
 export function drainTimeoutMs(env: Record<string, string | undefined> = process.env): number {
-    return drainTimeoutLimit(env)
+    return runtimeNumber('CUTTLELY_DRAIN_TIMEOUT_MS', env)
 }
 
 /** The turn time limit, which is also the longest Restart waits for runs to finish. */

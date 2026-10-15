@@ -18,7 +18,7 @@ import { randomUUID } from 'crypto'
 import type { DataSource, QueryRunner } from 'typeorm'
 import { DEFAULT_WORKSPACE, LOGIN_FAILURE_WINDOW_MS, OPEN_SOURCE_FEATURES, OWNER_ROLE, PERSONAL_WORKSPACE } from './constants'
 import { ACCOUNT_LOCK_CAP, LoginLimiter, accountLockKey } from './rateLimit'
-import { loginFailureLimit } from '../settings/runtime'
+import { runtimeNumber } from '../settings/runtime'
 import { addSessionSeenColumn } from './schemaMigration'
 import { IdentityStore } from './store'
 import { CreateOwnerInput, LocalSession, NotEmptyError, SessionUser, UserRow } from './types'
@@ -661,7 +661,7 @@ function isUniqueViolation(error: unknown): boolean {
 export class SqlLoginRateLimit implements LoginLimiter {
     constructor(
         private readonly dataSource: DataSource,
-        private readonly limit: number | (() => number) = () => loginFailureLimit(),
+        private readonly limit: number | (() => number) = () => runtimeNumber('CUTTLELY_LOGIN_FAILURE_LIMIT'),
         private readonly windowMs = LOGIN_FAILURE_WINDOW_MS,
         private readonly accountCap = ACCOUNT_LOCK_CAP
     ) {}

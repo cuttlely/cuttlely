@@ -1,5 +1,6 @@
-// Server settings API: /api/v1/server-settings. Owner only; an API key never passes (requireOwner, and the path is
-// on the API key deny list). Secret values are accepted but never returned or logged.
+// Server settings API: /api/v1/server-settings. Owner only. The API key deny list answers 401 before this
+// router, and so does a request with no session. A signed-in caller who is not the owner is 403.
+// Secret values are accepted but never returned or logged.
 import express, { NextFunction, Request, Response } from 'express'
 import { requireOwner } from '../../identity/rbac'
 import { startState } from '../../settings/bootstrap'
@@ -98,7 +99,12 @@ function handle(work: (req: Request) => Promise<unknown> | unknown, status = 200
                 return res.status(400).json({ code: 'INVALID', message: error.message, errors: error.errors })
             }
             if (error instanceof SettingsError) {
-                return res.status(error.status).json({ code: error.code, message: error.message, errors: error.errors })
+                const body: Record<string, unknown> = { code: error.code, message: error.message, errors: error.errors }
+                if (error.key !== undefined) body.key = error.key
+                if (error.reason !== undefined) body.reason = error.reason
+                if (error.min !== undefined) body.min = error.min
+                if (error.max !== undefined) body.max = error.max
+                return res.status(error.status).json(body)
             }
             next(error)
         }

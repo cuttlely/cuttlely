@@ -9,7 +9,7 @@ import express, { Request } from 'express'
 import request from 'supertest'
 import {
     RateLimiterManager,
-    UI_PAGE_LIMIT_MAX,
+    uiPageLimitMax,
     UI_PAGE_LIMIT_WINDOW_MS,
     rateLimitClientKey,
     uiAssetMiddleware,
@@ -115,7 +115,7 @@ describe('Prediction rate limit and X-Forwarded-For', () => {
 describe('UI page fallback limiter', () => {
     it('uses a one-minute window and a few thousand requests per client', () => {
         expect(UI_PAGE_LIMIT_WINDOW_MS).toBe(60_000)
-        expect(UI_PAGE_LIMIT_MAX).toBe(3000)
+        expect(uiPageLimitMax()).toBe(3000)
     })
 
     it('is wired only around the UI index fallback in the server', () => {

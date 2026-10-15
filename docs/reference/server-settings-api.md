@@ -1,105 +1,114 @@
 # Server settings API
 
-How the organization owner reads and changes server settings, including the limits that apply without a restart, and how to read the change history. The page is **Admin** > **Server Settings**. [Server settings](../how-to/server-settings.md) describes that page. This page is the HTTP API.
+Owner-only settings for this server. The page is **Admin** > **Server settings**. This page is the HTTP API. A runtime limit applies on the next use. Every other saved value applies at the next start.
 
-These routes are for the organization owner only. A workspace owner, a workspace admin, a member, and a user whose active workspace is a different team are refused. An API key is refused. There is one settings file for the install, not one per workspace.
+`GET /api/v1/server-settings`
 
-## Who can call it
+`PUT /api/v1/server-settings`
 
-Every route under `/api/v1/server-settings` uses the same check.
+The caller must be the organization owner, with a signed-in session. A missing session and an API key are 401. A signed-in caller who is not the owner is 403. Secrets are accepted on `PUT` and are never returned.
 
-| Status | When                                                                                                                                                          | Body                            |
-| ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------- |
-| 401    | No signed-in session                                                                                                                                          | `{ "message": "Unauthorized" }` |
-| 403    | Signed in, but not the organization owner. This includes a workspace admin, a role that was given `server:owner`, a user in another workspace, and an API key | `{ "message": "Forbidden" }`    |
+## Read
 
-`server:owner` is not a permission a role can store. The check is the organization owner flag.
+`GET` returns every setting the page knows. Each setting includes its key, label, help, type, and where the value comes from.
 
-## Read and save
+| Field       | Meaning                                                                                                                                                                                                                                               |
+| ----------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `source`    | `host` when the environment sets it, `file` when Server settings saved it, `default` when neither did. A runtime limit uses `panel` for a value saved in Server settings. `bounded` when a host value on the other side of a pair forced this number. |
+| `boundedBy` | The host key that forced a `bounded` value, for example `CUTTLELY_CHECK_COUNT_MAX`. Absent otherwise. The field stays editable unless that same variable is also set on the host, in which case it is locked.                                         |
+| `runtime`   | `true` when the limit is read on each use. Absent on settings that wait for a restart.                                                                                                                                                                |
+| `range`     | `{ "min", "max" }` for a runtime limit. Whole numbers, inclusive.                                                                                                                                                                                     |
+| `unit`      | `tokens`, `seconds`, `minutes`, `ms`, or `count` for these limits.                                                                                                                                                                                    |
+| `value`     | The saved or host value. Empty when the default applies. Omitted for secrets.                                                                                                                                                                         |
+| `effective` | The value in use, including the default. Omitted for secrets.                                                                                                                                                                                         |
+| `locked`    | `true` when the host set the variable, so `PUT` cannot change it.                                                                                                                                                                                     |
 
-`GET /api/v1/server-settings` returns the registry, the current value of each setting, and which changes still wait for a restart.
+`source`, `boundedBy`, `runtime`, `range`, and `unit` are response fields. A `PUT` body does not send them.
 
-`PUT /api/v1/server-settings` saves a change. The body is `{ "values": { "NAME": "value" } }`. An empty string removes a saved value so the default applies again. The response is the same shape as the GET. A secret is accepted and never returned.
+## Write
 
-Most saved values still apply at the next start. Four limits apply without a restart. After a successful save of one of those, `running` is the value now in effect and `restart.changed` does not list it.
+```json
+{ "values": { "CUTTLELY_CHECK_MAX_TOKENS": "5000" } }
+```
 
-| Variable                          | Default | Allowed        | What it changes                                                                 |
-| --------------------------------- | ------- | -------------- | ------------------------------------------------------------------------------- |
-| `CUTTLELY_LOGIN_FAILURE_LIMIT`    | 10      | 3 to 50        | Failed sign-ins in 15 minutes, per client address and per email, before lockout |
-| `CUTTLELY_SESSION_IDLE_MINUTES`   | 720     | 15 to 1440     | Minutes a local session can sit unused                                          |
-| `CUTTLELY_SESSION_ABSOLUTE_HOURS` | 168     | 1 to 720       | Hours a local session can last, even if it stays in use                         |
-| `CUTTLELY_DRAIN_TIMEOUT_MS`       | 25000   | 5000 to 300000 | Milliseconds a shutdown waits for answers already running                       |
+Send only the settings that change. A number may be a string or a JSON number. An empty string removes the saved value. A body that is not `{ "values": { ... } }` returns 400.
 
-Idle time cannot be longer than the absolute lifetime. 1440 minutes is 24 hours, so an absolute lifetime of 1 hour cannot be paired with the longest idle time.
+A runtime limit must be a whole number inside its range. A float, an exponent, `NaN`, `Infinity`, or a number past the safe integer range is rejected. A value outside the range is rejected. Nothing is clamped.
 
-A shorter idle or absolute lifetime applies to local sessions that are already signed in. The check runs on every authenticated request that presents that cookie, not only when the cookie's own expiry passes. A session that has been idle longer than the new idle time, or that is older than the new absolute lifetime, ends on the next request. AuthKit session length stays with WorkOS. An API key is not a session and is not affected.
+Two pairs are checked against the values in effect after the save, including a change to only one side:
 
-The process that saved the value uses it on the next read. The HTTP server and a queue worker re-read the settings file at least every 5 seconds, so a worker is at most 5 seconds behind. The shutdown wait is read when a shutdown starts.
+| Rule                   | Holds when                                                           |
+| ---------------------- | -------------------------------------------------------------------- |
+| Question count default | `CUTTLELY_CHECK_COUNT_DEFAULT` is at most `CUTTLELY_CHECK_COUNT_MAX` |
+| Rating scan            | `CUTTLELY_RATING_SCAN_CAP` is at least `CUTTLELY_RATING_IMPORT_CAP`  |
 
-### Validation
+A refusal is 400:
 
-A failed save writes nothing and appends no history row. The body is `{ "code": "INVALID", "message": "Some settings could not be saved.", "errors": [{ "key": "NAME", "message": "..." }] }` with status 400, unless the table says otherwise.
+```json
+{
+    "code": "OUT_OF_RANGE",
+    "key": "CUTTLELY_CHECK_MAX_SECONDS",
+    "reason": "Publish check time limit: the value must be from 10 to 1800.",
+    "min": 10,
+    "max": 1800
+}
+```
 
-| Request                                                                                | Status | `code`           |
-| -------------------------------------------------------------------------------------- | ------ | ---------------- |
-| Value outside the range, not a whole number, or idle longer than the absolute lifetime | 400    | `INVALID`        |
-| Unknown name, or a name the page is not allowed to change                              | 400    | `INVALID`        |
-| Name set by the host environment                                                       | 400    | `INVALID`        |
-| `limit` on the history route is missing or a whole number                              | 200    |                  |
-| `limit` is `0`, negative, or not a whole number                                        | 400    | `INVALID`        |
-| `cursor` is missing or a cursor from this route                                        | 200    |                  |
-| `cursor` is anything else                                                              | 400    | `INVALID_CURSOR` |
-| No session                                                                             | 401    |                  |
-| Not the organization owner                                                             | 403    |                  |
+`code` is `OUT_OF_RANGE` for a number outside the range, `INVALID` for a value that is not a whole number, and `CROSS_FIELD` for a pair. `min` and `max` are the bounds that apply to that save. `errors` lists the same problem by key. A host value that is not a usable number is ignored on read: the saved value is used when it is in range, and otherwise the default. The read does not fail. An in-range host value on a pair always wins and is not loosened. The other setting falls back through its saved value and then its default. If none fit, that setting is bounded by the host value. Its `source` is `bounded`, and `boundedBy` names the host key. It is not `host`. `locked` stays false unless that same variable is also set on the host, so the field can still be edited. A host `CUTTLELY_CHECK_COUNT_MAX` of 1 makes the effective question default 1, bounded by `CUTTLELY_CHECK_COUNT_MAX`. A host `CUTTLELY_RATING_SCAN_CAP` of 300 makes the effective import cap 300, bounded by `CUTTLELY_RATING_SCAN_CAP`. When both sides are host values and they conflict, the host cap is kept and the other side uses the first saved or default candidate that fits. `bounded` applies only when no candidate fits. The warning names the key only. A settings file that is not valid JSON is ignored the same way, and `GET` still returns 200. `range.max` for `CUTTLELY_CHECK_COUNT_DEFAULT` is the question cap in effect, not the static 500. `range.max` for `CUTTLELY_RATING_IMPORT_CAP` is the rating scan cap in effect. `range.min` for `CUTTLELY_RATING_SCAN_CAP` is the import cap in effect.
 
-A host value that is outside the range is not rewritten. Enforcement uses the nearest allowed value, so a host value of `0` for the shutdown wait waits 5 seconds, and a value above 300000 waits 5 minutes. The page still shows the host value and **Locked**.
+## Runtime limits
 
-Saving one of these four and appending the history row is one step. If the history row cannot be written, the settings file is put back and the response is 500 `{ "code": "HISTORY_FAILED" }`. The response does not include the value. Two saves in one process run one after the other, so the later history row's old value is the earlier row's new value. Two processes can each record the old value they read.
+| Variable                         | Default | Range                                      | Unit    |
+| -------------------------------- | ------- | ------------------------------------------ | ------- |
+| `CUTTLELY_CHECK_MAX_TOKENS`      | 100000  | 1000 to 2000000                            | tokens  |
+| `CUTTLELY_CHECK_MAX_SECONDS`     | 180     | 10 to 1800                                 | seconds |
+| `CUTTLELY_CHECK_CONCURRENCY`     | 2       | 1 to 8                                     | count   |
+| `CUTTLELY_CHECK_RUN_TIMEOUT_MS`  | 60000   | 10000 to 600000                            | ms      |
+| `CUTTLELY_CHECK_KEEP_MINUTES`    | 30      | 5 to 1440                                  | minutes |
+| `CUTTLELY_CHECK_COUNT_MAX`       | 100     | 1 to 500                                   | count   |
+| `CUTTLELY_CHECK_COUNT_DEFAULT`   | 4       | 1 to the question cap                      | count   |
+| `CUTTLELY_CHECK_SCAN_CAP`        | 2000    | 500 to 20000                               | count   |
+| `CUTTLELY_HARNESS_TURN_SCAN_CAP` | 2000    | 500 to 5000                                | count   |
+| `CUTTLELY_RATING_IMPORT_CAP`     | 500     | 50 to 5000                                 | count   |
+| `CUTTLELY_RATING_SCAN_CAP`       | 1000    | at least the import cap, and at most 20000 | count   |
+| `CUTTLELY_UI_PAGE_LIMIT_MAX`     | 3000    | 100 to 50000                               | count   |
 
-A rejected save, including a host-locked name, does not append a history row, because the stored value did not change.
+The question cap default of 100 and the concurrency default of 2 are the same numbers the publish check used before these settings existed. With nothing set, behaviour is unchanged. How to set them in the page: [Limits that apply immediately](../how-to/server-settings.md#limits-that-apply-immediately).
 
-### If a value locks people out
+## Security limits
 
-The host environment overrides the settings file. Set the same variable on the host to a value inside the range, then start Cuttlely again. While that host value is set, the API cannot change it. `pnpm settings unset NAME` removes the saved value. For one of these four, a running server picks that up within 5 seconds. A host value still wins until it is removed from the host and Cuttlely is started again.
+These four are runtime limits too. The same read order applies: a valid host value, then the saved value, then the default. A host value outside the range is ignored. A save outside the range is refused. Idle time cannot be longer than the absolute lifetime (`CUTTLELY_SESSION_IDLE_MINUTES` must be at most `CUTTLELY_SESSION_ABSOLUTE_HOURS` times 60). That refusal is `CROSS_FIELD`.
 
-`CUTTLELY_IGNORE_ADMIN_SETTINGS=1` starts without the settings file. The host value or the default is used.
+| Variable                          | Default | Range                                                | Unit    |
+| --------------------------------- | ------- | ---------------------------------------------------- | ------- |
+| `CUTTLELY_LOGIN_FAILURE_LIMIT`    | 10      | 3 to 50                                              | count   |
+| `CUTTLELY_SESSION_IDLE_MINUTES`   | 720     | 15 to 1440, and no longer than the absolute lifetime | minutes |
+| `CUTTLELY_SESSION_ABSOLUTE_HOURS` | 168     | 1 to 720, and long enough to cover the idle time     | count   |
+| `CUTTLELY_DRAIN_TIMEOUT_MS`       | 25000   | 5000 to 300000                                       | ms      |
+
+A shorter idle or absolute lifetime applies to a local session that is already signed in. Every authenticated request that presents that cookie checks the current limits. The cookie expiry alone does not keep the session. AuthKit session length stays with WorkOS. An API key is not one of these sessions.
+
+The process that saved the value invalidates its cache at once. The HTTP server and a queue worker re-read the settings file at least every 5 seconds. The shutdown wait is read when a shutdown starts.
+
+If one of these locks people out, set the same variable on the host to a value inside the range and start Cuttlely again. The host value overrides the saved one, and the API cannot change it while the host value is set. `pnpm settings unset NAME` removes the saved value. `CUTTLELY_IGNORE_ADMIN_SETTINGS=1` starts without the settings file.
 
 ## History
 
 `GET /api/v1/server-settings/history?cursor=&limit=`
 
-Newest first. Each row is one change: when (`at`), who (`actorId` when a person did it, and `by` for the label the admin page already shows), the key, and the old and new value. A secret key is `{ "key": "NAME", "secret": "changed" }` and the old and new values are not stored. That is true for a first save, a replacement, a removal, a failed save (nothing is stored), and a rollback.
+Organization owner only. The same 401 and 403 rules as the other settings routes apply. A workspace admin, a member, and a user in another workspace are 403.
 
-`by` is the label already used on the admin page: an email for a person, `command line`, or `safe boot`. `actorId` is the user id. The response does not add a display name. Only the organization owner can read it.
+Newest first. Each row has when (`at`), who (`actorId` is the user id when a person did it, and `by` is the label the admin page already shows), the key, and the old and new value. A secret is `{ "key": "NAME", "secret": "changed" }`. The old and new values are not stored on a first save, a replacement, a removal, a failed save (nothing is written), or a rollback.
 
-A save also sets `event` to `server_setting.updated`.
+`by` stays the existing label: an email for a person, `command line`, or `safe boot`. The response does not add a display name. A save sets `event` to `server_setting.updated`.
 
-The file is append-only and is not compacted. It can grow for as long as settings keep changing.
+The file is append-only and is not compacted.
 
-| Query    | Meaning                                                                                                 |
-| -------- | ------------------------------------------------------------------------------------------------------- |
-| `limit`  | Page size. Default 50. A number above 100 is treated as 100.                                            |
-| `cursor` | Opaque value from `nextCursor`. Asks for rows strictly older than that row. Omit it for the first page. |
+| Query    | Meaning                                                                                                                               |
+| -------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| `limit`  | Page size. Default 50. A number above 100 is treated as 100. `0` or a value that is not a whole number is 400 `INVALID`.              |
+| `cursor` | Opaque value from `nextCursor`. Rows strictly older than that row. Omit it for the first page. Anything else is 400 `INVALID_CURSOR`. |
 
-```json
-{
-    "entries": [
-        {
-            "seq": 3,
-            "at": "2026-10-15T00:00:00.000Z",
-            "kind": "save",
-            "event": "server_setting.updated",
-            "by": "owner@example.com",
-            "actorId": "user-id",
-            "outcome": "ok",
-            "changes": [{ "key": "CUTTLELY_LOGIN_FAILURE_LIMIT", "from": "10", "to": "12" }]
-        }
-    ],
-    "nextCursor": null,
-    "limit": 50
-}
-```
+A rejected save, including a host-locked name, does not append a history row. Saving and appending the history row is one step. If the history row cannot be written, the settings file is put back and the response is 500 `{ "code": "HISTORY_FAILED" }`. The body does not include the value. Two saves in one process run one after the other, so the later row's old value is the earlier row's new value.
 
-`nextCursor` is null on the last page. Send it back as `cursor` to read the next older page. Rows written before `seq` existed still page in file order.
-
-To see that a runtime limit is active, read `GET /api/v1/server-settings` and compare `running` with the value you saved. Within 5 seconds, a queue worker uses that same value.
+`nextCursor` is null on the last page.

@@ -3,8 +3,22 @@
 // Secret values never go in. A secret change is recorded as "changed" and nothing else.
 import fs from 'fs'
 import path from 'path'
-import { isSecretSettingKey } from './runtime'
+import { settingFor } from './registry'
 import { HISTORY_FILE } from './store'
+
+const SECRET_PARTS = new Set(['SECRET', 'PASSWORD', 'TOKEN', 'CREDENTIAL', 'SECRETKEY'])
+
+/** A known setting uses its registry type. An unknown name is secret when a name part is a secret word. */
+export function isSecretSettingKey(key: string): boolean {
+    const setting = settingFor(key)
+    if (setting) return setting.type === 'secret'
+    const parts = key.toUpperCase().split('_').filter(Boolean)
+    if (parts.some((part) => SECRET_PARTS.has(part))) return true
+    for (let index = 0; index < parts.length - 1; index += 1) {
+        if (parts[index] === 'API' && parts[index + 1] === 'KEY') return true
+    }
+    return false
+}
 
 export const HISTORY_PAGE_DEFAULT = 50
 export const HISTORY_PAGE_MAX = 100

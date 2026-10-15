@@ -12,7 +12,7 @@ export type CheckEvaluator = EvaluatorDTO
 import { runAdditionalEvaluators } from '../evaluations/EvaluatorRunner'
 import { LLMEvaluationRunner } from '../evaluations/LLMEvaluationRunner'
 import { testSetHash } from '../flow-drafts/gate'
-import { COMPARE_COUNT_MAX, CheckScore } from './compare'
+import { compareCountMax, CheckScore } from './compare'
 
 export const MAX_QUESTION_CHARS = 2000
 // Shown on a model score when the dataset row has no expected answer yet.
@@ -133,7 +133,7 @@ function selectAsked(rows: DatasetRowLike[], fullExpected: boolean): AskedRow[] 
             expected: fullExpected ? output : clipExpected(output),
             sequence: rowSequence(row.sequenceNo)
         })
-        if (asked.length >= COMPARE_COUNT_MAX) break
+        if (asked.length >= compareCountMax()) break
     }
     return asked
 }

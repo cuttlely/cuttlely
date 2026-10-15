@@ -202,9 +202,9 @@ describe('shutdown drain', () => {
     it('reads the drain time from CUTTLELY_DRAIN_TIMEOUT_MS', () => {
         expect(drainTimeoutMs({})).toBe(25000)
         expect(drainTimeoutMs({ CUTTLELY_DRAIN_TIMEOUT_MS: '60000' })).toBe(60000)
-        expect(drainTimeoutMs({ CUTTLELY_DRAIN_TIMEOUT_MS: '0' })).toBe(5000)
+        expect(drainTimeoutMs({ CUTTLELY_DRAIN_TIMEOUT_MS: '0' })).toBe(25000)
         expect(drainTimeoutMs({ CUTTLELY_DRAIN_TIMEOUT_MS: '' })).toBe(25000)
         expect(drainTimeoutMs({ CUTTLELY_DRAIN_TIMEOUT_MS: 'soon' })).toBe(25000)
-        expect(drainTimeoutMs({ CUTTLELY_DRAIN_TIMEOUT_MS: '99999999' })).toBe(300000)
+        expect(drainTimeoutMs({ CUTTLELY_DRAIN_TIMEOUT_MS: '99999999' })).toBe(25000)
     })
 })

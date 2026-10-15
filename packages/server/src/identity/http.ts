@@ -20,7 +20,7 @@ import { NextFunction, Request, Response, Router } from 'express'
 import { rateLimit } from 'express-rate-limit'
 import logger from '../utils/logger'
 import { LOGIN_FAILURE_WINDOW_MS, localUsersMode } from './constants'
-import { loginFailureLimit } from '../settings/runtime'
+import { runtimeNumber } from '../settings/runtime'
 import {
     TOO_MANY,
     handleCallback,
@@ -90,7 +90,7 @@ export const identityAuthRouter = Router()
  */
 const localAuthRateLimit = rateLimit({
     windowMs: LOGIN_FAILURE_WINDOW_MS,
-    max: () => loginFailureLimit(),
+    max: () => runtimeNumber('CUTTLELY_LOGIN_FAILURE_LIMIT'),
     standardHeaders: false,
     legacyHeaders: false,
     skipSuccessfulRequests: true,

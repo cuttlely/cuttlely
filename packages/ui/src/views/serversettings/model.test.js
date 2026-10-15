@@ -7,6 +7,8 @@ import {
     historyLine,
     isShown,
     matchesQuery,
+    limitedByLabel,
+    reviewApplyNote,
     reviewRows,
     sectionCounts,
     toDisplay,
@@ -113,9 +115,29 @@ describe('server settings page logic', () => {
         expect(describeValue(settings[3], '90000')).toBe('90 seconds')
         const rows = reviewRows(settings, { WORKOS_API_KEY: 'sk_test_fake_value', CUTTLELY_VERSIONS: 'off' })
         expect(rows).toEqual([
-            { key: 'WORKOS_API_KEY', label: 'API key', section: 'signin', secret: 'replaced' },
-            { key: 'CUTTLELY_VERSIONS', label: 'Version history', section: 'advanced', from: 'Default (On)', to: 'Off' }
+            { key: 'WORKOS_API_KEY', label: 'API key', section: 'signin', secret: 'replaced', runtime: false },
+            { key: 'CUTTLELY_VERSIONS', label: 'Version history', section: 'advanced', from: 'Default (On)', to: 'Off', runtime: false }
         ])
+        const limit = {
+            key: 'CUTTLELY_CHECK_CONCURRENCY',
+            section: 'integrations',
+            label: 'Questions at once',
+            type: 'number',
+            unit: 'count',
+            defaultLabel: '2',
+            defaultValue: '2',
+            value: '2',
+            runtime: true
+        }
+        const mixed = reviewRows([...settings, limit], { CUTTLELY_CHECK_CONCURRENCY: '4', CUTTLELY_VERSIONS: 'off' })
+        expect(mixed.find((row) => row.key === 'CUTTLELY_CHECK_CONCURRENCY')).toMatchObject({ runtime: true, from: '2', to: '4' })
+        expect(mixed.find((row) => row.key === 'CUTTLELY_VERSIONS').runtime).toBe(false)
+        expect(reviewApplyNote(mixed.filter((row) => row.runtime))).toBe('These limits apply on the next use.')
+        expect(reviewApplyNote(mixed)).toBe('Limits apply now. The rest apply at restart.')
+        expect(reviewApplyNote(mixed.filter((row) => !row.runtime))).toMatch(/next start/)
+        expect(limitedByLabel({ source: 'bounded', boundedBy: 'CUTTLELY_CHECK_COUNT_MAX' })).toBe('Limited by CUTTLELY_CHECK_COUNT_MAX')
+        expect(limitedByLabel({ source: 'host' })).toBe('')
+        expect(limitedByLabel({ source: 'bounded' })).toBe('')
         expect(JSON.stringify(rows)).not.toContain('sk_test_fake_value')
         expect(reviewRows(settings, { WORKOS_API_KEY: '' })[0].secret).toBe('removed')
     })

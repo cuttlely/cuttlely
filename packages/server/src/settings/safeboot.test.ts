@@ -2,6 +2,7 @@ import fs from 'fs'
 import os from 'os'
 import path from 'path'
 import { runSettingsCli } from './cli'
+import { resetRuntimeLimitsForTests } from './runtime'
 import { startRecords } from './env-cli'
 import { appendHistory, describeChanges, readHistory } from './history'
 import { RESTART_EXIT_CODE, requestRestart, restartInPlaceAvailable, setRestartHandler } from './restart'
@@ -228,6 +229,62 @@ describe('pnpm settings', () => {
 
     it('explains itself without an action', () => {
         expect(runSettingsCli([], {}).lines.join('\n')).toMatch(/pnpm settings restore/)
+        expect(runSettingsCli([], {}).lines.join('\n')).toMatch(/Runtime limits apply on the next use/)
+    })
+
+    it('lists a runtime limit from the resolved snapshot, not the raw host string', () => {
+        resetRuntimeLimitsForTests()
+        const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined)
+        try {
+            const { data: root, dir } = data()
+            writeSettingsFile(dir, { CUTTLELY_CHECK_MAX_SECONDS: '30' }, { key: KEY })
+            const env = {
+                CUTTLELY_DATA_DIR: root,
+                FLOWISE_SECRETKEY_OVERWRITE: KEY,
+                CUTTLELY_CHECK_CONCURRENCY: '99'
+            }
+            const text = runSettingsCli(['list'], env).lines.join('\n')
+            expect(text).toMatch(/CUTTLELY_CHECK_CONCURRENCY\s+default\s+2/)
+            expect(text).not.toContain('99')
+            expect(text).toMatch(/CUTTLELY_CHECK_MAX_SECONDS\s+panel\s+30/)
+            const host = runSettingsCli(['list'], { ...env, CUTTLELY_CHECK_CONCURRENCY: '6' }).lines.join('\n')
+            expect(host).toMatch(/CUTTLELY_CHECK_CONCURRENCY\s+host\s+6/)
+            expect(host).not.toMatch(/CUTTLELY_CHECK_CONCURRENCY\s+host, locked/)
+            const raw = runSettingsCli(['list'], { ...env, CUTTLELY_CHECK_CONCURRENCY: '6.0' }).lines.join('\n')
+            expect(raw).toMatch(/CUTTLELY_CHECK_CONCURRENCY\s+default\s+2/)
+            expect(raw).not.toContain('6.0')
+        } finally {
+            warn.mockRestore()
+            resetRuntimeLimitsForTests()
+        }
+    })
+
+    it('lists a bounded partner as bounded, naming the host limit', () => {
+        resetRuntimeLimitsForTests()
+        const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined)
+        try {
+            const { data: root } = data()
+            const text = runSettingsCli(['list'], { CUTTLELY_DATA_DIR: root, CUTTLELY_CHECK_COUNT_MAX: '1' }).lines.join('\n')
+            expect(text).toMatch(/CUTTLELY_CHECK_COUNT_MAX\s+host\s+1/)
+            expect(text).toMatch(/CUTTLELY_CHECK_COUNT_DEFAULT\s+bounded\s+1\s+Limited by CUTTLELY_CHECK_COUNT_MAX/)
+            expect(text).not.toMatch(/CUTTLELY_CHECK_COUNT_DEFAULT\s+host/)
+        } finally {
+            warn.mockRestore()
+            resetRuntimeLimitsForTests()
+        }
+    })
+
+    it('does not wait for the next start when a runtime limit is removed', () => {
+        const { data: root, dir } = data()
+        writeSettingsFile(dir, { CUTTLELY_CHECK_CONCURRENCY: '4', CUTTLELY_LOCAL_ADMIN: 'false' }, { key: KEY })
+        const env = { CUTTLELY_DATA_DIR: root, FLOWISE_SECRETKEY_OVERWRITE: KEY }
+        const runtime = runSettingsCli(['unset', 'CUTTLELY_CHECK_CONCURRENCY'], env)
+        expect(runtime.code).toBe(0)
+        expect(runtime.lines[0]).toMatch(/Removed CUTTLELY_CHECK_CONCURRENCY/)
+        expect(runtime.lines[0]).toMatch(/next time that limit is used/)
+        expect(runtime.lines[0]).not.toMatch(/next time Cuttlely starts/)
+        const restart = runSettingsCli(['unset', 'CUTTLELY_LOCAL_ADMIN'], env)
+        expect(restart.lines[0]).toMatch(/next time Cuttlely starts/)
     })
 })
 
