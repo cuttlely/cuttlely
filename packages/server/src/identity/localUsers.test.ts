@@ -18,6 +18,7 @@ import { readFileSync } from 'fs'
 import { join } from 'path'
 import express, { Request } from 'express'
 import request from 'supertest'
+import type { DataSource } from 'typeorm'
 import { ABSOLUTE_MS, IDLE_MS, LOGIN_FAILURE_WINDOW_MS, OPEN_SOURCE_FEATURES, localAdminEnabled, localUsersMode } from './constants'
 import { apiV1Auth } from './apiGate'
 import {
