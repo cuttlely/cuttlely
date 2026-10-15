@@ -228,6 +228,27 @@ describe('question history', () => {
         }
     })
 
+    test('accepts a version 1 and a version 7 chat id', async () => {
+        const v1 = '6ba7b810-9dad-11d1-80b4-00c04fd430c8'
+        const v7 = '01890A5D-AC96-774B-BCCE-B302099A8057'
+        historyHooks.loadUserMessages = async () => [
+            row(v1, 'version one loaf', '2026-10-08T10:00:00.000Z'),
+            row(v7, 'version seven loaf', '2026-10-08T09:00:00.000Z')
+        ]
+        const picked = await resolveChatQuestionIds('flow-1', [`chat:${v1}`, `chat:${v7}`], [])
+        expect(picked.questions).toEqual(['version one loaf', 'version seven loaf'])
+        expect(picked.skipped).toEqual({ count: 0, ids: [] })
+        historyHooks.loadUserMessages = null
+        for (const type of ['sqlite', 'postgres']) {
+            driver.type = type
+            queryCalls.length = 0
+            await resolveChatQuestionIds('flow-1', [`chat:${v1}`, `chat:${v7}`], []).catch(() => undefined)
+            const sent = JSON.stringify(queryCalls)
+            expect(sent).toContain(v1)
+            expect(sent).toContain(v7)
+        }
+    })
+
     test('refuses harness and recorded-input history on this route', async () => {
         await expect(listQuestionHistory({ ...FLOW, type: 'HARNESS' }, {}, CALLER)).rejects.toMatchObject({
             statusCode: 409,

@@ -383,9 +383,9 @@ export async function listQuestionHistory(
 }
 
 const ID_SHAPE = /^(chat|exec|turn):(\S+)$/
-// Chat message ids are uuid primary keys. A non-uuid in `IN (...)` makes Postgres reject the
-// statement, and the driver error includes the value.
-const ENTITY_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+// Any RFC 4122 layout: 8-4-4-4-12 hex, any version. Imported rows are not all version 4.
+// A value outside that shape makes Postgres reject `IN (...)` and the driver error includes it.
+const ENTITY_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 function entityId(value: string): boolean {
     return ENTITY_ID.test(value)
