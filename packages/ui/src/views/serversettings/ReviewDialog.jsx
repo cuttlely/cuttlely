@@ -5,7 +5,7 @@ import { alpha, useTheme } from '@mui/material/styles'
 import { Alert, Box, Button, Chip, Dialog, DialogActions, DialogContent, DialogTitle, Stack, TextField, Typography } from '@mui/material'
 import { IconAlertTriangle, IconArrowRight, IconKey } from '@tabler/icons-react'
 
-import { CONFIRM_WORD, SECRET_ACTIONS, needsTypedConfirm } from './model'
+import { CONFIRM_WORD, SECRET_ACTIONS, needsTypedConfirm, reviewApplyNote } from './model'
 import { SENTENCE_CASE_BUTTONS } from './layout'
 
 // The review step before saving: each change, old to new. Secrets say what happens, never the value.
@@ -30,8 +30,8 @@ const ReviewDialog = ({ open, rows, sections, saving, onClose, onSave }) => {
                 Review {rows.length === 1 ? 'one change' : `${rows.length} changes`}
             </DialogTitle>
             <DialogContent>
-                <Typography variant='body2' color='text.secondary' sx={{ mb: 2 }}>
-                    Saving keeps them for the next start. The server keeps running with its current settings until it restarts.
+                <Typography variant='body2' color='text.secondary' sx={{ mb: 2 }} data-testid='review-apply'>
+                    {reviewApplyNote(rows)}
                 </Typography>
                 <Stack sx={{ border: `1px solid ${theme.palette.divider}`, borderRadius: 2, overflow: 'hidden' }}>
                     {rows.map((row, index) => (

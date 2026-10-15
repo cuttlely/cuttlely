@@ -8,7 +8,8 @@ import { StatusCodes } from 'http-status-codes'
 import { AppError } from '../../errors/appError'
 import { usageLinesFromRun } from '../usage'
 import type { UsageLine } from '../usage'
-import { COMPARE_COUNT_MAX, pickQuestions, parseCompareCount } from './compare'
+import { runtimeNumber } from '../../settings/runtime'
+import { compareCountMax, pickQuestions, parseCompareCount } from './compare'
 
 // The same character cap the chat question check uses.
 const MAX_QUESTION_CHARS = 2000
@@ -26,7 +27,18 @@ export const harnessCheckHooks: {
 } = { listUserTurns: null, inWorkspace: null }
 
 // Newest user turns read from the session file. Past that, older questions may exist.
-const TURN_SCAN_CAP = 2000
+function turnScanCap(): number {
+    return runtimeNumber('CUTTLELY_HARNESS_TURN_SCAN_CAP')
+}
+
+// packages/harness/session.mjs never returns more than this many user turns.
+const TURN_QUERY_CAP = 5000
+
+function appliedTurnLimit(): number {
+    const requested = turnScanCap()
+    const whole = Number.isFinite(requested) ? Math.floor(requested) : TURN_QUERY_CAP
+    return Math.min(TURN_QUERY_CAP, Math.max(1, whole))
+}
 
 export interface ReplayCall {
     name: string
@@ -81,9 +93,10 @@ export async function loadHarnessUserTurns(name: string | null | undefined): Pro
     const harnessName = String(name || '').trim()
     if (!harnessName) return { rows: [], truncated: false }
     const list = harnessCheckHooks.listUserTurns || (await sessionUserTurns())
-    const rows = list(harnessName, { limit: TURN_SCAN_CAP }) || []
-    const distinct = questionsFromUserTurns(rows, COMPARE_COUNT_MAX, MAX_QUESTION_CHARS)
-    return { rows, truncated: rows.length >= TURN_SCAN_CAP && distinct.length < COMPARE_COUNT_MAX }
+    const applied = appliedTurnLimit()
+    const rows = list(harnessName, { limit: applied }) || []
+    const distinct = questionsFromUserTurns(rows, compareCountMax(), MAX_QUESTION_CHARS)
+    return { rows, truncated: rows.length >= applied && distinct.length < compareCountMax() }
 }
 
 async function sessionUserTurns(): Promise<(name: string, opts?: { limit?: number }) => UserTurn[]> {
@@ -104,7 +117,7 @@ function starterQuestions(chatbotConfig?: string | null): string[] {
 
 export async function harnessQuestionsFor(flow: { name?: string | null; chatbotConfig?: string | null }) {
     const loaded = await loadHarnessUserTurns(flow.name)
-    const recent = questionsFromUserTurns(loaded.rows, COMPARE_COUNT_MAX, MAX_QUESTION_CHARS)
+    const recent = questionsFromUserTurns(loaded.rows, compareCountMax(), MAX_QUESTION_CHARS)
     const asked = new Set(recent.map((q) => q.text.toLowerCase()))
     const starters = starterQuestions(flow.chatbotConfig)
         .filter((text) => !asked.has(text.toLowerCase()))
@@ -141,10 +154,10 @@ export async function harnessQuestionsToRun(
     if (parsed.count === null) return { questions: cleanQuestions(body?.questions, 10, false), selection: null }
     const loaded = await loadHarnessUserTurns(flow.name)
     const texts = loaded.rows.map((row) => questionTextFromTurn(String(row.content || '')))
-    const available = pickQuestions(texts, COMPARE_COUNT_MAX, MAX_QUESTION_CHARS)
+    const available = pickQuestions(texts, compareCountMax(), MAX_QUESTION_CHARS)
     const past = pickQuestions(texts, parsed.count, MAX_QUESTION_CHARS)
-    const extras = cleanQuestions(body?.questions, COMPARE_COUNT_MAX, true)
-    const questions = pickQuestions([...past, ...extras], COMPARE_COUNT_MAX, MAX_QUESTION_CHARS)
+    const extras = cleanQuestions(body?.questions, compareCountMax(), true)
+    const questions = pickQuestions([...past, ...extras], compareCountMax(), MAX_QUESTION_CHARS)
     if (!questions.length) {
         throw new AppError(StatusCodes.BAD_REQUEST, 'No past questions to compare. Add a question to check.')
     }
@@ -154,7 +167,7 @@ export async function harnessQuestionsToRun(
             requested: parsed.count,
             available: available.length,
             used: past.length,
-            truncated: loaded.truncated && available.length < COMPARE_COUNT_MAX
+            truncated: loaded.truncated && available.length < compareCountMax()
         }
     }
 }

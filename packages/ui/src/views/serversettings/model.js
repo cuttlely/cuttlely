@@ -24,7 +24,15 @@ export function fromDisplay(setting, shown) {
     return text
 }
 
-export const UNIT_LABELS = { seconds: 'seconds', minutes: 'minutes', tokens: 'tokens', bytes: 'bytes', 'ms-as-seconds': 'seconds' }
+export const UNIT_LABELS = {
+    seconds: 'seconds',
+    minutes: 'minutes',
+    tokens: 'tokens',
+    bytes: 'bytes',
+    'ms-as-seconds': 'seconds',
+    ms: 'ms',
+    count: ''
+}
 
 /** The saved raw value of a plain setting ('' when the default applies). */
 export function savedValue(setting) {
@@ -107,18 +115,41 @@ export function reviewRows(settings, drafts) {
             const setting = byKey.get(key)
             if (setting.type === 'secret') {
                 const action = value === '' ? 'removed' : setting.secret?.set ? 'replaced' : 'set'
-                return { key, label: setting.label, section: setting.section, secret: action, risk: setting.risk }
+                return {
+                    key,
+                    label: setting.label,
+                    section: setting.section,
+                    secret: action,
+                    risk: setting.risk,
+                    runtime: Boolean(setting.runtime)
+                }
             }
             return {
                 key,
                 label: setting.label,
                 section: setting.section,
                 risk: setting.risk,
+                runtime: Boolean(setting.runtime),
                 from: describeValue(setting, savedValue(setting)),
                 to: describeValue(setting, value)
             }
         })
         .sort((a, b) => a.label.localeCompare(b.label))
+}
+
+/** The page label when a host limit forced this number. Empty when the value is not bounded. */
+export function limitedByLabel(setting) {
+    if (setting?.source !== 'bounded' || !setting.boundedBy) return ''
+    return `Limited by ${setting.boundedBy}`
+}
+
+/** What the review step says about when these changes take effect. */
+export function reviewApplyNote(rows) {
+    const list = rows ?? []
+    const runtime = list.filter((row) => row.runtime).length
+    if (list.length && runtime === list.length) return 'These limits apply on the next use.'
+    if (runtime) return 'Limits apply now. The rest apply at restart.'
+    return 'Saving keeps them for the next start. The server keeps running with its current settings until it restarts.'
 }
 
 /** Settings that match a search, by label, help, name or option label. */
@@ -297,7 +328,7 @@ function envQuote(value) {
  * included; each saved one is listed as a comment so it can be added by hand.
  */
 export function envExport(settings) {
-    const saved = (settings ?? []).filter((setting) => setting.source === 'file')
+    const saved = (settings ?? []).filter((setting) => setting.source === 'file' || setting.source === 'panel')
     const lines = ['# Cuttlely server settings saved in Server settings. Secrets are left out.']
     for (const setting of saved) {
         if (setting.type === 'secret') lines.push(`# ${setting.key}=  (secret, set in Server settings; add it yourself)`)

@@ -231,6 +231,7 @@ export function appendTurn(harnessName, chatId, question, answer, pins = []) {
 export function listUserTurns(harnessName, { limit = 2000 } = {}) {
     const entry = connection(harnessName, { create: false })
     if (!entry) return []
+    // 5000 is the most this query will read. CUTTLELY_HARNESS_TURN_SCAN_CAP uses the same ceiling.
     const cap = Number.isFinite(limit) ? Math.min(5000, Math.max(1, Math.floor(limit))) : 2000
     if (!entry.userTurns) {
         entry.userTurns = entry.db.prepare(

@@ -632,6 +632,7 @@
                 "packages/server/src/settings/restart.ts",
                 "packages/server/src/settings/runs.ts",
                 "packages/server/src/settings/safeboot.ts",
+                "packages/server/src/settings/runtime.ts",
                 "packages/server/src/settings/settingAlias.ts",
                 "packages/ui/src/views/serversettings/index.jsx",
                 "packages/ui/src/views/serversetup/index.jsx"
