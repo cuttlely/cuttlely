@@ -38,11 +38,12 @@ New here? Start with [Your first 10 minutes](../README.md#your-first-10-minutes)
 ## Reference
 
 -   [History settings](./reference/versioning-settings.md), [History API](./reference/versioning-api.md), [Drafts API](./reference/drafts-api.md) and [Version files](./reference/version-files.md).
--   [Server settings API](./reference/server-settings-api.md). Read and save server settings, including the runtime limits for the publish check, rated answers, and UI page loads, the limits that apply without a restart, paged change history, invite and reset link expiry, and read-only status for values that stay on the host.
+-   [Server settings API](./reference/server-settings-api.md). Read and save server settings, including the runtime limits for the publish check, rated answers, and UI page loads, the publish check switch, the limits that apply without a restart, paged change history, invite and reset link expiry, and read-only status for values that stay on the host. [Startup options](./reference/startup-options.md) is the full list.
 -   [Usage API](./reference/usage-api.md). Daily input and output token totals for a workspace, by flow and model, with an estimated cost. The Usage page shows the same figures.
 -   [Local users, roles, and sessions](./reference/local-directory-api.md). People, fixed roles, and sign-in sessions when local password sign-in is on.
 -   [Auth API](./reference/auth-api.md). Local password sign-in, sign-out, a user's own password change, one-time invite and reset links, which sign-in methods are on, and the status when AuthKit is turned on.
 -   [Datasets API](./reference/datasets-api.md). Save the questions ticked in Choose questions as a dataset with empty expected answers. A hand-picked check does not unblock Publish.
+-   [Startup options](./reference/startup-options.md). Every option the settings API exposes, with the default, the range, where it can be set, and whether a restart is needed. Secret values are not shown.
 -   [Override configuration](./reference/override-config.md). What a prediction request may change with `overrideConfig`, and what it never can.
 -   [Upgrading Cuttlely](./upgrading.md). Back up, upgrade, check and roll back, for Docker, Render and source installs.
 -   [Changelog](../CHANGELOG.md) and [Releases and support](./releases.md). What changed in each release, what counts as a breaking change, and which versions get fixes.

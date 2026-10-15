@@ -11,7 +11,17 @@
 
 export type SettingType = 'switch' | 'select' | 'text' | 'secret' | 'number' | 'list'
 export type SettingRisk = 'low' | 'medium' | 'high'
-export type SectionId = 'signin' | 'database' | 'runtime' | 'analyst' | 'models' | 'storage' | 'security' | 'integrations' | 'advanced'
+export type SectionId =
+    | 'signin'
+    | 'database'
+    | 'runtime'
+    | 'analyst'
+    | 'models'
+    | 'storage'
+    | 'security'
+    | 'integrations'
+    | 'testing'
+    | 'advanced'
 
 export interface SettingOption {
     value: string
@@ -120,6 +130,12 @@ export const SECTIONS: SectionDef[] = [
         label: 'Integrations',
         summary: 'Version history, drafts, tracing, metrics and other services Cuttlely can use.',
         afterRestart: 'Cuttlely connects only to the services turned on here.'
+    },
+    {
+        id: 'testing',
+        label: 'Testing and Limits',
+        summary: 'Turn the publish check on or off, set its limits, and see which host-only values are set.',
+        afterRestart: 'The publish check and these limits apply on the next use.'
     },
     {
         id: 'advanced',
@@ -1139,8 +1155,21 @@ export const SETTINGS: SettingDef[] = [
         risk: 'medium'
     },
     {
+        key: 'CUTTLELY_PUBLISH_CHECK',
+        section: 'testing',
+        group: 'Publish check',
+        label: 'Publish check',
+        help: 'Replays recent questions before Publish. On by default. Applies on the next check. A host value of true or false wins, and this page cannot change it while that value is set.',
+        type: 'switch',
+        ...TRUE_FALSE,
+        defaultLabel: 'On',
+        defaultValue: 'true',
+        runtime: true,
+        risk: 'low'
+    },
+    {
         key: 'CUTTLELY_CHECK_MAX_TOKENS',
-        section: 'integrations',
+        section: 'testing',
         group: 'Publish check',
         label: 'Publish check token cap',
         help: 'The most tokens one publish check may use, Live and the draft together. Applies on the next check. 1000 to 2000000.',
@@ -1155,7 +1184,7 @@ export const SETTINGS: SettingDef[] = [
     },
     {
         key: 'CUTTLELY_CHECK_MAX_SECONDS',
-        section: 'integrations',
+        section: 'testing',
         group: 'Publish check',
         label: 'Publish check time limit',
         help: 'The most seconds one publish check may run. Applies on the next check. 10 to 1800.',
@@ -1170,7 +1199,7 @@ export const SETTINGS: SettingDef[] = [
     },
     {
         key: 'CUTTLELY_CHECK_CONCURRENCY',
-        section: 'integrations',
+        section: 'testing',
         group: 'Publish check',
         label: 'Questions at once',
         help: 'How many questions one publish check runs at the same time. Live and the draft for one question still run one after the other. 1 to 8.',
@@ -1185,7 +1214,7 @@ export const SETTINGS: SettingDef[] = [
     },
     {
         key: 'CUTTLELY_CHECK_RUN_TIMEOUT_MS',
-        section: 'integrations',
+        section: 'testing',
         group: 'Publish check',
         label: 'One run timeout',
         help: 'How long one question run in a publish check may take before it stops, in milliseconds. 10000 to 600000.',
@@ -1200,7 +1229,7 @@ export const SETTINGS: SettingDef[] = [
     },
     {
         key: 'CUTTLELY_CHECK_KEEP_MINUTES',
-        section: 'integrations',
+        section: 'testing',
         group: 'Publish check',
         label: 'Keep a finished check',
         help: 'How long a finished publish check stays available to read, in minutes. 5 to 1440.',
@@ -1215,7 +1244,7 @@ export const SETTINGS: SettingDef[] = [
     },
     {
         key: 'CUTTLELY_CHECK_COUNT_MAX',
-        section: 'integrations',
+        section: 'testing',
         group: 'Publish check',
         label: 'Question cap',
         help: 'The most past questions one publish check may ask. 1 to 500. The default count cannot be above this.',
@@ -1230,7 +1259,7 @@ export const SETTINGS: SettingDef[] = [
     },
     {
         key: 'CUTTLELY_CHECK_COUNT_DEFAULT',
-        section: 'integrations',
+        section: 'testing',
         group: 'Publish check',
         label: 'Questions by default',
         help: 'How many past questions a check asks when the caller does not choose. 1 to the question cap.',
@@ -1245,7 +1274,7 @@ export const SETTINGS: SettingDef[] = [
     },
     {
         key: 'CUTTLELY_CHECK_SCAN_CAP',
-        section: 'integrations',
+        section: 'testing',
         group: 'Publish check',
         label: 'Messages scanned',
         help: 'How many stored messages a publish check reads while it looks for distinct questions. 500 to 20000.',
@@ -1260,7 +1289,7 @@ export const SETTINGS: SettingDef[] = [
     },
     {
         key: 'CUTTLELY_HARNESS_TURN_SCAN_CAP',
-        section: 'integrations',
+        section: 'testing',
         group: 'Publish check',
         label: 'Harness turns scanned',
         help: 'How many saved harness turns a publish check reads while it looks for distinct questions. 500 to 5000.',
@@ -1275,7 +1304,7 @@ export const SETTINGS: SettingDef[] = [
     },
     {
         key: 'CUTTLELY_RATING_IMPORT_CAP',
-        section: 'integrations',
+        section: 'testing',
         group: 'Test sets',
         label: 'Rated answers added',
         help: 'The most rated answers one add to a test set may write. 50 to 5000. The rating scan must be at least this.',
@@ -1290,7 +1319,7 @@ export const SETTINGS: SettingDef[] = [
     },
     {
         key: 'CUTTLELY_RATING_SCAN_CAP',
-        section: 'integrations',
+        section: 'testing',
         group: 'Test sets',
         label: 'Ratings scanned',
         help: 'How many ratings one add may read while it fills the import cap. At least the import cap, and at most 20000.',

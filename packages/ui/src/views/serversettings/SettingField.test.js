@@ -25,6 +25,13 @@ const bounded = {
     locked: false
 }
 
+function expectOneHistoryKeep(text) {
+    const nodes = document.querySelectorAll('[data-testid="history-keep-source"]')
+    expect(nodes).toHaveLength(1)
+    expect(nodes[0].textContent).toBe(text)
+    expect(document.body.textContent.match(/In effect/g)).toEqual(['In effect'])
+}
+
 describe('SettingField', () => {
     let root
 
@@ -90,7 +97,7 @@ describe('SettingField', () => {
                 )
             )
         })
-        expect(document.body.textContent).toContain('In effect: 250 (panel)')
+        expectOneHistoryKeep('In effect: 250 (panel)')
         expect(document.querySelector('[data-testid="setting-CUTTLELY_HISTORY_KEEP"] input').disabled).toBe(false)
         setting.source = 'host'
         setting.effective = '2000'
@@ -104,7 +111,7 @@ describe('SettingField', () => {
                 )
             )
         })
-        expect(document.body.textContent).toContain('In effect: 2000 (env)')
+        expectOneHistoryKeep('In effect: 2000 (env)')
         setting.source = 'default'
         setting.effective = '1000'
         setting.value = ''
@@ -117,7 +124,7 @@ describe('SettingField', () => {
                 )
             )
         })
-        expect(document.body.textContent).toContain('In effect: 1000 (default)')
+        expectOneHistoryKeep('In effect: 1000 (default)')
     })
 
     it('uses the live range for the number input, so a host cap of 1 sets max to 1', async () => {
@@ -159,5 +166,35 @@ describe('SettingField', () => {
         const fallback = document.querySelector('[data-testid="setting-CUTTLELY_CHECK_COUNT_DEFAULT"] input')
         expect(fallback.max).toBe('500')
         expect(fallback.min).toBe('1')
+    })
+
+    it('shows a lock and Set by the host on a testing limit the host set', async () => {
+        const container = document.createElement('div')
+        document.body.appendChild(container)
+        root = createRoot(container)
+        const setting = {
+            ...bounded,
+            section: 'testing',
+            unit: 'seconds',
+            runtime: true,
+            locked: true,
+            range: { min: 10, max: 1800 },
+            value: '90',
+            effective: '90'
+        }
+        await act(async () => {
+            root.render(
+                createElement(
+                    ThemeProvider,
+                    { theme: createTheme() },
+                    createElement(SettingField, { setting, drafts: {}, onDraft: () => {} })
+                )
+            )
+        })
+        expect(document.body.textContent).toContain('Set by the host')
+        expect(document.querySelector('[data-testid="lock-CUTTLELY_CHECK_COUNT_DEFAULT"]')).toBeTruthy()
+        expect(document.body.textContent).toContain('Range: 10 to 1800 seconds')
+        const input = document.querySelector('[data-testid="setting-CUTTLELY_CHECK_COUNT_DEFAULT"] input')
+        expect(input.disabled).toBe(true)
     })
 })

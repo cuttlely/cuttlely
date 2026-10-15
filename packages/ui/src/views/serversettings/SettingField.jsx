@@ -67,8 +67,9 @@ const SettingField = ({ setting, drafts, onDraft, error, readOnlyNote }) => {
                             <Chip
                                 size='small'
                                 icon={<IconLock size={13} />}
-                                label='Locked'
+                                label={setting.section === 'testing' ? 'Set by the host' : 'Locked'}
                                 variant='outlined'
+                                data-testid={`lock-${setting.key}`}
                                 sx={{ height: 22, fontSize: '0.72rem', borderRadius: 1.5 }}
                             />
                         </Tooltip>
@@ -132,6 +133,13 @@ const SettingField = ({ setting, drafts, onDraft, error, readOnlyNote }) => {
                 {!readOnlyNote && !error && (
                     <Typography variant='caption' color='text.secondary' sx={{ display: 'block', mt: 0.75 }}>
                         {setting.type === 'secret' ? null : value === '' ? `Default: ${setting.defaultLabel}` : null}
+                        {setting.runtime && setting.type === 'number' && (setting.range || setting.min !== undefined) && (
+                            <Box component='span' data-testid={`range-${setting.key}`} sx={{ display: 'block' }}>
+                                {`Range: ${setting.range?.min ?? setting.min} to ${setting.range?.max ?? setting.max}${
+                                    setting.unit && UNIT_LABELS[setting.unit] ? ` ${UNIT_LABELS[setting.unit]}` : ''
+                                }`}
+                            </Box>
+                        )}
                     </Typography>
                 )}
                 {setting.key === 'CUTTLELY_HISTORY_KEEP' && setting.effective && (
@@ -435,6 +443,7 @@ const SecretStatus = ({ label, tone, theme }) => {
 
 const settingShape = PropTypes.shape({
     key: PropTypes.string.isRequired,
+    section: PropTypes.string,
     label: PropTypes.string.isRequired,
     help: PropTypes.string,
     type: PropTypes.string.isRequired,
@@ -455,6 +464,7 @@ const settingShape = PropTypes.shape({
     min: PropTypes.number,
     max: PropTypes.number,
     range: PropTypes.shape({ min: PropTypes.number, max: PropTypes.number }),
+    runtime: PropTypes.bool,
     placeholder: PropTypes.string,
     secret: PropTypes.object
 })
