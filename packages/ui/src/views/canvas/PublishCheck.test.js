@@ -43,6 +43,15 @@ const render = (props) =>
         )
     )
 
+const openingTag = (html, testId) => {
+    const marker = `data-testid="${testId}"`
+    const at = html.indexOf(marker)
+    if (at < 0) return ''
+    const start = html.lastIndexOf('<', at)
+    const end = html.indexOf('>', at)
+    return html.slice(start, end + 1)
+}
+
 const live = { text: 'MANGO', error: null, tokens: 44, ms: 657 }
 const draft = { text: 'PAPAYA', error: null, tokens: 45, ms: 525 }
 
@@ -119,6 +128,64 @@ describe('PublishCheckView', () => {
         expect(html).toContain('data-testid="compare-count"')
         expect(html).toContain('disabled=""')
         expect(html).not.toContain('data-testid="compare-question"')
+    })
+
+    test('Choose questions with nothing ticked and nothing typed disables Run check', () => {
+        const pastSetup = {
+            unavailable: null,
+            questions: [{ text: 'Do you have rye loaves today?' }],
+            pastCount: 4,
+            riskySteps: [],
+            limits,
+            check: null
+        }
+        const historyItems = [
+            { id: 'chat:a', text: 'Do you have rye loaves today?', source: 'chat', date: '2026-10-08T16:12:03.000Z', replayable: true }
+        ]
+        const empty = render({
+            canChooseQuestions: true,
+            questionMode: 'choose',
+            setup: pastSetup,
+            historyItems,
+            selectedQuestions: [],
+            list: initialPicks([{ text: 'What are your hours?', starter: true }]),
+            newQuestion: ''
+        })
+        expect(empty).toContain('aria-pressed="true"')
+        expect(empty).toContain('0 of 10 chosen')
+        expect(openingTag(empty, 'check-run')).toContain('disabled')
+        expect(empty).toContain('Run check')
+
+        const counted = render({
+            canChooseQuestions: true,
+            questionMode: 'count',
+            setup: pastSetup,
+            list: [],
+            newQuestion: ''
+        })
+        expect(openingTag(counted, 'check-run')).not.toContain('disabled')
+
+        const ticked = render({
+            canChooseQuestions: true,
+            questionMode: 'choose',
+            setup: pastSetup,
+            historyItems,
+            selectedQuestions: [{ id: 'chat:a', text: 'Do you have rye loaves today?' }],
+            list: [],
+            newQuestion: ''
+        })
+        expect(openingTag(ticked, 'check-run')).not.toContain('disabled')
+
+        const typed = render({
+            canChooseQuestions: true,
+            questionMode: 'choose',
+            setup: pastSetup,
+            historyItems,
+            selectedQuestions: [],
+            list: [{ text: 'Is the rye starter ready?', picked: true, added: true }],
+            newQuestion: ''
+        })
+        expect(openingTag(typed, 'check-run')).not.toContain('disabled')
     })
 
     test('no history yet asks for a question', () => {

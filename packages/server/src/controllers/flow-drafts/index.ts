@@ -201,14 +201,16 @@ function historyCaller(req: Request): string {
 }
 
 // Past questions a caller can hand to the check. Reading them needs the same view permission as this flow's messages.
+// The body is stored question text, so a 200 is not stored by the browser either.
 const getCheckHistory = async (req: Request, res: Response, next: NextFunction) => {
-    res.setHeader('Cache-Control', 'no-store')
     try {
         const flow = await flowFor(req, 'view')
-        return res.json(await listQuestionHistory(flow, req.query, historyCaller(req)))
+        const history = await listQuestionHistory(flow, req.query, historyCaller(req))
+        res.setHeader('Cache-Control', 'no-store')
+        return res.status(StatusCodes.OK).json(history)
     } catch (error) {
+        res.setHeader('Cache-Control', 'no-store')
         if (error instanceof CheckRuleError) {
-            res.setHeader('Cache-Control', 'no-store')
             return res.status(error.statusCode).json({ code: error.code, message: error.message })
         }
         next(error)

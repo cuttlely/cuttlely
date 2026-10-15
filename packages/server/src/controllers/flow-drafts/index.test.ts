@@ -38,7 +38,12 @@ const checkService = {
     stopCheck: jest.fn(async () => ({ id: 'c1', status: 'stopped' }))
 }
 jest.mock('../../services/flow-check', () => ({ __esModule: true, default: checkService }))
-const listQuestionHistory = jest.fn(async () => ({ items: [], nextCursor: null }))
+const listQuestionHistory = jest.fn(
+    async (): Promise<{ items: any[]; nextCursor: string | null }> => ({
+        items: [],
+        nextCursor: null
+    })
+)
 jest.mock('../../services/flow-check/history', () => ({
     listQuestionHistory: (...args: any[]) => (listQuestionHistory as (...values: any[]) => any)(...args)
 }))
@@ -687,7 +692,30 @@ describe('the publish check', () => {
         await controller.getCheckHistory(req, res, jest.fn())
         expect(listQuestionHistory).toHaveBeenCalledWith(expect.objectContaining({ id: FLOW.id }), { limit: '50' }, 'user:user-1')
         expect(res.setHeader).toHaveBeenCalledWith('Cache-Control', 'no-store')
+        expect(res.status).toHaveBeenCalledWith(200)
         expect(res.json).toHaveBeenCalledWith({ items: [], nextCursor: null })
+    })
+
+    it('sends stored question text on 200 with Cache-Control no-store', async () => {
+        granted.add('chatflows:view')
+        const text = 'Do you have rye loaves today?'
+        listQuestionHistory.mockResolvedValueOnce({
+            items: [{ id: 'chat:a', text, source: 'chat', date: '2026-10-08T16:12:03.000Z', replayable: true }],
+            nextCursor: null
+        })
+        const res = response()
+        await controller.getCheckHistory(checkRequest(), res, jest.fn())
+        expect(res.status).toHaveBeenCalledWith(200)
+        expect(res.setHeader).toHaveBeenCalledWith('Cache-Control', 'no-store')
+        expect(res.json).toHaveBeenCalledWith({
+            items: [{ id: 'chat:a', text, source: 'chat', date: '2026-10-08T16:12:03.000Z', replayable: true }],
+            nextCursor: null
+        })
+        const statusOrder = res.status.mock.invocationCallOrder[0]
+        const headerOrder = res.setHeader.mock.invocationCallOrder[0]
+        const jsonOrder = res.json.mock.invocationCallOrder[0]
+        expect(headerOrder).toBeLessThan(jsonOrder)
+        expect(statusOrder).toBeLessThan(jsonOrder)
     })
 
     it('refuses question history when the caller can update the flow but cannot read its messages', async () => {
