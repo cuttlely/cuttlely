@@ -281,6 +281,14 @@ function num(value: unknown): number {
 
 function iso(value: unknown): string | null {
     if (value === null || value === undefined || value === '') return null
+    // SQLite stores identity_local_session times as integer milliseconds. A digit
+    // string is that same value. new Date("1790000000000") is not a valid instant.
+    if (typeof value === 'number' || (typeof value === 'string' && /^\d+$/.test(value))) {
+        const millis = Number(value)
+        if (!Number.isFinite(millis)) return null
+        const parsed = new Date(millis)
+        return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString()
+    }
     const parsed = value instanceof Date ? value : new Date(String(value))
     return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString()
 }

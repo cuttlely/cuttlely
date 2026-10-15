@@ -297,6 +297,31 @@ describe('local directory rules', () => {
         expect(await endUserSessions(sql, admin, 'viewer-1')).toEqual({ ended: 0 })
     })
 
+    it('reads session expiry stored as integer milliseconds', async () => {
+        const { sql, db } = memorySql()
+        const idleMs = Date.parse('2099-06-01T00:00:00.000Z')
+        const absoluteMs = Date.parse('2099-06-08T00:00:00.000Z')
+        const createdMs = Date.parse('2026-10-03T00:00:00.000Z')
+        db.exec(`
+            INSERT INTO identity_local_session (id, userId, token, expiresAt, absoluteExpiresAt, createdDate, permissionVersion)
+            VALUES ('sess-ms', 'viewer-1', 'ms-digest', ${idleMs}, ${absoluteMs}, ${createdMs}, 0);
+        `)
+        const stored = db.prepare('SELECT expiresAt, absoluteExpiresAt FROM identity_local_session WHERE id = ?').all('sess-ms')[0] as {
+            expiresAt: unknown
+            absoluteExpiresAt: unknown
+        }
+        expect(typeof stored.expiresAt === 'number' || /^\d+$/.test(String(stored.expiresAt))).toBe(true)
+        const listed = await listUserSessions(sql, admin, 'viewer-1', pageFrom({}))
+        expect(listed.sessions).toEqual([
+            {
+                id: 'sess-ms',
+                createdAt: '2026-10-03T00:00:00.000Z',
+                idleExpiresAt: '2099-06-01T00:00:00.000Z',
+                absoluteExpiresAt: '2099-06-08T00:00:00.000Z'
+            }
+        ])
+    })
+
     it('does not let an admin read another workspace', async () => {
         const { sql, db } = memorySql()
         db.exec(`

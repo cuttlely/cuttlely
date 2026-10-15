@@ -66,7 +66,10 @@ function actorFrom(req: Request): DirectoryActor {
 
 function send(run: (req: Request) => Promise<unknown>) {
     return (req: Request, res: Response, next: NextFunction) => {
-        void run(req)
+        // pageFrom and disabledFlag throw before they return a promise. Start the chain
+        // so that rejection uses error.status instead of the process error handler.
+        void Promise.resolve()
+            .then(() => run(req))
             .then((body) => {
                 if (!res.headersSent) res.status(200).json(body)
             })
