@@ -62,15 +62,15 @@ The email is trimmed and compared in lower case. An email longer than 254 charac
 | 400    | Missing fields, or the email or password is over the length cap                                                | `{ "message": "..." }`                                         |
 | 401    | Missing `x-request-from: internal`, unknown email, wrong password, no password stored, or the user is disabled | `{ "message": "Invalid email or password." }`                  |
 | 404    | Local users mode is off                                                                                        | `{ "message": "Not Found" }`                                   |
-| 429    | Ten failures in 15 minutes for this client or this known account                                               | `{ "message": "Too many sign-in attempts. Try again later." }` |
+| 429    | Ten failures in 15 minutes for this client address or any email, known or not                                  | `{ "message": "Too many sign-in attempts. Try again later." }` |
 
 The 401 body is the same for an unknown email, a wrong password, an invited user with no password, and a disabled user. Each of those runs a password compare. The 429 body is the same no matter which of those states the account is in.
 
 Failures are counted per client address and per email, and both are stored in the database for 15 minutes. An unknown email locks out the same way as a known one. The email is stored as an HMAC of the normalized address, made with the server secret, never as the address itself. Rows older than the window are deleted. If unknown addresses fill the table, the oldest email keys are deleted so the table stays bounded. A new process sees the same lockout. The client address comes from the connection. Proxy headers are trusted only when `TRUST_PROXY` says so.
 
-These three routes also share a separate per-client cap in the current process: 10 responses that are not successful, in the same 15 minutes, and then 429 with the same lockout body. A successful sign-in, sign-out, or password change does not count toward that process cap. The lockout that survives a restart is the database one above.
+These three routes also share a separate per-client cap in the current process: 10 responses that are not successful, in the same 15 minutes, and then 429 with the same lockout body. A successful sign-in, sign-out, or password change does not count toward that process cap. A restart drops that process cap. Both database lockouts survive a restart: the client-address rows and the email rows.
 
-A success sets a new cookie. The value is not the stored token: the database keeps a SHA-256 of it. Idle time is 12 hours. The session ends 7 days after it was created even if it is still in use. The cookie is `HttpOnly`, `SameSite=Lax`, `Path=/`, and `Secure` when the request is https or the process is in production.
+A success sets a new cookie. The value is not the stored token: the database keeps a SHA-256 of it. Idle time is 12 hours. The session ends 7 days after it was created even if it is still in use. The cookie is `HttpOnly`, `SameSite=Lax`, `Path=/`, and `Secure` under the same rule as the break-glass cookie. `Secure` follows the redirect URI's scheme, and the request when that URI is unset. A trusted proxy's scheme counts when `TRUST_PROXY` says so. Sign-out clears the cookie with that same flag.
 
 A disabled user (user status other than `active`, or an organization membership of `disable`) cannot sign in. Their session rows are deleted, so an old cookie fails on the next request. That check is in the database, so it holds after a restart and on another instance.
 

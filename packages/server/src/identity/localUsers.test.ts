@@ -326,24 +326,36 @@ describe('local users mode', () => {
         expect(JSON.stringify(ok.body)).not.toContain('scrypt$')
     })
 
-    it('sets Secure on the local cookie in production and when the request is https', async () => {
+    it('follows the request for the local cookie, including plain HTTP in production', async () => {
         const { store } = await seed()
         const https = json(await handleLocalLogin(signed({ store, secure: true, body: { email: 'ada@example.com', password: OTHER } })))
         expect(https.cookies?.[0].options.secure).toBe(true)
+        const httpsOut = json(
+            await handleLocalLogout(
+                ctx({ store, internal: true, secure: true, cookies: { 'cuttlely-local-session': https.cookies?.[0].value } })
+            )
+        )
+        expect(httpsOut.secure).toBe(true)
         const previous = process.env.NODE_ENV
         process.env.NODE_ENV = 'production'
         try {
             const produced = json(
                 await handleLocalLogin(signed({ store, secure: false, body: { email: 'ada@example.com', password: OTHER } }))
             )
-            expect(produced.cookies?.[0].options.secure).toBe(true)
+            expect(produced.status).toBe(200)
+            expect(produced.cookies?.[0].options.secure).toBe(false)
             expect(produced.cookies?.[0].options).toMatchObject({ httpOnly: true, sameSite: 'lax', path: '/' })
+            const token = produced.cookies?.[0].value || ''
+            const slid = json(await handleRefresh(ctx({ store, secure: false, cookies: { 'cuttlely-local-session': token } })))
+            expect(slid.status).toBe(200)
+            expect(slid.cookies?.[0].options.secure).toBe(false)
             const cleared = json(
-                await handleLocalLogout(
-                    ctx({ store, internal: true, secure: false, cookies: { 'cuttlely-local-session': produced.cookies?.[0].value } })
-                )
+                await handleLocalLogout(ctx({ store, internal: true, secure: false, cookies: { 'cuttlely-local-session': token } }))
             )
-            expect(cleared.secure).toBe(true)
+            expect(cleared.secure).toBe(false)
+            const dropped = await establishSession(ctx({ store, secure: false, cookies: { 'cuttlely-local-session': 'missing-token' } }))
+            expect(dropped.clearCookies).toEqual(['cuttlely-local-session'])
+            expect(dropped.secure).toBe(false)
         } finally {
             if (previous === undefined) delete process.env.NODE_ENV
             else process.env.NODE_ENV = previous

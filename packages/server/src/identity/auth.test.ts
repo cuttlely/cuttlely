@@ -433,6 +433,59 @@ describe('identity auth', () => {
         if (result.type === 'redirect') expect(result.cookies?.[0].options.secure).toBe(true)
     })
 
+    it('clears the break-glass cookie with the request secure flag in production', async () => {
+        const previous = process.env.NODE_ENV
+        process.env.NODE_ENV = 'production'
+        try {
+            const store = new MemoryStore()
+            const credential = await hashPassword(GOOD)
+            store.add({ id: 'owner', email: 'owner@example.com', name: 'Owner', status: 'active', externalId: null, credential }, true)
+            const ok = json(
+                await handleLoginPost(
+                    ctx({
+                        localAdmin: true,
+                        localUsers: false,
+                        internal: true,
+                        secure: false,
+                        store,
+                        body: { email: 'owner@example.com', password: GOOD }
+                    })
+                )
+            )
+            expect(ok.status).toBe(200)
+            expect(ok.cookies?.[0].options.secure).toBe(false)
+            const token = ok.cookies?.[0].value || ''
+            const out = json(
+                await handleLogout(
+                    ctx({
+                        localAdmin: true,
+                        localUsers: false,
+                        internal: true,
+                        secure: false,
+                        store,
+                        cookies: { 'cuttlely-local-session': token }
+                    })
+                )
+            )
+            expect(out.clearCookies).toContain('cuttlely-local-session')
+            expect(out.secure).toBe(false)
+            const stale = await establishSession(
+                ctx({
+                    localAdmin: true,
+                    localUsers: false,
+                    secure: true,
+                    store,
+                    cookies: { 'cuttlely-local-session': 'missing' }
+                })
+            )
+            expect(stale.clearCookies).toContain('cuttlely-local-session')
+            expect(stale.secure).toBe(true)
+        } finally {
+            if (previous === undefined) delete process.env.NODE_ENV
+            else process.env.NODE_ENV = previous
+        }
+    })
+
     it('break-glass login is not mounted when the flag is off', async () => {
         await expect(handleLoginPost(ctx({ workosConfigured: true, internal: true }))).resolves.toMatchObject({
             type: 'json',
@@ -461,6 +514,7 @@ describe('identity auth', () => {
         expect(ok.cookies?.[0].options).toMatchObject({ httpOnly: true, sameSite: 'lax', path: '/' })
         expect(ok.clearCookies).toContain('wos-session')
         expect(ok.secure).toBe(false)
+        expect(ok.cookies?.[0].options.secure).toBe(false)
         const raw = ok.cookies?.[0].value || ''
         expect(raw).not.toBe(hashSessionToken(raw))
         expect(store.local.get(hashSessionToken(raw))?.token).toBe(hashSessionToken(raw))

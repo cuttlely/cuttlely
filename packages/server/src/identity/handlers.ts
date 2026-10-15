@@ -72,14 +72,23 @@ function json(
     return { type: 'json', status, body, cookies: extra.cookies, clearCookies: extra.clearCookies, secure: extra.secure }
 }
 
-/** Secure in production even when the request itself is not https. Other cookie flags stay as they are. */
+/**
+ * Secure follows the request, the same way the break-glass cookie does.
+ * ctx.secure is the redirect URI scheme, or the request when that URI is unset.
+ * A trusted proxy's scheme counts only when TRUST_PROXY says so.
+ */
 function localSessionSecure(ctx: AuthContext): boolean {
-    return ctx.secure || process.env.NODE_ENV === 'production'
+    return ctx.secure
+}
+
+/** Break-glass cookies are set and cleared with ctx.secure. localSessionSecure is only for a local-users cookie. */
+function clearSecure(ctx: AuthContext, names: string[]): boolean {
+    if (ctx.localUsers && names.includes(LOCAL_SESSION_COOKIE)) return localSessionSecure(ctx)
+    return ctx.secure
 }
 
 function cleared(ctx: AuthContext, names: string[]): { clearCookies: string[]; secure: boolean } {
-    const secure = names.includes(LOCAL_SESSION_COOKIE) ? localSessionSecure(ctx) : ctx.secure
-    return { clearCookies: names, secure }
+    return { clearCookies: names, secure: clearSecure(ctx, names) }
 }
 
 function bootstrapPage(reason: 'bootstrap-unset' | 'bootstrap-denied'): HandlerResult {
@@ -497,16 +506,16 @@ export async function establishSession(
         const digest = hashSessionToken(token)
         const row = await ctx.store.findLocalSession(digest)
         if (!row || !tokensEqual(row.token, digest))
-            return { user: null, clearCookies: [LOCAL_SESSION_COOKIE], secure: localSessionSecure(ctx) }
+            return { user: null, clearCookies: [LOCAL_SESSION_COOKIE], secure: clearSecure(ctx, [LOCAL_SESSION_COOKIE]) }
         if (ctx.now >= row.absoluteExpires.getTime() || ctx.now >= row.idleExpires.getTime()) {
-            return { user: null, clearCookies: [LOCAL_SESSION_COOKIE], secure: localSessionSecure(ctx) }
+            return { user: null, clearCookies: [LOCAL_SESSION_COOKIE], secure: clearSecure(ctx, [LOCAL_SESSION_COOKIE]) }
         }
         const gate = await localCookieGate(ctx, row.userId)
         if (gate === 'end') {
             await ctx.store.deleteLocalSessionsForUser(row.userId)
-            return { user: null, clearCookies: [LOCAL_SESSION_COOKIE], secure: localSessionSecure(ctx) }
+            return { user: null, clearCookies: [LOCAL_SESSION_COOKIE], secure: clearSecure(ctx, [LOCAL_SESSION_COOKIE]) }
         }
-        if (gate !== 'ok') return { user: null, clearCookies: [LOCAL_SESSION_COOKIE], secure: localSessionSecure(ctx) }
+        if (gate !== 'ok') return { user: null, clearCookies: [LOCAL_SESSION_COOKIE], secure: clearSecure(ctx, [LOCAL_SESSION_COOKIE]) }
         const user = await ctx.store.sessionFor(row.userId)
         return { user, secure: ctx.secure }
     }
