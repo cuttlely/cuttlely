@@ -12,6 +12,7 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 
 ### Changed
 
+-   The Publish check picker uses the question cap. Check setup sends `limits.counts`: 4, 10, 25, 50, and 100 when the cap is 100. A lower cap drops choices above it and adds the cap. A higher cap keeps those and adds the cap. Choosing questions by hand uses that same cap, and a refusal names the number in effect. [Drafts API](./docs/reference/drafts-api.md).
 -   `CUTTLELY_DRAIN_TIMEOUT_MS` accepts 0 through 300000 milliseconds. 0 does not wait. A value outside that range is ignored, and the saved value or the default is used. The default is still 25 seconds. A wait that was already shorter than 5 seconds still applies.
 -   Docs name the Run the test set button and the gate's scope.
 -   Docs: the CI gate guide now covers harness checks and a test set changed during `--gate`.
