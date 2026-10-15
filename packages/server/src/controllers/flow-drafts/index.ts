@@ -6,7 +6,7 @@ import chatflowsService from '../../services/chatflows'
 import flowDraftsService, { redactDraftStatus } from '../../services/flow-drafts'
 import flowCheckService from '../../services/flow-check'
 import { listQuestionHistory } from '../../services/flow-check/history'
-import { BadQuestionIdsError, CheckRuleError } from '../../services/flow-check/question-ids-error'
+import { BadQuestionIdsError, CheckRuleError, questionIdFailureMessage } from '../../services/flow-check/question-ids-error'
 import flowVersionsService from '../../services/flow-versions'
 import { actorFromUser } from '../../services/flow-versions/author'
 import { hasAnyPermission } from '../../identity/rbac'
@@ -335,7 +335,12 @@ const startCheck = async (req: Request, res: Response, next: NextFunction) => {
         detach()
         if (error instanceof BadQuestionIdsError) {
             res.setHeader('Cache-Control', 'no-store')
-            return res.status(StatusCodes.BAD_REQUEST).json({ code: error.code, badCount: error.badCount, errors: error.errors })
+            return res.status(StatusCodes.BAD_REQUEST).json({
+                code: error.code,
+                message: questionIdFailureMessage(error.errors, error.badCount),
+                badCount: error.badCount,
+                errors: error.errors
+            })
         }
         if (error instanceof CheckRuleError) {
             res.setHeader('Cache-Control', 'no-store')

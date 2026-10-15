@@ -44,9 +44,11 @@ import {
     chosenLabel,
     hiddenChosenCount,
     historyReasonText,
+    chooseRunBody,
     selectShown,
     toggleHistoryPick,
-    typedRoom
+    typedRoom,
+    typedToggleLimit
 } from './publishCheck'
 import { formatListDateTime } from '@/utils/formatDate'
 import * as copy from './publishCheck'
@@ -449,8 +451,8 @@ describe('choosing stored questions', () => {
         expect(historyReasonText('length')).toContain('2,000')
     })
 
-    test('typed questions use the same cap, and ten is the ceiling until a stored question is selected', () => {
-        expect(typedRoom({ cap: 100, selectedCount: 0, typedPicked: 10 })).toBe(0)
+    test('typed questions share the cap with or without a stored question', () => {
+        expect(typedRoom({ cap: 100, selectedCount: 0, typedPicked: 10 })).toBe(90)
         expect(typedRoom({ cap: 100, selectedCount: 1, typedPicked: 10 })).toBe(89)
         expect(chooseRoom({ cap: 100, selectedCount: 98, typedPicked: 2 })).toBe(0)
         const kept = toggleHistoryPick({
@@ -465,5 +467,34 @@ describe('choosing stored questions', () => {
         const removed = toggleHistoryPick({ item: loaf('z', 'extra'), selected: added, cap: 3, typedPicked: 1 })
         expect(removed).toEqual([])
         expect(hiddenChosenCount([{ id: 'a' }, { id: 'b' }], [{ id: 'b' }])).toBe(1)
+    })
+
+    test('switching from the count picker with more than 10 typed questions sends an empty id list', () => {
+        const typed = Array.from({ length: 11 }, (_, index) => ({ text: `loaf ${index}`, picked: true, added: true }))
+        const questions = typed.map((item) => item.text)
+        expect(typedToggleLimit({ cap: 100, selectedCount: 0 })).toBe(100)
+        const opened = togglePick([...typed, { text: 'one more', picked: false, added: true }], typed.length, typedToggleLimit())
+        expect(opened.at(-1).picked).toBe(true)
+        expect(chooseRunBody({ selected: [], questions })).toEqual({ questionIds: [], questions })
+    })
+
+    test('ticking a stored question uses the shared cap, and unticking it restores the full cap', () => {
+        const stored = loaf('chat:a', 'rye loaf')
+        const typed = Array.from({ length: 99 }, (_, index) => ({ text: `loaf ${index}`, picked: true, added: true }))
+        const extra = { text: 'one more loaf', picked: false, added: true }
+        const ticked = toggleHistoryPick({ item: stored, selected: [], cap: 100, typedPicked: typed.length })
+        expect(ticked).toEqual([{ id: stored.id, text: stored.text }])
+        expect(typedToggleLimit({ cap: 100, selectedCount: ticked.length })).toBe(99)
+        const blocked = togglePick([...typed, extra], typed.length, typedToggleLimit({ cap: 100, selectedCount: ticked.length }))
+        expect(blocked.at(-1).picked).toBe(false)
+        const unticked = toggleHistoryPick({ item: stored, selected: ticked, cap: 100, typedPicked: typed.length })
+        expect(unticked).toEqual([])
+        expect(typedToggleLimit({ cap: 100, selectedCount: unticked.length })).toBe(100)
+        const allowed = togglePick([...typed, extra], typed.length, typedToggleLimit({ cap: 100, selectedCount: unticked.length }))
+        expect(allowed.at(-1).picked).toBe(true)
+        expect(chooseRunBody({ selected: unticked, questions: allowed.filter((item) => item.picked).map((item) => item.text) })).toEqual({
+            questionIds: [],
+            questions: allowed.filter((item) => item.picked).map((item) => item.text)
+        })
     })
 })

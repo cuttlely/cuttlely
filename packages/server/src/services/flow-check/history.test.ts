@@ -187,24 +187,17 @@ describe('question history', () => {
         const onlyApi = await listQuestionHistory(FLOW, { source: 'api' }, CALLER)
         expect(onlyApi.items.map((item) => item.id)).toEqual(['chat:out'])
         expect(onlyApi.items[0].source).toBe('api')
-        historyHooks.loadUserMessages = async () => [
-            row('canvas', 'canvas loaf', '2026-10-08T12:00:00.000Z', { chatType: 'INTERNAL' }),
-            row('api-row', 'api loaf', '2026-10-08T11:00:00.000Z', { chatType: 'EXTERNAL' }),
-            row('embed-row', 'embed loaf', '2026-10-08T10:00:00.000Z', { chatType: 'EMBED' }),
-            row('shared-row', 'shared loaf', '2026-10-08T09:00:00.000Z', { chatType: 'SHARED' }),
-            row('replay-row', 'replay loaf', '2026-10-08T08:00:00.000Z', { chatType: 'REPLAY' })
-        ]
-        const embed = await listQuestionHistory(FLOW, { source: 'embed' }, CALLER)
-        expect(embed.items.map((item) => item.id)).toEqual(['chat:embed-row'])
-        expect(embed.items[0].source).toBe('embed')
-        const shared = await listQuestionHistory(FLOW, { source: 'shared' }, CALLER)
-        expect(shared.items[0].source).toBe('shared')
-        const replay = await listQuestionHistory(FLOW, { source: 'replay' }, CALLER)
-        expect(replay.items[0].source).toBe('replay')
+        await expect(listQuestionHistory(FLOW, { source: 'embed' }, CALLER)).rejects.toMatchObject({
+            statusCode: 400,
+            code: 'HISTORY_BAD_SOURCE',
+            message: 'source must be chat or api.'
+        })
+        await expect(listQuestionHistory(FLOW, { source: 'shared' }, CALLER)).rejects.toMatchObject({ code: 'HISTORY_BAD_SOURCE' })
+        await expect(listQuestionHistory(FLOW, { source: 'replay' }, CALLER)).rejects.toMatchObject({ code: 'HISTORY_BAD_SOURCE' })
         await expect(listQuestionHistory(FLOW, { source: 'canvas chat' }, CALLER)).rejects.toMatchObject({
             statusCode: 400,
             code: 'HISTORY_BAD_SOURCE',
-            message: 'source must be chat, api, embed, shared, or replay.'
+            message: 'source must be chat or api.'
         })
         await expect(listQuestionHistory(FLOW, { source: 'form' }, CALLER)).rejects.toMatchObject({
             code: 'HISTORY_BAD_SOURCE'

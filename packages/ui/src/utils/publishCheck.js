@@ -298,16 +298,11 @@ export const initialPicks = (questions = [], max = 10) =>
     questions.map((q, index) => ({ text: q.text, picked: index < max, added: false, starter: Boolean(q.starter) }))
 
 export const HISTORY_PAGE_SIZE = 50
-// A question list with no stored ids still uses the older request, which accepts at most 10.
-export const TYPED_ONLY_MAX = 10
 
 export const QUESTION_SOURCE_OPTIONS = [
     { value: '', label: 'All sources' },
     { value: 'chat', label: 'Canvas chat' },
-    { value: 'api', label: 'API' },
-    { value: 'embed', label: 'Embed' },
-    { value: 'shared', label: 'Shared link' },
-    { value: 'replay', label: 'Replayed input' }
+    { value: 'api', label: 'API' }
 ]
 
 export const historyReasonText = (reason) => {
@@ -322,11 +317,18 @@ export const chosenLabel = (chosen, cap) => `${Number(chosen) || 0} of ${Number(
 export const chooseRoom = ({ cap = 100, selectedCount = 0, typedPicked = 0 } = {}) =>
     Math.max(0, Number(cap) - Number(selectedCount) - Number(typedPicked))
 
-// With no stored question selected, typed questions cannot use the id request, so they stop at 10.
-export const typedRoom = ({ cap = 100, selectedCount = 0, typedPicked = 0 } = {}) => {
-    const ceiling = selectedCount > 0 ? Number(cap) : Math.min(Number(cap), TYPED_ONLY_MAX)
-    return Math.max(0, ceiling - Number(selectedCount) - Number(typedPicked))
-}
+// Typed questions and stored questions share one cap, including when no stored question is selected.
+export const typedRoom = ({ cap = 100, selectedCount = 0, typedPicked = 0 } = {}) => chooseRoom({ cap, selectedCount, typedPicked })
+
+// How many typed questions may be ticked once stored questions are counted.
+export const typedToggleLimit = ({ cap = 100, selectedCount = 0 } = {}) => Math.max(0, Number(cap) - Number(selectedCount))
+
+// Choose mode always sends questionIds, even when it is empty, so typed questions use the question cap.
+export const chooseRunBody = ({ selected = [], questions = [], extra = {} } = {}) => ({
+    questionIds: selected.map((item) => item.id),
+    ...(questions.length ? { questions } : {}),
+    ...extra
+})
 
 export const toggleHistoryPick = ({ item, selected = [], cap = 100, typedPicked = 0 } = {}) => {
     if (!item?.id || item.replayable === false) return selected

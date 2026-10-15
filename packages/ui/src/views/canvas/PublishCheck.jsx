@@ -32,15 +32,16 @@ import {
     CHECK_ADOPTED_NOTE,
     CHECK_WORDS,
     HISTORY_PAGE_SIZE,
-    TYPED_ONLY_MAX,
     QUESTION_SOURCE_OPTIONS,
     chooseRoom,
+    chooseRunBody,
     chosenLabel,
     hiddenChosenCount,
     historyReasonText,
     selectShown,
     toggleHistoryPick,
     typedRoom,
+    typedToggleLimit,
     GATE_RUN_PERMISSION,
     promoteCheckWords,
     COMPARE_COUNTS,
@@ -712,7 +713,11 @@ export const PublishCheckView = ({
                                             <Checkbox
                                                 size='small'
                                                 checked={q.picked}
-                                                disabled={running || starting || (!q.picked && picked >= maxQuestions)}
+                                                disabled={
+                                                    running ||
+                                                    starting ||
+                                                    (!q.picked && (choosing ? selectedQuestions.length : 0) + picked >= maxQuestions)
+                                                }
                                                 onChange={() => onToggle(index)}
                                             />
                                         }
@@ -1077,11 +1082,7 @@ const PublishCheck = ({ chatflowId, variant = 'publish', api = flowDraftsApi, fl
         const typedPicked = list.filter((q) => q.added && q.picked).length
         const choosing = questionMode === 'choose' && canChooseQuestions
         if (choosing && typedRoom({ cap, selectedCount: selectedQuestions.length, typedPicked }) < 1) {
-            setAddError(
-                selectedQuestions.length === 0
-                    ? `Select a stored question before adding more than ${TYPED_ONLY_MAX} of your own.`
-                    : `Untick a question first. A check asks at most ${cap}.`
-            )
+            setAddError(`Untick a question first. A check asks at most ${cap}.`)
             return
         }
         const maxQuestions = choosing
@@ -1147,12 +1148,11 @@ const PublishCheck = ({ chatflowId, variant = 'publish', api = flowDraftsApi, fl
             const scored = evaluatorIds.length ? { evaluatorIds } : {}
             const choosing = questionMode === 'choose' && canChooseQuestions && source !== 'dataset'
             const body = choosing
-                ? {
-                      ...(selectedQuestions.length ? { questionIds: selectedQuestions.map((item) => item.id) } : {}),
-                      ...(ownQuestions.length ? { questions: ownQuestions } : {}),
-                      ...scored,
-                      includeRiskySteps: runAnyway
-                  }
+                ? chooseRunBody({
+                      selected: selectedQuestions,
+                      questions: ownQuestions,
+                      extra: { ...scored, includeRiskySteps: runAnyway }
+                  })
                 : source === 'dataset'
                 ? { datasetId, ...scored, includeRiskySteps: runAnyway }
                 : have > 0
@@ -1199,7 +1199,20 @@ const PublishCheck = ({ chatflowId, variant = 'publish', api = flowDraftsApi, fl
             check={check}
             starting={starting}
             error={error}
-            onToggle={(index) => setList((current) => togglePick(current, index, setup?.limits?.maxQuestions || 10))}
+            onToggle={(index) =>
+                setList((current) =>
+                    togglePick(
+                        current,
+                        index,
+                        questionMode === 'choose' && canChooseQuestions
+                            ? typedToggleLimit({
+                                  cap: setup?.limits?.maxQuestions || 100,
+                                  selectedCount: selectedQuestions.length
+                              })
+                            : setup?.limits?.maxQuestions || 10
+                    )
+                )
+            }
             onNewQuestion={(value) => {
                 setNewQuestion(value)
                 if (addError) setAddError('')

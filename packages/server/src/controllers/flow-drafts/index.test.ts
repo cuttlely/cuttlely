@@ -762,7 +762,26 @@ describe('the publish check', () => {
             jest.fn()
         )
         expect(res.status).toHaveBeenCalledWith(400)
-        expect(res.json).toHaveBeenCalledWith({ code: 'CHECK_BAD_QUESTION_IDS', badCount: 2, errors: [] })
+        expect(res.json).toHaveBeenCalledWith({
+            code: 'CHECK_BAD_QUESTION_IDS',
+            message: '2 questions cannot be checked.',
+            badCount: 2,
+            errors: []
+        })
+        checkService.startCheck.mockRejectedValueOnce(new BadQuestionIdsError(1, [{ index: 0, reason: 'files' }]))
+        const detailed = accepted()
+        await controller.startCheck(
+            checkRequest({ questionIds: ['chat:11111111-1111-4111-8111-111111111111'], questions: [secret] }),
+            detailed,
+            jest.fn()
+        )
+        expect(detailed.json).toHaveBeenCalledWith({
+            code: 'CHECK_BAD_QUESTION_IDS',
+            message: 'Position 1 was sent with a file.',
+            badCount: 1,
+            errors: [{ index: 0, reason: 'files' }]
+        })
+        expect(JSON.stringify(detailed.json.mock.calls)).not.toContain(secret)
         expect(JSON.stringify(res.json.mock.calls)).not.toContain(secret)
     })
 })

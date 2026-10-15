@@ -776,11 +776,11 @@ function insertQuestions(dataDir, flowId) {
     )
     const showcase = [
         ['Do you have rye loaves today?', 'INTERNAL', '2026-10-08 16:12:03', null],
-        ['Do you deliver sourdough to the east side?', 'SHARED', '2026-10-08 16:11:00', null],
+        ['Do you deliver sourdough to the east side?', 'EXTERNAL', '2026-10-08 16:11:00', null],
         ['See the scan of the oven log', 'EXTERNAL', '2026-10-08 16:10:00', '[{"name":"oven-log.pdf"}]'],
-        ['Can I order a birthday cake for Friday?', 'EMBED', '2026-10-08 16:09:00', null],
-        ['Is the cardamom bun gluten-free?', 'REPLAY', '2026-10-08 16:08:00', null],
-        ['What time do you open on Saturday?', 'EXTERNAL', '2026-10-08 16:07:00', null]
+        ['Can I order a birthday cake for Friday?', 'INTERNAL', '2026-10-08 16:09:00', null],
+        ['Is the cardamom bun gluten-free?', 'INTERNAL', '2026-10-08 16:08:00', null],
+        ['What time do you open on Saturday?', 'INTERNAL', '2026-10-08 16:07:00', null]
     ]
     const ids = []
     for (const [content, chatType, created, files] of showcase) {
@@ -823,7 +823,7 @@ async function exerciseQuestionPicker(page, base, cookie, dataDir) {
     if (saved.status !== 200) throw new Error(`draft ${saved.status}: ${saved.text.slice(0, 300)}`)
     const stored = insertQuestions(dataDir, created.id)
     const rye = stored.find((item) => item.content.startsWith('Do you have rye'))
-    const shared = stored.find((item) => item.chatType === 'SHARED')
+    const apiQuestion = stored.find((item) => item.content.startsWith('Do you deliver sourdough'))
 
     await page.goto(`${base}/canvas/${created.id}`, { waitUntil: 'domcontentloaded' })
     await page.getByTestId('publish-button').click()
@@ -841,12 +841,12 @@ async function exerciseQuestionPicker(page, base, cookie, dataDir) {
     await page.getByText('Do you have rye loaves today?').waitFor()
     await expectHidden(page, 'Do you deliver sourdough to the east side?')
     await replaceHistoryFilter(page, () => page.getByLabel('Search questions').fill(''))
-    await replaceHistoryFilter(page, () => page.getByLabel('Question source').selectOption('shared'))
+    await replaceHistoryFilter(page, () => page.getByLabel('Question source').selectOption('api'))
     await page.getByText('Do you deliver sourdough to the east side?').waitFor()
     await expectHidden(page, 'Do you have rye loaves today?')
     await page.getByTestId('question-history-select-shown').click()
     if (!(await page.getByLabel('Do you deliver sourdough to the east side?').isChecked())) {
-        throw new Error('Select all shown did not tick the shared question')
+        throw new Error('Select all shown did not tick the API question')
     }
     await replaceHistoryFilter(page, () => page.getByLabel('Question source').selectOption(''))
     await replaceHistoryFilter(page, () => page.getByLabel('From date (UTC)').fill('2026-10-07'))
@@ -893,7 +893,7 @@ async function exerciseQuestionPicker(page, base, cookie, dataDir) {
     const body = JSON.parse((await posted).postData() || '{}')
     if (body.count !== undefined) throw new Error('Choose questions sent count')
     const ids = body.questionIds || []
-    if (!ids.includes(`chat:${rye.id}`) || !ids.includes(`chat:${shared.id}`)) {
+    if (!ids.includes(`chat:${rye.id}`) || !ids.includes(`chat:${apiQuestion.id}`)) {
         throw new Error(`questionIds ${JSON.stringify(ids)}`)
     }
     if (!Array.isArray(body.questions) || !body.questions.includes('Is the rye starter ready today?')) {

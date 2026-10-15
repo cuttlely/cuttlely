@@ -23,24 +23,17 @@ export const HISTORY_QUERY_MAX = 200
 // Newest rows read for one history request, including a search. Distinct and paging stay inside this window.
 export const HISTORY_SCAN_CAP = 2000
 
-export const HISTORY_SOURCES = ['chat', 'api', 'embed', 'shared', 'replay'] as const
+export const HISTORY_SOURCES = ['chat', 'api'] as const
 export type HistorySource = (typeof HISTORY_SOURCES)[number]
 
-// Stored chatType values. Canvas chat and API are what prediction writes today.
-// Embed, shared link, and replayed input match rows stored with those types.
+// Canvas chat is INTERNAL. An API prediction, an embed, and a shared link are EXTERNAL.
 const SOURCE_CHAT_TYPE: Record<HistorySource, string> = {
     chat: 'INTERNAL',
-    api: 'EXTERNAL',
-    embed: 'EMBED',
-    shared: 'SHARED',
-    replay: 'REPLAY'
+    api: 'EXTERNAL'
 }
 const CHAT_TYPE_SOURCE: Record<string, HistorySource> = {
     INTERNAL: 'chat',
-    EXTERNAL: 'api',
-    EMBED: 'embed',
-    SHARED: 'shared',
-    REPLAY: 'replay'
+    EXTERNAL: 'api'
 }
 const CHAT_TYPES = Object.keys(CHAT_TYPE_SOURCE)
 const USER_ROLE = 'userMessage'
@@ -169,7 +162,7 @@ export function parseHistorySource(input: unknown): HistorySource | null {
     if (input === undefined || input === null || input === '') return null
     const text = oneQueryValue(input)
     if (!text || !HISTORY_SOURCES.includes(text as HistorySource)) {
-        throw new CheckRuleError('HISTORY_BAD_SOURCE', 'source must be chat, api, embed, shared, or replay.')
+        throw new CheckRuleError('HISTORY_BAD_SOURCE', 'source must be chat or api.')
     }
     return text as HistorySource
 }
@@ -201,8 +194,8 @@ export function historyDayBounds(from: string, to: string): { start: number | nu
     return { start, end }
 }
 
-// Canvas chat is INTERNAL and is reported as chat. An API prediction is EXTERNAL and is reported as api.
-// Embed, shared link, and replayed input are the stored types EMBED, SHARED, and REPLAY.
+// Canvas chat is INTERNAL and is reported as chat.
+// An API prediction, an embed, and a shared link are EXTERNAL and are reported as api.
 export function messageSource(chatType: string | null | undefined): HistorySource | null {
     if (!chatType) return null
     return CHAT_TYPE_SOURCE[chatType] || null
