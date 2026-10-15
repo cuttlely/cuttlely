@@ -3,6 +3,7 @@ import { Entity, Column, CreateDateColumn, PrimaryGeneratedColumn, Index, JoinCo
 import { IChatMessage, MessageType } from '../../Interface'
 import { Execution } from './Execution'
 
+@Index('IDX_chat_message_flow_created_id', ['chatflowid', 'createdDate', 'id'])
 @Entity()
 export class ChatMessage implements IChatMessage {
     @PrimaryGeneratedColumn('uuid')

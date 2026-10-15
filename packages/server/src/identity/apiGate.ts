@@ -24,7 +24,7 @@ import { LoggedInUser } from './types'
 
 export interface ApiKeyCheck {
     isValid: boolean
-    apiKey?: { workspaceId?: string; permissions: string[] }
+    apiKey?: { id?: string; workspaceId?: string; permissions: string[] }
 }
 
 export interface ApiV1AuthDeps {
@@ -113,7 +113,8 @@ export function apiV1Auth(deps: ApiV1AuthDeps) {
             activeOrganizationProductId: OSS_PRODUCT_ID,
             isOrganizationAdmin: false,
             activeWorkspaceId: workspace.id,
-            activeWorkspace: workspace.name
+            activeWorkspace: workspace.name,
+            ...(typeof apiKey.id === 'string' && apiKey.id ? { apiKeyId: apiKey.id } : {})
         }
         req.user = apiUser
         next()

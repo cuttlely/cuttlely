@@ -10,6 +10,8 @@ router.delete('/:chatflowId', requireAnyPermission('chatflows:update,agentflows:
 router.post('/:chatflowId/publish', requireAnyPermission('chatflows:update,agentflows:update'), flowDraftsController.publishDraft)
 router.post('/:chatflowId/rollback', requireAnyPermission('chatflows:update,agentflows:update'), flowDraftsController.rollbackLive)
 router.get('/:chatflowId/check', requireAnyPermission('chatflows:view,agentflows:view'), flowDraftsController.getCheckSetup)
+// Registered before /check/:checkId so "history" is not read as a check id.
+router.get('/:chatflowId/check/history', requireAnyPermission('chatflows:view,agentflows:view'), flowDraftsController.getCheckHistory)
 router.post('/:chatflowId/check', requireAnyPermission('chatflows:update,agentflows:update'), flowDraftsController.startCheck)
 router.get('/:chatflowId/check/:checkId', requireAnyPermission('chatflows:view,agentflows:view'), flowDraftsController.getCheck)
 router.delete('/:chatflowId/check/:checkId', requireAnyPermission('chatflows:update,agentflows:update'), flowDraftsController.stopCheck)

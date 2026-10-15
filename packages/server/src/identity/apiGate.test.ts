@@ -42,7 +42,7 @@ function dataSource(found: { workspace?: object | null; organization?: object | 
     } as unknown as DataSource
 }
 
-function app(overrides: Partial<ApiV1AuthDeps> = {}) {
+function app(overrides: Partial<ApiV1AuthDeps> = {}, echoUser = false) {
     const server = express()
     const deps: ApiV1AuthDeps = {
         whitelistURLs: ['/api/v1/ping'],
@@ -56,8 +56,8 @@ function app(overrides: Partial<ApiV1AuthDeps> = {}) {
         ...overrides
     }
     server.use(apiV1Auth(deps))
-    server.use((_req: Request, res: Response) => {
-        res.status(200).json({ passed: true })
+    server.use((req: Request, res: Response) => {
+        res.status(200).json(echoUser ? { passed: true, user: req.user ?? null } : { passed: true })
     })
     return request(server)
 }
@@ -114,6 +114,32 @@ describe('apiV1Auth', () => {
             .set('Authorization', 'Bearer good-key')
         expect(res.status).toBe(401)
         expect(res.body).toEqual({ error: 'Unauthorized Access' })
+    })
+
+    it('attaches each API key id for two keys in one workspace and does not attach the secret', async () => {
+        const secret = 'bearer-token-value-not-stored'
+        const keys: Record<string, { id: string; workspaceId: string; permissions: string[]; apiKey: string; apiSecret: string }> = {
+            'key-a': { id: 'key-a', workspaceId: 'ws-1', permissions: ['chatflows:view'], apiKey: secret, apiSecret: secret },
+            'key-b': { id: 'key-b', workspaceId: 'ws-1', permissions: ['chatflows:view'], apiKey: secret, apiSecret: secret }
+        }
+        const validateAPIKey = async (req: Request) => {
+            const token = String(req.headers.authorization || '').replace(/^Bearer /, '')
+            const apiKey = keys[token]
+            return apiKey ? { isValid: true, apiKey } : { isValid: false }
+        }
+        const server = app({ validateAPIKey }, true)
+        const first = await server.get('/api/v1/flow-drafts/flow-1/check/history').set('Authorization', 'Bearer key-a')
+        const second = await server.get('/api/v1/flow-drafts/flow-1/check/history').set('Authorization', 'Bearer key-b')
+        expect(first.status).toBe(200)
+        expect(second.status).toBe(200)
+        expect(first.body.user.apiKeyId).toBe('key-a')
+        expect(second.body.user.apiKeyId).toBe('key-b')
+        expect(first.body.user.activeWorkspaceId).toBe('ws-1')
+        expect(second.body.user.activeWorkspaceId).toBe('ws-1')
+        expect(first.body.user.apiKey).toBeUndefined()
+        expect(first.body.user.apiSecret).toBeUndefined()
+        expect(JSON.stringify(first.body)).not.toContain(secret)
+        expect(JSON.stringify(second.body)).not.toContain(secret)
     })
 
     it('returns 401 when a valid key has no workspace or no organization', async () => {
