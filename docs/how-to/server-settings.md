@@ -1,6 +1,6 @@
 # Server settings
 
-**Admin** > **Server Settings** is where the owner changes how this server runs: sign-in, the database, the agent runtime, the analyst, models, file storage, security, integrations and advanced options. You change values on the page, review them, and restart Cuttlely to apply them. Nothing here needs a terminal or a host's environment page.
+**Admin** > **Server Settings** is where the owner changes how this server runs: sign-in, the database, the agent runtime, the analyst, models, file storage, security, integrations and advanced options. You change values on the page and review them. Runtime limits apply on the next use. The other settings wait for a restart. Nothing here needs a terminal or a host's environment page.
 
 ![Server settings in the light theme. Set up your server shows three tiles, 0 of 3 done: Sign-in for your team, Analyst, and A model key, with Skip for now. Sign-in & identity is selected. The Sign in with WorkOS AuthKit card has Set up AuthKit. Owner password sign-in is On and marked Locked.](../images/server-settings/server-settings-signin.png)
 
@@ -23,7 +23,7 @@ A fresh server shows three optional first steps at the top: **Sign-in for your t
 2. Change the value. Each setting says in plain words what it does, and shows its variable name in small type for reference.
 3. The bar at the bottom counts your edits. Select **Review and save**.
 4. Review lists each change from old to new. Secrets show only as set, replaced or removed. A change marked **High risk** (it could stop Cuttlely from starting, or keep people from signing in) needs `RESTART` typed before **Save changes** works.
-5. Saved changes wait for a restart. Select **Restart now** in the bar. When this server cannot restart itself, the button says **How to restart**.
+5. A runtime limit applies on the next use. Every other saved change waits for a restart. Select **Restart now** in the bar when one still needs it. When this server cannot restart itself, the button says **How to restart**.
 
 ![Security & network after a save. A green notice reads Saved. Restart Cuttlely to apply. The bar says 6 saved changes wait for a restart, with Discard and How to restart.](../images/server-settings/server-settings-saved.png)
 
@@ -31,7 +31,7 @@ A fresh server shows three optional first steps at the top: **Sign-in for your t
 
 ![Review 2 changes. File storage, marked High risk, goes from Default (This server) to S3 or compatible. Proxies in front of Cuttlely, marked High risk, goes from Default (None) to 1. The warning says a high-risk change can stop Cuttlely from starting or keep people from signing in. RESTART is typed in the box. Back and Save changes are at the bottom.](../images/server-settings/server-settings-review-high-risk.png)
 
-Every change applies at the next restart. Until then the server keeps running with what it started with, and **Discard** puts the saved file back the way it was at start.
+Runtime limits apply on the next use. The other settings apply at the next restart, and until then the server keeps running with what it started with. **Discard** puts the saved file back the way it was at start.
 
 ## Where a value comes from
 
@@ -41,7 +41,7 @@ Every change applies at the next restart. Until then the server keeps running wi
 | 2     | Server settings, saved in `settings/server.json` in Cuttlely's data folder                                                                                      | Editable                                       |
 | 3     | The built-in default                                                                                                                                            | Editable; the default is named under the field |
 
-A blank value counts as not set. A value set by the host always wins, so the page never overrides it.
+A blank value counts as not set. A value set by the host always wins, so the page never overrides it. A runtime limit is the exception when the host value is outside the range or is not a whole number: that value is ignored and is not clamped. The saved value is used when it is in range, and otherwise the default. The field stays **Locked** until the variable is removed from the host.
 
 `CUTTLELY_FILE_SIZE_LIMIT` is the same limit as the existing upload size variable, and `DISABLE_CUTTLELY_TELEMETRY` is the usage-event switch. When both names of one of those settings are set, the `CUTTLELY_` name is used. The encryption key is not on this page. `CUTTLELY_SECRETKEY_OVERWRITE` is that key's compatibility alias. If it and the existing overwrite variable are both set to different values, Cuttlely refuses to start. `METRICS_PREFIX`, under Metrics, is optional. Empty keeps the metric names this server already publishes.
 
@@ -84,7 +84,7 @@ The query timeout stops a statement that runs too long, on the private store and
 
 ## Limits that apply immediately
 
-These limits are read on each use. A saved change applies to the next check, import, or page load. A restart is not required. The host value wins when it is a whole number inside the range. Otherwise the value saved here is used, and otherwise the default. A value outside the range is refused when you save it. A host value that is not a whole number in range is ignored. The review step says these limits apply on the next use when every change is one of them. When the review also changes a setting that waits for a restart, it says the limits apply now and the rest apply at restart.
+These limits are read on each use. A saved change applies to the next check, import, or page load. A restart is not required. The host value wins when it is a whole number inside the range. A host value outside the range, or that is not a whole number, is ignored. It is not clamped. The saved value is used when it is in range, and otherwise the default. The field stays **Locked** until that variable is removed from the host. A value outside the range is refused when you save it on this page. The review step says these limits apply on the next use when every change is one of them. When the review also changes a setting that waits for a restart, it says the limits apply now and the rest apply at restart.
 
 The question count default cannot be above the question cap. The rating scan must be at least the rated-answer import cap. Saving a pair that breaks either rule is refused.
 

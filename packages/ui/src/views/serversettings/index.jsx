@@ -1,5 +1,6 @@
 // Admin, Server settings: how this server runs, for the organization owner.
-// Everything applies when Cuttlely restarts. Values set where Cuttlely is installed show as Locked.
+// Runtime limits apply on the next use. The other settings apply when Cuttlely restarts.
+// Values set where Cuttlely is installed show as Locked.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import PropTypes from 'prop-types'
 import { useDispatch, useSelector } from 'react-redux'
@@ -490,7 +491,7 @@ const ServerSettings = () => {
                         Server settings
                     </Typography>
                     <Typography sx={{ mt: 1, color: 'text.secondary', fontWeight: 500 }}>
-                        How this server runs. Changes apply when Cuttlely restarts.
+                        How this server runs. Runtime limits apply on the next use. The other settings wait for a restart.
                     </Typography>
                 </Box>
                 <OutlinedInput
