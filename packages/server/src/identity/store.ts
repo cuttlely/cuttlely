@@ -33,4 +33,11 @@ export interface IdentityStore {
     findLocalSession(token: string): Promise<LocalSession | null>
     slideLocalSession(token: string, idleExpires: Date): Promise<void>
     deleteLocalSession(token: string): Promise<void>
+    /** Removes every local session for this user. Holds across restarts because the rows are in the database. */
+    deleteLocalSessionsForUser(userId: string): Promise<void>
+    /**
+     * True when the user row is active and no organization membership is `disable`.
+     * A missing user, an invited or deleted user, and a disabled membership are false.
+     */
+    localAccountOpen(userId: string): Promise<boolean>
 }

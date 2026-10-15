@@ -17,9 +17,15 @@
  */
 
 import { NextFunction, Request, Response, Router } from 'express'
+import { rateLimit } from 'express-rate-limit'
 import logger from '../utils/logger'
+import { LOGIN_FAILURE_LIMIT, LOGIN_FAILURE_WINDOW_MS, localUsersMode } from './constants'
 import {
+    TOO_MANY,
     handleCallback,
+    handleLocalLogin,
+    handleLocalLogout,
+    handleLocalPassword,
     handleLoginGet,
     handleLoginPost,
     handleLogout,
@@ -31,7 +37,7 @@ import {
 import { apiKeyPermissionCatalog, rolePermissionCatalog } from './permissionsCatalog'
 import { requireAnyPermission, requirePermission } from './rbac'
 import { registerInvite } from './directoryRoutes'
-import { signInOptionsBody } from './signInOptions'
+import { enabledSignInMethods, signInOptionsBody } from './signInOptions'
 import { buildAuthContext } from './production'
 import { HandlerResult } from './types'
 
@@ -73,9 +79,61 @@ async function dispatch(
 }
 
 export const identityAuthRouter = Router()
+
+/**
+ * Extra per-client cap in this process for unsuccessful responses on the local password routes.
+ * A request without x-request-from: internal, or while local users mode is off, is answered before this cap and does not count.
+ * Client-address rows and email rows in identity_login_failure both survive a restart. This process cap ends with the process.
+ * The email is stored only as an HMAC. Successful responses are not counted here.
+ * The key is req.ip, which trusts proxy headers only when TRUST_PROXY says so.
+ */
+const localAuthRateLimit = rateLimit({
+    windowMs: LOGIN_FAILURE_WINDOW_MS,
+    max: LOGIN_FAILURE_LIMIT,
+    standardHeaders: false,
+    legacyHeaders: false,
+    skipSuccessfulRequests: true,
+    message: { message: TOO_MANY }
+})
+
+function localAuthPreconditions(missingHeader: string) {
+    return (req: Request, res: Response, next: NextFunction): void => {
+        if (!localUsersMode()) {
+            res.status(404).json({ message: 'Not Found' })
+            return
+        }
+        if (req.headers['x-request-from'] !== 'internal') {
+            res.status(401).json({ message: missingHeader })
+            return
+        }
+        next()
+    }
+}
+
 identityAuthRouter.get('/signin-options', (_req, res) => {
     res.json(signInOptionsBody())
 })
+identityAuthRouter.get('/options', (_req, res) => {
+    res.json(enabledSignInMethods())
+})
+identityAuthRouter.post(
+    '/local/login',
+    localAuthPreconditions('Invalid email or password.'),
+    localAuthRateLimit,
+    (req, res, next) => void dispatch(req, res, next, handleLocalLogin)
+)
+identityAuthRouter.post(
+    '/local/logout',
+    localAuthPreconditions('Unauthorized'),
+    localAuthRateLimit,
+    (req, res, next) => void dispatch(req, res, next, handleLocalLogout)
+)
+identityAuthRouter.post(
+    '/local/password',
+    localAuthPreconditions('Unauthorized'),
+    localAuthRateLimit,
+    (req, res, next) => void dispatch(req, res, next, handleLocalPassword)
+)
 identityAuthRouter.get('/permissions/ROLE', requirePermission('roles:manage'), (_req, res) => {
     res.json(rolePermissionCatalog())
 })

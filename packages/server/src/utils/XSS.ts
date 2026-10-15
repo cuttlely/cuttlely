@@ -60,6 +60,9 @@ export function getAllowedAuthCorsOrigins(): string[] {
 // Endpoints that issue or refresh session tokens — must not accept wildcard origins
 const SESSION_ENDPOINTS = [
     '/api/v1/auth/login',
+    '/api/v1/auth/local/login',
+    '/api/v1/auth/local/logout',
+    '/api/v1/auth/local/password',
     '/api/v1/auth/refreshtoken',
     '/api/v1/account/register',
     '/api/v1/azure/callback',
