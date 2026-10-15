@@ -186,7 +186,7 @@ function dump(db: InstanceType<typeof DatabaseSync>): string {
 describe('invite and reset links', () => {
     it('keeps the existing invite response when link is omitted', async () => {
         const { sql, db } = memoryDb()
-        const sent: { text: string }[] = []
+        const sent: { to: string; subject: string; text: string }[] = []
         const created = await inviteAccount(sql, manager, inviteBody(), deps({ sent, mail: false }))
         expect(created).toEqual({ id: expect.any(String) })
         expect(created).not.toHaveProperty('link')
@@ -214,7 +214,7 @@ describe('invite and reset links', () => {
 
     it('covers mail on, mail off, link true, link false, and the default', async () => {
         const { sql, db } = memoryDb()
-        const sent: { to: string; text: string }[] = []
+        const sent: { to: string; subject: string; text: string }[] = []
         await expect(
             inviteAccount(sql, manager, { ...inviteBody('a@example.com'), link: false }, deps({ mail: false }))
         ).rejects.toMatchObject({
@@ -438,7 +438,7 @@ describe('invite and reset links', () => {
             message: MAIL_REQUIRED
         })
         expect(db.prepare('SELECT id FROM identity_action_link').all()).toEqual([])
-        const sent: { to: string; text: string }[] = []
+        const sent: { to: string; subject: string; text: string }[] = []
         const mailed = await resetLocalLink(sql, owner, 'ada', { link: false }, deps({ mail: true, sent }))
         expect(mailed).toEqual({ mailed: true })
         expect(sent[0].to).toBe('ada@example.com')
