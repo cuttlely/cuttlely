@@ -172,11 +172,34 @@ function canIssueLinks(actor: DirectoryActor): boolean {
     return Boolean(actor.permissions?.includes('users:manage'))
 }
 
-/** Milliseconds from a driver value. Postgres and MySQL return Date; sqlite may return text or a number. */
-export function linkClock(value: unknown): number {
-    if (value instanceof Date) return value.getTime()
+/**
+ * Milliseconds from a driver value. Postgres returns a real Date. MySQL and MariaDB store UTC wall
+ * time with no zone: a Date from the driver was built in local time, and a `YYYY-MM-DD HH:MM:SS`
+ * string is the same wall time. Both are read as UTC. The SQL compare binds that same wall string.
+ */
+export function linkClock(value: unknown, dialect?: Sql['type']): number {
+    if (value instanceof Date) {
+        if (dialect === 'mysql' || dialect === 'mariadb') {
+            return Date.UTC(
+                value.getFullYear(),
+                value.getMonth(),
+                value.getDate(),
+                value.getHours(),
+                value.getMinutes(),
+                value.getSeconds(),
+                value.getMilliseconds()
+            )
+        }
+        return value.getTime()
+    }
     if (typeof value === 'number') return Number.isFinite(value) ? value : 0
-    const parsed = Date.parse(String(value))
+    const text = String(value).trim()
+    const zoneLess = /^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2}):(\d{2})(?:\.(\d{1,6}))?$/.exec(text)
+    if (zoneLess) {
+        const fraction = (zoneLess[7] || '').slice(0, 3).padEnd(3, '0')
+        return Date.UTC(+zoneLess[1], +zoneLess[2] - 1, +zoneLess[3], +zoneLess[4], +zoneLess[5], +zoneLess[6], +fraction || 0)
+    }
+    const parsed = Date.parse(text)
     return Number.isNaN(parsed) ? 0 : parsed
 }
 
@@ -601,7 +624,7 @@ async function findLink(query: QueryFn, sql: Sql, hash: string): Promise<StoredL
         organizationId: text(cell(row, 'organizationId')),
         workspaceId: text(cell(row, 'workspaceId')),
         userId: text(cell(row, 'userId')),
-        expiresAt: linkClock(cell(row, 'expiresAt')),
+        expiresAt: linkClock(cell(row, 'expiresAt'), sql.type),
         usedAt: text(cell(row, 'usedAt'))
     }
 }

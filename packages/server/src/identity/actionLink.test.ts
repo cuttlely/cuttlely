@@ -14,6 +14,7 @@ jest.mock('../DataSource', () => ({
     }
 }))
 
+import { spawnSync } from 'child_process'
 import { createHash } from 'crypto'
 import { mkdtempSync, readFileSync } from 'fs'
 import { createServer } from 'net'
@@ -652,6 +653,42 @@ describe('invite and reset links', () => {
         }
     })
 
+    it('reads a MySQL expiry as UTC in Auckland and Los Angeles', () => {
+        const server = join(__dirname, '..', '..')
+        const script = `
+            const { linkClock, linkDbTime } = require('./src/identity/actionLink')
+            const issued = Date.parse('2026-10-15T03:00:00.000Z')
+            const expires = issued + 60 * 60 * 1000
+            const wall = linkDbTime('mysql', expires)
+            const fromString = linkClock(wall, 'mysql')
+            if (fromString !== expires) {
+                console.error('string', process.env.TZ, wall, fromString, expires)
+                process.exit(2)
+            }
+            const match = /^(\\d{4})-(\\d{2})-(\\d{2}) (\\d{2}):(\\d{2}):(\\d{2})$/.exec(wall)
+            const driverDate = new Date(+match[1], +match[2] - 1, +match[3], +match[4], +match[5], +match[6])
+            if (linkClock(driverDate, 'mysql') !== expires) {
+                console.error('date', process.env.TZ, linkClock(driverDate, 'mysql'), expires)
+                process.exit(3)
+            }
+            if (fromString <= issued) {
+                console.error('expired', process.env.TZ)
+                process.exit(4)
+            }
+            if (linkClock(new Date(expires), 'postgres') !== expires) process.exit(5)
+            if (linkClock(linkDbTime('sqlite', expires), 'sqlite') !== expires) process.exit(6)
+        `
+        for (const tz of ['Pacific/Auckland', 'America/Los_Angeles']) {
+            const result = spawnSync(process.execPath, ['-r', 'ts-node/register/transpile-only', '-e', script], {
+                cwd: server,
+                env: { ...process.env, TZ: tz },
+                encoding: 'utf8'
+            })
+            if (result.status !== 0) throw new Error(`${tz}\n${result.stdout}\n${result.stderr}`)
+            expect(result.status).toBe(0)
+        }
+    })
+
     it('reads an expiry returned as a Date or a number, and refuses an expired one', async () => {
         expect(linkDbTime('sqlite', NOW)).toBe(new Date(NOW).toISOString())
         expect(linkDbTime('postgres', NOW)).toEqual(new Date(NOW))
@@ -662,6 +699,8 @@ describe('invite and reset links', () => {
         expect(linkClock(NOW)).toBe(NOW)
         expect(linkClock(new Date(NOW).toISOString())).toBe(NOW)
         expect(linkClock('not-a-time')).toBe(0)
+        expect(linkClock('2026-10-15 04:00:00', 'mysql')).toBe(Date.parse('2026-10-15T04:00:00.000Z'))
+        expect(linkClock(new Date(2026, 9, 15, 4, 0, 0), 'mysql')).toBe(Date.parse('2026-10-15T04:00:00.000Z'))
 
         const { sql, db } = memoryDb()
         const created = await inviteAccount(sql, owner, { ...inviteBody(), link: true }, deps())
