@@ -1,6 +1,6 @@
 // Same or changed, totals, token counts and question picking for the publish check.
 import {
-    COMPARE_COUNT_DEFAULT,
+    compareCountDefault,
     clampCompareCount,
     draftVerdict,
     median,
@@ -156,7 +156,7 @@ test('questions: newest first, one per wording, within the limits', () => {
 })
 
 test('a count is clamped into 1..100, and a missing count stays missing', () => {
-    expect(COMPARE_COUNT_DEFAULT).toBe(4)
+    expect(compareCountDefault()).toBe(4)
     expect(clampCompareCount(4)).toBe(4)
     expect(clampCompareCount(1)).toBe(1)
     expect(clampCompareCount(100)).toBe(100)

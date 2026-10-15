@@ -99,7 +99,7 @@ const { Execution } = serverRequire('./src/database/entities/Execution.ts')
 const { WorkspaceShared } = serverRequire('./src/database/entities/identity/WorkspaceShared.ts')
 const { casesFromDataset } = serverRequire('./src/services/flow-check/score.ts')
 const flowCheck = serverRequire('./src/services/flow-check/index.ts')
-const { RATING_SCAN_CAP, setRatingScanTestHook } = serverRequire('./src/services/dataset/index.ts')
+const { getRatingScanCap, setRatingScanTestHook } = serverRequire('./src/services/dataset/index.ts')
 
 async function stampFeedback(dataSource, id, value) {
     if (dataSource.options.type === 'postgres') {
@@ -3809,7 +3809,7 @@ describe('evaluation routes', () => {
                 type: 'CHATFLOW',
                 workspaceId: WORKSPACE
             })
-            for (let index = 0; index < RATING_SCAN_CAP; index += 1) {
+            for (let index = 0; index < getRatingScanCap(); index += 1) {
                 const at = new Date(now - index)
                 const answer = await dataSource.getRepository(ChatMessage).save({
                     role: 'apiMessage',
@@ -3886,7 +3886,7 @@ describe('evaluation routes', () => {
                 content: 'No.',
                 createdDate: older
             })
-            for (let index = 0; index < RATING_SCAN_CAP; index += 1) {
+            for (let index = 0; index < getRatingScanCap(); index += 1) {
                 const at = new Date(now - index)
                 const answer = await dataSource.getRepository(ChatMessage).save({
                     role: 'apiMessage',

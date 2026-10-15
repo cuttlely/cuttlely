@@ -227,6 +227,12 @@ const groups: Group[] = [
         anyOf: { method: 'get', path: '/0b5c3a1e-1111-2222-3333-444455556666/check/c1', permission: 'agentflows:view' }
     },
     {
+        name: 'flow-drafts check history',
+        router: flowDraftsRouter,
+        allow: { method: 'get', path: '/0b5c3a1e-1111-2222-3333-444455556666/check/history', permission: 'chatflows:view' },
+        anyOf: { method: 'get', path: '/0b5c3a1e-1111-2222-3333-444455556666/check/history', permission: 'agentflows:view' }
+    },
+    {
         name: 'flow-drafts check run',
         router: flowDraftsRouter,
         allow: { method: 'post', path: '/0b5c3a1e-1111-2222-3333-444455556666/check', permission: 'chatflows:update' },
@@ -470,6 +476,16 @@ describe('switched route groups', () => {
         memberships.set('owner|team-b', grant(null, true))
         const owner = { id: 'owner', activeWorkspaceId: 'team-b', permissions: [], isOrganizationAdmin: false }
         expect((await call(statsRouter, owner, { method: 'get', path: '/flow-1', permission: '' })).status).toBe(200)
+    })
+
+    it('refuses check history for an API key that can run a check and cannot read messages', async () => {
+        const path = '/0b5c3a1e-1111-2222-3333-444455556666/check/history'
+        const key = { permissions: ['chatflows:update'], activeWorkspaceId: 'team-a' }
+        const denied = await call(flowDraftsRouter, key, { method: 'get', path, permission: 'chatflows:update' })
+        expect(denied.status).toBe(403)
+        expect(hits.n).toBe(0)
+        const allowed = { permissions: ['chatflows:view'], activeWorkspaceId: 'team-a' }
+        expect((await call(flowDraftsRouter, allowed, { method: 'get', path, permission: 'chatflows:view' })).status).toBe(200)
     })
 
     it('answers 401 when the caller is missing, on each switched group', async () => {

@@ -62,8 +62,9 @@ jest.mock('../../database/entities/identity', () => ({ Workspace: class Workspac
 jest.mock('@cuttlely/components', () => ({ EvaluationRunner: { metrics: new Map() } }))
 jest.mock('../../utils/logger', () => ({ __esModule: true, default: { error: jest.fn(), debug: jest.fn() } }))
 
-import { checks, getCheck, getCheckSetup, priceHooks, replayHooks, startCheck, stopCheck } from './index'
+import { resetRuntimeLimitsForTests } from '../../settings/runtime'
 import { priceBook, usageLinesFromRun } from '../usage'
+import { checks, getCheck, getCheckSetup, priceHooks, replayHooks, startCheck, stopCheck } from './index'
 import { harnessCheckHooks, harnessReplayHooks, questionsFromUserTurns, questionTextFromTurn } from './harness'
 
 const canvas = (word: string, extra: any[] = []) =>
@@ -154,6 +155,33 @@ describe('harness publish check', () => {
             { text: 'Any rye left?', date: '', starter: true }
         ])
         expect(setup.pastCount).toBe(2)
+    })
+
+    test('pastTruncated is set when the returned turns fill the limit the query applied', async () => {
+        process.env.CUTTLELY_HARNESS_TURN_SCAN_CAP = '500'
+        resetRuntimeLimitsForTests()
+        const seen: number[] = []
+        const fill = (limit: number | undefined) => {
+            const applied = Math.min(5000, Math.max(1, Math.floor(limit ?? 2000)))
+            seen.push(applied)
+            return Array.from({ length: applied }, (_, i) => ({
+                content: 'same question',
+                createdAt: new Date(Date.UTC(2026, 0, 1) + i).toISOString()
+            }))
+        }
+        try {
+            harnessCheckHooks.listUserTurns = (_name, opts) => fill(opts?.limit)
+            const full = await getCheckSetup(flow())
+            expect(seen).toEqual([500])
+            expect(full.pastTruncated).toBe(true)
+            expect(full.pastCount).toBe(1)
+            harnessCheckHooks.listUserTurns = (_name, opts) => fill(opts?.limit).slice(0, -1)
+            const short = await getCheckSetup(flow())
+            expect(short.pastTruncated).toBe(false)
+        } finally {
+            delete process.env.CUTTLELY_HARNESS_TURN_SCAN_CAP
+            resetRuntimeLimitsForTests()
+        }
     })
 
     test('replays each question on the Live canvas and the draft canvas and writes nothing', async () => {
@@ -302,7 +330,7 @@ describe('harness publish check', () => {
         await expect(startCheck(flow() as any, { datasetId: 'missing' }, 'http://x')).rejects.toMatchObject({ statusCode: 404 })
         await expect(startCheck(flow() as any, { datasetId: 'ds-1', count: 4 }, 'http://x')).rejects.toMatchObject({
             statusCode: 400,
-            message: 'Send a datasetId on its own. Do not send questions or count with it.'
+            message: 'Send a datasetId on its own. Do not send questions, count, or questionIds with it.'
         })
         expect(checks.size).toBe(0)
         datasets.set('ds-1', { id: 'ds-1', workspaceId: 'team-a' })

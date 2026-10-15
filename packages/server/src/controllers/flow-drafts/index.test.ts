@@ -38,12 +38,17 @@ const checkService = {
     stopCheck: jest.fn(async () => ({ id: 'c1', status: 'stopped' }))
 }
 jest.mock('../../services/flow-check', () => ({ __esModule: true, default: checkService }))
+const listQuestionHistory = jest.fn(async () => ({ items: [], nextCursor: null }))
+jest.mock('../../services/flow-check/history', () => ({
+    listQuestionHistory: (...args: any[]) => (listQuestionHistory as (...values: any[]) => any)(...args)
+}))
 const granted = new Set<string>()
 jest.mock('../../identity/rbac', () => ({
     hasAnyPermission: jest.fn(async (_req: any, ...permissions: string[]) => permissions.some((item) => granted.has(item)))
 }))
 
 import controller from './index'
+import { BadQuestionIdsError } from '../../services/flow-check/question-ids-error'
 
 const FLOW = { id: '0b5c3a1e-1111-2222-3333-444455556666', type: 'CHATFLOW', flowData: '{"nodes":[],"edges":[]}', workspaceId: 'team-a' }
 
@@ -57,6 +62,8 @@ function request(body: any = {}) {
 function response() {
     const res: any = {}
     res.json = jest.fn(() => res)
+    res.status = jest.fn(() => res)
+    res.setHeader = jest.fn(() => res)
     return res
 }
 
@@ -657,5 +664,105 @@ describe('the publish check', () => {
             undefined,
             expect.objectContaining({ closed: expect.any(Function) })
         )
+    })
+
+    it('signs question history with the API key id', async () => {
+        granted.add('chatflows:view')
+        for (const keyId of ['key-a', 'key-b']) {
+            const req = checkRequest()
+            delete req.user.id
+            req.user.apiKeyId = keyId
+            req.user.activeWorkspaceId = 'team-a'
+            req.query = { limit: '1' }
+            await controller.getCheckHistory(req, response(), jest.fn())
+            expect(listQuestionHistory).toHaveBeenLastCalledWith(expect.objectContaining({ id: FLOW.id }), { limit: '1' }, `key:${keyId}`)
+        }
+    })
+
+    it('lists question history for a viewer and does not store the response', async () => {
+        granted.add('chatflows:view')
+        const req = checkRequest()
+        req.query = { limit: '50' }
+        const res = response()
+        await controller.getCheckHistory(req, res, jest.fn())
+        expect(listQuestionHistory).toHaveBeenCalledWith(expect.objectContaining({ id: FLOW.id }), { limit: '50' }, 'user:user-1')
+        expect(res.setHeader).toHaveBeenCalledWith('Cache-Control', 'no-store')
+        expect(res.json).toHaveBeenCalledWith({ items: [], nextCursor: null })
+    })
+
+    it('refuses question history when the caller can update the flow but cannot read its messages', async () => {
+        granted.add('chatflows:update')
+        const next = jest.fn()
+        await controller.getCheckHistory(checkRequest(), response(), next)
+        expect(next.mock.calls[0][0].statusCode).toBe(403)
+        expect(listQuestionHistory).not.toHaveBeenCalled()
+    })
+
+    it('refuses question history for an API key that can run a check and cannot read messages', async () => {
+        granted.add('chatflows:update')
+        const req = checkRequest()
+        delete req.user.id
+        const next = jest.fn()
+        await controller.getCheckHistory(req, response(), next)
+        expect(next.mock.calls[0][0].statusCode).toBe(403)
+        expect(listQuestionHistory).not.toHaveBeenCalled()
+    })
+
+    it('passes on the same 404 when the flow is outside the workspace', async () => {
+        granted.add('chatflows:view')
+        const missing = Object.assign(new Error('not found'), { statusCode: 404 })
+        getChatflowByIdForWorkspace.mockRejectedValue(missing)
+        const next = jest.fn()
+        await controller.getCheckHistory(checkRequest(), response(), next)
+        expect(next).toHaveBeenCalledWith(missing)
+        expect(listQuestionHistory).not.toHaveBeenCalled()
+    })
+
+    it('treats a null questionIds list as absent for an update-only key', async () => {
+        granted.add('chatflows:update')
+        const req = checkRequest({ questionIds: null, count: 4 })
+        delete req.user.id
+        const res = accepted()
+        const next = jest.fn()
+        await controller.startCheck(req, res, next)
+        expect(next).not.toHaveBeenCalled()
+        expect(res.status).toHaveBeenCalledWith(202)
+        expect(checkService.startCheck).toHaveBeenCalledWith(
+            expect.objectContaining({ id: FLOW.id }),
+            { questionIds: null, count: 4 },
+            'http://cuttlely.test:3000',
+            undefined,
+            expect.objectContaining({ closed: expect.any(Function) })
+        )
+    })
+
+    it('refuses questionIds when the caller can run a check but cannot read messages', async () => {
+        for (const userId of ['user-1', undefined]) {
+            granted.clear()
+            granted.add('chatflows:update')
+            const req = checkRequest({ questionIds: ['chat:11111111-1111-4111-8111-111111111111'] })
+            if (!userId) delete req.user.id
+            const next = jest.fn()
+            await controller.startCheck(req, accepted(), next)
+            expect(next.mock.calls[0][0].statusCode).toBe(403)
+            expect(next.mock.calls[0][0].message).not.toContain('11111111')
+        }
+        expect(checkService.startCheck).not.toHaveBeenCalled()
+    })
+
+    it('answers bad question ids with a count and no question text', async () => {
+        granted.add('chatflows:view')
+        granted.add('chatflows:update')
+        const secret = 'Do you have rye loaves today?'
+        checkService.startCheck.mockRejectedValueOnce(new BadQuestionIdsError(2))
+        const res = accepted()
+        await controller.startCheck(
+            checkRequest({ questionIds: ['chat:11111111-1111-4111-8111-111111111111'], questions: [secret] }),
+            res,
+            jest.fn()
+        )
+        expect(res.status).toHaveBeenCalledWith(400)
+        expect(res.json).toHaveBeenCalledWith({ code: 'CHECK_BAD_QUESTION_IDS', badCount: 2 })
+        expect(JSON.stringify(res.json.mock.calls)).not.toContain(secret)
     })
 })

@@ -25,6 +25,7 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 ### Upgrade notes / breaking changes
 
 -   The old Analyst import paths are gone. Import the modules in `packages/harness/runtime/` instead of `scripts/analyst-store.mjs`, `scripts/analyst-postgres.mjs`, `scripts/analyst-page.mjs`, `scripts/analyst-sqlite-worker.mjs`, `scripts/analyst-mcp-status.mjs`, `scripts/hermes-stream.mjs`, and `harness/runtime/`.
+-   Out-of-range host values for the publish check are no longer pulled into range. This applies to `CUTTLELY_CHECK_MAX_TOKENS`, `CUTTLELY_CHECK_MAX_SECONDS`, and `CUTTLELY_CHECK_CONCURRENCY`. A number outside the range used to be moved to the nearest bound. It is now ignored. A saved value inside the range is used, otherwise the default. `CUTTLELY_CHECK_MAX_SECONDS=5` now uses 180, not 10. The log line is `[server]: CUTTLELY_CHECK_MAX_SECONDS is not a usable runtime limit, so another value is used`. The same line names whichever of those variables was ignored. See [Upgrading](./docs/upgrading.md#publish-check-limits-set-outside-their-range).
 
 ### Docs
 

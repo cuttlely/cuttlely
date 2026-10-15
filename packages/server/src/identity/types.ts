@@ -67,6 +67,8 @@ export interface LoggedInUser {
     assignedWorkspaces?: { id: string; name: string }[]
     lastLogin?: string | null
     isSSO?: boolean
+    /** Present for an API key. This is the key id, never the key secret. */
+    apiKeyId?: string
 }
 
 export interface LocalSession {
