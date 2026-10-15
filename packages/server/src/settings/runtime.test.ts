@@ -50,6 +50,22 @@ describe('runtime limits', () => {
         expect(console.warn).not.toHaveBeenCalled()
     })
 
+    it('lets a saved history cap win over the environment variable', () => {
+        const { data, env } = tempEnv()
+        env.CUTTLELY_HISTORY_KEEP = '2000'
+        expect(runtimeSnapshot(env).get('CUTTLELY_HISTORY_KEEP')).toEqual({ value: 2000, source: 'host' })
+        save(data, { CUTTLELY_HISTORY_KEEP: '250' })
+        resetRuntimeLimitsForTests()
+        expect(runtimeSnapshot(env).get('CUTTLELY_HISTORY_KEEP')).toEqual({ value: 250, source: 'panel' })
+        env.CUTTLELY_HISTORY_KEEP = '50'
+        resetRuntimeLimitsForTests()
+        expect(runtimeNumber('CUTTLELY_HISTORY_KEEP', env)).toBe(250)
+        fs.rmSync(path.join(data, 'settings'), { recursive: true, force: true })
+        resetRuntimeLimitsForTests()
+        expect(runtimeSnapshot(env).get('CUTTLELY_HISTORY_KEEP')).toEqual({ value: 1000, source: 'default' })
+        expect(console.warn).toHaveBeenCalled()
+    })
+
     it('ignores a bad host value and uses a valid panel value, then the default', () => {
         const { data, env } = tempEnv()
         save(data, { CUTTLELY_CHECK_MAX_SECONDS: '30' })

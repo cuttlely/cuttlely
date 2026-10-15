@@ -15,7 +15,7 @@ import { AUTHKIT_KEYS, authKitComplete, authKitEnvironment, authKitTested, readA
 import { HistoryEntry, HistoryPage, appendHistory, decodeHistoryCursor, describeChanges, pageHistory, readHistory } from './history'
 import { SettingsBusyError, withSettingsLock } from './lock'
 import { listReadOnlyStatus } from './readOnly'
-import { KEPT_OUT, SECTIONS, SETTINGS, SettingDef, isKeptOut, isReadOnly, settingFor } from './registry'
+import { KEPT_OUT, SECTIONS, SETTINGS, SettingDef, isKeptOut, isReadOnly, savedValueWins, settingFor } from './registry'
 import { ResolvedSetting, effectiveValue, isBlank, resolveSettings } from './resolve'
 import { invalidateRuntimeCache, runtimeConflict, runtimeSnapshot } from './runtime'
 import { requestRestart, restartInPlaceAvailable } from './restart'
@@ -194,7 +194,7 @@ export async function getView(deps: ServiceDeps): Promise<SettingsView> {
                 const shown = picked.source === 'default' ? '' : String(picked.value)
                 view.source = picked.source
                 // Bounded is not a host value of this key, so the host lock applies only when this variable is set.
-                view.locked = hostKeys.has(setting.key) && !isBlank(env[setting.key])
+                view.locked = hostKeys.has(setting.key) && !isBlank(env[setting.key]) && !savedValueWins(setting.key)
                 if (picked.source === 'bounded' && picked.boundedBy) view.boundedBy = picked.boundedBy
                 view.changed = false
                 view.range = publishedRange(setting, live)
@@ -301,7 +301,7 @@ export async function saveChanges(deps: ServiceDeps, input: unknown, by: string,
             errors.push({ key, message: isKeptOut(key) ? `${key} cannot be changed from the browser.` : `${key} is not a setting.` })
             continue
         }
-        if (hostKeys.has(key)) {
+        if (hostKeys.has(key) && !savedValueWins(key)) {
             errors.push({ key, message: `${setting.label} is set by the host, so it is locked here.` })
             continue
         }
