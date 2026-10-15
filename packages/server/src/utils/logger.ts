@@ -73,6 +73,8 @@ function getSensitiveHeaderFields(): string[] {
 
 // Always redacted in a debug request body. `token` is the GitHub token sent when connecting version history.
 const SESSION_LOG_FIELDS = new Set(['chatid', 'sessionid', 'sessiontoken', 'token'])
+// Same names redactLoggedUrl drops from the request line. A debug record copies req.query beside that line.
+const QUERY_LOG_FIELDS = new Set(['q', 'cursor'])
 
 /** Drop client session ids, session tokens, and API keys in the path before a request line is written. */
 export function redactLoggedUrl(url: string): string {
@@ -104,6 +106,15 @@ function sanitizeObject(obj: any): any {
     return sanitized
 }
 
+function redactLoggedQuery(query: any): any {
+    const sanitized = sanitizeObject(query)
+    if (!sanitized || typeof sanitized !== 'object' || Array.isArray(sanitized)) return sanitized
+    for (const key of Object.keys(sanitized)) {
+        if (QUERY_LOG_FIELDS.has(key.toLowerCase())) sanitized[key] = '[redacted]'
+    }
+    return sanitized
+}
+
 export function expressRequestLogger(req: Request, res: Response, next: NextFunction): void {
     const unwantedLogURLs = ['/api/v1/node-icon/', '/api/v1/components-credentials-icon/', '/api/v1/ping']
 
@@ -121,7 +132,7 @@ export function expressRequestLogger(req: Request, res: Response, next: NextFunc
         // Only include headers, body, and query if log level is debug
         if (isDebugLevel) {
             const sanitizedBody = sanitizeObject(req.body)
-            const sanitizedQuery = sanitizeObject(req.query)
+            const sanitizedQuery = redactLoggedQuery(req.query)
             const sanitizedHeaders = { ...req.headers }
 
             const sensitiveHeaders = getSensitiveHeaderFields()
@@ -154,11 +165,20 @@ export function expressRequestLogger(req: Request, res: Response, next: NextFunc
         }
 
         const loggedUrl = redactLoggedUrl(req.url)
+        const line = `${getRequestEmoji(req.method)} ${req.method} ${loggedUrl}`
+        // The debug record is the only line that copies req.query. q and cursor are already redacted there.
         if (req.method !== 'GET') {
-            requestLogger.info(`${getRequestEmoji(req.method)} ${req.method} ${loggedUrl}`)
-            logger.info(`${getRequestEmoji(req.method)} ${req.method} ${loggedUrl}`)
+            if (isDebugLevel) {
+                requestLogger.info(line, requestMetadata)
+                logger.info(line, requestMetadata)
+            } else {
+                requestLogger.info(line)
+                logger.info(line)
+            }
+        } else if (isDebugLevel) {
+            requestLogger.http(line, requestMetadata)
         } else {
-            requestLogger.http(`${getRequestEmoji(req.method)} ${req.method} ${loggedUrl}`)
+            requestLogger.http(line)
         }
     }
 

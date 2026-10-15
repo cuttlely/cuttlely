@@ -117,6 +117,30 @@ describe('logger.ts', () => {
             expect(logged).not.toContain(secret)
         })
 
+        it('does not write a question search or page cursor in the debug query record', () => {
+            process.env.DEBUG = 'true'
+            const search = 'do-you-have-rye-loaves'
+            const token = 'signed-page-cursor-token'
+            const infoSpy = jest.spyOn(logger, 'info').mockImplementation(() => logger)
+            const req = {
+                url: `/api/v1/flow-drafts/flow-1/check/history?limit=50&q=${search}&cursor=${token}`,
+                method: 'POST',
+                params: {},
+                body: {},
+                query: { limit: '50', q: search, cursor: token, Cursor: token },
+                headers: {}
+            } as any
+            expressRequestLogger(req, {} as any, next)
+            const logged = JSON.stringify(infoSpy.mock.calls)
+            expect(logged).not.toContain(search)
+            expect(logged).not.toContain(token)
+            const meta = infoSpy.mock.calls[0][1] as { request: { query: Record<string, string>; url: string } }
+            expect(meta.request.query).toEqual({ limit: '50', q: '[redacted]', cursor: '[redacted]', Cursor: '[redacted]' })
+            expect(meta.request.url).not.toContain(search)
+            expect(meta.request.url).not.toContain(token)
+            infoSpy.mockRestore()
+        })
+
         it('does not write a history page cursor on the request line', () => {
             const token = 'signed-page-cursor-token'
             const logged = redactLoggedUrl(`/api/v1/flow-drafts/flow-1/check/history?cursor=${token}&limit=1`)
