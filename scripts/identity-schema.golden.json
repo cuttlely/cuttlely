@@ -7839,7 +7839,7 @@
                     "name": "reason",
                     "type": "varchar(64)",
                     "nullable": true,
-                    "default": null,
+                    "default": "NULL",
                     "extra": "",
                     "collation": "utf8mb4_general_ci"
                 },
@@ -7928,7 +7928,7 @@
                     "name": "usedAt",
                     "type": "datetime",
                     "nullable": true,
-                    "default": null,
+                    "default": "NULL",
                     "extra": "",
                     "collation": null
                 },
@@ -7936,7 +7936,7 @@
                     "name": "consumeId",
                     "type": "varchar(255)",
                     "nullable": true,
-                    "default": null,
+                    "default": "NULL",
                     "extra": "",
                     "collation": "utf8mb4_general_ci"
                 },
