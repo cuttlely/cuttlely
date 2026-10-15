@@ -42,17 +42,23 @@ Seeded once, with stable ids. The permission list is fixed. Create, edit, and de
 
 Lowering a role ends every local session for that person and bumps their permission version. A session issued at an older version is rejected, so a cookie from before the change cannot keep the old permissions. Raising a role does not end sessions. The next request reads the new keys. Disabling, deleting, removing the team membership, or shrinking a custom role's keys also ends sessions.
 
+A team role and the organization role are separate. `PUT /api/v1/users/:id/role` and `PUT /api/v1/workspaceuser` change the role on that team and leave the organization role as it is. The exception is Owner: assigning Owner also sets the organization role to owner, and assigning any other role to someone who is currently an owner sets the organization role back to `member`. Invite (`POST /api/v1/account/invite`) stores the chosen role on the team and stores `member` on the organization, unless the chosen role is Owner.
+
 ## Last owner
 
-An enabled owner is an active user, with an active organization membership whose role is `owner`, and at least one team membership that is `active` or `invited` on a team other than Personal Workspace. Disabled users do not count.
+An enabled owner is an active user whose organization membership is active and whose organization role is `owner`. Team rows are not part of that count. A disabled user does not count. An owner with no team still counts.
 
-Demoting, disabling, deleting, removing the role assignment, removing the last team, or doing any of those to yourself answers **409** `{ "message": "The last owner cannot be removed" }` when it would leave none. A second owner can be disabled. The check and the write are one statement, so two overlapping removals cannot both succeed.
+Demoting, disabling, or deleting that person, including when they do it to themselves, answers **409** `{ "message": "The last owner cannot be removed" }` when it would leave none. Removing the last owner's last non-personal team, or deleting that team, answers the same 409. A second owner can be disabled. The check and the write run in one transaction. On SQLite that transaction starts with `BEGIN IMMEDIATE`. On other databases the owner rows are locked until the transaction commits, so two overlapping removals of the last owner's teams cannot both succeed.
+
+## AuthKit and local password sign-in
+
+`/api/v1/users` and `/api/v1/roles` stay limited to local users mode. The older invite, organization user, role, and team routes stay available when AuthKit is on, because those screens are how an AuthKit install adds people. The last-owner guard, the permission-version bump, and the active-team checks on those older routes run in both modes. Bumping the version and deleting local session rows is safe when AuthKit is on: an AuthKit session reads permissions from the database on each request, and a local cookie, if one exists, cannot keep the previous permissions. Invite still creates a user with no password.
 
 ## List people
 
 `GET /api/v1/users`
 
-Query: `limit` (default 50, max 100), `offset` (default 0), `q` (name or email, at most 100 characters; `%` and `_` are not wildcards), `sort` (`name`, `email`, `status`, or the same with a leading `-` for descending; default `name`), `status` (`active` or `disable`).
+Query: `limit` (default 50, max 100), `offset` (default 0), `q` (name or email, at most 100 characters), `sort` (`name`, `email`, `status`, or the same with a leading `-` for descending; default `name`), `status` (`active` or `disable`). `%` and `_` in `q` are matched as those characters. A search of `%` does not match every row.
 
 ```json
 {
@@ -152,7 +158,7 @@ The response does not include cookies, bearer tokens, refresh tokens, token hash
 
 ## Teams
 
-These routes are the team API. They are not limited to local users mode, because AuthKit installs use them too. A caller who is not the owner is limited to the active team.
+These routes are the team API. They are not limited to local users mode, because AuthKit installs use them too. A caller who is not the owner can list, open, edit, and delete only the active team. `GET /api/v1/workspace` for that caller returns that one team. Opening or editing another team is **404** `{ "message": "Team not found" }`. The organization owner can use every team in the organization. `POST /api/v1/account/invite` follows the same active-team rule.
 
 | Action              | Route                           | Permission                                |
 | ------------------- | ------------------------------- | ----------------------------------------- |

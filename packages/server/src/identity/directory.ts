@@ -103,13 +103,22 @@ export function sqlFromDataSource(dataSource: DataSource): Sql {
         transaction: async (fn) => {
             const runner = dataSource.createQueryRunner()
             await runner.connect()
-            await runner.startTransaction()
+            const sqlite = type === 'sqlite'
+            // Deferred BEGIN lets a second connection pass the same owner check.
+            if (sqlite) await runner.query('BEGIN IMMEDIATE')
+            else await runner.startTransaction()
             try {
                 const result = await fn(bind(runner))
-                await runner.commitTransaction()
+                if (sqlite) await runner.query('COMMIT')
+                else await runner.commitTransaction()
                 return result
             } catch (error) {
-                await runner.rollbackTransaction()
+                try {
+                    if (sqlite) await runner.query('ROLLBACK')
+                    else await runner.rollbackTransaction()
+                } catch {
+                    // The original error is the one the caller needs.
+                }
                 throw error
             } finally {
                 await runner.release()
@@ -144,6 +153,7 @@ function permissionsOn(row: Record<string, unknown>): string[] {
     return builtInPermissionKeys(text(cell(row, 'name'))) || storedPermissions(cell(row, 'permissions'))
 }
 
+/** An enabled owner is an active user whose organization role is owner. Team rows are not part of the count. */
 function enabledOwnersSql(sql: Sql): string {
     return `SELECT ou.${q(sql, 'userId')} AS userId
         FROM ${q(sql, 'organization_user')} ou
@@ -152,15 +162,20 @@ function enabledOwnersSql(sql: Sql): string {
         WHERE ou.${q(sql, 'organizationId')} = ?
           AND LOWER(ou.${q(sql, 'status')}) = 'active'
           AND LOWER(u.${q(sql, 'status')}) = 'active'
-          AND LOWER(r.${q(sql, 'name')}) = 'owner'
-          AND EXISTS (
-            SELECT 1 FROM ${q(sql, 'workspace_user')} wu
-            INNER JOIN ${q(sql, 'workspace')} w ON w.${q(sql, 'id')} = wu.${q(sql, 'workspaceId')}
-            WHERE wu.${q(sql, 'userId')} = ou.${q(sql, 'userId')}
-              AND w.${q(sql, 'organizationId')} = ou.${q(sql, 'organizationId')}
-              AND w.${q(sql, 'name')} <> ?
-              AND LOWER(wu.${q(sql, 'status')}) IN ('active', 'invited')
-          )`
+          AND LOWER(r.${q(sql, 'name')}) = 'owner'`
+}
+
+/** Hold the owner rows for this organization until the transaction commits. SQLite uses BEGIN IMMEDIATE instead. */
+async function lockOrgOwners(query: QueryFn, sql: Sql, organizationId: string, userId: string): Promise<void> {
+    if (sql.type === 'sqlite') return
+    await query(
+        `SELECT ${q(sql, 'userId')} AS userId FROM ${q(sql, 'organization_user')} WHERE ${q(sql, 'organizationId')} = ? FOR UPDATE`,
+        [organizationId]
+    )
+    await query(
+        `SELECT ${q(sql, 'workspaceId')} AS workspaceId FROM ${q(sql, 'workspace_user')} WHERE ${q(sql, 'userId')} = ? FOR UPDATE`,
+        [userId]
+    )
 }
 
 /**
@@ -176,7 +191,7 @@ async function refuseLastOwnerDisable(query: QueryFn, sql: Sql, organizationId: 
             THEN 'disable' ELSE ${q(sql, 'status')} END,
             ${q(sql, 'updatedDate')} = CURRENT_TIMESTAMP
          WHERE ${q(sql, 'organizationId')} = ? AND ${q(sql, 'userId')} = ?`,
-        [organizationId, PERSONAL_WORKSPACE, organizationId, PERSONAL_WORKSPACE, organizationId, userId]
+        [organizationId, organizationId, organizationId, userId]
     )
     const rows = await query(
         `SELECT ${q(sql, 'status')} AS status FROM ${q(sql, 'organization_user')}
@@ -211,6 +226,29 @@ async function assertSameWorkspace(query: QueryFn, sql: Sql, actor: DirectoryAct
     await workspaceInOrg(query, sql, workspaceId, actor.organizationId)
     if (await ownerUser(query, sql, actor.organizationId, actor.id)) return
     if (!actor.workspaceId || actor.workspaceId !== workspaceId) throw new DirectoryError(404, 'Team not found')
+}
+
+/** A non-owner may change a person only when that person is on the caller's active team. */
+async function assertSharedActiveTeam(query: QueryFn, sql: Sql, actor: DirectoryActor, userId: string): Promise<void> {
+    if (await ownerUser(query, sql, actor.organizationId, actor.id)) return
+    if (!actor.workspaceId) throw new DirectoryError(400, 'Active workspace is required')
+    const rows = await query(
+        `SELECT ${q(sql, 'userId')} AS userId FROM ${q(sql, 'workspace_user')}
+         WHERE ${q(sql, 'workspaceId')} = ? AND ${q(sql, 'userId')} = ?`,
+        [actor.workspaceId, userId]
+    )
+    if (!rows.length) throw new DirectoryError(404, 'User not found')
+}
+
+async function plainMemberRoleId(query: QueryFn, sql: Sql): Promise<string> {
+    const rows = await query(
+        `SELECT ${q(sql, 'id')} AS id FROM ${q(sql, 'role')}
+         WHERE ${q(sql, 'organizationId')} IS NULL AND LOWER(${q(sql, 'name')}) = 'member'`,
+        []
+    )
+    const id = text(cell(rows[0] || {}, 'id'))
+    if (!id) throw new DirectoryError(400, 'Choose a role')
+    return id
 }
 
 function q(sql: Sql, name: string): string {
@@ -306,16 +344,19 @@ async function workspaceInOrg(query: QueryFn, sql: Sql, workspaceId: string, org
 export async function createEmailUser(sql: Sql, actor: DirectoryActor, body: unknown): Promise<{ id: string }> {
     const invite = inviteBody(body)
     return sql.transaction(async (query) => {
+        await assertSameWorkspace(query, sql, actor, invite.workspaceId)
         const workspace = await workspaceInOrg(query, sql, invite.workspaceId, actor.organizationId)
         if (text(cell(workspace, 'name')) === PERSONAL_WORKSPACE) throw new DirectoryError(400, 'Choose a team')
         const grant = await actorGrant(query, sql, actor)
         const role = await roleRow(query, sql, invite.roleId)
         if (!role) throw new DirectoryError(400, 'Choose a role')
-        if (text(cell(role, 'name')).toLowerCase() === OWNER_ROLE && !grant.owner) {
+        const invitedName = text(cell(role, 'name')).toLowerCase()
+        if (invitedName === OWNER_ROLE && !grant.owner) {
             throw new DirectoryError(403, 'Only an owner can assign the owner role')
         }
         if (!assignable(role, actor.organizationId, grant.owner)) throw new DirectoryError(400, 'Choose a role')
         assertCovers(grant, permissionsOn(role))
+        const orgRoleId = invitedName === OWNER_ROLE ? text(cell(role, 'id')) : await plainMemberRoleId(query, sql)
         const existing = await query(`SELECT ${q(sql, 'id')} AS id FROM ${q(sql, 'user')} WHERE LOWER(${q(sql, 'email')}) = LOWER(?)`, [
             invite.email
         ])
@@ -336,7 +377,7 @@ export async function createEmailUser(sql: Sql, actor: DirectoryActor, body: unk
             `INSERT INTO ${q(sql, 'organization_user')} (${q(sql, 'organizationId')}, ${q(sql, 'userId')}, ${q(sql, 'roleId')},
                 ${q(sql, 'status')}, ${q(sql, 'createdBy')}, ${q(sql, 'updatedBy')})
              VALUES (?, ?, ?, ?, ?, ?)`,
-            [actor.organizationId, userId, text(cell(role, 'id')), 'active', actor.id, actor.id]
+            [actor.organizationId, userId, orgRoleId, 'active', actor.id, actor.id]
         )
         await query(
             `INSERT INTO ${q(sql, 'workspace_user')} (${q(sql, 'workspaceId')}, ${q(sql, 'userId')}, ${q(sql, 'roleId')},
@@ -385,9 +426,15 @@ export async function listOrganizationUsers(sql: Sql, actor: DirectoryActor, org
             `SELECT wu.${q(sql, 'userId')} AS userId, COUNT(*) AS roleCount, MAX(wu.${q(sql, 'lastLogin')}) AS lastLogin
              FROM ${q(sql, 'workspace_user')} wu
              INNER JOIN ${q(sql, 'workspace')} w ON w.${q(sql, 'id')} = wu.${q(sql, 'workspaceId')}
-             WHERE w.${q(sql, 'organizationId')} = ? AND wu.${q(sql, 'userId')} IN (${marks})
+             WHERE w.${q(sql, 'organizationId')} = ?
+               AND w.${q(sql, 'name')} <> ?
+               AND wu.${q(sql, 'workspaceId')} IN (
+                 SELECT caller.${q(sql, 'workspaceId')} FROM ${q(sql, 'workspace_user')} caller
+                 WHERE caller.${q(sql, 'userId')} = ?
+               )
+               AND wu.${q(sql, 'userId')} IN (${marks})
              GROUP BY wu.${q(sql, 'userId')}`,
-            [organizationId, ...ids]
+            [organizationId, PERSONAL_WORKSPACE, actor.id, ...ids]
         )
         for (const row of aggregate) {
             counts.set(text(cell(row, 'userId')), { roleCount: num(cell(row, 'roleCount')), lastLogin: iso(cell(row, 'lastLogin')) })
@@ -431,6 +478,11 @@ export async function deleteOrganizationUser(
     sameOrg(actor, organizationId)
     if (!userId) throw new DirectoryError(400, 'User is required')
     return sql.transaction(async (query) => {
+        await assertSharedActiveTeam(query, sql, actor, userId)
+        if (!(await ownerUser(query, sql, organizationId, actor.id))) {
+            throw new DirectoryError(403, 'Only an owner can remove someone from every team')
+        }
+        await lockOrgOwners(query, sql, organizationId, userId)
         const membership = await query(
             `SELECT ${q(sql, 'userId')} AS userId FROM ${q(sql, 'organization_user')}
              WHERE ${q(sql, 'organizationId')} = ? AND ${q(sql, 'userId')} = ?`,
@@ -445,7 +497,7 @@ export async function deleteOrganizationUser(
                  EXISTS (SELECT 1 FROM ${owners} owners WHERE owners.userId = ?)
                  AND (SELECT COUNT(*) FROM ${owners} owners) < 2
                )`,
-            [organizationId, userId, organizationId, PERSONAL_WORKSPACE, userId, organizationId, PERSONAL_WORKSPACE]
+            [organizationId, userId, organizationId, userId, organizationId]
         )
         const kept = await query(
             `SELECT ${q(sql, 'userId')} AS userId FROM ${q(sql, 'organization_user')}
@@ -484,6 +536,8 @@ export async function updateOrganizationUser(sql: Sql, actor: DirectoryActor, bo
     const status = requested === 'active' ? 'active' : requested === 'inactive' || requested === 'disable' ? 'disable' : ''
     if (!status) throw new DirectoryError(400, 'Status must be active or inactive')
     return sql.transaction(async (query) => {
+        await assertSharedActiveTeam(query, sql, actor, userId)
+        await lockOrgOwners(query, sql, organizationId, userId)
         const still = await query(
             `SELECT ${q(sql, 'userId')} AS userId FROM ${q(sql, 'organization_user')}
              WHERE ${q(sql, 'organizationId')} = ? AND ${q(sql, 'userId')} = ?`,
@@ -612,52 +666,40 @@ export async function listWorkspaceMemberships(
 
 export async function deleteWorkspaceUser(sql: Sql, actor: DirectoryActor, workspaceId: string, userId: string): Promise<{ id: string }> {
     if (!workspaceId || !userId) throw new DirectoryError(400, 'User and team are required')
-    await assertSameWorkspace(sql.query, sql, actor, workspaceId)
-    const rows = await sql.query(
-        `SELECT ${q(sql, 'userId')} AS userId FROM ${q(sql, 'workspace_user')}
-         WHERE ${q(sql, 'workspaceId')} = ? AND ${q(sql, 'userId')} = ?`,
-        [workspaceId, userId]
-    )
-    if (!rows.length) throw new DirectoryError(404, 'Workspace user not found')
-    const owners = `(${enabledOwnersSql(sql)})`
-    await sql.query(
-        `DELETE FROM ${q(sql, 'workspace_user')}
-         WHERE ${q(sql, 'workspaceId')} = ? AND ${q(sql, 'userId')} = ?
-           AND (
-             NOT EXISTS (SELECT 1 FROM ${owners} owners WHERE owners.userId = ?)
-             OR EXISTS (
-               SELECT 1 FROM ${q(sql, 'workspace_user')} other
-               INNER JOIN ${q(sql, 'workspace')} otherTeam ON otherTeam.${q(sql, 'id')} = other.${q(sql, 'workspaceId')}
-               WHERE other.${q(sql, 'userId')} = ?
-                 AND other.${q(sql, 'workspaceId')} <> ?
-                 AND otherTeam.${q(sql, 'organizationId')} = ?
-                 AND otherTeam.${q(sql, 'name')} <> ?
-                 AND LOWER(other.${q(sql, 'status')}) IN ('active', 'invited')
-             )
-             OR (SELECT COUNT(*) FROM ${owners} owners) > 1
-           )`,
-        [
+    return sql.transaction(async (query) => {
+        await assertSameWorkspace(query, sql, actor, workspaceId)
+        await lockOrgOwners(query, sql, actor.organizationId, userId)
+        const rows = await query(
+            `SELECT ${q(sql, 'userId')} AS userId FROM ${q(sql, 'workspace_user')}
+             WHERE ${q(sql, 'workspaceId')} = ? AND ${q(sql, 'userId')} = ?`,
+            [workspaceId, userId]
+        )
+        if (!rows.length) throw new DirectoryError(404, 'Workspace user not found')
+        const owners = `(${enabledOwnersSql(sql)})`
+        const blocked = await query(
+            `SELECT ${q(sql, 'userId')} AS userId FROM ${q(sql, 'workspace_user')} current
+             WHERE current.${q(sql, 'workspaceId')} = ? AND current.${q(sql, 'userId')} = ?
+               AND EXISTS (SELECT 1 FROM ${owners} owners WHERE owners.userId = current.${q(sql, 'userId')})
+               AND (SELECT COUNT(*) FROM ${owners} owners) < 2
+               AND NOT EXISTS (
+                 SELECT 1 FROM ${q(sql, 'workspace_user')} other
+                 INNER JOIN ${q(sql, 'workspace')} otherTeam ON otherTeam.${q(sql, 'id')} = other.${q(sql, 'workspaceId')}
+                 WHERE other.${q(sql, 'userId')} = current.${q(sql, 'userId')}
+                   AND other.${q(sql, 'workspaceId')} <> current.${q(sql, 'workspaceId')}
+                   AND otherTeam.${q(sql, 'organizationId')} = ?
+                   AND otherTeam.${q(sql, 'name')} <> ?
+                   AND LOWER(other.${q(sql, 'status')}) IN ('active', 'invited')
+               )`,
+            [workspaceId, userId, actor.organizationId, actor.organizationId, actor.organizationId, PERSONAL_WORKSPACE]
+        )
+        if (blocked.length) throw new DirectoryError(409, 'The last owner cannot be removed')
+        await query(`DELETE FROM ${q(sql, 'workspace_user')} WHERE ${q(sql, 'workspaceId')} = ? AND ${q(sql, 'userId')} = ?`, [
             workspaceId,
-            userId,
-            actor.organizationId,
-            PERSONAL_WORKSPACE,
-            userId,
-            userId,
-            workspaceId,
-            actor.organizationId,
-            PERSONAL_WORKSPACE,
-            actor.organizationId,
-            PERSONAL_WORKSPACE
-        ]
-    )
-    const kept = await sql.query(
-        `SELECT ${q(sql, 'userId')} AS userId FROM ${q(sql, 'workspace_user')}
-         WHERE ${q(sql, 'workspaceId')} = ? AND ${q(sql, 'userId')} = ?`,
-        [workspaceId, userId]
-    )
-    if (kept.length) throw new DirectoryError(409, 'The last owner cannot be removed')
-    await endLocalSessions(sql.query, sql, userId)
-    return { id: userId }
+            userId
+        ])
+        await endLocalSessions(query, sql, userId)
+        return { id: userId }
+    })
 }
 
 export async function updateWorkspaceUserRole(sql: Sql, actor: DirectoryActor, body: unknown): Promise<{ id: string }> {
@@ -683,9 +725,19 @@ export async function updateWorkspaceUserRole(sql: Sql, actor: DirectoryActor, b
             [workspaceId, userId]
         )
         if (!current.length) throw new DirectoryError(404, 'Workspace user not found')
+        await lockOrgOwners(query, sql, actor.organizationId, userId)
         const wasOwner = await ownerUser(query, sql, actor.organizationId, userId)
         const willBeOwner = roleName === OWNER_ROLE
-        if (wasOwner && !willBeOwner) {
+        // A team role change leaves the organization role alone. Owner is the exception:
+        // gaining it sets the organization role to owner, and losing it sets that role back to member.
+        if (!wasOwner && willBeOwner) {
+            await query(
+                `UPDATE ${q(sql, 'organization_user')} SET ${q(sql, 'roleId')} = ?, ${q(sql, 'updatedDate')} = CURRENT_TIMESTAMP
+                 WHERE ${q(sql, 'organizationId')} = ? AND ${q(sql, 'userId')} = ?`,
+                [roleId, actor.organizationId, userId]
+            )
+        } else if (wasOwner && !willBeOwner) {
+            const memberId = await plainMemberRoleId(query, sql)
             const owners = `(${enabledOwnersSql(sql)})`
             await query(
                 `UPDATE ${q(sql, 'organization_user')} SET ${q(sql, 'roleId')} = ?, ${q(sql, 'updatedDate')} = CURRENT_TIMESTAMP
@@ -694,7 +746,7 @@ export async function updateWorkspaceUserRole(sql: Sql, actor: DirectoryActor, b
                      NOT EXISTS (SELECT 1 FROM ${owners} owners WHERE owners.userId = ${q(sql, 'organization_user')}.${q(sql, 'userId')})
                      OR (SELECT COUNT(*) FROM ${owners} owners) > 1
                    )`,
-                [roleId, actor.organizationId, userId, actor.organizationId, PERSONAL_WORKSPACE, actor.organizationId, PERSONAL_WORKSPACE]
+                [memberId, actor.organizationId, userId, actor.organizationId, actor.organizationId]
             )
             const still = await query(
                 `SELECT r.${q(sql, 'name')} AS name FROM ${q(sql, 'organization_user')} ou
@@ -705,12 +757,6 @@ export async function updateWorkspaceUserRole(sql: Sql, actor: DirectoryActor, b
             if (text(cell(still[0] || {}, 'name')).toLowerCase() === OWNER_ROLE) {
                 throw new DirectoryError(409, 'The last owner cannot be removed')
             }
-        } else {
-            await query(
-                `UPDATE ${q(sql, 'organization_user')} SET ${q(sql, 'roleId')} = ?, ${q(sql, 'updatedDate')} = CURRENT_TIMESTAMP
-                 WHERE ${q(sql, 'organizationId')} = ? AND ${q(sql, 'userId')} = ?`,
-                [roleId, actor.organizationId, userId]
-            )
         }
         await query(
             `UPDATE ${q(sql, 'workspace_user')} SET ${q(sql, 'roleId')} = ?, ${q(sql, 'updatedBy')} = ?, ${q(
@@ -754,11 +800,14 @@ async function workspaceJson(sql: Sql, row: Record<string, unknown>): Promise<Wo
 
 export async function listWorkspaces(sql: Sql, actor: DirectoryActor, organizationId: string): Promise<WorkspaceJson[]> {
     sameOrg(actor, organizationId)
+    const owner = await ownerUser(sql.query, sql, organizationId, actor.id)
+    if (!owner && !actor.workspaceId) throw new DirectoryError(400, 'Active workspace is required')
     const rows = await sql.query(
         `SELECT ${q(sql, 'id')} AS id, ${q(sql, 'name')} AS name, ${q(sql, 'description')} AS description,
                 ${q(sql, 'organizationId')} AS organizationId, ${q(sql, 'updatedDate')} AS updatedDate
-         FROM ${q(sql, 'workspace')} WHERE ${q(sql, 'organizationId')} = ?`,
-        [organizationId]
+         FROM ${q(sql, 'workspace')} WHERE ${q(sql, 'organizationId')} = ?
+           AND (? = 1 OR ${q(sql, 'id')} = ?)`,
+        [organizationId, owner ? 1 : 0, actor.workspaceId || '']
     )
     const visible = []
     for (const row of rows) {
@@ -769,6 +818,7 @@ export async function listWorkspaces(sql: Sql, actor: DirectoryActor, organizati
 }
 
 export async function getWorkspace(sql: Sql, actor: DirectoryActor, id: string): Promise<WorkspaceJson> {
+    await assertSameWorkspace(sql.query, sql, actor, id)
     const row = await workspaceInOrg(sql.query, sql, id, actor.organizationId)
     return workspaceJson(sql, row)
 }
@@ -810,7 +860,8 @@ export async function createWorkspace(sql: Sql, actor: DirectoryActor, body: unk
             [id, actor.id, roleId, 'active', actor.id, actor.id]
         )
     })
-    return getWorkspace(sql, actor, id)
+    const created = await workspaceInOrg(sql.query, sql, id, organizationId)
+    return workspaceJson(sql, created)
 }
 
 export async function updateWorkspace(sql: Sql, actor: DirectoryActor, body: unknown): Promise<WorkspaceJson> {
@@ -819,6 +870,7 @@ export async function updateWorkspace(sql: Sql, actor: DirectoryActor, body: unk
     const name = text(record.name).trim()
     const description = text(record.description).trim()
     if (!name || name.length > 100) throw new DirectoryError(400, 'Name is required')
+    await assertSameWorkspace(sql.query, sql, actor, id)
     const current = await workspaceInOrg(sql.query, sql, id, actor.organizationId)
     if (RESERVED_WORKSPACE.has(text(cell(current, 'name')))) throw new DirectoryError(400, 'That team cannot be renamed')
     if (RESERVED_WORKSPACE.has(name)) throw new DirectoryError(400, 'That team name is reserved')
@@ -845,16 +897,43 @@ async function chatflowCount(sql: Sql, workspaceId: string): Promise<number> {
 }
 
 export async function deleteWorkspace(sql: Sql, actor: DirectoryActor, id: string): Promise<{ id: string }> {
-    const current = await workspaceInOrg(sql.query, sql, id, actor.organizationId)
-    if (RESERVED_WORKSPACE.has(text(cell(current, 'name')))) throw new DirectoryError(400, 'That team cannot be deleted')
-    const detail = await workspaceJson(sql, current)
-    if (detail.userCount > 1) throw new DirectoryError(400, 'Remove the other people from this team first')
-    if ((await chatflowCount(sql, id)) > 0) throw new DirectoryError(400, 'Delete this team chatflows first')
-    await sql.transaction(async (query) => {
+    return sql.transaction(async (query) => {
+        await assertSameWorkspace(query, sql, actor, id)
+        await lockOrgOwners(query, sql, actor.organizationId, actor.id)
+        const current = await workspaceInOrg(query, sql, id, actor.organizationId)
+        if (RESERVED_WORKSPACE.has(text(cell(current, 'name')))) throw new DirectoryError(400, 'That team cannot be deleted')
+        const members = await query(`SELECT COUNT(*) AS count FROM ${q(sql, 'workspace_user')} WHERE ${q(sql, 'workspaceId')} = ?`, [id])
+        if (num(cell(members[0] || {}, 'count')) > 1) throw new DirectoryError(400, 'Remove the other people from this team first')
+        if ((await chatflowCount(sql, id)) > 0) throw new DirectoryError(400, 'Delete this team chatflows first')
+        const owners = `(${enabledOwnersSql(sql)})`
+        const stranded = await query(
+            `SELECT owners.userId AS userId FROM ${owners} owners
+             WHERE EXISTS (
+               SELECT 1 FROM ${q(sql, 'workspace_user')} here
+               WHERE here.${q(sql, 'userId')} = owners.userId AND here.${q(sql, 'workspaceId')} = ?
+             )
+             AND NOT EXISTS (
+               SELECT 1 FROM ${q(sql, 'workspace_user')} other
+               INNER JOIN ${q(sql, 'workspace')} otherTeam ON otherTeam.${q(sql, 'id')} = other.${q(sql, 'workspaceId')}
+               WHERE other.${q(sql, 'userId')} = owners.userId
+                 AND other.${q(sql, 'workspaceId')} <> ?
+                 AND otherTeam.${q(sql, 'organizationId')} = ?
+                 AND otherTeam.${q(sql, 'name')} <> ?
+                 AND LOWER(other.${q(sql, 'status')}) IN ('active', 'invited')
+             )
+             AND (SELECT COUNT(*) FROM ${owners} allOwners) < 2`,
+            [actor.organizationId, id, id, actor.organizationId, PERSONAL_WORKSPACE, actor.organizationId]
+        )
+        if (!stranded.length) {
+            const counted = await query(`SELECT COUNT(*) AS count FROM ${owners} owners`, [actor.organizationId])
+            if (num(cell(counted[0] || {}, 'count')) < 1) throw new DirectoryError(409, 'The last owner cannot be removed')
+        } else {
+            throw new DirectoryError(409, 'The last owner cannot be removed')
+        }
         await query(`DELETE FROM ${q(sql, 'workspace_user')} WHERE ${q(sql, 'workspaceId')} = ?`, [id])
         await query(`DELETE FROM ${q(sql, 'workspace')} WHERE ${q(sql, 'id')} = ?`, [id])
+        return { id }
     })
-    return { id }
 }
 
 export async function switchWorkspace(sql: Sql, store: IdentityStore, actor: DirectoryActor, workspaceId: string): Promise<SessionUser> {
@@ -1090,13 +1169,13 @@ export async function listLocalUsers(
 ): Promise<{ users: LocalUserJson[]; limit: number; offset: number; total: number }> {
     if (!actor.workspaceId) throw new DirectoryError(400, 'Active workspace is required')
     await assertSameWorkspace(sql.query, sql, actor, actor.workspaceId)
-    const needle = `%${page.q.replace(/[%_]/g, '')}%`
+    const needle = `%${page.q.replace(/\\/g, '\\\\').replace(/%/g, '\\%').replace(/_/g, '\\_')}%`
     const statusSql = page.status ? `AND LOWER(ou.${q(sql, 'status')}) = ?` : ''
+    const searchSql = page.q ? `AND (LOWER(u.${q(sql, 'name')}) LIKE ? ESCAPE '\\' OR LOWER(u.${q(sql, 'email')}) LIKE ? ESCAPE '\\')` : ''
     const params: unknown[] = [actor.workspaceId, actor.organizationId]
     if (page.status) params.push(page.status)
-    params.push(needle, needle)
-    const where = `wu.${q(sql, 'workspaceId')} = ? AND w.${q(sql, 'organizationId')} = ? ${statusSql}
-        AND (LOWER(u.${q(sql, 'name')}) LIKE ? OR LOWER(u.${q(sql, 'email')}) LIKE ?)`
+    if (page.q) params.push(needle, needle)
+    const where = `wu.${q(sql, 'workspaceId')} = ? AND w.${q(sql, 'organizationId')} = ? ${statusSql} ${searchSql}`
     const totals = await sql.query(
         `SELECT COUNT(*) AS count
          FROM ${q(sql, 'workspace_user')} wu

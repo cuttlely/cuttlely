@@ -14,29 +14,41 @@
  * limitations under the License.
  */
 
+import { mkdtempSync } from 'fs'
+import { tmpdir } from 'os'
+import { join } from 'path'
+import { Worker } from 'worker_threads'
 import { builtInPermissionKeys, builtInPermissionJson, permissionsLowered } from './builtInRoles'
 import { catalogKeys } from './permissionsCatalog'
 import {
     DirectoryError,
     Sql,
+    createEmailUser,
     createRole,
     deleteOrganizationUser,
     deleteRole,
+    deleteWorkspace,
     deleteWorkspaceUser,
     endUserSession,
     endUserSessions,
+    getWorkspace,
     listLocalUsers,
+    listOrganizationUsers,
     listUserSessions,
     listWorkspaceMemberships,
+    listWorkspaces,
     pageFrom,
     setUserDisabled,
+    updateOrganizationUser,
     updateRole,
+    updateWorkspace,
     updateWorkspaceUserRole
 } from './directory'
 
 const { DatabaseSync } = require('node:sqlite') as {
     DatabaseSync: new (path: string) => {
         exec(sql: string): void
+        close(): void
         prepare(sql: string): {
             all(...params: unknown[]): Record<string, unknown>[]
             run(...params: unknown[]): { changes: number }
@@ -303,5 +315,230 @@ describe('local directory rules', () => {
             status: 400
         })
         await expect(setUserDisabled(sql, admin, 'nobody', true)).rejects.toMatchObject({ status: 404 })
+    })
+
+    it('counts an owner with no team and keeps a team role off the organization membership', async () => {
+        const { sql, db } = memorySql()
+        db.exec(`DELETE FROM workspace_user WHERE "userId" = '${OWNER}'`)
+        await expect(updateOrganizationUser(sql, owner, { userId: OWNER, organizationId: ORG, status: 'inactive' })).rejects.toMatchObject({
+            status: 409,
+            message: 'The last owner cannot be removed'
+        })
+        const created = await createEmailUser(
+            sql,
+            { ...owner, workspaceId: TEAM },
+            {
+                user: { name: 'Ada Lovelace', email: 'ada@example.com' },
+                workspace: { id: TEAM },
+                role: { id: 'role-admin' }
+            }
+        )
+        expect(db.prepare('SELECT "roleId" AS roleId FROM organization_user WHERE "userId" = ?').all(created.id)).toEqual([
+            { roleId: 'role-member' }
+        ])
+        expect(db.prepare('SELECT "roleId" AS roleId FROM workspace_user WHERE "userId" = ?').all(created.id)).toEqual([
+            { roleId: 'role-admin' }
+        ])
+        await updateWorkspaceUserRole(sql, owner, { userId: 'member-1', workspaceId: TEAM, roleId: 'role-viewer' })
+        expect(db.prepare('SELECT "roleId" AS roleId FROM organization_user WHERE "userId" = ?').all('member-1')).toEqual([
+            { roleId: 'role-member' }
+        ])
+        expect(
+            db.prepare('SELECT "roleId" AS roleId FROM workspace_user WHERE "userId" = ? AND "workspaceId" = ?').all('member-1', TEAM)
+        ).toEqual([{ roleId: 'role-viewer' }])
+    })
+
+    it('refuses a non-owner invite, disable, or delete in another team', async () => {
+        const { sql, db } = memorySql()
+        db.exec(`
+            INSERT INTO "user" (id, name, email, status, permissionVersion) VALUES ('only-b', 'Only', 'only-b@example.com', 'active', 0);
+            INSERT INTO organization_user ("organizationId", "userId", "roleId", status) VALUES ('${ORG}', 'only-b', 'role-viewer', 'active');
+            INSERT INTO workspace_user ("workspaceId", "userId", "roleId", status) VALUES ('${TEAM_B}', 'only-b', 'role-viewer', 'active');
+        `)
+        await expect(
+            createEmailUser(sql, admin, {
+                user: { name: 'New Person', email: 'new-person@example.com' },
+                workspace: { id: TEAM_B },
+                role: { id: 'role-viewer' }
+            })
+        ).rejects.toMatchObject({ status: 404, message: 'Team not found' })
+        expect(db.prepare('SELECT id FROM "user" WHERE email = ?').all('new-person@example.com')).toEqual([])
+        await expect(
+            updateOrganizationUser(sql, admin, { userId: 'only-b', organizationId: ORG, status: 'inactive' })
+        ).rejects.toMatchObject({
+            status: 404,
+            message: 'User not found'
+        })
+        await expect(deleteOrganizationUser(sql, admin, ORG, 'only-b')).rejects.toMatchObject({ status: 404, message: 'User not found' })
+        await expect(deleteOrganizationUser(sql, admin, ORG, 'member-1')).rejects.toMatchObject({
+            status: 403,
+            message: 'Only an owner can remove someone from every team'
+        })
+        await deleteOrganizationUser(sql, owner, ORG, 'member-1')
+        expect(db.prepare('SELECT "userId" AS userId FROM organization_user WHERE "userId" = ?').all('member-1')).toEqual([])
+    })
+
+    it('limits team list, open, and edit to the active team for a non-owner', async () => {
+        const { sql } = memorySql()
+        const listed = await listWorkspaces(sql, admin, ORG)
+        expect(listed.map((team) => team.id)).toEqual([TEAM])
+        await expect(getWorkspace(sql, admin, TEAM_B)).rejects.toMatchObject({ status: 404, message: 'Team not found' })
+        await expect(updateWorkspace(sql, admin, { id: TEAM_B, name: 'Other Name' })).rejects.toMatchObject({ status: 404 })
+        await expect(deleteWorkspace(sql, admin, TEAM_B)).rejects.toMatchObject({ status: 404 })
+        const ownerTeams = await listWorkspaces(sql, owner, ORG)
+        expect(ownerTeams.map((team) => team.id).sort()).toEqual([TEAM, TEAM_B].sort())
+    })
+
+    it('refuses to delete the team that is the last owner only team', async () => {
+        const { sql, db } = memorySql()
+        db.exec(`
+            INSERT INTO workspace (id, name, "organizationId") VALUES ('team-solo', 'Field', '${ORG}');
+            DELETE FROM workspace_user WHERE "userId" = '${OWNER}';
+            INSERT INTO workspace_user ("workspaceId", "userId", "roleId", status) VALUES ('team-solo', '${OWNER}', 'role-owner', 'active');
+        `)
+        await expect(deleteWorkspace(sql, owner, 'team-solo')).rejects.toMatchObject({
+            status: 409,
+            message: 'The last owner cannot be removed'
+        })
+        expect(db.prepare('SELECT id FROM workspace WHERE id = ?').all('team-solo')).toEqual([{ id: 'team-solo' }])
+        db.exec(
+            `INSERT INTO workspace_user ("workspaceId", "userId", "roleId", status) VALUES ('${TEAM}', '${OWNER}', 'role-owner', 'active')`
+        )
+        await deleteWorkspace(sql, owner, 'team-solo')
+        expect(db.prepare('SELECT id FROM workspace WHERE id = ?').all('team-solo')).toEqual([])
+        expect(db.prepare('SELECT "roleId" AS roleId FROM organization_user WHERE "userId" = ?').all(OWNER)).toEqual([
+            { roleId: 'role-owner' }
+        ])
+    })
+
+    it('matches percent and underscore in search as those characters', async () => {
+        const { sql, db } = memorySql()
+        db.exec(`
+            INSERT INTO "user" (id, name, email, status, permissionVersion) VALUES
+                ('user-under', 'A_B Person', 'a_b@example.com', 'active', 0),
+                ('user-x', 'AXB Person', 'axb@example.com', 'active', 0),
+                ('user-pct', 'Percent Person', 'percent@example.com', 'active', 0);
+            INSERT INTO organization_user ("organizationId", "userId", "roleId", status) VALUES
+                ('${ORG}', 'user-under', 'role-member', 'active'),
+                ('${ORG}', 'user-x', 'role-member', 'active'),
+                ('${ORG}', 'user-pct', 'role-member', 'active');
+            INSERT INTO workspace_user ("workspaceId", "userId", "roleId", status) VALUES
+                ('${TEAM}', 'user-under', 'role-member', 'active'),
+                ('${TEAM}', 'user-x', 'role-member', 'active'),
+                ('${TEAM}', 'user-pct', 'role-member', 'active');
+        `)
+        const under = await listLocalUsers(sql, admin, pageFrom({ q: 'a_b' }))
+        expect(under.users.map((user) => user.email)).toEqual(['a_b@example.com'])
+        const percent = await listLocalUsers(sql, admin, pageFrom({ q: '%' }))
+        expect(percent.users).toEqual([])
+    })
+
+    it('counts roles only on teams the caller shares', async () => {
+        const { sql, db } = memorySql()
+        const asAdmin = await listOrganizationUsers(sql, admin, ORG)
+        expect(asAdmin.find((row) => row.userId === 'viewer-1')?.roleCount).toBe(1)
+        db.exec(
+            `INSERT INTO workspace_user ("workspaceId", "userId", "roleId", status) VALUES ('${TEAM_B}', '${OWNER}', 'role-owner', 'active')`
+        )
+        const asOwner = await listOrganizationUsers(sql, owner, ORG)
+        expect(asOwner.find((row) => row.userId === 'viewer-1')?.roleCount).toBe(2)
+    })
+
+    it('lets only one of two connections remove the last owner from their two teams', async () => {
+        const dir = mkdtempSync(join(tmpdir(), 'owner-race-'))
+        const file = join(dir, 'race.sqlite')
+        const setup = new DatabaseSync(file)
+        setup.exec(`
+            PRAGMA busy_timeout = 8000;
+            CREATE TABLE "user" (
+                id text primary key, name text, email text, status text, permissionVersion integer not null default 0,
+                "updatedDate" text
+            );
+            CREATE TABLE role (id text primary key, "organizationId" text, name text, permissions text, description text);
+            CREATE TABLE workspace (id text primary key, name text, "organizationId" text, description text, "updatedDate" text);
+            CREATE TABLE organization_user (
+                "organizationId" text, "userId" text, "roleId" text, status text, "updatedDate" text,
+                primary key ("organizationId", "userId")
+            );
+            CREATE TABLE workspace_user (
+                "workspaceId" text, "userId" text, "roleId" text, status text, "updatedBy" text, "updatedDate" text,
+                primary key ("workspaceId", "userId")
+            );
+            CREATE TABLE identity_local_session (
+                id text primary key, userId text, token text, expiresAt text, absoluteExpiresAt text,
+                createdDate text, permissionVersion integer not null default 0
+            );
+            INSERT INTO "user" (id, name, email, status) VALUES ('${OWNER}', 'Owner', 'owner@example.com', 'active');
+            INSERT INTO role (id, name, permissions) VALUES ('role-owner', 'owner', '[]'), ('role-member', 'member', '[]');
+            INSERT INTO workspace (id, name, "organizationId") VALUES ('${TEAM}', 'Default Workspace', '${ORG}'), ('${TEAM_B}', 'Other', '${ORG}');
+            INSERT INTO organization_user ("organizationId", "userId", "roleId", status) VALUES ('${ORG}', '${OWNER}', 'role-owner', 'active');
+            INSERT INTO workspace_user ("workspaceId", "userId", "roleId", status) VALUES
+                ('${TEAM}', '${OWNER}', 'role-owner', 'active'),
+                ('${TEAM_B}', '${OWNER}', 'role-owner', 'active');
+        `)
+        setup.close()
+        const run = (workspaceId: string) =>
+            new Promise<{ ok: boolean; status?: number; message?: string }>((resolve, reject) => {
+                const worker = new Worker(
+                    `
+                    const { workerData, parentPort } = require('worker_threads')
+                    require('ts-node').register({
+                        transpileOnly: true,
+                        compilerOptions: { module: 'commonjs', esModuleInterop: true, experimentalDecorators: true, strict: false }
+                    })
+                    const { DatabaseSync } = require('node:sqlite')
+                    const { deleteWorkspaceUser } = require(workerData.entry)
+                    const db = new DatabaseSync(workerData.file)
+                    db.exec('PRAGMA busy_timeout = 8000')
+                    const query = async (statement, params = []) => {
+                        const prepared = db.prepare(statement)
+                        if (/^\\s*(select|with)\\b/i.test(statement)) return prepared.all(...params)
+                        prepared.run(...params)
+                        return []
+                    }
+                    const sql = {
+                        type: 'sqlite',
+                        query,
+                        transaction: async (fn) => {
+                            db.exec('BEGIN IMMEDIATE')
+                            try {
+                                const result = await fn(query)
+                                db.exec('COMMIT')
+                                return result
+                            } catch (error) {
+                                try { db.exec('ROLLBACK') } catch (rollbackError) { /* already closed */ }
+                                throw error
+                            }
+                        }
+                    }
+                    deleteWorkspaceUser(sql, workerData.actor, workerData.workspaceId, workerData.userId)
+                        .then(() => parentPort.postMessage({ ok: true }))
+                        .catch((error) => parentPort.postMessage({ ok: false, status: error.status, message: error.message }))
+                    `,
+                    {
+                        eval: true,
+                        workerData: {
+                            file,
+                            entry: join(__dirname, 'directory.ts'),
+                            workspaceId,
+                            userId: OWNER,
+                            actor: { id: OWNER, organizationId: ORG, workspaceId: TEAM }
+                        }
+                    }
+                )
+                worker.on('message', resolve)
+                worker.on('error', reject)
+            })
+        const [first, second] = await Promise.all([run(TEAM), run(TEAM_B)])
+        const ok = [first, second].filter((item) => item.ok)
+        const denied = [first, second].filter((item) => !item.ok && item.status === 409)
+        expect(ok).toHaveLength(1)
+        expect(denied).toHaveLength(1)
+        const check = new DatabaseSync(file)
+        const left = check.prepare('SELECT "workspaceId" AS workspaceId FROM workspace_user').all()
+        const stillOwner = check.prepare('SELECT "roleId" AS roleId FROM organization_user').all()
+        check.close()
+        expect(left).toHaveLength(1)
+        expect(stillOwner).toEqual([{ roleId: 'role-owner' }])
     })
 })
