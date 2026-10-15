@@ -310,3 +310,106 @@ export async function removeIdentitySignIn(runner: QueryRunner): Promise<void> {
     if (await userHasExternalId(runner, dialect)) await runner.query(`ALTER TABLE ${user} DROP COLUMN ${q(dialect, 'externalId')}`)
     if (await sessionsExist(runner, dialect)) await runner.query(`DROP TABLE IF EXISTS ${q(dialect, 'identity_local_session')}`)
 }
+
+function timeType(dialect: Dialect): string {
+    return dialect === 'postgres' ? 'TIMESTAMP' : 'datetime'
+}
+
+function linkTableSql(dialect: Dialect): string {
+    const time = timeType(dialect)
+    if (dialect === 'mysql' || dialect === 'mariadb') {
+        return `CREATE TABLE ${q(dialect, 'identity_action_link')} (
+            ${q(dialect, 'id')} varchar(255) NOT NULL PRIMARY KEY,
+            ${q(dialect, 'tokenHash')} varchar(64) NOT NULL,
+            ${q(dialect, 'purpose')} varchar(16) NOT NULL,
+            ${q(dialect, 'organizationId')} varchar(255) NOT NULL,
+            ${q(dialect, 'workspaceId')} varchar(255) NOT NULL,
+            ${q(dialect, 'userId')} varchar(255) NOT NULL,
+            ${q(dialect, 'expiresAt')} ${time} NOT NULL,
+            ${q(dialect, 'usedAt')} ${time} NULL,
+            ${q(dialect, 'consumeId')} varchar(255) NULL,
+            ${q(dialect, 'createdBy')} varchar(255) NOT NULL,
+            ${q(dialect, 'createdDate')} ${time} NOT NULL,
+            UNIQUE KEY ${q(dialect, 'IDX_identity_action_link_token')} (${q(dialect, 'tokenHash')}),
+            KEY ${q(dialect, 'IDX_identity_action_link_lookup')} (${q(dialect, 'userId')}, ${q(dialect, 'purpose')}, ${q(
+            dialect,
+            'workspaceId'
+        )}),
+            KEY ${q(dialect, 'IDX_identity_action_link_expires')} (${q(dialect, 'expiresAt')})
+        )`
+    }
+    return `CREATE TABLE ${q(dialect, 'identity_action_link')} (
+        ${q(dialect, 'id')} varchar(255) NOT NULL PRIMARY KEY,
+        ${q(dialect, 'tokenHash')} varchar(64) NOT NULL,
+        ${q(dialect, 'purpose')} varchar(16) NOT NULL,
+        ${q(dialect, 'organizationId')} varchar(255) NOT NULL,
+        ${q(dialect, 'workspaceId')} varchar(255) NOT NULL,
+        ${q(dialect, 'userId')} varchar(255) NOT NULL,
+        ${q(dialect, 'expiresAt')} ${time} NOT NULL,
+        ${q(dialect, 'usedAt')} ${time} NULL,
+        ${q(dialect, 'consumeId')} varchar(255) NULL,
+        ${q(dialect, 'createdBy')} varchar(255) NOT NULL,
+        ${q(dialect, 'createdDate')} ${time} NOT NULL
+    )`
+}
+
+function auditTableSql(dialect: Dialect): string {
+    const time = timeType(dialect)
+    const indexes =
+        dialect === 'mysql' || dialect === 'mariadb'
+            ? `,
+            KEY ${q(dialect, 'IDX_identity_action_audit_user')} (${q(dialect, 'userId')}, ${q(dialect, 'createdDate')})`
+            : ''
+    return `CREATE TABLE ${q(dialect, 'identity_action_audit')} (
+        ${q(dialect, 'id')} varchar(255) NOT NULL PRIMARY KEY,
+        ${q(dialect, 'action')} varchar(32) NOT NULL,
+        ${q(dialect, 'purpose')} varchar(16) NOT NULL,
+        ${q(dialect, 'organizationId')} varchar(255) NOT NULL,
+        ${q(dialect, 'workspaceId')} varchar(255) NOT NULL,
+        ${q(dialect, 'userId')} varchar(255) NOT NULL,
+        ${q(dialect, 'actorId')} varchar(255) NOT NULL,
+        ${q(dialect, 'result')} varchar(16) NOT NULL,
+        ${q(dialect, 'reason')} varchar(64) NULL,
+        ${q(dialect, 'createdDate')} ${time} NOT NULL${indexes}
+    )`
+}
+
+/** One-time invite and reset links. Only the hash is stored. */
+export async function addIdentityActionLinks(runner: QueryRunner): Promise<void> {
+    const dialect = dialectOf(runner)
+    if (!(await tableExists(runner, dialect, 'identity_action_link'))) {
+        await runner.query(linkTableSql(dialect))
+        if (dialect === 'sqlite' || dialect === 'postgres') {
+            const table = q(dialect, 'identity_action_link')
+            await runner.query(
+                `CREATE UNIQUE INDEX IF NOT EXISTS ${q(dialect, 'IDX_identity_action_link_token')} ON ${table} (${q(dialect, 'tokenHash')})`
+            )
+            await runner.query(
+                `CREATE INDEX IF NOT EXISTS ${q(dialect, 'IDX_identity_action_link_lookup')} ON ${table} (${q(dialect, 'userId')}, ${q(
+                    dialect,
+                    'purpose'
+                )}, ${q(dialect, 'workspaceId')})`
+            )
+            await runner.query(
+                `CREATE INDEX IF NOT EXISTS ${q(dialect, 'IDX_identity_action_link_expires')} ON ${table} (${q(dialect, 'expiresAt')})`
+            )
+        }
+    }
+    if (!(await tableExists(runner, dialect, 'identity_action_audit'))) {
+        await runner.query(auditTableSql(dialect))
+        if (dialect === 'sqlite' || dialect === 'postgres') {
+            await runner.query(
+                `CREATE INDEX IF NOT EXISTS ${q(dialect, 'IDX_identity_action_audit_user')} ON ${q(dialect, 'identity_action_audit')} (${q(
+                    dialect,
+                    'userId'
+                )}, ${q(dialect, 'createdDate')})`
+            )
+        }
+    }
+}
+
+export async function removeIdentityActionLinks(runner: QueryRunner): Promise<void> {
+    const dialect = dialectOf(runner)
+    await runner.query(`DROP TABLE IF EXISTS ${q(dialect, 'identity_action_audit')}`)
+    await runner.query(`DROP TABLE IF EXISTS ${q(dialect, 'identity_action_link')}`)
+}

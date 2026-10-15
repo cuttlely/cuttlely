@@ -189,11 +189,15 @@ export function readStoredValues(dir: string, file = SETTINGS_FILE): Record<stri
     }
 }
 
-let notifySettingsWrite: () => void = () => {}
+const settingsWriteListeners = new Set<() => void>()
 
-/** Called after server.json is saved. The runtime limit cache drops its copy here. */
+function notifySettingsWrite(): void {
+    for (const listener of settingsWriteListeners) listener()
+}
+
+/** Called after server.json is saved. Each listener drops its cached read. */
 export function onSettingsFileWritten(listener: () => void): void {
-    notifySettingsWrite = listener
+    settingsWriteListeners.add(listener)
 }
 
 export function writeFileAtomic(dir: string, file: string, text: string): void {

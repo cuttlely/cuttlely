@@ -339,6 +339,7 @@ describe('identity postgres schema', () => {
                     'AddDatasetRowSource1795000000000',
                     'AddDatasetRowRating1796000000000',
                     'AddChatMessageFlowCreatedIndex1797000000000',
+                    'AddIdentityActionLinks1797000000000',
                     'AddLocalDirectory1798000000000'
                 ]
             )
@@ -444,6 +445,7 @@ describe('identity mariadb schema', () => {
                     'AddDatasetRowSource1795000000000',
                     'AddDatasetRowRating1796000000000',
                     'AddChatMessageFlowCreatedIndex1797000000000',
+                    'AddIdentityActionLinks1797000000000',
                     'AddLocalDirectory1798000000000'
                 ]
             )
@@ -628,6 +630,7 @@ describe('identity mysql 8 schema', () => {
                     'AddDatasetRowSource1795000000000',
                     'AddDatasetRowRating1796000000000',
                     'AddChatMessageFlowCreatedIndex1797000000000',
+                    'AddIdentityActionLinks1797000000000',
                     'AddLocalDirectory1798000000000'
                 ]
             )
@@ -679,6 +682,7 @@ describe('identity sqlite upgrade', () => {
                     'AddDatasetRowSource1795000000000',
                     'AddDatasetRowRating1796000000000',
                     'AddChatMessageFlowCreatedIndex1797000000000',
+                    'AddIdentityActionLinks1797000000000',
                     'AddLocalDirectory1798000000000'
                 ]
             )

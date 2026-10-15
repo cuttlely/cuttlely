@@ -1014,6 +1014,203 @@
                 }
             ]
         },
+        "identity_action_audit": {
+            "columns": [
+                {
+                    "name": "id",
+                    "type": "varchar(255)",
+                    "nullable": false,
+                    "default": null,
+                    "pk": 1
+                },
+                {
+                    "name": "action",
+                    "type": "varchar(32)",
+                    "nullable": false,
+                    "default": null,
+                    "pk": 0
+                },
+                {
+                    "name": "purpose",
+                    "type": "varchar(16)",
+                    "nullable": false,
+                    "default": null,
+                    "pk": 0
+                },
+                {
+                    "name": "organizationId",
+                    "type": "varchar(255)",
+                    "nullable": false,
+                    "default": null,
+                    "pk": 0
+                },
+                {
+                    "name": "workspaceId",
+                    "type": "varchar(255)",
+                    "nullable": false,
+                    "default": null,
+                    "pk": 0
+                },
+                {
+                    "name": "userId",
+                    "type": "varchar(255)",
+                    "nullable": false,
+                    "default": null,
+                    "pk": 0
+                },
+                {
+                    "name": "actorId",
+                    "type": "varchar(255)",
+                    "nullable": false,
+                    "default": null,
+                    "pk": 0
+                },
+                {
+                    "name": "result",
+                    "type": "varchar(16)",
+                    "nullable": false,
+                    "default": null,
+                    "pk": 0
+                },
+                {
+                    "name": "reason",
+                    "type": "varchar(64)",
+                    "nullable": true,
+                    "default": null,
+                    "pk": 0
+                },
+                {
+                    "name": "createdDate",
+                    "type": "datetime",
+                    "nullable": false,
+                    "default": null,
+                    "pk": 0
+                }
+            ],
+            "foreignKeys": [],
+            "indexes": [
+                {
+                    "name": "IDX_identity_action_audit_user",
+                    "unique": false,
+                    "columns": ["userId", "createdDate"],
+                    "origin": "c"
+                },
+                {
+                    "name": "sqlite_autoindex_identity_action_audit_1",
+                    "unique": true,
+                    "columns": ["id"],
+                    "origin": "pk"
+                }
+            ]
+        },
+        "identity_action_link": {
+            "columns": [
+                {
+                    "name": "id",
+                    "type": "varchar(255)",
+                    "nullable": false,
+                    "default": null,
+                    "pk": 1
+                },
+                {
+                    "name": "tokenHash",
+                    "type": "varchar(64)",
+                    "nullable": false,
+                    "default": null,
+                    "pk": 0
+                },
+                {
+                    "name": "purpose",
+                    "type": "varchar(16)",
+                    "nullable": false,
+                    "default": null,
+                    "pk": 0
+                },
+                {
+                    "name": "organizationId",
+                    "type": "varchar(255)",
+                    "nullable": false,
+                    "default": null,
+                    "pk": 0
+                },
+                {
+                    "name": "workspaceId",
+                    "type": "varchar(255)",
+                    "nullable": false,
+                    "default": null,
+                    "pk": 0
+                },
+                {
+                    "name": "userId",
+                    "type": "varchar(255)",
+                    "nullable": false,
+                    "default": null,
+                    "pk": 0
+                },
+                {
+                    "name": "expiresAt",
+                    "type": "datetime",
+                    "nullable": false,
+                    "default": null,
+                    "pk": 0
+                },
+                {
+                    "name": "usedAt",
+                    "type": "datetime",
+                    "nullable": true,
+                    "default": null,
+                    "pk": 0
+                },
+                {
+                    "name": "consumeId",
+                    "type": "varchar(255)",
+                    "nullable": true,
+                    "default": null,
+                    "pk": 0
+                },
+                {
+                    "name": "createdBy",
+                    "type": "varchar(255)",
+                    "nullable": false,
+                    "default": null,
+                    "pk": 0
+                },
+                {
+                    "name": "createdDate",
+                    "type": "datetime",
+                    "nullable": false,
+                    "default": null,
+                    "pk": 0
+                }
+            ],
+            "foreignKeys": [],
+            "indexes": [
+                {
+                    "name": "IDX_identity_action_link_expires",
+                    "unique": false,
+                    "columns": ["expiresAt"],
+                    "origin": "c"
+                },
+                {
+                    "name": "IDX_identity_action_link_lookup",
+                    "unique": false,
+                    "columns": ["userId", "purpose", "workspaceId"],
+                    "origin": "c"
+                },
+                {
+                    "name": "IDX_identity_action_link_token",
+                    "unique": true,
+                    "columns": ["tokenHash"],
+                    "origin": "c"
+                },
+                {
+                    "name": "sqlite_autoindex_identity_action_link_1",
+                    "unique": true,
+                    "columns": ["id"],
+                    "origin": "pk"
+                }
+            ]
+        },
         "identity_bootstrap": {
             "columns": [
                 {
@@ -4223,6 +4420,176 @@
                 }
             ]
         },
+        "identity_action_audit": {
+            "columns": [
+                {
+                    "name": "id",
+                    "type": "varchar(255)",
+                    "nullable": false,
+                    "default": null
+                },
+                {
+                    "name": "action",
+                    "type": "varchar(32)",
+                    "nullable": false,
+                    "default": null
+                },
+                {
+                    "name": "purpose",
+                    "type": "varchar(16)",
+                    "nullable": false,
+                    "default": null
+                },
+                {
+                    "name": "organizationId",
+                    "type": "varchar(255)",
+                    "nullable": false,
+                    "default": null
+                },
+                {
+                    "name": "workspaceId",
+                    "type": "varchar(255)",
+                    "nullable": false,
+                    "default": null
+                },
+                {
+                    "name": "userId",
+                    "type": "varchar(255)",
+                    "nullable": false,
+                    "default": null
+                },
+                {
+                    "name": "actorId",
+                    "type": "varchar(255)",
+                    "nullable": false,
+                    "default": null
+                },
+                {
+                    "name": "result",
+                    "type": "varchar(16)",
+                    "nullable": false,
+                    "default": null
+                },
+                {
+                    "name": "reason",
+                    "type": "varchar(64)",
+                    "nullable": true,
+                    "default": null
+                },
+                {
+                    "name": "createdDate",
+                    "type": "timestamp",
+                    "nullable": false,
+                    "default": null
+                }
+            ],
+            "foreignKeys": [],
+            "indexes": [
+                {
+                    "name": "IDX_identity_action_audit_user",
+                    "unique": false,
+                    "columns": ["userId", "createdDate"]
+                },
+                {
+                    "name": "identity_action_audit_pkey",
+                    "unique": true,
+                    "columns": ["id"]
+                }
+            ]
+        },
+        "identity_action_link": {
+            "columns": [
+                {
+                    "name": "id",
+                    "type": "varchar(255)",
+                    "nullable": false,
+                    "default": null
+                },
+                {
+                    "name": "tokenHash",
+                    "type": "varchar(64)",
+                    "nullable": false,
+                    "default": null
+                },
+                {
+                    "name": "purpose",
+                    "type": "varchar(16)",
+                    "nullable": false,
+                    "default": null
+                },
+                {
+                    "name": "organizationId",
+                    "type": "varchar(255)",
+                    "nullable": false,
+                    "default": null
+                },
+                {
+                    "name": "workspaceId",
+                    "type": "varchar(255)",
+                    "nullable": false,
+                    "default": null
+                },
+                {
+                    "name": "userId",
+                    "type": "varchar(255)",
+                    "nullable": false,
+                    "default": null
+                },
+                {
+                    "name": "expiresAt",
+                    "type": "timestamp",
+                    "nullable": false,
+                    "default": null
+                },
+                {
+                    "name": "usedAt",
+                    "type": "timestamp",
+                    "nullable": true,
+                    "default": null
+                },
+                {
+                    "name": "consumeId",
+                    "type": "varchar(255)",
+                    "nullable": true,
+                    "default": null
+                },
+                {
+                    "name": "createdBy",
+                    "type": "varchar(255)",
+                    "nullable": false,
+                    "default": null
+                },
+                {
+                    "name": "createdDate",
+                    "type": "timestamp",
+                    "nullable": false,
+                    "default": null
+                }
+            ],
+            "foreignKeys": [],
+            "indexes": [
+                {
+                    "name": "IDX_identity_action_link_expires",
+                    "unique": false,
+                    "columns": ["expiresAt"]
+                },
+                {
+                    "name": "IDX_identity_action_link_lookup",
+                    "unique": false,
+                    "columns": ["userId", "purpose", "workspaceId"]
+                },
+                {
+                    "name": "IDX_identity_action_link_token",
+                    "unique": true,
+                    "columns": ["tokenHash"]
+                },
+                {
+                    "name": "identity_action_link_pkey",
+                    "unique": true,
+                    "columns": ["id"]
+                }
+            ]
+        },
         "identity_bootstrap": {
             "columns": [
                 {
@@ -7394,6 +7761,218 @@
                     "name": "IDX_dataset_row_source_message",
                     "unique": true,
                     "columns": ["datasetId", "sourceMessageId"]
+                },
+                {
+                    "name": "PRIMARY",
+                    "unique": true,
+                    "columns": ["id"]
+                }
+            ]
+        },
+        "identity_action_audit": {
+            "columns": [
+                {
+                    "name": "id",
+                    "type": "varchar(255)",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_general_ci"
+                },
+                {
+                    "name": "action",
+                    "type": "varchar(32)",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_general_ci"
+                },
+                {
+                    "name": "purpose",
+                    "type": "varchar(16)",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_general_ci"
+                },
+                {
+                    "name": "organizationId",
+                    "type": "varchar(255)",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_general_ci"
+                },
+                {
+                    "name": "workspaceId",
+                    "type": "varchar(255)",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_general_ci"
+                },
+                {
+                    "name": "userId",
+                    "type": "varchar(255)",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_general_ci"
+                },
+                {
+                    "name": "actorId",
+                    "type": "varchar(255)",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_general_ci"
+                },
+                {
+                    "name": "result",
+                    "type": "varchar(16)",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_general_ci"
+                },
+                {
+                    "name": "reason",
+                    "type": "varchar(64)",
+                    "nullable": true,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_general_ci"
+                },
+                {
+                    "name": "createdDate",
+                    "type": "datetime",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": null
+                }
+            ],
+            "foreignKeys": [],
+            "indexes": [
+                {
+                    "name": "IDX_identity_action_audit_user",
+                    "unique": false,
+                    "columns": ["userId", "createdDate"]
+                },
+                {
+                    "name": "PRIMARY",
+                    "unique": true,
+                    "columns": ["id"]
+                }
+            ]
+        },
+        "identity_action_link": {
+            "columns": [
+                {
+                    "name": "id",
+                    "type": "varchar(255)",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_general_ci"
+                },
+                {
+                    "name": "tokenHash",
+                    "type": "varchar(64)",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_general_ci"
+                },
+                {
+                    "name": "purpose",
+                    "type": "varchar(16)",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_general_ci"
+                },
+                {
+                    "name": "organizationId",
+                    "type": "varchar(255)",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_general_ci"
+                },
+                {
+                    "name": "workspaceId",
+                    "type": "varchar(255)",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_general_ci"
+                },
+                {
+                    "name": "userId",
+                    "type": "varchar(255)",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_general_ci"
+                },
+                {
+                    "name": "expiresAt",
+                    "type": "datetime",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": null
+                },
+                {
+                    "name": "usedAt",
+                    "type": "datetime",
+                    "nullable": true,
+                    "default": null,
+                    "extra": "",
+                    "collation": null
+                },
+                {
+                    "name": "consumeId",
+                    "type": "varchar(255)",
+                    "nullable": true,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_general_ci"
+                },
+                {
+                    "name": "createdBy",
+                    "type": "varchar(255)",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_general_ci"
+                },
+                {
+                    "name": "createdDate",
+                    "type": "datetime",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": null
+                }
+            ],
+            "foreignKeys": [],
+            "indexes": [
+                {
+                    "name": "IDX_identity_action_link_expires",
+                    "unique": false,
+                    "columns": ["expiresAt"]
+                },
+                {
+                    "name": "IDX_identity_action_link_lookup",
+                    "unique": false,
+                    "columns": ["userId", "purpose", "workspaceId"]
+                },
+                {
+                    "name": "IDX_identity_action_link_token",
+                    "unique": true,
+                    "columns": ["tokenHash"]
                 },
                 {
                     "name": "PRIMARY",
@@ -11164,6 +11743,218 @@
                     "name": "IDX_dataset_row_source_message",
                     "unique": true,
                     "columns": ["datasetId", "sourceMessageId"]
+                },
+                {
+                    "name": "PRIMARY",
+                    "unique": true,
+                    "columns": ["id"]
+                }
+            ]
+        },
+        "identity_action_audit": {
+            "columns": [
+                {
+                    "name": "id",
+                    "type": "varchar(255)",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_0900_ai_ci"
+                },
+                {
+                    "name": "action",
+                    "type": "varchar(32)",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_0900_ai_ci"
+                },
+                {
+                    "name": "purpose",
+                    "type": "varchar(16)",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_0900_ai_ci"
+                },
+                {
+                    "name": "organizationId",
+                    "type": "varchar(255)",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_0900_ai_ci"
+                },
+                {
+                    "name": "workspaceId",
+                    "type": "varchar(255)",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_0900_ai_ci"
+                },
+                {
+                    "name": "userId",
+                    "type": "varchar(255)",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_0900_ai_ci"
+                },
+                {
+                    "name": "actorId",
+                    "type": "varchar(255)",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_0900_ai_ci"
+                },
+                {
+                    "name": "result",
+                    "type": "varchar(16)",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_0900_ai_ci"
+                },
+                {
+                    "name": "reason",
+                    "type": "varchar(64)",
+                    "nullable": true,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_0900_ai_ci"
+                },
+                {
+                    "name": "createdDate",
+                    "type": "datetime",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": null
+                }
+            ],
+            "foreignKeys": [],
+            "indexes": [
+                {
+                    "name": "IDX_identity_action_audit_user",
+                    "unique": false,
+                    "columns": ["userId", "createdDate"]
+                },
+                {
+                    "name": "PRIMARY",
+                    "unique": true,
+                    "columns": ["id"]
+                }
+            ]
+        },
+        "identity_action_link": {
+            "columns": [
+                {
+                    "name": "id",
+                    "type": "varchar(255)",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_0900_ai_ci"
+                },
+                {
+                    "name": "tokenHash",
+                    "type": "varchar(64)",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_0900_ai_ci"
+                },
+                {
+                    "name": "purpose",
+                    "type": "varchar(16)",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_0900_ai_ci"
+                },
+                {
+                    "name": "organizationId",
+                    "type": "varchar(255)",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_0900_ai_ci"
+                },
+                {
+                    "name": "workspaceId",
+                    "type": "varchar(255)",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_0900_ai_ci"
+                },
+                {
+                    "name": "userId",
+                    "type": "varchar(255)",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_0900_ai_ci"
+                },
+                {
+                    "name": "expiresAt",
+                    "type": "datetime",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": null
+                },
+                {
+                    "name": "usedAt",
+                    "type": "datetime",
+                    "nullable": true,
+                    "default": null,
+                    "extra": "",
+                    "collation": null
+                },
+                {
+                    "name": "consumeId",
+                    "type": "varchar(255)",
+                    "nullable": true,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_0900_ai_ci"
+                },
+                {
+                    "name": "createdBy",
+                    "type": "varchar(255)",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": "utf8mb4_0900_ai_ci"
+                },
+                {
+                    "name": "createdDate",
+                    "type": "datetime",
+                    "nullable": false,
+                    "default": null,
+                    "extra": "",
+                    "collation": null
+                }
+            ],
+            "foreignKeys": [],
+            "indexes": [
+                {
+                    "name": "IDX_identity_action_link_expires",
+                    "unique": false,
+                    "columns": ["expiresAt"]
+                },
+                {
+                    "name": "IDX_identity_action_link_lookup",
+                    "unique": false,
+                    "columns": ["userId", "purpose", "workspaceId"]
+                },
+                {
+                    "name": "IDX_identity_action_link_token",
+                    "unique": true,
+                    "columns": ["tokenHash"]
                 },
                 {
                     "name": "PRIMARY",

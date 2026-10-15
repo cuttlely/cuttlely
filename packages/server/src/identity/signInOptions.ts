@@ -28,8 +28,9 @@ export const SIGN_IN_METHOD = {
 } as const
 
 /**
- * Password reset stays off until a sender and a reset route exist.
- * SMTP_HOST alone used to show Forgot password, and that form posted to a 404.
+ * The sign-in page's Forgot password flag stays off.
+ * Admin invite and reset links can send mail when SMTP is configured.
+ * That is not this flag: turning it on would show a form that still has no self-service route.
  */
 export function mailConfigured(_env: NodeJS.ProcessEnv = process.env): boolean {
     return false

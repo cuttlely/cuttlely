@@ -2,7 +2,7 @@
 
 How a browser signs in when AuthKit is off, and how the server reports which methods are on. The owner break-glass route is unchanged. Teams, roles, and workspace checks are in [Roles and permissions](../how-to/roles-and-permissions.md).
 
-Until password links exist, only a user who already has a password can sign in here. That is the owner created with the setup code, and the break-glass owner. An invited user is stored with no password. No route in this API sets another user's password.
+An invite with no `link` field still stores the user with no password. `link: true` returns a one-time URL the person uses to set a password. See [One-time links](#one-time-links).
 
 ## Which methods are on
 
@@ -14,12 +14,12 @@ Public. No session and no `x-request-from` header. The body lists only methods t
 { "methods": ["localUsers"] }
 ```
 
-| Method       | Present when                                                                |
-| ------------ | --------------------------------------------------------------------------- |
-| `authKit`    | `WORKOS_API_KEY` and `WORKOS_CLIENT_ID` are both set                        |
-| `localAdmin` | `CUTTLELY_LOCAL_ADMIN` is exactly `true`                                    |
-| `localUsers` | `CUTTLELY_LOCAL_USERS` is exactly `true` and AuthKit is not configured      |
-| `mail`       | Reserved. Password reset by email is not available, so this name is omitted |
+| Method       | Present when                                                                                        |
+| ------------ | --------------------------------------------------------------------------------------------------- |
+| `authKit`    | `WORKOS_API_KEY` and `WORKOS_CLIENT_ID` are both set                                                |
+| `localAdmin` | `CUTTLELY_LOCAL_ADMIN` is exactly `true`                                                            |
+| `localUsers` | `CUTTLELY_LOCAL_USERS` is exactly `true` and AuthKit is not configured                              |
+| `mail`       | Omitted. Admin links can email a URL when SMTP is set. The sign-in page has no Forgot password form |
 
 `GET /api/v1/auth/signin-options` is the same choice as booleans (`authKit`, `localAdmin`, `localUsers`, `mail`) for the sign-in page. A false boolean is still returned there. `/auth/options` leaves the off methods out.
 
@@ -107,6 +107,63 @@ The route is public, like sign-out, so a missing session still reaches this hand
 
 The current session is replaced. Every other session for that user is deleted. An old cookie from this browser or another one fails on the next request.
 
+## One-time links
+
+These routes set a password without an admin typing one. The URL is a secret. It is returned once. Examples below use the fake token `exampletokenexampletokenexampletoken12`. That value is not a real token. Do not log the URL, put it in a query string, or send it to a channel you do not control.
+
+The token is 32 random bytes, encoded so it can sit in a fragment. The database stores SHA-256 of it, plus the purpose (`invite` or `reset`), organization, team, user, expiry, and the time it was used. A newer token for the same user, purpose, and team marks the older one used. The raw value is not stored and cannot be fetched again.
+
+`POST /api/v1/account/invite`
+
+Requires `users:manage` or `workspace:add-user` for the previous behavior. Returning or emailing a link requires `users:manage` (the organization owner can too). The body is the same user, team, and role object the invite already accepts, plus optional `link`.
+
+| `link`  | Mail configured | Status | Body                                                                                                                              |
+| ------- | --------------- | ------ | --------------------------------------------------------------------------------------------------------------------------------- |
+| omitted | either          | 200    | `{ "id" }` only, when invite delivery is follow the request (the default). No token and no email.                                 |
+| `true`  | no              | 200    | `{ "id", "link" }`. `link` is `https://host/local-accept#token=...`                                                               |
+| `true`  | yes             | 200    | `{ "id", "link", "mailed" }`. `mailed` is true when the email went out                                                            |
+| `false` | yes             | 200    | `{ "id", "mailed": true }`. The URL is only in the email                                                                          |
+| `false` | no              | 400    | `{ "message": "Mail is not configured. Set link to true to receive a one-time link, or configure mail first." }` Nothing is saved |
+| other   | either          | 400    | `{ "message": "link must be true or false" }`                                                                                     |
+
+A caller cannot grant a role that contains a permission they do not hold, unless they are the organization owner. The owner role cannot be granted. A password field on the user is ignored.
+
+Invite delivery (`INVITE_DELIVERY`, in Server settings or the environment) applies only when `link` is omitted. `link` returns the URL, as `link: true` does. `email` sends it, as `link: false` does, and fails the same way when mail is not configured. `request`, and an unset value, keep the `{ "id" }` response. A request that sets `link` still wins. A saved Server settings value overrides the environment. Reset links do not use this setting.
+
+`POST /api/v1/users/:id/reset-link`
+
+Requires `users:manage`. `:id` must be a user in the caller's current team. Another team's id is 404 `{ "message": "User not found" }`, the same as an unknown id.
+
+| Target                                                                                     | Status | Body                                                                                                          |
+| ------------------------------------------------------------------------------------------ | ------ | ------------------------------------------------------------------------------------------------------------- |
+| Organization owner                                                                         | 403    | `{ "message": "The organization owner cannot be reset from a link." }`                                        |
+| AuthKit-linked user (`externalId`, SSO provider, or SSO subject)                           | 403    | `{ "message": "This account signs in with an outside identity and has no local password." }`                  |
+| Service account (status `service`, SSO provider `service`, or role name `service account`) | 403    | `{ "message": "A service account cannot be reset from a link." }`                                             |
+| Disabled user                                                                              | 403    | `{ "message": "This account is disabled." }`                                                                  |
+| Role with a permission the caller lacks                                                    | 403    | `{ "message": "You cannot reset this account." }`                                                             |
+| Eligible user                                                                              | 200    | `{ "link" }` when `link` is omitted or true. `{ "mailed": true }` when `link` is false and mail is configured |
+
+`link: false` without mail is the same 400 as the invite, and no token is stored. The organization owner may reset an eligible user even when that user's role lists permissions the owner role row does not. Issuing the link does not end sessions.
+
+`POST /api/v1/auth/local/accept`
+
+Public. No session. Send `{ "token", "password" }` in the JSON body. A `token` query parameter is ignored. The route is rate limited: 10 failures from one client address in 15 minutes, then 429 `{ "message": "Too many attempts. Try again later." }`.
+
+| Status | When                                                                                                                         | Body                                                   |
+| ------ | ---------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------ |
+| 200    | The token matches an unused, unexpired invite or reset for an eligible local user, and the password meets the strength rules | `{ "message": "Password saved." }`                     |
+| 400    | The token is missing, unknown, expired, already used, for another team, or the user is not eligible                          | `{ "message": "This link is not valid." }`             |
+| 400    | A token is present and the password fails a strength rule                                                                    | `{ "message": "<the rule>" }` The token stays unused   |
+| 429    | Too many failures from this client address                                                                                   | `{ "message": "Too many attempts. Try again later." }` |
+
+An empty or missing token always returns `{ "message": "This link is not valid." }`, including when the password is also weak. When a token is present and the password fails a strength rule, the response is that rule. The token is not read and is not consumed, so a valid token stays unused and the response does not show that the token is live.
+
+Two accepts of the same token cannot both succeed. The used mark and the password write are one transaction. A reset, and only a reset, deletes every `identity_local_session` row for that user in that same transaction. An old cookie then fails. An invite does not delete sessions.
+
+Invite links last 72 hours (`INVITE_TOKEN_EXPIRY_IN_HOURS`, 1 to 168). Reset links last 60 minutes (`PASSWORD_RESET_TOKEN_EXPIRY_IN_MINS`, 5 to 1440). A value saved in Server settings overrides the environment. Blank, zero, negative, and non-integers are ignored. A number below the minimum is raised to the minimum, and a number above the maximum is lowered to the maximum. Mail uses `SMTP_HOST`, `SMTP_PORT` (587), `SMTP_SECURE`, `SMTP_USER`, and `SENDER_EMAIL` the same way. `SMTP_PASSWORD` stays in the environment and is not returned by Server settings. See [Server settings API](server-settings-api.md#invite-and-reset).
+
+Audit rows in `identity_action_audit` record link issued, token consumed, token rejected (expired, reused, superseded, or ineligible), password set, and sessions revoked. They store ids and a short reason. They do not store the token, the URL, or the email.
+
 ## Errors
 
-Failures use `{ "message": "..." }`. The server does not log the password, the hash, the cookie, a setup code, or the raw email.
+Failures use `{ "message": "..." }`. The server does not log the password, the hash, the cookie, a setup code, the raw email, or a one-time token. A token in a query string or a fragment is redacted before a request line is written.
