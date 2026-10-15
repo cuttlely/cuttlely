@@ -8,7 +8,7 @@ One list of sign-in, lockout, invite, reset, role change, user disable, and sett
 
 `GET /api/v1/audit`
 
-The organization owner of the active team, or a role with `audit:view` on that team. A missing session is **401** `{ "message": "Unauthorized" }`. A signed-in caller without the key is **403** `{ "message": "Forbidden" }`. An API key has no user id, so it is **403** even when the key list contains `audit:view`. Creating or updating an API key with `audit:view` is **400**.
+The organization owner of the active team, or a role with `audit:view` on that team. A missing session is **401** `{ "error": "Unauthorized Access" }`. A signed-in caller without the key is **403** `{ "message": "Forbidden" }`. An API key has no user id, so it is **403** even when the key list contains `audit:view`. Creating or updating an API key with `audit:view` is **400**.
 
 A caller who is not the owner sees events for the active team, and sign-in rows for people in that team. Events for another team, and events for another organization, are left out. The owner sees events for every team in the organization.
 

@@ -22,6 +22,19 @@ import auditApi from '@/api/audit'
 import { AUDIT_TYPES, auditParams } from './query'
 import LogsEmptySVG from '@/assets/images/logs_empty.svg'
 
+function detailText(event) {
+    const changes = event?.detail?.changes
+    if (!Array.isArray(changes) || !changes.length) return ''
+    return changes
+        .map((change) => {
+            if (!change || typeof change.key !== 'string' || !change.key) return ''
+            if (change.values === 'hidden' || change.secret) return `${change.key} (hidden)`
+            return change.key
+        })
+        .filter(Boolean)
+        .join(', ')
+}
+
 const AuditLog = () => {
     const [type, setType] = useState('')
     const [user, setUser] = useState('')
@@ -56,6 +69,14 @@ const AuditLog = () => {
         setEvents([])
         setCursor(null)
         load()
+    }
+
+    if (getAudit.error) {
+        return (
+            <MainCard>
+                <ErrorBoundary error={getAudit.error} />
+            </MainCard>
+        )
     }
 
     return (
@@ -105,6 +126,7 @@ const AuditLog = () => {
                                     <StyledTableCell>Type</StyledTableCell>
                                     <StyledTableCell>User</StyledTableCell>
                                     <StyledTableCell>Summary</StyledTableCell>
+                                    <StyledTableCell>Detail</StyledTableCell>
                                 </TableRow>
                             </TableHead>
                             <TableBody>
@@ -114,6 +136,7 @@ const AuditLog = () => {
                                         <StyledTableCell>{event.type}</StyledTableCell>
                                         <StyledTableCell>{event.userId || ''}</StyledTableCell>
                                         <StyledTableCell>{event.summary}</StyledTableCell>
+                                        <StyledTableCell>{detailText(event)}</StyledTableCell>
                                     </StyledTableRow>
                                 ))}
                             </TableBody>
@@ -130,16 +153,9 @@ const AuditLog = () => {
                         Load more
                     </Button>
                 ) : null}
-                {getAudit.error ? <Typography color='error'>The audit log could not be loaded.</Typography> : null}
             </Stack>
         </MainCard>
     )
 }
 
-const AuditLogPage = () => (
-    <ErrorBoundary>
-        <AuditLog />
-    </ErrorBoundary>
-)
-
-export default AuditLogPage
+export default AuditLog

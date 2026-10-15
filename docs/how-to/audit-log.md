@@ -4,7 +4,7 @@
 
 The list is newest first. Filter by type, or by a user id, and load the next page from the cursor. One cursor orders database rows and settings changes together, so a page does not skip or repeat a row when both happened at the same time.
 
-Settings changes are the same rows as **Admin** > **Server Settings** > **History**. Only the organization owner sees them here. A role with `audit:view` does not. A secret change shows the setting name and that the value changed. It does not show the value.
+Settings changes are the same rows as **Admin** > **Server Settings** > **History**. Only the organization owner sees them here. A role with `audit:view` does not. The Detail column lists each setting name. A secret change is marked hidden and does not show the value.
 
 These values are never stored: passwords, tokens, secret values, question text, client addresses, user agents, and the identifier someone typed when the account is unknown. A sign-in row stores the user id when the account is known, and the method (`local`, `owner`, or `authkit`). A sign-in that matches no account is shown only to the server owner, the earliest active organization owner, and the row has no address and no identifier.
 
