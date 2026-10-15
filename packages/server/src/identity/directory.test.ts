@@ -46,7 +46,8 @@ function memorySql(): { sql: Sql; db: InstanceType<typeof DatabaseSync> } {
     db.exec(`
         CREATE TABLE "user" (
             id text primary key, name text, email text unique, credential text, status text,
-            "externalId" text, "createdBy" text, "updatedBy" text, "createdDate" text, "updatedDate" text
+            "externalId" text, "createdBy" text, "updatedBy" text, "createdDate" text, "updatedDate" text,
+            permissionVersion integer not null default 0
         );
         CREATE TABLE organization (id text primary key, name text);
         CREATE TABLE role (

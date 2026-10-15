@@ -7,7 +7,6 @@ import { useTheme } from '@mui/material/styles'
 
 import roleApi from '@/api/role'
 import NavCollapse from './NavCollapse'
-import { isCustomRole } from '@/utils/roleLabel'
 
 const AdminSection = ({ group }) => {
     const theme = useTheme()
@@ -24,7 +23,7 @@ const AdminSection = ({ group }) => {
             .then((response) => {
                 if (cancelled) return
                 const roles = response.data || []
-                setShowRoles(roles.some((role) => isCustomRole(role)))
+                setShowRoles(roles.length > 0)
             })
             .catch(() => {
                 if (!cancelled) setShowRoles(false)

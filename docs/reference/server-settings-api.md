@@ -8,7 +8,7 @@ Owner-only settings for this server. The page is **Admin** > **Server settings**
 
 The caller must be the organization owner, with a signed-in session. A missing session and an API key are 401. A signed-in caller who is not the owner is 403. Secrets are accepted on `PUT` and are never returned.
 
-These settings are instance-wide. One install has one settings file. A workspace role cannot read or change them, including a workspace admin whose session lists permissions from another workspace. The organization owner is an organization role, so that person can call this API from any workspace they are signed into.
+These settings are instance-wide. One install has one settings file. A workspace role cannot read or change them, including a workspace admin whose session lists permissions from another workspace. The organization owner is an organization role, so that person can call this API from any workspace in that organization. A workspace in another organization does not carry that role.
 
 `GET` and `PUT` above are for ordinary settings. Env-only values are a separate list, [Read-only host values](#read-only-host-values). An ordinary setting still includes `value` (or `secret` for a secret). A read-only row does not.
 

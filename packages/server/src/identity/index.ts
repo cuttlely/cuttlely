@@ -21,6 +21,7 @@ export { identityAccountRouter, identityAuthRouter } from './http'
 export {
     identityOrgUserRouter,
     identityRoleRouter,
+    identityRolesRouter,
     identityUserRouter,
     identityUsersRouter,
     identityWorkspaceRouter,

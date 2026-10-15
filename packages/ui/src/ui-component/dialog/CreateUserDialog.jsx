@@ -77,7 +77,7 @@ const CreateUserDialog = ({ show, workspace, onCancel, onConfirm }) => {
             .then(([workspaceResponse, roleResponse]) => {
                 if (cancelled) return
                 const nextTeams = (workspaceResponse.data || []).filter((item) => item.name !== 'Personal Workspace')
-                const nextRoles = (roleResponse.data || []).filter((item) => !isBuiltInOwnerRole(item))
+                const nextRoles = (roleResponse.data || []).filter((item) => currentUser?.isOrganizationAdmin || !isBuiltInOwnerRole(item))
                 setTeams(nextTeams)
                 setRoles(nextRoles)
                 setTeamId((current) => current || (nextTeams.length === 1 ? nextTeams[0].id : ''))
@@ -93,7 +93,7 @@ const CreateUserDialog = ({ show, workspace, onCancel, onConfirm }) => {
         return () => {
             cancelled = true
         }
-    }, [show, workspace?.id, currentUser.activeOrganizationId])
+    }, [show, workspace?.id, currentUser.activeOrganizationId, currentUser?.isOrganizationAdmin])
 
     const canSubmit =
         !isSaving &&

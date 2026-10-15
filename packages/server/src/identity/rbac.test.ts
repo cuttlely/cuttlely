@@ -12,8 +12,8 @@
 import express, { Request } from 'express'
 import request from 'supertest'
 import type { DataSource } from 'typeorm'
-import { requireAnyPermission, requirePermission, setTeamPermissionLookup } from './rbac'
-import { TeamAccess, teamAccess } from './sqlStore'
+import { requireAnyPermission, requireOwner, requirePermission, setTeamPermissionLookup } from './rbac'
+import { SqlIdentityStore, TeamAccess, teamAccess } from './sqlStore'
 
 const hits = { n: 0 }
 
@@ -51,6 +51,8 @@ describe('teamAccess', () => {
         expect(calls[0].params).toEqual(['team-b', 'user-1'])
         expect(calls[0].sql).toContain('"workspace_user"')
         expect(calls[0].sql).toContain('"organization_user"')
+        expect(calls[0].sql).toContain('"workspace"')
+        expect(calls[0].sql).toContain('organizationId')
         expect(calls[0].sql).not.toContain('user-1')
         expect(calls).toHaveLength(1)
     })
@@ -160,6 +162,174 @@ describe('teamAccess', () => {
             { userStatus: 'active', orgStatus: 'active', orgRoleName: 'owner', teamStatus: null, permissions: null }
         ])
         await expect(teamAccess(dataSource, 'owner', 'team-b')).resolves.toEqual({ owner: true, permissions: null })
+    })
+
+    it('does not treat an owner of another organization as owner of this team', async () => {
+        const { DatabaseSync } = require('node:sqlite') as {
+            DatabaseSync: new (path: string) => {
+                exec(sql: string): void
+                prepare(sql: string): { all(...params: unknown[]): Record<string, unknown>[] }
+            }
+        }
+        const db = new DatabaseSync(':memory:')
+        db.exec(`
+            CREATE TABLE "user" (id text primary key, status text);
+            CREATE TABLE "workspace" (id text primary key, name text, "organizationId" text);
+            CREATE TABLE "role" (id text primary key, "organizationId" text, name text, permissions text);
+            CREATE TABLE "organization_user" (
+                "organizationId" text, "userId" text, "roleId" text, status text,
+                primary key ("organizationId", "userId")
+            );
+            CREATE TABLE "workspace_user" (
+                "workspaceId" text, "userId" text, "roleId" text, status text,
+                primary key ("workspaceId", "userId")
+            );
+            INSERT INTO "user" (id, status) VALUES ('user-1', 'active');
+            INSERT INTO "role" (id, "organizationId", name, permissions) VALUES
+                ('role-owner-a', 'org-a', 'owner', '[]'),
+                ('role-member-b', 'org-b', 'member', '[]'),
+                ('role-team-a', 'org-a', 'admin', '["chatflows:delete"]'),
+                ('role-team-b', 'org-b', 'viewer', '["chatflows:view"]');
+            INSERT INTO "workspace" (id, name, "organizationId") VALUES
+                ('team-a', 'Alpha', 'org-a'),
+                ('team-b', 'Beta', 'org-b');
+            INSERT INTO "organization_user" ("organizationId", "userId", "roleId", status) VALUES
+                ('org-a', 'user-1', 'role-owner-a', 'active'),
+                ('org-b', 'user-1', 'role-member-b', 'active');
+            INSERT INTO "workspace_user" ("workspaceId", "userId", "roleId", status) VALUES
+                ('team-a', 'user-1', 'role-team-a', 'active'),
+                ('team-b', 'user-1', 'role-team-b', 'active');
+        `)
+        const dataSource = {
+            options: { type: 'sqlite' },
+            query: async (sql: string, params: unknown[] = []) => db.prepare(sql).all(...params)
+        } as unknown as DataSource
+        await expect(teamAccess(dataSource, 'user-1', 'team-b')).resolves.toEqual({
+            owner: false,
+            permissions: ['chatflows:view']
+        })
+        await expect(teamAccess(dataSource, 'user-1', 'team-a')).resolves.toEqual({
+            owner: true,
+            permissions: ['chatflows:delete']
+        })
+        setTeamPermissionLookup({
+            accessFor: (userId, workspaceId) => teamAccess(dataSource, userId, workspaceId)
+        })
+        try {
+            const owned = express()
+            owned.use((req, _res, next) => {
+                ;(req as Request).user = { id: 'user-1', activeWorkspaceId: 'team-b' } as Express.User
+                next()
+            })
+            owned.get('/owned', requireOwner(), (_req, res) => {
+                res.json({ ok: true })
+            })
+            const denied = await request(owned).get('/owned')
+            expect(denied.status).toBe(403)
+            expect(denied.body).toEqual({ message: 'Forbidden' })
+
+            const home = express()
+            home.use((req, _res, next) => {
+                ;(req as Request).user = { id: 'user-1', activeWorkspaceId: 'team-a' } as Express.User
+                next()
+            })
+            home.get('/owned', requireOwner(), (_req, res) => {
+                res.json({ ok: true })
+            })
+            expect((await request(home).get('/owned')).status).toBe(200)
+        } finally {
+            setTeamPermissionLookup(null)
+        }
+    })
+
+    it('sets the session owner flag from the active team and matches the owner route', async () => {
+        const { DatabaseSync } = require('node:sqlite') as {
+            DatabaseSync: new (path: string) => {
+                exec(sql: string): void
+                prepare(sql: string): { all(...params: unknown[]): Record<string, unknown>[]; run(...params: unknown[]): unknown }
+            }
+        }
+        const db = new DatabaseSync(':memory:')
+        db.exec(`
+            CREATE TABLE "user" (
+                id text primary key, email text, name text, status text, "externalId" text, credential text
+            );
+            CREATE TABLE "workspace" (id text primary key, name text, "organizationId" text);
+            CREATE TABLE "role" (id text primary key, "organizationId" text, name text, permissions text);
+            CREATE TABLE "organization_user" (
+                "organizationId" text, "userId" text, "roleId" text, status text,
+                primary key ("organizationId", "userId")
+            );
+            CREATE TABLE "workspace_user" (
+                "workspaceId" text, "userId" text, "roleId" text, status text, "lastLogin" text,
+                primary key ("workspaceId", "userId")
+            );
+            INSERT INTO "user" (id, email, name, status) VALUES ('user-1', 'ada@example.com', 'Ada', 'active');
+            INSERT INTO "role" (id, "organizationId", name, permissions) VALUES
+                ('role-owner-a', 'org-a', 'owner', '[]'),
+                ('role-member-b', 'org-b', 'member', '[]'),
+                ('role-team-a', 'org-a', 'admin', '["chatflows:delete"]'),
+                ('role-team-b', 'org-b', 'viewer', '["chatflows:view"]');
+            INSERT INTO "workspace" (id, name, "organizationId") VALUES
+                ('team-a', 'Alpha', 'org-a'),
+                ('team-b', 'Beta', 'org-b');
+            INSERT INTO "organization_user" ("organizationId", "userId", "roleId", status) VALUES
+                ('org-a', 'user-1', 'role-owner-a', 'active'),
+                ('org-b', 'user-1', 'role-member-b', 'active');
+            INSERT INTO "workspace_user" ("workspaceId", "userId", "roleId", status, "lastLogin") VALUES
+                ('team-a', 'user-1', 'role-team-a', 'active', '2026-10-01T00:00:00.000Z'),
+                ('team-b', 'user-1', 'role-team-b', 'active', '2026-10-02T00:00:00.000Z');
+        `)
+        const query = async (statement: string, params: unknown[] = []) => {
+            const prepared = db.prepare(statement)
+            if (/^\s*select/i.test(statement)) return prepared.all(...params)
+            prepared.run(...params)
+            return []
+        }
+        const runner = {
+            query,
+            connect: async () => undefined,
+            release: async () => undefined,
+            connection: { options: { type: 'sqlite' } }
+        }
+        const dataSource = {
+            options: { type: 'sqlite' },
+            query,
+            createQueryRunner: () => runner
+        } as unknown as DataSource
+        const store = new SqlIdentityStore(dataSource)
+        const away = await store.sessionFor('user-1')
+        expect(away?.activeWorkspaceId).toBe('team-b')
+        expect(away?.activeOrganizationId).toBe('org-b')
+        expect(away?.isOrganizationAdmin).toBe(false)
+        expect((await teamAccess(dataSource, 'user-1', 'team-b')).owner).toBe(false)
+
+        const home = await store.sessionFor('user-1', 'team-a')
+        expect(home?.activeWorkspaceId).toBe('team-a')
+        expect(home?.activeOrganizationId).toBe('org-a')
+        expect(home?.isOrganizationAdmin).toBe(true)
+        expect((await teamAccess(dataSource, 'user-1', 'team-a')).owner).toBe(true)
+
+        setTeamPermissionLookup({
+            accessFor: (userId, workspaceId) => teamAccess(dataSource, userId, workspaceId)
+        })
+        try {
+            const appFor = (user: { id: string; activeWorkspaceId: string | null }) => {
+                const app = express()
+                app.use((req, _res, next) => {
+                    ;(req as Request).user = user as Express.User
+                    next()
+                })
+                app.get('/owned', requireOwner(), (_req, res) => {
+                    res.json({ ok: true })
+                })
+                return request(app)
+            }
+            expect((await appFor({ id: 'user-1', activeWorkspaceId: away?.activeWorkspaceId || null }).get('/owned')).status).toBe(403)
+            expect((await appFor({ id: 'user-1', activeWorkspaceId: home?.activeWorkspaceId || null }).get('/owned')).status).toBe(200)
+        } finally {
+            setTeamPermissionLookup(null)
+        }
     })
 })
 

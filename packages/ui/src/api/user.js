@@ -34,6 +34,11 @@ const getWorkspacesByUserId = (userId) => client.get(`/workspaceuser?userId=${us
 const getWorkspacesByOrganizationIdUserId = (organizationId, userId) =>
     client.get(`/workspaceuser?organizationId=${organizationId}&userId=${userId}`)
 const deleteWorkspaceUser = (workspaceId, userId) => client.delete(`/workspaceuser?workspaceId=${workspaceId}&userId=${userId}`)
+const listSessions = (userId) => client.get(`/users/${userId}/sessions`)
+const endSession = (userId, sessionId) => client.delete(`/users/${userId}/sessions/${sessionId}`)
+const endSessions = (userId) => client.delete(`/users/${userId}/sessions`)
+const disableUser = (userId) => client.post(`/users/${userId}/disable`)
+const enableUser = (userId) => client.post(`/users/${userId}/enable`)
 
 export default {
     getUserById,
@@ -55,5 +60,10 @@ export default {
     getPlanProration,
     updateSubscriptionPlan,
     getCurrentUsage,
-    deleteOrganizationUser
+    deleteOrganizationUser,
+    listSessions,
+    endSession,
+    endSessions,
+    disableUser,
+    enableUser
 }

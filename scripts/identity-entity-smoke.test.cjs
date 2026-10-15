@@ -30,7 +30,14 @@ const { postgresMigrations } = serverRequire('./src/database/migrations/postgres
 const { mariadbMigrations } = serverRequire('./src/database/migrations/mariadb/index.ts')
 const { mysqlMigrations } = serverRequire('./src/database/migrations/mysql/index.ts')
 const { refactorUp, ssoBindingDown, ssoColumnsDown } = serverRequire('./src/database/identitySchema.ts')
-const { captureSqlite, capturePostgres, captureMysql, diffShape, normalizeMysqlDisplay } = require('./identity-schema-shape.cjs')
+const {
+    captureSqlite,
+    capturePostgres,
+    captureMysql,
+    diffShape,
+    normalizeMysqlDisplay,
+    normDefault
+} = require('./identity-schema-shape.cjs')
 const { User } = serverRequire('./src/database/entities/identity/User.ts')
 const { Organization } = serverRequire('./src/database/entities/identity/Organization.ts')
 const { Role } = serverRequire('./src/database/entities/identity/Role.ts')
@@ -136,6 +143,36 @@ describe('mysql display normalization', () => {
             expectedDefault: 'utf8mb4_0900_ai_ci'
         })
         assert.deepEqual(errors, [])
+    })
+
+    it('treats a NULL default token as no default and leaves a real default', () => {
+        assert.equal(normDefault('NULL'), null)
+        assert.equal(normDefault('null'), null)
+        assert.equal(normDefault(null), null)
+        assert.equal(normDefault(''), null)
+        assert.equal(normDefault("'NONE'"), "'NONE'")
+        assert.equal(normDefault("'[]'"), "'[]'")
+        assert.equal(normDefault('0'), '0')
+        assert.equal(normDefault("datetime('now')"), "datetime('now')")
+        assert.equal(normDefault('current_timestamp()'), 'current_timestamp()')
+    })
+
+    it('treats MySQL integer display widths as the same type', () => {
+        const column = (type) => ({
+            flow_version_state: {
+                columns: [{ name: 'publishGateThreshold', type, nullable: true, default: null, extra: '', collation: null }],
+                foreignKeys: [],
+                indexes: []
+            }
+        })
+        assert.deepEqual(diffShape(column('int'), column('int(11)'), 'mysql'), [])
+        assert.deepEqual(diffShape(column('bigint'), column('bigint(20)'), 'mysql'), [])
+        assert.deepEqual(diffShape(column('smallint'), column('smallint(6)'), 'mysql'), [])
+        assert.deepEqual(diffShape(column('mediumint'), column('mediumint(9)'), 'mysql'), [])
+        assert.deepEqual(diffShape(column('tinyint'), column('tinyint(4)'), 'mysql'), [])
+        assert.ok(diffShape(column('tinyint(1)'), column('tinyint'), 'mysql').length > 0)
+        assert.ok(diffShape(column('int'), column('int(11)'), 'mariadb').length > 0)
+        assert.ok(diffShape(column('int'), column('bigint'), 'mysql').length > 0)
     })
 })
 
@@ -340,7 +377,8 @@ describe('identity postgres schema', () => {
                     'AddDatasetRowRating1796000000000',
                     'AddChatMessageFlowCreatedIndex1797000000000',
                     'AddIdentityActionLinks1797000000000',
-                    'AddSessionSeen1798000000000'
+                    'AddSessionSeen1798000000000',
+                    'AddLocalDirectory1799000000000'
                 ]
             )
             assert.equal((await dataSource.runMigrations()).length, 0)
@@ -446,7 +484,8 @@ describe('identity mariadb schema', () => {
                     'AddDatasetRowRating1796000000000',
                     'AddChatMessageFlowCreatedIndex1797000000000',
                     'AddIdentityActionLinks1797000000000',
-                    'AddSessionSeen1798000000000'
+                    'AddSessionSeen1798000000000',
+                    'AddLocalDirectory1799000000000'
                 ]
             )
             assert.equal((await dataSource.runMigrations()).length, 0)
@@ -631,7 +670,8 @@ describe('identity mysql 8 schema', () => {
                     'AddDatasetRowRating1796000000000',
                     'AddChatMessageFlowCreatedIndex1797000000000',
                     'AddIdentityActionLinks1797000000000',
-                    'AddSessionSeen1798000000000'
+                    'AddSessionSeen1798000000000',
+                    'AddLocalDirectory1799000000000'
                 ]
             )
             assert.equal((await dataSource.runMigrations()).length, 0)
@@ -683,7 +723,8 @@ describe('identity sqlite upgrade', () => {
                     'AddDatasetRowRating1796000000000',
                     'AddChatMessageFlowCreatedIndex1797000000000',
                     'AddIdentityActionLinks1797000000000',
-                    'AddSessionSeen1798000000000'
+                    'AddSessionSeen1798000000000',
+                    'AddLocalDirectory1799000000000'
                 ]
             )
             assert.equal((await dataSource.runMigrations()).length, 0)

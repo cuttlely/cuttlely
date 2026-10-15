@@ -115,6 +115,11 @@ async function sessionAfterLogin(store: IdentityStore, userId: string, now: numb
  * `reject` drops this cookie. Break-glass (local admin, local users mode off) accepts only the owner.
  * A local session never becomes the owner by itself: the caller loads RBAC with sessionFor.
  */
+function stalePermission(row: LocalSession): boolean {
+    if (typeof row.permissionVersion !== 'number' || typeof row.currentPermissionVersion !== 'number') return false
+    return row.permissionVersion !== row.currentPermissionVersion
+}
+
 async function localCookieGate(ctx: AuthContext, userId: string): Promise<'ok' | 'end' | 'reject'> {
     if (!ctx.localAdmin && !ctx.localUsers) return 'reject'
     const open = await ctx.store.localAccountOpen(userId)
@@ -283,6 +288,10 @@ export async function handleRefresh(ctx: AuthContext): Promise<HandlerResult> {
                 { message: ended === 'absolute' ? 'Refresh Token Expired' : 'Token Expired' },
                 cleared(ctx, [LOCAL_SESSION_COOKIE])
             )
+        }
+        if (stalePermission(row)) {
+            await ctx.store.deleteLocalSessionsForUser(row.userId)
+            return json(401, { message: 'Token Expired' }, cleared(ctx, [LOCAL_SESSION_COOKIE]))
         }
         const gate = await localCookieGate(ctx, row.userId)
         if (gate === 'end') {
@@ -528,6 +537,10 @@ export async function establishSession(
             return { user: null, clearCookies: [LOCAL_SESSION_COOKIE], secure: clearSecure(ctx, [LOCAL_SESSION_COOKIE]) }
         if (localSessionBlock(row, ctx.now)) {
             await ctx.store.deleteLocalSession(digest)
+            return { user: null, clearCookies: [LOCAL_SESSION_COOKIE], secure: clearSecure(ctx, [LOCAL_SESSION_COOKIE]) }
+        }
+        if (stalePermission(row)) {
+            await ctx.store.deleteLocalSessionsForUser(row.userId)
             return { user: null, clearCookies: [LOCAL_SESSION_COOKIE], secure: clearSecure(ctx, [LOCAL_SESSION_COOKIE]) }
         }
         const gate = await localCookieGate(ctx, row.userId)

@@ -60,6 +60,7 @@ import { AddDatasetRowRating1796000000000 } from './1796000000000-AddDatasetRowR
 import { AddChatMessageFlowCreatedIndex1797000000000 } from './1797000000000-AddChatMessageFlowCreatedIndex'
 import { AddIdentityActionLinks1797000000000 } from './1797000000000-AddIdentityActionLinks'
 import { AddSessionSeen1798000000000 } from './1798000000000-AddSessionSeen'
+import { AddLocalDirectory1799000000000 } from './1799000000000-AddLocalDirectory'
 
 import { AddAuthTables1720230151482 } from './1720230151482-AddAuthTables'
 import { AddWorkspace1720230151484 } from './1720230151484-AddWorkspace'
@@ -146,5 +147,6 @@ export const postgresMigrations = [
     AddDatasetRowRating1796000000000,
     AddChatMessageFlowCreatedIndex1797000000000,
     AddIdentityActionLinks1797000000000,
-    AddSessionSeen1798000000000
+    AddSessionSeen1798000000000,
+    AddLocalDirectory1799000000000
 ]
