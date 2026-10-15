@@ -28,12 +28,12 @@ The owner's own role row, the one tied to the organization, stores an empty perm
 
 When local password sign-in is on (`CUTTLELY_LOCAL_USERS=true` and AuthKit is unset), three more roles are seeded. They are fixed. A custom role stays editable.
 
-| Role    | What it grants                                                                                                                                                      |
-| ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Owner   | Every catalog key, and the owner bypass. Only an owner can assign it. The last enabled owner who still has a team cannot be demoted, disabled, deleted, or removed. |
-| Admin   | Every catalog key, including people, roles, teams, and server logs. An admin cannot assign Owner and cannot grant a key they do not hold.                           |
-| Builder | Create, update, delete, and view keys for flows, tools, and data. No people, roles, teams, or server logs.                                                          |
-| Viewer  | View keys only, except server logs.                                                                                                                                 |
+| Role    | What it grants                                                                                                                                                                 |
+| ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Owner   | Every catalog key, and the owner bypass. Only an owner can assign it. The last enabled organization owner cannot be demoted, disabled, deleted, or removed, even with no team. |
+| Admin   | Every catalog key, including people, roles, teams, and server logs. An admin cannot assign Owner and cannot grant a key they do not hold.                                      |
+| Builder | Create, update, delete, and view keys for flows, tools, and data. No people, roles, teams, or server logs.                                                                     |
+| Viewer  | View keys only, except server logs.                                                                                                                                            |
 
 The sets are the keys in `permissionsCatalog.ts`. The ids are stable. [Local users, roles, and sessions](../reference/local-directory-api.md) lists the routes, who may call them, and the error codes. A team is still a workspace: list, create, edit, and membership stay on `/api/v1/workspace` and `/api/v1/workspaceuser`.
 

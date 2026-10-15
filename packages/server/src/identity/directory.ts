@@ -14,6 +14,7 @@ import { randomUUID } from 'crypto'
 import type { DataSource, QueryRunner } from 'typeorm'
 import { builtInPermissionJson, builtInPermissionKeys, builtInRoleName, isReservedRoleName, permissionsLowered } from './builtInRoles'
 import { DEFAULT_WORKSPACE, OWNER_ROLE, PERSONAL_WORKSPACE } from './constants'
+import { likeEscapeClause } from './likeEscape'
 import { isCatalogPermission } from './permissionsCatalog'
 import { IdentityStore } from './store'
 import { SessionUser } from './types'
@@ -165,6 +166,16 @@ function enabledOwnersSql(sql: Sql): string {
           AND LOWER(r.${q(sql, 'name')}) = 'owner'`
 }
 
+async function enabledOwnerIds(query: QueryFn, sql: Sql, organizationId: string): Promise<string[]> {
+    const rows = await query(enabledOwnersSql(sql), [organizationId])
+    return rows.map((row) => text(cell(row, 'userId'))).filter((id) => id.length > 0)
+}
+
+/** True when this user is an enabled owner and no other enabled owner remains. */
+function keepsLastOwner(ownerIds: string[], userId: string): boolean {
+    return ownerIds.includes(userId) && ownerIds.length < 2
+}
+
 /** Hold the owner rows for this organization until the transaction commits. SQLite uses BEGIN IMMEDIATE instead. */
 async function lockOrgOwners(query: QueryFn, sql: Sql, organizationId: string, userId: string): Promise<void> {
     if (sql.type === 'sqlite') return
@@ -179,19 +190,16 @@ async function lockOrgOwners(query: QueryFn, sql: Sql, organizationId: string, u
 }
 
 /**
- * One UPDATE. The owner count and the write are the same statement, so two overlapping
- * disables cannot both pass. Returns last when the row is still active.
+ * Read the enabled owners after the row lock, then a plain UPDATE. The same statement
+ * cannot both read and write organization_user. Returns last when the row stays active.
  */
 async function refuseLastOwnerDisable(query: QueryFn, sql: Sql, organizationId: string, userId: string): Promise<'ok' | 'last'> {
-    const owners = `(${enabledOwnersSql(sql)})`
+    const owners = await enabledOwnerIds(query, sql, organizationId)
+    if (keepsLastOwner(owners, userId)) return 'last'
     await query(
-        `UPDATE ${q(sql, 'organization_user')} SET ${q(sql, 'status')} = CASE
-            WHEN NOT EXISTS (SELECT 1 FROM ${owners} owners WHERE owners.userId = ${q(sql, 'organization_user')}.${q(sql, 'userId')})
-              OR (SELECT COUNT(*) FROM ${owners} owners) > 1
-            THEN 'disable' ELSE ${q(sql, 'status')} END,
-            ${q(sql, 'updatedDate')} = CURRENT_TIMESTAMP
+        `UPDATE ${q(sql, 'organization_user')} SET ${q(sql, 'status')} = 'disable', ${q(sql, 'updatedDate')} = CURRENT_TIMESTAMP
          WHERE ${q(sql, 'organizationId')} = ? AND ${q(sql, 'userId')} = ?`,
-        [organizationId, organizationId, organizationId, userId]
+        [organizationId, userId]
     )
     const rows = await query(
         `SELECT ${q(sql, 'status')} AS status FROM ${q(sql, 'organization_user')}
@@ -489,15 +497,12 @@ export async function deleteOrganizationUser(
             [organizationId, userId]
         )
         if (!membership.length) throw new DirectoryError(404, 'User not found')
-        const owners = `(${enabledOwnersSql(sql)})`
+        const owners = await enabledOwnerIds(query, sql, organizationId)
+        if (keepsLastOwner(owners, userId)) throw new DirectoryError(409, 'The last owner cannot be removed')
         await query(
             `DELETE FROM ${q(sql, 'organization_user')}
-             WHERE ${q(sql, 'organizationId')} = ? AND ${q(sql, 'userId')} = ?
-               AND NOT (
-                 EXISTS (SELECT 1 FROM ${owners} owners WHERE owners.userId = ?)
-                 AND (SELECT COUNT(*) FROM ${owners} owners) < 2
-               )`,
-            [organizationId, userId, organizationId, userId, organizationId]
+             WHERE ${q(sql, 'organizationId')} = ? AND ${q(sql, 'userId')} = ?`,
+            [organizationId, userId]
         )
         const kept = await query(
             `SELECT ${q(sql, 'userId')} AS userId FROM ${q(sql, 'organization_user')}
@@ -738,15 +743,12 @@ export async function updateWorkspaceUserRole(sql: Sql, actor: DirectoryActor, b
             )
         } else if (wasOwner && !willBeOwner) {
             const memberId = await plainMemberRoleId(query, sql)
-            const owners = `(${enabledOwnersSql(sql)})`
+            const owners = await enabledOwnerIds(query, sql, actor.organizationId)
+            if (keepsLastOwner(owners, userId)) throw new DirectoryError(409, 'The last owner cannot be removed')
             await query(
                 `UPDATE ${q(sql, 'organization_user')} SET ${q(sql, 'roleId')} = ?, ${q(sql, 'updatedDate')} = CURRENT_TIMESTAMP
-                 WHERE ${q(sql, 'organizationId')} = ? AND ${q(sql, 'userId')} = ?
-                   AND (
-                     NOT EXISTS (SELECT 1 FROM ${owners} owners WHERE owners.userId = ${q(sql, 'organization_user')}.${q(sql, 'userId')})
-                     OR (SELECT COUNT(*) FROM ${owners} owners) > 1
-                   )`,
-                [memberId, actor.organizationId, userId, actor.organizationId, actor.organizationId]
+                 WHERE ${q(sql, 'organizationId')} = ? AND ${q(sql, 'userId')} = ?`,
+                [memberId, actor.organizationId, userId]
             )
             const still = await query(
                 `SELECT r.${q(sql, 'name')} AS name FROM ${q(sql, 'organization_user')} ou
@@ -985,7 +987,19 @@ function roleJson(row: Record<string, unknown>, userCount: number): RoleJson {
     }
 }
 
-async function roleUserCount(sql: Sql, roleId: string): Promise<number> {
+/** People with this role on one team. The role list uses the caller's active team. */
+async function roleUserCount(sql: Sql, roleId: string, workspaceId: string): Promise<number> {
+    if (!workspaceId) return 0
+    const rows = await sql.query(
+        `SELECT COUNT(*) AS count FROM ${q(sql, 'workspace_user')}
+         WHERE ${q(sql, 'roleId')} = ? AND ${q(sql, 'workspaceId')} = ?`,
+        [roleId, workspaceId]
+    )
+    return num(cell(rows[0] || {}, 'count'))
+}
+
+/** Every team assignment of this role. Deleting a role still looks at all of them. */
+async function roleAssignmentCount(sql: Sql, roleId: string): Promise<number> {
     const rows = await sql.query(`SELECT COUNT(*) AS count FROM ${q(sql, 'workspace_user')} WHERE ${q(sql, 'roleId')} = ?`, [roleId])
     return num(cell(rows[0] || {}, 'count'))
 }
@@ -1007,12 +1021,15 @@ export async function listRoles(sql: Sql, actor: DirectoryActor, organizationId:
     for (const row of rows) {
         const name = text(cell(row, 'name')).toLowerCase()
         if (name === OWNER_ROLE) {
-            const listedOwner = { ...roleJson(row, await roleUserCount(sql, text(cell(row, 'id')))), readOnly: true }
+            const listedOwner = {
+                ...roleJson(row, await roleUserCount(sql, text(cell(row, 'id')), actor.workspaceId || '')),
+                readOnly: true
+            }
             if (!owner || listedOwner.organizationId) owner = listedOwner
             continue
         }
         if (!assignable(row, organizationId, true) && name !== 'member') continue
-        listed.push(roleJson(row, await roleUserCount(sql, text(cell(row, 'id')))))
+        listed.push(roleJson(row, await roleUserCount(sql, text(cell(row, 'id')), actor.workspaceId || '')))
     }
     return owner ? [owner, ...listed] : listed
 }
@@ -1094,7 +1111,14 @@ export async function updateRole(sql: Sql, actor: DirectoryActor, body: unknown)
             if (holderId) await endLocalSessions(sql.query, sql, holderId)
         }
     }
-    return { id, name, description, permissions, organizationId: actor.organizationId, userCount: await roleUserCount(sql, id) }
+    return {
+        id,
+        name,
+        description,
+        permissions,
+        organizationId: actor.organizationId,
+        userCount: await roleUserCount(sql, id, actor.workspaceId || '')
+    }
 }
 
 export async function deleteRole(sql: Sql, actor: DirectoryActor, id: string, organizationId: string): Promise<{ id: string }> {
@@ -1105,7 +1129,7 @@ export async function deleteRole(sql: Sql, actor: DirectoryActor, id: string, or
         throw new DirectoryError(403, 'Built-in roles cannot be changed')
     }
     if (text(cell(role, 'organizationId')) !== organizationId) throw new DirectoryError(404, 'Role not found')
-    const count = await roleUserCount(sql, id)
+    const count = await roleAssignmentCount(sql, id)
     if (count > 0) throw new DirectoryError(400, 'Remove users with this role first')
     await sql.query(`DELETE FROM ${q(sql, 'role')} WHERE ${q(sql, 'id')} = ?`, [id])
     return { id }
@@ -1171,7 +1195,8 @@ export async function listLocalUsers(
     await assertSameWorkspace(sql.query, sql, actor, actor.workspaceId)
     const needle = `%${page.q.replace(/\\/g, '\\\\').replace(/%/g, '\\%').replace(/_/g, '\\_')}%`
     const statusSql = page.status ? `AND LOWER(ou.${q(sql, 'status')}) = ?` : ''
-    const searchSql = page.q ? `AND (LOWER(u.${q(sql, 'name')}) LIKE ? ESCAPE '\\' OR LOWER(u.${q(sql, 'email')}) LIKE ? ESCAPE '\\')` : ''
+    const escape = likeEscapeClause(sql.type)
+    const searchSql = page.q ? `AND (LOWER(u.${q(sql, 'name')}) LIKE ? ${escape} OR LOWER(u.${q(sql, 'email')}) LIKE ? ${escape})` : ''
     const params: unknown[] = [actor.workspaceId, actor.organizationId]
     if (page.status) params.push(page.status)
     if (page.q) params.push(needle, needle)

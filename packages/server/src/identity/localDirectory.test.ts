@@ -19,6 +19,7 @@ import { tmpdir } from 'os'
 import { join } from 'path'
 import { Worker } from 'worker_threads'
 import { builtInPermissionKeys, builtInPermissionJson, permissionsLowered } from './builtInRoles'
+import { likeEscapeClause } from './likeEscape'
 import { catalogKeys } from './permissionsCatalog'
 import {
     DirectoryError,
@@ -34,6 +35,7 @@ import {
     getWorkspace,
     listLocalUsers,
     listOrganizationUsers,
+    listRoles,
     listUserSessions,
     listWorkspaceMemberships,
     listWorkspaces,
@@ -62,7 +64,7 @@ const ADMIN = 'admin-user'
 const TEAM = 'team-1'
 const TEAM_B = 'team-2'
 
-function memorySql(): { sql: Sql; db: InstanceType<typeof DatabaseSync> } {
+function memorySql(record?: string[]): { sql: Sql; db: InstanceType<typeof DatabaseSync> } {
     const db = new DatabaseSync(':memory:')
     const adminPermissions = builtInPermissionJson('admin')
     const builderPermissions = builtInPermissionJson('builder')
@@ -123,15 +125,24 @@ function memorySql(): { sql: Sql; db: InstanceType<typeof DatabaseSync> } {
             ('${TEAM_B}', 'viewer-1', 'role-viewer', 'active');
     `)
     const query = async (statement: string, params: unknown[] = []) => {
+        record?.push(statement)
         const prepared = db.prepare(statement)
         if (/^\s*(select|with)\b/i.test(statement)) return prepared.all(...params)
         prepared.run(...params)
         return []
     }
+    let tail: Promise<unknown> = Promise.resolve()
     const sql: Sql = {
         type: 'sqlite',
         query,
-        transaction: async (fn) => fn(query)
+        transaction: async (fn) => {
+            const run = tail.then(() => fn(query))
+            tail = run.then(
+                () => undefined,
+                () => undefined
+            )
+            return run
+        }
     }
     return { sql, db }
 }
@@ -431,6 +442,81 @@ describe('local directory rules', () => {
         expect(under.users.map((user) => user.email)).toEqual(['a_b@example.com'])
         const percent = await listLocalUsers(sql, admin, pageFrom({ q: '%' }))
         expect(percent.users).toEqual([])
+    })
+
+    it('uses a doubled LIKE escape on MySQL and MariaDB', async () => {
+        expect(likeEscapeClause('mysql')).toBe("ESCAPE '\\\\'")
+        expect(likeEscapeClause('mariadb')).toBe("ESCAPE '\\\\'")
+        expect(likeEscapeClause('sqlite')).toBe("ESCAPE '\\'")
+        expect(likeEscapeClause('postgres')).toBe("ESCAPE '\\'")
+        const statements: string[] = []
+        const sql: Sql = {
+            type: 'mysql',
+            query: async (statement) => {
+                statements.push(statement)
+                if (/count\(\*\)/i.test(statement)) return [{ count: 0 }]
+                if (/FROM `workspace`/i.test(statement)) return [{ id: TEAM, name: 'Default Workspace', organizationId: ORG }]
+                return []
+            },
+            transaction: async (fn) => fn(async (statement, params) => sql.query(statement, params))
+        }
+        await listLocalUsers(sql, admin, pageFrom({ q: 'a_b' }))
+        const search = statements.find((statement) => statement.includes('LIKE')) || ''
+        expect(search).toContain("ESCAPE '\\\\'")
+        expect(search.includes("ESCAPE '\\'")).toBe(false)
+    })
+
+    it('reads the owner count before a plain organization write', async () => {
+        const statements: string[] = []
+        const { sql, db } = memorySql(statements)
+        db.exec(`
+            INSERT INTO "user" (id, name, email, status, permissionVersion) VALUES ('owner-2', 'Second', 'second@example.com', 'active', 0);
+            INSERT INTO organization_user ("organizationId", "userId", "roleId", status) VALUES ('${ORG}', 'owner-2', 'role-owner', 'active');
+            INSERT INTO workspace_user ("workspaceId", "userId", "roleId", status) VALUES ('${TEAM}', 'owner-2', 'role-owner', 'active');
+        `)
+        statements.length = 0
+        await setUserDisabled(sql, owner, 'owner-2', true)
+        const disable = statements.find((statement) => /UPDATE\s+"organization_user"\s+SET\s+"status"/i.test(statement)) || ''
+        expect(disable).not.toMatch(/SELECT/i)
+        expect(statements.findIndex((statement) => /LOWER\(r\."name"\) = 'owner'/i.test(statement))).toBeGreaterThan(-1)
+        expect(statements.findIndex((statement) => /LOWER\(r\."name"\) = 'owner'/i.test(statement))).toBeLessThan(
+            statements.indexOf(disable)
+        )
+
+        statements.length = 0
+        await updateWorkspaceUserRole(sql, owner, { userId: 'owner-2', workspaceId: TEAM, roleId: 'role-admin' })
+        const demote = statements.find((statement) => /UPDATE\s+"organization_user"\s+SET\s+"roleId"/i.test(statement)) || ''
+        expect(demote).not.toMatch(/SELECT/i)
+        expect(db.prepare('SELECT "roleId" AS roleId FROM organization_user WHERE "userId" = ?').all('owner-2')).toEqual([
+            { roleId: 'role-member' }
+        ])
+
+        statements.length = 0
+        await deleteOrganizationUser(sql, owner, ORG, 'owner-2')
+        const removed = statements.find((statement) => /DELETE FROM "organization_user"/i.test(statement)) || ''
+        expect(removed).not.toMatch(/SELECT/i)
+        expect(db.prepare('SELECT "userId" AS userId FROM organization_user WHERE "userId" = ?').all('owner-2')).toEqual([])
+    })
+
+    it('counts a role on the active team and still refuses a delete while another team has it', async () => {
+        const { sql, db } = memorySql()
+        db.exec(`
+            INSERT INTO role (id, "organizationId", name, description, permissions) VALUES
+                ('role-field', '${ORG}', 'Field', 'field', '["chatflows:view"]');
+            INSERT INTO "user" (id, name, email, status, permissionVersion) VALUES ('field-b', 'Field', 'field-b@example.com', 'active', 0);
+            INSERT INTO organization_user ("organizationId", "userId", "roleId", status) VALUES ('${ORG}', 'field-b', 'role-member', 'active');
+            INSERT INTO workspace_user ("workspaceId", "userId", "roleId", status) VALUES ('${TEAM_B}', 'field-b', 'role-field', 'active');
+        `)
+        const onActive = await listRoles(sql, admin, ORG)
+        expect(onActive.find((role) => role.id === 'role-field')?.userCount).toBe(0)
+        expect(onActive.find((role) => role.name === 'viewer')?.userCount).toBe(1)
+        const onOther = await listRoles(sql, { ...owner, workspaceId: TEAM_B }, ORG)
+        expect(onOther.find((role) => role.id === 'role-field')?.userCount).toBe(1)
+        expect(onOther.find((role) => role.name === 'viewer')?.userCount).toBe(1)
+        await expect(deleteRole(sql, owner, 'role-field', ORG)).rejects.toMatchObject({
+            status: 400,
+            message: 'Remove users with this role first'
+        })
     })
 
     it('counts roles only on teams the caller shares', async () => {

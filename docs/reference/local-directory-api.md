@@ -154,7 +154,9 @@ The response does not include cookies, bearer tokens, refresh tokens, token hash
 
 `permissions` on a built-in role is the fixed set, not a shorter list stored on an older row.
 
-`POST /api/v1/roles` and `PATCH /api/v1/roles/:id` use the same body as `POST /api/v1/role`: `name`, `description`, and `permissions` as a JSON string of catalog keys. The name cannot contain spaces and cannot be a reserved name. A role that still has people cannot be deleted (**400** `{ "message": "Remove users with this role first" }`).
+`userCount` is the number of people with that role on the caller's active team. A person who has the role only on another team is not included.
+
+`POST /api/v1/roles` and `PATCH /api/v1/roles/:id` use the same body as `POST /api/v1/role`: `name`, `description`, and `permissions` as a JSON string of catalog keys. The name cannot contain spaces and cannot be a reserved name. A role that still has people on any team cannot be deleted (**400** `{ "message": "Remove users with this role first" }`). That check is wider than `userCount`.
 
 ## Teams
 

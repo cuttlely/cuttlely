@@ -4,6 +4,7 @@
 import { createHmac, randomBytes, timingSafeEqual } from 'crypto'
 import { StatusCodes } from 'http-status-codes'
 import { authSecret } from '../../identity/authSecrets'
+import { likeEscapeClause } from '../../identity/likeEscape'
 
 class HistoryError extends Error {
     constructor(readonly statusCode: number, message: string) {
@@ -305,12 +306,6 @@ function olderThan(entry: DistinctRow, cursor: CursorPosition): boolean {
     return entry.row.id < cursor.id
 }
 
-function escapeClause(driver: string): string {
-    // MySQL string literals treat a backslash as an escape. The other drivers take the backslash as written.
-    if (driver === 'mysql' || driver === 'mariadb') return "ESCAPE '\\\\'"
-    return "ESCAPE '\\'"
-}
-
 async function queryScan(flowId: string, q: string, source: HistorySource | null): Promise<HistoryRow[]> {
     const repo = chatRepository()
     const driver = String(repo.manager?.connection?.options?.type || 'sqlite')
@@ -322,7 +317,7 @@ async function queryScan(flowId: string, q: string, source: HistorySource | null
         .andWhere('m.chatType IN (:...types)', { types: CHAT_TYPES })
     if (source === 'chat') qb.andWhere('m.chatType = :chatType', { chatType: CHAT_INTERNAL })
     else if (source === 'api') qb.andWhere('m.chatType = :chatType', { chatType: CHAT_EXTERNAL })
-    if (q) qb.andWhere(`LOWER(m.content) LIKE :needle ${escapeClause(driver)}`, { needle: likeContainsPattern(q) })
+    if (q) qb.andWhere(`LOWER(m.content) LIKE :needle ${likeEscapeClause(driver)}`, { needle: likeContainsPattern(q) })
     qb.orderBy('m.createdDate', 'DESC').addOrderBy('m.id', 'DESC').take(HISTORY_SCAN_CAP)
     return qb.getMany()
 }
