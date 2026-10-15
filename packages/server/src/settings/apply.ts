@@ -1,6 +1,7 @@
 // Applies the admin settings file to the environment at start, before any other server module reads it.
 // The host always wins. When the start script already applied the file (CUTTLELY_SETTINGS_APPLIED=1), only the record is kept.
 import { HOST_KEYS_VAR, hostSetKeys, fileValuesToApply } from './resolve'
+import { bindRuntimeSource } from './runtime'
 import fs from 'fs'
 import path from 'path'
 import { beginStart } from './safeboot'
@@ -87,5 +88,6 @@ export function applyAdminSettings(env: Env = process.env, options: { start?: bo
         for (const [key, value] of Object.entries(toApply)) env[key] = value
         if (env[HOST_KEYS_VAR] === undefined) env[HOST_KEYS_VAR] = state.hostKeys.join(',')
     }
+    if (env === process.env) bindRuntimeSource(state.dir, state.hostKeys)
     return state
 }

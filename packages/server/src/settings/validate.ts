@@ -29,14 +29,16 @@ export function checkValue(setting: SettingDef, input: unknown): Checked {
             return { ok: false, error: `${setting.label}: choose one of the options.` }
         }
         case 'number': {
-            if (!/^-?\d+(\.\d+)?$/.test(value)) return { ok: false, error: `${setting.label}: enter a number.` }
+            if (setting.integer) {
+                if (!/^\d+$/.test(value)) return { ok: false, error: `${setting.label}: enter a whole number.` }
+            } else if (!/^-?\d+(\.\d+)?$/.test(value)) return { ok: false, error: `${setting.label}: enter a number.` }
             const raw = Number(value)
             const shown = setting.unit === 'ms-as-seconds' ? raw / 1000 : raw
             if (setting.min !== undefined && shown < setting.min)
                 return { ok: false, error: `${setting.label}: the smallest value is ${setting.min}.` }
             if (setting.max !== undefined && shown > setting.max)
                 return { ok: false, error: `${setting.label}: the largest value is ${setting.max}.` }
-            return { ok: true, value }
+            return { ok: true, value: setting.integer ? String(raw) : value }
         }
         case 'list': {
             const items = value

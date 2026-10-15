@@ -107,7 +107,7 @@ Then set `CUTTLELY_IMAGE=ghcr.io/cuttlely/cuttlely:<the version you had>` in `.e
 
 Settings saved from **Admin**, **Server Settings** apply when Cuttlely starts. If two starts in a row do not finish after a change, Cuttlely puts back the last settings that started and says so in the log. The settings that did not start are kept beside them as `server.rolled-back.json`.
 
-You can also fix it by hand. Changes apply at the next start, and secret values are never printed.
+You can also fix it by hand. Most changes apply at the next start. The sign-in failure limit, the two session lifetimes, and the shutdown wait apply without a restart. A host value overrides the saved one. Secret values are never printed.
 
 | Command                    | What it does                                                  |
 | -------------------------- | ------------------------------------------------------------- |

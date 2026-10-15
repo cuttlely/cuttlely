@@ -17,9 +17,7 @@
 import { randomUUID } from 'crypto'
 import { localCookie, sealedCookie } from './cookies'
 import {
-    ABSOLUTE_MS,
     EMAIL_MAX_LENGTH,
-    IDLE_MS,
     LOCAL_SESSION_COOKIE,
     PASSWORD_MAX_LENGTH,
     WOS_SESSION_COOKIE,
@@ -29,6 +27,7 @@ import {
 } from './constants'
 import { isActiveStatus, linkFailureMessage, linkWorkosUser } from './link'
 import { hashForLoginCompare, hashPassword, hashSessionToken, passwordErrors, randomToken, tokensEqual, verifyPassword } from './password'
+import { localSessionBlock, localSessionTimes, sessionLimitsMs } from './sessionLifetime'
 import { LoginLimiter } from './rateLimit'
 import { isLoopbackAddress } from './sessionGuard'
 import { setupCodeMatches } from './setupCode'
@@ -128,12 +127,16 @@ async function localCookieGate(ctx: AuthContext, userId: string): Promise<'ok' |
 
 async function issueLocalSession(ctx: AuthContext, userId: string): Promise<{ token: string; session: SessionUser } | null> {
     const token = randomToken()
+    const limits = sessionLimitsMs()
+    const at = new Date(ctx.now)
     await ctx.store.insertLocalSession({
         id: randomUUID(),
         userId,
         token: hashSessionToken(token),
-        idleExpires: new Date(ctx.now + IDLE_MS),
-        absoluteExpires: new Date(ctx.now + ABSOLUTE_MS)
+        idleExpires: new Date(ctx.now + limits.idleMs),
+        absoluteExpires: new Date(ctx.now + limits.absoluteMs),
+        issuedAt: at,
+        lastSeenAt: at
     })
     const session = await sessionAfterLogin(ctx.store, userId, ctx.now)
     if (!session) return null
@@ -217,17 +220,21 @@ export async function handleLoginPost(ctx: AuthContext): Promise<HandlerResult> 
     if (!(await verifyPassword(password, owner.credential))) return fail()
 
     const token = randomToken()
+    const limits = sessionLimitsMs()
+    const at = new Date(ctx.now)
     await ctx.store.insertLocalSession({
         id: randomUUID(),
         userId: owner.id,
         token: hashSessionToken(token),
-        idleExpires: new Date(ctx.now + IDLE_MS),
-        absoluteExpires: new Date(ctx.now + ABSOLUTE_MS)
+        idleExpires: new Date(ctx.now + limits.idleMs),
+        absoluteExpires: new Date(ctx.now + limits.absoluteMs),
+        issuedAt: at,
+        lastSeenAt: at
     })
     const session = await sessionAfterLogin(ctx.store, owner.id, ctx.now)
     if (!session) return json(401, { message: INVALID_LOGIN })
     return json(200, session, {
-        cookies: [localCookie(token, ctx.secure, IDLE_MS)],
+        cookies: [localCookie(token, ctx.secure, sessionLimitsMs().idleMs)],
         ...cleared(ctx, [WOS_SESSION_COOKIE])
     })
 }
@@ -265,13 +272,14 @@ export async function handleRefresh(ctx: AuthContext): Promise<HandlerResult> {
         if (!row || !tokensEqual(row.token, digest)) {
             return json(401, { message: 'Token Expired' }, cleared(ctx, [LOCAL_SESSION_COOKIE]))
         }
-        if (ctx.now >= row.absoluteExpires.getTime()) {
+        const ended = localSessionBlock(row, ctx.now)
+        if (ended) {
             await ctx.store.deleteLocalSession(digest)
-            return json(401, { message: 'Refresh Token Expired' }, cleared(ctx, [LOCAL_SESSION_COOKIE]))
-        }
-        if (ctx.now >= row.idleExpires.getTime()) {
-            await ctx.store.deleteLocalSession(digest)
-            return json(401, { message: 'Token Expired' }, cleared(ctx, [LOCAL_SESSION_COOKIE]))
+            return json(
+                401,
+                { message: ended === 'absolute' ? 'Refresh Token Expired' : 'Token Expired' },
+                cleared(ctx, [LOCAL_SESSION_COOKIE])
+            )
         }
         const gate = await localCookieGate(ctx, row.userId)
         if (gate === 'end') {
@@ -279,8 +287,10 @@ export async function handleRefresh(ctx: AuthContext): Promise<HandlerResult> {
             return json(401, { message: 'Token Expired' }, cleared(ctx, [LOCAL_SESSION_COOKIE]))
         }
         if (gate !== 'ok') return json(401, { message: 'Token Expired' }, cleared(ctx, [LOCAL_SESSION_COOKIE]))
-        const idleExpires = new Date(Math.min(ctx.now + IDLE_MS, row.absoluteExpires.getTime()))
-        await ctx.store.slideLocalSession(digest, idleExpires)
+        const limits = sessionLimitsMs()
+        const times = localSessionTimes(row)
+        const idleExpires = new Date(Math.min(ctx.now + limits.idleMs, times.issuedAt + limits.absoluteMs))
+        await ctx.store.slideLocalSession(digest, idleExpires, new Date(ctx.now))
         const session = await ctx.store.sessionFor(row.userId)
         if (!session) return json(401, { message: 'Token Expired' }, cleared(ctx, [LOCAL_SESSION_COOKIE]))
         const secure = ctx.localUsers ? localSessionSecure(ctx) : ctx.secure
@@ -389,7 +399,7 @@ export async function handleLocalLogin(ctx: AuthContext): Promise<HandlerResult>
     const issued = await issueLocalSession(ctx, user.id)
     if (!issued) return json(401, { message: INVALID_LOGIN })
     return json(200, issued.session, {
-        cookies: [localCookie(issued.token, localSessionSecure(ctx), IDLE_MS)],
+        cookies: [localCookie(issued.token, localSessionSecure(ctx), sessionLimitsMs().idleMs)],
         ...cleared(ctx, [WOS_SESSION_COOKIE])
     })
 }
@@ -415,7 +425,7 @@ export async function handleLocalPassword(ctx: AuthContext): Promise<HandlerResu
     const digest = hashSessionToken(token)
     const row = await ctx.store.findLocalSession(digest)
     if (!row || !tokensEqual(row.token, digest)) return json(401, { message: 'Unauthorized' })
-    if (ctx.now >= row.absoluteExpires.getTime() || ctx.now >= row.idleExpires.getTime()) {
+    if (localSessionBlock(row, ctx.now)) {
         await ctx.store.deleteLocalSession(digest)
         return json(401, { message: 'Unauthorized' })
     }
@@ -453,7 +463,7 @@ export async function handleLocalPassword(ctx: AuthContext): Promise<HandlerResu
     const issued = await issueLocalSession(ctx, row.userId)
     if (!issued) return json(401, { message: INVALID_LOGIN })
     return json(200, issued.session, {
-        cookies: [localCookie(issued.token, localSessionSecure(ctx), IDLE_MS)],
+        cookies: [localCookie(issued.token, localSessionSecure(ctx), sessionLimitsMs().idleMs)],
         ...cleared(ctx, [WOS_SESSION_COOKIE])
     })
 }
@@ -507,7 +517,8 @@ export async function establishSession(
         const row = await ctx.store.findLocalSession(digest)
         if (!row || !tokensEqual(row.token, digest))
             return { user: null, clearCookies: [LOCAL_SESSION_COOKIE], secure: clearSecure(ctx, [LOCAL_SESSION_COOKIE]) }
-        if (ctx.now >= row.absoluteExpires.getTime() || ctx.now >= row.idleExpires.getTime()) {
+        if (localSessionBlock(row, ctx.now)) {
+            await ctx.store.deleteLocalSession(digest)
             return { user: null, clearCookies: [LOCAL_SESSION_COOKIE], secure: clearSecure(ctx, [LOCAL_SESSION_COOKIE]) }
         }
         const gate = await localCookieGate(ctx, row.userId)

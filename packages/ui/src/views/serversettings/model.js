@@ -1,7 +1,7 @@
 // Server settings page logic, kept apart from the components so it can be tested.
 // Drafts are raw strings keyed by setting name: '' removes a saved value (back to the default).
 
-export const SECRET_ACTIONS = { set: 'Set', replaced: 'Replaced', removed: 'Removed' }
+export const SECRET_ACTIONS = { set: 'Set', replaced: 'Replaced', removed: 'Removed', changed: 'Changed' }
 
 /** The value a number field shows: seconds for milliseconds stored as 'ms-as-seconds'. */
 export function toDisplay(setting, raw) {

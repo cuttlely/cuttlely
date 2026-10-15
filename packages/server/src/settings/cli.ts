@@ -1,9 +1,12 @@
 // pnpm settings list | unset NAME | restore
-// The way back in when a saved setting keeps the server from starting or locks you out. Changes apply at the next start.
+// The way back in when a saved setting keeps the server from starting or locks you out.
+// Sign-in limits, session lifetimes and the shutdown wait apply without a restart. Other changes apply at the next start.
 // Secret values are never printed.
 import fs from 'fs'
 import path from 'path'
 import { appendHistory, describeChanges } from './history'
+import { SettingsBusyError, withSettingsLockSync } from './lock'
+import { isRuntimeKey } from './runtime'
 import { SETTINGS, settingFor } from './registry'
 import { hostSetKeys, resolveSettings } from './resolve'
 import { ROLLED_BACK_FILE } from './safeboot'
@@ -55,18 +58,33 @@ function unsetSetting(env: Env, name: string | undefined): CliResult {
             lines: ['The settings file could not be read. Run pnpm settings restore, or start with CUTTLELY_IGNORE_ADMIN_SETTINGS=1.']
         }
     }
-    if (!parsed.values || !Object.prototype.hasOwnProperty.call(parsed.values, name)) {
+    const stored = parsed.values
+    if (!stored || !Object.prototype.hasOwnProperty.call(stored, name)) {
         return { code: 0, lines: [`${name} is not saved in the settings file. Nothing changed.`] }
     }
-    const before = readSettingsFile(dir, encryptionKeySync(env)).values
-    delete parsed.values[name]
-    // Edit the stored JSON directly, so secrets this key cannot read are kept as they are.
-    writeFileAtomic(dir, SETTINGS_FILE, JSON.stringify({ ...parsed, updatedAt: new Date().toISOString(), updatedBy: BY }, null, 2) + '\n')
-    const after = { ...before }
-    delete after[name]
-    const changes = settingFor(name) ? describeChanges(before, after) : []
-    appendHistory(dir, { kind: 'unset', by: BY, changes: changes.length ? changes : [{ key: name }], outcome: 'ok' })
-    return { code: 0, lines: [`Removed ${name} from the settings file. ${NEXT_START}`] }
+    try {
+        return withSettingsLockSync(dir, () => {
+            const before = readSettingsFile(dir, encryptionKeySync(env)).values
+            delete stored[name]
+            // Edit the stored JSON directly, so secrets this key cannot read are kept as they are.
+            writeFileAtomic(
+                dir,
+                SETTINGS_FILE,
+                JSON.stringify({ ...parsed, updatedAt: new Date().toISOString(), updatedBy: BY }, null, 2) + '\n'
+            )
+            const after = { ...before }
+            delete after[name]
+            const changes = settingFor(name) ? describeChanges(before, after) : []
+            appendHistory(dir, { kind: 'unset', by: BY, changes: changes.length ? changes : [{ key: name }], outcome: 'ok' })
+            const applies = isRuntimeKey(name)
+                ? 'A running server picks this up within 5 seconds. A host value still wins until that variable is removed from the host and Cuttlely is started again.'
+                : NEXT_START
+            return { code: 0, lines: [`Removed ${name} from the settings file. ${applies}`] }
+        })
+    } catch (error) {
+        if (error instanceof SettingsBusyError) return { code: 1, lines: [error.message] }
+        throw error
+    }
 }
 
 function restoreLastGood(env: Env): CliResult {
@@ -111,7 +129,7 @@ export function runSettingsCli(args: string[], env: Env = process.env): CliResul
                     '  pnpm settings list [--all]   what is set, and where it comes from (secrets stay hidden)',
                     '  pnpm settings unset NAME     remove one saved setting',
                     '  pnpm settings restore        go back to the last settings that started',
-                    `Known settings: ${SETTINGS.length}. Changes apply at the next start.`
+                    `Known settings: ${SETTINGS.length}. Sign-in limits, session lifetimes and the shutdown wait apply without a restart. Other changes apply at the next start.`
                 ]
             }
     }

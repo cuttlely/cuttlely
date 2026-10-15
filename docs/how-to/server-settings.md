@@ -31,7 +31,9 @@ A fresh server shows three optional first steps at the top: **Sign-in for your t
 
 ![Review 2 changes. File storage, marked High risk, goes from Default (This server) to S3 or compatible. Proxies in front of Cuttlely, marked High risk, goes from Default (None) to 1. The warning says a high-risk change can stop Cuttlely from starting or keep people from signing in. RESTART is typed in the box. Back and Save changes are at the bottom.](../images/server-settings/server-settings-review-high-risk.png)
 
-Every change applies at the next restart. Until then the server keeps running with what it started with, and **Discard** puts the saved file back the way it was at start.
+Most changes apply at the next restart. Until then the server keeps running with what it started with, and **Discard** puts the saved file back the way it was at start.
+
+Four limits apply as soon as they are saved: failed sign-ins before lockout, the idle session lifetime, the absolute session lifetime, and the shutdown wait. A shorter session lifetime ends sessions that are already signed in, on the next request. A queue worker picks up the saved value within 5 seconds. If one of these locks people out, set the same variable on the host and start Cuttlely again. The host value overrides the saved one. [Server settings API](../reference/server-settings-api.md).
 
 ## Where a value comes from
 
@@ -161,6 +163,6 @@ From a terminal (in Docker, prefix with `docker compose exec -u node Cuttlely`):
 
 ![All settings. Copy as .env is at the top right. The table starts with Owner password sign-in, Host, On; AuthKit API key, Not set; AuthKit client ID, Default (Not set: AuthKit is off); Callback address, Default (Not set); and Session seal, Not set.](../images/server-settings/server-settings-all-settings.png)
 
-**History** keeps every save, discard, restore, test sign-in, rollback and restart: when, who, and which settings, never a secret value.
+**History** keeps every save, discard, restore, test sign-in, rollback and restart: when, who, and which settings, never a secret value. A secret is recorded only as changed. The same list is `GET /api/v1/server-settings/history`. It is paged, newest first, and only the organization owner can read it. The file is not compacted.
 
 ![History. Saved 6 changes by rosa.diaz@example.com on Oct 14, 2026, 12:50 PM: MCP sign-in wait default to 20000, Longest MCP tool description default to 512, Longest MCP tool name default to 64, Row cap default to 80, Query timeout default to 20000, and Keep warm every default to 30. The bar says 6 saved changes wait for a restart.](../images/server-settings/server-settings-history.png)

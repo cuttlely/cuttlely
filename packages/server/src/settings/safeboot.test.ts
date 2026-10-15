@@ -23,8 +23,8 @@ describe('history', () => {
             { LOG_LEVEL: 'debug', CUTTLELY_POSTGRES_URL: SECRET, DATABASE_PASSWORD: 'pw-made-up' }
         )
         expect(changes).toEqual([
-            { key: 'CUTTLELY_POSTGRES_URL', secret: 'replaced' },
-            { key: 'DATABASE_PASSWORD', secret: 'set' },
+            { key: 'CUTTLELY_POSTGRES_URL', secret: 'changed' },
+            { key: 'DATABASE_PASSWORD', secret: 'changed' },
             { key: 'LOG_LEVEL', from: 'info', to: 'debug' }
         ])
         const { dir } = data()
@@ -68,7 +68,7 @@ describe('safe boot', () => {
         const [entry] = readHistory(dir)
         expect(entry.kind).toBe('rollback')
         expect(entry.changes).toEqual([
-            { key: 'CUTTLELY_POSTGRES_URL', secret: 'removed' },
+            { key: 'CUTTLELY_POSTGRES_URL', secret: 'changed' },
             { key: 'LOG_LEVEL', from: 'debug', to: 'info' }
         ])
         expect(readBootState(dir).pending).toBe(1)

@@ -166,7 +166,9 @@ const ServerSettings = () => {
             setFieldErrors({})
             setReviewOpen(false)
             setHistoryKey((n) => n + 1)
-            notify('Saved. Restart Cuttlely to apply.')
+            const keys = Object.keys(clean)
+            const runtimeOnly = keys.length > 0 && keys.every((key) => settings.find((setting) => setting.key === key)?.runtime)
+            notify(runtimeOnly ? 'Saved. These limits apply now.' : 'Saved. Restart Cuttlely to apply.')
         } catch (error) {
             const errors = errorsByKey(error)
             setFieldErrors(errors)

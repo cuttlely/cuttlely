@@ -7,6 +7,7 @@ import { setTeamPermissionLookup } from '../../identity/rbac'
 import { isServerSettingsUrl } from '../../settings/redact'
 import { StartState } from '../../settings/apply'
 import { readHistory } from '../../settings/history'
+import { loginFailureLimit, unbindRuntimeSource } from '../../settings/runtime'
 import { resetRestartRequest, setRestartHandler } from '../../settings/restart'
 import { resetRuns } from '../../settings/runs'
 import { SETTINGS_FILE, readSettingsFile, readStoredValues, writeSettingsFile } from '../../settings/store'
@@ -62,6 +63,7 @@ afterEach(() => {
     setRestartHandler(null)
     resetRestartRequest()
     resetRuns()
+    unbindRuntimeSource()
 })
 
 describe('who can use server settings', () => {
@@ -123,13 +125,13 @@ describe('saving settings', () => {
         })
         const [entry] = readHistory(dir)
         expect(entry).toMatchObject({ kind: 'save', by: 'owner@example.com' })
-        expect(entry.changes).toContainEqual({ key: 'WORKOS_API_KEY', secret: 'set' })
+        expect(entry.changes).toContainEqual({ key: 'WORKOS_API_KEY', secret: 'changed' })
         expect(JSON.stringify(entry)).not.toContain(SECRET)
         const removed = await app(OWNER)
             .put('/api/v1/server-settings')
             .send({ values: { WORKOS_API_KEY: '' } })
         expect(removed.status).toBe(200)
-        expect(readHistory(dir)[0].changes).toEqual([{ key: 'WORKOS_API_KEY', secret: 'removed' }])
+        expect(readHistory(dir)[0].changes).toEqual([{ key: 'WORKOS_API_KEY', secret: 'changed' }])
     })
 
     it('refuses host-set, unknown, kept-out, invalid and database values, and saves nothing', async () => {
@@ -257,5 +259,152 @@ describe('Try it again after safe boot', () => {
         env.CUTTLELY_HARNESS_TURN_BUDGET_MS = '60000'
         const res = await app(OWNER).get('/api/v1/server-settings')
         expect(res.body.runs).toEqual({ inProgress: 0, waitSeconds: 60 })
+    })
+})
+
+const WORKSPACE_ADMIN = {
+    id: 'admin-1',
+    email: 'admin@example.com',
+    activeWorkspaceId: 'team-a',
+    permissions: ['users:manage', 'server:owner']
+}
+const OTHER_WORKSPACE = { id: 'other-1', email: 'other@example.com', activeWorkspaceId: 'team-b', permissions: ['chatflows:view'] }
+
+describe('runtime limits and history', () => {
+    it('applies a runtime limit without a restart and records who changed it', async () => {
+        const res = await app(OWNER)
+            .put('/api/v1/server-settings')
+            .send({ values: { CUTTLELY_LOGIN_FAILURE_LIMIT: '20' } })
+        expect(res.status).toBe(200)
+        expect(env.CUTTLELY_LOGIN_FAILURE_LIMIT).toBe('20')
+        const row = res.body.settings.find((setting: { key: string }) => setting.key === 'CUTTLELY_LOGIN_FAILURE_LIMIT')
+        expect(row).toMatchObject({ runtime: true, value: '20', running: '20', changed: false })
+        expect(res.body.restart.changed).not.toContain('CUTTLELY_LOGIN_FAILURE_LIMIT')
+        expect(loginFailureLimit(env)).toBe(20)
+        const [entry] = readHistory(dir)
+        expect(entry).toMatchObject({
+            kind: 'save',
+            by: 'owner@example.com',
+            actorId: 'owner-1',
+            event: 'server_setting.updated',
+            outcome: 'ok'
+        })
+        expect(entry.changes).toContainEqual({ key: 'CUTTLELY_LOGIN_FAILURE_LIMIT', from: '', to: '20' })
+    })
+
+    it('refuses limits outside the range, a bad type, an unknown key, and idle longer than absolute', async () => {
+        const range = await app(OWNER)
+            .put('/api/v1/server-settings')
+            .send({ values: { CUTTLELY_LOGIN_FAILURE_LIMIT: '2' } })
+        expect(range.status).toBe(400)
+        expect(range.body).toMatchObject({ code: 'INVALID' })
+        expect(range.body.errors).toEqual([{ key: 'CUTTLELY_LOGIN_FAILURE_LIMIT', message: expect.stringMatching(/smallest value is 3/) }])
+        const typed = await app(OWNER)
+            .put('/api/v1/server-settings')
+            .send({ values: { CUTTLELY_DRAIN_TIMEOUT_MS: 'soon' } })
+        expect(typed.status).toBe(400)
+        expect(typed.body.code).toBe('INVALID')
+        const idle = await app(OWNER)
+            .put('/api/v1/server-settings')
+            .send({ values: { CUTTLELY_SESSION_IDLE_MINUTES: '1440', CUTTLELY_SESSION_ABSOLUTE_HOURS: '1' } })
+        expect(idle.status).toBe(400)
+        expect(idle.body.errors.map((error: { key: string }) => error.key)).toContain('CUTTLELY_SESSION_IDLE_MINUTES')
+        expect(JSON.stringify(idle.body)).not.toContain('changed')
+        expect(fs.existsSync(path.join(dir, 'history.jsonl'))).toBe(false)
+    })
+
+    it('does not store a secret on a failed save or a history write that fails', async () => {
+        const leaked = 'pw-made-up-for-the-bakery-9999'
+        const invalid = await app(OWNER)
+            .put('/api/v1/server-settings')
+            .send({ values: { WORKOS_API_KEY: leaked, CUTTLELY_LOGIN_FAILURE_LIMIT: 'nope' } })
+        expect(invalid.status).toBe(400)
+        expect(JSON.stringify(invalid.body)).not.toContain(leaked)
+        expect(fs.existsSync(path.join(dir, SETTINGS_FILE))).toBe(false)
+
+        const append = jest.spyOn(fs, 'appendFileSync').mockImplementation(() => {
+            throw new Error('disk full')
+        })
+        try {
+            const failed = await app(OWNER)
+                .put('/api/v1/server-settings')
+                .send({ values: { WORKOS_API_KEY: leaked, CUTTLELY_LOGIN_FAILURE_LIMIT: '12' } })
+            expect(failed.status).toBe(500)
+            expect(failed.body.code).toBe('HISTORY_FAILED')
+            expect(JSON.stringify(failed.body)).not.toContain(leaked)
+            expect(fs.existsSync(path.join(dir, SETTINGS_FILE))).toBe(false)
+        } finally {
+            append.mockRestore()
+        }
+    })
+
+    it('keeps old and new values in order when two saves overlap', async () => {
+        const [first, second] = await Promise.all([
+            app(OWNER)
+                .put('/api/v1/server-settings')
+                .send({ values: { CUTTLELY_LOGIN_FAILURE_LIMIT: '20' } }),
+            app(OWNER)
+                .put('/api/v1/server-settings')
+                .send({ values: { CUTTLELY_LOGIN_FAILURE_LIMIT: '30' } })
+        ])
+        expect(first.status).toBe(200)
+        expect(second.status).toBe(200)
+        const saves = readHistory(dir).filter((entry) => entry.kind === 'save')
+        expect(saves).toHaveLength(2)
+        const newer = saves[0].changes?.find((change) => change.key === 'CUTTLELY_LOGIN_FAILURE_LIMIT')
+        const older = saves[1].changes?.find((change) => change.key === 'CUTTLELY_LOGIN_FAILURE_LIMIT')
+        expect(newer?.from).toBe(older?.to)
+        expect([older?.to, newer?.to].sort()).toEqual(['20', '30'])
+    })
+
+    it('pages history for the organization owner and refuses everyone else', async () => {
+        for (const value of ['11', '12', '13']) {
+            expect(
+                (
+                    await app(OWNER)
+                        .put('/api/v1/server-settings')
+                        .send({ values: { CUTTLELY_LOGIN_FAILURE_LIMIT: value } })
+                ).status
+            ).toBe(200)
+        }
+        const page = await app(OWNER).get('/api/v1/server-settings/history?limit=2')
+        expect(page.status).toBe(200)
+        expect(page.body.entries).toHaveLength(2)
+        expect(page.body.limit).toBe(2)
+        expect(typeof page.body.nextCursor).toBe('string')
+        const next = await app(OWNER).get(`/api/v1/server-settings/history?cursor=${encodeURIComponent(page.body.nextCursor)}`)
+        expect(next.status).toBe(200)
+        expect(next.body.entries).toHaveLength(1)
+        expect(next.body.nextCursor).toBeNull()
+        expect(next.body.limit).toBe(50)
+        const capped = await app(OWNER).get('/api/v1/server-settings/history?limit=1000')
+        expect(capped.body.limit).toBe(100)
+        expect((await app(OWNER).get('/api/v1/server-settings/history?cursor=not-a-cursor')).status).toBe(400)
+        expect((await app(OWNER).get('/api/v1/server-settings/history?cursor=not-a-cursor')).body.code).toBe('INVALID_CURSOR')
+        expect((await app(OWNER).get('/api/v1/server-settings/history?limit=0')).status).toBe(400)
+        expect((await app(null).get('/api/v1/server-settings/history')).status).toBe(401)
+        expect((await app(WORKSPACE_ADMIN).get('/api/v1/server-settings/history')).status).toBe(403)
+        expect((await app(OTHER_WORKSPACE).get('/api/v1/server-settings/history')).status).toBe(403)
+        expect((await app(API_KEY).get('/api/v1/server-settings/history')).status).toBe(403)
+        const denied = await app(WORKSPACE_ADMIN)
+            .put('/api/v1/server-settings')
+            .send({ values: { CUTTLELY_SESSION_IDLE_MINUTES: '30' } })
+        expect(denied.status).toBe(403)
+        expect(readSettingsFile(dir, KEY).values.CUTTLELY_SESSION_IDLE_MINUTES).toBeUndefined()
+        const ownerElsewhere = { ...OWNER, activeWorkspaceId: 'team-b' }
+        expect((await app(ownerElsewhere).get('/api/v1/server-settings/history')).status).toBe(200)
+    })
+
+    it('refuses a host-locked limit and does not record a change', async () => {
+        state.hostKeys.push('CUTTLELY_SESSION_IDLE_MINUTES')
+        env.CUTTLELY_SESSION_IDLE_MINUTES = '30'
+        const res = await app(OWNER)
+            .put('/api/v1/server-settings')
+            .send({ values: { CUTTLELY_SESSION_IDLE_MINUTES: '60' } })
+        expect(res.status).toBe(400)
+        expect(res.body.code).toBe('INVALID')
+        expect(res.body.errors[0].message).toMatch(/host/)
+        expect(fs.existsSync(path.join(dir, 'history.jsonl'))).toBe(false)
+        expect(env.CUTTLELY_SESSION_IDLE_MINUTES).toBe('30')
     })
 })

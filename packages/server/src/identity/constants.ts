@@ -20,8 +20,10 @@ export const WOS_SESSION_COOKIE = 'wos-session'
 /** Break-glass session only. Never a WorkOS seal. */
 export const LOCAL_SESSION_COOKIE = 'cuttlely-local-session'
 
+/** Defaults used before these could be changed, and the fallback when a session row has no issue time. */
 export const IDLE_MS = 12 * 60 * 60 * 1000
 export const ABSOLUTE_MS = 7 * 24 * 60 * 60 * 1000
+/** Historical default. The live cap is CUTTLELY_LOGIN_FAILURE_LIMIT. */
 export const LOGIN_FAILURE_LIMIT = 10
 export const LOGIN_FAILURE_WINDOW_MS = 15 * 60 * 1000
 

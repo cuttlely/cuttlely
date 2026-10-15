@@ -40,6 +40,7 @@ New here? Start with [Your first 10 minutes](../README.md#your-first-10-minutes)
 -   [History settings](./reference/versioning-settings.md), [History API](./reference/versioning-api.md), [Drafts API](./reference/drafts-api.md) and [Version files](./reference/version-files.md).
 -   [Usage API](./reference/usage-api.md). Daily input and output token totals for a workspace, by flow and model, with an estimated cost. The Usage page shows the same figures.
 -   [Auth API](./reference/auth-api.md). Local password sign-in, sign-out, a user's own password change, and which sign-in methods are on.
+-   [Server settings API](./reference/server-settings-api.md). Owner routes for server settings, the limits that apply without a restart, and paged change history.
 -   [Override configuration](./reference/override-config.md). What a prediction request may change with `overrideConfig`, and what it never can.
 -   [Upgrading Cuttlely](./upgrading.md). Back up, upgrade, check and roll back, for Docker, Render and source installs.
 -   [Changelog](../CHANGELOG.md) and [Releases and support](./releases.md). What changed in each release, what counts as a breaking change, and which versions get fixes.

@@ -21,7 +21,7 @@ import {
     SettingsError,
     discardChanges,
     getView,
-    listHistory,
+    historyPage,
     restartNow,
     retryRolledBack,
     saveChanges
@@ -80,11 +80,12 @@ export function setConnectionDrivers(factory: () => TestDrivers): void {
     driversFactory = factory
 }
 
-function actor(req: Request): string {
+function actor(req: Request): { by: string; actorId?: string } {
     const user = req.user as { email?: unknown; id?: unknown } | undefined
-    if (user && typeof user.email === 'string' && user.email) return user.email
-    if (user && typeof user.id === 'string' && user.id) return user.id
-    return 'owner'
+    const actorId = user && typeof user.id === 'string' && user.id ? user.id : undefined
+    if (user && typeof user.email === 'string' && user.email) return { by: user.email, actorId }
+    if (actorId) return { by: actorId, actorId }
+    return { by: 'owner', actorId }
 }
 
 function handle(work: (req: Request) => Promise<unknown> | unknown, status = 200) {
@@ -111,25 +112,37 @@ router.get(
 )
 router.put(
     '/',
-    handle((req) => saveChanges(depsFactory(), req.body, actor(req)))
+    handle((req) => {
+        const who = actor(req)
+        return saveChanges(depsFactory(), req.body, who.by, who.actorId)
+    })
 )
 router.post(
     '/discard',
-    handle((req) => discardChanges(depsFactory(), actor(req)))
+    handle((req) => {
+        const who = actor(req)
+        return discardChanges(depsFactory(), who.by, who.actorId)
+    })
 )
 // Try it again: puts back the settings safe boot set aside after two starts that did not finish.
 router.post(
     '/retry',
-    handle((req) => retryRolledBack(depsFactory(), actor(req)))
+    handle((req) => {
+        const who = actor(req)
+        return retryRolledBack(depsFactory(), who.by, who.actorId)
+    })
 )
 router.get(
     '/history',
-    handle((req) => ({ entries: listHistory(depsFactory(), Number(req.query.limit ?? 100)) }))
+    handle((req) => historyPage(depsFactory(), req.query.limit, req.query.cursor))
 )
 router.post(
     '/restart',
     // Lets runs in progress finish first unless the owner chose Restart now ({ wait: false }).
-    handle((req) => restartNow(depsFactory(), actor(req), { wait: (req.body as { wait?: unknown })?.wait !== false }), 202)
+    handle((req) => {
+        const who = actor(req)
+        return restartNow(depsFactory(), who.by, { wait: (req.body as { wait?: unknown })?.wait !== false, actorId: who.actorId })
+    }, 202)
 )
 // Test connection: tries the values on screen without saving them. Nothing is written except a small test file in
 // a storage bucket, which is removed again.
@@ -163,11 +176,11 @@ router.post(
 )
 router.post(
     '/database/switch',
-    handle((req) => switchDatabase(depsFactory(), req.body, actor(req), driversFactory()))
+    handle((req) => switchDatabase(depsFactory(), req.body, actor(req).by, driversFactory()))
 )
 router.post(
     '/database/restore',
-    handle((req) => restorePreviousDatabase(depsFactory(), req.body, actor(req), driversFactory()))
+    handle((req) => restorePreviousDatabase(depsFactory(), req.body, actor(req).by, driversFactory()))
 )
 
 export default router

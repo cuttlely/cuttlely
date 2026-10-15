@@ -75,6 +75,10 @@ export interface LocalSession {
     token: string
     idleExpires: Date
     absoluteExpires: Date
+    /** When the session was created. Older rows derive this from the absolute expiry. */
+    issuedAt?: Date
+    /** Last time the session was issued or refreshed. Older rows derive this from the idle expiry. */
+    lastSeenAt?: Date
 }
 
 export interface CreateOwnerInput {
