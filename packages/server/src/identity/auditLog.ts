@@ -41,6 +41,25 @@ const DETAIL_MAX = 8000
 const FORBIDDEN_KEY =
     /password|token|secret|question|authorization|cookie|credential|api[-_]?key|setupcode|bearer|user-?agent|identifier|email|(^|[_.-])ip($|[_.-])/i
 
+/** CamelCase and separator forms that do not contain `ip` as its own word. */
+const ADDRESS_KEY = /^(ipaddress|clientip|clientaddress|remoteaddress|remoteaddr|xforwardedfor|forwardedfor)$/
+
+function auditKeyParts(key: string): string[] {
+    return key
+        .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+        .replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2')
+        .toLowerCase()
+        .split(/[^a-z0-9]+/)
+        .filter(Boolean)
+}
+
+function forbiddenAuditKey(key: string): boolean {
+    if (FORBIDDEN_KEY.test(key)) return true
+    const parts = auditKeyParts(key)
+    if (parts.includes('ip')) return true
+    return ADDRESS_KEY.test(parts.join(''))
+}
+
 export class AuditQueryError extends Error {
     readonly status = 400
     readonly code: string
@@ -124,7 +143,7 @@ function collectSecrets(value: unknown, secrets: string[]): void {
         return
     }
     for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
-        if (FORBIDDEN_KEY.test(key)) {
+        if (forbiddenAuditKey(key)) {
             if (typeof item === 'string' && item.length >= 3) secrets.push(item)
             else if (item && typeof item === 'object') collectSecrets(item, secrets)
             continue
@@ -138,7 +157,7 @@ function omitForbidden(value: unknown): unknown {
     if (!value || typeof value !== 'object') return value
     const out: Record<string, unknown> = {}
     for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
-        if (FORBIDDEN_KEY.test(key)) continue
+        if (forbiddenAuditKey(key)) continue
         out[key] = omitForbidden(item)
     }
     return out
@@ -191,7 +210,7 @@ export function redactAudit(input: { summary: string; detail?: unknown; type: Au
 function settingChange(entry: HistoryEntry): AuditEvent | null {
     if (typeof entry.seq !== 'number') return null
     const changes = (entry.changes || []).map((change) => {
-        if (isSecretSettingKey(change.key) || FORBIDDEN_KEY.test(change.key) || change.secret) {
+        if (isSecretSettingKey(change.key) || forbiddenAuditKey(change.key) || change.secret) {
             return { key: change.key, values: 'hidden' }
         }
         return { key: change.key, from: change.from, to: change.to }

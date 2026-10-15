@@ -69,7 +69,7 @@ identityAuditRouter.get('/', requireAuditViewer(), (req: Request, res: Response)
             const organizationId = typeof user.activeOrganizationId === 'string' ? user.activeOrganizationId : ''
             const workspaceId = typeof user.activeWorkspaceId === 'string' ? user.activeWorkspaceId : ''
             if (!userId || !organizationId) {
-                res.status(401).json({ message: 'Unauthorized' })
+                res.status(401).json({ error: 'Unauthorized Access' })
                 return
             }
             const access = await resolveTeamAccess(userId, workspaceId)

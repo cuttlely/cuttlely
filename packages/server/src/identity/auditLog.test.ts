@@ -112,6 +112,28 @@ describe('audit redaction', () => {
         expect(redacted.detail).toEqual({ method: 'local', nested: { method: 'local' } })
     })
 
+    it('drops camelCase and compound address keys', () => {
+        const addresses = {
+            ipAddress: '203.0.113.10',
+            clientIp: '203.0.113.11',
+            clientAddress: '203.0.113.12',
+            remoteAddress: '203.0.113.13',
+            remoteAddr: '203.0.113.14',
+            xForwardedFor: '203.0.113.15',
+            forwardedFor: '203.0.113.16',
+            IPAddress: '203.0.113.17',
+            'X-Forwarded-For': '203.0.113.18'
+        }
+        const redacted = redactAudit({
+            type: 'sign_in_failure',
+            summary: 'Sign-in failed',
+            detail: { method: 'local', description: 'bakery route', ...addresses }
+        })
+        const encoded = JSON.stringify(redacted)
+        for (const value of Object.values(addresses)) expect(encoded).not.toContain(value)
+        expect(redacted.detail).toEqual({ method: 'local', description: 'bakery route' })
+    })
+
     it('stores none of those values on a row', async () => {
         const { sql, db } = memorySql()
         await recordAudit(
@@ -629,6 +651,15 @@ describe('GET /api/v1/audit', () => {
         expect(foreign.status).toBe(200)
         expect(foreign.body.events.every((event: { type: string }) => event.type === 'setting_change')).toBe(true)
         expect(foreign.body.events.some((event: { type: string }) => event.type === 'invite' || event.type === 'role_change')).toBe(false)
+    })
+
+    it('uses the gate body when the session has no user or organization', async () => {
+        const missingOrg = await request(app({ id: OWNER })).get('/api/v1/audit')
+        expect(missingOrg.status).toBe(401)
+        expect(missingOrg.body).toEqual({ error: 'Unauthorized Access' })
+        const missingUser = await request(app({ id: '', permissions: ['audit:view'], activeOrganizationId: ORG })).get('/api/v1/audit')
+        expect(missingUser.status).toBe(401)
+        expect(missingUser.body).toEqual({ error: 'Unauthorized Access' })
     })
 
     it('rejects a bad cursor, a bad type, and a bad limit', async () => {
