@@ -11,6 +11,9 @@ import {
     loadingText,
     COMPARE_COUNTS,
     DEFAULT_COMPARE_COUNT,
+    pickerCounts,
+    pickerValue,
+    questionCap,
     addQuestion,
     canRunCheck,
     capMessage,
@@ -60,6 +63,16 @@ describe('how many past questions', () => {
     test('the choices start at 4, and a short history is described in words', () => {
         expect(DEFAULT_COMPARE_COUNT).toBe(4)
         expect(COMPARE_COUNTS).toEqual([4, 10, 25, 50, 100])
+        expect(pickerCounts()).toEqual([4, 10, 25, 50, 100])
+        expect(pickerCounts({ counts: [10, 4, 10, 25, 40] })).toEqual([4, 10, 25, 40])
+        expect(pickerCounts({ counts: [4, 10, 25, 50, 100, 200] })).toEqual([4, 10, 25, 50, 100, 200])
+        expect(pickerCounts({ counts: [] })).toEqual([4, 10, 25, 50, 100])
+        expect(pickerValue(50, [4, 10, 25, 40], 4)).toBe(4)
+        expect(pickerValue(10, [4, 10, 25, 40], 4)).toBe(10)
+        expect(pickerValue(4, [3], 4)).toBe(3)
+        expect(questionCap({ maxQuestions: 40 })).toBe(40)
+        expect(questionCap({ maxQuestions: 200 })).toBe(200)
+        expect(questionCap({}, 10)).toBe(10)
         expect(capMessage(4, 10)).toBe('')
         expect(capMessage(50, 37)).toBe('Only 37 past questions available. Comparing all 37.')
         expect(capMessage(10, 1)).toBe('Only 1 past question available. Comparing that question.')

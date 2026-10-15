@@ -249,4 +249,31 @@ describe('PublishCheck choose mode on a chatflow with no past questions', () => 
         expect(api.getCheckHistory).not.toHaveBeenCalled()
         renderer.unmount()
     })
+
+    test('selects the default count from setup and offers the counts for that cap', async () => {
+        const api = {
+            getCheckSetup: jest.fn().mockResolvedValue({
+                data: {
+                    unavailable: null,
+                    questions: [{ text: 'Do you have rye loaves today?', date: '2026-10-08T16:12:03.000Z' }],
+                    pastCount: 1,
+                    riskySteps: [],
+                    limits: { maxQuestions: 40, maxQuestionChars: 2000, defaultQuestions: 10, counts: [4, 10, 25, 40] },
+                    check: null
+                }
+            }),
+            startCheck: jest.fn().mockResolvedValue({ data: { id: 'check-1', status: 'done' } }),
+            getCheck: jest.fn(),
+            stopCheck: jest.fn(),
+            getCheckHistory: jest.fn()
+        }
+        const renderer = await mount(api)
+        const select = renderer.root.findByProps({ 'data-testid': 'compare-count' })
+        expect(String(select.props.value)).toBe('10')
+        const options = renderer.root.findAll((node) => node.type === 'option').map((node) => node.props.value)
+        expect(options).toEqual([4, 10, 25, 40])
+        await click(renderer, 'check-run')
+        expect(api.startCheck).toHaveBeenCalledWith('flow-1', { count: 10, includeRiskySteps: false })
+        renderer.unmount()
+    })
 })

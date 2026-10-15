@@ -2,9 +2,30 @@
 // against Live and the draft, side by side. The check is optional and never blocks Publish.
 import { formatListDateTime } from '@/utils/formatDate'
 
-// The dialog offers these. The server accepts any whole number from 1 to 100 and clamps it.
+// Used when setup has not sent counts. The server sends the live list in limits.counts.
 export const COMPARE_COUNTS = [4, 10, 25, 50, 100]
 export const DEFAULT_COMPARE_COUNT = 4
+
+// The Past questions choices. A non-empty counts list from setup wins. Otherwise the usual five.
+export const pickerCounts = (limits = {}) => {
+    const sent = Array.isArray(limits?.counts) ? limits.counts.filter((n) => Number.isInteger(n) && n >= 1) : []
+    if (!sent.length) return COMPARE_COUNTS.slice()
+    return [...new Set(sent)].sort((a, b) => a - b)
+}
+
+// A count the list does not offer falls back to the default, then to the first choice.
+export const pickerValue = (count, counts, fallback = DEFAULT_COMPARE_COUNT) => {
+    const list = counts?.length ? counts : COMPARE_COUNTS
+    if (list.includes(count)) return count
+    if (list.includes(fallback)) return fallback
+    return list[0]
+}
+
+// The live question cap from setup. A missing limit uses the fallback (100 for a hand-pick, 10 for the older list).
+export const questionCap = (limits, fallback = 100) => {
+    const cap = Number(limits?.maxQuestions)
+    return Number.isInteger(cap) && cap >= 1 ? cap : fallback
+}
 // The same page size as the app's lists (12 rows), then Show more.
 export const RESULT_PAGE_SIZE = 12
 

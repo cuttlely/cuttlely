@@ -588,6 +588,35 @@ describe('PublishCheckView', () => {
         expect(html).not.toContain('$')
     })
 
+    test('the picker and the hand-pick cap follow the counts from setup', () => {
+        const choose = (maxQuestions, counts, count) =>
+            render({
+                count,
+                canChooseQuestions: true,
+                questionMode: 'choose',
+                setup: {
+                    unavailable: null,
+                    questions: [{ text: 'Do you have rye loaves today?' }],
+                    pastCount: 1,
+                    riskySteps: [],
+                    limits: { ...limits, maxQuestions, defaultQuestions: 4, counts },
+                    check: null
+                },
+                historyItems: [],
+                selectedQuestions: [],
+                list: []
+            })
+        const below = choose(40, [4, 10, 25, 40], 4)
+        for (const n of [4, 10, 25, 40]) expect(below).toContain(`value="${n}"`)
+        expect(below).not.toContain('value="50"')
+        expect(below).not.toContain('value="100"')
+        expect(below).toContain('0 of 40 chosen')
+        const above = choose(200, [4, 10, 25, 50, 100, 200], 100)
+        for (const n of [4, 10, 25, 50, 100, 200]) expect(above).toContain(`value="${n}"`)
+        expect(above).toContain('0 of 200 chosen')
+        expect(above).not.toContain('value="500"')
+    })
+
     test('a long result shows the totals first and the next page on Show more', () => {
         const cases = Array.from({ length: 13 }, (_, i) => ({
             question: `Question ${i}`,
