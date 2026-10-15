@@ -6,6 +6,8 @@ import os from 'node:os'
 import path from 'node:path'
 import { createRequire } from 'node:module'
 import { fileURLToPath, pathToFileURL } from 'node:url'
+import { DatabaseSync } from 'node:sqlite'
+import { randomUUID } from 'node:crypto'
 import { freePort, request, startServer, waitForPing } from './smoke-server.mjs'
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
@@ -766,7 +768,156 @@ async function persistDeletes(page, base, cookie, spec) {
     await assertSavedFlow(page, base, cookie, spec.flowId, spec.saveTitle, spec.removedIds)
 }
 
-export async function runCanvasActions(base) {
+function insertQuestions(dataDir, flowId) {
+    const db = new DatabaseSync(path.join(dataDir, 'database.sqlite'))
+    const insert = db.prepare(
+        `INSERT INTO chat_message (id, role, chatflowid, content, "chatType", "chatId", "createdDate", "fileUploads")
+         VALUES (?, 'userMessage', ?, ?, ?, 'picker-chat', ?, ?)`
+    )
+    const showcase = [
+        ['Do you have rye loaves today?', 'INTERNAL', '2026-10-08 16:12:03', null],
+        ['Do you deliver sourdough to the east side?', 'EXTERNAL', '2026-10-08 16:11:00', null],
+        ['See the scan of the oven log', 'EXTERNAL', '2026-10-08 16:10:00', '[{"name":"oven-log.pdf"}]'],
+        ['Can I order a birthday cake for Friday?', 'INTERNAL', '2026-10-08 16:09:00', null],
+        ['Is the cardamom bun gluten-free?', 'INTERNAL', '2026-10-08 16:08:00', null],
+        ['What time do you open on Saturday?', 'INTERNAL', '2026-10-08 16:07:00', null]
+    ]
+    const ids = []
+    for (const [content, chatType, created, files] of showcase) {
+        const id = randomUUID()
+        insert.run(id, flowId, content, chatType, created, files)
+        ids.push({ id, content, chatType })
+    }
+    for (let index = 0; index < 50; index += 1) {
+        insert.run(
+            randomUUID(),
+            flowId,
+            `Filler loaf question ${String(index).padStart(2, '0')}`,
+            'INTERNAL',
+            `2026-10-07 12:${String(index % 60).padStart(2, '0')}:00`,
+            null
+        )
+    }
+    db.close()
+    return ids
+}
+
+async function exerciseQuestionPicker(page, base, cookie, dataDir) {
+    const prompt = await buildNode(base, cookie, 'promptTemplate', 'promptTemplate_0', {
+        label: 'Bakery prompt',
+        position: { x: 80, y: 80 }
+    })
+    const created = await createFlow(base, cookie, {
+        name: 'Bakery helper',
+        type: 'CHATFLOW',
+        nodes: [prompt],
+        edges: []
+    })
+    const draft = JSON.parse(created.flowData)
+    draft.nodes[0].data.inputs.template = 'Answer as the bakery helper. {question}'
+    const saved = await request(`${base}/api/v1/flow-drafts/${created.id}`, {
+        method: 'PUT',
+        cookie,
+        body: { flowData: JSON.stringify(draft) }
+    })
+    if (saved.status !== 200) throw new Error(`draft ${saved.status}: ${saved.text.slice(0, 300)}`)
+    const stored = insertQuestions(dataDir, created.id)
+    const rye = stored.find((item) => item.content.startsWith('Do you have rye'))
+    const apiQuestion = stored.find((item) => item.content.startsWith('Do you deliver sourdough'))
+
+    await page.goto(`${base}/canvas/${created.id}`, { waitUntil: 'domcontentloaded' })
+    await page.getByTestId('publish-button').click()
+    await page.getByTestId('publish-check').waitFor({ timeout: 20000 })
+    const count = page.getByTestId('compare-count')
+    await count.waitFor()
+    if (await count.isDisabled()) throw new Error('the count picker is disabled before Choose questions')
+    const choose = page.getByTestId('choose-questions')
+    await choose.click()
+    await page.getByTestId('question-history-row').first().waitFor({ timeout: 20000 })
+    await page.getByTestId('question-history-more').click()
+    await page.getByText('Filler loaf question 00').waitFor({ timeout: 20000 })
+
+    await replaceHistoryFilter(page, () => page.getByLabel('Search questions').fill('rye'))
+    await page.getByText('Do you have rye loaves today?').waitFor()
+    await expectHidden(page, 'Do you deliver sourdough to the east side?')
+    await replaceHistoryFilter(page, () => page.getByLabel('Search questions').fill(''))
+    await replaceHistoryFilter(page, () => page.getByLabel('Question source').selectOption('api'))
+    await page.getByText('Do you deliver sourdough to the east side?').waitFor()
+    await expectHidden(page, 'Do you have rye loaves today?')
+    await page.getByTestId('question-history-select-shown').click()
+    if (!(await page.getByLabel('Do you deliver sourdough to the east side?').isChecked())) {
+        throw new Error('Select all shown did not tick the API question')
+    }
+    await replaceHistoryFilter(page, () => page.getByLabel('Question source').selectOption(''))
+    await replaceHistoryFilter(page, () => page.getByLabel('From date (UTC)').fill('2026-10-07'))
+    await replaceHistoryFilter(page, () => page.getByLabel('To date (UTC)').fill('2026-10-07'))
+    await expectHidden(page, 'Do you deliver sourdough to the east side?')
+    await page.getByText('1 chosen question is hidden by this filter.').waitFor()
+    await replaceHistoryFilter(page, () => page.getByLabel('From date (UTC)').fill(''))
+    await replaceHistoryFilter(page, () => page.getByLabel('To date (UTC)').fill(''))
+
+    const fileRow = page.getByTestId('question-history-row').filter({ hasText: 'See the scan of the oven log' })
+    if (await fileRow.locator('input[type=checkbox]').isEnabled()) throw new Error('a file question can be ticked')
+    const ryeBox = page.getByLabel('Do you have rye loaves today?')
+    await ryeBox.focus()
+    await ryeBox.press(' ')
+    await page.getByText('2 of 100 chosen').waitFor()
+    await ryeBox.press(' ')
+    await page.getByText('1 of 100 chosen').waitFor()
+    await ryeBox.press(' ')
+    await page.getByText('2 of 100 chosen').waitFor()
+    await page.getByLabel('Add your own question').fill('Is the rye starter ready today?')
+    if (process.env.CUTTLELY_PICKER_SHOT === '1') {
+        await replaceHistoryFilter(page, () => page.getByLabel('From date (UTC)').fill('2026-10-08'))
+        await replaceHistoryFilter(page, () => page.getByLabel('To date (UTC)').fill('2026-10-08'))
+        await page.setViewportSize({ width: 1280, height: 1100 })
+        await page.getByTestId('question-history-count').scrollIntoViewIfNeeded()
+        const dialog = page.getByRole('dialog')
+        const box = await dialog.boundingBox()
+        const viewport = page.viewportSize()
+        if (!box || !viewport) throw new Error('the publish dialog is not on screen')
+        await page.screenshot({
+            path: path.join(ROOT, 'docs', 'images', 'versioning', 'publish-check-choose-questions.png'),
+            clip: {
+                x: Math.max(0, box.x),
+                y: Math.max(0, box.y),
+                width: Math.min(box.width, viewport.width - Math.max(0, box.x)),
+                height: Math.min(box.height, viewport.height - Math.max(0, box.y))
+            }
+        })
+    }
+    await page.getByRole('button', { name: 'Add', exact: true }).click()
+    await page.getByText('3 of 100 chosen').waitFor()
+    const posted = page.waitForRequest((req) => req.method() === 'POST' && /\/flow-drafts\/[^/]+\/check$/.test(new URL(req.url()).pathname))
+    await page.getByTestId('check-run').click()
+    const body = JSON.parse((await posted).postData() || '{}')
+    if (body.count !== undefined) throw new Error('Choose questions sent count')
+    const ids = body.questionIds || []
+    if (!ids.includes(`chat:${rye.id}`) || !ids.includes(`chat:${apiQuestion.id}`)) {
+        throw new Error(`questionIds ${JSON.stringify(ids)}`)
+    }
+    if (!Array.isArray(body.questions) || !body.questions.includes('Is the rye starter ready today?')) {
+        throw new Error(`questions ${JSON.stringify(body.questions)}`)
+    }
+    await page.getByTestId('check-results').waitFor({ timeout: 30000 })
+    console.log('question picker ok')
+}
+
+async function replaceHistoryFilter(page, change) {
+    const done = page.waitForResponse(
+        (res) => res.url().includes('/check/history') && res.request().method() === 'GET' && res.status() === 200
+    )
+    await change()
+    await done
+}
+
+async function expectHidden(page, text) {
+    if (await page.getByText(text, { exact: true }).count()) {
+        throw new Error(`still showing ${text}`)
+    }
+}
+
+export async function runCanvasActions(base, dataDir) {
     const registered = await request(`${base}/api/v1/account/register`, {
         method: 'POST',
         body: { user: { name: 'Canvas Actions', email: EMAIL, credential: PASSWORD } }
@@ -785,6 +936,11 @@ export async function runCanvasActions(base) {
     const page = await browser.newPage({ viewport: { width: 1280, height: 800 } })
     try {
         await signIn(page, base)
+        if (process.env.CUTTLELY_PICKER_ONLY === '1') {
+            if (!dataDir) throw new Error('question picker needs the server data directory')
+            await exerciseQuestionPicker(page, base, loggedIn.cookie, dataDir)
+            return
+        }
         await exercise(page, base, {
             route: `/canvas/${flows.chat.id}`,
             nodeId: 'promptTemplate_0',
@@ -846,6 +1002,7 @@ export async function runCanvasActions(base) {
             saveTitle: 'Save Pipeline'
         })
         console.log('pipeline canvas actions ok')
+        if (dataDir) await exerciseQuestionPicker(page, base, loggedIn.cookie, dataDir)
     } finally {
         await browser.close()
     }
@@ -868,7 +1025,7 @@ async function main() {
     const { child, logs, stop } = startServer(dataDir, port, { CUTTLELY_LOCAL_ADMIN: 'true' })
     try {
         await waitForPing(base, child, logs)
-        await runCanvasActions(base)
+        await runCanvasActions(base, dataDir)
     } finally {
         stop()
         fs.rmSync(dataDir, { recursive: true, force: true })

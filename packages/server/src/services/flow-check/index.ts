@@ -66,6 +66,7 @@ import {
 import { postProcessHash, publishGateApplies, readEvaluatorIdList, sameGateSettings } from '../flow-drafts/gate'
 import { harnessCheckHooks, harnessQuestionsFor, harnessQuestionsToRun, replayHarnessQuestion } from './harness'
 import { bindHistoryRepository, parseQuestionIds, questionIdPrefix, resolveChatQuestionIds } from './history'
+import { CheckRuleError } from './question-ids-error'
 import { CheckEvaluator, loadEvaluators, loadTestSet, readDatasetId, readEvaluatorIds, scoreAnswer } from './score'
 
 // The history reader uses the same database handle this module already uses.
@@ -707,10 +708,12 @@ export async function startCheck(
     const draft = candidate.canvas
     const request = body || {}
     const questionIds = request.questionIds !== undefined && request.questionIds !== null ? request.questionIds : undefined
+    // An empty list is Choose mode with no stored ids. Typed questions then use the question cap, not the older list of 10.
+    const typedOnly = Array.isArray(questionIds) && questionIds.length === 0
     if (questionIds !== undefined && request.count !== undefined && request.count !== null) {
-        throw new AppError(StatusCodes.BAD_REQUEST, 'Send questionIds or count, not both.')
+        throw new CheckRuleError('CHECK_QUESTION_IDS_EXCLUSIVE', 'Send questionIds or count, not both.')
     }
-    if (questionIds !== undefined) parseQuestionIds(questionIds)
+    if (questionIds !== undefined && !typedOnly) parseQuestionIds(questionIds)
     const datasetId = readDatasetId(request)
     const evaluatorIds = readEvaluatorIds(request)
     const parsedThreshold = parseCheckThreshold(request.threshold, Boolean(datasetId))
@@ -748,15 +751,22 @@ export async function startCheck(
     if (fromDataset) {
         questions = fromDataset.map((row) => row.question)
         selection = null
-    } else if (questionIds !== undefined) {
+    } else if (questionIds !== undefined && !(typedOnly && questionIdPrefix(flow.type, [flow.flowData, draft]) !== 'chat')) {
         const prefix = questionIdPrefix(flow.type, [flow.flowData, draft])
+        // A non-empty list on a harness or a recorded-input start cannot be resolved. An empty list is not a pick.
         if (prefix !== 'chat') {
             throw new AppError(StatusCodes.CONFLICT, 'Choosing questions by id is not available for this flow yet.')
         }
-        const picked = await resolveChatQuestionIds(flow.id, questionIds, cleanQuestions(request.questions, compareCountMax(), true))
-        questions = picked.questions
-        selection = null
-        skipped = picked.skipped
+        if (typedOnly) {
+            questions = cleanQuestions(request.questions, compareCountMax(), false)
+            selection = null
+            skipped = { count: 0, ids: [] }
+        } else {
+            const picked = await resolveChatQuestionIds(flow.id, questionIds, cleanQuestions(request.questions, compareCountMax(), true))
+            questions = picked.questions
+            selection = null
+            skipped = picked.skipped
+        }
     } else if (kind) {
         const resolved = await inputsToRun(flow, kind, request)
         questions = resolved.questions
