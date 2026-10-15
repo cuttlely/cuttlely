@@ -157,7 +157,8 @@ identityAuthRouter.get('/callback', (req, res, next) => {
 identityAuthRouter.post('/login', (req, res, next) => void dispatch(req, res, next, handleLoginPost))
 const acceptLinkLimit = rateLimit({
     windowMs: LOGIN_FAILURE_WINDOW_MS,
-    max: LOGIN_FAILURE_LIMIT,
+    // Same live cap as local password sign-in. A saved failure limit applies without a restart.
+    max: () => runtimeNumber('CUTTLELY_LOGIN_FAILURE_LIMIT'),
     standardHeaders: false,
     legacyHeaders: false,
     skipSuccessfulRequests: true,
