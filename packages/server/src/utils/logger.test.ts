@@ -172,6 +172,27 @@ describe('logger.ts', () => {
             infoSpy.mockRestore()
         })
 
+        it('does not write a search or cursor under a bracketed or encoded name', () => {
+            const search = 'do-you-have-rye-loaves'
+            const token = 'signed-page-cursor-token'
+            const cases = [
+                [`q[]=${search}`, 'q[]=[redacted]'],
+                [`q[0]=${search}`, 'q[0]=[redacted]'],
+                [`%71=${search}`, '%71=[redacted]'],
+                [`q%5B0%5D=${search}`, 'q%5B0%5D=[redacted]'],
+                [`cursor[]=${token}`, 'cursor[]=[redacted]'],
+                [`cursor[0]=${token}`, 'cursor[0]=[redacted]'],
+                [`%63ursor=${token}`, '%63ursor=[redacted]'],
+                [`cursor%5B%5D=${token}`, 'cursor%5B%5D=[redacted]']
+            ]
+            for (const [form, expected] of cases) {
+                const logged = redactLoggedUrl(`/api/v1/flow-drafts/flow-1/check/history?limit=1&${form}&source=chat`)
+                expect(logged).toBe(`/api/v1/flow-drafts/flow-1/check/history?limit=1&${expected}&source=chat`)
+                expect(logged).not.toContain(search)
+                expect(logged).not.toContain(token)
+            }
+        })
+
         it('does not write a history page cursor on the request line', () => {
             const token = 'signed-page-cursor-token'
             const logged = redactLoggedUrl(`/api/v1/flow-drafts/flow-1/check/history?cursor=${token}&limit=1`)

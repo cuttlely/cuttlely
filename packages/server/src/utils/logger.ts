@@ -76,13 +76,47 @@ const SESSION_LOG_FIELDS = new Set(['chatid', 'sessionid', 'sessiontoken', 'toke
 // Same names redactLoggedUrl drops from the request line. A debug record copies req.query beside that line.
 const QUERY_LOG_FIELDS = new Set(['q', 'cursor'])
 
-/** Drop client session ids, session tokens, and API keys in the path before a request line is written. */
+const REDACTED_QUERY_NAMES = new Set(['chatid', 'sessionid', 'sessiontoken', 'q', 'cursor'])
+
+function decodeQueryName(raw: string): string {
+    try {
+        return decodeURIComponent(raw.replace(/\+/g, ' '))
+    } catch {
+        return raw
+    }
+}
+
+// q[]= and q[0]= keep the search when only the exact name q= is redacted. %71= is q after decoding.
+function isRedactedQueryName(raw: string): boolean {
+    const name = decodeQueryName(raw).toLowerCase()
+    if (REDACTED_QUERY_NAMES.has(name)) return true
+    return name.startsWith('q[') || name.startsWith('cursor[')
+}
+
+function redactQueryString(query: string): string {
+    return query
+        .split('&')
+        .map((part) => {
+            if (!part) return part
+            const eq = part.indexOf('=')
+            if (eq === -1) return part
+            const rawName = part.slice(0, eq)
+            if (!isRedactedQueryName(rawName)) return part
+            return `${rawName}=[redacted]`
+        })
+        .join('&')
+}
+
+/** Drop client session ids, session tokens, searches, page cursors, and API keys before a request line is written. */
 export function redactLoggedUrl(url: string): string {
-    return url
-        .replace(/([?&](?:chatId|sessionId|sessionToken)=)[^&#]*/gi, '$1[redacted]')
-        .replace(/([?&]q=)[^&#]*/gi, '$1[redacted]')
-        .replace(/([?&]cursor=)[^&#]*/gi, '$1[redacted]')
-        .replace(/(\/api\/v1\/(?:chatflows|verify)\/apikey\/)[^/?#]*/gi, '$1[redacted]')
+    const hashAt = url.indexOf('#')
+    const hash = hashAt === -1 ? '' : url.slice(hashAt)
+    const beforeHash = hashAt === -1 ? url : url.slice(0, hashAt)
+    const queryAt = beforeHash.indexOf('?')
+    const path = queryAt === -1 ? beforeHash : beforeHash.slice(0, queryAt)
+    const redactedPath = path.replace(/(\/api\/v1\/(?:chatflows|verify)\/apikey\/)[^/]*/gi, '$1[redacted]')
+    if (queryAt === -1) return redactedPath + hash
+    return `${redactedPath}?${redactQueryString(beforeHash.slice(queryAt + 1))}${hash}`
 }
 
 // A debug query value is untrusted. Two open-ended groups in a regex are polynomial on a long

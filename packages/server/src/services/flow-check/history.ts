@@ -136,10 +136,15 @@ export function parseHistoryLimit(input: unknown): number {
     return limit
 }
 
+// Bracket forms such as q[] or q[0] arrive as an array or an object. They are not a search string.
+function requireQueryText(value: unknown, name: 'q' | 'cursor'): string {
+    if (typeof value !== 'string') throw new HistoryError(StatusCodes.BAD_REQUEST, `${name} must be text.`)
+    return value
+}
+
 export function parseHistoryQuery(input: unknown): string {
     if (input === undefined || input === null || input === '') return ''
-    const text = oneQueryValue(input)
-    if (text === undefined) throw new HistoryError(StatusCodes.BAD_REQUEST, 'q must be text.')
+    const text = requireQueryText(input, 'q')
     if (text.length > HISTORY_QUERY_MAX) throw new HistoryError(StatusCodes.BAD_REQUEST, 'q can be at most 200 characters.')
     return text
 }
@@ -357,7 +362,7 @@ export async function listQuestionHistory(
     }
     let cursor: CursorPosition | null = null
     if (query.cursor !== undefined && query.cursor !== null && query.cursor !== '') {
-        const token = oneQueryValue(query.cursor)
+        const token = requireQueryText(query.cursor, 'cursor')
         if (!token) throw new HistoryError(StatusCodes.BAD_REQUEST, 'That page cursor does not match this request.')
         cursor = readCursor(token, binding)
     }

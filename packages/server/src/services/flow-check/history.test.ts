@@ -149,6 +149,23 @@ describe('question history', () => {
         await expect(listQuestionHistory(FLOW, { limit: '101' }, CALLER)).rejects.toMatchObject({ statusCode: 400 })
         await expect(listQuestionHistory(FLOW, { limit: '1.5' }, CALLER)).rejects.toMatchObject({ statusCode: 400 })
         await expect(listQuestionHistory(FLOW, { source: 'form' }, CALLER)).rejects.toMatchObject({ statusCode: 400 })
+        const bracketed = 'rye-loaves-not-a-list'
+        await expect(listQuestionHistory(FLOW, { q: [bracketed] }, CALLER)).rejects.toMatchObject({
+            statusCode: 400,
+            message: 'q must be text.'
+        })
+        await expect(listQuestionHistory(FLOW, { q: { 0: bracketed } }, CALLER)).rejects.toMatchObject({
+            statusCode: 400,
+            message: 'q must be text.'
+        })
+        await expect(listQuestionHistory(FLOW, { cursor: [bracketed] }, CALLER)).rejects.toMatchObject({
+            statusCode: 400,
+            message: 'cursor must be text.'
+        })
+        await expect(listQuestionHistory(FLOW, { cursor: { 0: bracketed } }, CALLER)).rejects.toMatchObject({
+            statusCode: 400,
+            message: 'cursor must be text.'
+        })
         const q = `RYESEARCH${'z'.repeat(192)}`
         await expect(listQuestionHistory(FLOW, { q }, CALLER)).rejects.toMatchObject({
             statusCode: 400,
