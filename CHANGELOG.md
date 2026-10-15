@@ -29,6 +29,10 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 -   The homepage start step says the first-account link is on the `No account yet` log line, from `docker compose logs cuttlely` or `npx cuttlely logs`.
 -   The testing section says the gate covers Publish of the current draft only, and names Roll back, Promote from Dev, and `PUT /api/v1/chatflows/:id`. The homepage shows the Publish check screenshot at the width of the testing copy, with the Saturday and gluten-free rows in frame.
 
+### Fixed
+
+-   Dollar amounts in chat replies show as text. A reply with two amounts, such as `a store credit of $10 ... shipping ($5.99)`, no longer loses the text between them. In the app's chat a single `$` is never math. Math is `$$...$$` (inline or on its own lines), `\(...\)` or `\[...\]`. The embed widget and the shared chat page show math as its source text.
+
 ### Upgrade notes / breaking changes
 
 -   The old Analyst import paths are gone. Import the modules in `packages/harness/runtime/` instead of `scripts/analyst-store.mjs`, `scripts/analyst-postgres.mjs`, `scripts/analyst-page.mjs`, `scripts/analyst-sqlite-worker.mjs`, `scripts/analyst-mcp-status.mjs`, `scripts/hermes-stream.mjs`, and `harness/runtime/`.
