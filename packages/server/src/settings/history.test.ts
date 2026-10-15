@@ -146,23 +146,29 @@ describe('settings history retention', () => {
 })
 
 function appendInChild(dir: string, marker: string, keep: number): Promise<void> {
-    const historyFile = path.join(__dirname, 'history.ts')
-    const code = `
+    const once = () =>
+        new Promise<void>((resolve, reject) => {
+            const historyFile = path.join(__dirname, 'history.ts')
+            const code = `
         require('ts-node').register({ transpileOnly: true, skipProject: true, compilerOptions: { module: 'commonjs', esModuleInterop: true, target: 'ES2022' } })
         const { appendHistory } = require(${JSON.stringify(historyFile)})
         appendHistory(process.argv[1], { kind: 'save', by: 'child', changes: [{ key: 'LOG_LEVEL', from: '', to: process.argv[2] }] }, Number(process.argv[3]))
     `
-    return new Promise((resolve, reject) => {
-        const child = spawn(process.execPath, ['-e', code, dir, marker, String(keep)], {
-            cwd: path.resolve(__dirname, '../..')
+            const child = spawn(process.execPath, ['-e', code, dir, marker, String(keep)], {
+                cwd: path.resolve(__dirname, '../..')
+            })
+            let err = ''
+            child.stderr.on('data', (chunk) => {
+                err += String(chunk)
+            })
+            child.on('exit', (code) => {
+                if (code === 0) resolve()
+                else reject(new Error(err || `append exited ${code}`))
+            })
         })
-        let err = ''
-        child.stderr.on('data', (chunk) => {
-            err += String(chunk)
-        })
-        child.on('exit', (code) => {
-            if (code === 0) resolve()
-            else reject(new Error(err || `append exited ${code}`))
-        })
+    // A child can die in the runtime while the suite is already busy. One more try is the same append.
+    return once().catch((error: Error) => {
+        if (!/Fatal error|unreachable code/.test(error.message)) throw error
+        return once()
     })
 }
