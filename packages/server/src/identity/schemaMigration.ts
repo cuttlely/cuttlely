@@ -23,6 +23,7 @@
  */
 
 import type { QueryRunner } from 'typeorm'
+import { SEEDED_BUILT_IN_ROLES, builtInPermissionJson } from './builtInRoles'
 
 type Dialect = 'sqlite' | 'postgres' | 'mysql' | 'mariadb'
 
@@ -202,6 +203,93 @@ async function indexExists(runner: QueryRunner, dialect: Dialect, table: string,
         [table, index]
     )
     return list.length > 0 && dialect !== 'postgres' && dialect !== 'sqlite'
+}
+
+async function columnExists(runner: QueryRunner, dialect: Dialect, table: string, column: string): Promise<boolean> {
+    if (dialect === 'sqlite') {
+        const list = await rows(runner, `PRAGMA table_info(${q(dialect, table)})`)
+        return hasName(list, column)
+    }
+    if (dialect === 'postgres') {
+        const list = await rows(
+            runner,
+            `SELECT column_name AS name FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = ? AND column_name = ?`,
+            [table, column]
+        )
+        return list.length > 0
+    }
+    const list = await rows(
+        runner,
+        `SELECT COLUMN_NAME AS name FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?`,
+        [table, column]
+    )
+    return list.length > 0
+}
+
+/**
+ * permissionVersion on the user and on each local session.
+ * A role drop or a disable bumps the user value and deletes session rows.
+ * A session issued at an older value is rejected, so an old cookie cannot keep the previous permissions.
+ * Admin, Builder, and Viewer are seeded with stable ids. Owner already has one.
+ */
+export async function addLocalDirectory(runner: QueryRunner): Promise<void> {
+    const dialect = dialectOf(runner)
+    if ((await tableExists(runner, dialect, 'user')) && !(await columnExists(runner, dialect, 'user', 'permissionVersion'))) {
+        await runner.query(`ALTER TABLE ${q(dialect, 'user')} ADD COLUMN ${q(dialect, 'permissionVersion')} integer NOT NULL DEFAULT 0`)
+    }
+    if ((await sessionsExist(runner, dialect)) && !(await columnExists(runner, dialect, 'identity_local_session', 'permissionVersion'))) {
+        await runner.query(
+            `ALTER TABLE ${q(dialect, 'identity_local_session')} ADD COLUMN ${q(dialect, 'permissionVersion')} integer NOT NULL DEFAULT 0`
+        )
+    }
+    if (!(await tableExists(runner, dialect, 'role'))) return
+    const now = dialect === 'postgres' ? 'CURRENT_TIMESTAMP' : 'CURRENT_TIMESTAMP'
+    for (const role of SEEDED_BUILT_IN_ROLES) {
+        const permissions = builtInPermissionJson(role.name) || '[]'
+        const existing = await rows(
+            runner,
+            `SELECT ${q(dialect, 'id')} AS id FROM ${q(dialect, 'role')} WHERE ${q(dialect, 'organizationId')} IS NULL AND LOWER(${q(
+                dialect,
+                'name'
+            )}) = LOWER(?)`,
+            [role.name]
+        )
+        if (!existing.length) {
+            await runner.query(
+                `INSERT INTO ${q(dialect, 'role')} (${q(dialect, 'id')}, ${q(dialect, 'name')}, ${q(dialect, 'description')}, ${q(
+                    dialect,
+                    'permissions'
+                )}, ${q(dialect, 'createdDate')}, ${q(dialect, 'updatedDate')}) VALUES (?, ?, ?, ?, ${now}, ${now})`,
+                [role.id, role.name, role.description, permissions]
+            )
+            continue
+        }
+        await runner.query(
+            `UPDATE ${q(dialect, 'role')} SET ${q(dialect, 'description')} = ?, ${q(dialect, 'permissions')} = ?, ${q(
+                dialect,
+                'updatedDate'
+            )} = ${now} WHERE ${q(dialect, 'organizationId')} IS NULL AND LOWER(${q(dialect, 'name')}) = LOWER(?)`,
+            [role.description, permissions, role.name]
+        )
+    }
+}
+
+export async function removeLocalDirectory(runner: QueryRunner): Promise<void> {
+    const dialect = dialectOf(runner)
+    if (await tableExists(runner, dialect, 'role')) {
+        for (const role of SEEDED_BUILT_IN_ROLES) {
+            await runner.query(
+                `DELETE FROM ${q(dialect, 'role')} WHERE ${q(dialect, 'id')} = ? AND ${q(dialect, 'organizationId')} IS NULL`,
+                [role.id]
+            )
+        }
+    }
+    if ((await tableExists(runner, dialect, 'user')) && (await columnExists(runner, dialect, 'user', 'permissionVersion'))) {
+        await runner.query(`ALTER TABLE ${q(dialect, 'user')} DROP COLUMN ${q(dialect, 'permissionVersion')}`)
+    }
+    if ((await sessionsExist(runner, dialect)) && (await columnExists(runner, dialect, 'identity_local_session', 'permissionVersion'))) {
+        await runner.query(`ALTER TABLE ${q(dialect, 'identity_local_session')} DROP COLUMN ${q(dialect, 'permissionVersion')}`)
+    }
 }
 
 export async function removeIdentitySignIn(runner: QueryRunner): Promise<void> {

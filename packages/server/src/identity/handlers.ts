@@ -33,7 +33,7 @@ import { LoginLimiter } from './rateLimit'
 import { isLoopbackAddress } from './sessionGuard'
 import { setupCodeMatches } from './setupCode'
 import { IdentityStore } from './store'
-import { HandlerResult, SessionUser, SetCookie, WorkosPort, WorkosUnavailableError } from './types'
+import { HandlerResult, LocalSession, SessionUser, SetCookie, WorkosPort, WorkosUnavailableError } from './types'
 
 export interface AuthContext {
     workosConfigured: boolean
@@ -116,6 +116,11 @@ async function sessionAfterLogin(store: IdentityStore, userId: string, now: numb
  * `reject` drops this cookie. Break-glass (local admin, local users mode off) accepts only the owner.
  * A local session never becomes the owner by itself: the caller loads RBAC with sessionFor.
  */
+function stalePermission(row: LocalSession): boolean {
+    if (typeof row.permissionVersion !== 'number' || typeof row.currentPermissionVersion !== 'number') return false
+    return row.permissionVersion !== row.currentPermissionVersion
+}
+
 async function localCookieGate(ctx: AuthContext, userId: string): Promise<'ok' | 'end' | 'reject'> {
     if (!ctx.localAdmin && !ctx.localUsers) return 'reject'
     const open = await ctx.store.localAccountOpen(userId)
@@ -271,6 +276,10 @@ export async function handleRefresh(ctx: AuthContext): Promise<HandlerResult> {
         }
         if (ctx.now >= row.idleExpires.getTime()) {
             await ctx.store.deleteLocalSession(digest)
+            return json(401, { message: 'Token Expired' }, cleared(ctx, [LOCAL_SESSION_COOKIE]))
+        }
+        if (stalePermission(row)) {
+            await ctx.store.deleteLocalSessionsForUser(row.userId)
             return json(401, { message: 'Token Expired' }, cleared(ctx, [LOCAL_SESSION_COOKIE]))
         }
         const gate = await localCookieGate(ctx, row.userId)
@@ -508,6 +517,10 @@ export async function establishSession(
         if (!row || !tokensEqual(row.token, digest))
             return { user: null, clearCookies: [LOCAL_SESSION_COOKIE], secure: clearSecure(ctx, [LOCAL_SESSION_COOKIE]) }
         if (ctx.now >= row.absoluteExpires.getTime() || ctx.now >= row.idleExpires.getTime()) {
+            return { user: null, clearCookies: [LOCAL_SESSION_COOKIE], secure: clearSecure(ctx, [LOCAL_SESSION_COOKIE]) }
+        }
+        if (stalePermission(row)) {
+            await ctx.store.deleteLocalSessionsForUser(row.userId)
             return { user: null, clearCookies: [LOCAL_SESSION_COOKIE], secure: clearSecure(ctx, [LOCAL_SESSION_COOKIE]) }
         }
         const gate = await localCookieGate(ctx, row.userId)

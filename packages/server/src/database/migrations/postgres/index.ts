@@ -57,6 +57,7 @@ import { AddPublishGate1792000000000 } from './1792000000000-AddPublishGate'
 import { AddModelPriceOverride1793000000000 } from './1793000000000-AddModelPriceOverride'
 import { AddDatasetRowSource1795000000000 } from './1795000000000-AddDatasetRowSource'
 import { AddDatasetRowRating1796000000000 } from './1796000000000-AddDatasetRowRating'
+import { AddLocalDirectory1797000000000 } from './1797000000000-AddLocalDirectory'
 
 import { AddAuthTables1720230151482 } from './1720230151482-AddAuthTables'
 import { AddWorkspace1720230151484 } from './1720230151484-AddWorkspace'
@@ -140,5 +141,6 @@ export const postgresMigrations = [
     AddPublishGate1792000000000,
     AddModelPriceOverride1793000000000,
     AddDatasetRowSource1795000000000,
-    AddDatasetRowRating1796000000000
+    AddDatasetRowRating1796000000000,
+    AddLocalDirectory1797000000000
 ]

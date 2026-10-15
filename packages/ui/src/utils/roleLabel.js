@@ -1,10 +1,20 @@
-const RESERVED_ROLE_NAMES = ['owner', 'member', 'personal workspace']
+const RESERVED_ROLE_NAMES = ['owner', 'admin', 'builder', 'viewer', 'member', 'personal workspace']
+
+const ROLE_LABELS = {
+    owner: 'Super User',
+    admin: 'Admin',
+    builder: 'Builder',
+    viewer: 'Viewer'
+}
 
 export const isBuiltInOwnerRole = (role) => String(role?.name || '').toLowerCase() === 'owner'
 
-export const roleLabel = (role) => (isBuiltInOwnerRole(role) ? 'Super User' : role?.name || '')
+/** Owner, Admin, Builder, Viewer, member, and personal workspace. The permission set is fixed. */
+export const isFixedRole = (role) => RESERVED_ROLE_NAMES.includes(String(role?.name || '').toLowerCase()) || role?.readOnly === true
 
-/** A role someone created for this organization. Built-in owner, member, and personal workspace do not count. */
+export const roleLabel = (role) => ROLE_LABELS[String(role?.name || '').toLowerCase()] || role?.name || ''
+
+/** A role someone created for this organization. Built-in roles do not count. */
 export const isCustomRole = (role) => {
     const name = String(role?.name || '').toLowerCase()
     return Boolean(role?.organizationId) && !RESERVED_ROLE_NAMES.includes(name)

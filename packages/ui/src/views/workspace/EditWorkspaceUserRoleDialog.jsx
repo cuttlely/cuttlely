@@ -71,7 +71,7 @@ const EditWorkspaceUserRoleDialog = ({ show, dialogProps, onCancel, onConfirm })
     useEffect(() => {
         if (getAllRolesApi.data) {
             const roles = getAllRolesApi.data
-                .filter((role) => String(role?.name || '').toLowerCase() !== 'owner')
+                .filter((role) => currentUser?.isOrganizationAdmin || String(role?.name || '').toLowerCase() !== 'owner')
                 .map((role) => ({
                     id: role.id,
                     name: role.name,

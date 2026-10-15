@@ -75,6 +75,10 @@ export interface LocalSession {
     token: string
     idleExpires: Date
     absoluteExpires: Date
+    /** Version copied from the user when the session was issued. */
+    permissionVersion?: number
+    /** Version on the user row when the session was read. */
+    currentPermissionVersion?: number
 }
 
 export interface CreateOwnerInput {

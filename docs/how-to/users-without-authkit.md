@@ -29,3 +29,5 @@ Sign out with `POST /api/v1/auth/local/logout` and the same header. Calling it t
 `GET /api/v1/auth/options` lists the methods that are actually on, for example `{ "methods": ["localUsers"] }`.
 
 The field names, status codes, and cookie flags are in the [Auth API](../reference/auth-api.md).
+
+People, fixed roles, and open sessions for this mode are in [Local users, roles, and sessions](../reference/local-directory-api.md). Those routes answer 404 when this mode is off, including when AuthKit is configured.

@@ -25,6 +25,7 @@ export {
     identityWorkspaceRouter,
     identityWorkspaceUserRouter
 } from './directoryRoutes'
+export { identityRolesRouter, identityUsersRouter } from './localDirectoryRoutes'
 export { attachIdentitySession } from './middleware'
 export { requireAnyPermission, requirePermission } from './rbac'
 export {

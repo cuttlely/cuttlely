@@ -31,6 +31,7 @@ import ConfirmDialog from '@/ui-component/dialog/ConfirmDialog'
 import ViewHeader from '@/layout/MainLayout/ViewHeader'
 import ErrorBoundary from '@/ErrorBoundary'
 import EditUserDialog from '@/views/users/EditUserDialog'
+import UserSessionsDrawer from '@/views/users/UserSessionsDrawer'
 import { StyledTableCell, StyledTableRow } from '@/ui-component/table/TableStyles'
 import InviteUsersDialog from '@/ui-component/dialog/InviteUsersDialog'
 import CreateUserDialog from '@/ui-component/dialog/CreateUserDialog'
@@ -153,6 +154,14 @@ function ShowUserRow(props) {
                         <IconTrash />
                     </PermissionIconButton>
                 ))}
+            <PermissionIconButton
+                permissionId={'users:manage'}
+                title='Sessions'
+                color='primary'
+                onClick={() => props.onSessionsClick(props.row)}
+            >
+                <IconUser />
+            </PermissionIconButton>
         </>
     )
 
@@ -284,6 +293,7 @@ ShowUserRow.propTypes = {
     row: PropTypes.any,
     onDeleteClick: PropTypes.func,
     onEditClick: PropTypes.func,
+    onSessionsClick: PropTypes.func,
     open: PropTypes.bool,
     theme: PropTypes.any,
     deletingUserId: PropTypes.string,
@@ -312,6 +322,7 @@ const Users = () => {
     const [users, setUsers] = useState([])
     const [search, setSearch] = useState('')
     const [deletingUserId, setDeletingUserId] = useState(null)
+    const [sessionUser, setSessionUser] = useState(null)
 
     const { confirm } = useConfirm()
 
@@ -466,8 +477,8 @@ const Users = () => {
                             title='User Management'
                             description={
                                 <>
-                                    The built-in Super User is read-only. <Link to='/roles'>Add a custom role</Link> when someone needs
-                                    different permissions.
+                                    Owner, Admin, Builder, and Viewer are built-in. Their permission sets are fixed.{' '}
+                                    <Link to='/roles'>Add a custom role</Link> when someone needs a different set.
                                 </>
                             }
                         >
@@ -491,7 +502,10 @@ const Users = () => {
                                         alt='users_emptySVG'
                                     />
                                 </Box>
-                                <div>No users yet. Add a person with a name and an email. They sign in with WorkOS.</div>
+                                <div>
+                                    No users yet. Add a person with a name and an email. They use the sign-in method configured for this
+                                    server.
+                                </div>
                             </Stack>
                         ) : narrow ? (
                             <Stack sx={{ gap: 1.5, width: '100%' }}>
@@ -510,6 +524,7 @@ const Users = () => {
                                                 row={item}
                                                 onDeleteClick={deleteUser}
                                                 onEditClick={edit}
+                                                onSessionsClick={setSessionUser}
                                                 deletingUserId={deletingUserId}
                                             />
                                         ))
@@ -591,6 +606,7 @@ const Users = () => {
                                                                     row={item}
                                                                     onDeleteClick={deleteUser}
                                                                     onEditClick={edit}
+                                                                    onSessionsClick={setSessionUser}
                                                                     deletingUserId={deletingUserId}
                                                                 />
                                                             ))}
@@ -626,6 +642,12 @@ const Users = () => {
                     setError={setError}
                 ></EditUserDialog>
             )}
+            <UserSessionsDrawer
+                open={Boolean(sessionUser)}
+                userId={sessionUser?.userId || sessionUser?.user?.id || ''}
+                userName={sessionUser?.user?.name || ''}
+                onClose={() => setSessionUser(null)}
+            />
             <ConfirmDialog />
         </>
     )

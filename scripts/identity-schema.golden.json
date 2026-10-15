@@ -1064,6 +1064,13 @@
                     "nullable": false,
                     "default": "CURRENT_TIMESTAMP",
                     "pk": 0
+                },
+                {
+                    "name": "permissionVersion",
+                    "type": "INTEGER",
+                    "nullable": false,
+                    "default": "0",
+                    "pk": 0
                 }
             ],
             "foreignKeys": [],
@@ -2911,6 +2918,13 @@
                     "nullable": true,
                     "default": null,
                     "pk": 0
+                },
+                {
+                    "name": "permissionVersion",
+                    "type": "INTEGER",
+                    "nullable": false,
+                    "default": "0",
+                    "pk": 0
                 }
             ],
             "foreignKeys": [
@@ -4253,6 +4267,12 @@
                     "type": "timestamp",
                     "nullable": false,
                     "default": "CURRENT_TIMESTAMP"
+                },
+                {
+                    "name": "permissionVersion",
+                    "type": "integer",
+                    "nullable": false,
+                    "default": "0"
                 }
             ],
             "foreignKeys": [],
@@ -5890,6 +5910,12 @@
                     "type": "varchar(255)",
                     "nullable": true,
                     "default": null
+                },
+                {
+                    "name": "permissionVersion",
+                    "type": "integer",
+                    "nullable": false,
+                    "default": "0"
                 }
             ],
             "foreignKeys": [
@@ -7427,6 +7453,14 @@
                     "type": "datetime",
                     "nullable": false,
                     "default": "current_timestamp()",
+                    "extra": "",
+                    "collation": null
+                },
+                {
+                    "name": "permissionVersion",
+                    "type": "int(11)",
+                    "nullable": false,
+                    "default": "0",
                     "extra": "",
                     "collation": null
                 }
@@ -9526,6 +9560,14 @@
                     "default": "NULL",
                     "extra": "",
                     "collation": "utf8mb4_unicode_520_ci"
+                },
+                {
+                    "name": "permissionVersion",
+                    "type": "int(11)",
+                    "nullable": false,
+                    "default": "0",
+                    "extra": "",
+                    "collation": null
                 }
             ],
             "foreignKeys": [
@@ -9971,7 +10013,10 @@
     "roles": {
         "member": "[]",
         "owner": "[\"organization\",\"workspace\"]",
-        "personal workspace": "[\"chatflows:view\",\"chatflows:create\",\"chatflows:update\",\"chatflows:duplicate\",\"chatflows:delete\",\"chatflows:export\",\"chatflows:import\",\"chatflows:config\",\"chatflows:domains\",\"agentflows:view\",\"agentflows:create\",\"agentflows:update\",\"agentflows:duplicate\",\"agentflows:delete\",\"agentflows:export\",\"agentflows:import\",\"agentflows:config\",\"agentflows:domains\",\"tools:view\",\"tools:create\",\"tools:update\",\"tools:delete\",\"tools:export\",\"assistants:view\",\"assistants:create\",\"assistants:update\",\"assistants:delete\",\"credentials:view\",\"credentials:create\",\"credentials:update\",\"credentials:delete\",\"credentials:share\",\"variables:view\",\"variables:create\",\"variables:update\",\"variables:delete\",\"apikeys:view\",\"apikeys:create\",\"apikeys:update\",\"apikeys:delete\",\"documentStores:view\",\"documentStores:create\",\"documentStores:update\",\"documentStores:delete\",\"documentStores:add-loader\",\"documentStores:delete-loader\",\"documentStores:preview-process\",\"documentStores:upsert-config\",\"datasets:view\",\"datasets:create\",\"datasets:update\",\"datasets:delete\",\"evaluators:view\",\"evaluators:create\",\"evaluators:update\",\"evaluators:delete\",\"evaluations:view\",\"evaluations:create\",\"evaluations:update\",\"evaluations:delete\",\"evaluations:run\",\"templates:marketplace\",\"templates:custom\",\"templates:custom-delete\",\"templates:toolexport\",\"templates:flowexport\",\"templates:custom-share\",\"workspace:export\",\"workspace:import\",\"executions:view\",\"executions:delete\"]"
+        "personal workspace": "[\"chatflows:view\",\"chatflows:create\",\"chatflows:update\",\"chatflows:duplicate\",\"chatflows:delete\",\"chatflows:export\",\"chatflows:import\",\"chatflows:config\",\"chatflows:domains\",\"agentflows:view\",\"agentflows:create\",\"agentflows:update\",\"agentflows:duplicate\",\"agentflows:delete\",\"agentflows:export\",\"agentflows:import\",\"agentflows:config\",\"agentflows:domains\",\"tools:view\",\"tools:create\",\"tools:update\",\"tools:delete\",\"tools:export\",\"assistants:view\",\"assistants:create\",\"assistants:update\",\"assistants:delete\",\"credentials:view\",\"credentials:create\",\"credentials:update\",\"credentials:delete\",\"credentials:share\",\"variables:view\",\"variables:create\",\"variables:update\",\"variables:delete\",\"apikeys:view\",\"apikeys:create\",\"apikeys:update\",\"apikeys:delete\",\"documentStores:view\",\"documentStores:create\",\"documentStores:update\",\"documentStores:delete\",\"documentStores:add-loader\",\"documentStores:delete-loader\",\"documentStores:preview-process\",\"documentStores:upsert-config\",\"datasets:view\",\"datasets:create\",\"datasets:update\",\"datasets:delete\",\"evaluators:view\",\"evaluators:create\",\"evaluators:update\",\"evaluators:delete\",\"evaluations:view\",\"evaluations:create\",\"evaluations:update\",\"evaluations:delete\",\"evaluations:run\",\"templates:marketplace\",\"templates:custom\",\"templates:custom-delete\",\"templates:toolexport\",\"templates:flowexport\",\"templates:custom-share\",\"workspace:export\",\"workspace:import\",\"executions:view\",\"executions:delete\"]",
+        "admin": "[\"agentflows:config\",\"agentflows:create\",\"agentflows:delete\",\"agentflows:domains\",\"agentflows:duplicate\",\"agentflows:export\",\"agentflows:import\",\"agentflows:update\",\"agentflows:view\",\"apikeys:create\",\"apikeys:delete\",\"apikeys:update\",\"apikeys:view\",\"assistants:create\",\"assistants:delete\",\"assistants:update\",\"assistants:view\",\"chatflows:config\",\"chatflows:create\",\"chatflows:delete\",\"chatflows:domains\",\"chatflows:duplicate\",\"chatflows:export\",\"chatflows:import\",\"chatflows:update\",\"chatflows:view\",\"credentials:create\",\"credentials:delete\",\"credentials:update\",\"credentials:view\",\"datasets:create\",\"datasets:delete\",\"datasets:update\",\"datasets:view\",\"documentStores:add-loader\",\"documentStores:create\",\"documentStores:delete\",\"documentStores:delete-loader\",\"documentStores:preview-process\",\"documentStores:update\",\"documentStores:upsert-config\",\"documentStores:view\",\"evaluations:create\",\"evaluations:delete\",\"evaluations:run\",\"evaluations:update\",\"evaluations:view\",\"evaluators:create\",\"evaluators:delete\",\"evaluators:update\",\"evaluators:view\",\"executions:delete\",\"executions:view\",\"logs:view\",\"roles:manage\",\"templates:custom\",\"templates:custom-delete\",\"templates:flowexport\",\"templates:marketplace\",\"templates:toolexport\",\"tools:create\",\"tools:delete\",\"tools:export\",\"tools:update\",\"tools:view\",\"users:manage\",\"variables:create\",\"variables:delete\",\"variables:update\",\"variables:view\",\"workspace:add-user\",\"workspace:create\",\"workspace:delete\",\"workspace:unlink-user\",\"workspace:update\",\"workspace:view\"]",
+        "builder": "[\"agentflows:config\",\"agentflows:create\",\"agentflows:delete\",\"agentflows:domains\",\"agentflows:duplicate\",\"agentflows:export\",\"agentflows:import\",\"agentflows:update\",\"agentflows:view\",\"apikeys:create\",\"apikeys:delete\",\"apikeys:update\",\"apikeys:view\",\"assistants:create\",\"assistants:delete\",\"assistants:update\",\"assistants:view\",\"chatflows:config\",\"chatflows:create\",\"chatflows:delete\",\"chatflows:domains\",\"chatflows:duplicate\",\"chatflows:export\",\"chatflows:import\",\"chatflows:update\",\"chatflows:view\",\"credentials:create\",\"credentials:delete\",\"credentials:update\",\"credentials:view\",\"datasets:create\",\"datasets:delete\",\"datasets:update\",\"datasets:view\",\"documentStores:add-loader\",\"documentStores:create\",\"documentStores:delete\",\"documentStores:delete-loader\",\"documentStores:preview-process\",\"documentStores:update\",\"documentStores:upsert-config\",\"documentStores:view\",\"evaluations:create\",\"evaluations:delete\",\"evaluations:run\",\"evaluations:update\",\"evaluations:view\",\"evaluators:create\",\"evaluators:delete\",\"evaluators:update\",\"evaluators:view\",\"executions:delete\",\"executions:view\",\"templates:custom\",\"templates:flowexport\",\"templates:marketplace\",\"templates:toolexport\",\"tools:create\",\"tools:delete\",\"tools:export\",\"tools:update\",\"tools:view\",\"variables:create\",\"variables:delete\",\"variables:update\",\"variables:view\"]",
+        "viewer": "[\"agentflows:view\",\"apikeys:view\",\"assistants:view\",\"chatflows:view\",\"credentials:view\",\"datasets:view\",\"documentStores:view\",\"evaluations:view\",\"evaluators:view\",\"executions:view\",\"tools:view\",\"variables:view\",\"workspace:view\"]"
     },
     "mysql": {
         "apikey": {
@@ -11174,6 +11219,14 @@
                     "nullable": false,
                     "default": "CURRENT_TIMESTAMP",
                     "extra": "DEFAULT_GENERATED",
+                    "collation": null
+                },
+                {
+                    "name": "permissionVersion",
+                    "type": "int",
+                    "nullable": false,
+                    "default": "0",
+                    "extra": "",
                     "collation": null
                 }
             ],
@@ -13272,6 +13325,14 @@
                     "default": null,
                     "extra": "",
                     "collation": "utf8mb4_0900_ai_ci"
+                },
+                {
+                    "name": "permissionVersion",
+                    "type": "int",
+                    "nullable": false,
+                    "default": "0",
+                    "extra": "",
+                    "collation": null
                 }
             ],
             "foreignKeys": [
@@ -13717,7 +13778,10 @@
     "roleDescriptions": {
         "member": "Has limited control over the organization.",
         "owner": "Has full control over the organization.",
-        "personal workspace": "Has full control over the personal workspace"
+        "personal workspace": "Has full control over the personal workspace",
+        "admin": "Manages people, roles, and teams. Cannot assign Owner or remove the last owner.",
+        "builder": "Builds and edits flows, tools, and data. Does not manage people, roles, or teams.",
+        "viewer": "Opens pages. Does not change them, and does not open server logs."
     },
     "mariadbDefaultCollation": "utf8mb4_general_ci",
     "mysqlDefaultCollation": "utf8mb4_0900_ai_ci"

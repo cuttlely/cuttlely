@@ -7,6 +7,7 @@ This file records every notable change to Cuttlely. The format follows [Keep a C
 ### Added
 
 -   Local password sign-in for every active user who already has a password, when `CUTTLELY_LOCAL_USERS=true` and AuthKit is not configured. The owner break-glass route is unchanged. Invited users still have no password until a sign-in link exists. [Users without AuthKit](./docs/how-to/users-without-authkit.md), [Auth API](./docs/reference/auth-api.md).
+-   With that same mode on, the API can list people in the active team, assign a fixed or custom role, disable or enable a user, and list or end sessions. Owner, Admin, Builder, and Viewer are seeded permission sets and cannot be edited. The last enabled owner cannot be removed. [Local users, roles, and sessions](./docs/reference/local-directory-api.md).
 
 ### Changed
 

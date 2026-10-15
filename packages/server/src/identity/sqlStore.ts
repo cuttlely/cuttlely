@@ -396,8 +396,10 @@ export class SqlIdentityStore implements IdentityStore {
                 `INSERT INTO ${quote(d, 'identity_local_session')} (${quote(d, 'id')}, ${quote(d, 'userId')}, ${quote(d, 'token')}, ${quote(
                     d,
                     'expiresAt'
-                )}, ${quote(d, 'absoluteExpiresAt')}) VALUES (?, ?, ?, ?, ?)`,
-                [row.id, row.userId, row.token, row.idleExpires, row.absoluteExpires]
+                )}, ${quote(d, 'absoluteExpiresAt')}, ${quote(d, 'permissionVersion')})
+                 SELECT ?, ?, ?, ?, ?, COALESCE(u.${quote(d, 'permissionVersion')}, 0)
+                 FROM ${quote(d, 'user')} u WHERE u.${quote(d, 'id')} = ?`,
+                [row.id, row.userId, row.token, row.idleExpires, row.absoluteExpires, row.userId]
             )
         })
     }
@@ -407,13 +409,17 @@ export class SqlIdentityStore implements IdentityStore {
             const d = dialectOf(runner)
             const rows = await query(
                 runner,
-                `SELECT ${quote(d, 'id')} AS ${quote(d, 'id')}, ${quote(d, 'userId')} AS ${quote(d, 'userId')}, ${quote(
+                `SELECT s.${quote(d, 'id')} AS ${quote(d, 'id')}, s.${quote(d, 'userId')} AS ${quote(d, 'userId')}, s.${quote(
                     d,
                     'token'
-                )} AS ${quote(d, 'token')}, ${quote(d, 'expiresAt')} AS ${quote(d, 'expiresAt')}, ${quote(
+                )} AS ${quote(d, 'token')}, s.${quote(d, 'expiresAt')} AS ${quote(d, 'expiresAt')}, s.${quote(
                     d,
                     'absoluteExpiresAt'
-                )} AS ${quote(d, 'absoluteExpiresAt')} FROM ${quote(d, 'identity_local_session')} WHERE ${quote(d, 'token')} = ?`,
+                )} AS ${quote(d, 'absoluteExpiresAt')}, s.${quote(d, 'permissionVersion')} AS ${quote(d, 'permissionVersion')},
+                u.${quote(d, 'permissionVersion')} AS ${quote(d, 'currentPermissionVersion')}
+                FROM ${quote(d, 'identity_local_session')} s
+                INNER JOIN ${quote(d, 'user')} u ON u.${quote(d, 'id')} = s.${quote(d, 'userId')}
+                WHERE s.${quote(d, 'token')} = ?`,
                 [token]
             )
             const row = rows[0]
@@ -423,7 +429,9 @@ export class SqlIdentityStore implements IdentityStore {
                 userId: text(cell(row, 'userId')),
                 token: text(cell(row, 'token')),
                 idleExpires: new Date(epoch(cell(row, 'expiresAt'))),
-                absoluteExpires: new Date(epoch(cell(row, 'absoluteExpiresAt')))
+                absoluteExpires: new Date(epoch(cell(row, 'absoluteExpiresAt'))),
+                permissionVersion: Number(cell(row, 'permissionVersion') || 0),
+                currentPermissionVersion: Number(cell(row, 'currentPermissionVersion') || 0)
             }
         })
     }
