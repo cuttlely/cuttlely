@@ -1016,7 +1016,12 @@ describe('Dev or Prod label', () => {
         execFileSync('git', ['push', '-q', `file://${bare}`, 'HEAD:refs/heads/staging'], { cwd: work, env })
         await save('Two')
         await settle()
-        const stopped = await sync.status()
+        let stopped = await sync.status()
+        // status() can overlap the next poll and report copying. Wait for that copy to finish.
+        for (let attempt = 0; stopped.state === 'copying' && attempt < 20; attempt += 1) {
+            await sync.idle()
+            stopped = await sync.status()
+        }
         expect(stopped.state).toBe('stopped')
         expect(stopped.message).toContain('has changes that are not on this server')
         const pushes = gitCalls.filter((call) => call.args[0] === 'push').length

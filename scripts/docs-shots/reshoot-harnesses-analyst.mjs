@@ -1330,11 +1330,11 @@ async function stepPostgres(page) {
 DECLARE r record;
 BEGIN
   FOR r IN
-    SELECT rolname FROM pg_roles
-    WHERE rolname LIKE 'analyst_reader%'
+    SELECT pr.rolname FROM pg_roles pr
+    WHERE pr.rolname LIKE 'analyst_reader%'
       AND NOT EXISTS (
         SELECT 1 FROM pg_namespace n
-        WHERE n.nspname = replace(r.rolname, 'analyst_reader', 'analyst')
+        WHERE n.nspname = replace(pr.rolname, 'analyst_reader', 'analyst')
       )
   LOOP
     EXECUTE format('DROP ROLE IF EXISTS %I', r.rolname);
