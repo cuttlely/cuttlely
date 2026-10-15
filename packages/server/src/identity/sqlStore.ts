@@ -470,7 +470,7 @@ export class SqlIdentityStore implements IdentityStore {
                 )} AS ${quote(d, 'lastSeenAt')}, s.${quote(d, 'permissionVersion')} AS ${quote(d, 'permissionVersion')},
                 u.${quote(d, 'permissionVersion')} AS ${quote(d, 'currentPermissionVersion')}
                 FROM ${quote(d, 'identity_local_session')} s
-                INNER JOIN ${quote(d, 'user')} u ON u.${quote(d, 'id')} = s.${quote(d, 'userId')}
+                INNER JOIN ${quote(d, 'user')} u ON u.${quote(d, 'id')}${d === 'postgres' ? '::text' : ''} = s.${quote(d, 'userId')}
                 WHERE s.${quote(d, 'token')} = ?`,
                 [token]
             )
