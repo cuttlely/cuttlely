@@ -170,6 +170,13 @@ async function sessionHasColumn(runner: QueryRunner, dialect: Dialect, column: s
     return list.length > 0
 }
 
+export async function dropSessionSeenColumn(runner: QueryRunner): Promise<void> {
+    const dialect = dialectOf(runner)
+    if (!(await sessionsExist(runner, dialect))) return
+    if (!(await sessionHasColumn(runner, dialect, 'lastSeenAt'))) return
+    await runner.query(`ALTER TABLE ${q(dialect, 'identity_local_session')} DROP COLUMN ${q(dialect, 'lastSeenAt')}`)
+}
+
 export async function addIdentityLoginGuards(runner: QueryRunner): Promise<void> {
     const dialect = dialectOf(runner)
     await ensureLocalTables(runner, dialect)
