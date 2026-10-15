@@ -23,7 +23,7 @@ export const HISTORY_QUERY_MAX = 200
 // Newest rows read for one history request, including a search. Distinct and paging stay inside this window.
 export const HISTORY_SCAN_CAP = 2000
 
-export const HISTORY_SOURCES = ['chat', 'api', 'embed', 'shared', 'replay'] as const
+export const HISTORY_SOURCES = ['chat', 'api'] as const
 export type HistorySource = (typeof HISTORY_SOURCES)[number]
 
 const CHAT_INTERNAL = 'INTERNAL'
@@ -59,7 +59,7 @@ interface CursorBinding {
     caller: string
     workspaceId: string
     flowId: string
-    q: string
+    qHash: string
     source: string
 }
 
@@ -148,13 +148,13 @@ export function parseHistorySource(input: unknown): HistorySource | null {
     if (input === undefined || input === null || input === '') return null
     const text = oneQueryValue(input)
     if (!text || !HISTORY_SOURCES.includes(text as HistorySource)) {
-        throw new HistoryError(StatusCodes.BAD_REQUEST, 'source must be chat, api, embed, shared, or replay.')
+        throw new HistoryError(StatusCodes.BAD_REQUEST, 'source must be chat or api.')
     }
     return text as HistorySource
 }
 
-// Canvas chat is INTERNAL. A prediction is EXTERNAL and is reported as api.
-// Embed, shared, and replay are accepted filters. Chat rows do not store them separately, so they match nothing.
+// Canvas chat is INTERNAL and is reported as chat.
+// Any prediction, including an embed or a shared link, is EXTERNAL and is reported as api.
 export function messageSource(chatType: string | null | undefined): HistorySource | null {
     if (chatType === CHAT_INTERNAL) return 'chat'
     if (chatType === CHAT_EXTERNAL) return 'api'
@@ -249,6 +249,11 @@ function toItem(entry: DistinctRow): HistoryItem {
     return item
 }
 
+// A short search is guessable from an unkeyed digest once the cursor is decoded.
+function hashQuery(q: string): string {
+    return createHmac('sha256', cursorKey()).update(q, 'utf8').digest('base64url')
+}
+
 function signCursor(position: CursorPosition): string {
     const body = Buffer.from(JSON.stringify(position), 'utf8').toString('base64url')
     const mac = createHmac('sha256', cursorKey()).update(body).digest('base64url')
@@ -277,7 +282,8 @@ function readCursor(token: string, binding: CursorBinding): CursorPosition {
         parsed.caller !== binding.caller ||
         parsed.workspaceId !== binding.workspaceId ||
         parsed.flowId !== binding.flowId ||
-        parsed.q !== binding.q ||
+        typeof parsed.qHash !== 'string' ||
+        parsed.qHash !== binding.qHash ||
         parsed.source !== binding.source ||
         typeof parsed.createdDate !== 'string' ||
         typeof parsed.id !== 'string'
@@ -311,7 +317,6 @@ async function queryScan(flowId: string, q: string, source: HistorySource | null
         .andWhere('m.chatType IN (:...types)', { types: CHAT_TYPES })
     if (source === 'chat') qb.andWhere('m.chatType = :chatType', { chatType: CHAT_INTERNAL })
     else if (source === 'api') qb.andWhere('m.chatType = :chatType', { chatType: CHAT_EXTERNAL })
-    else if (source) qb.andWhere('1 = 0')
     if (q) qb.andWhere(`LOWER(m.content) LIKE :needle ${escapeClause(driver)}`, { needle: likeContainsPattern(q) })
     qb.orderBy('m.createdDate', 'DESC').addOrderBy('m.id', 'DESC').take(HISTORY_SCAN_CAP)
     return qb.getMany()
@@ -347,7 +352,7 @@ export async function listQuestionHistory(
         caller,
         workspaceId: String(flow.workspaceId || ''),
         flowId: flow.id,
-        q,
+        qHash: hashQuery(q),
         source: source || ''
     }
     let cursor: CursorPosition | null = null

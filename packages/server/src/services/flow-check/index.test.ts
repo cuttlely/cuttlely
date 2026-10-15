@@ -1271,11 +1271,14 @@ describe('a dataset and evaluators', () => {
         expect(writes.save).not.toHaveBeenCalled()
     })
 
-    test('mixing a dataset with questions or count is 400, and so is a non-chat start', async () => {
-        await expect(startCheck(flow() as any, { datasetId: 'ds-1', questions: ['Hi'] }, 'http://x')).rejects.toMatchObject({
-            statusCode: 400
-        })
-        await expect(startCheck(flow() as any, { datasetId: 'ds-1', count: 4 }, 'http://x')).rejects.toMatchObject({ statusCode: 400 })
+    test('mixing a dataset with questions, count, or questionIds is 400, and so is a non-chat start', async () => {
+        const alone = {
+            statusCode: 400,
+            message: 'Send a datasetId on its own. Do not send questions, count, or questionIds with it.'
+        }
+        await expect(startCheck(flow() as any, { datasetId: 'ds-1', questions: ['Hi'] }, 'http://x')).rejects.toMatchObject(alone)
+        await expect(startCheck(flow() as any, { datasetId: 'ds-1', count: 4 }, 'http://x')).rejects.toMatchObject(alone)
+        await expect(startCheck(flow() as any, { datasetId: 'ds-1', questionIds: ['chat:1'] }, 'http://x')).rejects.toMatchObject(alone)
         datasets.set('empty', { id: 'empty', workspaceId: 'team-a' })
         datasetRows.push({ id: 'long', datasetId: 'empty', input: 'x'.repeat(2001), output: 'no', sequenceNo: 1 })
         await expect(startCheck(flow() as any, { datasetId: 'empty' }, 'http://x')).rejects.toMatchObject({

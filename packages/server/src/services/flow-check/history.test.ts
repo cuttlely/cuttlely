@@ -104,7 +104,8 @@ describe('question history', () => {
             row('mine', 'Do you have rye loaves today?', '2026-10-08T10:00:00.000Z'),
             row('foreign', secret, '2026-10-08T10:00:00.000Z', { chatflowid: 'flow-2' }),
             row('bot', 'assistant secret answer', '2026-10-08T10:00:00.000Z', { role: 'apiMessage' }),
-            row('file', 'See the scan', '2026-10-08T09:00:00.000Z', { fileUploads: `[{"name":"${path}"}]` })
+            row('file', 'See the scan', '2026-10-08T09:00:00.000Z', { fileUploads: `[{"name":"${path}"}]` }),
+            row('older', 'rye again', '2026-10-08T08:00:00.000Z')
         ]
         const page = await listQuestionHistory(FLOW, { q: 'rye', limit: 1 }, CALLER)
         const body = JSON.stringify(page)
@@ -116,7 +117,13 @@ describe('question history', () => {
         const file = withFile.items.find((item) => item.id === 'chat:file')
         expect(file).toMatchObject({ replayable: false, reason: 'files', text: 'See the scan' })
         expect(JSON.stringify(withFile)).not.toContain(path)
-        expect(page.nextCursor || '').not.toContain('Do you have rye loaves today?')
+        expect(page.nextCursor).toEqual(expect.any(String))
+        const payload = JSON.parse(Buffer.from(String(page.nextCursor).split('.')[0], 'base64url').toString('utf8'))
+        expect(payload).not.toHaveProperty('q')
+        expect(payload.qHash).toEqual(expect.any(String))
+        expect(Object.values(payload)).not.toContain('rye')
+        const next = await listQuestionHistory(FLOW, { q: 'rye', limit: 1, cursor: page.nextCursor }, CALLER)
+        expect(next.items.map((item) => item.id)).toEqual(['chat:older'])
     })
 
     test('caps preview text and refuses a forged or swapped cursor', async () => {
@@ -155,8 +162,12 @@ describe('question history', () => {
         const onlyApi = await listQuestionHistory(FLOW, { source: 'api' }, CALLER)
         expect(onlyApi.items.map((item) => item.id)).toEqual(['chat:out'])
         expect(onlyApi.items[0].source).toBe('api')
-        const embed = await listQuestionHistory(FLOW, { source: 'embed' }, CALLER)
-        expect(embed.items).toEqual([])
+        await expect(listQuestionHistory(FLOW, { source: 'embed' }, CALLER)).rejects.toMatchObject({
+            statusCode: 400,
+            message: 'source must be chat or api.'
+        })
+        await expect(listQuestionHistory(FLOW, { source: 'shared' }, CALLER)).rejects.toMatchObject({ statusCode: 400 })
+        await expect(listQuestionHistory(FLOW, { source: 'replay' }, CALLER)).rejects.toMatchObject({ statusCode: 400 })
         expect(api.items).toEqual([])
     })
 
@@ -196,5 +207,12 @@ describe('question history', () => {
         await listQuestionHistory(FLOW, { q: 'a_b' }, CALLER)
         const mysql = queryCalls.find((call) => call.sql.includes('LIKE'))
         expect(mysql?.sql).toContain("ESCAPE '\\\\'")
+        queryCalls.length = 0
+        await listQuestionHistory(FLOW, { source: 'chat' }, CALLER)
+        expect(queryCalls.some((call) => String(call.sql).includes('1 = 0'))).toBe(false)
+        expect(queryCalls).toContainEqual({ sql: 'm.chatType = :chatType', params: { chatType: 'INTERNAL' } })
+        queryCalls.length = 0
+        await listQuestionHistory(FLOW, {}, CALLER)
+        expect(queryCalls.some((call) => call.sql === 'm.chatType = :chatType')).toBe(false)
     })
 })

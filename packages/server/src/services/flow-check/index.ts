@@ -711,7 +711,7 @@ export async function startCheck(
     if (!parsedThreshold.ok) throw new AppError(StatusCodes.BAD_REQUEST, parsedThreshold.message)
     const threshold = parsedThreshold.threshold
     if (datasetId && (request.questions !== undefined || request.count !== undefined || request.questionIds !== undefined)) {
-        throw new AppError(StatusCodes.BAD_REQUEST, 'Send a datasetId on its own. Do not send questions or count with it.')
+        throw new AppError(StatusCodes.BAD_REQUEST, 'Send a datasetId on its own. Do not send questions, count, or questionIds with it.')
     }
     // Resolve the dataset and the evaluators before any other refusal, so a missing one is 404 and starts nothing.
     // One read: the questions, the scores, and the stored hash all use that copy.

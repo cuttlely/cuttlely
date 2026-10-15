@@ -79,6 +79,7 @@ export function redactLoggedUrl(url: string): string {
     return url
         .replace(/([?&](?:chatId|sessionId|sessionToken)=)[^&#]*/gi, '$1[redacted]')
         .replace(/([?&]q=)[^&#]*/gi, '$1[redacted]')
+        .replace(/([?&]cursor=)[^&#]*/gi, '$1[redacted]')
         .replace(/(\/api\/v1\/(?:chatflows|verify)\/apikey\/)[^/?#]*/gi, '$1[redacted]')
 }
 

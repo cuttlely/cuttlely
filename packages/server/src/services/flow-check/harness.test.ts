@@ -302,7 +302,7 @@ describe('harness publish check', () => {
         await expect(startCheck(flow() as any, { datasetId: 'missing' }, 'http://x')).rejects.toMatchObject({ statusCode: 404 })
         await expect(startCheck(flow() as any, { datasetId: 'ds-1', count: 4 }, 'http://x')).rejects.toMatchObject({
             statusCode: 400,
-            message: 'Send a datasetId on its own. Do not send questions or count with it.'
+            message: 'Send a datasetId on its own. Do not send questions, count, or questionIds with it.'
         })
         expect(checks.size).toBe(0)
         datasets.set('ds-1', { id: 'ds-1', workspaceId: 'team-a' })

@@ -117,6 +117,16 @@ describe('logger.ts', () => {
             expect(logged).not.toContain(secret)
         })
 
+        it('does not write a history page cursor on the request line', () => {
+            const token = 'signed-page-cursor-token'
+            const logged = redactLoggedUrl(`/api/v1/flow-drafts/flow-1/check/history?cursor=${token}&limit=1`)
+            expect(logged).toBe('/api/v1/flow-drafts/flow-1/check/history?cursor=[redacted]&limit=1')
+            expect(logged).not.toContain(token)
+            const later = redactLoggedUrl(`/api/v1/flow-drafts/flow-1/check/history?limit=1&Cursor=${token}`)
+            expect(later).not.toContain(token)
+            expect(later).toContain('Cursor=[redacted]')
+        })
+
         it('does not write a client session id or session token on the request line', () => {
             process.env.DEBUG = 'true'
             const infoSpy = jest.spyOn(logger, 'info').mockImplementation(() => logger)
